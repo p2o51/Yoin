@@ -76,6 +76,15 @@ abstract final class BarTokens {
   static const int searchHintSettleMs = 120;
   static const double searchHintEnterScale = 0.68;
   static const double searchHintExitScale = 0.82;
+
+  /// Home's scroll-hide (ShellBarScrollHide.kt HideDistance): the feed scrolls this far to take the
+  /// bar fully out, moving it 1:1 with the content. It leaves on the Memories pose
+  /// ([MemoriesTokens.barHideAlphaGain], [MemoriesTokens.barHideTravel]), as on Android.
+  static const double scrollHideDistance = 96;
+
+  /// Physical px/s past which a gesture's release picks the bar's end by the fling's direction
+  /// over its position (FlingDecisionVelocity; raw px on Android too).
+  static const double scrollHideFlingDecisionPx = 300;
 }
 
 /// The Button Group on a short window (ShellChromeForm.EdgeSplit, WindowAdaptiveRuntime.kt Edge-split geometry,

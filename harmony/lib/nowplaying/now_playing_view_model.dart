@@ -14,6 +14,7 @@ import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import 'lyrics_logic.dart';
 import '../playback/play_mode.dart';
+import '../playback/song_links.dart';
 import 'player_snapshot.dart';
 import 'skip_direction.dart';
 import 'up_next_timing.dart';
@@ -248,8 +249,10 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   NowPlayingUiState build() {
     final snapshot = ref.watch(playerSnapshotProvider);
     final source = ref.watch(activeSourceProvider).value;
-    final track = snapshot.track;
-    if (track == null) return const NowPlayingIdle();
+    final playing = snapshot.track;
+    if (playing == null) return const NowPlayingIdle();
+    // A song that came without its album or artist gets them from its service.
+    final track = _withLinks(playing, source);
     final key = track.id.toString();
     final caps = source?.capabilities ?? const <Capability>{};
     // A song change turns the translation layer off (Android resets showLyricsTranslation).
@@ -296,6 +299,79 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       translating: _translatingFor == key,
     );
   }
+
+  /// Song key → its album and artist as its service named them, for a
+  /// playing song that came without them (Android resolvedLinks: Home's
+  /// cards rebuild songs from local history, Apple Music's playlist and
+  /// library songs lack them): asked once it plays, so the title and artist
+  /// still open their pages.
+  final Map<String, SongLinks> _resolvedLinks = {};
+  final Set<String> _linksAsked = {};
+
+  /// The last song filled in, and what it became (one Track per song, so the state stays equal).
+  Track? _linkedFrom;
+  Track? _linked;
+
+  /// The account the links were asked of: another account's answers don't
+  /// carry over (two servers of one kind can share a raw id for different songs).
+  MusicSource? _linksSource;
+  int _linksGeneration = 0;
+
+  Track _withLinks(Track track, MusicSource? source) {
+    if (track.albumId != null && track.artistId != null) return track;
+    if (source != null && !identical(source, _linksSource)) {
+      if (_linksSource != null) {
+        _resolvedLinks.clear();
+        _linksAsked.clear();
+        _linkedFrom = null;
+        _linked = null;
+        _linksGeneration++;
+      }
+      _linksSource = source;
+    }
+    final key = track.id.toString();
+    final links = _resolvedLinks[key];
+    if (links == null) {
+      if (source != null && _linksAsked.add(key)) _resolveLinks(track, key);
+      return track;
+    }
+    if (identical(_linkedFrom, track)) return _linked!;
+    _linkedFrom = track;
+    return _linked = links.applyTo(track);
+  }
+
+  void _resolveLinks(Track track, String key) {
+    if (_linksAsked.length > _linksKept) {
+      _linksAsked
+        ..clear()
+        ..add(key);
+      _resolvedLinks.clear();
+    }
+    final generation = _linksGeneration;
+    () async {
+      final SongLinks links;
+      try {
+        links = await ref.read(songLinksResolverProvider).linksFor(track);
+      } catch (e) {
+        debugPrint('song links not resolved: ${e.runtimeType}');
+        return;
+      }
+      // Gone, or the account changed while it was asked: the answer is the old account's.
+      if (!ref.mounted || generation != _linksGeneration) return;
+      _resolvedLinks[key] = links;
+      final current = state;
+      if (current is NowPlayingContent && current.songKey == key) {
+        final filled = links.applyTo(current.track);
+        if (identical(filled, current.track)) return;
+        _linkedFrom = current.track;
+        _linked = filled;
+        state = _copy(current, track: filled);
+      }
+    }();
+  }
+
+  /// Songs whose links are remembered before the memory starts over.
+  static const int _linksKept = 256;
 
   static Track? _at(List<Track> queue, int index) => index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -635,6 +711,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
 
   NowPlayingContent _copy(
     NowPlayingContent c, {
+    Track? track,
     LyricsState? lyrics,
     bool? isStarred,
     double? rating,
@@ -642,7 +719,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     bool? showTranslation,
     bool? translating,
   }) => NowPlayingContent(
-    track: c.track,
+    track: track ?? c.track,
     isPlaying: c.isPlaying,
     isWavePlaying: c.isWavePlaying,
     durationMs: c.durationMs,

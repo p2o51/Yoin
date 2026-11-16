@@ -235,13 +235,20 @@ final class Track {
   List<String> get creditedArtists => [for (final a in artists) a.name];
 
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
-  Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
+  /// [albumId] / [artistId] fill links the song came without (a null keeps its own).
+  Track copyWith({
+    bool? isStarred,
+    int? userRating,
+    bool clearUserRating = false,
+    MediaId? albumId,
+    MediaId? artistId,
+  }) => Track(
         id: id,
         title: title,
         artist: artist,
-        artistId: artistId,
+        artistId: artistId ?? this.artistId,
         album: album,
-        albumId: albumId,
+        albumId: albumId ?? this.albumId,
         coverArt: coverArt,
         durationSec: durationSec,
         trackNumber: trackNumber,

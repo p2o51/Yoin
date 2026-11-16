@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../home/home_edit.dart';
 import '../home/home_screen.dart';
 import '../library/library_screen.dart';
 import '../memories/memories_motion.dart';
@@ -11,6 +12,7 @@ import '../theme/motion.dart';
 import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
+import 'bar_scroll_hide.dart';
 import 'chrome_back.dart';
 import 'shell_back_order.dart';
 import 'shell_state.dart';
@@ -55,6 +57,31 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// The Wide window's detail column (adaptive-principles §3).
   late final DetailPaneController _pane = DetailPaneController(vsync: this);
 
+  /// Home's scroll-hide of the bar: only over the plain feed, with nothing
+  /// opened over it (YoinNavHost barScrollHideEnabled).
+  late final ShellBarScrollHide _barScrollHide = ref.read(shellBarScrollHideProvider);
+
+  /// The shell route's [ModalRoute.secondaryAnimation]: forward or done while
+  /// a page is pushed over the shell (a sheet or menu doesn't drive it).
+  Animation<double>? _coverAnimation;
+
+  bool get _pageOverShell {
+    final status = _coverAnimation?.status ?? AnimationStatus.dismissed;
+    return status == AnimationStatus.forward || status == AnimationStatus.completed;
+  }
+
+  /// A page opened over the shell, the column, Memories, edit mode or Library
+  /// all keep the bar; the moment one comes, the bar rises back into place.
+  void _syncBarScrollHide() {
+    if (!mounted) return;
+    _barScrollHide.shellAllows =
+        ref.read(shellSectionProvider) == YoinSection.home &&
+        !ref.read(homeEditProvider).editing &&
+        !_memories.ownsBack &&
+        !_pane.hasEntries &&
+        !_pageOverShell;
+  }
+
   /// Arbitrated by the back order (principle 8): beside a side panel or
   /// Memories, system back is the column's only while it is the newest of
   /// them, whatever order the entries were registered in.
@@ -84,6 +111,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   void _syncPaneBack() {
     _backOrder.syncShell();
+    _syncBarScrollHide();
     final navigator = appNavigatorKey.currentState;
     if (_pane.hasEntries && navigator != null) {
       _paneBack.attach(navigator);
@@ -97,6 +125,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// Back belongs to Memories exactly while it is open or opening.
   void _syncMemoriesBack() {
     _backOrder.syncShell();
+    _syncBarScrollHide();
     final navigator = appNavigatorKey.currentState;
     if (_memories.ownsBack && navigator != null) {
       _memoriesBack.attach(navigator);
@@ -109,7 +138,21 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final cover = ModalRoute.of(context)?.secondaryAnimation;
+    if (!identical(cover, _coverAnimation)) {
+      _coverAnimation?.removeStatusListener(_onCoverStatus);
+      _coverAnimation = cover?..addStatusListener(_onCoverStatus);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncBarScrollHide());
+    }
+  }
+
+  void _onCoverStatus(AnimationStatus _) => _syncBarScrollHide();
+
+  @override
   void dispose() {
+    _coverAnimation?.removeStatusListener(_onCoverStatus);
     _backOrder.unbindShell();
     _pane.onPageShown = null;
     _pane.removeListener(_syncPaneBack);
@@ -130,7 +173,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
       _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0);
       // Memories counts in the back order only over Home.
       _backOrder.syncShell();
+      _syncBarScrollHide();
     });
+    ref.listen(homeEditProvider.select((e) => e.editing), (_, _) => _syncBarScrollHide());
     // A page over the shell takes the bar back from Memories (and gives it back when it pops).
     final top = ModalRoute.isCurrentOf(context) ?? true;
     _pane.shellIsTop = top;

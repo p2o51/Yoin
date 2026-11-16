@@ -9,8 +9,10 @@ import '../platform/storage/stores.dart';
 
 /// Jump Back In's candidate pools for one account (Android
 /// home_grid_pool_cache). Slim rows only — id, title, artist, cover storage
-/// key, album id, duration, version — never resolved cover URLs (Subsonic
-/// URLs carry credentials).
+/// key, album id, duration, version, and a song's album name and artist id
+/// (so a song played from the cache opens its artist in Now Playing; Android
+/// drops it and asks the service again) — never resolved cover URLs
+/// (Subsonic URLs carry credentials).
 final class HomeGridPools {
   const HomeGridPools({this.albums = const [], this.tracks = const [], this.playlists = const [], required this.cachedAtMs});
 
@@ -30,7 +32,16 @@ final class HomeGridPools {
         ],
         'tracks': [
           for (final t in tracks)
-            {'id': t.id.rawId, 't': t.title, 'a': t.artist, 'c': t.coverArt?.storageKey, 'al': t.albumId?.rawId, 'd': t.durationSec},
+            {
+              'id': t.id.rawId,
+              't': t.title,
+              'a': t.artist,
+              'c': t.coverArt?.storageKey,
+              'al': t.albumId?.rawId,
+              'an': ?t.album,
+              'ar': ?t.artistId?.rawId,
+              'd': t.durationSec,
+            },
         ],
         'playlists': [
           for (final p in playlists)
@@ -62,6 +73,8 @@ final class HomeGridPools {
             artist: r['a'] as String?,
             coverArt: CoverRef.fromStorageKey(r['c'] as String?),
             albumId: r['al'] == null ? null : id(r['al']),
+            album: r['an'] as String?,
+            artistId: r['ar'] == null ? null : id(r['ar']),
             durationSec: r['d'] as int?,
           ),
       ],

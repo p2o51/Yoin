@@ -18,6 +18,7 @@ import '../../offline/offline_toggle.dart';
 import '../../nowplaying/haptics.dart';
 import '../../nowplaying/nowplaying_strings.dart';
 import '../../playback/playback_controller.dart';
+import '../../playback/song_links.dart';
 import '../../theme/tokens.dart';
 import 'audio_format_tags.dart';
 import 'component_strings.dart';
@@ -193,7 +194,42 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
   /// A tap shows its state at once until the overrides catch up.
   bool? _pendingFavorite;
 
-  Track get _track => widget.track;
+  /// Its album and artist as its service names them, for a song that came
+  /// without them (TrackMenu.kt songLinks: Home's cards, Apple Music's
+  /// playlist and library songs), so Go to album / artist are there too.
+  Track? _linked;
+
+  Track get _track => _linked ?? widget.track;
+
+  @override
+  void initState() {
+    super.initState();
+    _askLinks();
+  }
+
+  @override
+  void didUpdateWidget(TrackMenuSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.track, widget.track)) return;
+    _linked = null;
+    _askLinks();
+  }
+
+  void _askLinks() {
+    final track = widget.track;
+    if (SongLinks.of(track).complete || (widget.onGoToAlbum == null && widget.onGoToArtist == null)) return;
+    () async {
+      try {
+        // The account's source, once it is up (the menu can open as the app starts).
+        await ref.read(activeSourceProvider.future);
+        if (!mounted) return;
+        final links = await ref.read(songLinksResolverProvider).linksFor(track);
+        if (mounted && identical(widget.track, track)) setState(() => _linked = links.applyTo(track));
+      } catch (_) {
+        // No source: the rows stay as the song came.
+      }
+    }();
+  }
 
   /// Play next / Add to queue (the detail ▾ rows for one song): the count is
   /// the queue's new entries, so only a real success is confirmed.

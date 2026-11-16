@@ -10,6 +10,7 @@ import '../memories/ledger/memory_ledger_home_card.dart';
 import '../memories/ledger/memory_ledger_view_model.dart';
 import '../memories/memories_pull.dart';
 import '../nowplaying/haptics.dart';
+import '../shell/bar_scroll_hide.dart';
 import '../shell/chrome_back.dart';
 import '../shell/shell_back_order.dart';
 import '../theme/motion.dart';
@@ -78,6 +79,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   /// 1 = settled 16 dp low (entering / leaving), 0 = in place.
   late final SpringValue _feedRise = SpringValue(vsync: this, initial: _entrancePlayed ? 0 : 1, spring: YoinSprings.defaultSpatial);
   final ValueNotifier<bool> _paletteGate = ValueNotifier(false);
+
+  /// The window's bar scroll-hide this feed drives.
+  late final ShellBarScrollHide _barScrollHide = ref.read(shellBarScrollHideProvider);
   Timer? _gateTimer;
   bool _warmedUp = false;
   bool _scrolling = false;
@@ -319,6 +323,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   }
 
   bool _onScrollNotification(ScrollNotification n) {
+    // Scrolling the feed down takes the bar out, up brings it back (ShellBarScrollHide).
+    _barScrollHide.onScrollNotification(n, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
     if (n.depth != 0) return false;
     if (n is ScrollStartNotification) {
       _scrolling = true;

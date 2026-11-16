@@ -68,6 +68,7 @@ final class HomeLyricHighlight {
     required this.text,
     required this.startMs,
     required this.kind,
+    this.artistId,
   });
 
   factory HomeLyricHighlight.fromRow(String provider, LyricHighlightRow row, LyricHighlightBucket? kind) =>
@@ -77,6 +78,7 @@ final class HomeLyricHighlight {
         artist: row.artist,
         album: row.album,
         albumId: row.albumId.trim().isEmpty ? null : MediaId(provider, row.albumId),
+        artistId: row.artistId.trim().isEmpty ? null : MediaId(provider, row.artistId),
         coverKey: row.coverArtId,
         durationMs: row.durationMs,
         text: row.text ?? '',
@@ -89,6 +91,9 @@ final class HomeLyricHighlight {
   final String artist;
   final String album;
   final MediaId? albumId;
+
+  /// Null in rows kept before it was; Now Playing then asks the service.
+  final MediaId? artistId;
 
   /// A CoverRef storage key.
   final String? coverKey;
@@ -105,6 +110,7 @@ final class HomeLyricHighlight {
     id: songId,
     title: title,
     artist: artist,
+    artistId: artistId,
     album: album.trim().isEmpty ? null : album,
     albumId: albumId,
     coverArt: cover,
@@ -128,6 +134,7 @@ final class HomeLyricHighlight {
       other.artist == artist &&
       other.album == album &&
       other.albumId == albumId &&
+      other.artistId == artistId &&
       other.coverKey == coverKey &&
       other.durationMs == durationMs &&
       other.text == text &&
@@ -135,7 +142,8 @@ final class HomeLyricHighlight {
       other.kind == kind;
 
   @override
-  int get hashCode => Object.hash(songId, title, artist, album, albumId, coverKey, durationMs, text, startMs, kind);
+  int get hashCode =>
+      Object.hash(songId, title, artist, album, albumId, artistId, coverKey, durationMs, text, startMs, kind);
 }
 
 /// Why a row comes up. A pick of the user's own is [LyricHighlightBucket.user];
@@ -364,6 +372,7 @@ class LyricHighlightKeeper {
           artist: track.artist ?? '',
           album: track.album ?? '',
           albumId: track.albumId?.rawId ?? '',
+          artistId: track.artistId?.rawId ?? '',
           coverArtId: track.coverArt?.storageKey ?? previous?.coverArtId,
           durationMs: (track.durationSec ?? 0) * 1000,
           text: text,

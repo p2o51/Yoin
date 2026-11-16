@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
@@ -32,6 +33,7 @@ import '../ui/navigation/pane/detail_pane.dart';
 import '../ui/navigation/pane/pane_split.dart';
 import 'app_messages.dart';
 import 'bar_edit_pose.dart';
+import 'bar_scroll_hide.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'desktop_shortcuts.dart';
@@ -85,6 +87,10 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   /// Where the bar is, for the seams' bottom field (one per window, ProvideSeamBarField).
   late final SeamBarField _seamBar = SeamBarField(vsync: this);
 
+  /// Home's feed scrolls the bar away (ShellBarScrollHide); its settle runs on this chrome's ticker.
+  late final ShellBarScrollHide _scrollHide = ref.read(shellBarScrollHideProvider);
+  AppLifecycleListener? _lifecycle;
+
   @override
   void initState() {
     super.initState();
@@ -96,6 +102,13 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     _controller.addListener(_syncBack);
     DetailPaneController.columnOpen.addListener(_syncPanelFloor);
     _syncPanelFloor();
+    _scrollHide.attach(this);
+    // Nothing of the window on screen: the bar comes back unseen (YoinNavHost
+    // ON_STOP showUnseen). Android's ON_RESUME show is for a detail Activity
+    // that left before the shell stopped; here a page over the shell brings
+    // the bar back itself, and a window that only lost focus (the control
+    // panel pulled down, another window on a PC) keeps it where it was.
+    _lifecycle = AppLifecycleListener(onHide: _scrollHide.showUnseen);
   }
 
   @override
@@ -107,6 +120,8 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   @override
   void dispose() {
     _backOrder.unbindNowPlaying();
+    _lifecycle?.dispose();
+    _scrollHide.detach(this);
     _controller.removeListener(_syncBack);
     DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
     _back.dispose();
@@ -160,6 +175,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     _noteBackOrder();
     _syncKeepAwake();
     _syncSeamBar();
+    _syncScrollHide();
     final navigator = appNavigatorKey.currentState;
     if (_controller.expanded && navigator != null) {
       _back.attach(navigator);
@@ -170,6 +186,21 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
         if (!_controller.expanded) _back.detach();
       });
     }
+  }
+
+  /// The feed's scroll-hide only under a bottom-bar form (the edge capsules
+  /// stay) and with no Now Playing up (YoinNavHost barScrollHideEnabled).
+  ShellChromeForm? _form;
+
+  void _syncScrollHide() {
+    // Never mid-build: a settle back under reduced motion lands (and tells the bar) at once.
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncScrollHide();
+      });
+      return;
+    }
+    _scrollHide.chromeAllows = !_controller.expanded && _form != ShellChromeForm.edgeSplit;
   }
 
   /// An open request that came before the queue (card tap while the queue
@@ -242,6 +273,12 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   @override
   Widget build(BuildContext context) {
     _controller.window = YoinWindowInfo.of(context);
+    _scrollHide.reduced = MediaQuery.disableAnimationsOf(context);
+    final form = YoinWindowInfo.of(context).chromeForm;
+    if (form != _form) {
+      _form = form;
+      _syncScrollHide();
+    }
     // Local ratings live from app start, not from the first player open:
     // pending ratings are resent when an account becomes active and on
     // resume whether or not the player was ever opened (Android keeps this
@@ -282,6 +319,7 @@ class _ChromeBar extends ConsumerWidget {
     final actions = ref.watch(topDetailActionsProvider);
     final navBottom = MediaQuery.paddingOf(context).bottom;
     final memoriesHide = ref.watch(memoriesRevealHandleProvider).barHide;
+    final scrollHide = ref.watch(shellBarScrollHideProvider).fraction;
     final selected = ref.watch(shellSectionProvider);
     final onSelect = ref.read(shellSectionProvider.notifier).select;
     // Home being edited: [Undo|Add] [Done] where the destinations were (BarEditPose).
@@ -318,6 +356,7 @@ class _ChromeBar extends ConsumerWidget {
             controller.bar.animation,
             away.animation,
             memoriesHide,
+            scrollHide,
             DetailPaneController.columnOpen,
           ]),
           builder: (context, child) {
@@ -328,8 +367,15 @@ class _ChromeBar extends ConsumerWidget {
             // Memories takes the bar with its reveal: it slides and fades with q (YoinNavHost).
             // With the detail column open the bar carries the column page's
             // Play: Memories (over the shell column only) doesn't take it.
-            final hide = DetailPaneController.columnOpen.value ? 0.0 : memoriesHide.value;
-            if (hide >= 0.999) return const SizedBox.shrink();
+            final columnOpen = DetailPaneController.columnOpen.value;
+            final memories = columnOpen ? 0.0 : memoriesHide.value;
+            if (memories >= 0.999) return const SizedBox.shrink();
+            // The Home feed's scroll-hide rides the same pose (YoinNavHost): the
+            // two combine; the edge capsules never scroll away.
+            // The column opening stops the scroll-hide, which settles the bar back on
+            // its spring (Android: hide × (1 − the column's open fraction), no cut).
+            final scrolled = edge ? 0.0 : scrollHide.value;
+            final hide = 1 - (1 - memories) * (1 - scrolled);
             final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
             // Down below the navigation inset for the bar forms; over their
             // edge for the capsules (the content band × 1.15).
@@ -349,7 +395,11 @@ class _ChromeBar extends ConsumerWidget {
               ignoring: b > 0.01 || hide > 0.01,
               child: Opacity(
                 opacity: (1 - b) * hideAlpha,
-                child: Transform.translate(offset: offset, child: child),
+                child: Transform.translate(
+                  offset: offset,
+                  // Scrolled fully out the bar stays put, only still (its wave and pulses wait).
+                  child: TickerMode(enabled: scrolled < 0.999, child: child!),
+                ),
               ),
             );
           },

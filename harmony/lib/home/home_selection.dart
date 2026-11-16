@@ -146,7 +146,8 @@ CoverRef? activityCover(ActivityEvent e, String provider) {
   return fallback == null || fallback.isEmpty ? null : CoverSourceRelative(stripProviderPrefix(fallback));
 }
 
-/// ActivityEvent.asSong: a slim track (no album name, no artist id; Android does not enrich).
+/// ActivityEvent.asSong: a slim track (no album name; the album and artist ids the play
+/// recorded, if any). Now Playing asks the service for links it lacks (song_links.dart).
 Track activityAsTrack(ActivityEvent e, String provider) => Track(
       id: _id(provider, e.songId ?? e.entityId)!,
       title: e.title,
