@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -240,6 +241,29 @@ void main() {
       // The page's own instance isn't named.
       expect(find.text('Listener 1'), findsOneWidget);
       expect(find.text('neodb.social'), findsNothing);
+    });
+
+    testWidgets('should_giveTheInstanceTheRestOfTheLine_when_theNameIsShort', (tester) async {
+      // A long instance after a short name: the name keeps its width, the instance takes all that
+      // is left (not half the line) and sits 6dp after the name.
+      const host = 'listening-room.example.social';
+      const away = NeoDbVoice(
+        id: 'm',
+        author: 'Bo',
+        handle: 'bo@$host',
+        text: 'Elsewhere, and long enough to take the whole width of the page on its own line.',
+        url: 'https://example.social/p/m',
+      );
+      await pump(tester, NeoDbVoicesContent(album: _album, voices: [away], count: 1, endReached: true));
+      final name = tester.getRect(find.text('Bo'));
+      final instance = tester.getRect(find.text(host));
+      expect(instance.left - name.right, closeTo(6, 0.01));
+      final line = tester.getRect(find.ancestor(of: find.text(host), matching: find.byType(Row)).first);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: find.text(host), matching: find.byType(RichText)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse, reason: 'the whole instance fits in what the name leaves');
+      expect(instance.width, greaterThan(line.width / 2), reason: 'more than half the line, so not split evenly');
     });
 
     testWidgets('should_showEmptyLine_when_noOneWrote', (tester) async {

@@ -311,9 +311,10 @@ void main() {
       // The quality, then what the downloads take on a line of its own.
       expect(find.text('320 kbps'), findsOneWidget);
       expect(find.text('3.0 MB on this device'), findsOneWidget);
+      // 2dp below it, as every line of a settings row (SettingsItem's spacedBy(2.dp)).
       expect(
-        tester.getTopLeft(find.text('3.0 MB on this device')).dy,
-        greaterThan(tester.getTopLeft(find.text('320 kbps')).dy),
+        tester.getTopLeft(find.text('3.0 MB on this device')).dy - tester.getBottomLeft(find.text('320 kbps')).dy,
+        closeTo(2, 0.01),
       );
     });
 
