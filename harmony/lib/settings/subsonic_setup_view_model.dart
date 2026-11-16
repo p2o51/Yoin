@@ -40,9 +40,18 @@ final class SetupSaving extends SetupStatus {
   const SetupSaving();
 }
 
-/// The server answered the test.
+/// The server answered the test. [server]: what it calls itself ("Navidrome
+/// 0.64.2", the ping's OpenSubsonic type and serverVersion); null when it
+/// doesn't say (Android main SubsonicStatus.Reachable).
 final class SetupReachable extends SetupStatus {
-  const SetupReachable();
+  const SetupReachable({this.server});
+  final String? server;
+
+  @override
+  bool operator ==(Object other) => other is SetupReachable && other.server == server;
+
+  @override
+  int get hashCode => server.hashCode;
 }
 
 /// [error], or — when the server said what was wrong ("Wrong username or
@@ -175,9 +184,10 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     final credentials = _validate(address, username, password);
     if (credentials == null) return;
     state = state.copyWith(status: const SetupTesting());
-    final failure = await _probe(credentials);
+    String? server;
+    final failure = await _probe(credentials, named: (name) => server = name);
     if (!ref.mounted) return;
-    state = state.copyWith(status: failure ?? const SetupReachable());
+    state = state.copyWith(status: failure ?? SetupReachable(server: server));
   }
 
   /// Connect (adding): reaches the server, then saves the account and makes
@@ -278,10 +288,16 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     return SubsonicCredentials(baseUrl: url!, username: username.trim(), password: password);
   }
 
-  /// null when the server answered, else what to say.
-  Future<SetupFailed?> _probe(SubsonicCredentials credentials) async {
+  /// null when the server answered, else what to say. With [named] (Test),
+  /// one ping that also reads what the server calls itself, handed to [named].
+  Future<SetupFailed?> _probe(SubsonicCredentials credentials, {void Function(String? name)? named}) async {
     final source = ref.read(musicSourceFactoryProvider)(credentials);
     try {
+      final identity = named == null ? null : source.serverIdentity;
+      if (identity != null) {
+        named!(await identity.pingServerName());
+        return null;
+      }
       return await source.library.ping() ? null : const SetupFailed(SetupError.serverError);
     } on SourceNetworkException catch (e) {
       return SetupFailed(SetupError.unreachable, line: UserLine.forNetwork(e.kind));

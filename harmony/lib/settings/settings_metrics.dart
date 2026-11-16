@@ -121,6 +121,9 @@ abstract final class SettingsMetrics {
   static const double statusIconGap = 8;
   static const double statusIndicator = 24;
   static const double statusIndicatorGap = 10;
+
+  /// Between "Server reachable" and the server's own name under it (Android spacedBy 2.dp).
+  static const double statusServerGap = 2;
   static const double secretToggleTouch = 44;
   static const double secretToggleIcon = 18;
 

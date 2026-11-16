@@ -360,6 +360,21 @@ extension MusicSourceLibraryCollection on MusicSource {
       _ => null,
     };
   }
+
+  /// How the library's server names itself after a ping; null when it can't say.
+  MusicServerIdentity? get serverIdentity => switch (library) {
+    final MusicServerIdentity i => i,
+    _ => null,
+  };
+}
+
+/// A server that names itself when pinged (Android SubsonicMusicSource
+/// .pingServerName): the account page's Test shows it under its status.
+abstract interface class MusicServerIdentity {
+  /// One ping, answered with what the server calls itself ("Navidrome 0.64.2");
+  /// null from a server that sends no name. Fails as [MusicLibrary.ping] does
+  /// when the server isn't reached or refuses the sign-in.
+  Future<String?> pingServerName();
 }
 
 /// Where a song is fetched from to keep it on the device (Android
