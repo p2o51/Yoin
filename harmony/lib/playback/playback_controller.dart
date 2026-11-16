@@ -9,6 +9,7 @@ import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
+import '../offline/offline_providers.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
 import '../platform/window/window_controls.dart';
@@ -793,7 +794,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
   }
 
   Future<EngineItem?> _itemFor(MusicSource source, Track track) async {
-    final handle = await source.playback.handleFor(track);
+    // A downloaded song plays from its file, offline and at the quality it
+    // was kept at, whatever the network would stream (OfflineFirstDataSource).
+    final local = offlinePlayableUri(ref, source, track.id);
+    final handle = local != null ? DirectStream(local) : await source.playback.handleFor(track);
     if (handle is! DirectStream) return null; // External controllers arrive with Spotify.
     final cover = track.coverArt;
     return EngineItem(

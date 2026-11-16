@@ -14,6 +14,7 @@ import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
 import 'share/image_share.dart';
+import 'storage/app_files.dart';
 import 'storage/channel_stores.dart';
 import 'storage/stores.dart';
 import 'window/window_caption.dart';
@@ -37,6 +38,7 @@ final class YoinPlatform {
     required this.windowControls,
     required this.windowCaption,
     required this.imageShare,
+    required this.appFiles,
   });
 
   final YoinHost host;
@@ -71,6 +73,9 @@ final class YoinPlatform {
   /// The share sheet and saving an image into the gallery (OHOS Share Kit + photoAccessHelper).
   final ImageShare imageShare;
 
+  /// The folder for files the app keeps (offline downloads): OHOS filesDir.
+  final AppFilesHost appFiles;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -84,12 +89,15 @@ final class YoinPlatform {
     windowControls: const ChannelWindowControls(),
     windowCaption: const ChannelWindowCaptionHost(),
     imageShare: const ChannelImageShare(),
+    appFiles: const ChannelAppFilesHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
-  factory YoinPlatform.windows({Directory? appData}) => YoinPlatform(
+  factory YoinPlatform.windows({Directory? appData}) => _desktop(appData ?? desktopAppDataDirectory());
+
+  static YoinPlatform _desktop(Directory folder) => YoinPlatform(
     host: YoinHost.windows,
-    keyValueStore: FileKeyValueStore(appData ?? desktopAppDataDirectory()),
+    keyValueStore: FileKeyValueStore(folder),
     secretStore: SessionSecretStore(),
     playbackEngine: const UnsupportedPlaybackEngine(),
     appleMusicAuth: const UnsupportedAppleMusicAuth(),
@@ -99,6 +107,7 @@ final class YoinPlatform {
     windowControls: const NoWindowControls(),
     windowCaption: const SystemTitleBarHost(),
     imageShare: const NoImageShare(),
+    appFiles: DirectoryAppFilesHost(folder),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS
