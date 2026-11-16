@@ -144,6 +144,27 @@ void main() {
     });
   });
 
+  group('ArtworkRetryWatcher', () {
+    testWidgets('should_keepEventsThatArriveBeforeBaseline_when_starting', (tester) async {
+      final network = _SlowNetwork();
+      final before = ArtworkRetrySignal.generation.value;
+      final watching = ArtworkRetryWatcher.start(network);
+      // The default network went and another came while its id was being read.
+      network.events
+        ..add(const DefaultNetworkLost(5))
+        ..add(const DefaultNetworkAvailable(6));
+      await tester.pump();
+      network.baseline.complete(5);
+      final watcher = await watching;
+      expect(ArtworkRetrySignal.generation.value, before + 1, reason: 'the new network is a recovery');
+      network.events.add(const DefaultNetworkAvailable(6));
+      await tester.pump();
+      expect(ArtworkRetrySignal.generation.value, before + 1, reason: 'the same network again is not');
+      watcher.dispose();
+      await network.events.close();
+    });
+  });
+
   group('ArtworkForegroundRetry', () {
     test('should_retry_when_appReturnsAfterBeingHidden', () {
       var retries = 0;
@@ -156,4 +177,18 @@ void main() {
       expect(retries, 1);
     });
   });
+}
+
+class _SlowNetwork implements NetworkBearerSource {
+  final baseline = Completer<int?>();
+  final events = StreamController<DefaultNetworkEvent<int>>.broadcast();
+
+  @override
+  Future<NetworkBearer> current() async => NetworkBearer.wifi;
+
+  @override
+  Future<int?> defaultNetwork() => baseline.future;
+
+  @override
+  Stream<DefaultNetworkEvent<int>> get defaultNetworkEvents => events.stream;
 }

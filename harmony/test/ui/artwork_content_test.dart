@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -118,10 +120,97 @@ void main() {
     expect(find.byIcon(YoinSymbols.album), findsNothing);
   });
 
+  testWidgets('should_finishRevealing_when_skipReturnsBeforeNextCoverLoads', (tester) async {
+    png = (await tester.runAsync(_pngBytes))!;
+    final never = Completer<CoverResponse>();
+    ArtworkImages.install(
+      CoverDiskCache(
+        fetch: (uri) async => uri.path.endsWith('c.png')
+            ? never.future
+            : CoverResponse(statusCode: 200, bytes: png, contentType: 'image/png'),
+      ),
+    );
+    var revealed = 0;
+    Widget swap(String url) => MaterialApp(
+      home: Center(
+        child: SizedBox.square(
+          dimension: 96,
+          child: ArtworkSwap(url: url, onRevealed: () => revealed++),
+        ),
+      ),
+    );
+    await tester.pumpWidget(swap('https://covers.example/a.png'));
+    await _settle(tester);
+    final first = revealed;
+    expect(first, greaterThan(0), reason: 'the first cover snaps in');
+
+    await tester.pumpWidget(swap('https://covers.example/b.png'));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 30));
+    // A skip to a cover that never loads freezes b half-revealed ...
+    await tester.pumpWidget(swap('https://covers.example/c.png'));
+    await tester.pump(const Duration(seconds: 2));
+    expect(revealed, first, reason: 'b is frozen and c never came');
+    // ... and skipping back to b lets it finish.
+    await tester.pumpWidget(swap('https://covers.example/b.png'));
+    await tester.pumpAndSettle();
+    expect(revealed, greaterThan(first));
+  });
+
+  testWidgets('should_dropStoredCoverAndAskAgain_when_pixelsFailToDecode', (tester) async {
+    png = (await tester.runAsync(_pngBytes))!;
+    final dir = (await tester.runAsync(() => Directory.systemTemp.createTemp('cover_frame')))!;
+    addTearDown(() => dir.delete(recursive: true));
+    final cache = CoverDiskCache(
+      directory: () async => dir,
+      budgetBytes: 1 << 20,
+      fetch: (_) async => CoverResponse(statusCode: 200, bytes: png, contentType: 'image/png'),
+    );
+    final provider = CachedArtworkImage(_url, width: 4);
+    Object? failure;
+    await tester.runAsync(() async {
+      // Opened on real time: its folder reads would wait on fake time otherwise.
+      ArtworkImages.install(cache);
+      // The codec is made, but its first frame fails (a header that parses
+      // over pixels that don't).
+      final completer = provider.loadImage(provider, (buffer, {getTargetSize}) async => _BrokenCodec());
+      final done = Completer<void>();
+      imageCache.putIfAbsent(provider, () => completer);
+      completer.addListener(
+        ImageStreamListener(
+          (_, _) => done.complete(),
+          onError: (error, _) {
+            failure = error;
+            done.complete();
+          },
+        ),
+      );
+      await done.future.timeout(const Duration(seconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    });
+    expect(failure, isNotNull);
+    expect(cache.contains(_url), isFalse, reason: 'bytes that made no image leave the disk cache');
+    expect(imageCache.containsKey(provider), isFalse, reason: 'and the image cache, so a retry asks again');
+  });
+
   test('should_shareOneImage_when_sameCoverSignedWithAnotherSalt', () {
     final a = CachedArtworkImage('https://m.example/rest/getCoverArt.view?u=ana&t=1&s=a&id=9', width: 64);
     final b = CachedArtworkImage('https://m.example/rest/getCoverArt.view?u=ana&t=2&s=b&id=9', width: 64);
     expect(a, b, reason: 'one in-memory image whatever salt signed it');
     expect(a, isNot(CachedArtworkImage(a.url, width: 128)));
   });
+}
+
+class _BrokenCodec implements ui.Codec {
+  @override
+  int get frameCount => 1;
+
+  @override
+  int get repetitionCount => 0;
+
+  @override
+  Future<ui.FrameInfo> getNextFrame() => Future.error(Exception('Codec failed to produce an image'));
+
+  @override
+  void dispose() {}
 }

@@ -23,6 +23,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../data/cache/cover_cache.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
 import 'artwork_halftone.dart';
@@ -194,7 +195,9 @@ class _ArtworkSwapState extends State<ArtworkSwap> with TickerProviderStateMixin
   Color _primary = const Color(0x00000000);
   Color _tertiary = const Color(0x00000000);
 
-  static String _keyOf(String url, int? width) => '$url#$width';
+  /// A layer's key: the cover (its [coverCacheKey], so the same cover signed
+  /// again by a rebuilt source is no swap) and its decode size.
+  static String _keyOf(String url, int? width) => '${coverCacheKey(url)}#$width';
 
   @override
   void initState() {
@@ -223,10 +226,23 @@ class _ArtworkSwapState extends State<ArtworkSwap> with TickerProviderStateMixin
     for (final l in dropped) {
       _live.remove(l.id)?.dispose();
     }
-    if (layer == null) return;
+    if (layer == null) {
+      // Back to the cover that was revealing before a skip froze it (the
+      // skip's own cover never loaded and went): it carries on revealing.
+      final top = _model.top;
+      final resumed = top == null ? null : _live[top.id];
+      if (resumed != null && resumed.frozenReveal != null) {
+        resumed
+          ..frozenReveal = null
+          ..frozenPrimary = null
+          ..frozenTertiary = null;
+        resumed.progress.animateTo(1);
+      }
+      return;
+    }
     // Freeze a half-revealed cover where it is, with the colours it had.
     final frozen = previousTop == null ? null : _live[previousTop.id];
-    if (frozen != null && frozen.progress.value < 1) {
+    if (frozen != null && frozen.info != null && frozen.progress.value < _revealedAt) {
       frozen.progress.snapTo(frozen.progress.value);
       frozen
         ..frozenReveal = widget.reveal
@@ -483,6 +499,12 @@ class _ArtworkContentState extends State<ArtworkContent> {
     return url == null || url.trim().isEmpty ? null : url;
   }
 
+  /// Whether [url] is still this artwork's cover (signed with any salt).
+  bool _isCurrent(String url) {
+    final current = _url;
+    return current != null && coverCacheKey(current) == coverCacheKey(url);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -493,7 +515,8 @@ class _ArtworkContentState extends State<ArtworkContent> {
   void didUpdateWidget(ArtworkContent oldWidget) {
     super.didUpdateWidget(oldWidget);
     final old = oldWidget.url == null || oldWidget.url!.trim().isEmpty ? null : oldWidget.url;
-    if (old == _url) return;
+    // The same cover signed again (a rebuilt source's new salt) keeps its state.
+    if (old == _url || (old != null && _url != null && coverCacheKey(old) == coverCacheKey(_url!))) return;
     _wait?.cancel();
     _wait = null;
     _retry = ArtworkRetryState(
@@ -508,12 +531,13 @@ class _ArtworkContentState extends State<ArtworkContent> {
     super.dispose();
   }
 
-  void _failed(Object error) {
-    final url = _url;
+  void _failed(String url, Object error) {
+    // A failure that lands after the url moved on belongs to the old cover.
+    if (!mounted || !_isCurrent(url)) return;
     setState(() => _retry = _retry.failed(error));
     _wait?.cancel();
     _wait = ArtworkRetryWait(_retry, (next) {
-      if (!mounted || _url != url) return;
+      if (!mounted || !_isCurrent(url)) return;
       setState(() => _retry = next);
     });
   }
@@ -536,7 +560,7 @@ class _ArtworkContentState extends State<ArtworkContent> {
             direction: widget.direction,
             spring: widget.spring,
             revealFirstLoad: _retry.fallbackUnder,
-            onError: _failed,
+            onError: (error) => _failed(url, error),
             onRevealed: () {
               if (_retry.fallbackUnder) setState(() => _retry = _retry.revealed());
             },

@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../../data/cache/cover_cache.dart';
+import 'artwork_retry.dart';
 
 /// The image behind [url], decoded [cacheWidth] × [cacheHeight] pixels when
 /// given (one of them keeps the aspect ratio), never upscaled.
@@ -76,28 +77,35 @@ final class CachedArtworkImage extends ImageProvider<CachedArtworkImage> {
   Future<CachedArtworkImage> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
 
   @override
-  ImageStreamCompleter loadImage(CachedArtworkImage key, ImageDecoderCallback decode) => MultiFrameImageStreamCompleter(
-    codec: _load(key, decode),
-    scale: 1,
-    debugLabel: cacheKey,
-    informationCollector: () => [DiagnosticsProperty<ImageProvider>('Image provider', this)],
-  );
+  ImageStreamCompleter loadImage(CachedArtworkImage key, ImageDecoderCallback decode) {
+    final completer = MultiFrameImageStreamCompleter(
+      codec: _load(key, decode),
+      scale: 1,
+      debugLabel: cacheKey,
+      informationCollector: () => [DiagnosticsProperty<ImageProvider>('Image provider', this)],
+    );
+    // Any failure, the codec's or a frame's (bytes whose header parsed but
+    // whose pixels don't decode fail only at the first frame): the image
+    // leaves the image cache, or every later request would replay this error
+    // without asking again; bytes that made no image leave the disk cache too.
+    completer.addEphemeralErrorListener((error, _) {
+      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(key));
+      if (ArtworkRetryPolicy.classify(error) == ArtworkFailureKind.undecodable) {
+        unawaited(ArtworkImages.cache.remove(url));
+      }
+    });
+    return completer;
+  }
 
   Future<ui.Codec> _load(CachedArtworkImage key, ImageDecoderCallback decode) async {
-    final cache = ArtworkImages.cache;
+    final bytes = await ArtworkImages.cache.load(url);
     try {
-      final bytes = await cache.load(url);
-      try {
-        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-        return await decode(buffer, getTargetSize: width == null && height == null ? null : _targetSize);
-      } catch (error) {
-        // Stored, these bytes would fail to decode on every retry.
-        await cache.remove(url);
-        throw ArtworkUndecodableException(error);
-      }
-    } catch (_) {
-      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(key));
-      rethrow;
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      return await decode(buffer, getTargetSize: width == null && height == null ? null : _targetSize);
+    } catch (error) {
+      // Stored, these bytes would fail to decode on every retry.
+      await ArtworkImages.cache.remove(url);
+      throw ArtworkUndecodableException(error);
     }
   }
 

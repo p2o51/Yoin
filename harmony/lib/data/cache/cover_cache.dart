@@ -165,7 +165,7 @@ class CoverDiskCache {
       if (base == null) return;
       final dir = Directory('${base.path}${Platform.pathSeparator}$folderName');
       await dir.create(recursive: true);
-      _budgetBytes = _fixedBudget ?? budgetFor(await _freeBytes());
+      _budgetBytes = _fixedBudget ?? budgetFor(await _readFreeBytes());
       await for (final entity in dir.list()) {
         if (entity is! File) continue;
         final name = _nameOf(entity);
@@ -181,6 +181,17 @@ class CoverDiskCache {
     } catch (e) {
       debugPrint('YoinCoverCache: no folder: $e');
       _dir = null;
+    }
+  }
+
+  /// The free space, or null when it can't be read: the cache still opens,
+  /// on the minimum budget.
+  Future<int?> _readFreeBytes() async {
+    try {
+      return await _freeBytes();
+    } catch (e) {
+      debugPrint('YoinCoverCache: free space unreadable: $e');
+      return null;
     }
   }
 

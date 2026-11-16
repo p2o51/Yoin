@@ -281,10 +281,20 @@ final class ArtworkRetryWatcher {
     final lifecycle = AppLifecycleListener(onHide: foreground.onHide, onResume: foreground.onResume);
     StreamSubscription<DefaultNetworkEvent<int>>? subscription;
     try {
-      final recovery = ArtworkNetworkRecovery<int>(await network.defaultNetwork());
+      // Listen before reading the current network, so a change between the
+      // two is not lost: events that arrive first wait for the baseline.
+      ArtworkNetworkRecovery<int>? recovery;
+      final early = <DefaultNetworkEvent<int>>[];
       subscription = network.defaultNetworkEvents.listen((event) {
-        if (recovery.onEvent(event)) ArtworkRetrySignal.bump();
+        final tracking = recovery;
+        if (tracking == null) {
+          early.add(event);
+        } else if (tracking.onEvent(event)) {
+          ArtworkRetrySignal.bump();
+        }
       });
+      final tracking = recovery = ArtworkNetworkRecovery<int>(await network.defaultNetwork());
+      if (early.map(tracking.onEvent).toList().any((recovered) => recovered)) ArtworkRetrySignal.bump();
     } catch (e) {
       // The foreground retry still covers a host that sends no network events.
       debugPrint('YoinArtwork: no network events for artwork retries: $e');
