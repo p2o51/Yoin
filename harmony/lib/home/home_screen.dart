@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,7 @@ import 'home_edit.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_jbi_hidden.dart';
+import 'home_lyric_count_handle.dart';
 import 'home_header.dart';
 import 'home_memory_signals.dart';
 import 'home_metrics.dart';
@@ -37,6 +39,8 @@ import 'home_view_model.dart';
 import 'rediscover_selection.dart';
 import 'home_shelves.dart';
 import 'jump_back_in.dart';
+import 'lyric_highlight_section.dart';
+import 'lyric_highlight_view_model.dart';
 import 'rediscover_section.dart';
 import 'widgets/cover_palette.dart';
 import 'widgets/home_motion.dart';
@@ -159,6 +163,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     reduced: () => _reduced,
   )..autoScroll = _RowsAutoScroll(this);
 
+  /// Edit mode's Lyric Cards count: its ⌟ handle's drag.
+  late final HomeLyricCountEngine _lyricCount = HomeLyricCountEngine(
+    vsync: this,
+    editing: () => mounted && ref.read(homeEditProvider).editing,
+    blocked: () => _dragging != null || _rows.dragging,
+    saved: () => lyricCardsFor(ref.read(homeLayoutProvider).rowsOf(HomeSection.lyricHighlight)),
+    commit: (preset) => ref.read(homeEditProvider.notifier).setRows(HomeSection.lyricHighlight, preset),
+    reduced: () => _reduced,
+  );
+
   GlobalKey _keyFor(HomeSection s) => _itemKeys.putIfAbsent(s, GlobalKey.new);
   GlobalKey _bodyKeyFor(HomeSection s) => _bodyKeys.putIfAbsent(s, GlobalKey.new);
   LayerLink _linkFor(HomeSection s) => _links.putIfAbsent(s, LayerLink.new);
@@ -180,16 +194,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _frameBlend;
     _edit;
     _rows;
+    _lyricCount;
     _wiggle;
     _trayScroll.animation.addListener(_onTrayScroll);
     (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
-    _lifecycle = AppLifecycleListener(onHide: () {
-      if (mounted) ref.read(homeEditProvider.notifier).exit();
-    });
+    _lifecycle = AppLifecycleListener(
+      onHide: () {
+        if (mounted) ref.read(homeEditProvider.notifier).exit();
+      },
+      // Each return to Home (after a while) brings other lyric cards.
+      onShow: _lyricHomeShown,
+    );
     _scroll.addListener(() => _flow.onScroll(_scroll.position.pixels));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onState(ref.read(homeViewModelProvider));
+      _lyricHomeShown();
     });
+  }
+
+  /// Home came back into view (Android LifecycleStartEffect → onHomeShown): from the
+  /// background, from Library, or from a page pushed over it.
+  void _lyricHomeShown() {
+    if (mounted) ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
   }
 
   @override
@@ -211,6 +237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     }
     _autoScroll.dispose();
     _rows.dispose();
+    _lyricCount.dispose();
     _lift.dispose();
     _paletteGate.dispose();
     super.dispose();
@@ -381,10 +408,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               HomeRowsGrabRecognizer: GestureRecognizerFactoryWithHandlers<HomeRowsGrabRecognizer>(
                 () => HomeRowsGrabRecognizer(debugOwner: this),
                 (r) => r
-                  ..onDown = ((position, t) => _rows.grabAt(position, t))
-                  ..onMove = ((y, t) => _rows.dragTo(y, t))
-                  ..onUp = ((t) => _rows.release(timeMs: t))
-                  ..onCancel = () => _rows.release(cancelled: true),
+                  // The Lyric Cards count handle reaches past its section's box the same way.
+                  ..onDown = ((position, t) => _rows.grabAt(position, t) || _lyricCount.grabAt(position))
+                  ..onMove = ((y, t) {
+                    _rows.dragTo(y, t);
+                    _lyricCount.dragTo(y);
+                  })
+                  ..onUp = ((t) {
+                    _rows.release(timeMs: t);
+                    _lyricCount.release();
+                  })
+                  ..onCancel = () {
+                    _rows.release(cancelled: true);
+                    _lyricCount.release(cancelled: true);
+                  },
               ),
             },
             child: GestureDetector(
@@ -424,6 +461,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // Back from a page pushed over Home, or from Library (Android: Home started again).
+          _UncoveredProbe(onUncovered: _lyricHomeShown),
           MemoriesPullDetector(
             scroll: _scroll,
             enabled: state is HomeContent && !editing,
@@ -490,6 +529,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final ledger = ref.watch(memoryLedgerProvider).value;
     // What the other accounts play most (a switch away); none with one account.
     final otherProfileItems = ref.watch(otherProfileItemsProvider).value ?? const <OtherProfileItem>[];
+    // Lyric Cards: the user's own picks (no Gemini Nano here), or the first-use intro.
+    final lyricCards = ref.watch(lyricHighlightCardsProvider);
+    final lyricIntro = ref.watch(lyricHighlightIntroProvider);
     final visible = layout.visibleV1Sections;
     // The wiggle follows P and the feed's order (Home is muted with its tickers when covered).
     _wiggle.update(editing: ref.read(homeEditProvider).editing, progress: e, order: visible, reduced: _reduced);
@@ -565,7 +607,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           otherProfileItems.isEmpty ? null : OtherProfilesSection(items: otherProfileItems, frame: frame),
           2,
         ),
-        HomeSection.lyricHighlight => (null, 0),
+        // Lines the user picked, two to four cards; a tap plays from one.
+        HomeSection.lyricHighlight => (
+          lyricIntro != null
+              ? padded(LyricHighlightIntroCard(
+                  intro: lyricIntro,
+                  onDismiss: ref.read(lyricHighlightIntroProvider.notifier).dismiss,
+                ))
+              : lyricCards.isEmpty
+              ? null
+              : LyricHighlightSection(
+                  cards: lyricCards,
+                  count: lyricCardsFor(layout.rowsOf(HomeSection.lyricHighlight)),
+                  frame: frame,
+                  scrollEnabled: !editingNow,
+                  onPlay: (card) => ref.read(lyricHighlightCardsProvider.notifier).play(card),
+                ),
+          2,
+        ),
       };
       // Editing, an empty section shows its placeholder on its plate.
       if (body == null && !editingNow) continue;
@@ -607,6 +666,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         SectionAppear(animate: animate, child: revealed),
         resizable: resizable,
         childTaps: section == HomeSection.jumpBackIn,
+        // Lyric Cards takes its card count from its own dots, not the row resize.
+        handle: section == HomeSection.lyricHighlight ? HomeLyricCountHandle(engine: _lyricCount, progress: e) : null,
       ));
     }
     if (!_sectionsSeeded) {
@@ -627,6 +688,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     Widget child, {
     required bool resizable,
     bool childTaps = false,
+    Widget? handle,
   }) {
     final edit = ref.read(homeEditProvider.notifier);
     final shift = _shiftOf(section);
@@ -652,7 +714,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           onFewerRows: track != null && track.stopCount > 1 && _rows.canStep(section, -1) ? () => _rows.step(section, -1) : null,
           resizeHandle: track != null && track.stopCount > 1
               ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
-              : null,
+              : handle,
           lift: lifted ? _lift.value.clamp(0.0, 1.0) : 0,
           onPlateTap: () {
             _wiggle.touch();
@@ -1270,4 +1332,51 @@ class _ErrorPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Calls [onUncovered] when Home is back in front after something hid it
+/// whole (Android: Home re-entered, its LifecycleStartEffect ran again): a page
+/// pushed over it went, or the shell brought it back from Library. Both mute
+/// Home's tickers while it is hidden (the overlay's offstage entries, the
+/// shell's hidden page); a sheet or a menu over Home doesn't. Paints nothing.
+class _UncoveredProbe extends StatefulWidget {
+  const _UncoveredProbe({required this.onUncovered});
+
+  final VoidCallback onUncovered;
+
+  @override
+  State<_UncoveredProbe> createState() => _UncoveredProbeState();
+}
+
+class _UncoveredProbeState extends State<_UncoveredProbe> {
+  ValueListenable<TickerModeData>? _ticking;
+  bool _covered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ticking = TickerMode.getValuesNotifier(context);
+    if (identical(ticking, _ticking)) return;
+    _ticking?.removeListener(_onTicking);
+    _ticking = ticking..addListener(_onTicking);
+    _onTicking();
+  }
+
+  void _onTicking() {
+    if (!(_ticking?.value.enabled ?? true)) {
+      _covered = true;
+    } else if (_covered) {
+      _covered = false;
+      widget.onUncovered();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticking?.removeListener(_onTicking);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

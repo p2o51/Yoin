@@ -11,7 +11,10 @@ import '../data/memory/memory_grid.dart';
 import '../data/memory/memory_ledger.dart';
 import '../data/model/model.dart';
 import '../detail/detail_page.dart' show DetailBackButton;
+import '../data/highlight/lyric_highlight.dart' show LyricHighlightBucket;
 import '../home/home_strings.dart';
+import '../home/lyric_highlight_section.dart';
+import '../home/lyric_highlight_view_model.dart' show HomeLyricHighlight;
 import '../landing/landing_mascot.dart';
 import '../memories/ledger/memory_grid_lift.dart';
 import '../memories/ledger/memory_grid_view.dart';
@@ -918,6 +921,118 @@ class _AccountQuickSwitchDemoState extends State<AccountQuickSwitchDemo> with De
     );
   }
 }
+
+/// Lyric Cards (Android TipHomeScenes LyricHighlightDemo): the real Home
+/// shelf under the header. The finger swipes on to the next song's line and
+/// back, then taps a card to play from it. The lines are made up for the demo
+/// (Android's); every card is "Your pick", the only kind HarmonyOS keeps.
+class LyricHighlightDemo extends StatefulWidget {
+  const LyricHighlightDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<LyricHighlightDemo> createState() => _LyricHighlightDemoState();
+}
+
+class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneState {
+  final ScrollController _shelf = ScrollController();
+
+  static final List<HomeLyricHighlight> _cards = [
+    for (final (i, text) in _demoLyricLines.indexed)
+      HomeLyricHighlight(
+        songId: MediaId.subsonic('tip-lyric-$i'),
+        title: demoTrackTitles[i],
+        artist: demoAlbums[i].artist,
+        album: demoAlbums[i].name,
+        albumId: null,
+        coverKey: demoAlbums[i].coverUrl,
+        durationMs: 200000,
+        text: text,
+        startMs: null,
+        kind: LyricHighlightBucket.user,
+      ),
+  ];
+
+  @override
+  void dispose() {
+    _shelf.dispose();
+    super.dispose();
+  }
+
+  /// Where the shelf rests on card [page] (the last stops where the shelf runs out of room).
+  double _offsetOf(int page) {
+    if (!_shelf.hasClients) return 0;
+    final p = _shelf.position;
+    final pitch = lyricCardWidth(p.viewportDimension, single: false) + HomeLyricCardTokens.gap;
+    return (page * pitch).clamp(p.minScrollExtent, p.maxScrollExtent);
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    if (_shelf.hasClients) _shelf.jumpTo(0);
+    await f.wait(900);
+    var page = 0;
+    for (final target in const [1, 2, 1]) {
+      await f.moveTo('lyric', fx: 0.8, fy: 0.6);
+      await f.wait(200);
+      final from = _offsetOf(page);
+      final to = _offsetOf(target);
+      final end = f.at('lyric', fx: 0.3, fy: 0.6);
+      // The shelf follows the finger across, as a swipe moves it.
+      await f.drag(
+        end.dx,
+        end.dy,
+        420,
+        onProgress: (p) {
+          if (_shelf.hasClients) _shelf.jumpTo(from + (to - from) * p);
+        },
+      );
+      page = target;
+      await f.wait(900);
+    }
+    await f.moveTo('lyric', fx: 0.4, fy: 0.5);
+    await f.wait(250);
+    await f.tap();
+    await f.wait(900);
+    await f.lift();
+    await f.wait(600);
+  }
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    child: ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DemoHomeHeader(avatar: _avatar(context, 0)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
+            child: DemoTarget(
+              'lyric',
+              child: LyricHighlightSection(
+                cards: _cards,
+                count: 3,
+                frame: null,
+                controller: _shelf,
+                scrollEnabled: false,
+                onPlay: (_) {},
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The demo's made-up lines (Android DemoLyricLines).
+const _demoLyricLines = [
+  'We left the porch light on all winter,\nso the summer would know the way',
+  'Some songs wait in a drawer for years,\nthen fit you like a coat',
+  "I hum the parts I don't know yet",
+];
 
 /// All Memories: the real grid; a tap on a week shows just that stretch;
 /// scrolling on, the grid's squares fly up into the bar as a pixel mosaic

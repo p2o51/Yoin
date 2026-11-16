@@ -30,6 +30,7 @@ void main() {
       HomeSection.recentlyPlayed,
       HomeSection.yourPlaylists,
       HomeSection.otherProfiles,
+      HomeSection.lyricHighlight,
       HomeSection.memoryGrid,
     ]);
   });

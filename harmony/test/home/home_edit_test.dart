@@ -37,6 +37,7 @@ void main() {
         HomeSection.recentlyPlayed,
         HomeSection.yourPlaylists,
         HomeSection.otherProfiles,
+        HomeSection.lyricHighlight,
         HomeSection.memoryGrid,
       ]);
       final moved = withSectionMoved(hidden, visible, HomeSection.yourPlaylists, 0);
@@ -62,8 +63,13 @@ void main() {
     });
 
     test('should_offerOnlyBuiltSections_when_listingHidden', () {
-      final hidden = withSectionEnabled(withSectionEnabled(layout, HomeSection.jumpBackIn, false), HomeSection.lyricHighlight, false);
-      expect(hiddenSections(hidden), [HomeSection.jumpBackIn]);
+      // Lyric Cards is built (the user's own picks, no Gemini Nano); an unknown id is not offered.
+      final hidden = HomeLayout([
+        ...withSectionEnabled(withSectionEnabled(layout, HomeSection.jumpBackIn, false), HomeSection.lyricHighlight, false)
+            .sections,
+        const HomeSectionPref(id: 'future_section', enabled: false),
+      ]);
+      expect(hiddenSections(hidden), [HomeSection.jumpBackIn, HomeSection.lyricHighlight]);
     });
   });
 

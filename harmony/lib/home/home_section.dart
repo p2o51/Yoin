@@ -41,7 +41,8 @@ enum HomeSection {
     yourPlaylists ||
     otherProfiles ||
     memoryGrid => true,
-    lyricHighlight => false,
+    // On every device (Android owner 2026-11-08): without Gemini Nano it shows the user's own picks.
+    lyricHighlight => true,
   };
 
   static HomeSection? byId(String id) {

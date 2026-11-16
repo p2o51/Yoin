@@ -83,7 +83,8 @@ class HomeStrings {
         HomeSection.recentlyPlayed => _zh ? '近期无播放记录' : 'Nothing played lately',
         HomeSection.yourPlaylists => _zh ? '资料库中无播放列表' : 'No playlists in your library',
         HomeSection.otherProfiles => _zh ? '其他账号最近没有播放' : 'Nothing played on your other accounts lately',
-        HomeSection.lyricHighlight => _zh ? '多听几首歌，Gemini Nano 会挑出第一句' : 'Listen a while and Gemini Nano picks the first line',
+        // Carbon 2026-11-17: no Gemini Nano picks a line here (Android: home_placeholder_lyric_highlight).
+        HomeSection.lyricHighlight => _zh ? '在歌词里选句分享或保存，这里就会有第一张' : 'Share or save lines in Lyrics to add the first card',
         HomeSection.memoryGrid => _zh ? '还没有回忆' : 'No memories yet',
       };
 
@@ -99,6 +100,27 @@ class HomeStrings {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return _zh ? '${d.month}月${d.day}日' : '${months[d.month - 1]} ${d.day}';
   }
+
+  // ---- Lyric Cards ----
+
+  String get lyricPlayFromLine => _zh ? '从这句开始播放' : 'Play from this line'; // home_lyric_play_from_line
+  String get lyricKindHeavy => _zh ? '常听' : 'On repeat'; // home_lyric_kind_heavy
+  String get lyricKindRediscover => _zh ? '久违' : 'Been a while'; // home_lyric_kind_rediscover
+  String get lyricKindUser => _zh ? '你选的' : 'Your pick'; // home_lyric_kind_user
+  String get lyricIntroBadge => 'Beta'; // home_lyric_intro_badge
+  String get lyricIntroTitle => _zh ? '恭喜你发现了一个 Beta 功能' : 'You found a beta feature'; // home_lyric_intro_title
+  // The intro's body: Carbon 2026-11-17 for HarmonyOS (no Gemini Nano, and tablets and PCs too); Android's
+  // home_lyric_intro_unsupported / home_lyric_intro_picks don't hold here.
+  String get lyricIntroPicks => _zh
+      ? '你在歌词页选中并分享或保存为图片卡片的歌词，我们会记住，显示在这里。'
+      : 'Lines you select on the lyrics page and share or save as an image card are remembered and show up here.';
+  String get lyricIntroPlay => _zh
+      ? '点卡片就从那句开始播放。挑过的句子按账号留在这台设备上。'
+      : 'Tap a card to play from that line. Picks stay with each account on this device.';
+  String get lyricIntroGotIt => _zh ? '知道了' : 'Got it'; // home_lyric_intro_got_it
+
+  /// home_edit_lyric_cards (plural).
+  String editLyricCards(int count) => _zh ? '$count 段' : (count == 1 ? '$count card' : '$count cards');
 
   // ---- Rediscover ----
 

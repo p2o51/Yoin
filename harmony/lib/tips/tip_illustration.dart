@@ -58,6 +58,7 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.aiServices => AiServicesDemo(playing: playing),
   HomeBubbleTip.settingsRegrouped => SettingsRegroupedDemo(playing: playing),
   HomeBubbleTip.continueOn => ContinueOnDemo(playing: playing),
+  HomeBubbleTip.lyricHighlight => LyricHighlightDemo(playing: playing),
   HomeBubbleTip.screenCorners => ScreenCornersDemo(playing: playing),
   HomeBubbleTip.memoriesAllAccounts => MemoriesAllAccountsDemo(playing: playing),
   HomeBubbleTip.devices => DevicesDemo(playing: playing),

@@ -696,6 +696,58 @@ abstract final class HomeTokens {
   static const double memoryMarkLift = memoryMarkBacking / 2;
 }
 
+/// Home's Lyric Cards (Android ui/home/HomeLyricHighlight.kt and
+/// edit/HomeLyricCountHandle.kt): the card, the shelf's page dots, and the
+/// count handle's picker.
+abstract final class HomeLyricCardTokens {
+  /// The card: padding, cover, width beside a neighbour, height, shelf gap, and how much of the next card peeks.
+  static const double padding = 16;
+  static const double art = 40;
+  static const double width = 290;
+  static const double height = 216;
+  static const double gap = 8;
+  static const double peek = 40;
+
+  /// The section's column spacing (shelf → dots) and inside a card (head → lines → kind).
+  static const double sectionSpacing = 12;
+  static const double cardSpacing = 12;
+
+  /// Cover → title column in the card's head.
+  static const double headGap = 10;
+
+  /// The passage: titleMedium at this size and line height, medium weight; at most this many lines.
+  static const double textSize = 17;
+  static const double textLineHeight = 24;
+  static const int textMaxLines = 4;
+
+  /// Page dots: the current card a pill this wide, the others dots; height and gap.
+  static const double dotActive = 18;
+  static const double dot = 6;
+  static const double dotGap = 6;
+
+  /// The intro card: padding, line spacing and the buttons' gap.
+  static const double introPadding = 20;
+  static const double introSpacing = 10;
+  static const double introButtonGap = 8;
+
+  /// The count handle (HomeLyricCountHandle.kt): pulled this far down the dots are fully open; from
+  /// there one count per [countStep]; a dot's slot; the picker's gap from the handle and its corners.
+  static const double countReveal = 40;
+  static const double countStep = 36;
+  static const double countDotPitch = 28;
+  static const double countPickerGap = 4;
+  static const double countPickerRadius = 24;
+  static const double countPickerPaddingH = 10;
+  static const double countPickerPaddingV = 14;
+  static const double countPickerSpacing = 8;
+  static const int countPickerElevation = 6;
+
+  /// The picker's dots: the count's own one, the others; the picker grows from this scale at its corner.
+  static const double countDotCurrent = 12;
+  static const double countDot = 8;
+  static const double countPickerScaleFrom = 0.8;
+}
+
 /// Home's Memories bubble (Android ui/home/HomeMemoryBubble.kt): the resting
 /// ⌄ at the page's top centre and the bubble it speaks from.
 abstract final class HomeBubbleTokens {

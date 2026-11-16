@@ -172,6 +172,8 @@ void main() {
     await frames(tester, 40);
     expect(c.read(homeLayoutProvider).rowsOf(HomeSection.activities), HomeRowPreset.m);
     // Reset puts every preset back.
+    await tester.ensureVisible(find.text('Reset Home'));
+    await frames(tester, 10);
     await tester.tap(find.text('Reset Home'));
     await frames(tester, 40);
     expect(c.read(homeLayoutProvider).rowsOf(HomeSection.jumpBackIn), HomeRowPreset.l);

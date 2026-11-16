@@ -189,11 +189,14 @@ final class LyricsShareSnapshot {
 
 /// Opens the share sheet (Standard modal sheet on surfaceContainer) on Now
 /// Playing's navigator; [onShared] runs once the image went to the share sheet.
+/// [onKept] runs when the lines were saved or shared: Home's Lyric Cards keep
+/// them as a pick of the user's own.
 Future<void> showLyricsShareSheet(
   BuildContext navigatorContext, {
   required LyricsShareSnapshot snapshot,
   required VoidCallback onShared,
   required ValueChanged<String> onMessage,
+  VoidCallback? onKept,
 }) => showModalBottomSheet<void>(
   context: navigatorContext,
   useSafeArea: true,
@@ -207,6 +210,7 @@ Future<void> showLyricsShareSheet(
       onShared();
     },
     onMessage: onMessage,
+    onKept: onKept,
   ),
 );
 
@@ -217,11 +221,20 @@ enum _SaveStatus { idle, saving, saved, failed }
 /// exported: the image draws at its logical size inside a repaint boundary
 /// read back at the format's fixed pixel ratio.
 class LyricsShareSheet extends ConsumerStatefulWidget {
-  const LyricsShareSheet({super.key, required this.snapshot, required this.onShared, required this.onMessage});
+  const LyricsShareSheet({
+    super.key,
+    required this.snapshot,
+    required this.onShared,
+    required this.onMessage,
+    this.onKept,
+  });
 
   final LyricsShareSnapshot snapshot;
   final VoidCallback onShared;
   final ValueChanged<String> onMessage;
+
+  /// The lines were saved or shared (Android onKept).
+  final VoidCallback? onKept;
 
   @override
   ConsumerState<LyricsShareSheet> createState() => _LyricsShareSheetState();
@@ -256,6 +269,7 @@ class _LyricsShareSheetState extends ConsumerState<LyricsShareSheet> {
     final saved = png != null && await ref.read(imageShareProvider).save(png, fileName: name);
     if (!mounted) return;
     setState(() => _save = saved ? _SaveStatus.saved : _SaveStatus.failed);
+    if (saved) widget.onKept?.call();
     saved ? YoinHaptics.confirm() : YoinHaptics.reject();
   }
 
@@ -275,6 +289,7 @@ class _LyricsShareSheetState extends ConsumerState<LyricsShareSheet> {
     if (!mounted) return;
     setState(() => _sharing = false);
     if (shared) {
+      widget.onKept?.call();
       widget.onShared();
     } else {
       widget.onMessage(strings.shareFailed);
