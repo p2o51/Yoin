@@ -952,6 +952,39 @@ abstract final class MemoriesTokens {
   static const double awardRevealGate = 0.15;
 }
 
+/// The Memories deck's aurora (MemoriesAuroraBackground.kt): three radial
+/// blooms in the cards' palettes, turned by the pager's position.
+abstract final class MemoriesAuroraTokens {
+  /// A bloom's core alpha cap: dark (screen-blended) / light (over).
+  static const double alphaDark = 0.26;
+  static const double alphaLight = 0.2;
+
+  /// One memory turns the orbit a little under a fifth; the breath follows at its own pace.
+  static const double driftPerPage = 0.18;
+  static const double breathPerPage = 1.9;
+
+  /// The blooms' anchors, as fractions of the deck (x, y): base, accent, their mix.
+  static const List<(double, double)> anchors = [(0.24, 0.22), (0.78, 0.44), (0.34, 0.80)];
+
+  /// Each bloom's orbit: this share of the width / height around its anchor.
+  static const double orbitX = 0.20;
+  static const double orbitY = 0.16;
+
+  /// The vertical orbit runs this much faster than the horizontal one.
+  static const double orbitYRate = 1.3;
+
+  /// Radius: half the longest side, give or take the wobble, smaller for each deeper bloom.
+  static const double radius = 0.5;
+  static const double radiusWobble = 0.12;
+  static const double depthStep = 0.18;
+
+  /// Below this presence nothing is drawn.
+  static const double minPresence = 0.01;
+
+  /// The deck counts as gone once Memories is this far retreated (q).
+  static const double hiddenReveal = 0.999;
+}
+
 /// Library root, Compact (LibraryScreen.kt, LibraryFilterRow.kt, ExpressiveComponents.kt, SongListItem.kt; iOS LibraryView, SearchView).
 abstract final class LibraryTokens {
   /// ExpressiveSegmentChip: height, corner, padding (h / v), gap between chips.
