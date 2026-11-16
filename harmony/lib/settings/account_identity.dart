@@ -6,7 +6,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../data/model/media_id.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
-import 'material_shapes.dart';
+import '../ui/shapes/shape_path.dart';
 import 'settings_colors.dart';
 import 'settings_metrics.dart';
 
@@ -45,6 +45,19 @@ final class ServiceIdentity {
 
 /// How many avatar shapes there are.
 const int avatarShapeCount = 8;
+
+/// Eight clearly different silhouettes, no two scalloped circles (Android
+/// avatarPolygon), by slot.
+RoundedPolygon avatarPolygon(int index) => switch (index % avatarShapeCount) {
+  0 => MaterialShapes.cookie6Sided,
+  1 => MaterialShapes.clover4Leaf,
+  2 => MaterialShapes.gem,
+  3 => MaterialShapes.arch,
+  4 => MaterialShapes.slanted,
+  5 => MaterialShapes.ghostish,
+  6 => MaterialShapes.sunny,
+  _ => MaterialShapes.oval,
+};
 
 /// Gives every account its own avatar shape. Walks [ids] oldest first; each
 /// starts at a slot hashed from its id (Java's String.hashCode, so a shape
@@ -169,25 +182,26 @@ class AccountAvatar extends StatefulWidget {
 }
 
 class _AccountAvatarState extends State<AccountAvatar> with SingleTickerProviderStateMixin {
-  late Path _from = _shape(widget.shapeIndex);
-  late Path _to = _from;
+  late RoundedPolygon _from = avatarPolygon(widget.shapeIndex);
+  late RoundedPolygon _to = _from;
+  late Morph _shapeMorph = Morph(_from, _to);
   late final SpringValue _morph = SpringValue(
     vsync: this,
     initial: 1,
     spring: YoinSprings.of(MotionTokens.standardDefaultSpatial),
   );
 
-  static Path _shape(int index) => avatarShapes[index % avatarShapeCount];
-
   @override
   void didUpdateWidget(AccountAvatar old) {
     super.didUpdateWidget(old);
-    final target = _shape(widget.shapeIndex);
+    final target = avatarPolygon(widget.shapeIndex);
     if (identical(target, _to)) return;
     // If an account's shape changes (an older one it collided with was
-    // removed) it morphs to the new one instead of snapping.
-    _from = lerpShapePath(_from, _to, _morph.value.clamp(0.0, 1.0));
+    // removed) it morphs to the new one instead of snapping: from the shape
+    // it was heading to, as Android's rememberAvatarShape does.
+    _from = _to;
     _to = target;
+    _shapeMorph = Morph(_from, _to);
     if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
       _morph.snapTo(1);
     } else {
@@ -226,7 +240,7 @@ class _AccountAvatarState extends State<AccountAvatar> with SingleTickerProvider
               builder: (context, _) => DecoratedBox(
                 decoration: ShapeDecoration(
                   color: tone.accent,
-                  shape: PolygonBorder(lerpShapePath(_from, _to, _morph.value.clamp(0.0, 1.0))),
+                  shape: MorphBorder(_shapeMorph, _morph.value),
                 ),
                 child: SizedBox.square(
                   dimension: size,
@@ -296,7 +310,7 @@ class AccountMark extends StatelessWidget {
       child: DecoratedBox(
         decoration: ShapeDecoration(
           color: tone.accent,
-          shape: PolygonBorder(avatarShapes[shapeIndex % avatarShapeCount]),
+          shape: PolygonBorder(avatarPolygon(shapeIndex)),
         ),
         child: SizedBox.square(
           dimension: size,

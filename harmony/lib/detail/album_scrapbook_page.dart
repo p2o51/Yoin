@@ -18,7 +18,7 @@ import '../nowplaying/note_logic.dart' show formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
 import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
-import '../settings/material_shapes.dart' show PolygonBorder, avatarShapes;
+import '../ui/shapes/shape_path.dart';
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
@@ -1151,7 +1151,7 @@ class _AskCard extends StatelessWidget {
               child: Transform.rotate(
                 angle: tilt * 6 * math.pi / 180,
                 child: DecoratedBox(
-                  decoration: ShapeDecoration(color: colors.askMark, shape: PolygonBorder(avatarShapes[1])),
+                  decoration: ShapeDecoration(color: colors.askMark, shape: PolygonBorder(MaterialShapes.clover4Leaf)),
                   child: SizedBox.square(
                     dimension: ScrapbookLayout.askSticker,
                     child: Center(
@@ -1516,7 +1516,13 @@ class _TicketState extends ConsumerState<_Ticket> with TickerProviderStateMixin 
                     top: ScrapbookLayout.stickerOffset.dy,
                     child: Transform.rotate(
                       angle: t.heartTilt * math.pi / 180,
-                      child: Icon(YoinSymbols.favoriteFilled, size: ScrapbookLayout.sticker, color: colors.ink),
+                      // The sticker is MaterialShapes.Heart cut from the ink, as on Android.
+                      child: ExcludeSemantics(
+                        child: DecoratedBox(
+                          decoration: ShapeDecoration(color: colors.ink, shape: PolygonBorder(MaterialShapes.heart)),
+                          child: const SizedBox.square(dimension: ScrapbookLayout.sticker),
+                        ),
+                      ),
                     ),
                   ),
               ],

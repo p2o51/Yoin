@@ -19,12 +19,11 @@ import '../../data/transfer/restore_review.dart';
 import '../../nowplaying/haptics.dart';
 import '../../shell/bar_suppression.dart';
 import '../../theme/motion.dart';
-import '../../ui/component/expressive/loading_indicator.dart' show MaterialShapes, ShapeMorph;
 import '../../ui/component/expressive_text_field.dart';
 import '../../ui/component/meta_line.dart' show formatTrackDuration;
 import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_loading_indicator.dart';
-import '../material_shapes.dart';
+import '../../ui/shapes/shape_path.dart';
 import '../settings_components.dart';
 import 'playlist_backup_metrics.dart';
 import 'playlist_backup_strings.dart';
@@ -387,7 +386,7 @@ class _MatchingProgressState extends State<_MatchingProgress> with SingleTickerP
               Container(
                 width: PlaylistBackupMetrics.matchingCookie,
                 height: PlaylistBackupMetrics.matchingCookie,
-                decoration: ShapeDecoration(color: colors.primaryContainer, shape: PolygonBorder(cookie9Sided)),
+                decoration: ShapeDecoration(color: colors.primaryContainer, shape: PolygonBorder(MaterialShapes.cookie9Sided)),
                 alignment: Alignment.center,
                 child: SizedBox.square(
                   dimension: PlaylistBackupMetrics.matchingIndicator,
@@ -439,7 +438,7 @@ class _DeterminatePainter extends CustomPainter {
   final double progress;
   final Color color;
 
-  static final ShapeMorph _morph = ShapeMorph(MaterialShapes.circle, MaterialShapes.softBurst);
+  static final Morph _morph = Morph(MaterialShapes.circle, MaterialShapes.softBurst);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1091,7 +1090,7 @@ class _ReviewMarkState extends State<ReviewMark> with TickerProviderStateMixin {
     spring: YoinSprings.defaultEffects,
   );
 
-  static final ShapeMorph _morph = ShapeMorph(MaterialShapes.circle, MaterialShapes.cookie9Sided);
+  static final Morph _morph = Morph(MaterialShapes.circle, MaterialShapes.cookie9Sided);
 
   @override
   void didUpdateWidget(ReviewMark old) {
@@ -1165,7 +1164,7 @@ class _ReviewMarkState extends State<ReviewMark> with TickerProviderStateMixin {
 class _MarkPainter extends CustomPainter {
   _MarkPainter({required this.morph, required this.progress, required this.color});
 
-  final ShapeMorph morph;
+  final Morph morph;
   final double progress;
   final Color color;
 
@@ -1572,8 +1571,6 @@ class _Outcome extends StatefulWidget {
 class _OutcomeState extends State<_Outcome> with SingleTickerProviderStateMixin {
   late final SpringValue _appear = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
 
-  static final Path _burst = MaterialShapes.softBurst.toPath();
-  static final Path _cookie4 = MaterialShapes.cookie4Sided.toPath();
 
   @override
   void initState() {
@@ -1624,7 +1621,7 @@ class _OutcomeState extends State<_Outcome> with SingleTickerProviderStateMixin 
                 height: PlaylistBackupMetrics.outcomeMark,
                 decoration: ShapeDecoration(
                   color: failed ? colors.errorContainer : colors.primaryContainer,
-                  shape: PolygonBorder(failed ? _cookie4 : _burst),
+                  shape: PolygonBorder(failed ? MaterialShapes.cookie4Sided : MaterialShapes.softBurst),
                 ),
                 child: Icon(
                   failed ? YoinSymbols.close : YoinSymbols.check,

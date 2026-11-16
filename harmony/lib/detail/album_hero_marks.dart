@@ -11,6 +11,7 @@ import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../theme/theme.dart';
 import '../ui/component/spring_cross_fade.dart';
+import '../ui/shapes/cookie_unit.dart';
 import 'detail_palette.dart';
 import 'dot_dissolve.dart';
 import 'detail_strings.dart';
@@ -416,24 +417,9 @@ class UnratedEmblemPainter extends CustomPainter {
       old.word != word;
 }
 
-/// MaterialShapes.Cookie12Sided (a 12-point star, inner radius 0.8, corners
-/// rounded 0.5) as a smooth 12-lobe curve whose lobes reach [radius], the
-/// first lobe at 12 o'clock where the path starts.
-Path cookie12Path(Offset centre, double radius) {
-  const lobes = 12;
-  const steps = 240;
-  // Rounded corners pull the peaks in and fill the valleys: the lobes swing 0.88 … 1.
-  const valley = 0.88;
-  final path = Path();
-  for (var i = 0; i <= steps; i++) {
-    final a = -math.pi / 2 + i / steps * 2 * math.pi;
-    final wave = (math.cos(lobes * (a + math.pi / 2)) + 1) / 2;
-    final r = radius * (valley + (1 - valley) * wave);
-    final p = centre + Offset(math.cos(a), math.sin(a)) * r;
-    i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-  }
-  return path..close();
-}
+/// MaterialShapes.Cookie12Sided whose lobes reach [radius] around [centre],
+/// starting on the top lobe's peak (Android GrooveEmblem CookieUnit).
+Path cookie12Path(Offset centre, double radius) => CookieUnit.at(centre, radius);
 
 // ---------------------------------------------------------------------------
 // Comment pen.

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/ui/component/expressive/loading_indicator.dart';
+import 'package:yoin/ui/shapes/shape_path.dart';
 
 // Golden numbers come from running the real Kotlin classes on the JVM
 // (graphics-shapes 1.1.0, material3 1.5.0-alpha27 MaterialShapes,
@@ -60,11 +61,19 @@ void main() {
     });
 
     test('should_fitTheUnitSquare_when_normalized', () {
-      final p = RoundedPolygon.star(5, radius: 3, innerRadius: 1, centerX: 10, centerY: -4).normalized();
+      final p = RoundedPolygon.star(5, radius: 3, innerRadius: 1, centerX: 10, centerY: 4).normalized();
       final b = p.calculateBounds();
       expect(math.max(b[2] - b[0], b[3] - b[1]), closeTo(1, 1e-12));
       expect(b[0], greaterThanOrEqualTo(-1e-12));
       expect(b[1], greaterThanOrEqualTo(-1e-12));
+    });
+
+    test('should_startMaximaAtFloatMinValue_when_shapeLiesBelowZero', () {
+      // graphics-shapes starts calculateBounds' maxima at Float.MIN_VALUE (a
+      // tiny positive number), so a shape wholly above y = 0 reports ~0 as its
+      // bottom. Kept for parity with Android.
+      final p = RoundedPolygon.star(5, radius: 3, innerRadius: 1, centerX: 10, centerY: -4);
+      expect(p.calculateBounds()[3], closeTo(0, 1e-12));
     });
 
     test('should_markReflexCorners_when_starInnerVertices', () {
@@ -156,7 +165,7 @@ void main() {
     });
   });
 
-  group('ShapeMorph', () {
+  group('Morph', () {
     // (cubic count, first cubic at progress 0.5) per morph of the sequence.
     final goldens = <(int, List<double>)>[
       (58, [0.12605643, 0.29939413, 0.14618999, 0.28794742, 0.16031507, 0.26637632, 0.16270694, 0.24274978]),
@@ -188,7 +197,7 @@ void main() {
     });
 
     test('should_matchEndShapes_when_progressIsZeroOrOne', () {
-      final morph = ShapeMorph(MaterialShapes.pill, MaterialShapes.sunny);
+      final morph = Morph(MaterialShapes.pill, MaterialShapes.sunny);
       // Cutting splits cubics (tighter control hulls), so compare the curves
       // themselves: their sampled extents.
       List<double> extent(List<ShapeCubic> cubics) {

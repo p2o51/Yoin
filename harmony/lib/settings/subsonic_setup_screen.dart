@@ -15,7 +15,7 @@ import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
-import 'material_shapes.dart';
+import '../ui/shapes/shape_path.dart';
 import 'service_intro.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
@@ -305,7 +305,7 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
                       size: SettingsMetrics.heroMark,
                     )
                   : DecoratedBox(
-                      decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(cookie9Sided)),
+                      decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(MaterialShapes.cookie9Sided)),
                       child: SizedBox.square(
                         dimension: SettingsMetrics.heroMark,
                         child: Icon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),

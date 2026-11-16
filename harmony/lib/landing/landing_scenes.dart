@@ -5,11 +5,11 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../nowplaying/haptics.dart';
 import '../settings/account_identity.dart';
-import '../settings/material_shapes.dart';
 import '../settings/settings_colors.dart';
 import '../settings/settings_view_model.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/shapes/shape_path.dart';
 import 'landing_models.dart';
 import 'landing_strings.dart';
 
@@ -99,26 +99,23 @@ class LandingGroup extends StatelessWidget {
 /// A service's face (colour family and mark) for [service].
 ServiceIdentity landingIdentity(LandingService service) => ServiceIdentity.forProvider(service.provider);
 
-/// The unit circle the pick tile's avatar starts from (MaterialShapes.Circle).
-final Path _unitCircle = Path()..addOval(const Rect.fromLTWH(0, 0, 1, 1));
+/// The pick tile's avatar: MaterialShapes.Circle → Cookie9Sided when picked.
+final Morph _tileMorph = Morph(MaterialShapes.circle, MaterialShapes.cookie9Sided);
 
-/// Paints a unit-square [path] scaled into the box, in [color].
+/// Paints [shape] filling the box, in [color].
 class _ShapePainter extends CustomPainter {
-  _ShapePainter(this.path, this.color);
+  _ShapePainter(this.shape, this.color);
 
-  final Path path;
+  final ShapeBorder shape;
   final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width, size.height);
-    canvas.drawPath(path, Paint()..color = color);
-    canvas.restore();
+    canvas.drawPath(shape.getOuterPath(Offset.zero & size), Paint()..color = color);
   }
 
   @override
-  bool shouldRepaint(_ShapePainter old) => old.path != path || old.color != color;
+  bool shouldRepaint(_ShapePainter old) => old.shape != shape || old.color != color;
 }
 
 /// The service's mark on a filled nine-lobed cookie.
@@ -134,7 +131,7 @@ class LandingServiceMark extends StatelessWidget {
     final identity = landingIdentity(service);
     final tone = identity.hue.tone(Theme.of(context).brightness);
     return CustomPaint(
-      painter: _ShapePainter(cookie9Sided, tone.accent),
+      painter: _ShapePainter(PolygonBorder(MaterialShapes.cookie9Sided), tone.accent),
       child: SizedBox.square(
         dimension: size,
         child: Center(
@@ -260,7 +257,7 @@ class _ServiceTileState extends State<ServiceTile> with TickerProviderStateMixin
                       angle: m * LandingTokens.tileMorphTurn * math.pi / 180,
                       child: CustomPaint(
                         painter: _ShapePainter(
-                          lerpShapePath(_unitCircle, cookie9Sided, m.clamp(0.0, 1.0)),
+                          MorphBorder(_tileMorph, m),
                           Color.lerp(tone.iconContainer, tone.accent, c)!,
                         ),
                         child: SizedBox.square(

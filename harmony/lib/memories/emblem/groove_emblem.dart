@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
+import '../../ui/shapes/cookie_unit.dart';
 import '../palette/memory_palette.dart';
 import 'groove_award.dart';
 import 'groove_colors.dart';
@@ -267,84 +268,8 @@ final class _GrooveArt {
   )..layout();
 }
 
-// ---------------------------------------------------------------------------
-// Cookie12Sided (MaterialShapes: star(12, inner .8, rounding .5), turned −90°),
-// built the way androidx graphics-shapes rounds a polygon (smoothing 0).
-
-/// The unit Cookie12Sided around the origin, starting on the top lobe's peak,
-/// and its outer (lobe) radius.
-final ({Path path, double outer}) _cookieUnit = () {
-  const n = 12, inner = 0.8, rounding = 0.5;
-  final count = 2 * n;
-  final p = [
-    for (var i = 0; i < count; i++) Offset.fromDirection(-math.pi / 2 + i * math.pi / n, i.isEven ? 1.0 : inner),
-  ];
-  Offset unit(Offset o) => o / o.distance;
-  final d1 = [for (var i = 0; i < count; i++) unit(p[(i - 1 + count) % count] - p[i])];
-  final d2 = [for (var i = 0; i < count; i++) unit(p[(i + 1) % count] - p[i])];
-  final expected = [
-    for (var i = 0; i < count; i++)
-      () {
-        final cos = d1[i].dx * d2[i].dx + d1[i].dy * d2[i].dy;
-        final sin = math.sqrt(math.max(0.0, 1 - cos * cos));
-        return sin > 1e-3 ? rounding * (cos + 1) / sin : 0.0;
-      }(),
-  ];
-  // edge i runs from vertex i to i + 1
-  final edgeRatio = [
-    for (var i = 0; i < count; i++)
-      () {
-        final side = (p[(i + 1) % count] - p[i]).distance;
-        final want = expected[i] + expected[(i + 1) % count];
-        return want > side ? side / want : 1.0;
-      }(),
-  ];
-  final cut = <double>[];
-  final radius = <double>[];
-  final convex = <bool>[];
-  for (var i = 0; i < count; i++) {
-    final allowed = math.min(edgeRatio[(i - 1 + count) % count], edgeRatio[i]) * expected[i];
-    final actual = math.min(allowed, expected[i]);
-    cut.add(actual);
-    radius.add(expected[i] > 0 ? rounding * actual / expected[i] : 0);
-    final a = p[i] - p[(i - 1 + count) % count];
-    final b = p[(i + 1) % count] - p[i];
-    convex.add(a.dx * b.dy - a.dy * b.dx > 0);
-  }
-  final bis0 = unit(d1[0] + d2[0]);
-  final centreDistance0 = math.sqrt(radius[0] * radius[0] + cut[0] * cut[0]);
-  final apex = p[0] + bis0 * (centreDistance0 - radius[0]);
-  final path = Path()..moveTo(apex.dx, apex.dy);
-  Offset b(int i) => p[i] + d2[i] * cut[i];
-  Offset a(int i) => p[i] + d1[i] * cut[i];
-  final b0 = b(0);
-  path.arcToPoint(b0, radius: Radius.circular(radius[0]), clockwise: convex[0]);
-  for (var i = 1; i < count; i++) {
-    final ai = a(i), bi = b(i);
-    path
-      ..lineTo(ai.dx, ai.dy)
-      ..arcToPoint(bi, radius: Radius.circular(radius[i]), clockwise: convex[i]);
-  }
-  final a0 = a(0);
-  path
-    ..lineTo(a0.dx, a0.dy)
-    ..arcToPoint(apex, radius: Radius.circular(radius[0]), clockwise: convex[0])
-    ..close();
-  return (path: path, outer: apex.distance);
-}();
-
-/// Cookie12Sided with outer (lobe) radius [radius] around [center].
-Path _cookie(Offset center, double radius) {
-  final s = radius / _cookieUnit.outer;
-  final m = Float64List(16)
-    ..[0] = s
-    ..[5] = s
-    ..[10] = 1
-    ..[12] = center.dx
-    ..[13] = center.dy
-    ..[15] = 1;
-  return _cookieUnit.path.transform(m);
-}
+/// Cookie12Sided with outer (lobe) radius [radius] around [center] (GrooveEmblem.kt cookie()).
+Path _cookie(Offset center, double radius) => CookieUnit.at(center, radius);
 
 // ---------------------------------------------------------------------------
 

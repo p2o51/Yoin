@@ -40,7 +40,7 @@ import 'service_intro.dart' show ServiceIntroStrings;
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'licenses.dart';
-import 'material_shapes.dart';
+import '../ui/shapes/shape_path.dart';
 import 'playback_cache_row.dart';
 import 'settings_metrics.dart';
 import 'settings_pane.dart';
@@ -424,7 +424,7 @@ class _PanePlaceholder extends StatelessWidget {
           DecoratedBox(
             decoration: ShapeDecoration(
               shape: PolygonBorder(
-                cookie12Sided,
+                MaterialShapes.cookie12Sided,
                 side: BorderSide(color: colors.outlineVariant, width: SettingsMetrics.placeholderStroke),
               ),
             ),
