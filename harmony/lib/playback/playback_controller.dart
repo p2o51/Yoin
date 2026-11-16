@@ -50,10 +50,16 @@ final class PlaybackFailed extends PlaybackNotice {
 }
 
 /// Copy already written by the caller (the song sheet's confirmations and
-/// failures shown over Now Playing), routed to the shell's snackbar.
+/// failures shown over Now Playing), routed to the shell's snackbar. With
+/// [actionLabel], the snackbar carries that text button (Android's
+/// showSnackbar actionLabel) and runs [onAction] when it is pressed; [long]
+/// keeps it up 10 s instead of 4 (SnackbarDuration.Long).
 final class TextNotice extends PlaybackNotice {
-  const TextNotice(this.text);
+  const TextNotice(this.text, {this.actionLabel, this.onAction, this.long = false});
   final String text;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final bool long;
 }
 
 /// One queue entry on the Dart side, parallel to the native queue.
@@ -124,7 +130,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
   Stream<PlaybackNotice> get notices => _notices.stream;
 
   /// Shows [text] on the shell's snackbar (above Now Playing too).
-  void showMessage(String text) => _notices.add(TextNotice(text));
+  void showMessage(String text, {String? actionLabel, VoidCallback? onAction, bool long = false}) =>
+      _notices.add(TextNotice(text, actionLabel: actionLabel, onAction: onAction, long: long));
 
   @override
   NowPlayingState build() {

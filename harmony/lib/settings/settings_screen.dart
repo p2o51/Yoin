@@ -18,6 +18,7 @@ import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
+import 'ai_settings_screen.dart';
 import 'apple_music_setup_screen.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
@@ -131,6 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     switch (pane) {
       case AccountPane(:final profileId):
         openSubsonicManage(context, profileId);
+      case AiPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const AiSettingsScreen()));
       case TipsPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
@@ -178,6 +181,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _AccountsSection(state: state, onOpen: _open),
+                  const SizedBox(height: SettingsMetrics.sectionGap),
+                  _FeaturesGroup(open: pane, listDetail: wide, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   _HelpAboutGroup(open: pane, listDetail: wide, onOpen: _open),
                 ],
@@ -233,6 +238,7 @@ class _ListDetail extends StatelessWidget {
       null => const _PanePlaceholder(),
       AccountPane(:final profileId) =>
         SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
+      AiPane() => const AiSettingsScreen(inPane: true),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
@@ -327,6 +333,30 @@ class _PanePlaceholder extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Features (SettingsScreen's Features group): AI features. Android also has
+/// Labs here; HarmonyOS has none of its experiments yet.
+class _FeaturesGroup extends StatelessWidget {
+  const _FeaturesGroup({required this.open, required this.listDetail, required this.onOpen});
+
+  final SettingsPane? open;
+  final bool listDetail;
+  final OpenSettingsPane onOpen;
+
+  @override
+  Widget build(BuildContext context) => SettingsGroup(
+    title: SettingsStrings.of(context).sectionFeatures,
+    selected: {if (open is AiPane) 0},
+    children: [
+      AiSettingsRow(
+        trailing: listDetail
+            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+            : null,
+        onOpen: () => onOpen(const AiPane()),
+      ),
+    ],
+  );
 }
 
 /// Help and about: Tips (how many are read), Yoin and its version, and the

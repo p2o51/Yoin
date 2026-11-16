@@ -1,16 +1,18 @@
 import 'package:flutter/foundation.dart';
 
 import 'lyric_provider.dart';
-import 'lrclib_provider.dart';
-import 'netease_provider.dart';
+import 'lyrics_registry.dart';
 
 /// One provider's part of the manual search (Android LyricsSearchProviderSection).
 @immutable
 final class LyricsSearchSection {
-  const LyricsSearchSection({required this.providerName, required this.matches});
+  const LyricsSearchSection({required this.providerName, required this.matches, this.errorMessage});
 
   final String providerName;
   final List<SongMatch> matches;
+
+  /// The provider couldn't answer at all (QQ with every host down).
+  final String? errorMessage;
 }
 
 /// The lyrics a picked search result fetched, ready to apply.
@@ -23,41 +25,36 @@ final class LyricsSearchHit {
   final String lrc;
 }
 
-/// The Search key's providers, in Android's manual-search order (QQ Music →
-/// NetEase → Huawei Music → LRCLIB) less the two Harmony doesn't port yet:
-/// QQ Music (signed `musicu.fcg` requests) and Huawei Music (manual-only on
-/// Android, anonymous API with its own id scheme).
+/// The Search key's search (YoinRepository.searchLyricsProviderSections /
+/// applyLyricsSearchResult) over the registry's providers, in its order:
+/// QQ Music → NetEase → LRCLIB.
 class LyricsSearch {
-  LyricsSearch({List<LyricProvider>? providers})
-    : providers = providers ?? [NetEaseLyricsProvider(), LrclibLyricsProvider()];
+  LyricsSearch({LyricsProviderRegistry? registry, List<LyricProvider>? providers})
+    : registry = registry ?? LyricsProviderRegistry(providers: providers);
 
-  final List<LyricProvider> providers;
+  final LyricsProviderRegistry registry;
 
   /// Results shown per provider (YoinRepository.searchLyricsProviderSections).
   static const int perProvider = 3;
 
-  List<String> get providerNames => [for (final p in providers) p.name];
+  List<String> get providerNames => registry.providerNames;
 
   /// The whole query as the title, no artist — as Android searches; every
   /// provider at once, each keeping its own order.
   Future<List<LyricsSearchSection>> search(String query) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
-    final results = await Future.wait([
-      for (final p in providers) p.searchMultiple(q, '', limit: perProvider).catchError((Object _) => <SongMatch>[]),
-    ]);
+    final results = await registry.searchByProvider(q, '', limitPerProvider: perProvider);
     return [
-      for (var i = 0; i < providers.length; i++)
-        LyricsSearchSection(providerName: providers[i].name, matches: results[i]),
+      for (final r in results)
+        LyricsSearchSection(providerName: r.providerName, matches: r.matches, errorMessage: r.errorMessage),
     ];
   }
 
   /// The picked result's lyrics, normalized; null when the provider has none.
   Future<LyricsSearchHit?> fetch(String providerName, String songId) async {
-    final provider = providers.where((p) => p.name == providerName).firstOrNull;
-    if (provider == null) return null;
-    final lrc = await provider.fetchNormalizedLyric(songId);
-    if (lrc == null) return null;
-    return LyricsSearchHit(providerName: providerName, providerSongId: songId, lrc: lrc);
+    final hit = await registry.fetchSelectedLyric(providerName, songId);
+    if (hit == null) return null;
+    return LyricsSearchHit(providerName: hit.providerName, providerSongId: songId, lrc: hit.lrc);
   }
 }

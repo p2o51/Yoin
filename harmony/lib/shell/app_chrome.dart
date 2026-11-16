@@ -179,7 +179,8 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
           ),
           PlaybackSnackbarHost(
             barAway: Listenable.merge([_controller.bar.animation, _barAway.animation]),
-            barAwayValue: () => math.max(_controller.bar.value, _barAway.value),
+            barAwayValue: () => _barAway.value,
+            playerUpValue: () => _controller.bar.value,
           ),
           _Flight(controller: _controller),
         ],
@@ -427,15 +428,29 @@ class _Flight extends ConsumerWidget {
 
 /// The shell's snackbar for [PlaybackController.notices] (Android
 /// YoinSnackbarHost at the shell, YoinNavHost): one at a time, Short (4 s)
-/// each, queued. It sits above the bar (bottom inset = the bar's band) and
-/// follows the bar down to the navigation inset as the bar leaves (the
-/// player is up, or a bar-less page). Notices with no copy show nothing.
+/// or Long (10 s) each, queued; a notice with an action carries its text
+/// button. It sits clear of the window's bar — the bar's reserve for the
+/// window's chrome form ([snackbarBottomReserve], Android
+/// LocalShellChromeInsets) — and keeps that reserve while Now Playing is up
+/// (the player's tools row sits inside it, under the snackbar, as on
+/// Android). On a bar-less page it follows the bar down to the navigation
+/// inset. Notices with no copy show nothing.
 class PlaybackSnackbarHost extends ConsumerStatefulWidget {
-  const PlaybackSnackbarHost({super.key, required this.barAway, required this.barAwayValue});
+  const PlaybackSnackbarHost({
+    super.key,
+    required this.barAway,
+    required this.barAwayValue,
+    this.playerUpValue = _none,
+  });
 
-  /// Ticks while the bar moves; [barAwayValue] reads 0 (bar shown) .. 1 (gone).
+  static double _none() => 0;
+
+  /// Ticks while the bar moves; [barAwayValue] reads 0 (bar shown) .. 1 (a bar-less page).
   final Listenable barAway;
   final double Function() barAwayValue;
+
+  /// Now Playing up (0 .. 1): the reserve stays however the bar went.
+  final double Function() playerUpValue;
 
   @override
   ConsumerState<PlaybackSnackbarHost> createState() => _PlaybackSnackbarHostState();
@@ -443,6 +458,22 @@ class PlaybackSnackbarHost extends ConsumerStatefulWidget {
 
 /// M3's Short snackbar duration (YoinSnackbar SHORT_MS).
 const Duration snackbarShortDuration = Duration(milliseconds: 4000);
+
+/// M3's Long snackbar duration (YoinSnackbar LONG_MS), for one with an action.
+const Duration snackbarLongDuration = Duration(milliseconds: 10000);
+
+/// How far above the navigation inset the snackbar sits: the bar's reserve
+/// for [window]'s chrome form (Android rememberShellChromeInsets' bottom) —
+/// the portrait bar's band, the centred bar with its margin and the content
+/// gap, nothing beside the edge-split capsules.
+double snackbarBottomReserve(YoinWindowInfo window) => switch (window.chromeForm) {
+  ShellChromeForm.edgeSplit => 0,
+  ShellChromeForm.centeredBar =>
+    BarTokens.centeredHeight +
+        (window.layoutMode == LayoutMode.wide ? BarTokens.centeredBottomMarginWide : BarTokens.centeredBottomMargin) +
+        BarTokens.floatingContentGap,
+  ShellChromeForm.portraitBar => BarTokens.height + 2 * BarTokens.portraitVerticalMargin,
+};
 
 class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
   StreamSubscription<PlaybackNotice>? _sub;
@@ -471,6 +502,13 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
     if (_current == null) _showNext();
   }
 
+  void _act(_ShownSnackbar s) {
+    if (s.leaving) return;
+    final action = s.onAction;
+    _dismissCurrent();
+    action?.call();
+  }
+
   _ShownSnackbar? get _current => _shown.where((s) => !s.leaving).firstOrNull;
 
   void _showNext() {
@@ -479,8 +517,11 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
     final notice = _queue.removeAt(0);
     final message = PlaybackStrings.of(context).noticeMessage(notice);
     if (message == null) return _showNext();
-    setState(() => _shown.add(_ShownSnackbar(++_seq, message)));
-    _timer = Timer(snackbarShortDuration, _dismissCurrent);
+    final text = notice is TextNotice ? notice : null;
+    setState(
+      () => _shown.add(_ShownSnackbar(++_seq, message, actionLabel: text?.actionLabel, onAction: text?.onAction)),
+    );
+    _timer = Timer((text?.long ?? false) ? snackbarLongDuration : snackbarShortDuration, _dismissCurrent);
   }
 
   void _dismissCurrent() {
@@ -507,15 +548,16 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
   Widget build(BuildContext context) {
     if (_shown.isEmpty) return const Positioned(left: 0, bottom: 0, child: SizedBox.shrink());
     final navBottom = MediaQuery.paddingOf(context).bottom;
-    final barBand = BarTokens.height + 2 * BarTokens.portraitVerticalMargin;
+    final reserve = snackbarBottomReserve(YoinWindowInfo.of(context));
     return AnimatedBuilder(
       animation: widget.barAway,
       builder: (context, child) {
-        final away = widget.barAwayValue().clamp(0.0, 1.0);
+        final playerUp = widget.playerUpValue().clamp(0.0, 1.0);
+        final away = widget.barAwayValue().clamp(0.0, 1.0) * (1 - playerUp);
         return Positioned(
           left: SnackbarTokens.hostSideInset,
           right: SnackbarTokens.hostSideInset,
-          bottom: navBottom + barBand * (1 - away),
+          bottom: navBottom + reserve * (1 - away),
           child: child!,
         );
       },
@@ -529,6 +571,8 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
               YoinSnackbar(
                 key: ValueKey(s.id),
                 message: s.message,
+                actionLabel: s.actionLabel,
+                onAction: s.onAction == null || s.leaving ? null : () => _act(s),
                 leaving: s.leaving,
                 dismissLabel: PlaybackStrings.of(context).snackbarDismiss,
                 onDismiss: s.leaving ? null : _dismissCurrent,
@@ -542,9 +586,11 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
 }
 
 class _ShownSnackbar {
-  _ShownSnackbar(this.id, this.message);
+  _ShownSnackbar(this.id, this.message, {this.actionLabel, this.onAction});
   final int id;
   final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
   bool leaving = false;
 }
 
@@ -562,6 +608,12 @@ abstract final class SnackbarTokens {
   static const double minHeight = 56;
   static const double paddingStart = 24;
   static const double paddingEnd = 24;
+
+  /// The end padding when an action button ends the row.
+  static const double paddingEndAction = 8;
+
+  /// Between the message and the action.
+  static const double actionGap = 8;
   static const double paddingVertical = 6;
   static const double textVertical = 10;
 
@@ -578,6 +630,8 @@ class YoinSnackbar extends StatefulWidget {
   const YoinSnackbar({
     super.key,
     required this.message,
+    this.actionLabel,
+    this.onAction,
     this.leaving = false,
     required this.dismissLabel,
     this.onDismiss,
@@ -585,6 +639,10 @@ class YoinSnackbar extends StatefulWidget {
   });
 
   final String message;
+
+  /// The text button at the row's end (inversePrimary, bold label), and what it does.
+  final String? actionLabel;
+  final VoidCallback? onAction;
   final bool leaving;
   final String dismissLabel;
   final VoidCallback? onDismiss;
@@ -666,9 +724,9 @@ class _YoinSnackbarState extends State<YoinSnackbar> with TickerProviderStateMix
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: SnackbarTokens.minHeight),
             child: Padding(
-              padding: const EdgeInsetsDirectional.only(
+              padding: EdgeInsetsDirectional.only(
                 start: SnackbarTokens.paddingStart,
-                end: SnackbarTokens.paddingEnd,
+                end: widget.actionLabel != null ? SnackbarTokens.paddingEndAction : SnackbarTokens.paddingEnd,
                 top: SnackbarTokens.paddingVertical,
                 bottom: SnackbarTokens.paddingVertical,
               ),
@@ -690,6 +748,20 @@ class _YoinSnackbarState extends State<YoinSnackbar> with TickerProviderStateMix
                       ),
                     ),
                   ),
+                  if (widget.actionLabel case final label?) ...[
+                    const SizedBox(width: SnackbarTokens.actionGap),
+                    TextButton(
+                      onPressed: widget.onAction,
+                      style: TextButton.styleFrom(foregroundColor: scheme.inversePrimary, shape: const StadiumBorder()),
+                      child: Text(
+                        label,
+                        style: text.labelLarge!.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontVariations: const [FontVariation.weight(700)],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

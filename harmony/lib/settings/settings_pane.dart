@@ -37,6 +37,15 @@ final class StreamQualityPane extends SettingsPane {
   int get hashCode => Object.hash(3, profileId);
 }
 
+/// Settings › AI features (the Gemini key, tier and answer language).
+final class AiPane extends SettingsPane {
+  const AiPane();
+  @override
+  bool operator ==(Object other) => other is AiPane;
+  @override
+  int get hashCode => 4;
+}
+
 final class TipsPane extends SettingsPane {
   const TipsPane();
   @override

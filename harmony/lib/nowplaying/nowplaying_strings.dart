@@ -81,11 +81,32 @@ class NowPlayingStrings {
   String get msgCouldntApply => _zh ? '无法应用歌词' : "Couldn't apply lyrics"; // np_msg_couldnt_apply
   String get msgLyricsApplied => _zh ? '已应用歌词' : 'Lyrics applied'; // np_msg_lyrics_applied
   String get msgLyricsTranslated => _zh ? '已翻译歌词' : 'Lyrics translated'; // np_msg_lyrics_translated
-  // np_msg_already_language, with the target NetEase serves (Simplified Chinese).
-  String get msgAlreadyChinese => _zh ? '歌词似乎已经是 简体中文' : 'Lyrics already appear to be Simplified Chinese';
+
+  /// np_msg_already_language; [language] is the "Answer in" setting's name, as Android passes it.
+  String msgAlreadyLanguage(String language) => _zh ? '歌词似乎已经是 $language' : 'Lyrics already appear to be $language';
 
   /// Android shows the repository's raw error here ("Failed to translate lyrics", English only).
   String get msgTranslateFailed => 'Failed to translate lyrics';
+  String get msgApiKeyMissing => _zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
+  String get msgSwitch => _zh ? '切换' : 'Switch'; // np_msg_switch
+
+  /// np_msg_translation_qq / _netease / _huawei / _lrclib / _available: a later source can translate.
+  String msgTranslationAvailable(String id) => switch (id) {
+    'qq' => _zh ? '有可用的 QQ 音乐翻译' : 'QQ Music translation is available',
+    'netease' => _zh ? '有可用的网易云翻译' : 'NetEase translation is available',
+    'huawei' => _zh ? '有可用的华为音乐翻译' : 'Huawei Music translation is available',
+    'lrclib' => _zh ? '有可用的 LRCLIB 翻译' : 'LRCLIB translation is available',
+    _ => _zh ? '有可用的 ${lyricsProviderLabel(id)} 翻译' : '${lyricsProviderLabel(id)} translation is available',
+  };
+
+  /// np_msg_lyrics_translated_qq / _netease / _huawei / _lrclib / _from: after "Switch".
+  String msgLyricsTranslatedFrom(String id) => switch (id) {
+    'qq' => _zh ? '已使用 QQ 音乐翻译' : 'Lyrics translated from QQ Music',
+    'netease' => _zh ? '已使用网易云翻译' : 'Lyrics translated from NetEase',
+    'huawei' => _zh ? '已使用华为音乐翻译' : 'Lyrics translated from Huawei Music',
+    'lrclib' => _zh ? '已使用 LRCLIB 翻译' : 'Lyrics translated from LRCLIB',
+    _ => _zh ? '已使用 $id 翻译' : 'Lyrics translated from $id',
+  };
 
   /// np_msg_lyrics_applied_qq / _netease / _huawei / _lrclib / _from.
   String msgLyricsAppliedFrom(String id) => switch (id) {

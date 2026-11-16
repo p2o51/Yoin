@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/ai/ai_settings.dart';
+
 /// Settings' UI strings, English and Simplified Chinese, copied from Android
 /// res/values{,-zh-rCN}/strings_settings.xml (key in the comment).
 class SettingsStrings {
@@ -16,6 +18,23 @@ class SettingsStrings {
   // ── Settings ─────────────────────────────────────────────────────────
   String get title => _zh ? '设置' : 'Settings'; // settings_title
   String get sectionAccounts => _zh ? '账号' : 'Accounts'; // settings_section_accounts
+  String get sectionFeatures => _zh ? '功能' : 'Features'; // settings_section_features
+
+  // Settings › AI features (strings_settings settings_gemini_*, strings_ai ai_*).
+  String get aiTitle => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title
+  String get aiTitlePage => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title_page
+  String get aiSummaryEmpty =>
+      _zh ? '歌曲信息、问 Gemini、歌词翻译与 Memories 标题' : 'Song info, Ask Gemini, translation and Memory titles'; // settings_gemini_summary_empty
+  String aiAnswerIn(String language) => _zh ? '回答语言：$language' : 'Answer in $language'; // settings_gemini_answer_in
+  String get aiProviderGemini => 'Gemini'; // ai_provider_gemini (not translatable)
+  String get aiTiersLabel => _zh ? '档位' : 'Tier'; // ai_tiers_label
+  String get aiKeyLabel => _zh ? 'API 密钥' : 'API key'; // ai_key_label
+
+  /// ai_tier_good / ai_tier_best.
+  String aiTier(AiTier tier) => switch (tier) {
+    AiTier.good => _zh ? '好' : 'Good',
+    AiTier.best => _zh ? '最佳' : 'Best',
+  };
   String get accountsAdd => _zh ? '添加账号' : 'Add account'; // settings_accounts_add
   String get accountsAddShort => _zh ? '添加' : 'Add'; // settings_accounts_add_short
   String get accountsEmptyTitle => _zh ? '暂无账号' : 'No accounts'; // settings_accounts_empty_title

@@ -10,8 +10,8 @@ final class LyricRow {
   final String text;
   final int? startMs;
 
-  /// The line's translation (Android LyricLine.translation). Harmony has no
-  /// translation source yet (see LyricsActionBar), so this stays null.
+  /// The line's translation (Android LyricLine.translation): the lyrics
+  /// source's own, or Gemini's; null until the Translate key finds one.
   final String? translation;
 
   @override

@@ -124,11 +124,19 @@ abstract final class SettingsMetrics {
   // A license's own page.
   static const double licenseTextTop = 4;
 
-  // The chrome seam under Settings' bar (SeamDissolve.kt SeamTop.Chrome):
-  // scrolled content dissolves over [seamBand] below the bar, the band
-  // growing in over the first [seamRevealDistance] of scroll.
-  static const double seamBand = 12; // SeamDissolve Band
+  // The chrome seam under Settings' bar (SeamDissolve.kt SeamTop.Chrome): the
+  // tide line, on HomeSeamMetrics' numbers (SeamDissolveTokens); it comes down
+  // over the first [seamRevealDistance] of scroll.
   static const double seamRevealDistance = 40; // SeamDissolve RevealDistance
+
+  // Settings › AI features (AiSettingsPage.kt): blocks 20 apart, the tier cards (TierCard) 84 high,
+  // 8 apart, their corner 22 at rest and 32 chosen, the label 18 in.
+  static const double aiBlockGap = 20;
+  static const double aiTierGap = 8;
+  static const double aiTierHeight = 84;
+  static const double aiTierCorner = 22;
+  static const double aiTierCornerSelected = 32;
+  static const double aiTierPadding = 18;
 
   // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
   static const double splitListFraction = 0.33;

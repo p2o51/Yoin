@@ -4,22 +4,56 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'lyric_candidate_matcher.dart';
 import 'lyric_provider.dart';
 
 /// NetEase Cloud Music through Spotoolfy's proxy (Android
-/// NetEaseLyricsProvider.kt): `cloudsearch` in NetEase's own order, then
-/// `lyric/new`. Word-timed JSON lyrics are turned into plain LRC.
+/// NetEaseLyricsProvider.kt): `cloudsearch`, then `lyric/new`. Word-timed
+/// JSON lyrics are turned into plain LRC.
+///
+/// The automatic match ([search]) asks for more hits and lets
+/// [LyricCandidateMatcher] check them — NetEase's first hit is often a cover,
+/// someone else's song of the same name, or not even the same title; none it
+/// can trust → null and the next provider tries. The manual search
+/// ([searchMultiple]) keeps NetEase's own order.
 class NetEaseLyricsProvider extends LyricProvider {
-  NetEaseLyricsProvider({http.Client? client, this.baseUrl = 'https://api.spotoolfy.gojyuplus.com'})
-    : _client = client ?? http.Client();
+  NetEaseLyricsProvider({
+    http.Client? client,
+    this.baseUrl = 'https://api.spotoolfy.gojyuplus.com',
+    LyricCandidateMatcher? matcher,
+  }) : _client = client ?? http.Client(),
+       _matcher = matcher ?? LyricCandidateMatcher();
 
   final http.Client _client;
   final String baseUrl;
+  final LyricCandidateMatcher _matcher;
 
   static const Duration _timeout = Duration(seconds: 15);
 
+  /// Hits the automatic match looks through (SEARCH_PAGE_SIZE, as QQ).
+  static const int _searchPageSize = 10;
+
   @override
   String get name => 'netease';
+
+  @override
+  NativeTranslation get nativeTranslation => NativeTranslation.simplifiedChinese;
+
+  @override
+  Future<SongMatch?> search(String title, String artist, {int? durationMs}) async {
+    final songs = await searchCandidates(title, artist, limit: _searchPageSize);
+    final picked = _matcher.pick(
+      [
+        for (final s in songs)
+          // A hit with no title is never compared as the requested one.
+          LyricCandidate(title: s.title ?? '', artists: s.artists, album: s.album, durationMs: s.durationMs),
+      ],
+      title,
+      artist,
+      durationMs: durationMs,
+    );
+    return picked == null ? null : songs[picked].match;
+  }
 
   @override
   Future<List<SongMatch>> searchMultiple(String title, String artist, {int limit = 3}) async => [
@@ -49,7 +83,8 @@ class NetEaseLyricsProvider extends LyricProvider {
               if (a is Map && a['name'] is String && (a['name'] as String).trim().isNotEmpty)
                 (a['name'] as String).trim(),
         ];
-        final name = song['name'] as String?;
+        final name = song['name'] is String ? song['name'] as String : null;
+        final dt = song['dt'];
         out.add(
           NetEaseCandidate(
             match: SongMatch(
@@ -59,8 +94,11 @@ class NetEaseLyricsProvider extends LyricProvider {
             ),
             title: name,
             artists: artists,
-            album: song['al'] is Map ? (song['al'] as Map)['name'] as String? : null,
-            durationMs: (song['dt'] as num?)?.toInt(),
+            album: song['al'] is Map && (song['al'] as Map)['name'] is String
+                ? ((song['al'] as Map)['name'] as String).trim()
+                : null,
+            // `dt`: milliseconds.
+            durationMs: dt is num && dt > 0 ? dt.toInt() : null,
           ),
         );
       }
@@ -76,6 +114,7 @@ class NetEaseLyricsProvider extends LyricProvider {
 
   /// The song's LRC and NetEase's own (Simplified Chinese) translation LRC,
   /// `tlyric` — null when it has none.
+  @override
   Future<LyricPayload?> fetchLyricWithTranslation(String songId) async {
     final uri = Uri.parse('$baseUrl/lyric/new').replace(queryParameters: {'id': songId});
     try {
@@ -115,18 +154,6 @@ final class NetEaseCandidate {
   final List<String> artists;
   final String? album;
   final int? durationMs;
-}
-
-/// A provider's lyric LRC and its own translation LRC (LyricPayload).
-@immutable
-final class LyricPayload {
-  const LyricPayload({required this.lyric, this.translatedLyric});
-
-  /// A translation line that says "no translation here" (QQ's convention; UNTRANSLATED_LINE).
-  static const untranslatedLine = '//';
-
-  final String lyric;
-  final String? translatedLyric;
 }
 
 /// NetEase's word-timed JSON lines (`{"t": 12345, "c": [{"tx": "…"}, …]}`)

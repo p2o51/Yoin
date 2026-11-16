@@ -9,6 +9,7 @@ import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/playback/playback_strings.dart';
 import 'package:yoin/shell/app_chrome.dart';
 import 'package:yoin/theme/tokens.dart';
+import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/fake_music_source.dart';
 import '../support/fake_playback_engine.dart';
@@ -29,10 +30,12 @@ void main() {
     late FakePlaybackEngine engine;
     late ProviderContainer c;
     late ValueNotifier<double> barAway;
+    late ValueNotifier<double> playerUp;
 
-    Future<void> pumpHost(WidgetTester tester) async {
+    Future<void> pumpHost(WidgetTester tester, {YoinWindowInfo? window}) async {
       engine = FakePlaybackEngine();
       barAway = ValueNotifier(0);
+      playerUp = ValueNotifier(0);
       c = ProviderContainer(
         overrides: [
           playbackEngineProvider.overrideWithValue(engine),
@@ -44,12 +47,19 @@ void main() {
         UncontrolledProviderScope(
           container: c,
           child: MaterialApp(
-            home: Stack(
-              fit: StackFit.expand,
-              children: [
-                const SizedBox.expand(),
-                PlaybackSnackbarHost(barAway: barAway, barAwayValue: () => barAway.value),
-              ],
+            home: YoinWindowScope(
+              info: window ?? const YoinWindowInfo(360, 800),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const SizedBox.expand(),
+                  PlaybackSnackbarHost(
+                    barAway: Listenable.merge([barAway, playerUp]),
+                    barAwayValue: () => barAway.value,
+                    playerUpValue: () => playerUp.value,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -93,12 +103,73 @@ void main() {
       await tester.pump(snackbarShortDuration);
       await tester.pumpAndSettle();
     });
+
+    testWidgets('should_keepAboveTheTools_when_playerIsUpAndBarAway', (tester) async {
+      // Android keeps the bar's reserve under Now Playing too: the player's
+      // tools row sits inside it, under the snackbar ("已复制 N 行" over Expanded).
+      await pumpHost(tester, window: const YoinWindowInfo(1280, 800));
+      final reserve = snackbarBottomReserve(const YoinWindowInfo(1280, 800));
+      expect(
+        reserve,
+        BarTokens.centeredHeight + BarTokens.centeredBottomMarginWide + BarTokens.floatingContentGap,
+        reason: 'the centred bar reserve on a wide window, not the portrait band',
+      );
+      playerUp.value = 1;
+      barAway.value = 1;
+      c.read(playbackControllerProvider.notifier).showMessage('Copied 2 lines');
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final screen = tester.getSize(find.byType(Stack).first);
+      final card = tester.getRect(find.byType(Material).last);
+      expect(card.bottom, lessThanOrEqualTo(screen.height - reserve));
+      await tester.pump(snackbarShortDuration);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('should_runActionAndLeave_when_actionPressed', (tester) async {
+      await pumpHost(tester);
+      var switched = 0;
+      c
+          .read(playbackControllerProvider.notifier)
+          .showMessage(
+            'NetEase translation is available',
+            actionLabel: 'Switch',
+            long: true,
+            onAction: () => switched++,
+          );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      // A Long snackbar outlasts a Short one.
+      await tester.pump(snackbarShortDuration);
+      expect(find.text('Switch'), findsOneWidget);
+      await tester.tap(find.text('Switch'));
+      await tester.pumpAndSettle();
+      expect(switched, 1);
+      expect(find.text('NetEase translation is available'), findsNothing);
+    });
+
+    testWidgets('should_leaveAfterTenSeconds_when_longWithoutAction', (tester) async {
+      await pumpHost(tester);
+      c.read(playbackControllerProvider.notifier).showMessage('kept', long: true);
+      await tester.pump();
+      await tester.pump(snackbarLongDuration - const Duration(milliseconds: 100));
+      expect(find.text('kept'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(find.text('kept'), findsNothing);
+    });
   });
 
   test('should_nameTheContentRestriction_when_appleRefusedWith3082', () {
-    expect(errorKindOf('5400103: apple_music_content_restricted (3082)'), PlaybackErrorKind.appleMusicContentRestricted);
+    expect(
+      errorKindOf('5400103: apple_music_content_restricted (3082)'),
+      PlaybackErrorKind.appleMusicContentRestricted,
+    );
     expect(errorKindOf('5400103: segment 3 fetch failed'), PlaybackErrorKind.interrupted);
-    expect(PlaybackStrings.zhHans.noticeMessage(const PlaybackFailed(PlaybackErrorKind.appleMusicContentRestricted)),
-        contains('家长控制'));
+    expect(
+      PlaybackStrings.zhHans.noticeMessage(const PlaybackFailed(PlaybackErrorKind.appleMusicContentRestricted)),
+      contains('家长控制'),
+    );
   });
 }

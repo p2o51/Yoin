@@ -4,6 +4,8 @@
 /// a feature needs them, implementing them in every source.
 library;
 
+import 'package:flutter/foundation.dart';
+
 import '../model/model.dart';
 
 enum Capability {
@@ -98,6 +100,28 @@ abstract interface class MusicLibrary {
 abstract interface class MusicMetadata {
   /// Lyrics for a track, or null when the server has none.
   Future<Lyrics?> getLyrics(Track track);
+
+  /// [track]'s title and artist in English where the service shows them in
+  /// another language (Android MusicMetadata.alternateNames): Apple Music's
+  /// Japan storefront writes Kim Petras as キム・ペトラス. Lyrics sources index
+  /// the names a song came out under, so a lookup that found nothing under the
+  /// shown names tries these. Null when there are none.
+  Future<TrackNames?> alternateNames(Track track);
+}
+
+/// A song's title and artist under one set of names; see [MusicMetadata.alternateNames].
+@immutable
+final class TrackNames {
+  const TrackNames({required this.title, required this.artist});
+
+  final String title;
+  final String artist;
+
+  @override
+  bool operator ==(Object other) => other is TrackNames && other.title == title && other.artist == artist;
+
+  @override
+  int get hashCode => Object.hash(title, artist);
 }
 
 abstract interface class MusicWriteActions {
