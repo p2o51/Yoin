@@ -213,7 +213,8 @@ class _LongPressable extends StatelessWidget {
     return Semantics(
       onLongPressHint: NowPlayingStrings.of(context).aboutCdEntryMenu,
       onLongPress: press,
-      child: GestureDetector(behavior: HitTestBehavior.opaque, onLongPress: press, child: child),
+      // A right click is the long press on a desktop.
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onLongPress: press, onSecondaryTap: press, child: child),
     );
   }
 }

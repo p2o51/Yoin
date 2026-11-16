@@ -257,8 +257,6 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     });
     ScrapbookFocusRequest.pending.addListener(_takeFocus);
     WidgetsBinding.instance.addPostFrameCallback((_) => _takeFocus());
-    // What the AI's work from the track sheet came to, once the sheet has closed.
-    _events = ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).events.listen(_onEvent);
   }
 
   void _onEvent(ScrapEvent event) {
@@ -363,8 +361,10 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   @override
   Widget build(BuildContext context) {
     final pieces = ref.watch(albumScrapbookProvider(widget.album.id));
-    // The sheet's AI work stays alive while the page is open.
+    // The sheet's AI work stays alive while the page is open; what it came to
+    // is said here once the sheet has closed.
     ref.watch(albumScrapbookEditorProvider(widget.album.id));
+    _events ??= ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).events.listen(_onEvent);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     if (pieces == null) return const SizedBox.expand();
     final reduce = MediaQuery.disableAnimationsOf(context);
@@ -1347,6 +1347,9 @@ class _TicketState extends ConsumerState<_Ticket> with TickerProviderStateMixin 
                         YoinHaptics.longPress();
                         showScrapTrackSheet(context, album: widget.album, trackId: t.track.id, colors: colors);
                       },
+                      // A right click is the long press on a desktop.
+                      onSecondaryTap: () =>
+                          showScrapTrackSheet(context, album: widget.album, trackId: t.track.id, colors: colors),
                       child: CustomPaint(
                         painter: _Perforation(ink.withValues(alpha: 0.24)),
                         child: Row(

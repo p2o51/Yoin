@@ -131,36 +131,41 @@ class SongAboutRepository {
   }
 
   /// One song's rows, live ([aboutRowsForDisplay]); emits again after every write.
-  Stream<List<SongAboutEntry>> watch(String title, String artist, String album) async* {
+  Stream<List<SongAboutEntry>> watch(String title, String artist, String album) {
     final t = normalizeAboutKey(title), a = normalizeAboutKey(artist), l = normalizeAboutKey(album);
-    Future<List<SongAboutEntry>> read() async => aboutRowsForDisplay(await _store.forSong(t, a, l));
-    final changes = StreamController<void>();
-    final sub = _store.changes.listen((_) => changes.add(null));
-    try {
-      yield await read();
-      await for (final _ in changes.stream) {
-        yield await read();
-      }
-    } finally {
-      await sub.cancel();
-      await changes.close();
-    }
+    return _live(() async => aboutRowsForDisplay(await _store.forSong(t, a, l)));
   }
 
   /// Every row under one album's key, live, newest first (the scrapbook matches them to its tracks).
-  Stream<List<SongAboutEntry>> watchAlbum(String albumName) async* {
+  Stream<List<SongAboutEntry>> watchAlbum(String albumName) {
     final key = normalizeAboutKey(albumName);
-    final changes = StreamController<void>();
-    final sub = _store.changes.listen((_) => changes.add(null));
-    try {
-      yield await _store.byAlbum(key);
-      await for (final _ in changes.stream) {
-        yield await _store.byAlbum(key);
-      }
-    } finally {
-      await sub.cancel();
-      await changes.close();
+    return _live(() => _store.byAlbum(key));
+  }
+
+  /// [read] now and after every write, the reads in order.
+  Stream<List<SongAboutEntry>> _live(Future<List<SongAboutEntry>> Function() read) {
+    StreamSubscription<void>? changes;
+    var tail = Future<void>.value();
+    late final StreamController<List<SongAboutEntry>> out;
+    void emit() {
+      tail = tail
+          .then((_) async {
+            final rows = await read();
+            if (!out.isClosed) out.add(rows);
+          })
+          .catchError((Object e) {
+            if (!out.isClosed) out.addError(e);
+          });
     }
+
+    out = StreamController<List<SongAboutEntry>>(
+      onListen: () {
+        emit();
+        changes = _store.changes.listen((_) => emit());
+      },
+      onCancel: () => changes?.cancel(),
+    );
+    return out.stream;
   }
 
   /// Makes sure the six canonical rows exist (ensureCanonicalAbout). A no-op

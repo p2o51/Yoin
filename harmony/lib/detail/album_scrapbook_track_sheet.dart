@@ -980,6 +980,7 @@ class _FactEntry extends StatelessWidget {
               customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               onTap: canEdit ? () {} : null,
               onLongPress: canEdit ? onStartEdit : null,
+              onSecondaryTap: canEdit ? onStartEdit : null,
               child: Padding(
                 padding: const EdgeInsetsDirectional.only(start: ScrapSheetMetrics.innerGutter, top: 8, bottom: 8),
                 child: paragraph
@@ -1081,6 +1082,7 @@ class _AskEntry extends StatelessWidget {
             child: InkWell(
               onTap: canEdit ? () {} : null,
               onLongPress: canEdit ? onStartEdit : null,
+              onSecondaryTap: canEdit ? onStartEdit : null,
               child: Stack(
                 children: [
                   Padding(
@@ -1508,10 +1510,7 @@ class _EditField extends StatelessWidget {
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(minHeight: minHeight),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: field,
-        ),
+        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: field),
       ),
     );
   }
