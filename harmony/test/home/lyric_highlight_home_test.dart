@@ -28,6 +28,7 @@ Track _song(String id, {MediaId? songId}) => Track(
   id: songId ?? MediaId.subsonic(id),
   title: 'Song $id',
   artist: 'Artist $id',
+  artistId: MediaId.subsonic('ar-$id'),
   album: 'Album $id',
   albumId: MediaId.subsonic('al-$id'),
   coverArt: CoverSourceRelative('c-$id'),
@@ -63,6 +64,7 @@ void main() {
       expect(row.isUserPick, isTrue);
       expect(row.coverArtId, 'c-1');
       expect(row.albumId, 'al-1');
+      expect(row.artistId, 'ar-1', reason: 'the card later opens the artist in Now Playing');
       expect(row.durationMs, 200000);
       c.dispose();
     });

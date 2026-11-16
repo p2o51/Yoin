@@ -51,6 +51,7 @@ final class LyricHighlightRow {
     required this.attemptedAt,
     this.lyricsFingerprint,
     this.lastShownAt,
+    this.artistId = '',
   });
 
   final String songId;
@@ -60,6 +61,11 @@ final class LyricHighlightRow {
 
   /// Blank when unknown.
   final String albumId;
+
+  /// The song's artist (raw id), so the card's song opens its artist in Now
+  /// Playing; HarmonyOS's own column (Android asks the service). Blank when
+  /// unknown, as in rows kept before it.
+  final String artistId;
 
   /// A CoverRef storage key.
   final String? coverArtId;
@@ -93,6 +99,7 @@ final class LyricHighlightRow {
     model: model,
     attemptedAt: attemptedAt,
     lastShownAt: at,
+    artistId: artistId,
   );
 
   Map<String, Object?> toJson() => {
@@ -100,6 +107,7 @@ final class LyricHighlightRow {
     'ar': artist,
     'al': album,
     'ai': albumId,
+    if (artistId.isNotEmpty) 'ri': artistId,
     'c': coverArtId,
     'd': durationMs,
     'x': text,
@@ -122,6 +130,7 @@ final class LyricHighlightRow {
       artist: (json['ar'] as String?) ?? '',
       album: (json['al'] as String?) ?? '',
       albumId: (json['ai'] as String?) ?? '',
+      artistId: (json['ri'] as String?) ?? '',
       coverArtId: json['c'] as String?,
       durationMs: d is num ? d.toInt() : 0,
       text: json['x'] as String?,
@@ -141,6 +150,7 @@ final class LyricHighlightRow {
       other.artist == artist &&
       other.album == album &&
       other.albumId == albumId &&
+      other.artistId == artistId &&
       other.coverArtId == coverArtId &&
       other.durationMs == durationMs &&
       other.text == text &&
@@ -157,6 +167,7 @@ final class LyricHighlightRow {
     artist,
     album,
     albumId,
+    artistId,
     coverArtId,
     durationMs,
     text,
