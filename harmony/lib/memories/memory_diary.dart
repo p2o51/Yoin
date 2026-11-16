@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../data/model/model.dart';
+import '../neodb/neodb_lines.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/app_messages.dart';
 import '../theme/motion.dart';
@@ -60,7 +61,12 @@ class MemoryDiary extends StatelessWidget {
     required this.onSaveReview,
     this.spread,
     this.titleEditing,
+    this.neoDb = false,
   });
+
+  /// The foot carries NeoDB's line and "What others say" (needs a ProviderScope;
+  /// previews and fixtures leave it out, as Android's showcase host does).
+  final bool neoDb;
 
   /// The deck's title editor: a written title heads the diary and opens on a tap.
   final MemoryTitleEditing? titleEditing;
@@ -243,6 +249,7 @@ class MemoryDiary extends StatelessWidget {
           interactive: interactive,
           onOpenAlbum: onOpenAlbum,
           showGo: spread == null,
+          neoDb: neoDb,
         ),
       ),
     ];
@@ -934,7 +941,11 @@ class _DiaryFoot extends StatelessWidget {
     required this.interactive,
     required this.onOpenAlbum,
     this.showGo = true,
+    this.neoDb = false,
   });
+
+  /// NeoDB's state and "What others say", under Go to album.
+  final bool neoDb;
 
   final MemoryEntry memory;
   final MemoryPaletteTones tones;
@@ -1007,6 +1018,18 @@ class _DiaryFoot extends StatelessWidget {
                 onColor: tones.onButton,
                 onTap: onOpenAlbum,
               ),
+            ),
+          ),
+        // NeoDB's state, and beside it "What others say" (owner, 2026-11-09: signed in or not).
+        if (neoDb)
+          Padding(
+            padding: EdgeInsets.only(top: showGo || !heard ? NeoDbTokens.diaryLineTop : MemoriesTokens.diaryGoTop),
+            child: MemoryDiaryNeoDbRow(
+              albumId: memory.albumId,
+              albumName: memory.albumName,
+              artistName: memory.artistName,
+              coverArt: memory.coverArt,
+              interactive: interactive,
             ),
           ),
       ],

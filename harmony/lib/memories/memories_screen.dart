@@ -850,6 +850,7 @@ class _MemoryPage extends ConsumerWidget {
                                   onOpenAlbum: onOpenAlbum,
                                   onSaveReview: onSaveReview,
                                   titleEditing: titleEditing,
+                                  neoDb: true,
                                 ),
                               ),
                             ),
@@ -979,6 +980,7 @@ class _MemoryPage extends ConsumerWidget {
                     onPlayNote: onPlayNote,
                     onOpenAlbum: onOpenAlbum,
                     onSaveReview: onSaveReview,
+                    neoDb: true,
                     spread: MemorySpreadRight(
                       coverTop: fit.coverTop,
                       goBottom: goBottom,

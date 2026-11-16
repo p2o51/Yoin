@@ -73,6 +73,15 @@ final class CloudSyncPane extends SettingsPane {
   int get hashCode => 6;
 }
 
+/// Settings › Sync and storage › NeoDB (SettingsFeature.NeoDb).
+final class NeoDbPane extends SettingsPane {
+  const NeoDbPane();
+  @override
+  bool operator ==(Object other) => other is NeoDbPane;
+  @override
+  int get hashCode => 8;
+}
+
 /// Settings › AI features (the Gemini key, tier and answer language).
 final class AiPane extends SettingsPane {
   const AiPane();

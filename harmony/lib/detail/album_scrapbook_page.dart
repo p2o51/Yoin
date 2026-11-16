@@ -385,6 +385,7 @@ class _Opening extends ConsumerWidget {
           albumName: albumTitleWithoutVersion(album.name, album.version),
           palette: palette,
           focusReview: focusReview,
+          coverUrl: url,
         );
         Widget reviewPiece() => review == null
             ? _BlankReview(tilt: piece.reviewTilt, onTap: () => openSheet(focusReview: true))

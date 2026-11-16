@@ -243,6 +243,10 @@ class AlbumRatingSyncAdapter extends SyncAdapter {
         review: existing?.review,
         updatedAt: existing == null ? versionTs : _max(existing.updatedAt, versionTs),
         reviewUpdatedAt: existing?.reviewUpdatedAt,
+        // NeoDB's push state is the device's own (Android SyncDomainDao leaves it alone).
+        ratingNeedsSync: existing?.ratingNeedsSync ?? false,
+        reviewNeedsSync: existing?.reviewNeedsSync ?? false,
+        neoDbReviewUuid: existing?.neoDbReviewUuid,
       );
       return Applied(hashOrNull(_projection(rawId, provider, value)));
     });
@@ -269,6 +273,9 @@ class AlbumRatingSyncAdapter extends SyncAdapter {
         review: current.review,
         updatedAt: current.updatedAt,
         reviewUpdatedAt: current.reviewUpdatedAt,
+        ratingNeedsSync: current.ratingNeedsSync,
+        reviewNeedsSync: current.reviewNeedsSync,
+        neoDbReviewUuid: current.neoDbReviewUuid,
       );
       return Applied(hashOrNull(_projection(rawId, provider, 0)));
     });
@@ -360,6 +367,9 @@ class AlbumReviewSyncAdapter extends SyncAdapter {
         review: text,
         updatedAt: existing == null ? versionTs : _max(existing.updatedAt, versionTs),
         reviewUpdatedAt: reviewUpdatedAt,
+        ratingNeedsSync: existing?.ratingNeedsSync ?? false,
+        reviewNeedsSync: existing?.reviewNeedsSync ?? false,
+        neoDbReviewUuid: existing?.neoDbReviewUuid,
       );
       return Applied(hashOrNull(_projection(rawId, provider, text)));
     });
@@ -380,7 +390,14 @@ class AlbumReviewSyncAdapter extends SyncAdapter {
         rows.albumRatings.remove(id);
         return const Applied(null);
       }
-      rows.albumRatings[id] = AlbumRatingRow(albumId: id, rating: current.rating, updatedAt: current.updatedAt);
+      rows.albumRatings[id] = AlbumRatingRow(
+        albumId: id,
+        rating: current.rating,
+        updatedAt: current.updatedAt,
+        ratingNeedsSync: current.ratingNeedsSync,
+        reviewNeedsSync: current.reviewNeedsSync,
+        neoDbReviewUuid: current.neoDbReviewUuid,
+      );
       return Applied(hashOrNull(_projection(rawId, provider, null)));
     });
   }

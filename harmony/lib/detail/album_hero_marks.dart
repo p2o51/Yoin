@@ -506,6 +506,7 @@ class AlbumHeroMetaRow extends StatelessWidget {
               albumName: albumName,
               palette: palette,
               focusReview: review,
+              coverUrl: url,
             );
             return Row(
               children: [

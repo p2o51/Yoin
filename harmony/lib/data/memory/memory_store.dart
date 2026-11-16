@@ -20,6 +20,11 @@ import '../model/model.dart';
 ///
 /// [rating] is 0.0–10.0; 0 means "no album score" (Android stores 0f the
 /// same way and reads `rating > 0f` as set).
+///
+/// [ratingNeedsSync] / [reviewNeedsSync] are NeoDB's dirty flags (a Mark and
+/// a Review are two resources, so either half can wait alone): a local edit
+/// sets them, a NeoDB push that landed clears them. [neoDbReviewUuid] is the
+/// remote review's id when NeoDB gave one. Cloud sync never touches the three.
 @immutable
 final class AlbumRatingRow {
   const AlbumRatingRow({
@@ -28,6 +33,9 @@ final class AlbumRatingRow {
     this.review,
     required this.updatedAt,
     this.reviewUpdatedAt,
+    this.ratingNeedsSync = false,
+    this.reviewNeedsSync = false,
+    this.neoDbReviewUuid,
   });
 
   final MediaId albumId;
@@ -40,13 +48,38 @@ final class AlbumRatingRow {
   /// When the review text was last written; null without a review.
   final int? reviewUpdatedAt;
 
+  final bool ratingNeedsSync;
+  final bool reviewNeedsSync;
+  final String? neoDbReviewUuid;
+
   bool get hasScore => rating > 0;
   bool get hasReview => review != null && review!.trim().isNotEmpty;
 
   /// A row with neither a score nor a review is no write at all.
   bool get isEmpty => !hasScore && !hasReview;
 
-  Map<String, Object?> toJson() => {'r': rating, 'v': review, 'u': updatedAt, 'vu': reviewUpdatedAt};
+  Map<String, Object?> toJson() => {
+    'r': rating,
+    'v': review,
+    'u': updatedAt,
+    'vu': reviewUpdatedAt,
+    if (ratingNeedsSync) 'rn': true,
+    if (reviewNeedsSync) 'vn': true,
+    'nu': ?neoDbReviewUuid,
+  };
+
+  /// This row with NeoDB's three fields replaced (the rest kept).
+  AlbumRatingRow withNeoDb({bool? ratingNeedsSync, bool? reviewNeedsSync, String? Function()? neoDbReviewUuid}) =>
+      AlbumRatingRow(
+        albumId: albumId,
+        rating: rating,
+        review: review,
+        updatedAt: updatedAt,
+        reviewUpdatedAt: reviewUpdatedAt,
+        ratingNeedsSync: ratingNeedsSync ?? this.ratingNeedsSync,
+        reviewNeedsSync: reviewNeedsSync ?? this.reviewNeedsSync,
+        neoDbReviewUuid: neoDbReviewUuid == null ? this.neoDbReviewUuid : neoDbReviewUuid(),
+      );
 
   static AlbumRatingRow? fromJson(MediaId id, Object? json) {
     if (json is! Map) return null;
@@ -59,6 +92,9 @@ final class AlbumRatingRow {
       review: json['v'] as String?,
       updatedAt: u is num ? u.toInt() : 0,
       reviewUpdatedAt: vu is num ? vu.toInt() : null,
+      ratingNeedsSync: json['rn'] == true,
+      reviewNeedsSync: json['vn'] == true,
+      neoDbReviewUuid: json['nu'] as String?,
     );
   }
 
@@ -69,10 +105,22 @@ final class AlbumRatingRow {
       other.rating == rating &&
       other.review == review &&
       other.updatedAt == updatedAt &&
-      other.reviewUpdatedAt == reviewUpdatedAt;
+      other.reviewUpdatedAt == reviewUpdatedAt &&
+      other.ratingNeedsSync == ratingNeedsSync &&
+      other.reviewNeedsSync == reviewNeedsSync &&
+      other.neoDbReviewUuid == neoDbReviewUuid;
 
   @override
-  int get hashCode => Object.hash(albumId, rating, review, updatedAt, reviewUpdatedAt);
+  int get hashCode => Object.hash(
+    albumId,
+    rating,
+    review,
+    updatedAt,
+    reviewUpdatedAt,
+    ratingNeedsSync,
+    reviewNeedsSync,
+    neoDbReviewUuid,
+  );
 }
 
 /// A note on one song, pinned to a moment (Android `song_notes`, v27
@@ -419,6 +467,13 @@ final class MemoryStore {
 
   Future<AlbumRatingRow?> albumRating(MediaId albumId) async => (await albumRatings())[albumId];
 
+  /// [albumId]'s row as stored, an emptied one included (Android
+  /// AlbumRatingDao.get): a cleared score still waits for NeoDB.
+  Future<AlbumRatingRow?> albumRatingRow(MediaId albumId) async {
+    await _tail;
+    return (await _loadRatings())[albumId];
+  }
+
   /// Every note of the account, newest edit first.
   Future<List<SongNote>> songNotes() async {
     await _tail;
@@ -499,6 +554,9 @@ final class MemoryStore {
           review: old?.review,
           updatedAt: nowMs,
           reviewUpdatedAt: old?.reviewUpdatedAt,
+          ratingNeedsSync: true,
+          reviewNeedsSync: old?.reviewNeedsSync ?? false,
+          neoDbReviewUuid: old?.neoDbReviewUuid,
         );
         _putRating(rows, next);
         await _saveRatings(rows);
@@ -515,11 +573,46 @@ final class MemoryStore {
           rating: old?.rating ?? 0,
           review: text,
           updatedAt: nowMs,
-          reviewUpdatedAt: text == null ? null : nowMs,
+          // The written date moves only when the words do (Android setAlbumReview).
+          reviewUpdatedAt: text == null ? null : (text == old?.review ? (old?.reviewUpdatedAt ?? nowMs) : nowMs),
+          ratingNeedsSync: old?.ratingNeedsSync ?? false,
+          reviewNeedsSync: true,
+          neoDbReviewUuid: old?.neoDbReviewUuid,
         );
         _putRating(rows, next);
         await _saveRatings(rows);
       });
+
+  /// A NeoDB push landed the score [sentRating]: its dirty flag goes only
+  /// while the row still holds that score (a score set meanwhile stays dirty
+  /// and goes with the next push). Android AlbumRatingDao.markRatingPushed.
+  Future<void> markRatingPushed(MediaId albumId, {required double sentRating}) =>
+      _write(MemoryStoreChange.albumRatings, () async {
+        final rows = await _loadRatings();
+        final row = rows[albumId];
+        if (row == null || row.rating != sentRating || !row.ratingNeedsSync) return;
+        rows[albumId] = row.withNeoDb(ratingNeedsSync: false);
+        await _saveRatings(rows);
+      });
+
+  /// A NeoDB push landed the words [sentReview] (null: the clear): the flag
+  /// goes and [reviewUuid] is kept only while the row still holds them.
+  Future<void> markReviewPushed(MediaId albumId, {required String? sentReview, String? reviewUuid}) =>
+      _write(MemoryStoreChange.albumRatings, () async {
+        final rows = await _loadRatings();
+        final row = rows[albumId];
+        if (row == null || row.review != sentReview) return;
+        if (!row.reviewNeedsSync && row.neoDbReviewUuid == reviewUuid) return;
+        rows[albumId] = row.withNeoDb(reviewNeedsSync: false, neoDbReviewUuid: () => reviewUuid);
+        await _saveRatings(rows);
+      });
+
+  /// Writes [row] as pulled from NeoDB (NeoDBSyncService.pullAlbum's upsert).
+  Future<void> putPulledAlbumRating(AlbumRatingRow row) => _write(MemoryStoreChange.albumRatings, () async {
+    final rows = await _loadRatings();
+    _putRating(rows, row);
+    await _saveRatings(rows);
+  });
 
   /// Adds [note], or replaces the note with its id. A blank note is deleted.
   Future<void> putSongNote(SongNote note) => _write(MemoryStoreChange.songNotes, () async {

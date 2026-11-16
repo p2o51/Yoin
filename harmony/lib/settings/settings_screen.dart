@@ -8,6 +8,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../landing/landing_host.dart';
 import '../landing/landing_strings.dart';
+import '../neodb/neodb_settings_screen.dart';
 import '../offline/downloads_screen.dart';
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
@@ -46,6 +47,16 @@ export 'settings_pane.dart';
 /// "Settings" and Library's settings button all come here.
 Future<void> openSettings(BuildContext context) => Navigator.of(context).push(
   YoinPushRoute<void>(settings: const RouteSettings(name: settingsRouteName), builder: (_) => const SettingsScreen()),
+);
+
+/// Opens Settings with [pane]'s page on top (Android SettingsActivity's
+/// focusSection, e.g. "neodb" from the album sheet's "Sign in to sync"):
+/// Settings stays underneath, so back lands in Settings.
+Future<void> openSettingsAt(BuildContext context, SettingsPane pane) => Navigator.of(context, rootNavigator: true).push(
+  YoinPushRoute<void>(
+    settings: const RouteSettings(name: settingsRouteName),
+    builder: (_) => SettingsScreen(initialPane: pane),
+  ),
 );
 
 /// Settings' route name (Ctrl+, doesn't stack a second Settings on the first).
@@ -88,7 +99,10 @@ Future<void> openAddAccount(BuildContext anchorContext) async {
 /// the list on the left (a third), the page it opens on the right, and an
 /// empty seal until something is picked.
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.initialPane});
+
+  /// A page to open over (or, wide, beside) the list at once ([openSettingsAt]).
+  final SettingsPane? initialPane;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -103,6 +117,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// button (maybePop) and system back both return to [SettingsPane.parent]
   /// instead of leaving Settings. Shared infrastructure, no PopScope.
   late final ChromeBackEntry _paneBack = ChromeBackEntry(() => scheduleMicrotask(_paneUp));
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialPane;
+    if (initial != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _open(initial);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -147,6 +172,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const LicensesScreen()));
       case CloudSyncPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const CloudSyncScreen()));
+      case NeoDbPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const NeoDbSettingsScreen()));
       case StreamQualityPane(:final profileId):
         navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
       case DownloadsPane():
@@ -261,6 +288,7 @@ class _ListDetail extends StatelessWidget {
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
       CloudSyncPane() => const CloudSyncScreen(inPane: true),
+      NeoDbPane() => const NeoDbSettingsScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
       DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
       VolumeLevelingPane(:final profileId) => VolumeLevelingScreen(key: ValueKey(('leveling', profileId)), inPane: true),
@@ -381,8 +409,8 @@ class _FeaturesGroup extends StatelessWidget {
   );
 }
 
-/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage).
-/// HarmonyOS has Cloud sync of that group (no NeoDB, playlist backups or cache row yet).
+/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage):
+/// Cloud sync, then NeoDB. (No playlist backups or cache row on HarmonyOS yet.)
 class _SyncStorageGroup extends StatelessWidget {
   const _SyncStorageGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -393,8 +421,19 @@ class _SyncStorageGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SettingsGroup(
     title: CloudSyncStrings.of(context).sectionSyncStorage,
-    selected: {if (open is CloudSyncPane) 0},
-    children: [CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane()))],
+    selected: {
+      if (open is CloudSyncPane) 0,
+      if (open is NeoDbPane) 1,
+    },
+    children: [
+      CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane())),
+      NeoDbSettingsRow(
+        trailing: listDetail
+            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+            : null,
+        onOpen: () => onOpen(const NeoDbPane()),
+      ),
+    ],
   );
 }
 

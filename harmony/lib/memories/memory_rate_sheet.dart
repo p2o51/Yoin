@@ -4,7 +4,9 @@
 /// the cover's colours) — the emblem follows the score live, lifts 6% and
 /// leans 1.4°/point while held, and stamps once on release; then the one
 /// review field: a 56 dp capsule at rest, a 20 dp card while written,
-/// growing with its words. No Save: closing the sheet saves.
+/// growing with its words. No Save: closing the sheet saves, then hands the
+/// album to NeoDB when signed in and something changed (owner R3); NeoDB's
+/// state is the sheet's quiet last line.
 library;
 
 import 'package:flutter/material.dart';
@@ -13,6 +15,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../detail/detail_cache.dart';
+import '../neodb/neodb_lines.dart';
+import '../neodb/neodb_providers.dart';
+import '../neodb/neodb_strings.dart';
+import '../neodb/neodb_voices_screen.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
@@ -45,6 +52,7 @@ Future<void> showAlbumRateSheet(
   required String albumName,
   required MemoryPalette palette,
   bool focusReview = false,
+  String? coverUrl,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -53,7 +61,13 @@ Future<void> showAlbumRateSheet(
     showDragHandle: true,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
     builder: (_) => ChromeBarSuppression(
-      child: AlbumRateSheet(albumId: albumId, albumName: albumName, palette: palette, focusReview: focusReview),
+      child: AlbumRateSheet(
+        albumId: albumId,
+        albumName: albumName,
+        palette: palette,
+        focusReview: focusReview,
+        coverUrl: coverUrl,
+      ),
     ),
   );
 }
@@ -65,12 +79,16 @@ class AlbumRateSheet extends ConsumerStatefulWidget {
     required this.albumName,
     required this.palette,
     this.focusReview = false,
+    this.coverUrl,
   });
 
   final MediaId albumId;
   final String albumName;
   final MemoryPalette palette;
   final bool focusReview;
+
+  /// The cover, for "What others say" (the page wears the album's colours).
+  final String? coverUrl;
 
   @override
   ConsumerState<AlbumRateSheet> createState() => _AlbumRateSheetState();
@@ -97,10 +115,16 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
   /// The account's store, held from the start: closing the sheet saves after its providers may be gone.
   MemoryStore? _store;
 
+  /// NeoDB's pushes outlive the sheet (the push starts as it closes).
+  late final NeoDbPushController _neoDb = ref.read(neoDbPushProvider.notifier);
+  String _neoDbFailed = const NeoDbStrings.forLanguage(chinese: false).albumSyncFailed;
+
   @override
   void initState() {
     super.initState();
     _initialReview = _text.text;
+    // Read now: ref can't be used once the sheet is disposed.
+    _neoDb;
     ref.read(memoryStoreProvider.future).then((store) => _store = store);
     _focus.addListener(_syncCorner);
     _text.addListener(() {
@@ -116,10 +140,15 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
 
   @override
   void dispose() {
-    // Closing the sheet saves the words.
-    if (_text.text.trim() != _initialReview.trim()) {
-      _store?.setAlbumReview(widget.albumId, _text.text, nowMs: DateTime.now().millisecondsSinceEpoch);
-    }
+    // Closing the sheet saves the words, then hands the album to NeoDB (a no-op signed out or unchanged).
+    final store = _store;
+    final save = _text.text.trim() != _initialReview.trim() && store != null
+        ? store.setAlbumReview(widget.albumId, _text.text, nowMs: DateTime.now().millisecondsSinceEpoch)
+        : Future<void>.value();
+    final neoDb = _neoDb;
+    final albumId = widget.albumId;
+    final failed = _neoDbFailed;
+    save.then((_) => neoDb.push(albumId, failureMessage: failed), onError: (Object _) {});
     _text.dispose();
     _focus.dispose();
     _award.dispose();
@@ -133,6 +162,7 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
     final colors = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final strings = _RateStrings(Localizations.maybeLocaleOf(context)?.languageCode == 'zh');
+    _neoDbFailed = NeoDbStrings.of(context).albumSyncFailed;
     final score = ref.watch(albumScoreProvider(widget.albumId));
     // The stored review lands after the sheet opens: seed the field until the user types.
     final stored = score.review ?? '';
@@ -263,6 +293,23 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
                     ),
                   ],
                 ],
+              ),
+            ),
+            // The line stays for "What others say" even with no state to say (owner, 2026-11-09).
+            Padding(
+              padding: const EdgeInsets.only(top: 20),
+              child: AlbumNeoDbLine(
+                albumId: widget.albumId,
+                unsaved: _edited && _text.text.trim() != _initialReview.trim(),
+                onVoices: () {
+                  final album = ref.read(detailCacheProvider).cachedAlbum(widget.albumId);
+                  openNeoDbVoices(
+                    context,
+                    albumName: album?.name ?? widget.albumName,
+                    artistName: album?.artist,
+                    coverUrl: widget.coverUrl,
+                  );
+                },
               ),
             ),
           ],
