@@ -671,11 +671,13 @@ private fun YoinShell(
     // Only the plain feed under a bottom-bar form: the edge capsules stay, and
     // edit mode, Memories, Now Playing and the detail column all keep the bar.
     val barScrollHide = rememberShellBarScrollHide()
-    // Anything opening over the shell (a detail page above all) brings the
-    // bar back as it goes: the page's own bar stands where this one rests,
-    // and its predictive back hands the bar back to this one, so the bar has
-    // to be there under the page when the page leaves.
-    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { barScrollHide.show() }
+    // A page opened over the shell (a detail page above all) hands its bar
+    // back to this one when it leaves, predictive back included, so the bar
+    // has to be there under it. The page's own bar rises into place on open
+    // (DETAIL_EXTRA_BAR_RISES); this one comes back unseen once the page
+    // covers the window, or rises on return if the page left before that.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { barScrollHide.showUnseen() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { barScrollHide.show() }
     LaunchedEffect(barScrollHide) {
         snapshotFlow { barScrollHide.fraction >= 0.5f }
             .collect { experienceSessionStore.shellBarScrolledAway = it }

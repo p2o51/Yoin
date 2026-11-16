@@ -84,6 +84,12 @@ class ShellBarScrollHide internal constructor(
     /** Brings the bar back, e.g. when Home is shown again. */
     fun show() = settleTo(0f)
 
+    /** Puts the bar back with no motion, for when nothing of this window is on screen. */
+    fun showUnseen() {
+        settleJob?.cancel()
+        fraction = 0f
+    }
+
     private fun settleTo(target: Float) {
         if (fraction == target) return
         settleJob?.cancel()
