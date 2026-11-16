@@ -669,11 +669,15 @@ private fun YoinShell(
     // Scrolling the Home feed down takes the bottom bar out; up brings it back.
     // Only the plain feed under a bottom-bar form: the edge capsules stay, and
     // edit mode, Memories, Now Playing and the detail column all keep the bar.
+    // Opening a detail page brings the bar back too: it morphs into that
+    // page's twin bar, and the page's predictive back hands the bar back to
+    // this one, so it has to be there under the page (and stays there after).
     val barScrollHide = rememberShellBarScrollHide()
     val barScrollHideEnabled = selectedSection == YoinSection.HOME &&
         homeSurface == HomeSurface.Feed &&
         !showNowPlaying &&
         !paneHasEntries &&
+        !experienceSession.detailChromeActive &&
         chromeForm != ShellChromeForm.EdgeSplit
     LaunchedEffect(barScrollHide, barScrollHideEnabled) {
         barScrollHide.enabled = barScrollHideEnabled
