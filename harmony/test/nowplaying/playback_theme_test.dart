@@ -57,7 +57,9 @@ void main() {
     expect(identical(playbackThemeData(null, Brightness.dark), playbackThemeData(null, Brightness.dark)), isTrue);
   });
 
-  test('should_followCoverThenClear_when_queueEmpties', () async {
+  // On the test's clock (testWidgets' fake time), not the machine's: the clear's timer fires when the test
+  // says the delay has passed, however loaded a full parallel run is.
+  testWidgets('should_followCoverThenClear_when_queueEmpties', (tester) async {
     final tracks = nowPlayingTracks(1);
     final controller = NowPlayingFakeController(playingState(tracks));
     final loader = NowPlayingFakeColorLoader(
@@ -71,20 +73,20 @@ void main() {
     );
     addTearDown(c.dispose);
     c.listen(playbackThemeProvider, (_, _) {});
-    await c.read(activeSourceProvider.future);
-    for (var i = 0; i < 5; i++) {
-      await Future<void>.delayed(Duration.zero);
+    for (var i = 0; i < 10 && c.read(playbackThemeProvider).seed == null; i++) {
+      await tester.pump();
     }
     expect(loader.requests.single, contains('c0'));
     expect(c.read(playbackThemeProvider).seed, const Color(0xFF00AA55));
 
     controller.emit(NowPlayingState.idle);
-    await Future<void>.delayed(playbackThemeClearDelay);
-    // Real timers: under a loaded full run the clear can land a little late.
-    final deadline = DateTime.now().add(const Duration(seconds: 2));
-    while (c.read(playbackThemeProvider).seed != null && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
+    await tester.pump(playbackThemeClearDelay - const Duration(milliseconds: 20));
+    expect(
+      c.read(playbackThemeProvider).seed,
+      const Color(0xFF00AA55),
+      reason: 'a skip between songs keeps the colours',
+    );
+    await tester.pump(const Duration(milliseconds: 40));
     expect(c.read(playbackThemeProvider).seed, isNull);
   });
 }

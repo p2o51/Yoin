@@ -39,6 +39,16 @@ void main() {
 
   int reads(String name) => source.calls.where((c) => c == name).length;
 
+  /// The background work settles and every disk write started so far has
+  /// landed: a write takes its place on the store's lock as it starts, and
+  /// [DetailCacheStore.flush] queues behind it. Real file I/O, so turns of the
+  /// event loop alone are not enough on a loaded machine.
+  Future<void> settled() async {
+    await settle();
+    await disk.flush();
+    await settle();
+  }
+
   test('should_shareOneRead_when_prefetchAndPageRace', () async {
     source.albumGate = Completer();
     final c = cache();
@@ -52,7 +62,7 @@ void main() {
 
   test('should_serveDiskWithoutNetwork_when_coldStartWithinWeek', () async {
     await cache().album(id);
-    await settle();
+    await settled();
     await disk.flush();
     // a new launch: empty memory, the server unreachable
     source.failures['getAlbum'] = const SocketException('down');
@@ -69,12 +79,12 @@ void main() {
 
   test('should_refreshInBackground_when_diskCopyPastRevalidateAge', () async {
     await cache().album(id);
-    await settle();
+    await settled();
     source.albumDetails[id] = Album(id: id, name: 'Blue (Remastered)');
     now += DetailCache.revalidateAfterMs + 1;
     final next = cache();
     expect((await next.album(id))!.name, 'Blue'); // served from disk at once
-    await settle();
+    await settled();
     expect(next.cachedAlbum(id)!.name, 'Blue (Remastered)'); // converged in the background
   });
 
@@ -84,7 +94,7 @@ void main() {
     final first = cache();
     await first.album(id);
     await first.album(id2);
-    await settle();
+    await settled();
     await disk.flush();
     now += DetailCache.revalidateAfterMs + 1;
     // As AppleMusicSource throws it: the interface's exception, Apple's refusal its cause.
@@ -93,10 +103,10 @@ void main() {
     );
     final next = cache();
     expect((await next.album(id))!.name, 'Blue');
-    await settle();
+    await settled();
     expect(reads('getAlbum'), 3); // the background refresh, refused
     expect((await next.album(id2))!.name, 'Green');
-    await settle();
+    await settled();
     expect(reads('getAlbum'), 3); // paused: no refresh sent while Apple says it's busy
   });
 
@@ -112,7 +122,7 @@ void main() {
 
   test('should_fallBackToDisk_when_playlistFetchFails', () async {
     await cache().playlist(pid);
-    await settle();
+    await settled();
     source.failures['getPlaylist'] = const SocketException('down');
     now += DetailCache.handoffMs + 1;
     expect((await cache().playlist(pid))!.name, 'Mix');
@@ -120,7 +130,7 @@ void main() {
 
   test('should_serveCopy_when_noSourceComesUp', () async {
     await cache().playlist(pid);
-    await settle();
+    await settled();
     now += DetailCache.handoffMs + 1;
     // A cold start whose account never came up: the disk copy, not an error page.
     final sourceless = DetailCache(() async => null, disk: disk, profileId: () async => 'p1', clock: () => now);
@@ -136,7 +146,7 @@ void main() {
     c.evict('album', id);
     source.albumGate!.complete();
     await load;
-    await settle();
+    await settled();
     expect(c.cachedAlbum(id), isNull);
     expect(await disk.readAlbum('p1', id.toString()), isNull);
   });
@@ -144,9 +154,9 @@ void main() {
   test('should_dropDiskCopy_when_evicted', () async {
     final c = cache();
     await c.album(id);
-    await settle();
+    await settled();
     c.evict('album', id);
-    await settle();
+    await settled();
     expect(await disk.readAlbum('p1', id.toString()), isNull);
     await c.album(id);
     expect(reads('getAlbum'), 2);
@@ -156,7 +166,7 @@ void main() {
     var profile = 'p1';
     final c = cache(profileId: () async => profile);
     await c.album(id);
-    await settle();
+    await settled();
     c.clear();
     profile = 'p2';
     source.albumDetails[id] = Album(id: id, name: 'Other account');
