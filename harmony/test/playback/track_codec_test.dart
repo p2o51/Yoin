@@ -28,6 +28,24 @@ void main() {
     expect(back.isStarred, isTrue);
   });
 
+  test('should_keepReplayGainAndFormat_when_encoded', () {
+    final t = Track(
+      id: MediaId.subsonic('s1'),
+      audioFormat: const AudioFormat(suffix: 'flac', bitDepth: 24, sampleRateHz: 96000, channels: 6, bitRateKbps: 4000),
+      replayGain: const ReplayGain(trackGainDb: -9.6, albumGainDb: -8.1, trackPeak: 0.9886, albumPeak: 0.99),
+    );
+    final back = TrackCodec.decode(TrackCodec.encode(t))!;
+    expect(back.replayGain, t.replayGain);
+    expect(back.audioFormat!.suffix, 'flac');
+    expect(back.audioFormat!.bitDepth, 24);
+    expect(back.audioFormat!.sampleRateHz, 96000);
+    expect(back.audioFormat!.channels, 6);
+    expect(back.audioFormat!.bitRateKbps, 4000);
+    final plain = TrackCodec.decode(TrackCodec.encode(Track(id: MediaId.subsonic('s2'))))!;
+    expect(plain.replayGain, isNull);
+    expect(plain.audioFormat, isNull);
+  });
+
   test('should_buildSlimTrack_when_itemHasNoExtra', () {
     final t = TrackCodec.fromItem(const EngineItem(id: 'subsonic:9', uri: '', title: 'Nine', artist: 'B', durationMs: 61500))!;
     expect(t.id, MediaId.subsonic('9'));

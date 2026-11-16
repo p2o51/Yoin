@@ -186,6 +186,9 @@ final class UnsupportedPlaybackEngine implements QueuePlaybackEngine {
   Future<void> setFavorite(String id, bool? favorite) async {}
 
   @override
+  Future<void> setGains(Map<String, double> gainsByEntryId) async {}
+
+  @override
   Future<EngineSnapshot?> snapshot() async => null;
 }
 

@@ -3,8 +3,10 @@
 library;
 
 import 'media_id.dart';
+import 'replay_gain.dart';
 
 export 'media_id.dart';
+export 'replay_gain.dart';
 
 /// Where artwork comes from: a full URL, or an id the active source resolves
 /// (MusicSource.resolveCoverUrl).
@@ -43,7 +45,9 @@ final class CoverSourceRelative extends CoverRef {
   int get hashCode => coverArtId.hashCode;
 }
 
-/// Audio facts a source can report (data/model/AudioFormat.kt, trimmed).
+/// Audio facts a source can report (data/model/AudioFormat.kt). A plain
+/// Subsonic server sends only the suffix and the bit rate, OpenSubsonic adds
+/// depth, rate and channels.
 final class AudioFormat {
   const AudioFormat({this.suffix, this.contentType, this.bitRateKbps, this.sampleRateHz, this.bitDepth, this.channels});
   final String? suffix;
@@ -52,6 +56,64 @@ final class AudioFormat {
   final int? sampleRateHz;
   final int? bitDepth;
   final int? channels;
+
+  /// E-AC-3 with joint object coding: Dolby Atmos.
+  static const codecEac3Joc = 'eac3-joc';
+
+  /// The lower-case codec ("flac", "mp3", "opus", "aac", "alac",
+  /// "eac3-joc"): the suffix's, else the content type's; null when neither
+  /// names one.
+  String? get codec => codecForSuffix(suffix, bitDepth: bitDepth) ?? codecForMime(contentType);
+
+  bool get isLossless => _losslessCodecs.contains(codec);
+
+  /// Dolby Atmos in E-AC-3. Its channel count is the base layer's, not the
+  /// content's layout, so it gets no channel tag.
+  bool get isDolbyAtmos => codec == codecEac3Joc;
+
+  static const _losslessCodecs = {'flac', 'alac', 'wav', 'aiff', 'ape', 'wavpack', 'dsd'};
+
+  /// The codec a file's [suffix] holds; [bitDepth] tells an ALAC `.m4a` from
+  /// an AAC one (only lossless files have a depth). Null for no suffix
+  /// (AudioFormat.codecForSuffix).
+  static String? codecForSuffix(String? suffix, {int? bitDepth}) {
+    final s = suffix?.trim().toLowerCase();
+    return switch (s) {
+      null || '' => null,
+      'flac' || 'fla' => 'flac',
+      'mp3' => 'mp3',
+      'opus' => 'opus',
+      'ogg' || 'oga' => 'vorbis',
+      'aac' || 'adts' => 'aac',
+      'm4a' || 'mp4' || 'm4b' => (bitDepth ?? 0) > 0 ? 'alac' : 'aac',
+      'alac' => 'alac',
+      'wav' || 'wave' => 'wav',
+      'aif' || 'aiff' || 'aifc' => 'aiff',
+      'ape' => 'ape',
+      'wv' => 'wavpack',
+      'dsf' || 'dff' => 'dsd',
+      'wma' => 'wma',
+      final other => other,
+    };
+  }
+
+  /// The codec a MIME type names, e.g. "audio/flac" → "flac"
+  /// (AudioFormat.codecForMime).
+  static String? codecForMime(String? mime) => switch (mime?.trim().toLowerCase()) {
+    'audio/flac' || 'audio/x-flac' => 'flac',
+    'audio/mpeg' || 'audio/mpeg-l2' || 'audio/mpeg-l1' => 'mp3',
+    'audio/opus' => 'opus',
+    'audio/vorbis' || 'audio/ogg' => 'vorbis',
+    'audio/mp4a-latm' || 'audio/aac' => 'aac',
+    'audio/alac' => 'alac',
+    'audio/raw' || 'audio/wav' || 'audio/x-wav' => 'wav',
+    'audio/ac3' => 'ac3',
+    'audio/eac3' => 'eac3',
+    'audio/eac3-joc' => codecEac3Joc,
+    // AC-4 may carry Atmos too, but the MIME type doesn't say: plain AC-4.
+    'audio/ac4' => 'ac4',
+    _ => null,
+  };
 }
 
 final class Track {
@@ -73,6 +135,7 @@ final class Track {
     this.starredAt,
     this.addedAt,
     this.audioFormat,
+    this.replayGain,
   });
 
   final MediaId id;
@@ -100,6 +163,9 @@ final class Track {
   final String? addedAt;
   final AudioFormat? audioFormat;
 
+  /// The song's ReplayGain (Subsonic only); null when the server says nothing.
+  final ReplayGain? replayGain;
+
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
   Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
         id: id,
@@ -119,6 +185,7 @@ final class Track {
         starredAt: starredAt,
         addedAt: addedAt,
         audioFormat: audioFormat,
+        replayGain: replayGain,
       );
 }
 

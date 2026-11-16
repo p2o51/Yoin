@@ -81,6 +81,7 @@ void main() {
         'durationMs': 200000,
         'entryId': null,
         'extra': null,
+        'gain': 1.0,
       });
       expect((items.last! as Map)['headers'], isEmpty);
     });
@@ -290,6 +291,22 @@ void main() {
       expect(calls[3].arguments, {'repeat': 'off'});
       expect(calls[4].arguments, {'shuffle': true});
       expect(calls[5].arguments, {'id': 'subsonic:9', 'favorite': null});
+    });
+
+    test('should_sendGainsByEntry_when_setGains', () async {
+      await ChannelPlaybackEngine().setGains({'e1': 0.5, 'e2': 1.0});
+      expect(calls.single.method, 'setGains');
+      expect(calls.single.arguments, {
+        'gains': {'e1': 0.5, 'e2': 1.0},
+      });
+    });
+
+    test('should_sendAndReadGain_when_itemCarriesOne', () async {
+      const item = EngineItem(id: 'subsonic:1', uri: 'u', title: 'One', gain: 0.42);
+      expect(item.toMap()['gain'], 0.42);
+      expect(EngineItem.fromMap({'id': 'subsonic:1', 'gain': 0.42}).gain, 0.42);
+      expect(EngineItem.fromMap({'id': 'subsonic:1', 'gain': 1}).gain, 1.0);
+      expect(EngineItem.fromMap({'id': 'subsonic:1'}).gain, 1.0, reason: 'an older host sends none');
     });
 
     test('should_parseHostQueue_when_snapshot', () async {

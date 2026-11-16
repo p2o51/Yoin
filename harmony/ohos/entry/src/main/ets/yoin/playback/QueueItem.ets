@@ -20,6 +20,11 @@ export class QueueItem {
   entryId: string | undefined = undefined;
   /** Opaque to native (the full Dart Track as JSON); echoed by getSnapshot. */
   extra: string | undefined = undefined;
+  /**
+   * Volume leveling (ReplayGain), worked out by Dart: the player's volume for this entry, 0–1. The engine sets it
+   * when the entry starts (or is swapped in gapless), so it changes with the song.
+   */
+  gain: number = 1;
 
   /** Parses one item map; returns null when the required `id`/`uri` are missing so a bad entry cannot crash the queue. */
   static fromMap(value: Any): QueueItem | null {
@@ -43,6 +48,7 @@ export class QueueItem {
     item.durationMs = readNumber(map, 'durationMs');
     item.entryId = readString(map, 'entryId');
     item.extra = readString(map, 'extra');
+    item.gain = clampGain(readNumber(map, 'gain'));
     const headers: Any = map.get('headers');
     if (headers instanceof Map) {
       (headers as Map<Any, Any>).forEach((v: Any, k: Any) => {
@@ -80,8 +86,17 @@ export class QueueItem {
     map.set('durationMs', this.durationMs ?? null);
     map.set('entryId', this.entryId ?? null);
     map.set('extra', this.extra ?? null);
+    map.set('gain', this.gain);
     return map;
   }
+}
+
+/** A gain as AVPlayer takes it: 0–1; anything missing or malformed is 1 (the file as it is). */
+export function clampGain(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, value));
 }
 
 export function readString(map: Map<Any, Any>, key: string): string | undefined {

@@ -110,13 +110,10 @@ class _SquareCell extends StatelessWidget {
               ),
             ),
             const SizedBox(height: LibraryTokens.coverToTitle),
-            Row(
-              children: [
-                Flexible(
-                  child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall),
-                ),
-                if (version != null) ...[const SizedBox(width: 4), Flexible(child: AlbumVersionTag(version!))],
-              ],
+            VersionTitleRow.orTitle(
+              name: title,
+              nameStyle: theme.textTheme.titleSmall!,
+              version: version,
             ),
             Text(
               subtitle,
@@ -234,18 +231,10 @@ class LibraryListRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
-                          ),
-                        ),
-                        if (version != null) ...[const SizedBox(width: 4), Flexible(child: AlbumVersionTag(version!))],
-                      ],
+                    VersionTitleRow.orTitle(
+                      name: title,
+                      nameStyle: theme.textTheme.titleSmall!,
+                      version: version,
                     ),
                     if (meta.isNotEmpty) MetaLine(groups: meta),
                   ],

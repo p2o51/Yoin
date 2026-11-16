@@ -64,6 +64,7 @@ final class SubsonicMusicSource implements MusicSource {
     Capability.playlistAdd,
     Capability.playlistsWrite,
     Capability.offlineDownload,
+    Capability.replayGain,
   };
 
   @override

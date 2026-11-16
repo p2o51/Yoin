@@ -146,6 +146,10 @@ final class ChannelPlaybackEngine implements QueuePlaybackEngine {
       _methods.invokeMethod<void>('setFavorite', {'id': id, 'favorite': favorite});
 
   @override
+  Future<void> setGains(Map<String, double> gainsByEntryId) =>
+      _methods.invokeMethod<void>('setGains', {'gains': gainsByEntryId});
+
+  @override
   Future<EngineSnapshot?> snapshot() async {
     final map = await _methods.invokeMethod<Map<Object?, Object?>>('getSnapshot');
     return map == null ? null : EngineSnapshot.fromMap(map);

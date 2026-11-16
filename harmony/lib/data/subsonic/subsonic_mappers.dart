@@ -42,6 +42,12 @@ int? _int(Object? v) => switch (v) {
   _ => null,
 };
 
+double? _double(Object? v) => switch (v) {
+  final num n => n.toDouble(),
+  final String s => double.tryParse(s.trim()),
+  _ => null,
+};
+
 int? _positive(Object? v) {
   final i = _int(v);
   return i != null && i > 0 ? i : null;
@@ -89,6 +95,22 @@ Track? trackFromJson(SubsonicJson j) {
     // When the file came onto the server (Child.created, ISO-8601).
     addedAt: _text(j['created']),
     audioFormat: audioFormatFromJson(j),
+    replayGain: replayGainFromJson(_obj(j['replayGain'])),
+  );
+}
+
+/// OpenSubsonic `replayGain` (gains in dB, peaks linear, every field
+/// optional) → [ReplayGain]; null when absent, empty or all "not tagged"
+/// zeros (Android SubsonicMappers + ReplayGain.of).
+ReplayGain? replayGainFromJson(SubsonicJson? j) {
+  if (j == null) return null;
+  return ReplayGain.of(
+    trackGainDb: _double(j['trackGain']),
+    albumGainDb: _double(j['albumGain']),
+    trackPeak: _double(j['trackPeak']),
+    albumPeak: _double(j['albumPeak']),
+    baseGainDb: _double(j['baseGain']),
+    fallbackGainDb: _double(j['fallbackGain']),
   );
 }
 

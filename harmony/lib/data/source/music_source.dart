@@ -27,6 +27,11 @@ enum Capability {
   /// Songs kept on the device for listening offline ([MusicDownloads]; Android
   /// OFFLINE_DOWNLOAD). Subsonic only: Apple Music doesn't let an app store its songs.
   offlineDownload,
+
+  /// The player decodes the service's files itself and the server reports
+  /// their ReplayGain (OpenSubsonic `replayGain`), so the account's page
+  /// offers Volume leveling. Apple Music levels the volume itself.
+  replayGain,
 }
 
 /// Thrown by a source when a call isn't supported by this provider.

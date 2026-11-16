@@ -32,6 +32,7 @@ import 'settings_view_model.dart';
 import 'stream_quality_screen.dart';
 import 'subsonic_setup_screen.dart';
 import 'tips.dart';
+import 'volume_leveling_screen.dart';
 
 export 'settings_pane.dart';
 
@@ -140,6 +141,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
       case DownloadsPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const DownloadsScreen()));
+      case VolumeLevelingPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const VolumeLevelingScreen()));
     }
   }
 
@@ -152,8 +155,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // An account that went away takes its page with it.
     var pane = wide ? _pane : null;
     final paneProfile = switch (pane) {
-      AccountPane(:final profileId) || StreamQualityPane(:final profileId) || DownloadsPane(:final profileId) =>
-        profileId,
+      AccountPane(:final profileId) ||
+      StreamQualityPane(:final profileId) ||
+      DownloadsPane(:final profileId) ||
+      VolumeLevelingPane(:final profileId) => profileId,
       _ => null,
     };
     if (paneProfile != null && state is SettingsContent && !state.accounts.any((a) => a.id == paneProfile)) {
@@ -241,6 +246,7 @@ class _ListDetail extends StatelessWidget {
       LicensesPane() => const LicensesScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
       DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
+      VolumeLevelingPane(:final profileId) => VolumeLevelingScreen(key: ValueKey(('leveling', profileId)), inPane: true),
     };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
