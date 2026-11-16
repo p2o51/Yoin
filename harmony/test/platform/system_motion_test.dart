@@ -9,9 +9,17 @@ import 'package:yoin/ui/component/system_reduce_motion_scope.dart';
 
 /// A host the test drives: each [emit] is a change the system reports.
 final class _FakeMotionHost implements SystemMotionHost {
+  _FakeMotionHost([this.current = SystemMotionSettings.normal]);
+
   final _controller = StreamController<SystemMotionSettings>.broadcast();
 
-  void emit(SystemMotionSettings settings) => _controller.add(settings);
+  @override
+  SystemMotionSettings current;
+
+  void emit(SystemMotionSettings settings) => _controller.add(current = settings);
+
+  @override
+  Future<SystemMotionSettings> read() async => current;
 
   @override
   Stream<SystemMotionSettings> watch() => _controller.stream;
@@ -54,6 +62,10 @@ void main() {
       expect(const SystemMotionSettings(animationReduce: true, animatorDurationScale: 0).reducesMotion, isTrue);
       expect(SystemMotionSettings.normal.reducesMotion, isFalse);
     });
+
+    test('should_reduceMotion_when_deviceSavesPower', () {
+      expect(const SystemMotionSettings(powerSave: true).reducesMotion, isTrue);
+    });
   });
 
   group('fromMap', () {
@@ -61,12 +73,13 @@ void main() {
       final settings = SystemMotionSettings.fromMap({'animationReduce': true, 'animatorDurationScale': 0});
       expect(settings, const SystemMotionSettings(animationReduce: true, animatorDurationScale: 0));
       expect(SystemMotionSettings.fromMap({'animatorDurationScale': 1.5}).animatorDurationScale, 1.5);
+      expect(SystemMotionSettings.fromMap({'powerSave': true}), const SystemMotionSettings(powerSave: true));
     });
 
     test('should_useSystemDefaults_when_valuesAreMissingOrUnreadable', () {
       expect(SystemMotionSettings.fromMap(const {}), SystemMotionSettings.normal);
       expect(
-        SystemMotionSettings.fromMap({'animationReduce': 'yes', 'animatorDurationScale': -1}),
+        SystemMotionSettings.fromMap({'animationReduce': 'yes', 'animatorDurationScale': -1, 'powerSave': 1}),
         SystemMotionSettings.normal,
       );
       expect(SystemMotionSettings.fromMap({'animatorDurationScale': double.nan}), SystemMotionSettings.normal);
@@ -134,6 +147,19 @@ void main() {
       final host = ChannelSystemMotionHost();
       final first = await host.watch().first.timeout(const Duration(seconds: 1));
       expect(first, SystemMotionSettings.normal);
+      expect(await host.read(), SystemMotionSettings.normal);
+    });
+
+    test('should_holdReadingAsCurrent_when_readBeforeAnyoneListens', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async => {'animationReduce': true});
+      final host = ChannelSystemMotionHost();
+      expect(host.current, SystemMotionSettings.normal);
+      // main.dart's read before runApp.
+      expect((await host.read()).reducesMotion, isTrue);
+      expect(host.current.reducesMotion, isTrue);
+      // The first listener (the app root) gets it at once.
+      final first = await host.watch().first;
+      expect(first.reducesMotion, isTrue);
     });
   });
 
@@ -175,6 +201,19 @@ void main() {
       // Slowed animations are still animations.
       await report(const SystemMotionSettings(animatorDurationScale: 5));
       expect(seen.last, isFalse);
+    });
+
+    testWidgets('should_disableAnimationsOnFirstFrame_when_systemReducedMotionAtLaunch', (tester) async {
+      final host = _FakeMotionHost(const SystemMotionSettings(animationReduce: true));
+      final seen = <bool>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [systemMotionHostProvider.overrideWithValue(host)],
+          child: SystemReduceMotionScope(child: _Probe(seen)),
+        ),
+      );
+      // No full-motion frame first: decisions made once on the first frame (Home's intro) already see it.
+      expect(seen, [true]);
     });
 
     testWidgets('should_keepPlatformFlag_when_systemSettingsAskForNothing', (tester) async {

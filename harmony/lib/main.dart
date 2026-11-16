@@ -18,6 +18,7 @@ import 'data/subsonic/subsonic_music_source.dart';
 import 'landing/landing_host.dart';
 import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
+import 'platform/motion/system_motion.dart';
 import 'platform/posture/display_posture.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
@@ -36,7 +37,7 @@ import 'ui/component/artwork_image.dart';
 import 'ui/component/artwork_retry.dart';
 import 'ui/component/system_reduce_motion_scope.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Edge to edge: content runs under the status and navigation bars.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -54,6 +55,12 @@ void main() {
     CoverDiskCache(directory: platform.appFiles.cacheDirectory, freeBytes: platform.appFiles.cacheFreeBytes),
   );
   ArtworkRetryWatcher.start(platform.networkBearer);
+  // Reduce motion is known before the first frame, so a cold start under 减弱动画 or power saving skips
+  // Home's intro bloom (Android reads it synchronously); a plugin that never answers can't hold the launch.
+  await platform.systemMotion.read().timeout(
+    systemMotionFirstReadTimeout,
+    onTimeout: () => SystemMotionSettings.normal,
+  );
   runApp(
     ProviderScope(
       overrides: [

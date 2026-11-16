@@ -41,8 +41,9 @@ how they map onto Flutter + ArkTS. Toolchain, build and install commands: `READM
   spatial springs for position/size, effects springs for colour/alpha. No `Duration` + `Curve`
   tweens for navigation or surfaces. Retarget from current value and velocity, never restart.
 - Honour reduced motion (`MediaQuery.disableAnimationsOf`): fade in place instead of moving. The app root
-  raises it while the system asks for less motion (HarmonyOS 减弱动画 or animations off: `yoin/motion`,
-  `SystemReduceMotionScope`), so read it there; never read the platform's accessibility flags directly.
+  raises it while the system asks for less motion (HarmonyOS 减弱动画, animations off or power saving:
+  `yoin/motion`, `SystemReduceMotionScope`; known from the first frame), so read it there; never read the
+  platform's accessibility flags directly.
 - One primary progress value per surface; everything on that surface reads it.
 
 ## Navigation and back

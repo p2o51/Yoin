@@ -164,8 +164,9 @@ final class YoinPlatform {
   final VolumeKeyHost volumeKeys;
 
   /// The system's reduce-motion settings, folded into the app root's
-  /// `disableAnimations` (OHOS `yoin/motion` → accessibility 减弱动画 and the
-  /// animator duration scale; Windows: none, Flutter's own flag only).
+  /// `disableAnimations` (OHOS `yoin/motion` → accessibility 减弱动画, the
+  /// animator duration scale and power saving; Windows: none, Flutter's own
+  /// flag only).
   final SystemMotionHost systemMotion;
 
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.

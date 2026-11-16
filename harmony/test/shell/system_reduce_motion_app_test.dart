@@ -14,9 +14,17 @@ import '../support/fake_music_source.dart';
 import '../support/fake_playback_engine.dart';
 
 final class _FakeMotionHost implements SystemMotionHost {
+  _FakeMotionHost([this.current = SystemMotionSettings.normal]);
+
   final _controller = StreamController<SystemMotionSettings>.broadcast();
 
-  void emit(SystemMotionSettings settings) => _controller.add(settings);
+  @override
+  SystemMotionSettings current;
+
+  void emit(SystemMotionSettings settings) => _controller.add(current = settings);
+
+  @override
+  Future<SystemMotionSettings> read() async => current;
 
   @override
   Stream<SystemMotionSettings> watch() => _controller.stream;
@@ -53,5 +61,25 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(homeReduced(), isFalse);
+  });
+
+  testWidgets('should_reduceMotionFromFirstFrame_when_systemReducesMotionAtColdStart', (tester) async {
+    final store = InMemoryStore()..values[KeyValueLandingStore.key] = 'true';
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          keyValueStoreProvider.overrideWithValue(store),
+          secretStoreProvider.overrideWithValue(store),
+          musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
+          playbackEngineProvider.overrideWithValue(FakePlaybackEngine()),
+          // Power saving was on before Yoin started (main.dart read it before runApp).
+          systemMotionHostProvider.overrideWithValue(_FakeMotionHost(const SystemMotionSettings(powerSave: true))),
+        ],
+        child: const YoinApp(),
+      ),
+    );
+    // The first frame Home is on screen (localizations load first) already reduces, with nothing emitted.
+    await tester.pump();
+    expect(MediaQuery.disableAnimationsOf(tester.element(find.byType(HomeScreen))), isTrue);
   });
 }

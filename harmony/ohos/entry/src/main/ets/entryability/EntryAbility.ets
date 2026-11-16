@@ -50,7 +50,7 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinPosturePlugin())
     // The output (streaming quality's Auto), spatial audio and the volume keys while a DLNA speaker plays.
     flutterEngine.getPlugins()?.add(new YoinAudioPlugin(this.context))
-    // The system's reduce motion (减弱动画, animator duration scale 0): the app root's disableAnimations (yoin/motion).
+    // The system's reduce motion (减弱动画, animator duration scale 0, power saving): the app root's disableAnimations (yoin/motion).
     flutterEngine.getPlugins()?.add(new YoinMotionPlugin(this.context))
   }
 

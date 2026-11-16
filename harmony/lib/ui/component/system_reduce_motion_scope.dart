@@ -3,8 +3,8 @@
 /// Every reduced path in Yoin reads `MediaQuery.disableAnimationsOf` (Android's
 /// MotionProfile.AdaptiveReduced: fade in place instead of moving). The
 /// flutter_ohos embedder never sets that flag, so the app root folds in what
-/// [systemMotionProvider] reads (HarmonyOS 减弱动画, or the animator duration
-/// scale at 0) — live, so turning it on or off while Yoin runs takes effect at
+/// [systemMotionProvider] reads (HarmonyOS 减弱动画, the animator duration
+/// scale at 0, or power saving) — from the first frame and live, so turning it on or off while Yoin runs takes effect at
 /// once (Android origin/main 7b8a470f8). A flag the embedder does report
 /// (Windows, tests) still counts.
 library;
@@ -23,7 +23,7 @@ class SystemReduceMotionScope extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reduces = ref.watch(systemMotionProvider.select((s) => s.value?.reducesMotion ?? false));
+    final reduces = ref.watch(systemMotionProvider.select((s) => s.reducesMotion));
     return ReduceMotionOverride(reduce: reduces, child: child);
   }
 }
