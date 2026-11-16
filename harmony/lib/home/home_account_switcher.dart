@@ -26,6 +26,7 @@ import '../app/providers.dart';
 import '../data/profile/profile.dart';
 import '../nowplaying/haptics.dart';
 import '../settings/account_identity.dart';
+import '../settings/account_switch.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_view_model.dart';
 import '../shell/bar_suppression.dart';
@@ -52,17 +53,49 @@ final homeAccountsProvider = FutureProvider<List<AccountCard>>((ref) async {
 
 Future<ProfileCredentials?> _credentials(Future<ProfileCredentials?> read) => read.then<ProfileCredentials?>((c) => c, onError: (Object _) => null);
 
-/// Makes [profileId] the active account (Settings' switchTo): Home, Library,
-/// playback and the caches follow the active source.
-Future<bool> switchHomeAccount(WidgetRef ref, String profileId) async {
-  final container = ProviderScope.containerOf(ref.context, listen: false);
+/// The account a switch begun from Home's switcher is going to, from the tap
+/// until the switch is over (AccountSwitcherViewModel.pendingTarget): the
+/// header shows it from the tap, so it never blinks back to the old account.
+class HomeSwitchTarget extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void set(String? profileId) => state = profileId;
+}
+
+final homeSwitchTargetProvider = NotifierProvider<HomeSwitchTarget, String?>(HomeSwitchTarget.new);
+
+/// Makes [profileId] the active account (Android AccountSwitcherViewModel.switchTo):
+/// through [AccountSwitcher], so the outgoing playback is let go and the
+/// account's server asked first; Home, Library, playback and the caches then
+/// follow the active source. A switch that doesn't land leaves the old
+/// account in use and says so in the shell's snackbar. False when nothing
+/// starts (a switch begun here is still under way, or it is the account in
+/// use) or it didn't land.
+Future<bool> switchHomeAccount(WidgetRef ref, String profileId) =>
+    switchHomeAccountIn(ProviderScope.containerOf(ref.context, listen: false), profileId);
+
+Future<bool> switchHomeAccountIn(ProviderContainer container, String profileId) async {
+  final pending = container.read(homeSwitchTargetProvider.notifier);
+  if (container.read(homeSwitchTargetProvider) != null) return false;
+  // Set before anything awaits: the tap's own frame shows the target.
+  pending.set(profileId);
   try {
-    await container.read(profileRepositoryProvider).setActive(profileId);
-  } catch (_) {
-    return false;
+    if (!await switchAccountFromShell(container, profileId)) return false;
+    // Landed: hold until the cards have it in use (they re-read with the source).
+    try {
+      await container.read(homeAccountsProvider.future).timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // The header follows the cards whenever they come.
+    }
+    return true;
+  } finally {
+    try {
+      if (container.read(homeSwitchTargetProvider) == profileId) pending.set(null);
+    } on StateError {
+      // The app (a test's container) went away meanwhile.
+    }
   }
-  container.invalidate(activeSourceProvider);
-  return true;
 }
 
 /// The other accounts' cards (the active one excluded), in Settings' order.
@@ -192,8 +225,11 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     final strings = HomeStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final accounts = ref.watch(homeAccountsProvider).value ?? const <AccountCard>[];
-    final active = accounts.where((a) => a.isActive).firstOrNull;
-    final others = otherAccounts(accounts);
+    // A switch begun here shows its target from the tap on.
+    final target = ref.watch(homeSwitchTargetProvider);
+    final active =
+        accounts.where((a) => a.id == target).firstOrNull ?? accounts.where((a) => a.isActive).firstOrNull;
+    final others = [for (final a in accounts) if (a.id != active?.id) a];
     // Android labels the button with the active card's title (the username,
     // else the profile's name); the header's title is only the fallback.
     final title = active?.title ?? widget.fallbackTitle;

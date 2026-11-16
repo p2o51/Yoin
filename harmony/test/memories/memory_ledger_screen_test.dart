@@ -17,6 +17,7 @@ import 'package:yoin/memories/other_profiles.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
+import '../support/fake_music_source.dart';
 import '../support/fake_playback_engine.dart';
 
 DateTime _dayOf(int ms) {
@@ -95,6 +96,8 @@ void main() {
           keyValueStoreProvider.overrideWithValue(kv),
           playbackEngineProvider.overrideWithValue(FakePlaybackEngine()),
           activeSourceProvider.overrideWith((ref) async => null),
+          // An account switch builds and pings the target's source first.
+          musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
           memoryLedgerProvider.overrideWith(() => _FixedLedger(state ?? _state())),
           if (repo != null) profileRepositoryProvider.overrideWithValue(repo),
         ],

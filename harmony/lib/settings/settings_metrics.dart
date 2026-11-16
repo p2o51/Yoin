@@ -269,4 +269,16 @@ abstract final class SettingsMetrics {
   static const double placeholderMark = 148;
   static const double placeholderStroke = 2;
   static const double placeholderGap = 24;
+
+  // The account switch overlay (ProfileSwitchOverlay): a 280-wide card on a
+  // black 0.42 scrim, ExtraLarge corners, padding 24 × 28, rows 14 apart, its
+  // indicator / error mark 36, shadow elevation 12.
+  static const double switchCardWidth = 280;
+  static const double switchCardCorner = 28;
+  static const double switchCardPaddingH = 24;
+  static const double switchCardPaddingV = 28;
+  static const double switchCardGap = 14;
+  static const double switchCardMark = 36;
+  static const int switchCardShadowElevation = 12;
+  static const double switchScrimAlpha = 0.42;
 }

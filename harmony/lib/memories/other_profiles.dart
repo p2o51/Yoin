@@ -25,6 +25,7 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../data/profile/profile.dart';
 import '../data/source/music_source.dart';
+import '../home/home_account_switcher.dart' show switchHomeAccountIn;
 import '../playback/local_ratings.dart';
 import '../platform/storage/stores.dart';
 import '../settings/account_identity.dart';
@@ -215,21 +216,18 @@ Future<void> requestAccountSwitch(
 /// OtherProfileSourceWaitMs).
 const otherProfileSourceWait = Duration(seconds: 10);
 
-/// Makes [profileId] the account in use (as Home's switcher does), then hands
-/// [onLanded] its source once it is up and is [provider]'s. Nothing runs when
-/// the switch can't be saved or the source never comes.
+/// Makes [profileId] the account in use (as Home's switcher does: the
+/// outgoing playback let go, the account's server asked, a failure said in
+/// the shell's snackbar), then hands [onLanded] its source once it is up and
+/// is [provider]'s. Nothing runs when the switch doesn't land or the source
+/// never comes.
 Future<void> switchAccountThen(
   ProviderContainer container,
   String profileId, {
   required String provider,
   required FutureOr<void> Function(MusicSource source) onLanded,
 }) async {
-  try {
-    await container.read(profileRepositoryProvider).setActive(profileId);
-  } catch (_) {
-    return;
-  }
-  container.invalidate(activeSourceProvider);
+  if (!await switchHomeAccountIn(container, profileId)) return;
   MusicSource? source;
   try {
     source = await container.read(activeSourceProvider.future).timeout(otherProfileSourceWait);

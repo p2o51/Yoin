@@ -32,6 +32,7 @@ import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
 import '../playback/system_requests.dart';
+import '../settings/account_switch.dart';
 import 'continue_on_cursor.dart';
 import 'continue_on_pause_channel.dart';
 
@@ -743,10 +744,12 @@ final class _AppAccounts implements ContinueOnAccounts {
     return AccountKeys(binding: sync.bindingFor, credentials: repo.credentials).of(profile);
   }
 
+  /// Through [AccountSwitcher] (Android ContinueOn.takeOver → ProfileManager.switchTo):
+  /// the card tells a switch that failed, so its error is acknowledged here —
+  /// left behind, it would open Settings on a switch Settings never started.
   @override
   Future<void> switchTo(String profileId) async {
-    await _ref.read(profileRepositoryProvider).setActive(profileId);
-    _ref.invalidate(activeSourceProvider);
+    await _ref.read(accountSwitcherProvider.notifier).switchAndSettle(profileId);
   }
 
   @override

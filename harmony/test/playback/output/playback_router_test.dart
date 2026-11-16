@@ -207,6 +207,34 @@ void main() {
     expect(router.dlna.error.value, DlnaError.stopUnconfirmed);
   });
 
+  test('should_throwAndKeepTheSpeakerAndQueue_when_itWontConfirmTheStopForASwitch', () async {
+    await playLocally();
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    speakers['uuid:a']!.ignoreStop = true;
+    await expectLater(router.leaveRendererForSwitch(), throwsA(isA<SpeakerStopRefused>()));
+    // Nothing let go: the switch fails and the old account keeps playing there.
+    expect(router.route.value, isA<DlnaOutput>());
+    expect(router.dlna.error.value, DlnaError.stopUnconfirmed);
+    expect(router.dlna.player.items, isNotEmpty);
+  });
+
+  test('should_handBackToThisDevice_when_theSpeakerConfirmsTheStopForASwitch', () async {
+    await playLocally();
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    await router.leaveRendererForSwitch();
+    expect(speakers['uuid:a']!.calls.last, 'stop');
+    expect(router.route.value, const LocalOutput());
+    expect(router.dlna.connectedDevice.value, isNull);
+  });
+
+  test('should_doNothing_when_switchingWhilePlayingOnThisDevice', () async {
+    await playLocally();
+    native.calls.clear();
+    await router.leaveRendererForSwitch();
+    expect(native.calls, isEmpty);
+    expect(router.route.value, const LocalOutput());
+  });
+
   test('should_askToPlayFirst_when_nothingIsLoaded', () async {
     await expectLater(
       router.transferToDlna(fakeSpeaker('uuid:a')),

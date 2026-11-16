@@ -140,6 +140,8 @@ Future<({ProviderContainer container, InMemoryStore store, FakePlaybackEngine en
       secretStoreProvider.overrideWithValue(secrets),
       playbackEngineProvider.overrideWithValue(engine),
       activeSourceProvider.overrideWith((ref) async => withAccount ? (source ?? HomeFakeSource()) : null),
+      // An account switch builds and pings the target's source first.
+      musicSourceFactoryProvider.overrideWithValue((_) => HomeFakeSource()),
       activityLogProvider.overrideWith((ref) async => withAccount ? (log ?? MemoryActivityLog()) : null),
       homeClockProvider.overrideWithValue(() => homeTestNow),
       homeActivityDebounceProvider.overrideWithValue(const Duration(milliseconds: 5)),

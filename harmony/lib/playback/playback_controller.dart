@@ -15,6 +15,8 @@ import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
 import '../platform/window/window_controls.dart';
 import 'now_playing_state.dart';
+import 'output/output_providers.dart';
+import 'output/playback_router.dart' show SpeakerStopRefused;
 import 'play_history.dart';
 import 'play_mode.dart';
 import 'playback_context.dart';
@@ -469,6 +471,18 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
   /// Account switch / sign-out: aborts in-flight starts, stops the engine,
   /// ends the scrobble session.
+  /// Lets the outgoing account's playback go before an account switch
+  /// (Android PlaybackManager.disconnectForProfileChange): the speaker Yoin
+  /// plays on must confirm Stop first. Refused, this throws
+  /// [SpeakerStopRefused] and tears nothing down, so the switch fails and the
+  /// old account keeps its queue.
+  Future<void> disconnectForProfileChange() async {
+    _generation++;
+    final router = ref.read(playbackRouterProvider);
+    if (router != null) await router.leaveRendererForSwitch();
+    await disconnect();
+  }
+
   Future<void> disconnect() async {
     _generation++;
     _resetQueue();
