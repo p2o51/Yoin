@@ -147,6 +147,7 @@ void main() {
     field.shown = false;
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 40));
     // On the effects spring, not cut.
     expect(field.reveal, inExclusiveRange(0, 1));
     await tester.pumpAndSettle();
