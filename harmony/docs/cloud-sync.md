@@ -1,9 +1,10 @@
 # Cloud sync on HarmonyOS
 
 The Android feature (repo root `docs/cloud-sync.md`) ported to the Flutter app:
-notes, song and album ratings, album reviews, your own Memory titles, the Home
-layout and the account descriptions go into the hidden `appDataFolder` of the
-user's own Google Drive, one set of files per device, merged on every device.
+notes, song and album ratings, album reviews, your own Memory titles, Yoin's AI
+Memory titles and narration, the Home layout and the account descriptions go
+into the hidden `appDataFolder` of the user's own Google Drive, one set of files
+per device, merged on every device.
 It is **the same wire format and the same Drive files as Android**: a Mate 70 and
 a Pixel signed in to the same Google account (and an OAuth client of the same
 Cloud project) read each other's data.
@@ -21,7 +22,7 @@ Cloud project) read each other's data.
 | `setting` | ✔ | Translation language (written into the AI settings' prefs, field-level; declined while song About entries exist) and the scroll edge style (`seam_top_style` on the key-value store, Android's key and values). `spotify_client_id` is declined as unsupported (no Spotify here) and carried. |
 | `lyrics_translation` | ✔ | Paid (Gemini) translations only, write-once, with the lyrics snapshot (`lyrics`) stamped on and seeded as Android does. The cache keeps a paid index (`yoin.lyrics.translation.paid`) since the store can't list keys; translations written before it join it when read. A paid translation of other lines is kept beside the song's slot, never replaced. |
 | `playlist_backup` | ✔ | Settings › Playlist cloud backup. `content`/`versions`/`restores` travel as the exact JSON text; `sourceProfileId` never travels. |
-| `memory_copy`, `memory_title` | carried | HarmonyOS has no such sync yet: the records are kept in the replica and published again unchanged, so an Android phone never loses them through this device. |
+| `memory_copy`, `memory_title` (Yoin's AI narration and AI Memory title) | ✔ | Two kinds over one `MemoryCopyCache` row, each writing only its own half; the prompt hashes travel along, so the other device reuses the words instead of asking the model again. Never deleted. Album rows only (Android's only entity type today); any other is carried. The Memories deck, Home's memory card and the album page read them again after a sync. |
 
 Play history, credentials, the Apple Music token service and caches never leave
 the device. Apple Music accounts never auto-bind (start syncing or link by hand),
@@ -33,7 +34,7 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | --- | --- |
 | Engine (merge / capture / apply / publish, valve, keep-both) | `lib/data/sync/engine/` — line-by-line port of `SyncEngine.kt` |
 | Replica store (Room `yoin-sync.db` on Android) | `lib/data/sync/sync_database.dart`: the same five tables in memory, saved as one gzip JSON (`yoin-sync.json.gz`) in the ability's `filesDir`, replaced atomically |
-| Adapters | `lib/data/sync/adapters/`: writes go through the account's one `MemoryStore` (`MemoryStore.shared`, the same instance the screens get from `memoryStoreProvider`) and the `LocalRatings` notifier, so what's on screen follows a sync and a local edit never overwrites one |
+| Adapters | `lib/data/sync/adapters/`: writes go through the account's one `MemoryStore` (`MemoryStore.shared`, the same instance the screens get from `memoryStoreProvider`), its one `MemoryCopyCache` (`MemoryCopyCache.shared`) and the `LocalRatings` notifier, so what's on screen follows a sync and a local edit never overwrites one |
 | Bindings and fingerprints | `lib/data/sync/identity/` (fp:v1 byte-identical to Android: the same server gets the same `s-…` scope on both) |
 | Drive REST | `lib/data/sync/drive/drive_app_data_client.dart` (Dart `http`, no logging) |
 | Google sign-in | `lib/data/sync/auth/google_oauth.dart` |

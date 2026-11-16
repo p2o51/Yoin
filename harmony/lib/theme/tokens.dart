@@ -1154,6 +1154,15 @@ abstract final class MemoryLedgerTokens {
   static const double songCardCover = 44;
   static const double noteCover = 32;
 
+  /// Another account's "From …" line (Android ledger FromLine): its mark, the
+  /// gap after it, and the gap after a timeline card's date.
+  static const double fromMark = 14;
+  static const double fromMarkGap = 4;
+  static const double fromAfterDate = 10;
+
+  /// The gap above a scores card's "From …" lines (the card's 6dp rhythm).
+  static const double fromInScores = 6;
+
   // ---- Home's Memories card ----
   static const double homeCardMax = 560;
   static const double homeCardCorner = 28;

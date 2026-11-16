@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
+import 'package:yoin/data/memory/memory_copy_cache.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
@@ -131,6 +132,36 @@ void main() {
     final m = (await settled(c) as MemoriesContent).memories.single;
     expect(m.memoryTitle, 'Night line');
     expect(m.memoryTitleKind, MemoryTitleKind.user);
+  });
+
+  test('should_wearOtherAccountsAiTitle_when_thatAccountWasGivenOne', () async {
+    await MemoryStore(kv, profileId: b.id).setAlbumReview(MediaId.subsonic('x'), 'Late trains.', nowMs: now);
+    // Written by the deck while b was in use, or brought by cloud sync.
+    await MemoryCopyCache.shared(kv, b.id).put(MediaId.subsonic('x'), (_) => const MemoryCopyRow(title: 'Last train'));
+    final c = container();
+    final m = (await settled(c) as MemoriesContent).memories.single;
+    expect(m.memoryTitle, 'Last train');
+    expect(m.memoryTitleKind, MemoryTitleKind.ai);
+  });
+
+  test('should_refreshInPlace_when_cloudSyncBringsAiWords', () async {
+    await MemoryStore(kv, profileId: b.id).setAlbumReview(MediaId.subsonic('x'), 'Late trains.', nowMs: now);
+    final c = container();
+    final before = (await settled(c) as MemoriesContent).memories.single;
+    expect(before.memoryTitleKind, MemoryTitleKind.album);
+    await MemoryCopyCache.shared(
+      kv,
+      b.id,
+    ).syncEdit((rows) => rows[MediaId.subsonic('x')] = const MemoryCopyRow(title: 'Last train'));
+    c.read(memoryCopySyncRevisionProvider.notifier).bump();
+    MemoriesContent? after;
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      after = c.read(memoriesViewModelProvider) as MemoriesContent;
+      if (after.memories.single.memoryTitle == 'Last train') break;
+    }
+    expect(after!.memories.single.memoryTitle, 'Last train');
+    expect(after.memories.single.sessionId, before.sessionId);
   });
 
   test('should_leaveOutAccount_when_itsCredentialsAreLost', () async {

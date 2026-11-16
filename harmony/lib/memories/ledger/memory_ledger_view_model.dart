@@ -1,7 +1,15 @@
 /// The memory ledger, kept fresh (Android ledger/MemoryLedgerViewModel.kt):
-/// every write to a note, review, score or title reloads it, as does an
-/// account switch. Reads are local (the account's MemoryStore, its track
-/// ratings, its cached album details); nothing here writes.
+/// every account's memories (owner 2026-11-08: every account counts as the
+/// listener), the one in use first. Every write to a note, review, score or
+/// title of any account reloads it, as does an account switch or an account
+/// coming, going or being renamed. Reads are local (each account's
+/// MemoryStore, its track ratings, its cached album details, the account in
+/// use's detail cache); nothing here writes.
+///
+/// Another account's albums are named from its plays and visits and from
+/// the details cached on disk while it was in use (Android getCachedAlbumFor:
+/// never asked over the network here), and its covers come from its own
+/// server (the deck's [OtherProfileSource.coverFor]).
 library;
 
 import 'dart:async';
@@ -15,9 +23,61 @@ import '../../data/memory/memory_grid.dart';
 import '../../data/memory/memory_ledger.dart';
 import '../../data/memory/memory_store.dart';
 import '../../data/model/model.dart';
+import '../../data/profile/profile.dart';
 import '../../detail/detail_cache.dart';
 import '../../playback/local_ratings.dart';
+import '../../settings/account_identity.dart';
+import '../../settings/settings_view_model.dart';
+import '../memories_ui_state.dart';
 import '../memories_view_model.dart';
+import '../other_profiles.dart';
+
+/// An account the ledger has memories from (Android LedgerProfile): what an
+/// entry's "From …" line shows, and whether its albums open from here.
+@immutable
+final class LedgerProfile {
+  const LedgerProfile({
+    required this.id,
+    required this.name,
+    required this.provider,
+    this.shape = 0,
+    this.isActive = false,
+    this.canSwitch = false,
+  });
+
+  final String id;
+
+  /// Its card's name (the username, else the stored name).
+  final String name;
+
+  /// [MediaId] provider token: the mark's service.
+  final String provider;
+
+  /// Its avatar shape, for the mark before its name.
+  final int shape;
+  final bool isActive;
+
+  /// Another account Yoin could switch to (the deck's and Home's shelf's
+  /// rule): its albums open after the switch notice. False for the account
+  /// in use and for one that has to be fixed on its page first.
+  final bool canSwitch;
+
+  /// As the deck names another account.
+  MemoryOtherProfile get asOther => MemoryOtherProfile(id: id, name: name, provider: provider, shape: shape);
+
+  @override
+  bool operator ==(Object other) =>
+      other is LedgerProfile &&
+      other.id == id &&
+      other.name == name &&
+      other.provider == provider &&
+      other.shape == shape &&
+      other.isActive == isActive &&
+      other.canSwitch == canSwitch;
+
+  @override
+  int get hashCode => Object.hash(id, name, provider, shape, isActive, canSwitch);
+}
 
 /// Everything All Memories (and Home's Memories grid) show.
 @immutable
@@ -28,6 +88,8 @@ final class MemoryLedgerState {
     required this.grid,
     required this.today,
     required this.dayOf,
+    this.profiles = const [],
+    this.activeProfileId,
   });
 
   /// Newest first.
@@ -39,19 +101,46 @@ final class MemoryLedgerState {
   final DateTime today;
   final DateTime Function(int epochMs) dayOf;
 
+  /// The accounts with any memory, the one in use first.
+  final List<LedgerProfile> profiles;
+
+  /// The account in use; null with none.
+  final String? activeProfileId;
+
   bool get isEmpty => entries.isEmpty;
+
+  LedgerProfile? profile(String id) => profiles.where((p) => p.id == id).firstOrNull;
+
+  /// The account an entry of [profileId] says it is from (Android FromLine):
+  /// only another account's, and only while more than one account has memories.
+  LedgerProfile? fromProfile(String profileId) {
+    final owner = profile(profileId);
+    return owner == null || profiles.length < 2 || owner.isActive ? null : owner;
+  }
+
+  /// Whether [album] is the account in use's ('' = no account named: one-account previews).
+  bool isOwn(MemoryLedgerAlbum album) => album.profileId.isEmpty || album.profileId == activeProfileId;
+
+  /// Whether tapping [album] does anything: the account in use's opens its
+  /// page; another account's switches there first, when Yoin can switch.
+  bool opens(MemoryLedgerAlbum? album) =>
+      album != null && (isOwn(album) || (profile(album.profileId)?.canSwitch ?? false));
 
   static MemoryLedgerState of(
     List<MemoryLedgerEntry> entries, {
     required DateTime today,
     required DateTime Function(int epochMs) dayOf,
     int firstDayOfWeek = DateTime.monday,
+    List<LedgerProfile> profiles = const [],
+    String? activeProfileId,
   }) => MemoryLedgerState(
     entries: entries,
     stats: memoryLedgerStats(entries),
     grid: buildMemoryGrid(entries, today: today, dayOf: dayOf, firstDayOfWeek: firstDayOfWeek),
     today: today,
     dayOf: dayOf,
+    profiles: profiles,
+    activeProfileId: activeProfileId,
   );
 }
 
@@ -68,21 +157,32 @@ final memoryLedgerFirstDayProvider = Provider<int>((ref) {
 const int memoryLedgerPlayedScan = 48;
 
 class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
-  StreamSubscription<MemoryStoreChange>? _changes;
+  final Map<String, StreamSubscription<MemoryStoreChange>> _changes = {};
   Timer? _debounce;
+
+  /// Another account's cached album details, read from disk once while this
+  /// ledger lives (they don't change while that account isn't in use).
+  final Map<String, Future<Album?>> _otherDetails = {};
 
   @override
   Future<MemoryLedgerState> build() async {
     ref.watch(activeSourceProvider);
     final store = await ref.watch(memoryStoreProvider.future);
-    _changes?.cancel();
-    _changes = store?.changes.listen((_) => _scheduleReload());
     ref.listen(localRatingsProvider, (previous, next) {
       if (previous != null && !identical(previous, next)) _scheduleReload();
     });
+    // An account added, removed or renamed: its memories come, go or say a new name.
+    ref.listen(otherProfileSourcesProvider, (previous, next) {
+      if (previous?.value != null && !identical(previous!.value, next.value)) _scheduleReload();
+    });
+    ref.listen(accountsRevisionProvider, (_, _) => _scheduleReload());
     ref.onDispose(() {
-      _changes?.cancel();
+      for (final s in _changes.values) {
+        s.cancel();
+      }
+      _changes.clear();
       _debounce?.cancel();
+      _otherDetails.clear();
     });
     return _load(store);
   }
@@ -97,13 +197,146 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     });
   }
 
+  /// Every listed account's rows reload the ledger when written (a note on
+  /// this device, or another device's through cloud sync).
+  void _watchStores(Iterable<MemoryStore> stores) {
+    final wanted = {for (final s in stores) s.profileId: s};
+    for (final id in [..._changes.keys]) {
+      if (!wanted.containsKey(id)) unawaited(_changes.remove(id)!.cancel());
+    }
+    for (final MapEntry(key: id, value: store) in wanted.entries) {
+      _changes.putIfAbsent(id, () => store.changes.listen((_) => _scheduleReload()));
+    }
+  }
+
   Future<MemoryLedgerState> _load(MemoryStore? store) async {
     final now = ref.read(memoriesClockProvider)();
     final dayOf = ref.read(memoriesDayOfProvider);
     final firstDay = ref.read(memoryLedgerFirstDayProvider);
-    if (store == null) return MemoryLedgerState.of(const [], today: dayOf(now), dayOf: dayOf, firstDayOfWeek: firstDay);
+    if (store == null) {
+      _watchStores(const []);
+      return MemoryLedgerState.of(const [], today: dayOf(now), dayOf: dayOf, firstDayOfWeek: firstDay);
+    }
     final kv = ref.read(keyValueStoreProvider);
+    final accounts = await _accounts(store.profileId);
+    final stores = [store, for (final a in accounts.others) MemoryStore.shared(kv, a.profile.id)];
+    _watchStores(stores);
+
+    // The account in use: its live ratings over the stored ones, its log, its detail cache.
     final ratings = {...await LocalRatingStore(kv).read(store.profileId), ...ref.read(localRatingsProvider)};
+    final log = await ref.read(activityLogProvider.future);
+    final provider = (await ref.read(activeSourceProvider.future))?.provider;
+    final cache = ref.read(detailCacheProvider);
+    final entries = [
+      ...await _accountEntries(
+        store,
+        ratings: ratings,
+        activity: provider == null ? const [] : await log?.recent() ?? const <ActivityEvent>[],
+        provider: provider ?? '',
+        detail: (id) async => cache.cachedAlbum(id) ?? await cache.album(id),
+        cover: (ref) => ref,
+      ),
+    ];
+    // The others: what this device kept of them, read only.
+    final disk = ref.read(detailCacheStoreProvider);
+    for (final other in accounts.others) {
+      final id = other.profile.id;
+      try {
+        entries.addAll(
+          await _accountEntries(
+            MemoryStore.shared(kv, id),
+            ratings: await LocalRatingStore(kv).read(id),
+            activity: await StoredActivityLog(kv, profileId: id).recent(),
+            provider: other.profile.provider,
+            detail: (albumId) => _otherDetails.putIfAbsent('$id|$albumId', () async {
+              if (disk == null) return null;
+              return (await disk.readAlbum(id, albumId.toString()))?.value();
+            }),
+            // A cover id needs that account's own server; none to ask: no cover.
+            cover: (ref) => ref is CoverUrl ? ref : other.source?.coverFor(ref),
+          ),
+        );
+      } catch (e) {
+        // That account adds nothing this time; the rest still show.
+        debugPrint('YoinLedger: another account unreadable: ${e.runtimeType}');
+      }
+    }
+    entries.sort(compareLedgerNewestFirst);
+    final withMemories = {for (final e in entries) e.profileId};
+    final profiles = [
+      if (withMemories.contains(store.profileId) && accounts.own != null) accounts.own!,
+      for (final a in accounts.others)
+        if (withMemories.contains(a.profile.id)) a.profile,
+    ];
+    return MemoryLedgerState.of(
+      entries,
+      today: dayOf(now),
+      dayOf: dayOf,
+      firstDayOfWeek: firstDay,
+      profiles: profiles,
+      activeProfileId: store.profileId,
+    );
+  }
+
+  /// Every account still there (Android: only accounts that exist; a removed
+  /// account's rows aren't anyone's memories now): the one in use, then the
+  /// others oldest first, each with its card's name and mark, and its source
+  /// when Yoin could switch to it.
+  Future<({LedgerProfile? own, List<_OtherAccount> others})> _accounts(String activeId) async {
+    final repo = ref.read(profileRepositoryProvider);
+    List<Profile> profiles;
+    try {
+      profiles = await repo.profiles();
+    } catch (_) {
+      profiles = const [];
+    }
+    List<OtherProfileSource> sources;
+    try {
+      sources = await ref.read(otherProfileSourcesProvider.future);
+    } catch (_) {
+      sources = const [];
+    }
+    final byId = {for (final s in sources) s.id: s};
+    final shapes = assignAvatarShapes([for (final p in profiles) p.id]);
+    LedgerProfile? own;
+    final others = <_OtherAccount>[];
+    for (final p in profiles) {
+      ProfileCredentials? credentials;
+      try {
+        credentials = await repo.credentials(p.id);
+      } catch (_) {
+        credentials = null;
+      }
+      final active = p.id == activeId;
+      final card = accountCardFor(p, credentials, isActive: active, avatarShape: shapes[p.id] ?? 0);
+      final source = active ? null : byId[p.id];
+      final profile = LedgerProfile(
+        id: p.id,
+        name: card.title,
+        provider: p.provider,
+        shape: card.avatarShape,
+        isActive: active,
+        canSwitch: source != null && usableOtherAccounts([card]).isNotEmpty,
+      );
+      if (active) {
+        own = profile;
+      } else {
+        others.add(_OtherAccount(profile, source));
+      }
+    }
+    return (own: own, others: others);
+  }
+
+  /// One account's entries: its rows named against [detail] (an album's
+  /// cached detail) and its own plays and visits, with covers through [cover].
+  Future<List<MemoryLedgerEntry>> _accountEntries(
+    MemoryStore store, {
+    required Map<MediaId, LocalRating> ratings,
+    required List<ActivityEvent> activity,
+    required String provider,
+    required Future<Album?> Function(MediaId id) detail,
+    required CoverRef? Function(CoverRef ref) cover,
+  }) async {
     final rows = MemoryLedgerRows(
       albumRatings: await store.albumRatings(),
       songNotes: await store.songNotes(),
@@ -111,18 +344,27 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       trackRatings: ratings,
     );
     final plays = await store.albumPlays();
-    final log = await ref.read(activityLogProvider.future);
-    final activity = await log?.recent() ?? const <ActivityEvent>[];
-    final provider = (await ref.read(activeSourceProvider.future))?.provider;
-    final albums = await _albums(rows, plays, provider == null ? const [] : activity, provider ?? '');
+    final albums = await _albums(
+      rows,
+      plays,
+      provider.isEmpty ? const [] : activity,
+      provider,
+      profileId: store.profileId,
+      detail: detail,
+      cover: cover,
+    );
     final tracks = <MediaId, LedgerKnownTrack>{};
-    for (final (album, detail) in albums.values) {
-      for (final t in detail?.tracks ?? const <Track>[]) {
+    for (final (album, d) in albums.values) {
+      for (final t in d?.tracks ?? const <Track>[]) {
         tracks.putIfAbsent(t.id, () => (album: album, title: t.title));
       }
     }
-    final entries = buildMemoryLedger(rows, album: (id) => albums[id]?.$1, track: (id) => tracks[id]);
-    return MemoryLedgerState.of(entries, today: dayOf(now), dayOf: dayOf, firstDayOfWeek: firstDay);
+    return buildMemoryLedger(
+      rows,
+      album: (id) => albums[id]?.$1,
+      track: (id) => tracks[id],
+      profileId: store.profileId,
+    );
   }
 
   /// Every album the rows name, and the most recently played ones, with their
@@ -132,8 +374,11 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     MemoryLedgerRows rows,
     List<AlbumPlays> plays,
     List<ActivityEvent> activity,
-    String provider,
-  ) async {
+    String provider, {
+    required String profileId,
+    required Future<Album?> Function(MediaId id) detail,
+    required CoverRef? Function(CoverRef ref) cover,
+  }) async {
     final ids = <MediaId>{
       ...rows.albumRatings.keys,
       ...rows.titles.keys,
@@ -150,14 +395,13 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       final id = MediaId(provider, e.entityId);
       names.putIfAbsent(id, () => (name: e.title, artist: e.subtitle, cover: e.coverArtKey));
     }
-    final cache = ref.read(detailCacheProvider);
     final details = List<Album?>.filled(ids.length, null);
     var next = 0;
     Future<void> worker() async {
       while (next < ids.length) {
         final i = next++;
         try {
-          details[i] = cache.cachedAlbum(ids[i]) ?? await cache.album(ids[i]);
+          details[i] = await detail(ids[i]);
         } catch (_) {
           details[i] = null;
         }
@@ -167,22 +411,33 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     await Future.wait([for (var w = 0; w < 4; w++) worker()]);
     final out = <MediaId, (MemoryLedgerAlbum, Album?)>{};
     for (var i = 0; i < ids.length; i++) {
-      final detail = details[i];
+      final d = details[i];
       final known = names[ids[i]];
-      final name = detail?.name ?? known?.name;
+      final name = d?.name ?? known?.name;
       if (name == null || name.trim().isEmpty) continue;
+      final ref = d?.coverArt ?? CoverRef.fromStorageKey(known?.cover);
       out[ids[i]] = (
         MemoryLedgerAlbum(
           albumId: ids[i],
           name: name,
-          artist: detail?.artist ?? known?.artist ?? '',
-          cover: detail?.coverArt ?? CoverRef.fromStorageKey(known?.cover),
+          artist: d?.artist ?? known?.artist ?? '',
+          cover: ref == null ? null : cover(ref),
+          profileId: profileId,
         ),
-        detail,
+        d,
       );
     }
     return out;
   }
+}
+
+/// Another account as the ledger reads it: who it is, and its source (covers,
+/// switching) when Yoin could switch to it.
+final class _OtherAccount {
+  const _OtherAccount(this.profile, this.source);
+
+  final LedgerProfile profile;
+  final OtherProfileSource? source;
 }
 
 final memoryLedgerProvider = AsyncNotifierProvider<MemoryLedgerViewModel, MemoryLedgerState>(MemoryLedgerViewModel.new);

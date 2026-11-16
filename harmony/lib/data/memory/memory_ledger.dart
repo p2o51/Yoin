@@ -3,9 +3,11 @@
 /// Memories deck deals them one at a time; the ledger is the whole account
 /// book that All Memories (and Home's Memories grid) read. Local only.
 ///
-/// HarmonyOS keeps one account's rows at a time (MemoryStore is per
-/// profile), so the ledger is the account in use; Android's cross-account
-/// "From …" lines have nothing to show here.
+/// Every account counts as the listener (owner 2026-11-08): the ledger is
+/// built per account ([buildMemoryLedger] with its profile id) and the
+/// accounts' entries run together. An album and an entry carry the account
+/// they belong to, so two accounts on one service stay apart and another
+/// account's memory can say whose it is.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -31,17 +33,27 @@ enum MemoryLedgerKind {
 /// The album an entry belongs to: what the grid colours a cell with.
 @immutable
 final class MemoryLedgerAlbum {
-  const MemoryLedgerAlbum({required this.albumId, required this.name, this.artist = '', this.cover});
+  const MemoryLedgerAlbum({
+    required this.albumId,
+    required this.name,
+    this.artist = '',
+    this.cover,
+    this.profileId = '',
+  });
 
   final MediaId albumId;
   final String name;
   final String artist;
   final CoverRef? cover;
 
-  String get key => albumId.toString();
+  /// The account it belongs to ('' where only one account is read: previews, Tips).
+  final String profileId;
+
+  /// One album of one account (Android ledgerAlbumKey: profile|provider|id).
+  String get key => '$profileId|${albumId.provider}|${albumId.rawId}';
 
   MemoryLedgerAlbum withCover(CoverRef? cover) =>
-      MemoryLedgerAlbum(albumId: albumId, name: name, artist: artist, cover: cover);
+      MemoryLedgerAlbum(albumId: albumId, name: name, artist: artist, cover: cover, profileId: profileId);
 
   @override
   bool operator ==(Object other) =>
@@ -49,10 +61,11 @@ final class MemoryLedgerAlbum {
       other.albumId == albumId &&
       other.name == name &&
       other.artist == artist &&
-      other.cover == cover;
+      other.cover == cover &&
+      other.profileId == profileId;
 
   @override
-  int get hashCode => Object.hash(albumId, name, artist, cover);
+  int get hashCode => Object.hash(albumId, name, artist, cover, profileId);
 }
 
 @immutable
@@ -67,10 +80,14 @@ final class MemoryLedgerEntry {
     this.songId,
     this.positionMs,
     this.score,
+    this.profileId = '',
   });
 
-  /// Stable across reloads: the kind plus the row's own key.
+  /// Stable across reloads: the kind plus the row's own key (and its account).
   final String id;
+
+  /// The account it was kept under.
+  final String profileId;
   final MemoryLedgerKind kind;
 
   /// When it was written or scored (epoch ms).
@@ -154,15 +171,19 @@ final class MemoryLedgerRows {
 /// A song as the loaded albums know it: its album and its name.
 typedef LedgerKnownTrack = ({MemoryLedgerAlbum album, String? title});
 
-/// Turns [rows] into entries, newest first. [album] names an album Yoin knows
-/// (its plays, its cached detail); [track] places a song on its album. A
-/// song note or track score whose album is unknown keeps a null album; an
-/// album entry whose album can't be named at all is left out.
+/// Turns [profileId]'s [rows] into entries, newest first. [album] names an
+/// album Yoin knows (its plays, its cached detail); [track] places a song on
+/// its album. A song note or track score whose album is unknown keeps a null
+/// album; an album entry whose album can't be named at all is left out.
+/// Ids carry the account (Android: `track-rating:profile|provider|id`), so
+/// two accounts' rows never share one.
 List<MemoryLedgerEntry> buildMemoryLedger(
   MemoryLedgerRows rows, {
   required MemoryLedgerAlbum? Function(MediaId albumId) album,
   required LedgerKnownTrack? Function(MediaId trackId) track,
+  String profileId = '',
 }) {
+  String scoped(MediaId id) => '$profileId|${id.provider}|${id.rawId}';
   final out = <MemoryLedgerEntry>[];
   for (final note in rows.songNotes) {
     if (note.isBlank) continue;
@@ -178,6 +199,7 @@ List<MemoryLedgerEntry> buildMemoryLedger(
         trackTitle: _nonBlank(note.title) ?? _nonBlank(known?.title),
         songId: note.trackId,
         positionMs: note.positionMs,
+        profileId: profileId,
       ),
     );
   }
@@ -187,13 +209,14 @@ List<MemoryLedgerEntry> buildMemoryLedger(
     final known = track(rating.trackId);
     out.add(
       MemoryLedgerEntry(
-        id: 'track-rating:${rating.trackId}',
+        id: 'track-rating:${scoped(rating.trackId)}',
         kind: MemoryLedgerKind.trackRating,
         at: rating.updatedAt,
         album: known?.album,
         trackTitle: _nonBlank(known?.title),
         songId: rating.trackId,
         score: score,
+        profileId: profileId,
       ),
     );
   }
@@ -203,22 +226,24 @@ List<MemoryLedgerEntry> buildMemoryLedger(
     if (row.hasScore) {
       out.add(
         MemoryLedgerEntry(
-          id: 'album-rating:${row.albumId}',
+          id: 'album-rating:${scoped(row.albumId)}',
           kind: MemoryLedgerKind.albumRating,
           at: row.updatedAt,
           album: named,
           score: row.rating,
+          profileId: profileId,
         ),
       );
     }
     if (row.hasReview) {
       out.add(
         MemoryLedgerEntry(
-          id: 'review:${row.albumId}',
+          id: 'review:${scoped(row.albumId)}',
           kind: MemoryLedgerKind.review,
           at: row.reviewUpdatedAt ?? row.updatedAt,
           album: named,
           text: row.review!.trim(),
+          profileId: profileId,
         ),
       );
     }
@@ -228,11 +253,12 @@ List<MemoryLedgerEntry> buildMemoryLedger(
     if (named == null) continue;
     out.add(
       MemoryLedgerEntry(
-        id: 'title:${title.albumId}',
+        id: 'title:${scoped(title.albumId)}',
         kind: MemoryLedgerKind.title,
         at: title.updatedAt,
         album: named,
         text: title.title,
+        profileId: profileId,
       ),
     );
   }

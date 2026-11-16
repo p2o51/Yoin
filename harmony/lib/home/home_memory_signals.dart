@@ -239,6 +239,8 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
     });
     _changes?.cancel();
     _changes = store?.changes.listen((_) => _schedule(source?.provider, store));
+    // Cloud sync brought Yoin's AI titles from another device.
+    ref.listen(memoryCopySyncRevisionProvider, (_, _) => _schedule(source?.provider, store));
     ref.onDispose(() {
       _changes?.cancel();
       _debounce?.cancel();

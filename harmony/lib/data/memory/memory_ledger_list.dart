@@ -31,6 +31,9 @@ sealed class MemoryLedgerItem {
 
   String get key;
 
+  /// The account it was kept under.
+  String get profileId;
+
   /// Its newest mark.
   int get at;
   MemoryLedgerAlbum? get album;
@@ -67,6 +70,8 @@ final class MemoryLedgerAlbumItem extends MemoryLedgerItem {
   @override
   String get key => 'album:${album.key}';
   @override
+  String get profileId => album.profileId;
+  @override
   String get name => album.name;
 }
 
@@ -79,10 +84,13 @@ final class MemoryLedgerSongItem extends MemoryLedgerItem {
     this.note,
     this.notes = 0,
     required this.at,
+    this.profileId = '',
   });
 
   @override
   final String key;
+  @override
+  final String profileId;
   final String? title;
   @override
   final MemoryLedgerAlbum? album;
@@ -99,8 +107,9 @@ final class MemoryLedgerSongItem extends MemoryLedgerItem {
   String get name => title ?? '';
 }
 
-/// One song: its id, else (an old row) its name.
-String _songKey(MemoryLedgerEntry e) => 'song:${e.songId?.toString() ?? 'title:${e.trackTitle ?? e.id}'}';
+/// One song of one account: its id, else (an old row) its name.
+String _songKey(MemoryLedgerEntry e) =>
+    'song:${e.profileId}|${e.songId?.toString() ?? 'title:${e.trackTitle ?? e.id}'}';
 
 MemoryLedgerEntry? _newest(List<MemoryLedgerEntry> sorted, MemoryLedgerKind kind) {
   for (final e in sorted) {
@@ -163,12 +172,21 @@ List<MemoryLedgerItem> memoryLedgerItems(List<MemoryLedgerEntry> entries) {
         note: newest,
         notes: value.length,
         at: score == null || newest.at > score.at ? newest.at : score.at,
+        profileId: newest.profileId,
       ),
     );
   }
   for (final MapEntry(:key, value: score) in scores.entries) {
     if (score.album != null || notesBySong.containsKey(key)) continue;
-    out.add(MemoryLedgerSongItem(key: key, title: score.trackTitle, score: score.score, at: score.at));
+    out.add(
+      MemoryLedgerSongItem(
+        key: key,
+        title: score.trackTitle,
+        score: score.score,
+        at: score.at,
+        profileId: score.profileId,
+      ),
+    );
   }
   return sortLedgerItems(out, MemoryLedgerSort.recent);
 }

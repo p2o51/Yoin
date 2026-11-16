@@ -7,7 +7,10 @@
 ///
 /// Back surface: PushPage ([MemoryLedgerScreen.open], YoinPushRoute) with
 /// Settings' bar and its explicit back button. An album opens its album
-/// page, as on Android.
+/// page, as on Android. Every account's memories are here; another account's
+/// say whose they are ("From …" with its mark) and are read-only, and its
+/// album opens the way the deck's Go to album does: the one-off switch
+/// notice, the switch, then the album.
 ///
 /// As the page scrolls up past its grid, the grid's squares rise into the top
 /// bar and piece together as its mosaic; the bar's title and back button turn
@@ -41,8 +44,10 @@ import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_dropdown_menu.dart';
 import '../../ui/component/yoin_loading_indicator.dart';
 import '../../ui/navigation/yoin_push_route.dart';
+import '../../settings/account_identity.dart';
 import '../copy/memory_copy.dart';
 import '../memory_title_editor.dart';
+import '../other_profiles.dart';
 import 'memory_grid_lift.dart';
 import 'memory_grid_view.dart';
 import 'memory_ledger_strings.dart';
@@ -180,10 +185,35 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
     super.dispose();
   }
 
+  /// The account in use's album opens its page. Another account's is that
+  /// account's (Android's ledger leaves it shut; here it opens as the deck's
+  /// Go to album does): Yoin switches there first, asking the first time
+  /// with the one-off notice, and opens the album once the account is in use.
   void _openAlbum(MemoryLedgerAlbum? album) {
-    if (album == null) return;
+    final state = ref.read(memoryLedgerProvider).value;
+    if (album == null || state == null || !state.opens(album)) return;
     YoinHaptics.click();
-    DetailRoutes.openAlbum(context, album.albumId);
+    if (state.isOwn(album)) {
+      DetailRoutes.openAlbum(context, album.albumId);
+      return;
+    }
+    final owner = state.profile(album.profileId);
+    if (owner == null) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    requestAccountSwitch(
+      context,
+      owner: owner.asOther,
+      subject: album.name,
+      purpose: AccountSwitchPurpose.openAlbum,
+      proceed: () => switchAccountThen(
+        container,
+        owner.id,
+        provider: album.albumId.provider,
+        onLanded: (_) {
+          if (mounted) DetailRoutes.openAlbum(context, album.albumId);
+        },
+      ),
+    );
   }
 
   @override
@@ -1006,11 +1036,13 @@ class _TimelineAlbumCard extends StatelessWidget {
     final item = row.item;
     final title = item.title;
     final review = item.review;
+    final opens = state.opens(item.album);
+    final from = state.fromProfile(item.album.profileId);
     return YoinHover(
-      onTap: () => onOpen(item.album),
+      onTap: opens ? () => onOpen(item.album) : null,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => onOpen(item.album),
+        onTap: opens ? () => onOpen(item.album) : null,
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: masonry ? 12 : 16),
           child: Column(
@@ -1078,15 +1110,53 @@ class _TimelineAlbumCard extends StatelessWidget {
                 ),
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  strings.shortDay(state.dayOf(item.at), state.today),
-                  style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.outline),
+                child: Row(
+                  spacing: MemoryLedgerTokens.fromAfterDate,
+                  children: [
+                    Text(
+                      strings.shortDay(state.dayOf(item.at), state.today),
+                      style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.outline),
+                    ),
+                    if (from != null) Flexible(child: _FromLine(owner: from)),
+                  ],
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Another account's memory says whose it is, with its mark, as the deck's
+/// "From …" line does (Android ledger FromLine, memory_ledger_from).
+class _FromLine extends StatelessWidget {
+  const _FromLine({required this.owner});
+
+  final LedgerProfile owner;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: MemoryLedgerTokens.fromMarkGap,
+      children: [
+        AccountMark(
+          shapeIndex: owner.shape,
+          identity: ServiceIdentity.forProvider(owner.provider),
+          size: MemoryLedgerTokens.fromMark,
+        ),
+        Flexible(
+          child: Text(
+            MemoryLedgerStrings.of(context).from(owner.name),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1163,7 +1233,7 @@ class _NoteCard extends StatelessWidget {
     return _patch(
       context,
       corner: MemoryLedgerTokens.noteCorner,
-      onTap: album == null ? null : () => onOpen(album),
+      onTap: state.opens(album) ? () => onOpen(album) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1206,10 +1276,16 @@ class _NoteCard extends StatelessWidget {
               _cover(album, MemoryLedgerTokens.noteCover, 6, theme.colorScheme),
               const SizedBox(width: 10),
               Expanded(
-                child: _Pair(
-                  first: album?.name ?? strings.unknownAlbum,
-                  second: album == null || album.artist.trim().isEmpty ? null : album.artist,
-                  style: theme.textTheme.bodySmall!,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Pair(
+                      first: album?.name ?? strings.unknownAlbum,
+                      second: album == null || album.artist.trim().isEmpty ? null : album.artist,
+                      style: theme.textTheme.bodySmall!,
+                    ),
+                    if (state.fromProfile(entry.profileId) case final from?) _FromLine(owner: from),
+                  ],
                 ),
               ),
             ],
@@ -1280,6 +1356,12 @@ class _ScoresCard extends StatelessWidget {
               ),
             ),
           ],
+          for (final id in {for (final e in entries) e.profileId})
+            if (state.fromProfile(id) case final from?)
+              Padding(
+                padding: const EdgeInsets.only(top: MemoryLedgerTokens.fromInScores),
+                child: _FromLine(owner: from),
+              ),
         ],
       ),
     );
@@ -1347,7 +1429,7 @@ class _AlbumGridCard extends StatelessWidget {
     final title = item.title;
     return _gridCard(
       context,
-      onTap: () => onOpen(item.album),
+      onTap: state.opens(item.album) ? () => onOpen(item.album) : null,
       children: [
         LayoutBuilder(
           builder: (context, c) =>
@@ -1396,7 +1478,7 @@ class _SongGridCard extends StatelessWidget {
     final note = item.note?.text;
     return _gridCard(
       context,
-      onTap: album == null ? null : () => onOpen(album),
+      onTap: state.opens(album) ? () => onOpen(album) : null,
       children: [
         Row(
           children: [
@@ -1463,7 +1545,7 @@ class _ListRow extends StatelessWidget {
     final title = item is MemoryLedgerAlbumItem ? item.title : null;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: album == null ? null : () => onOpen(album),
+      onTap: state.opens(album) ? () => onOpen(album) : null,
       child: Padding(
         padding: EdgeInsets.symmetric(vertical: isAlbum ? 10 : 6),
         child: Row(

@@ -13,6 +13,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../platform/storage/stores.dart';
 import '../model/model.dart';
@@ -131,6 +132,46 @@ final class MemoryCopyCache {
     return done;
   }
 
+  /// Cloud sync's view of the rows, copied (nothing here is edited).
+  Future<Map<MediaId, MemoryCopyRow>> syncRead() async {
+    await _tail;
+    return Map.of(await _load());
+  }
+
+  /// Runs [edit] on the rows in the write queue (no other write in between),
+  /// then saves what it changed and tells the screens which albums moved.
+  /// Cloud sync's check-then-write (the expected-hash guard) happens inside
+  /// [edit], as in [MemoryStore.syncEdit].
+  Future<R> syncEdit<R>(R Function(Map<MediaId, MemoryCopyRow> rows) edit) {
+    final done = Completer<R>();
+    _tail = _tail.then((_) async {
+      try {
+        final rows = await _load();
+        final before = Map.of(rows);
+        final result = edit(rows);
+        final changed = [
+          for (final id in {...before.keys, ...rows.keys})
+            if (before[id] != rows[id]) id,
+        ];
+        if (changed.isNotEmpty) {
+          await _store.write(
+            keyFor(profileId),
+            jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()}),
+          );
+          for (final id in changed) {
+            if (!_changes.isClosed) _changes.add(id);
+          }
+        }
+        done.complete(result);
+      } catch (e, st) {
+        // A failed edit leaves the rows as they are stored: drop the cache.
+        _rows = null;
+        done.completeError(e, st);
+      }
+    });
+    return done.future;
+  }
+
   Future<Map<MediaId, MemoryCopyRow>> _load() => _rows ??= _read();
 
   Future<Map<MediaId, MemoryCopyRow>> _read() async {
@@ -152,3 +193,15 @@ final class MemoryCopyCache {
     return rows;
   }
 }
+
+/// Bumped when cloud sync wrote Yoin's AI words (memory_copy, memory_title)
+/// into any account's cache: the screens that show them (the Memories deck,
+/// Home's memory card, the album page) read them again.
+class MemoryCopySyncRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+final memoryCopySyncRevisionProvider = NotifierProvider<MemoryCopySyncRevision, int>(MemoryCopySyncRevision.new);

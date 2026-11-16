@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/memory/album_memory_candidate.dart';
+import 'package:yoin/data/memory/memory_copy_cache.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
@@ -260,6 +262,22 @@ void main() {
       expect(find.byKey(const ValueKey('grid-album:g0')), findsNothing);
       // The phone packs 12 cells: two wide cards and eight covers.
       expect(find.byType(JbiCoverCell), findsNWidgets(8));
+      await done(tester, container);
+    });
+
+    testWidgets('should_headlineSyncedAiTitle_when_cloudSyncBringsOne', (tester) async {
+      final container = await memoryHome(tester, const Size(360, 800));
+      expect(container.read(homeMemorySignalsProvider).memoryCards.single.signal!.comment, isNot('The long August'));
+      final profile = await container.read(profileRepositoryProvider).activeProfile();
+      final cache = MemoryCopyCache.shared(container.read(keyValueStoreProvider), profile!.id);
+      await cache.syncEdit((rows) => rows[MediaId.subsonic('g0')] = const MemoryCopyRow(title: 'The long August'));
+      container.read(memoryCopySyncRevisionProvider.notifier).bump();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final card = container.read(homeMemorySignalsProvider).memoryCards.single;
+      expect(card.signal!.comment, 'The long August');
+      expect(card.signal!.commentIsHeadline, isTrue);
       await done(tester, container);
     });
 
