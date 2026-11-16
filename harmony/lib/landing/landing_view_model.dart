@@ -62,11 +62,12 @@ final landingLayoutGatewayProvider = Provider<LandingLayoutGateway>((ref) => Key
 bool isDefaultHomeLayout(HomeLayout layout) => listEquals(layout.sections, HomeLayout.defaultLayout.sections);
 
 /// The sections the Home step lists: the known ones this build can draw, in
-/// layout order (Android leaves out 「歌词一句」 without Gemini Nano the same
-/// way: hidden from the list, kept in the layout).
+/// layout order, less 「歌词一句」: Android lists it only where Gemini Nano is
+/// available (LandingScreen hidden), and HarmonyOS never has Nano — hidden
+/// from the list, kept in the layout (it still shows on Home).
 List<HomeSectionPref> landingShownSections(HomeLayout layout) => [
   for (final pref in layout.sections)
-    if (pref.section?.availableInV1 ?? false) pref,
+    if ((pref.section?.availableInV1 ?? false) && pref.section != HomeSection.lyricHighlight) pref,
 ];
 
 /// The landing's state machine (Android LandingViewModel): which step, what

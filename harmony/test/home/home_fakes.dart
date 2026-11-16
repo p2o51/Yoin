@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/activity/activity.dart';
+import 'package:yoin/data/highlight/lyric_highlight.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/source/music_source.dart';
@@ -124,14 +125,17 @@ class MemoryActivityLog implements ActivityLog {
 final DateTime homeTestNow = DateTime.utc(2026, 11, 13, 9, 30);
 
 /// Everything Home needs, with one Subsonic account unless [withAccount] is false.
+/// Lyric Cards' one-off intro is answered unless [lyricIntroSeen] is false.
 Future<({ProviderContainer container, InMemoryStore store, FakePlaybackEngine engine})> homeContainer({
   HomeFakeSource? source,
   MemoryActivityLog? log,
   bool withAccount = true,
   bool addProfile = true,
   InMemoryStore? store,
+  bool lyricIntroSeen = true,
 }) async {
   final values = store ?? InMemoryStore();
+  if (lyricIntroSeen) values.values[LyricHighlightStore.introSeenKey] = '1';
   final secrets = InMemoryStore();
   final engine = FakePlaybackEngine();
   final container = ProviderContainer(

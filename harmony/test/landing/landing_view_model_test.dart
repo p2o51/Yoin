@@ -169,7 +169,7 @@ void main() {
     final shown = landingShownSections(HomeLayout.defaultLayout);
     expect(shown.map((p) => p.section), contains(HomeSection.otherProfiles));
     expect(shown.map((p) => p.section), isNot(contains(HomeSection.lyricHighlight)));
-    expect(shown.length, HomeSection.values.where((s) => s.availableInV1).length);
+    expect(shown.length, HomeSection.values.where((s) => s.availableInV1 && s != HomeSection.lyricHighlight).length);
   });
 
   test('should_keepHiddenSectionsInPlace_when_shownRowsMove', () async {

@@ -14,6 +14,7 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
 import '../detail/scrapbook_focus.dart';
+import '../home/lyric_highlight_view_model.dart' show lyricHighlightKeeperProvider;
 import '../playback/keep_screen_on.dart';
 import '../playback/output/output_providers.dart';
 import '../playback/output/playback_router.dart';
@@ -550,6 +551,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     final lines = selectedLyricLines(sheet.rows, selected);
     if (content == null || lines.isEmpty) return;
     final selection = _tools.selection;
+    // Taken now: the sheet outlives a song change (and may outlive this page).
+    final keeper = ref.read(lyricHighlightKeeperProvider);
+    final track = content.track;
     _glowLines();
     showLyricsShareSheet(
       context,
@@ -563,6 +567,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       ),
       onShared: selection.exit,
       onMessage: _say,
+      // Saved or shared: Home's Lyric Cards keep the lines as the user's own pick.
+      onKept: () =>
+          keeper.keepUserPick(track: track, lines: [for (final l in lines) l.text], startMs: lines.first.startMs),
     );
   }
 
