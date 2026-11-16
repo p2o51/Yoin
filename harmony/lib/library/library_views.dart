@@ -16,6 +16,7 @@ import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/component/yoin_fast_scroller.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'library_cells.dart';
+import 'library_grid_anchor.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
 import 'library_view_model.dart';
@@ -156,6 +157,12 @@ class LibraryTabLoading extends StatelessWidget {
 PageStorageKey<String> libraryScrollStorageKey(LibraryTab tab) => PageStorageKey('library-${tab.name}');
 
 /// All / Artists / Albums: one grid with the sort row as its first full-span item.
+///
+/// A short shelf grows its cells to fill the page ([libraryViewGridColumns]),
+/// and the grid keeps its place when its columns change — a resize, a
+/// rotation, a fold, a split, cells growing or shrinking — through its
+/// controller's anchor ([LibraryGridScrollController]), which a fast-scroller
+/// jump moves to the section it landed on.
 class LibraryGridView extends ConsumerWidget {
   const LibraryGridView({
     super.key,
@@ -170,7 +177,7 @@ class LibraryGridView extends ConsumerWidget {
   final LibraryTab tab;
   final SortedView? view;
   final LibrarySort sort;
-  final ScrollController controller;
+  final LibraryGridScrollController controller;
   final String emptyText;
 
   /// Something still loading (All waits for every list before "empty").
@@ -188,15 +195,36 @@ class LibraryGridView extends ConsumerWidget {
       builder: (context, constraints) {
         // Columns follow the view's own width (a pane gives away width; never the device).
         final width = constraints.maxWidth;
-        final columns = libraryGridColumns(width);
+        final scaler = MediaQuery.textScalerOf(context);
+        final sortRow = options.length >= 2;
+        final columns = libraryViewGridColumns(
+          width: width,
+          height: constraints.maxHeight,
+          itemCount: view.items.length,
+          bottom: bottom,
+          sortRow: sortRow,
+          compactHeight: YoinWindowInfo.of(context).isCompactHeight,
+          scaler: scaler,
+        );
         final cellWidth = (width - 32 - LibraryTokens.gridGutterH * (columns - 1)) / columns;
-        final extent = libraryCellExtent(cellWidth, MediaQuery.textScalerOf(context));
+        final extent = libraryCellExtent(cellWidth, scaler);
+        final anchor = controller.anchor
+          ..layOut(
+            LibraryGridLayout(
+              width: width,
+              columns: columns,
+              stride: extent + LibraryTokens.gridGutterV,
+              top: LibraryTokens.gridTopPadding,
+            ),
+            view.items.length,
+          );
         return YoinFastScroller(
           controller: controller,
           itemCount: view.items.length,
           columns: columns,
           marks: libraryMarks(strings, view.sections),
           bottomInset: bottom,
+          onJumped: () => anchor.jumped(controller.position.pixels, [for (final s in view.sections) s.startIndex]),
           child: CustomScrollView(
             key: libraryScrollStorageKey(tab),
             controller: controller,
@@ -205,7 +233,10 @@ class LibraryGridView extends ConsumerWidget {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, 0),
                 sliver: SliverToBoxAdapter(
-                  child: options.length >= 2 ? LibrarySortRow(tab: tab, sort: sort) : const SizedBox.shrink(),
+                  child: LibraryGridHead(
+                    anchor: anchor,
+                    child: sortRow ? LibrarySortRow(tab: tab, sort: sort) : const SizedBox.shrink(),
+                  ),
                 ),
               ),
               SliverPadding(

@@ -22,6 +22,7 @@ import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
+import 'library_grid_anchor.dart';
 import 'library_search.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
@@ -185,7 +186,16 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     super.dispose();
   }
 
-  ScrollController _scrollFor(LibrarySearchFilter f) => _scrolls.putIfAbsent(f, ScrollController.new);
+  /// The Artists and Albums grids keep an exact anchor: after a rotation or a
+  /// resize, back at the width they were left at, they land exactly there;
+  /// a type switched away from and back finds its place too.
+  ScrollController _scrollFor(LibrarySearchFilter f) => _scrolls.putIfAbsent(
+    f,
+    () => switch (f) {
+      LibrarySearchFilter.artists || LibrarySearchFilter.albums => LibraryGridScrollController(exact: true),
+      LibrarySearchFilter.all || LibrarySearchFilter.songs || LibrarySearchFilter.playlists => ScrollController(),
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +206,7 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
       // A new query starts every filter's list at the top.
       if (previous != query) {
         for (final c in _scrolls.values) {
+          if (c is LibraryGridScrollController) c.anchor.reset();
           if (c.hasClients) c.jumpTo(0);
         }
       }
@@ -345,9 +356,19 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     final controller = _scrollFor(state.filter);
     switch (state.filter) {
       case LibrarySearchFilter.artists:
-        return _grid(context, [for (final a in r.artists) LibraryArtistItem(a)], controller, bottom);
+        return _grid(
+          context,
+          [for (final a in r.artists) LibraryArtistItem(a)],
+          controller as LibraryGridScrollController,
+          bottom,
+        );
       case LibrarySearchFilter.albums:
-        return _grid(context, [for (final a in r.albums) LibraryAlbumItem(a)], controller, bottom);
+        return _grid(
+          context,
+          [for (final a in r.albums) LibraryAlbumItem(a)],
+          controller as LibraryGridScrollController,
+          bottom,
+        );
       case LibrarySearchFilter.songs:
         return ListView.builder(
           controller: controller,
@@ -414,20 +435,31 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   void _playSong(List<Track> tracks, int index) =>
       ref.read(playbackControllerProvider.notifier).playTracks(tracks, startIndex: index);
 
-  Widget _grid(BuildContext context, List<LibraryItem> items, ScrollController controller, double bottom) {
+  /// A result grid: the usual cells, however few the results.
+  Widget _grid(BuildContext context, List<LibraryItem> items, LibraryGridScrollController controller, double bottom) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final columns = libraryGridColumns(width);
         final cell = (width - 32 - LibraryTokens.gridGutterH * (columns - 1)) / columns;
+        final extent = libraryCellExtent(cell, MediaQuery.textScalerOf(context));
+        controller.anchor.layOut(
+          LibraryGridLayout(
+            width: width,
+            columns: columns,
+            stride: extent + LibraryTokens.gridGutterV,
+            top: LibraryTokens.gridTopPadding,
+          ),
+          items.length,
+        );
         return GridView.builder(
           controller: controller,
-          padding: EdgeInsets.fromLTRB(16, 8, 16, bottom),
+          padding: EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, bottom),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: LibraryTokens.gridGutterH,
             mainAxisSpacing: LibraryTokens.gridGutterV,
-            mainAxisExtent: libraryCellExtent(cell, MediaQuery.textScalerOf(context)),
+            mainAxisExtent: extent,
           ),
           itemCount: items.length,
           itemBuilder: (context, i) => _cell(context, items[i]),
