@@ -367,7 +367,8 @@ final class DetailCacheStore {
       hash ^= unit;
       hash *= 0x100000001b3; // wraps at 64 bits
     }
-    final base = hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
+    final base =
+        '${(hash >>> 32).toRadixString(16).padLeft(8, '0')}${(hash & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0')}';
     final taken = {for (final r in index.rows.values) r.file};
     var name = '$base.json';
     for (var n = 1; taken.contains(name); n++) {

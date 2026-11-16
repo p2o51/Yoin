@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/home/home_snapshot_store.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
 import '../data/profile/profile_repository.dart';
+import '../detail/detail_cache.dart';
 import 'account_identity.dart';
 
 /// One account as Settings shows it (ProfileCards.kt ProfileCard): Subsonic
@@ -210,6 +213,9 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
     } catch (_) {
       // Nothing changed that the list doesn't re-read below.
     }
+    // What Yoin kept of the account on disk goes with it (Android deletes its snapshot and detail rows).
+    unawaited(container.read(homeSnapshotStoreProvider)?.delete(profileId));
+    unawaited(container.read(detailCacheStoreProvider)?.removeProfile(profileId));
     if (wasActive) {
       // The active account went: the app follows even if Settings closed meanwhile.
       container.invalidate(activeSourceProvider);

@@ -10,6 +10,7 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../data/offline/offline_downloads.dart';
 import '../offline/offline_providers.dart';
+import '../platform/storage/app_files.dart';
 
 /// How long a detail load waits for the active source on a cold start
 /// (Android DETAIL_SOURCE_WAIT_MS).
@@ -384,6 +385,7 @@ abstract interface class OfflineDetails {
 /// out the rest as it first opens (the hygiene pass).
 final detailCacheStoreProvider = Provider<DetailCacheStore?>((ref) {
   final files = ref.watch(appFilesHostProvider);
+  if (files is NoAppFilesHost) return null;
   final store = DetailCacheStore(
     files.filesDirectory,
     keeps: (profileId, kind, entityId) async {

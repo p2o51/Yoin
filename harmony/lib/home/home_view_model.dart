@@ -5,12 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
+import '../data/home/home_snapshot_store.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../playback/playback_controller.dart';
 import 'home_grid_pool_store.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
+import 'home_snapshot_mapping.dart';
 import 'home_ui_state.dart';
 
 /// Wall clock for Home (time-ago, the 30-day window, pool TTL); tests override it.
@@ -27,6 +29,13 @@ final homeActivityDebounceProvider = Provider<Duration>((ref) => HomeTimings.act
 /// as one Content, then each network block splices its own fields in as it
 /// lands. A failed block keeps what it had; an empty one clears. Activities
 /// stays live through the log (debounced).
+///
+/// Cold start (Android HomeSnapshotStore, P2 PR3): with nothing of the scope
+/// in this process, the account's snapshot paints the last feed at once —
+/// before the source is up, and offline — and the load replaces it block by
+/// block. A snapshot painted as it is isn't written back; every Content
+/// published after it is (conflated), each block no read has filled keeping
+/// what the file has.
 class HomeViewModel extends Notifier<HomeUiState> {
   /// Last Content per scope key, for the process: a re-created Home paints at once.
   static final Map<String, HomeContent> _contentCache = {};
@@ -42,16 +51,72 @@ class HomeViewModel extends Notifier<HomeUiState> {
   int _footnoteGeneration = 0;
   int _songTapGeneration = 0;
 
+  /// The Content up is the account's snapshot as read: nothing of it is new yet.
+  bool _snapshotOnly = false;
+
+  /// Network blocks the Content up lacks: still out, or failed, on a feed
+  /// built from nothing. A save keeps the file's for them.
+  Set<HomeNetworkBlock> _unread = {};
+
+  /// Whose feed the load writes back (null: none, no account).
+  ({String profileId, String provider})? _saveTo;
+
   @override
   HomeUiState build() {
     final source = ref.watch(activeSourceProvider);
     ref.onDispose(_stop);
+    // A feed up (the snapshot painted while the source came up, or a reload)
+    // stays through the rebuild: the load replaces it, never a spinner between.
+    final previous = stateOrNull;
+    final keep = previous is HomeContent ? previous : null;
     return switch (source) {
-      AsyncData(:final value) => _start(value),
+      AsyncData(:final value) => _start(value, keep: keep),
       // Credentials unreadable: a sourceless load (local tier only) publishes once.
-      AsyncError() => _start(null),
-      _ => const HomeLoading(),
+      AsyncError() => _start(null, keep: keep),
+      _ => _awaitSource(keep),
     };
+  }
+
+  /// The source isn't up yet: paint the account's snapshot meanwhile.
+  HomeUiState _awaitSource(HomeContent? keep) {
+    if (keep != null) return keep;
+    final generation = _generation;
+    Future.microtask(() => _paintSnapshotEarly(generation));
+    return const HomeLoading();
+  }
+
+  Future<void> _paintSnapshotEarly(int generation) async {
+    final profile = await ref.read(profileRepositoryProvider).activeProfile().catchError((_) => null);
+    if (profile == null || !_live(generation) || state is HomeContent) return;
+    final scopeKey = '${profile.provider}|${profile.id}';
+    final cached = _contentCache[scopeKey];
+    if (cached != null) {
+      state = cached.copyWith(accountTitle: profile.displayName);
+      return;
+    }
+    final painted = await _snapshotContent(profile.id, profile.provider, scopeKey, profile.displayName);
+    if (painted == null || !_live(generation) || state is HomeContent) return;
+    _snapshotOnly = true;
+    state = painted;
+  }
+
+  /// [profileId]'s snapshot as [scopeKey]'s Content, when it is [provider]'s.
+  Future<HomeContent?> _snapshotContent(String profileId, String provider, String scopeKey, String? title) async {
+    final store = ref.read(homeSnapshotStoreProvider);
+    if (store == null) return null;
+    try {
+      final snapshot = await store.read(profileId);
+      if (snapshot == null || snapshot.provider != provider) return null;
+      return homeContentFromSnapshot(
+        snapshot.feed,
+        scopeKey: scopeKey,
+        provider: provider,
+        accountTitle: title,
+        nowMs: _nowMs,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Retry (Error page) or an explicit refresh: reloads the active scope.
@@ -86,12 +151,12 @@ class HomeViewModel extends Notifier<HomeUiState> {
     _activityDebounce = null;
   }
 
-  HomeUiState _start(MusicSource? source) {
+  HomeUiState _start(MusicSource? source, {HomeContent? keep}) {
     _stop();
     final generation = _generation;
     _heroKey = null;
     Future.microtask(() => _load(source, generation));
-    return const HomeLoading();
+    return keep ?? const HomeLoading();
   }
 
   bool _live(int generation) => ref.mounted && generation == _generation;
@@ -104,6 +169,21 @@ class HomeViewModel extends Notifier<HomeUiState> {
     if (current is HomeContent && current.sameFeedAs(content)) return;
     state = content;
     if (content.scopeKey.isNotEmpty) _contentCache[content.scopeKey] = content;
+    _snapshotOnly = false;
+    _save(content);
+  }
+
+  /// Queues [content] as its account's snapshot (conflated by the store).
+  void _save(HomeContent content) {
+    final to = _saveTo;
+    final store = ref.read(homeSnapshotStoreProvider);
+    if (to == null || store == null || _snapshotOnly || content.scopeKey != '${to.provider}|${to.profileId}') return;
+    store.save(to.profileId, to.provider, unread: {..._unread}, feed: () => homeSnapshotFeed(content));
+  }
+
+  /// [block] was read: it no longer keeps the file's copy.
+  void _filled(int generation, HomeNetworkBlock block) {
+    if (_live(generation)) _unread.remove(block);
   }
 
   /// Applies [change] to the published Content, or queues it until the local tier is up.
@@ -122,13 +202,34 @@ class HomeViewModel extends Notifier<HomeUiState> {
     if (!_live(generation)) return;
     if (profile == null) {
       // No account: the header plus the empty Activities card; the header leads to Settings.
+      _saveTo = null;
       _publish(generation, HomeContent(scopeKey: '', provider: MediaId.providerSubsonic));
       return;
     }
     final provider = source?.provider ?? profile.provider;
     final scopeKey = '$provider|${profile.id}';
+    _saveTo = (profileId: profile.id, provider: provider);
     final cached = _contentCache[scopeKey];
-    if (cached != null) _publish(generation, cached.copyWith(accountTitle: profile.displayName));
+    final up = state;
+    if (cached != null) {
+      _unread = {};
+      _publish(generation, cached.copyWith(accountTitle: profile.displayName));
+    } else if (up is HomeContent && up.scopeKey == scopeKey) {
+      // The snapshot (or a same-scope reload) is up: every block holds what it read.
+      _unread = {};
+    } else {
+      // Nothing of this scope in the process: the account's snapshot, else a spinner.
+      final painted = await _snapshotContent(profile.id, provider, scopeKey, profile.displayName);
+      if (!_live(generation)) return;
+      if (painted != null) {
+        _unread = {};
+        _snapshotOnly = true;
+        state = painted;
+      } else {
+        _unread = HomeNetworkBlock.unreadFromNothing();
+        if (state is HomeContent) state = const HomeLoading();
+      }
+    }
 
     // Network blocks start with the load and splice in whenever they land.
     Future<List<Playlist>?>? playlists;
@@ -185,12 +286,14 @@ class HomeViewModel extends Notifier<HomeUiState> {
   void _launchNetworkBlocks(MusicSource source, int generation, Future<List<Playlist>?> playlists) {
     unawaited(playlists.then((list) {
       if (list == null) return; // Failed: keep what the block had.
+      _filled(generation, HomeNetworkBlock.playlists);
       final shelf = distinctBy(list, (p) => p.id).take(homePlaylistLimit).toList();
       _splice(generation, (c) => c.copyWith(playlists: shelf));
     }));
 
     unawaited(_guard(source.library.getStarred()).then((starred) {
       if (starred == null) return;
+      _filled(generation, HomeNetworkBlock.recentlyAdded);
       final now = _nowMs;
       final tracks = recentlyAddedFrom<Track>(
         starred.tracks,
@@ -211,6 +314,7 @@ class HomeViewModel extends Notifier<HomeUiState> {
 
     unawaited(_guard(source.library.getAlbumList(AlbumListType.recent, size: homeRecentlyPlayedLimit)).then((albums) {
       if (albums == null) return;
+      _filled(generation, HomeNetworkBlock.recentlyPlayed);
       final distinct = distinctBy(albums, (a) => a.id);
       _splice(generation, (c) => c.copyWith(recentlyPlayedAll: distinct));
     }));
