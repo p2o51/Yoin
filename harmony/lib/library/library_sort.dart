@@ -31,8 +31,11 @@ const libraryChipOrder = [
 
 enum LibrarySort { recents, recentlyAdded, alphabetical, creator }
 
-/// The orders a view offers on Subsonic (albums and playlists carry library
-/// dates); the first is the default. Empty = no sort row.
+/// The orders a view offers (Android librarySortOptions); the first is the
+/// default. Empty = no sort row. Recently added needs the service's library
+/// dates: Subsonic and Apple Music date both their albums and their playlists
+/// (ServiceFeatures albumsHaveLibraryDates / playlistsHaveLibraryDates), and
+/// no service dates its artists.
 List<LibrarySort> librarySortOptions(LibraryTab tab) => switch (tab) {
   LibraryTab.all || LibraryTab.albums || LibraryTab.playlists => const [
     LibrarySort.recents,
@@ -370,8 +373,8 @@ String? _creatorOf(LibraryItem item) {
 
 int? _addedAtOf(LibraryItem item, Map<String, int> artistDates) => switch (item) {
   LibraryAlbumItem(:final album) => parseLibraryDate(album.addedAt),
-  // Subsonic playlists carry no library date in the Harmony model yet.
-  LibraryPlaylistItem() => null,
+  // Subsonic's `created`, an Apple Music library playlist's `dateAdded` (Android Playlist.libraryAddedAt).
+  LibraryPlaylistItem(:final playlist) => parseLibraryDate(playlist.libraryAddedAt),
   LibraryArtistItem(:final artist) =>
     artistDates['id:${artist.id}'] ?? artistDates['name:${artist.name.trim().toLowerCase()}'],
 };

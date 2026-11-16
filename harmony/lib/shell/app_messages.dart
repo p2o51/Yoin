@@ -11,6 +11,15 @@ import '../playback/playback_controller.dart';
 void showAppMessage(BuildContext context, String text) =>
     ProviderScope.containerOf(context, listen: false).read(playbackControllerProvider.notifier).showMessage(text);
 
+/// [showAppMessage] for work that outlives its page (Android AppNotices: a
+/// playlist deleted after its page closed, a rename answered later): the
+/// line goes to the same snackbar, whichever page is in front by then.
+/// Tests override it to collect the lines.
+final appMessageSinkProvider = Provider<ValueChanged<String>>(
+  (ref) =>
+      (text) => ref.read(playbackControllerProvider.notifier).showMessage(text),
+);
+
 /// How far the snackbar showing now reaches above the bar's band, in logical
 /// pixels (0 when none shows). Floating things that sit on the same baseline —
 /// Library's New playlist FAB — rise by this, as Android's Scaffold lifts its

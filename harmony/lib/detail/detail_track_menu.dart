@@ -13,13 +13,15 @@ import 'detail_routes.dart';
 /// this window's navigation. [onAlbumPage] leaves Go to album out (the row is
 /// on that album); there [onViewInScrapbook] moves the page to its scrapbook
 /// at the song (elsewhere View in Scrapbook opens the album there). Add to
-/// playlist shows when the account can file songs. Messages go to the page's
-/// snackbar.
+/// playlist shows when the account can file songs; [onRemoveFromPlaylist]
+/// (the playlist page, on a playlist the account can edit) adds Remove from
+/// playlist. Messages go to the page's snackbar.
 Future<void> openTrackMenu(
   BuildContext context,
   Track track, {
   bool onAlbumPage = false,
   ValueChanged<MediaId>? onViewInScrapbook,
+  VoidCallback? onRemoveFromPlaylist,
 }) {
   void message(String text) {
     if (context.mounted) showDetailMessage(context, text);
@@ -37,6 +39,7 @@ Future<void> openTrackMenu(
             if (context.mounted) addToPlaylistFlow(context, tracks, onMessage: message);
           }
         : null,
+    onRemoveFromPlaylist: onRemoveFromPlaylist,
     onMessage: message,
   );
 }

@@ -16,6 +16,20 @@ class PlaylistsRevision extends Notifier<int> {
 
 final playlistsRevisionProvider = NotifierProvider<PlaylistsRevision, int>(PlaylistsRevision.new);
 
+/// The account in use's profile id, rebuilt with the active source (null with
+/// no account, or where the profiles can't be read). A playlist edit carries
+/// the id it was made under and is not sent once another account is in use
+/// (Android's currentProfileId checks): the same playlist id on that account
+/// is another playlist.
+final playlistAccountProvider = FutureProvider<String?>((ref) async {
+  try {
+    await ref.watch(activeSourceProvider.future);
+    return (await ref.watch(profileRepositoryProvider).activeProfile())?.id;
+  } catch (_) {
+    return null;
+  }
+});
+
 /// What the active account can do to playlists (null source = nothing).
 ({bool canAdd, bool canEdit}) playlistAbilities(MusicSource? source) {
   final caps = source?.capabilities ?? const <Capability>{};
@@ -67,6 +81,18 @@ class PlaylistWrites {
     final (source, writes) = await _writes();
     await writes.addTracksToPlaylist(playlist, _ids(source, tracks));
     _changed(playlist);
+  }
+
+  /// The account in use now ([playlistAccountProvider]), for an edit to carry.
+  String? accountNow() => _ref.read(playlistAccountProvider).value;
+
+  /// Whether [account] (an edit's [accountNow]) is still the one in use.
+  Future<bool> isAccountInUse(String? account) async {
+    try {
+      return await _ref.read(playlistAccountProvider.future) == account;
+    } catch (_) {
+      return account == null;
+    }
   }
 
   Future<void> rename(MediaId playlist, String name) async {

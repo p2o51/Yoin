@@ -7,6 +7,7 @@ import '../data/model/model.dart';
 import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
 import '../library/playlist_writes.dart';
+import '../ui/component/error_strings.dart';
 import '../offline/offline_toggle.dart';
 import '../settings/backup/playlist_backup_strings.dart';
 import '../shell/detail_chrome.dart';
@@ -25,6 +26,7 @@ import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
 import 'playlist_backup_action.dart';
 import 'playlist_detail_view_model.dart';
+import 'playlist_row_presence.dart';
 import 'playlist_sleeves.dart';
 import 'reshape_scaffold.dart';
 
@@ -33,14 +35,30 @@ const _rowCoverSize = 320;
 
 /// The Playlist page (PushPage; Android PlaylistDetailScreen, Compact): the
 /// Album shell with sleeves behind the hero cover, a Length / Owner block
-/// and the flowing titles; the list rows lead with album thumbnails.
-class PlaylistDetailScreen extends ConsumerWidget {
+/// and the flowing titles; the list rows lead with album thumbnails. A row's
+/// sheet offers Remove from playlist where the account can edit it; the row
+/// leaves at once (and comes back if the service refuses).
+class PlaylistDetailScreen extends ConsumerStatefulWidget {
   const PlaylistDetailScreen({super.key, required this.playlistId});
 
   final MediaId playlistId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
+}
+
+class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
+  /// The list's rows coming and going (a removal, a refusal bringing one back).
+  late final _rows = RowPresenceBook(
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
+
+  MediaId get playlistId => widget.playlistId;
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(playlistDetailProvider(playlistId));
     final source = ref.watch(activeSourceProvider).value;
     final strings = DetailStrings.of(context);
@@ -70,14 +88,14 @@ class PlaylistDetailScreen extends ConsumerWidget {
               ),
               PlaylistDetailContent() => null,
             },
-            content: content == null ? null : _content(context, ref, content, heroUrl),
+            content: content == null ? null : _content(context, content, heroUrl),
           ),
         ),
       ),
     );
   }
 
-  ReshapeContent _content(BuildContext context, WidgetRef ref, PlaylistDetailContent state, String? heroUrl) {
+  ReshapeContent _content(BuildContext context, PlaylistDetailContent state, String? heroUrl) {
     final strings = DetailStrings.of(context);
     final source = ref.read(activeSourceProvider).value;
     String? rowUrl(Track t) {
@@ -101,29 +119,46 @@ class PlaylistDetailScreen extends ConsumerWidget {
           ? null
           : (cover, leaving) =>
                 PlaylistSleeves(urls: sleeveUrls, cover: cover, leaving: leaving, corner: playlistSleeveCorner),
-      listChildren: [
-        Padding(
-          padding: const EdgeInsetsDirectional.only(start: 8, top: 2, bottom: 10),
-          child: TrackCountLine(
-            count: state.trackCount,
-            totalSec: state.totalDurationSec,
-            showDuration: state.tracks.isNotEmpty,
-          ),
-        ),
-        if (state.entries.isEmpty)
-          Padding(
-            padding: const EdgeInsetsDirectional.only(start: 8, top: 8),
-            child: Text(strings.playlistEmpty, style: emptyStyle),
+      // Keyed by the entry (a song can be in the playlist twice): a row removed
+      // from the playlist fades out and the rows under it move up. The count
+      // and the empty line trade places when the last song goes (or one comes back).
+      listChildren: _rows.layOut([
+        if (state.entries.isNotEmpty)
+          PresenceRow(
+            const ValueKey('playlist-count'),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 8, top: 2, bottom: 10),
+              child: TrackCountLine(count: state.trackCount, totalSec: state.totalDurationSec),
+            ),
+          )
+        else
+          PresenceRow(
+            const ValueKey('playlist-empty'),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 8, top: 8),
+              child: Text(strings.playlistEmpty, style: emptyStyle),
+            ),
           ),
         for (final (i, e) in state.entries.indexed)
-          PlaylistTrackRow(
-            key: ValueKey(e.rowKey),
-            track: e.track,
-            coverUrl: rowUrl(e.track),
-            onTap: () => playFrom(i),
-            onLongPress: () => openTrackMenu(context, e.track),
+          PresenceRow(
+            ValueKey(e.rowKey),
+            PlaylistTrackRow(
+              track: e.track,
+              coverUrl: rowUrl(e.track),
+              onTap: () => playFrom(i),
+              onLongPress: () => openTrackMenu(
+                context,
+                e.track,
+                // The sheet is about this row: a song can be in the playlist twice.
+                onRemoveFromPlaylist: state.canRemoveSongs
+                    ? () => ref
+                          .read(playlistDetailProvider(playlistId).notifier)
+                          .removeTrack(e.rowKey, playlistEditLines(context))
+                    : null,
+              ),
+            ),
           ),
-      ],
+      ]),
       heroBelow: (links) => state.entries.isEmpty
           ? Center(child: Text(strings.playlistEmpty, style: emptyStyle))
           : Column(
@@ -158,7 +193,10 @@ class _HeroMeta extends StatelessWidget {
     const tabular = [FontFeature.tabularFigures()];
     final total = state.totalDurationSec;
     final h = total ~/ 3600, m = (total % 3600) ~/ 60;
-    final duration = total <= 0 ? '–' : (h > 0 ? strings.durationHoursMinutes(h, m) : strings.durationMinutes(m));
+    // Songs without durations leave the line out rather than show "–" under a count that is there.
+    final duration = total > 0
+        ? (h > 0 ? strings.durationHoursMinutes(h, m) : strings.durationMinutes(m))
+        : (state.trackCount == 0 ? '–' : null);
     final owner = state.playlist.owner?.trim();
     final comment = state.playlist.comment?.trim();
     return Column(
@@ -176,10 +214,11 @@ class _HeroMeta extends StatelessWidget {
                   strings.playlistTracks(state.trackCount),
                   style: text.bodyLarge?.copyWith(color: colors.onSurface, fontFeatures: tabular),
                 ),
-                Text(
-                  duration,
-                  style: text.bodyMedium?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
-                ),
+                if (duration != null)
+                  Text(
+                    duration,
+                    style: text.bodyMedium?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
+                  ),
               ],
             ),
             if (owner != null && owner.isNotEmpty) ...[
@@ -296,9 +335,9 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
           cancelLabel: strings.playlistCancelRename,
           initial: state.playlist.name,
         );
-        if (name == null || name == state.playlist.name) return;
-        final ok = await vm.rename(name);
-        if (context.mounted) showDetailMessage(context, ok ? strings.playlistRenamed : strings.playlistErrorRename);
+        if (name == null || !context.mounted) return;
+        // Shows at once; the snackbar says if the service refused (the old name comes back).
+        vm.rename(name, playlistEditLines(context));
       },
     ),
     DetailMenuAction(
@@ -316,14 +355,20 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
             ],
           ),
         );
-        if (confirmed != true) return;
-        final ok = await vm.delete();
-        if (!context.mounted) return;
-        showDetailMessage(context, ok ? strings.playlistDeleted : strings.playlistErrorDelete);
-        // Gone: leave the page the way its back button does.
-        if (ok) Navigator.of(context).maybePop();
+        if (confirmed != true || !context.mounted) return;
+        // The page closes at once, the way its back button closes it; the
+        // playlist leaves the Library meanwhile and comes back if the service
+        // refuses. The snackbar says how it went, whichever page is in front.
+        if (vm.delete((deleted: strings.playlistDeleted, failed: strings.playlistErrorDelete))) {
+          Navigator.of(context).maybePop();
+        }
       },
     ),
     share,
   ];
 }
+
+/// The page's edit lines in the app's language, for an answer that may come
+/// after the page has closed.
+PlaylistEditLines playlistEditLines(BuildContext context) =>
+    PlaylistEditLines(ComponentStrings.of(context), ErrorStrings.of(context));

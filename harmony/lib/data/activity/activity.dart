@@ -79,6 +79,11 @@ abstract interface class ActivityLog {
   /// Current rows first, then after every change.
   Stream<List<ActivityEvent>> watchRecent({int limit = cap});
 
+  /// Drops [entityType] [entityId]'s row: the entity is gone from the service
+  /// (a playlist deleted), so the Activities don't bring it back (Android
+  /// ActivityEventDao.deletePlaylist).
+  Future<void> forget(ActivityEntityType entityType, String entityId);
+
   static const cap = 400;
 }
 
@@ -115,6 +120,24 @@ final class StoredActivityLog implements ActivityLog {
         await _store.write(_key, jsonEncode([for (final r in rows) r.toJson()]));
       } catch (_) {
         // Logging is best effort.
+      }
+    });
+    _tail = done;
+    return done;
+  }
+
+  @override
+  Future<void> forget(ActivityEntityType entityType, String entityId) {
+    final done = _tail.then((_) async {
+      try {
+        final rows = await _load();
+        final before = rows.length;
+        rows.removeWhere((r) => r.entityType == entityType && r.entityId == entityId);
+        if (rows.length == before) return;
+        _changes.add(List.unmodifiable(rows));
+        await _store.write(_key, jsonEncode([for (final r in rows) r.toJson()]));
+      } catch (_) {
+        // Best effort, as logging.
       }
     });
     _tail = done;

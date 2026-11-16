@@ -120,7 +120,9 @@ List<TrackMenuRow> goToArtistRows(Track track, ValueChanged<MediaId>? go, Compon
 /// the album page to its scrapbook at this song ([onViewInScrapbook], on the
 /// album page), or opens the album there ([onGoToAlbum] with a
 /// [ScrapbookFocusRequest]). [onAddToPlaylist] null leaves out Add to
-/// playlist. [onMessage] shows the queue confirmations and failures (the
+/// playlist. [onRemoveFromPlaylist] is the playlist page's own: last and on
+/// its own, it takes this row's entry out of its playlist (null leaves it
+/// out). [onMessage] shows the queue confirmations and failures (the
 /// caller's snackbar).
 Future<void> showTrackMenuSheet(
   BuildContext context, {
@@ -130,6 +132,7 @@ Future<void> showTrackMenuSheet(
   ValueChanged<MediaId>? onGoToArtist,
   ValueChanged<MediaId>? onViewInScrapbook,
   ValueChanged<List<Track>>? onAddToPlaylist,
+  VoidCallback? onRemoveFromPlaylist,
   required ValueChanged<String> onMessage,
 }) {
   YoinHaptics.longPress();
@@ -148,6 +151,7 @@ Future<void> showTrackMenuSheet(
         onGoToArtist: onGoToArtist,
         onViewInScrapbook: onViewInScrapbook,
         onAddToPlaylist: onAddToPlaylist,
+        onRemoveFromPlaylist: onRemoveFromPlaylist,
         onMessage: onMessage,
       ),
     ),
@@ -165,6 +169,7 @@ class TrackMenuSheet extends ConsumerStatefulWidget {
     this.onGoToArtist,
     this.onViewInScrapbook,
     this.onAddToPlaylist,
+    this.onRemoveFromPlaylist,
   });
 
   final Track track;
@@ -175,6 +180,9 @@ class TrackMenuSheet extends ConsumerStatefulWidget {
   /// The album page's own View in Scrapbook: page 2 at this song.
   final ValueChanged<MediaId>? onViewInScrapbook;
   final ValueChanged<List<Track>>? onAddToPlaylist;
+
+  /// The playlist page's "Remove from playlist" for this row's entry (TrackMenu.kt onRemoveFromPlaylist).
+  final VoidCallback? onRemoveFromPlaylist;
   final ValueChanged<String> onMessage;
 
   @override
@@ -331,10 +339,15 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
       if ((link, openIn) case (final url?, final label?))
         TrackMenuRow(label, YoinSymbols.launch, () => openDetailLink(container, url)),
     ];
+    // Last and on its own: the one row that takes something away.
+    final editRows = [
+      if (widget.onRemoveFromPlaylist case final remove?)
+        TrackMenuRow(strings.removeFromPlaylist, YoinSymbols.delete, remove),
+    ];
     return TrackMenuContent(
       track: _track,
       quick: layout.quick,
-      groups: [playlistRows, goRows],
+      groups: [playlistRows, goRows, editRows],
       onQuick: (action) {
         if (action.keepsOpen) {
           YoinHaptics.tick();

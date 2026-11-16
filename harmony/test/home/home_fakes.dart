@@ -110,6 +110,12 @@ class MemoryActivityLog implements ActivityLog {
   }
 
   @override
+  Future<void> forget(ActivityEntityType entityType, String entityId) async {
+    _rows.removeWhere((r) => r.entityType == entityType && r.entityId == entityId);
+    _changes.add(List.unmodifiable(_rows));
+  }
+
+  @override
   Future<List<ActivityEvent>> recent({int limit = ActivityLog.cap}) async {
     if (failReads) throw StateError('storage');
     return List.unmodifiable(_rows.take(limit));
