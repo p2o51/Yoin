@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/ai/ai_service.dart' show AboutFields;
 import '../data/ai/ai_settings.dart';
 
 /// Settings' UI strings, English and Simplified Chinese, copied from Android
@@ -26,14 +27,107 @@ class SettingsStrings {
   String get aiSummaryEmpty =>
       _zh ? '歌曲信息、问 Gemini、歌词翻译与 Memories 标题' : 'Song info, Ask Gemini, translation and Memory titles'; // settings_gemini_summary_empty
   String aiAnswerIn(String language) => _zh ? '回答语言：$language' : 'Answer in $language'; // settings_gemini_answer_in
-  String get aiProviderGemini => 'Gemini'; // ai_provider_gemini (not translatable)
   String get aiTiersLabel => _zh ? '档位' : 'Tier'; // ai_tiers_label
   String get aiKeyLabel => _zh ? 'API 密钥' : 'API key'; // ai_key_label
+
+  /// ai_provider_gemini / _deepseek (not translatable) / _qwen / _custom.
+  String aiProvider(AiProvider provider) => switch (provider) {
+    AiProvider.gemini => 'Gemini',
+    AiProvider.deepSeek => 'DeepSeek',
+    AiProvider.qwen => _zh ? '千问' : 'Qwen',
+    AiProvider.custom => _zh ? '自定义' : 'Custom',
+  };
 
   /// ai_tier_good / ai_tier_best.
   String aiTier(AiTier tier) => switch (tier) {
     AiTier.good => _zh ? '好' : 'Good',
     AiTier.best => _zh ? '最佳' : 'Best',
+  };
+  String get aiCdTierDetails => _zh ? '档位区别' : 'How the tiers differ'; // ai_cd_tier_details
+  String get aiFlip => _zh ? '换个角度' : 'Change view'; // ai_flip
+  String get aiAxisSpeed => _zh ? '更快' : 'Faster'; // ai_axis_speed
+  String get aiAxisCost => _zh ? '更省' : 'Cheaper'; // ai_axis_cost
+  String get aiAxisAccuracy => _zh ? '更准' : 'More accurate'; // ai_axis_accuracy
+  String get aiUntested => _zh ? '还没测' : 'Not tested'; // ai_untested
+  String get aiGetKeyGemini => _zh ? '在 Google AI Studio 获取' : 'Get a key in Google AI Studio'; // ai_get_key_gemini
+  String get aiGetKeyDeepSeek =>
+      _zh ? '在 DeepSeek 开放平台获取' : 'Get a key on the DeepSeek platform'; // ai_get_key_deepseek
+  String get aiGetKeyQwen => _zh ? '在阿里云百炼获取' : 'Get a key in Alibaba Cloud Model Studio'; // ai_get_key_qwen
+  String get aiCustomFormat => _zh ? '接口格式' : 'Format'; // ai_custom_format
+  String get aiFormatOpenAi => _zh ? 'OpenAI 兼容' : 'OpenAI compatible'; // ai_format_openai
+  String get aiFormatAnthropic => 'Anthropic'; // ai_format_anthropic (not translatable)
+  String get aiCustomUrl => _zh ? '地址' : 'Address'; // ai_custom_url
+  String get aiCustomModel => _zh ? '模型' : 'Model'; // ai_custom_model
+  String get aiCustomPull => _zh ? '拉取' : 'Fetch'; // ai_custom_pull
+  String get aiCustomThinking => _zh ? '思考' : 'Thinking'; // ai_custom_thinking
+
+  /// ai_thinking_off / _low / _medium / _high.
+  String aiThinking(AiThinking thinking) => switch (thinking) {
+    AiThinking.off => _zh ? '不思考' : 'Off',
+    AiThinking.low => _zh ? '低' : 'Low',
+    AiThinking.medium => _zh ? '中' : 'Medium',
+    AiThinking.high => _zh ? '高' : 'High',
+  };
+  String get aiSearchLabel => _zh ? '搜索服务' : 'Search'; // ai_search_label
+  String get aiSearchNone => _zh ? '不搜索' : 'No search'; // ai_search_none
+
+  /// The search service's name (searchServiceName: DeepSeek, Exa, Tavily, ai_search_none).
+  String aiSearchService(AiSearchService service) => switch (service) {
+    AiSearchService.deepSeek => 'DeepSeek',
+    AiSearchService.exa => 'Exa',
+    AiSearchService.tavily => 'Tavily',
+    AiSearchService.none => aiSearchNone,
+  };
+  String aiSearchKey(String name) => _zh ? '$name 密钥' : '$name key'; // ai_search_key
+  String aiGetSearchKey(String name) => _zh ? '获取 $name 密钥' : 'Get a $name key'; // ai_get_search_key
+  String aiModelsError(String error) => _zh ? '拉取失败：$error' : "Couldn't fetch models: $error"; // ai_models_error
+  String get aiTry => _zh ? '拿一首歌试试' : 'Try a song'; // ai_try
+  String aiTiersTitle(String provider) => _zh ? '$provider 档位' : '$provider tiers'; // ai_tiers_title
+  String get aiRowModel => _zh ? '模型' : 'Model'; // ai_row_model
+  String get aiRowSearch => _zh ? '搜索' : 'Search'; // ai_row_search
+  String get aiRowSpeed => _zh ? '速度' : 'Speed'; // ai_row_speed
+  String get aiRowAccuracy => _zh ? '准确' : 'Accuracy'; // ai_row_accuracy
+  String get aiRowCost => _zh ? '每千首' : 'Per 1,000 songs'; // ai_row_cost
+  String aiSeconds(String seconds) => _zh ? '$seconds 秒' : '$seconds s'; // ai_seconds
+  String aiCost(String cost) => '\$$cost'; // ai_cost (not translatable)
+  String aiCostEstimated(String cost) => _zh ? '\$$cost（估）' : '\$$cost (est.)'; // ai_cost_estimated
+  String get aiSearchGoogle => _zh ? 'Google 搜索' : 'Google Search'; // ai_search_google
+  String get aiSearchQwen => _zh ? '千问自带搜索' : "Qwen's own search"; // ai_search_qwen
+  String get aiSearchDeepSeekOnce =>
+      _zh ? 'DeepSeek 搜索 1 次，读全文' : 'DeepSeek Search once, full pages'; // ai_search_deepseek_once
+  String get aiSearchDeepSeekTwice =>
+      _zh ? 'DeepSeek 搜索 2 次，读全文' : 'DeepSeek Search twice, full pages'; // ai_search_deepseek_twice
+  String get aiNoteGemini => _zh
+      ? '每月前 5,000 次搜索免费，超出后每千首约 \$31。没开结算的免费密钥不能搜索，会报 429。'
+      : "The first 5,000 searches each month are free; after that, about \$31 per 1,000 songs. A free key without "
+            "billing can't search and gets error 429."; // ai_note_gemini
+  String get aiNoteDeepSeek => _zh
+      ? '国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。'
+      : 'Works in mainland China without a proxy. Search uses the same key and is charged per call.'; // ai_note_deepseek
+  String get aiNoteQwen =>
+      _zh ? '国内可以直接用，不需要代理。还没测过。' : 'Works in mainland China without a proxy. Not tested yet.'; // ai_note_qwen
+  String get aiTiersSource => _zh
+      ? '速度和准确来自 35 首歌的测试，花费按当前价格算。'
+      : 'Speed and accuracy from a 35-song test; cost at current prices.'; // ai_tiers_source
+  String get aiTrySong => _zh ? '歌名' : 'Song'; // ai_try_song
+  String get aiTryArtist => _zh ? '艺人' : 'Artist'; // ai_try_artist
+  String get aiTryAlbum => _zh ? '专辑' : 'Album'; // ai_try_album
+  String get aiTryRun => _zh ? '试试' : 'Try'; // ai_try_run
+  String get aiTryRunning => _zh ? '正在查…' : 'Searching…'; // ai_try_running
+  String aiTryQueries(String queries) => _zh ? '搜了：$queries' : 'Searched: $queries'; // ai_try_queries
+  String aiTryPages(int pages) => _zh ? '读了 $pages 个网页' : '$pages pages read'; // ai_try_pages
+  String get aiTryBuiltin => _zh ? '模型自己搜索' : 'The model searched on its own'; // ai_try_builtin
+  String get aiTryNoKey => _zh ? '先贴上密钥' : 'Paste a key first'; // ai_try_no_key
+  String aiTryError(String message) => _zh ? '失败：$message' : 'Failed: $message'; // ai_try_error
+
+  /// An About field's label (strings_nowplaying np_about_creation_time … np_about_review).
+  String aboutField(String key) => switch (key) {
+    AboutFields.creationTime => _zh ? '创作时间' : 'Creation Time',
+    AboutFields.creationLocation => _zh ? '创作地点' : 'Creation Location',
+    AboutFields.lyricist => _zh ? '作词' : 'Lyricist',
+    AboutFields.composer => _zh ? '作曲' : 'Composer',
+    AboutFields.producer => _zh ? '制作人' : 'Producer',
+    _ => _zh ? '关于' : 'About',
   };
   String get accountsAdd => _zh ? '添加账号' : 'Add account'; // settings_accounts_add
   String get accountsAddShort => _zh ? '添加' : 'Add'; // settings_accounts_add_short

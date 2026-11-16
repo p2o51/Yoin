@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -15,15 +16,21 @@ import '../nowplaying/haptics.dart';
 import '../nowplaying/note_logic.dart' show formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
+import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
+import '../settings/material_shapes.dart' show PolygonBorder, avatarShapes;
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import 'album_scrapbook.dart';
+import 'album_scrapbook_editor.dart';
+import 'album_scrapbook_sheet_model.dart';
+import 'album_scrapbook_track_sheet.dart';
 import 'detail_listening.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_strings.dart';
-import 'detail_track_menu.dart';
+import 'reshape_scaffold.dart' show ReshapePager;
+import 'scrapbook_focus_request.dart';
 
 /// The scrapbook's layout numbers (AlbumScrapbookPage.kt ScrapbookLayout, D3
 /// §5.1) beyond the ones [DetailTokens] already carries.
@@ -69,6 +76,25 @@ abstract final class ScrapbookLayout {
 
   /// Review clipping width cap (beside the cover).
   static const double reviewMaxWidth = 420;
+
+  /// The question / About card's share of the cluster and its cap.
+  static const double cardWidthFactor = 0.92;
+  static const double cardMaxWidth = 380;
+
+  /// The question card's "Q" sticker and its offset off the corner.
+  static const double askSticker = 28;
+  static const Offset askStickerOffset = Offset(-11, -12);
+
+  /// Fact tags: how far the first rides up the card, then each the one above; side inset, width cap, corner.
+  static const double tagOverlap = 6;
+  static const double tagStackOverlap = -6;
+  static const double tagInset = 12;
+  static const double tagMaxWidth = 340;
+  static const double tagCorner = 16;
+
+  /// "Manage in Scrapbook": the room left above the song's piece, and its swell.
+  static const double focusMargin = 24;
+  static const double focusSwell = 0.04;
 }
 
 /// Lanes for a content width: as many 280dp lanes (28dp apart) as fit, 1…3.
@@ -92,6 +118,12 @@ final class ScrapbookColors {
     required this.onReview,
     required this.note,
     required this.onNote,
+    required this.ask,
+    required this.onAsk,
+    required this.askMark,
+    required this.onAskMark,
+    required this.tag,
+    required this.onTag,
     required this.receipt,
     required this.onReceipt,
     required this.outline,
@@ -112,6 +144,12 @@ final class ScrapbookColors {
       onReview: s.onPrimaryContainer,
       note: s.surfaceContainerHighest,
       onNote: s.onSurface,
+      ask: s.tertiaryContainer,
+      onAsk: s.onTertiaryContainer,
+      askMark: s.tertiary,
+      onAskMark: s.onTertiary,
+      tag: s.secondaryContainer,
+      onTag: s.onSecondaryContainer,
       receipt: s.surfaceContainer,
       onReceipt: s.onSurface,
       outline: s.outline,
@@ -121,7 +159,7 @@ final class ScrapbookColors {
   }
 
   final Color ink, onInk, ticket, onTicket, ticketNow, onTicketNow, review, onReview;
-  final Color note, onNote, receipt, onReceipt, outline, muted, dots;
+  final Color note, onNote, ask, onAsk, askMark, onAskMark, tag, onTag, receipt, onReceipt, outline, muted, dots;
 
   static ScrapbookColors lerp(ScrapbookColors a, ScrapbookColors b, double t) {
     Color l(Color x, Color y) => Color.lerp(x, y, t)!;
@@ -136,6 +174,12 @@ final class ScrapbookColors {
       onReview: l(a.onReview, b.onReview),
       note: l(a.note, b.note),
       onNote: l(a.onNote, b.onNote),
+      ask: l(a.ask, b.ask),
+      onAsk: l(a.onAsk, b.onAsk),
+      askMark: l(a.askMark, b.askMark),
+      onAskMark: l(a.onAskMark, b.onAskMark),
+      tag: l(a.tag, b.tag),
+      onTag: l(a.onTag, b.onTag),
       receipt: l(a.receipt, b.receipt),
       onReceipt: l(a.onReceipt, b.onReceipt),
       outline: l(a.outline, b.outline),
@@ -152,6 +196,8 @@ final class ScrapbookColors {
       other.ticketNow == ticketNow &&
       other.review == review &&
       other.note == note &&
+      other.ask == ask &&
+      other.tag == tag &&
       other.receipt == receipt &&
       other.dots == dots &&
       other.onTicket == onTicket &&
@@ -183,6 +229,15 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   ScrapbookColors? _from;
   ScrapbookColors? _to;
 
+  /// "Manage in Scrapbook": the scroll that brings the song's piece into view, and the piece's swell.
+  final ScrollController _scroll = ScrollController();
+  late final SpringValue _scrollTo = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+  late final SpringValue _pulse = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+  final Map<String, GlobalKey> _pieceKeys = {};
+  String? _pulsed;
+  ScrapbookFocus? _focus;
+  StreamSubscription<ScrapEvent>? _events;
+
   @override
   void initState() {
     super.initState();
@@ -190,7 +245,86 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       final from = _from, to = _to;
       if (from != null && to != null) _colors.value = ScrapbookColors.lerp(from, to, _t.value.clamp(0.0, 1.0));
     });
+    _scrollTo.animation.addListener(() {
+      if (_scroll.hasClients) {
+        final p = _scroll.position;
+        _scroll.jumpTo(_scrollTo.value.clamp(p.minScrollExtent, p.maxScrollExtent));
+      }
+    });
+    _pulse.animation.addListener(() {
+      // Out and back: once it has swollen, it settles back.
+      if (_pulse.value >= 0.98) _pulse.animateTo(0);
+    });
+    ScrapbookFocusRequest.pending.addListener(_takeFocus);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _takeFocus());
   }
+
+  void _onEvent(ScrapEvent event) {
+    if (!mounted || ScrapTrackSheetScope.isOpen(widget.album.id)) return;
+    final strings = DetailStrings.of(context);
+    final say = ref.read(playbackControllerProvider.notifier).showMessage;
+    final editor = ref.read(albumScrapbookEditorProvider(widget.album.id).notifier);
+    switch (event) {
+      case ScrapRegenerated(:final restore):
+        say(strings.scrapRegenerated, actionLabel: strings.scrapUndo, long: true, onAction: () => editor.edit(restore));
+      case ScrapFailed(:final failure):
+        say(scrapFailureText(strings, failure));
+    }
+  }
+
+  /// Takes a "Manage in Scrapbook" request for one of this album's songs:
+  /// scrolls its piece into view, swells it, then opens its sheet on the row.
+  void _takeFocus() {
+    if (!mounted) return;
+    final focus = ScrapbookFocusRequest.takeFor(widget.album.tracks.map((t) => t.id));
+    if (focus == null) return;
+    _focus = focus;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runFocus());
+  }
+
+  void _runFocus() {
+    final focus = _focus;
+    final pieces = ref.read(albumScrapbookProvider(widget.album.id));
+    if (!mounted || focus == null) return;
+    if (pieces == null) {
+      // The page is still reading its rows: try again once it has them.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runFocus());
+      return;
+    }
+    _focus = null;
+    final key = pieces.where((p) => _holds(p, focus.trackId)).firstOrNull?.key;
+    final object = key == null ? null : _pieceKeys[key]?.currentContext?.findRenderObject();
+    if (object != null && _scroll.hasClients) {
+      final viewport = RenderAbstractViewport.maybeOf(object);
+      if (viewport != null) {
+        final target = viewport.getOffsetToReveal(object, 0).offset - ScrapbookLayout.focusMargin;
+        final reduce = MediaQuery.disableAnimationsOf(context);
+        _scrollTo.snapTo(_scroll.offset);
+        reduce ? _scrollTo.snapTo(target) : _scrollTo.animateTo(target);
+        if (!reduce) {
+          setState(() => _pulsed = key);
+          _pulse.snapTo(0);
+          _pulse.animateTo(1);
+        }
+      }
+    }
+    final edit = focus.edit;
+    if (edit != null) {
+      showScrapTrackSheet(
+        context,
+        album: widget.album,
+        trackId: focus.trackId,
+        colors: _colors.value ?? ScrapbookColors.of(Theme.of(context).colorScheme),
+        editing: edit,
+      );
+    }
+  }
+
+  static bool _holds(ScrapPiece piece, MediaId trackId) => switch (piece) {
+    ScrapTrackCluster(:final track) => track.track.id == trackId,
+    ScrapContactSheet(:final tracks) => tracks.any((t) => t.track.id == trackId),
+    _ => false,
+  };
 
   @override
   void didChangeDependencies() {
@@ -214,7 +348,12 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
 
   @override
   void dispose() {
+    ScrapbookFocusRequest.pending.removeListener(_takeFocus);
+    _events?.cancel();
     _t.dispose();
+    _scrollTo.dispose();
+    _pulse.dispose();
+    _scroll.dispose();
     _colors.dispose();
     super.dispose();
   }
@@ -222,6 +361,10 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   @override
   Widget build(BuildContext context) {
     final pieces = ref.watch(albumScrapbookProvider(widget.album.id));
+    // The sheet's AI work stays alive while the page is open; what it came to
+    // is said here once the sheet has closed.
+    ref.watch(albumScrapbookEditorProvider(widget.album.id));
+    _events ??= ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).events.listen(_onEvent);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     if (pieces == null) return const SizedBox.expand();
     final reduce = MediaQuery.disableAnimationsOf(context);
@@ -242,6 +385,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
               motion: motion,
               colors: c,
               child: SingleChildScrollView(
+                controller: _scroll,
                 child: CustomPaint(
                   painter: _DottedPaper(c.dots),
                   child: ConstrainedBox(
@@ -263,7 +407,20 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
                                 _ScrapSpan(
                                   key: ValueKey(piece.key),
                                   fullLine: piece.fullLine,
-                                  child: _piece(piece, wide),
+                                  child: KeyedSubtree(
+                                    key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
+                                    // The piece being pointed out swells a touch and settles back.
+                                    child: AnimatedBuilder(
+                                      animation: _pulse.animation,
+                                      builder: (context, child) => Transform.scale(
+                                        scale: _pulsed == piece.key
+                                            ? 1 + ScrapbookLayout.focusSwell * _pulse.value.clamp(0.0, 1.0)
+                                            : 1,
+                                        child: child,
+                                      ),
+                                      child: _piece(piece, wide),
+                                    ),
+                                  ),
                                 ),
                             ],
                           ),
@@ -282,7 +439,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
 
   Widget _piece(ScrapPiece piece, bool wide) => switch (piece) {
     ScrapOpening() => _Opening(piece: piece, album: widget.album, coverUrl: widget.coverUrl, wide: wide),
-    ScrapTrackCluster() => _TrackCluster(piece: piece, album: widget.album),
+    ScrapTrackCluster() => _TrackCluster(piece: piece, album: widget.album, wide: wide),
     ScrapContactSheet() => _ContactSheet(piece: piece, album: widget.album),
     ScrapNotYet() => const _NotYet(),
     ScrapReceipt() => _Receipt(piece: piece),
@@ -691,18 +848,25 @@ class _DashedCircle extends CustomPainter {
 }
 
 class _TrackCluster extends StatelessWidget {
-  const _TrackCluster({required this.piece, required this.album});
+  const _TrackCluster({required this.piece, required this.album, required this.wide});
 
   final ScrapTrackCluster piece;
   final Album album;
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
+    final colors = _ScrapScope.of(context).colors;
+    void manage({ScrapSheetTab tab = ScrapSheetTab.about}) =>
+        showScrapTrackSheet(context, album: album, trackId: piece.track.track.id, colors: colors, tab: tab);
+    final ask = piece.ask;
+    final aboutLine = piece.aboutLine;
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: _ScrapStack(
         mirror: piece.mirror,
         children: [
+          // The album's best track needs no caption: its ticket is the ink-filled, big-score one.
           _ScrapSlot(
             cross: false,
             overlap: 0,
@@ -717,9 +881,318 @@ class _TrackCluster extends StatelessWidget {
               overlap: DetailTokens.scrapbookPieceOverlap,
               widthFactor: 0.78,
               maxWidth: 330,
-              child: _NotesClipping(piece: piece, album: album),
+              child: _NotesClipping(
+                piece: piece,
+                album: album,
+                onMore: () => manage(tab: ScrapSheetTab.notes),
+              ),
+            ),
+          if (ask != null)
+            _ScrapSlot(
+              cross: false,
+              overlap: DetailTokens.scrapbookPieceOverlap,
+              widthFactor: ScrapbookLayout.cardWidthFactor,
+              maxWidth: ScrapbookLayout.cardMaxWidth,
+              child: _AskCard(
+                ask: ask,
+                moreAsks: piece.moreAsks,
+                budget: wide ? ScrapbookRules.answerBudgetWide : ScrapbookRules.answerBudget,
+                tilt: piece.cardTilt,
+                trackTitle: piece.track.title,
+                onTap: manage,
+              ),
+            )
+          else if (aboutLine != null)
+            _ScrapSlot(
+              cross: false,
+              overlap: DetailTokens.scrapbookPieceOverlap,
+              widthFactor: ScrapbookLayout.cardWidthFactor,
+              maxWidth: ScrapbookLayout.cardMaxWidth,
+              child: _AboutCard(line: aboutLine, tilt: piece.cardTilt, trackTitle: piece.track.title, onTap: manage),
+            ),
+          for (final (i, tag) in piece.tags.indexed)
+            _ScrapSlot(
+              cross: true,
+              overlap: i == 0 ? ScrapbookLayout.tagOverlap : ScrapbookLayout.tagStackOverlap,
+              child: Align(
+                // A tag keeps its own width on the cluster's other side.
+                alignment: piece.mirror ? AlignmentDirectional.centerStart : AlignmentDirectional.centerEnd,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: ScrapbookLayout.tagInset),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: ScrapbookLayout.tagMaxWidth),
+                    child: _FactTag(tag: tag, extra: i == piece.tags.length - 1 ? piece.hiddenTags : 0, onTap: manage),
+                  ),
+                ),
+              ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The text a listener wrote or read on the page (userTextStyle): 15sp, 1.5 lines.
+TextStyle? _userText(BuildContext context) =>
+    Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.5, letterSpacing: 0);
+
+/// A question asked about the track: the listener's words, the AI's title and
+/// whole sentences of its answer; "Read all" (and "+N" more questions) when
+/// the sheet holds more. A "Q" sticker hangs off its corner.
+class _AskCard extends StatelessWidget {
+  const _AskCard({
+    required this.ask,
+    required this.moreAsks,
+    required this.budget,
+    required this.tilt,
+    required this.trackTitle,
+    required this.onTap,
+  });
+
+  final ScrapAsk ask;
+  final int moreAsks;
+  final int budget;
+  final double tilt;
+  final String trackTitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _ScrapScope.of(context).colors;
+    final strings = DetailStrings.of(context);
+    final theme = Theme.of(context);
+    final excerpt = answerExcerpt(ask.answer, budget);
+    final title = ask.title;
+    return _ScrapLayer(
+      tilt: tilt,
+      depth: 0.35,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Semantics(
+            button: true,
+            label: strings.scrapCdAsk(trackTitle, title ?? ask.question),
+            onTapHint: strings.scrapCdReadAll,
+            excludeSemantics: true,
+            child: Material(
+              color: colors.ask,
+              shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card)),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        ask.question,
+                        style: _userText(
+                          context,
+                        )?.copyWith(fontSize: 14, height: 1.45, color: colors.onAsk.withValues(alpha: 0.8)),
+                      ),
+                      if (title != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              height: 1.3,
+                              color: colors.onAsk,
+                            ),
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text.rich(
+                          markdownBoldSpan(excerpt.text),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: 14.5,
+                            height: 1.55,
+                            color: colors.onAsk,
+                          ),
+                        ),
+                      ),
+                      if (excerpt.truncated || moreAsks > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              Text(
+                                strings.scrapReadAll,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0,
+                                  color: colors.askMark,
+                                ),
+                              ),
+                              if (moreAsks > 0) ...[
+                                const SizedBox(width: 8),
+                                DecoratedBox(
+                                  decoration: ShapeDecoration(color: colors.askMark, shape: const StadiumBorder()),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    child: Text(
+                                      '+$moreAsks',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: colors.onAskMark,
+                                        fontFeatures: const [FontFeature.tabularFigures()],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          PositionedDirectional(
+            start: ScrapbookLayout.askStickerOffset.dx,
+            top: ScrapbookLayout.askStickerOffset.dy,
+            child: ExcludeSemantics(
+              child: Transform.rotate(
+                angle: tilt * 6 * math.pi / 180,
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(color: colors.askMark, shape: PolygonBorder(avatarShapes[1])),
+                  child: SizedBox.square(
+                    dimension: ScrapbookLayout.askSticker,
+                    child: Center(
+                      child: Text(
+                        strings.scrapQ,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0,
+                          color: colors.onAskMark,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The About paragraph's first sentence, for a track with About but no question.
+class _AboutCard extends StatelessWidget {
+  const _AboutCard({required this.line, required this.tilt, required this.trackTitle, required this.onTap});
+
+  final String line;
+  final double tilt;
+  final String trackTitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _ScrapScope.of(context).colors;
+    final strings = DetailStrings.of(context);
+    final theme = Theme.of(context);
+    return _ScrapLayer(
+      tilt: tilt,
+      depth: 0.35,
+      child: Semantics(
+        button: true,
+        label: strings.scrapCdAbout(trackTitle, line),
+        onTapHint: strings.scrapCdReadAll,
+        excludeSemantics: true,
+        child: Material(
+          color: colors.ask,
+          shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card)),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    strings.scrapAbout,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      decoration: TextDecoration.underline,
+                      decorationColor: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text.rich(
+                      markdownBoldSpan(line),
+                      style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14.5, height: 1.55, color: colors.onAsk),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A fact as a tag: its label small, its value up to two lines (a capped
+/// radius, not a stadium: a long value wraps without turning into an oval).
+class _FactTag extends StatelessWidget {
+  const _FactTag({required this.tag, required this.extra, required this.onTap});
+
+  final ScrapTag tag;
+  final int extra;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _ScrapScope.of(context).colors;
+    final strings = DetailStrings.of(context);
+    final theme = Theme.of(context);
+    return _ScrapLayer(
+      tilt: tag.tilt,
+      depth: 0.7,
+      child: Material(
+        color: colors.tag,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ScrapbookLayout.tagCorner)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  strings.scrapFact(tag.key),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontSize: 11.5,
+                    letterSpacing: 0,
+                    color: colors.onTag.withValues(alpha: 0.75),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    extra > 0 ? strings.scrapFactMore(tag.value, extra) : tag.value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(height: 1.35, letterSpacing: 0, color: colors.onTag),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -780,8 +1253,8 @@ class _ContactSheet extends StatelessWidget {
 /// A ticket stub: the number in a perforated stub, then title, duration and
 /// plays, and the score in the album ink. The heart sticker marks a liked
 /// track; the playing track's ticket takes the secondary container, the
-/// album's best the ink. Tap plays the album from it; long-press opens the
-/// song's menu.
+/// album's best the ink. Tap plays the album from it; long-press opens its
+/// track sheet (score, About, notes).
 class _Ticket extends ConsumerStatefulWidget {
   const _Ticket({required this.track, required this.album, required this.best, required this.mini, required this.tilt});
 
@@ -869,10 +1342,14 @@ class _TicketState extends ConsumerState<_Ticket> with TickerProviderStateMixin 
                         YoinHaptics.click();
                         _playAlbumFrom(ref, widget.album, t.index);
                       },
+                      // A long press scores and edits the track on its sheet (Android's ticket onLongClick = Manage).
                       onLongPress: () {
                         YoinHaptics.longPress();
-                        openTrackMenu(context, t.track, onAlbumPage: true);
+                        showScrapTrackSheet(context, album: widget.album, trackId: t.track.id, colors: colors);
                       },
+                      // A right click is the long press on a desktop.
+                      onSecondaryTap: () =>
+                          showScrapTrackSheet(context, album: widget.album, trackId: t.track.id, colors: colors),
                       child: CustomPaint(
                         painter: _Perforation(ink.withValues(alpha: 0.24)),
                         child: Row(
@@ -1012,10 +1489,13 @@ class _TicketBorder extends ShapeBorder {
 /// notes' mark alone): time stamp and words on one baseline; a tap plays the
 /// song from the note's moment.
 class _NotesClipping extends ConsumerWidget {
-  const _NotesClipping({required this.piece, required this.album});
+  const _NotesClipping({required this.piece, required this.album, required this.onMore});
 
   final ScrapTrackCluster piece;
   final Album album;
+
+  /// "+N notes": the track sheet on its Note tab.
+  final VoidCallback onMore;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1042,19 +1522,23 @@ class _NotesClipping extends ConsumerWidget {
                     onTap: () => _playAlbumFrom(ref, album, piece.track.index, positionMs: n.positionMs ?? 0),
                   ),
                 if (piece.hiddenNotes > 0)
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(
-                      start: ScrapbookLayout.noteStamp,
-                      top: 6,
-                      bottom: 4,
-                      end: 8,
-                    ),
-                    child: Text(
-                      strings.scrapHiddenNotes(piece.hiddenNotes),
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0,
-                        color: colors.ink,
+                  InkWell(
+                    customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
+                    onTap: onMore,
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        start: ScrapbookLayout.noteStamp,
+                        top: 6,
+                        bottom: 4,
+                        end: 8,
+                      ),
+                      child: Text(
+                        strings.scrapHiddenNotes(piece.hiddenNotes),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0,
+                          color: colors.ink,
+                        ),
                       ),
                     ),
                   ),
@@ -1546,6 +2030,42 @@ class _RenderScrapStack extends RenderBox
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
       defaultHitTestChildren(result, position: position);
+}
+
+/// On page 1: a "Manage in Scrapbook" request for one of [trackIds] turns
+/// the album to page 2, where the scrapbook takes it (the pager builds page 2
+/// only once it is shown).
+class ScrapbookFocusOpener extends StatefulWidget {
+  const ScrapbookFocusOpener({super.key, required this.trackIds});
+
+  final List<MediaId> trackIds;
+
+  @override
+  State<ScrapbookFocusOpener> createState() => _ScrapbookFocusOpenerState();
+}
+
+class _ScrapbookFocusOpenerState extends State<ScrapbookFocusOpener> {
+  @override
+  void initState() {
+    super.initState();
+    ScrapbookFocusRequest.pending.addListener(_check);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void dispose() {
+    ScrapbookFocusRequest.pending.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    final pending = ScrapbookFocusRequest.pending.value;
+    if (!mounted || pending == null || !widget.trackIds.contains(pending.trackId)) return;
+    ReshapePager.maybeOf(context)?.openPage(1);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 /// The page dots (AlbumPageDots): one 24 × 20 cell per page, a 4dp dot each,

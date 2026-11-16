@@ -12,7 +12,7 @@ import '../landing/landing_mascot.dart';
 import '../landing/landing_strings.dart';
 import '../playback/replay_gain.dart';
 import '../settings/ai_settings_screen.dart';
-import '../settings/settings_components.dart';
+import '../settings/ai_settings_view_model.dart';
 import '../settings/settings_metrics.dart';
 import '../settings/settings_rows.dart';
 import '../settings/settings_strings.dart';
@@ -66,7 +66,10 @@ class _VolumeLevelingDemoState extends State<VolumeLevelingDemo> with DemoSceneS
   );
 }
 
-/// Settings › AI features, the real tier cards and language button: the dot picks Best.
+/// Settings › AI features (Android TipAiScene.kt), the real page body: the
+/// dot picks DeepSeek in the service row, then the Best tier, then goes down
+/// to Try a song. The demo keeps its choices to itself: it never changes the
+/// real ones, opens no page and no link, and its fields take no focus.
 class AiServicesDemo extends StatefulWidget {
   const AiServicesDemo({super.key, required this.playing});
   final bool playing;
@@ -75,68 +78,106 @@ class AiServicesDemo extends StatefulWidget {
   State<AiServicesDemo> createState() => _AiServicesDemoState();
 }
 
-class _AiServicesDemoState extends State<AiServicesDemo> with DemoSceneState {
-  AiTier _tier = AiTier.good;
-  String _language = AiLanguages.defaultTarget;
+class _AiServicesDemoState extends State<AiServicesDemo> with DemoSceneState implements AiSettingsActions {
+  AiSettings _ai = const AiSettings();
+  final _scroll = ScrollController();
+
+  static const Duration _scrollTime = Duration(milliseconds: 900);
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _set(AiSettings Function(AiSettings) change) => put(() => _ai = change(_ai));
+
+  Future<void> _scrollTo(double offset) async {
+    if (!_scroll.hasClients) return;
+    await _scroll.animateTo(offset, duration: _scrollTime, curve: Curves.easeInOut);
+  }
 
   Future<void> _script(DemoFinger f) async {
-    put(() {
-      _tier = AiTier.good;
-      _language = AiLanguages.defaultTarget;
-    });
+    _set((_) => const AiSettings());
+    if (_scroll.hasClients) _scroll.jumpTo(0);
     await f.wait(700);
-    await f.moveTo('ai-tier-best');
+    await f.moveTo('ai-service-${AiProvider.deepSeek.name}');
     await f.wait(250);
-    await f.tap(() => put(() => _tier = AiTier.best));
+    await f.tap(() => setProvider(AiProvider.deepSeek));
     await f.wait(900);
-    await f.moveTo('ai-tier-good');
+    await f.moveTo('ai-tier-${AiTier.best.name}');
     await f.wait(250);
-    await f.tap(() => put(() => _tier = AiTier.good));
+    await f.tap(() => setTier(AiTier.best));
     await f.lift();
-    await f.wait(2000);
+    await f.wait(900);
+    if (_scroll.hasClients) await _scrollTo(_scroll.position.maxScrollExtent);
+    await f.moveTo('ai-try');
+    await f.wait(250);
+    await f.tap();
+    await f.lift();
+    await f.wait(1200);
+    await _scrollTo(0);
+    await f.wait(300);
   }
 
   @override
-  Widget build(BuildContext context) {
-    final strings = SettingsStrings.of(context);
-    final colors = Theme.of(context).colorScheme;
-    return DemoPhone(
-      playing: widget.playing,
-      script: _script,
+  void setProvider(AiProvider provider) => _set((s) => s.copyWith(provider: provider));
+
+  @override
+  void setTier(AiTier tier) => _set((s) => s.copyWith(tier: tier));
+
+  @override
+  void setKey(AiProvider provider, String key) => _set((s) => s.withKey(provider, key));
+
+  @override
+  void setCustomFormat(AiApiFormat format) => _set((s) => s.copyWith(customFormat: format));
+
+  @override
+  void setCustomBaseUrl(String url) => _set((s) => s.copyWith(customBaseUrl: url));
+
+  @override
+  void setCustomModel(String model) => _set((s) => s.copyWith(customModel: model));
+
+  @override
+  void setCustomThinking(AiThinking thinking) => _set((s) => s.copyWith(customThinking: thinking));
+
+  @override
+  void setSearchService(AiSearchService service) => _set((s) => s.copyWith(searchService: service));
+
+  @override
+  void setSearchKey(AiSearchService service, String key) => _set((s) => s.withSearchKey(service, key));
+
+  @override
+  void setTargetLanguage(String language) => _set((s) => s.copyWith(targetLanguage: language));
+
+  @override
+  void pullModels() {}
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    // The fields are there to be seen: no focus, so no keyboard comes up over the tip.
+    child: ExcludeFocus(
       child: DemoSettingsPage(
-        title: strings.aiTitlePage,
+        title: SettingsStrings.of(context).aiTitlePage,
+        scroll: _scroll,
         children: [
-          SettingsGroupLabel(title: strings.aiTiersLabel),
-          const SizedBox(height: SettingsMetrics.groupLabelGap),
-          Row(
-            children: [
-              for (final tier in AiTier.values) ...[
-                if (tier != AiTier.values.first) const SizedBox(width: SettingsMetrics.aiTierGap),
-                Expanded(
-                  child: DemoTarget(
-                    'ai-tier-${tier.name}',
-                    child: AiTierCard(
-                      label: strings.aiTier(tier),
-                      selected: _tier == tier,
-                      onTap: () => put(() => _tier = tier),
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          AiSettingsBody(
+            settings: _ai,
+            models: const AiModelList(),
+            actions: this,
+            onOpenTiers: () {},
+            onOpenTry: () {},
+            onOpenLink: (_) {},
+            providerWrapper: (provider, child) => DemoTarget('ai-service-${provider.name}', child: child),
+            tierWrapper: (tier, child) => DemoTarget('ai-tier-${tier.name}', child: child),
+            tryWrapper: (child) => DemoTarget('ai-try', child: child),
           ),
-          const SizedBox(height: SettingsMetrics.aiBlockGap),
-          // The key is there to be seen: no field to type in on the tip page.
-          InputDecorator(
-            decoration: InputDecoration(labelText: strings.aiKeyLabel, border: const OutlineInputBorder()),
-            child: Text('AIza••••••••', style: TextStyle(color: colors.onSurfaceVariant)),
-          ),
-          const SizedBox(height: SettingsMetrics.aiBlockGap),
-          AiLanguageButton(language: _language, onPick: (language) => put(() => _language = language)),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Settings › Sync and storage › Cloud sync: the row opens the page, whose

@@ -8,10 +8,10 @@ import 'note_logic.dart';
 import 'nowplaying_strings.dart';
 
 /// The stage's page tabs (Android StageTabs): Compact shows the text tabs
-/// (Lyrics | Note), Expanded the full-width tab group; the two cross-fade on
-/// the stage's detail progress (the text tabs lift away, the group settles
-/// in). Each is composed only while it shows, so the invisible one never
-/// takes a tap. Android's About tab needs Gemini and is not on HarmonyOS.
+/// (Lyrics | About | Note), Expanded the full-width tab group; the two
+/// cross-fade on the stage's detail progress (the text tabs lift away, the
+/// group settles in). Each is composed only while it shows, so the invisible
+/// one never takes a tap.
 class StageTabs extends StatelessWidget {
   const StageTabs({
     super.key,
@@ -94,6 +94,7 @@ class StageTabs extends StatelessWidget {
 
 String _label(NowPlayingStrings strings, NowPlayingDetailPage page) => switch (page) {
   NowPlayingDetailPage.lyrics => strings.tabLyrics,
+  NowPlayingDetailPage.about => strings.tabAbout,
   NowPlayingDetailPage.note => strings.tabNote,
 };
 

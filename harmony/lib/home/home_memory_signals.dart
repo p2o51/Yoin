@@ -6,8 +6,10 @@
 ///
 /// Only albums the user wrote on, or played in Yoin long enough ago to come
 /// back, are looked at: Home never fetches the whole activity log's albums.
-/// HarmonyOS has no AI Memory titles: a memory card's headline is the
-/// user's own title, when they wrote one.
+/// A memory card's headline is the Memory's written title, resolved the way
+/// Memories resolves it: the user's own, else Yoin's AI title from the cache
+/// (Home never asks the model), else none (the album name is already the
+/// card's title).
 library;
 
 import 'dart:async';
@@ -17,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
+import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_cache.dart';
@@ -244,6 +247,15 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
     return const HomeMemorySignals();
   }
 
+  /// Yoin's AI title as the deck last wrote it; null on a miss or a failed read.
+  Future<String?> _cachedAiTitle(String profileId, MediaId albumId) async {
+    try {
+      return await MemoryCopyCache.shared(ref.read(keyValueStoreProvider), profileId).title(albumId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _schedule(String? provider, MemoryStore? store) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () => _load(provider, store));
@@ -291,9 +303,14 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
         if (memories.isNotEmpty) memories.first.albumId.rawId,
         if (latest != null) latest.albumId.rawId,
       };
+      final memoryCards = [
+        for (final c in memories)
+          memoryWidgetCard(c, title: titles[c.albumId]?.title ?? await _cachedAiTitle(store.profileId, c.albumId)),
+      ];
+      if (!ref.mounted || generation != _generation) return;
       state = HomeMemorySignals(
         scope: '$provider|${store.profileId}',
-        memoryCards: [for (final c in memories) memoryWidgetCard(c, title: titles[c.albumId]?.title)],
+        memoryCards: memoryCards,
         noteCards: noteCards,
         rediscover: buildRediscover(pool, nowMs: now, excludeRawAlbumIds: exclude),
         resolved: true,

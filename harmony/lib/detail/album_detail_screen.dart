@@ -119,6 +119,8 @@ class AlbumDetailScreen extends ConsumerWidget {
       heroBelow: (links) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Now Playing's "Manage in Scrapbook" for a song here turns the album to page 2.
+          ScrapbookFocusOpener(trackIds: [for (final t in tracks) t.id]),
           // Score emblem + comment pen, the cover's width (AlbumHeroDetails, Compact).
           LayoutBuilder(
             builder: (context, constraints) => Padding(

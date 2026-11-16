@@ -13,6 +13,7 @@ sealed class SettingsPane {
     StreamQualityPane(:final profileId) ||
     DownloadsPane(:final profileId) ||
     VolumeLevelingPane(:final profileId) => AccountPane(profileId),
+    AiTiersPane() || AiTryPane() => const AiPane(),
     _ => null,
   };
 }
@@ -73,13 +74,31 @@ final class CloudSyncPane extends SettingsPane {
   int get hashCode => 6;
 }
 
-/// Settings › AI features (the Gemini key, tier and answer language).
+/// Settings › AI features (the service, its tier and key, Custom, the answer language).
 final class AiPane extends SettingsPane {
   const AiPane();
   @override
   bool operator ==(Object other) => other is AiPane;
   @override
   int get hashCode => 7;
+}
+
+/// The AI tier page (AiTiers), opened from the AI page's ⓘ.
+final class AiTiersPane extends SettingsPane {
+  const AiTiersPane();
+  @override
+  bool operator ==(Object other) => other is AiTiersPane;
+  @override
+  int get hashCode => 8;
+}
+
+/// 「拿一首歌试试」 (AiTry), opened from the AI page.
+final class AiTryPane extends SettingsPane {
+  const AiTryPane();
+  @override
+  bool operator ==(Object other) => other is AiTryPane;
+  @override
+  int get hashCode => 9;
 }
 
 final class TipsPane extends SettingsPane {

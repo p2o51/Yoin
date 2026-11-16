@@ -29,7 +29,7 @@ enum HomeBubbleTip {
   homeScreenWidgets(YoinSymbols.library, (2026, 11, 13), desktop: false),
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
   memoryLedger(YoinSymbols.memory, (2026, 11, 12)),
-  aiServices(YoinSymbols.sparkle, (2026, 11, 13)),
+  aiServices(YoinSymbols.sparkle, (2026, 11, 16)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 4)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
@@ -148,12 +148,12 @@ enum HomeBubbleTip {
           ? '点首页的「全部回忆」，在日历格点一格只看那段时间；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列'
           : 'Tap All Memories on Home and tap a square on the grid to see just that time; switch between Timeline, '
                 'Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens',
-    // Carbon 2026-11-16 (Gemini only on HarmonyOS; Android: home_tip_ai_services).
+    // home_tip_ai_services
     aiServices =>
       zh
-          ? '在设置 › AI 功能中粘贴 Gemini API 密钥，选择「好」或「最佳」档位与回答语言，用于歌曲信息、「问 Gemini」、歌词翻译与 Memories 标题'
-          : 'Paste a Gemini API key in Settings › AI features and pick the Good or Best tier and answer language to '
-                'power song info, Ask Gemini, lyrics translation, and Memory titles',
+          ? '在设置 > AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试'
+          : 'Choose Gemini, DeepSeek, Qwen, or a Custom service in Settings > AI features, switch between Good and '
+                'Best, or tap Try a song to test it out',
     // home_tip_account_quick_switch
     accountQuickSwitch => zh ? '长按头像并滑动以切换账号' : 'Long-press the avatar and slide to switch accounts',
     // home_tip_mini_player_menu

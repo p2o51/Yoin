@@ -6,7 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:yoin/data/ai/ai_settings.dart';
-import 'package:yoin/data/ai/gemini_client.dart';
+import 'package:yoin/data/ai/ai_client.dart';
+import 'package:yoin/data/ai/ai_service.dart';
 import 'package:yoin/data/lyrics/lrc_parser.dart';
 import 'package:yoin/data/lyrics/lyric_provider.dart';
 import 'package:yoin/data/lyrics/lyrics_cache.dart';
@@ -39,26 +40,28 @@ void main() {
     registry: LyricsProviderRegistry(providers: providers),
     cache: cache,
     aiSettings: () async => ai,
-    gemini: GeminiClient(
-      client: MockClient((request) async {
-        geminiCalls.add(request);
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'candidates': [
-                {
-                  'content': {
-                    'parts': [
-                      {'text': geminiReply},
-                    ],
+    ai: AiService(
+      HttpAiClient(
+        client: MockClient((request) async {
+          geminiCalls.add(request);
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'candidates': [
+                  {
+                    'content': {
+                      'parts': [
+                        {'text': geminiReply},
+                      ],
+                    },
                   },
-                },
-              ],
-            }),
-          ),
-          200,
-        );
-      }),
+                ],
+              }),
+            ),
+            200,
+          );
+        }),
+      ),
     ),
     netEaseTranslator: netEase,
     clock: () => now,
@@ -262,6 +265,52 @@ void main() {
       expect(geminiCalls, hasLength(1), reason: 'the second answer comes from the cache');
     });
 
+    test('should_translateWithChosenService_when_itIsNotGemini', () async {
+      ai = const AiSettings(provider: AiProvider.deepSeek, deepSeekKey: 'sk-d', targetLanguage: 'English');
+      final calls = <http.Request>[];
+      final r = LyricsRepository(
+        registry: LyricsProviderRegistry(providers: []),
+        cache: cache,
+        aiSettings: () async => ai,
+        ai: AiService(
+          HttpAiClient(
+            client: MockClient((request) async {
+              calls.add(request);
+              return http.Response.bytes(
+                utf8.encode(
+                  jsonEncode({
+                    'choices': [
+                      {
+                        'message': {'content': '[L0]One[/L0]'},
+                      },
+                    ],
+                  }),
+                ),
+                200,
+              );
+            }),
+          ),
+        ),
+        clock: () => now,
+      );
+      final result = await r.translateLyrics(
+        track: track(),
+        sheet: sheetOf('[00:01.00]一'),
+        currentProviderName: 'lrclib',
+        currentProviderSongId: '1',
+      );
+      expect((result as LyricsTranslated).translations, {0: 'One'});
+      expect(calls.single.url.toString(), '${AiSettings.deepSeekBaseUrl}/chat/completions');
+      expect(calls.single.headers['Authorization'], 'Bearer sk-d');
+      final kept = await cache.getTranslation(
+        songKey: track().id.toString(),
+        sourceHash: lyricsTranslationSourceHash('Song', 'Artist', ['一']),
+        targetLanguage: 'English',
+        model: AiSettings.deepSeekModel,
+      );
+      expect(kept, ['One'], reason: 'kept under the model that translated');
+    });
+
     test('should_sayKeyMissing_when_noKeyAndNothingElseTranslates', () async {
       final result = await repo([]).translateLyrics(
         track: track(),
@@ -313,8 +362,10 @@ void main() {
         registry: LyricsProviderRegistry(providers: []),
         cache: cache,
         aiSettings: () async => ai,
-        gemini: GeminiClient(
-          client: MockClient((_) async => http.Response('{"error":{"message":"API key not valid"}}', 400)),
+        ai: AiService(
+          HttpAiClient(
+            client: MockClient((_) async => http.Response('{"error":{"message":"API key not valid"}}', 400)),
+          ),
         ),
       );
       final result = await r.translateLyrics(
@@ -356,7 +407,7 @@ void main() {
       final store = AiSettingsStore(plain, secrets);
       await store.write(const AiSettings(geminiKey: ' k ', tier: AiTier.best, targetLanguage: 'Korean'));
       expect(secrets.values[AiSettingsStore.geminiKeyKey], 'k');
-      expect(plain.values[AiSettingsStore.prefsKey], isNot(contains('k"')));
+      expect(plain.values[AiSettingsStore.prefsKey], isNot(contains('"k"')));
       expect(await store.read(), const AiSettings(geminiKey: 'k', tier: AiTier.best, targetLanguage: 'Korean'));
     });
 

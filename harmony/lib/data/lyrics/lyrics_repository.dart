@@ -7,7 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../nowplaying/lyrics_logic.dart';
 import '../ai/ai_settings.dart';
-import '../ai/gemini_client.dart';
+import '../ai/ai_client.dart';
+import '../ai/ai_service.dart';
 import '../model/model.dart';
 import '../source/music_source.dart';
 import 'lrc_parser.dart';
@@ -87,19 +88,19 @@ final class LyricsTranslationFailed extends LyricsTranslationResult {
 
 /// The lyrics half of Android's YoinRepository: load order, the automatic
 /// fallback chain and its cache, the user's picks, and translation (the
-/// lyrics source's own, a switch to one that has it, then Gemini).
+/// lyrics source's own, a switch to one that has it, then the AI service set up).
 class LyricsRepository {
   LyricsRepository({
     required this.registry,
     required LyricsCacheStore? cache,
     required Future<AiSettings> Function() aiSettings,
-    required GeminiClient gemini,
+    required AiService ai,
     NetEaseTranslator? netEaseTranslator,
     int Function()? clock,
   }) : _cache = cache,
        _budget = cache == null ? null : LyricsCacheBudget(cache),
        _aiSettings = aiSettings,
-       _gemini = gemini,
+       _ai = ai,
        _netEase = netEaseTranslator,
        _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch);
 
@@ -107,7 +108,7 @@ class LyricsRepository {
   final LyricsCacheStore? _cache;
   final LyricsCacheBudget? _budget;
   final Future<AiSettings> Function() _aiSettings;
-  final GeminiClient _gemini;
+  final AiService _ai;
   final NetEaseTranslator? _netEase;
   final int Function() _clock;
 
@@ -214,8 +215,8 @@ class LyricsRepository {
 
   /// The Translate key's lookup for [sheet] (YoinRepository.translateLyrics):
   /// lines already in the target language → said so; the lyrics source's
-  /// own translation when it has one ([_translateWithProvider]); else Gemini
-  /// (cached per lines, language and model). Without a Gemini key, NetEase's
+  /// own translation when it has one ([_translateWithProvider]); else the AI
+  /// service (cached per lines, language and model). With no AI key, NetEase's
   /// translation lined up by timestamp is tried before saying the key is missing.
   Future<LyricsTranslationResult> translateLyrics({
     required Track track,
@@ -225,7 +226,7 @@ class LyricsRepository {
   }) async {
     final title = track.title?.trim() ?? '';
     final artist = track.artist?.trim() ?? '';
-    // Gemini sees the lines with words; their row indices map its answer back.
+    // The model sees the lines with words; their row indices map its answer back.
     final rows = [
       for (var i = 0; i < sheet.rows.length; i++)
         if (sheet.rows[i].text.trim().isNotEmpty) i,
@@ -261,7 +262,7 @@ class LyricsRepository {
       return aligned ?? const LyricsApiKeyMissing();
     }
     try {
-      final translations = await _gemini.translateLyricLines(
+      final translations = await _ai.translateLyricLines(
         ai,
         title: title.isEmpty ? 'Unknown song' : title,
         artist: artist.isEmpty ? 'Unknown artist' : artist,
@@ -281,7 +282,7 @@ class LyricsRepository {
       } catch (_) {}
       return LyricsTranslated(_toRows(cleaned, rows));
     } catch (e) {
-      final message = e is GeminiException ? e.message : '$e';
+      final message = e is AiException ? e.message : '$e';
       return LyricsTranslationFailed(message.isEmpty ? 'Failed to translate lyrics' : message);
     }
   }
@@ -574,7 +575,7 @@ final lyricsRepositoryProvider = Provider<LyricsRepository>(
         return const AiSettings();
       }
     },
-    gemini: ref.watch(geminiClientProvider),
+    ai: ref.watch(aiServiceProvider),
     netEaseTranslator: ref.watch(netEaseTranslatorProvider),
   ),
 );

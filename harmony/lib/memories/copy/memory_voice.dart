@@ -107,6 +107,49 @@ final class MemoryVoiceCopy {
   final Set<MemoryFact> said;
 }
 
+/// The listening facts handed to the AI for the narration, already phrased
+/// in [language] where they are words (months, "two days ago"). Never carries
+/// the review or the notes' text (Android MemoryNarrationBrief).
+@immutable
+final class MemoryNarrationBrief {
+  const MemoryNarrationBrief({required this.language, required this.facts, this.alreadySaid});
+
+  final MemoryProseLanguage language;
+  final List<String> facts;
+
+  /// A title on the card whose facts the narration must not repeat. Always
+  /// null since the motif titles went; kept in [signal] so cached narrations
+  /// stay valid across both apps.
+  final String? alreadySaid;
+
+  String get languageName => language == MemoryProseLanguage.zh ? 'Simplified Chinese' : 'English';
+
+  /// Stable text of everything that shapes the prompt; the cache key hashes it.
+  String get signal {
+    final out = StringBuffer()
+      ..write(language == MemoryProseLanguage.zh ? 'ZH' : 'EN')
+      ..write('\n')
+      ..write(alreadySaid ?? '')
+      ..write('\n');
+    for (final fact in facts) {
+      out
+        ..write(fact)
+        ..write('\n');
+    }
+    return out.toString();
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MemoryNarrationBrief &&
+      other.language == language &&
+      other.alreadySaid == alreadySaid &&
+      listEquals(other.facts, facts);
+
+  @override
+  int get hashCode => Object.hash(language, alreadySaid, Object.hashAll(facts));
+}
+
 @immutable
 final class _Signals {
   const _Signals({
@@ -192,6 +235,43 @@ abstract final class MemoryVoice {
       question: question,
       said: said,
     );
+  }
+
+  /// The facts the AI may narrate from, or null when there is nothing to
+  /// narrate: a review is on the card, or there is no listening signal at all
+  /// (MemoryVoice.narrationBrief).
+  static MemoryNarrationBrief? narrationBrief(MemoryCopyInput input, MemoryVoiceCopy voice, MemoryDay today) {
+    final review = input.review;
+    if (review != null && review.trim().isNotEmpty) return null;
+    final language = voice.language;
+    final zh = language == MemoryProseLanguage.zh;
+    final signals = _signals(input, today);
+    String trackName(String title) => zh ? '《$title》' : title;
+    final facts = <String>[];
+    final listening = input.listening;
+    if (listening != null) {
+      facts
+        ..add('Plays in Yoin: ${listening.plays}')
+        ..add('Listening since: ${_since(listening, today, language)}')
+        ..add('Last played: ${_ago(listening, signals, today, language)}');
+    }
+    if (signals.seasons >= 2) facts.add('Seasons between the first and the latest play: ${signals.seasons}');
+    if (input.ratedTracks > 0 && input.totalTracks > 0) {
+      facts.add('Tracks rated: ${input.ratedTracks} of ${input.totalTracks}');
+    }
+    final top = signals.top;
+    if (top != null) facts.add('Highest-rated track: ${trackName(top.title)}, ${MemoryScores.text(top.rating ?? 0)}');
+    final albumScore = input.albumScore;
+    if (albumScore != null) facts.add('Album score the listener gave: ${MemoryScores.text(albumScore)}');
+    if (signals.notes > 0) {
+      final days = signals.noteDays;
+      final span = days != null && signals.notes >= 2 ? ', over $days days' : '';
+      final latest = signals.latest?.track?.title;
+      final about = latest != null ? 'on the track ${trackName(latest)}' : 'about the whole album';
+      facts.add('Notes written: ${signals.notes}$span; the latest is $about');
+    }
+    if (facts.isEmpty) return null;
+    return MemoryNarrationBrief(language: language, facts: facts);
   }
 
   /// A small count in words: 两 for two in Chinese, "two" in English;

@@ -125,6 +125,8 @@ void main() {
         ('Last played', 'Yesterday'),
         ('Rated', '1 / 6'),
         ('Notes', '1'),
+        // Android's receipt counts the questions asked too (AlbumScrapbook receiptLines).
+        ('Asked', '0'),
       ]);
     });
 
