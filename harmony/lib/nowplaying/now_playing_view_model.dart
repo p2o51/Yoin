@@ -363,7 +363,10 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       ..remove(key)
       ..add(key);
     while (_lyricsOrder.length > 3) {
-      _lyricsCache.remove(_lyricsOrder.removeAt(0));
+      final gone = _lyricsOrder.removeAt(0);
+      _lyricsCache.remove(gone);
+      // Loaded again from the repository next time, with its source.
+      _lyricsSources.remove(gone);
     }
   }
 

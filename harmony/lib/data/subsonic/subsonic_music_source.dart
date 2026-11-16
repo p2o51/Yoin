@@ -312,10 +312,6 @@ final class _SubsonicMetadata implements MusicMetadata {
   /// the song, the classic `getLyrics` by artist + title (iOS `lyricsFor`),
   /// whose text is read as LRC when it carries timestamps. Null when neither
   /// has lyrics. Auth and network failures are not swallowed.
-  /// Subsonic shows the names the files carry: there are no others.
-  @override
-  Future<TrackNames?> alternateNames(Track track) async => null;
-
   @override
   Future<Lyrics?> getLyrics(Track track) async {
     final rawId = _raw(track.id);
@@ -337,6 +333,10 @@ final class _SubsonicMetadata implements MusicMetadata {
       return lyricsFromPlain((body['lyrics'] as Map?)?.cast());
     });
   }
+
+  /// Subsonic shows the names the files carry: there are no others.
+  @override
+  Future<TrackNames?> alternateNames(Track track) async => null;
 }
 
 final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWrites {

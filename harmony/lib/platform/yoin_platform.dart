@@ -28,6 +28,7 @@ final class YoinPlatform {
   const YoinPlatform({
     required this.host,
     required this.keyValueStore,
+    required this.cacheStore,
     required this.secretStore,
     required this.playbackEngine,
     required this.appleMusicAuth,
@@ -43,6 +44,11 @@ final class YoinPlatform {
 
   /// Plain settings and app data (OHOS Preferences; Windows a JSON file).
   final KeyValueStore keyValueStore;
+
+  /// Re-fetchable caches (lyrics and their translations, ~10 MiB) apart from
+  /// the settings, so neither store's writes rewrite the other (OHOS a second
+  /// Preferences file; Windows `cache.json`).
+  final KeyValueStore cacheStore;
 
   /// Account credentials (OHOS Asset Store Kit; Windows DPAPI later).
   final SecretStore secretStore;
@@ -75,6 +81,7 @@ final class YoinPlatform {
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
     keyValueStore: const ChannelKeyValueStore(),
+    cacheStore: const ChannelKeyValueStore(file: ChannelKeyValueStore.cacheFile),
     secretStore: const ChannelSecretStore(),
     playbackEngine: ChannelPlaybackEngine(),
     appleMusicAuth: const ChannelAppleMusicAuth(),
@@ -87,19 +94,23 @@ final class YoinPlatform {
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
-  factory YoinPlatform.windows({Directory? appData}) => YoinPlatform(
-    host: YoinHost.windows,
-    keyValueStore: FileKeyValueStore(appData ?? desktopAppDataDirectory()),
-    secretStore: SessionSecretStore(),
-    playbackEngine: const UnsupportedPlaybackEngine(),
-    appleMusicAuth: const UnsupportedAppleMusicAuth(),
-    cardsHost: const NoCardsHost(),
-    networkBearer: const FixedNetworkBearer(),
-    nameTransliterator: const IdentityNameTransliterator(),
-    windowControls: const NoWindowControls(),
-    windowCaption: const SystemTitleBarHost(),
-    imageShare: const NoImageShare(),
-  );
+  factory YoinPlatform.windows({Directory? appData}) {
+    final directory = appData ?? desktopAppDataDirectory();
+    return YoinPlatform(
+      host: YoinHost.windows,
+      keyValueStore: FileKeyValueStore(directory),
+      cacheStore: FileKeyValueStore(directory, fileName: 'cache.json'),
+      secretStore: SessionSecretStore(),
+      playbackEngine: const UnsupportedPlaybackEngine(),
+      appleMusicAuth: const UnsupportedAppleMusicAuth(),
+      cardsHost: const NoCardsHost(),
+      networkBearer: const FixedNetworkBearer(),
+      nameTransliterator: const IdentityNameTransliterator(),
+      windowControls: const NoWindowControls(),
+      windowCaption: const SystemTitleBarHost(),
+      imageShare: const NoImageShare(),
+    );
+  }
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS
   /// reports `ohos`; Windows, Linux and macOS get the desktop stand-ins;

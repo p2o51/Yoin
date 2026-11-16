@@ -177,6 +177,30 @@ void main() {
       expect((await store.footprints()).single.typed, isTrue);
     });
 
+    test('should_keepRowsOutOfTheSettingsStore_when_cacheHasItsOwn', () async {
+      final settings = InMemoryStore();
+      final caches = InMemoryStore();
+      await settings.write(
+        LyricsCacheStore.legacyUserKey('subsonic:1'),
+        jsonEncode({'lrc': '[00:01.00]mine', 'provider': 'manual', 'providerSongId': null}),
+      );
+      final split = LyricsCacheStore(caches, legacy: settings);
+      expect((await split.get('subsonic:1', now: 42))?.lrc, '[00:01.00]mine');
+      await split.upsert(
+        LyricsCachePolicy.entry(
+          songKey: 'apple:2',
+          lyricsProvider: 'qq',
+          lyricsProviderSongId: '9',
+          lrc: '[00:01.00]auto',
+          cachedAt: 1,
+          userChosen: false,
+        ),
+      );
+      expect(settings.values, isEmpty, reason: 'the old pick moved out, nothing else written there');
+      expect(caches.values.keys, contains(LyricsCacheStore.rowKey('subsonic:1')));
+      expect(caches.values.keys, contains(LyricsCacheStore.rowKey('apple:2')));
+    });
+
     test('should_countOnlyProviderTranslations_when_measuring', () async {
       await put('s', 'ab', 1);
       await store.upsertTranslation(

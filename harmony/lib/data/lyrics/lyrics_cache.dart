@@ -196,14 +196,19 @@ abstract final class LyricsCachePolicy {
   }
 }
 
-/// The lyrics cache and the translation cache in the app's key-value store
-/// (Android `lyrics_cache` + `lyrics_translation_cache`). The store can't list
-/// its keys, so an index (one JSON value) keeps what the budget needs: each
-/// song's row size and age and its free translations' keys and sizes.
+/// The lyrics cache and the translation cache in the app's cache store
+/// (Android `lyrics_cache` + `lyrics_translation_cache`), kept apart from the
+/// settings ([legacy]) so 10 MiB of lyrics never ride along with a settings
+/// write. The store can't list its keys, so an index (one JSON value) keeps
+/// what the budget needs: each song's row size and age and its free
+/// translations' keys and sizes.
 class LyricsCacheStore {
-  LyricsCacheStore(this._store);
+  LyricsCacheStore(this._store, {KeyValueStore? legacy}) : _legacy = legacy ?? _store;
 
   final KeyValueStore _store;
+
+  /// Where Harmony kept the user's picks before the cache (the settings store).
+  final KeyValueStore _legacy;
 
   static const String _indexKey = 'yoin.lyrics.cache.index';
   static String rowKey(String songKey) => 'yoin.lyrics.cache.$songKey';
@@ -258,7 +263,7 @@ class LyricsCacheStore {
         if (entry != null) return entry;
       } catch (_) {}
     }
-    final legacy = await _store.read(legacyUserKey(songKey));
+    final legacy = await _legacy.read(legacyUserKey(songKey));
     if (legacy == null) return null;
     try {
       final json = jsonDecode(legacy);
@@ -273,7 +278,7 @@ class LyricsCacheStore {
         userChosen: true,
       );
       await upsert(entry);
-      await _store.write(legacyUserKey(songKey), null);
+      await _legacy.write(legacyUserKey(songKey), null);
       return entry;
     } catch (_) {
       return null;

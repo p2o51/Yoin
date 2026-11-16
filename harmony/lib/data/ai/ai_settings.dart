@@ -114,12 +114,23 @@ class AiSettingsNotifier extends AsyncNotifier<AiSettings> {
   @override
   Future<AiSettings> build() async => await ref.watch(aiSettingsStoreProvider)?.read() ?? const AiSettings();
 
+  Future<void> _writes = Future.value();
+
   Future<void> _update(AiSettings Function(AiSettings) transform) async {
     final current = state.value ?? await future;
     final next = transform(current);
     if (next == current) return;
     state = AsyncData(next);
-    await ref.read(aiSettingsStoreProvider)?.write(next);
+    final store = ref.read(aiSettingsStoreProvider);
+    if (store == null) return;
+    // The key field saves on every keystroke: writes go one at a time, each
+    // with the settings as they are when its turn comes, so an earlier,
+    // slower write never lands last and leaves half a key stored.
+    final write = _writes.then((_) async {
+      if (ref.mounted) await store.write(state.value ?? next);
+    });
+    _writes = write.then((_) {}, onError: (Object _) {});
+    await write;
   }
 
   Future<void> setGeminiKey(String key) => _update((s) => s.copyWith(geminiKey: key.trim()));

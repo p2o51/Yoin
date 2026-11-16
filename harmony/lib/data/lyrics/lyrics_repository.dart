@@ -118,7 +118,7 @@ class LyricsRepository {
   /// switch) → the Subsonic server's lyrics → a cached automatic row within
   /// 30 days → the fallback chain (QQ → NetEase → LRCLIB), whose raw LRC is
   /// cached. With Subsonic and no pick, only the server's lyrics count — no
-  /// fallback. The fallback needs a title and an artist; when the shown names
+  /// fallback — and the server's failure is thrown. The fallback needs a title and an artist; when the shown names
   /// find nothing, see [_fetchUnderAlternateNames].
   Future<LoadedLyrics?> getLoadedLyrics(Track track, MusicSource source) async {
     final key = track.id.toString();
@@ -134,12 +134,9 @@ class LyricsRepository {
     }
     if (source.provider == MediaId.providerSubsonic) {
       if (!source.capabilities.contains(Capability.lyrics)) return null;
-      final Lyrics? lyrics;
-      try {
-        lyrics = await source.metadata.getLyrics(track);
-      } catch (_) {
-        return null;
-      }
+      // A server or network failure is thrown, as on Android: the up-next
+      // prefetch retries it instead of keeping "no lyrics" for the song.
+      final lyrics = await source.metadata.getLyrics(track);
       if (lyrics == null) return null;
       return LoadedLyrics(sheet: lyricSheetOf(lyrics), providerName: subsonicProvider, providerSongId: track.id.rawId);
     }
@@ -153,6 +150,10 @@ class LyricsRepository {
         await registry.fetchLyric(t, a, durationMs: durationMs) ??
         await _fetchUnderAlternateNames(source, track, t, a, durationMs);
     if (hit == null) return null;
+    // The chain takes seconds: a pick the user applied meanwhile (search,
+    // editor) stays theirs — never overwritten by the automatic row.
+    final latest = await _readCache(key);
+    if (latest != null && latest.userChosen) return _loaded(latest);
     await _write(key, hit.providerName, hit.providerSongId, hit.lrc, userChosen: false);
     return LoadedLyrics(
       sheet: lyricSheetOf(LrcParser.parse(hit.lrc)),
@@ -550,7 +551,7 @@ Map<int, String> providerTranslationsForSheet(LyricSheet sheet, String translate
 /// The lyrics cache; tests without a key-value store get none.
 final lyricsCacheStoreProvider = Provider<LyricsCacheStore?>((ref) {
   try {
-    return LyricsCacheStore(ref.watch(keyValueStoreProvider));
+    return LyricsCacheStore(ref.watch(cacheStoreProvider), legacy: ref.watch(keyValueStoreProvider));
   } catch (_) {
     return null;
   }

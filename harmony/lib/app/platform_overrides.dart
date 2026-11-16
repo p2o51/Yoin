@@ -15,6 +15,7 @@ import 'providers.dart';
 
 List<Override> platformOverrides(YoinPlatform platform) => [
   keyValueStoreProvider.overrideWithValue(platform.keyValueStore),
+  cacheStoreProvider.overrideWithValue(platform.cacheStore),
   secretStoreProvider.overrideWithValue(platform.secretStore),
   playbackEngineProvider.overrideWithValue(platform.playbackEngine),
   appleMusicAuthProvider.overrideWithValue(platform.appleMusicAuth),

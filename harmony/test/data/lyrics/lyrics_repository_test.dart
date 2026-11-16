@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -93,6 +95,25 @@ void main() {
       final loaded = await r.getLoadedLyrics(track(provider: MediaId.providerSubsonic), withServer);
       expect(loaded?.providerName, 'subsonic');
       expect(loaded?.providerSongId, '1');
+    });
+
+    test('should_throw_when_subsonicServerFails', () async {
+      final r = repo([_Provider('qq', lrc: '[00:01.00]from qq')]);
+      final source = _Source.subsonic(lyrics: null, failure: StateError('offline'));
+      // Thrown, not "no lyrics": the up-next prefetch retries a failure instead of keeping it.
+      await expectLater(r.getLoadedLyrics(track(provider: MediaId.providerSubsonic), source), throwsStateError);
+    });
+
+    test('should_keepUsersPick_when_appliedWhileTheChainRan', () async {
+      final gate = Completer<void>();
+      final qq = _Provider('qq', lrc: '[00:01.00]from qq', searchGate: gate.future);
+      final r = repo([qq]);
+      final song = track();
+      final loading = r.getLoadedLyrics(song, _Source.apple());
+      await r.applyLyrics(song, '[00:01.00]mine');
+      gate.complete();
+      expect((await loading)?.sheet.rows.single.text, 'mine');
+      expect((await r.getLoadedLyrics(song, _Source.apple()))?.providerName, LyricsCachePolicy.manualProvider);
     });
 
     test('should_walkTheChainAndCache_when_serviceHasNoLyrics', () async {
@@ -339,6 +360,19 @@ void main() {
       expect(await store.read(), const AiSettings(geminiKey: 'k', tier: AiTier.best, targetLanguage: 'Korean'));
     });
 
+    test('should_storeTheLastKey_when_earlierWritesFinishLater', () async {
+      final secrets = _SlowFirstStore();
+      final container = ProviderContainer(
+        overrides: [aiSettingsStoreProvider.overrideWithValue(AiSettingsStore(InMemoryStore(), secrets))],
+      );
+      addTearDown(container.dispose);
+      await container.read(aiSettingsProvider.future);
+      final notifier = container.read(aiSettingsProvider.notifier);
+      // Typed one letter at a time; the first write is the slowest.
+      await Future.wait([notifier.setGeminiKey('a'), notifier.setGeminiKey('ab'), notifier.setGeminiKey('abc')]);
+      expect(secrets.values[AiSettingsStore.geminiKeyKey], 'abc');
+    });
+
     test('should_hashLinesLikeAndroid_when_keyingTheCache', () {
       expect(lyricsTranslationSourceHash('t', 'a', ['x']), isNot(lyricsTranslationSourceHash('t', 'a', ['y'])));
       expect(
@@ -350,7 +384,7 @@ void main() {
 }
 
 class _Provider extends LyricProvider {
-  _Provider(this.name, {this.lrc, this.translation, this.native = false, this.onlyFor});
+  _Provider(this.name, {this.lrc, this.translation, this.native = false, this.onlyFor, this.searchGate});
 
   @override
   final String name;
@@ -360,6 +394,9 @@ class _Provider extends LyricProvider {
 
   /// Only this title and artist are found (else every search hits).
   final (String, String)? onlyFor;
+
+  /// The search answers once this completes (a slow network).
+  final Future<void>? searchGate;
   final List<(String, String, int?)> searches = [];
   final List<String> fetched = [];
 
@@ -369,6 +406,7 @@ class _Provider extends LyricProvider {
   @override
   Future<SongMatch?> search(String title, String artist, {int? durationMs}) async {
     searches.add((title, artist, durationMs));
+    if (searchGate != null) await searchGate;
     if (lrc == null) return null;
     if (onlyFor != null && onlyFor != (title, artist)) return null;
     return SongMatch(songId: '9', title: title, artist: artist);
@@ -388,10 +426,30 @@ class _Provider extends LyricProvider {
   }
 }
 
-class _Source extends FakeMusicSource implements MusicMetadata {
-  _Source._(this._provider, this._lyrics, this._caps, {this.alternate});
+/// A secret store whose first write takes longest (a slow Asset Store call).
+class _SlowFirstStore implements SecretStore {
+  final Map<String, String> values = {};
+  int _writes = 0;
 
-  factory _Source.subsonic({Lyrics? lyrics}) => _Source._(MediaId.providerSubsonic, lyrics, const {Capability.lyrics});
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String? value) async {
+    if (_writes++ == 0) await Future<void>.delayed(const Duration(milliseconds: 20));
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
+    }
+  }
+}
+
+class _Source extends FakeMusicSource implements MusicMetadata {
+  _Source._(this._provider, this._lyrics, this._caps, {this.alternate, this.failure});
+
+  factory _Source.subsonic({Lyrics? lyrics, Object? failure}) =>
+      _Source._(MediaId.providerSubsonic, lyrics, const {Capability.lyrics}, failure: failure);
 
   factory _Source.apple({TrackNames? alternate}) =>
       _Source._(MediaId.providerAppleMusic, null, const {}, alternate: alternate);
@@ -400,6 +458,7 @@ class _Source extends FakeMusicSource implements MusicMetadata {
   final Lyrics? _lyrics;
   final Set<Capability> _caps;
   final TrackNames? alternate;
+  final Object? failure;
   final List<String> lyricRequests = [];
   int alternateAsked = 0;
 
@@ -413,6 +472,7 @@ class _Source extends FakeMusicSource implements MusicMetadata {
   @override
   Future<Lyrics?> getLyrics(Track track) async {
     lyricRequests.add(track.id.rawId);
+    if (failure case final f?) throw f;
     return _lyrics;
   }
 
