@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
@@ -382,7 +384,15 @@ internal fun <T> LazyListScope.homeShelfCards(
     val perColumn = rows.coerceAtLeast(1)
     val stacks = items.chunked(perColumn)
     items(count = stacks.size, key = { key(stacks[it].first()) }) { stackIndex ->
-        Column(verticalArrangement = Arrangement.spacedBy(HomeGridTokens.Gap)) {
+        // A unit count changing re-stacks the cards: columns slide to their places, new ones fade in.
+        Column(
+            modifier = Modifier.animateItem(
+                fadeInSpec = com.gpo.yoin.ui.theme.YoinMotion.effectsSpring(),
+                placementSpec = com.gpo.yoin.ui.theme.YoinMotion.spatialSpring(),
+                fadeOutSpec = com.gpo.yoin.ui.theme.YoinMotion.effectsSpring(),
+            ),
+            verticalArrangement = Arrangement.spacedBy(HomeGridTokens.Gap),
+        ) {
             stacks[stackIndex].forEachIndexed { inStack, item ->
                 Box(if (cellHeight != null) Modifier.height(cellHeight) else Modifier) {
                     card(stackIndex * perColumn + inStack, item)
@@ -482,9 +492,10 @@ internal fun homeGridCellX(column: Int, span: Int, columns: Int, widthPx: Int, g
 }
 
 /**
- * [cells] laid out on the grid: every cell exactly one unit tall, rows
- * [HomeGridTokens.Gap] apart, [columns] equal columns [gap] apart across
- * the width. [stretchLast]: the last cell takes what is left of its row.
+ * [cells] laid out on the grid: every cell exactly [rowHeight] tall (a unit), rows [rowGap] apart,
+ * [columns] equal columns [gap] apart across the width. [stretchLast]: the last cell takes what is left
+ * of its row. A cell that moves (a unit count or a width changed) springs to its new place on the
+ * spatial spring; one that appears fades in on the effects spring.
  */
 @Composable
 internal fun HomeGridCells(
@@ -493,26 +504,73 @@ internal fun HomeGridCells(
     gap: Dp,
     modifier: Modifier = Modifier,
     stretchLast: Boolean = false,
+    rowHeight: Dp = HomeGridTokens.Unit,
+    rowGap: Dp = HomeGridTokens.Gap,
+    key: (HomeGridCell) -> Any = { it.index },
     content: @Composable (HomeGridCell) -> Unit,
 ) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val spec = com.gpo.yoin.ui.theme.YoinMotion.spatialSpring<androidx.compose.ui.unit.IntOffset>()
+    val reduced = com.gpo.yoin.ui.experience.LocalMotionProfile.current ==
+        com.gpo.yoin.ui.experience.MotionProfile.AdaptiveReduced
+    // Each cell's place, by key: where it sits now and where it is going. Not state: read in placement.
+    val places = androidx.compose.runtime.remember { HashMap<Any, HomeGridPlace>() }
     androidx.compose.ui.layout.Layout(
-        content = { cells.forEach { cell -> androidx.compose.runtime.key(cell.index) { content(cell) } } },
+        content = {
+            cells.forEach { cell ->
+                androidx.compose.runtime.key(key(cell)) {
+                    HomeGridFadeIn(reduced) { content(cell) }
+                }
+            }
+        },
         modifier = modifier,
     ) { measurables, constraints ->
         val width = constraints.maxWidth
         val gapPx = gap.roundToPx()
-        val unit = HomeGridTokens.Unit.roundToPx()
-        val rowGap = HomeGridTokens.Gap.roundToPx()
+        val unit = rowHeight.roundToPx()
+        val rowGapPx = rowGap.roundToPx()
         val placed = measurables.mapIndexed { i, measurable ->
             val cell = cells[i]
             val span = if (stretchLast && i == cells.lastIndex) columns - cell.column else cell.span
             val (x, w) = homeGridCellX(cell.column, span, columns, width, gapPx)
-            Triple(measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, unit)), x, cell.row * (unit + rowGap))
+            Triple(
+                measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, unit)),
+                androidx.compose.ui.unit.IntOffset(x, cell.row * (unit + rowGapPx)),
+                key(cell),
+            )
         }
+        val live = placed.mapTo(HashSet()) { it.third }
+        places.keys.retainAll(live)
         val rows = (cells.maxOfOrNull { it.row } ?: -1) + 1
-        val height = if (rows <= 0) 0 else rows * unit + (rows - 1) * rowGap
+        val height = if (rows <= 0) 0 else rows * unit + (rows - 1) * rowGapPx
         layout(width, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
-            placed.forEach { (placeable, x, y) -> placeable.placeRelative(x, y) }
+            placed.forEach { (placeable, target, k) ->
+                val place = places.getOrPut(k) { HomeGridPlace(target) }
+                if (place.target != target) {
+                    place.target = target
+                    if (reduced) {
+                        scope.launch { place.offset.snapTo(target) }
+                    } else {
+                        scope.launch { place.offset.animateTo(target, spec) }
+                    }
+                }
+                placeable.placeRelative(place.offset.value)
+            }
         }
     }
+}
+
+/** Where a grid cell is and is going. */
+private class HomeGridPlace(start: androidx.compose.ui.unit.IntOffset) {
+    var target = start
+    val offset = Animatable(start, androidx.compose.ui.unit.IntOffset.VectorConverter)
+}
+
+/** A cell that appears fades in on the effects spring (at once with reduced motion). */
+@Composable
+private fun HomeGridFadeIn(reduced: Boolean, content: @Composable () -> Unit) {
+    val alpha = androidx.compose.runtime.remember { Animatable(if (reduced) 1f else 0f) }
+    val spec = com.gpo.yoin.ui.theme.YoinMotion.effectsSpring<Float>()
+    androidx.compose.runtime.LaunchedEffect(Unit) { alpha.animateTo(1f, spec) }
+    Box(Modifier.graphicsLayer { this.alpha = alpha.value }) { content() }
 }

@@ -1336,6 +1336,7 @@ internal fun HomeEditorialContent(
                         state = ledger,
                         extractBackdropColors = shouldExtractBackdropColors,
                         onOpen = onOpenMemoryLedger,
+                        onAlbumClick = { album -> onAlbumClick(album.albumId, null) },
                         modifier = remember(firstReveal) {
                             Modifier
                                 .fillMaxWidth()
@@ -2912,18 +2913,40 @@ private fun RecentlyAddedTrackGrid(
     // Two columns: every row exactly this tall (its cover too), [HomeGridTokens.TrackRowGap] apart.
     rowHeight: Dp? = null,
 ) {
+    if (rowHeight != null) {
+        // Two columns: the tracks on the grid's cells, so a unit count changing slides them to their places.
+        val shown = tracks.take(columns * rows)
+        val cells = remember(shown.size, columns, rows) { homeGridPack(List(shown.size) { 1 }, columns, rows) }
+        HomeGridCells(
+            cells = cells,
+            columns = columns,
+            gap = RecentlyAddedTileGap,
+            rowHeight = rowHeight,
+            rowGap = HomeGridTokens.TrackRowGap,
+            key = { shown[it.index].id },
+            modifier = modifier,
+        ) { cell ->
+            val track = shown[cell.index]
+            RecentlyAddedTrackTile(
+                track = track,
+                onClick = { onTrackClick(track) },
+                buildCoverArtUrl = buildCoverArtUrl,
+                cover = rowHeight,
+                modifier = Modifier.homeEditCard(cell.index),
+            )
+        }
+        return
+    }
     Column(
         modifier = modifier,
         // Tight, even gap between the two rows — the covers (not the gap) carry
         // the height, so the pair reads as one block instead of two stranded
         // rows with a hollow middle.
-        verticalArrangement = Arrangement.spacedBy(if (rowHeight != null) HomeGridTokens.TrackRowGap else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         tracks.take(columns * rows).chunked(columns).forEachIndexed { row, rowTracks ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (rowHeight != null) Modifier.height(rowHeight) else Modifier),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(RecentlyAddedTileGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -2932,7 +2955,7 @@ private fun RecentlyAddedTrackGrid(
                         track = track,
                         onClick = { onTrackClick(track) },
                         buildCoverArtUrl = buildCoverArtUrl,
-                        cover = rowHeight ?: RecentlyAddedTrackCover,
+                        cover = RecentlyAddedTrackCover,
                         modifier = Modifier
                             .homeEditCard(row * columns + column)
                             .weight(1f),
