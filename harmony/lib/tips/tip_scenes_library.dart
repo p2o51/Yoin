@@ -6,17 +6,22 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../continueon/continue_on_card.dart';
 import '../continueon/continue_on_controller.dart';
 import '../continueon/continue_on_cursor.dart';
 import '../data/model/model.dart' show MediaId;
+import '../detail/detail_track_rows.dart' show PlaylistTrackRow, TrackCountLine;
+import '../detail/playback_projection.dart' show trackPlayStateProvider;
+import '../detail/playlist_row_presence.dart';
 import '../library/library_search.dart';
 import '../library/library_search_view.dart' show librarySearchFilterLabel;
 import '../library/library_strings.dart';
 import '../nowplaying/now_playing_pill.dart';
 import '../theme/tokens.dart';
+import '../ui/component/cover_art.dart';
 import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
 import 'demo_data.dart';
@@ -670,4 +675,129 @@ class _ContinueOnDemoState extends State<ContinueOnDemo> with DemoSceneState {
       ],
     ),
   );
+}
+
+/// Remove from playlist: long-press a song on a playlist page, tap the
+/// sheet's last row, and the real row leaves as on the page (the playlist
+/// list's own presence: it fades while the rows under it move up). Next
+/// time round it opens back in its place.
+class RemoveFromPlaylistDemo extends StatefulWidget {
+  const RemoveFromPlaylistDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<RemoveFromPlaylistDemo> createState() => _RemoveFromPlaylistDemoState();
+}
+
+class _RemoveFromPlaylistDemoState extends State<RemoveFromPlaylistDemo> with DemoSceneState {
+  late final RowPresenceBook _rows = RowPresenceBook(onChanged: () => put(() {}));
+  final Set<int> _removed = {};
+  bool _open = false;
+  int _row = 2;
+
+  void _openSheet(int row) => put(() {
+    _row = row;
+    _open = true;
+  });
+
+  Future<void> _script(DemoFinger f) async {
+    put(() {
+      _open = false;
+      _removed.clear();
+    });
+    await f.wait(900);
+    await f.moveTo('row2', fx: 0.45);
+    await f.hold(() => _openSheet(2));
+    // Once the sheet is up, onto the row at its foot (read where it rests, not where it rises from).
+    await f.wait(250);
+    await f.moveTo('remove', fx: 0.4);
+    await f.wait(400);
+    await f.tap(() => put(() => _open = false));
+    put(() => _removed.add(2));
+    await f.lift();
+    await f.wait(2200);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final entries = [
+      for (final (i, a) in demoPlaylistAlbums.indexed)
+        if (!_removed.contains(i)) (i, demoTrack(i, demoAlbums[a]), demoAlbums[a]),
+    ];
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      // Nothing in the phone plays: the rows don't ask the app's player.
+      child: ProviderScope(
+        overrides: [trackPlayStateProvider.overrideWith((ref, id) => (current: false, playing: false))],
+        child: Stack(
+          children: [
+            ColoredBox(
+              color: colors.surface,
+              child: ListView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  TipSceneTokens.pagePaddingH,
+                  TipSceneTokens.pageTop,
+                  TipSceneTokens.pagePaddingH,
+                  0,
+                ),
+                children: [
+                  Center(
+                    child: CoverArt(
+                      cover: demoAlbums[demoPlaylistAlbums.first].coverRef,
+                      size: TipSceneTokens.playlistCover,
+                      radius: ShapeTokens.hero,
+                    ),
+                  ),
+                  const SizedBox(height: TipSceneTokens.albumTitleGap),
+                  Text(
+                    demoPlaylistName,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall!.copyWith(color: colors.onSurface),
+                  ),
+                  const SizedBox(height: TipSceneTokens.albumRowsGap),
+                  // The playlist page's own list: the count, then each entry keyed as on the page.
+                  ..._rows.layOut([
+                    PresenceRow(
+                      const ValueKey('playlist-count'),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 8, top: 2, bottom: 10),
+                        child: TrackCountLine(
+                          count: entries.length,
+                          totalSec: entries.fold(0, (sum, e) => sum + (e.$2.durationSec ?? 0)),
+                        ),
+                      ),
+                    ),
+                    for (final (i, track, album) in entries)
+                      PresenceRow(
+                        ValueKey('entry-$i'),
+                        DemoTarget(
+                          'row$i',
+                          child: PlaylistTrackRow(
+                            track: track,
+                            coverUrl: album.coverUrl,
+                            onTap: () {},
+                            onLongPress: () => _openSheet(i),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ],
+              ),
+            ),
+            DemoSongSheet(
+              open: _open,
+              onDismiss: () => put(() => _open = false),
+              track: demoTrack(_row, demoAlbums[demoPlaylistAlbums[_row]]),
+              downloaded: false,
+              onRemoveFromPlaylist: () => put(() => _removed.add(_row)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

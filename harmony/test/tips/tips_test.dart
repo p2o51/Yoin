@@ -19,7 +19,9 @@ import 'package:yoin/settings/appearance/screen_corners_screen.dart';
 import 'package:yoin/settings/appearance/scroll_edge_screen.dart';
 import 'package:yoin/ui/component/seam/seam_style.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/detail/detail_track_rows.dart' show TrackCountLine;
 import 'package:yoin/settings/tips.dart';
+import 'package:yoin/shell/yoin_bottom_bar.dart';
 import 'package:yoin/theme/theme.dart';
 import 'package:yoin/tips/demo_phone.dart';
 import 'package:yoin/tips/tip_illustration.dart';
@@ -379,6 +381,33 @@ void main() {
       double position() => tester.widget<MemoriesAurora>(aurora).position();
       expect(position(), 0);
       expect(await playUntil(tester, () => position() > 0.99), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_takeTheRowOutAndBringItBack_when_theRemoveFromPlaylistDemoPlays', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.removeFromPlaylist);
+      // The third song (Salt and Glass) on the playlist page, then its sheet with the row at its foot.
+      final song = find.text('Salt and Glass');
+      expect(song, findsOneWidget);
+      expect(await playUntil(tester, () => find.text('Remove from playlist').evaluate().isNotEmpty), isTrue);
+      // The sheet goes down and the row leaves the page.
+      expect(await playUntil(tester, () => song.evaluate().isEmpty), isTrue);
+      expect(tester.widget<TrackCountLine>(find.byType(TrackCountLine)).count, 5);
+      // Next time round it opens back in its place.
+      expect(await playUntil(tester, () => song.evaluate().isNotEmpty), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_hideTheBarAndBringItBack_when_theBarScrollHideDemoScrolls', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.barScrollHide);
+      double barAlpha() => tester
+          .widget<Opacity>(find.ancestor(of: find.byType(YoinBottomBar), matching: find.byType(Opacity)).first)
+          .opacity;
+      expect(barAlpha(), 1);
+      expect(await playUntil(tester, () => barAlpha() == 0), isTrue);
+      expect(await playUntil(tester, () => barAlpha() == 1), isTrue);
       expect(tester.takeException(), isNull);
       await leave(tester);
     });

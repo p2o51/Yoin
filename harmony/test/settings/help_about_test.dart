@@ -87,7 +87,7 @@ void main() {
     });
 
     testWidgets('should_checkTipAndOfferUnread_when_readOnItsPage', (tester) async {
-      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.physicalSize = const Size(800, 4600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(ProviderScope(overrides: overrides(), child: const MaterialApp(home: TipsScreen())));

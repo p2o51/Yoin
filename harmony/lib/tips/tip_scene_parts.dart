@@ -242,6 +242,7 @@ class DemoSongSheet extends StatelessWidget {
     this.nowPlaying = false,
     this.downloaded,
     this.onDownload,
+    this.onRemoveFromPlaylist,
     this.footer,
   });
 
@@ -255,6 +256,10 @@ class DemoSongSheet extends StatelessWidget {
   /// Non-null: the Download row, saying Download or Remove download.
   final bool? downloaded;
   final VoidCallback? onDownload;
+
+  /// Non-null: the playlist page's sheet, with Go to album and, last and on its
+  /// own, Remove from playlist (demo target `remove`); called as the sheet goes down.
+  final VoidCallback? onRemoveFromPlaylist;
   final Widget? footer;
 
   @override
@@ -311,13 +316,18 @@ class DemoSongSheet extends StatelessWidget {
       true => TrackMenuRow(offline.removeDownload, YoinSymbols.downloadDone, onDownload ?? none),
       false => TrackMenuRow(offline.download, YoinSymbols.download, onDownload ?? none),
     };
+    final removeRow = switch (onRemoveFromPlaylist) {
+      null => null,
+      final remove => TrackMenuRow(strings.removeFromPlaylist, YoinSymbols.delete, remove),
+    };
     final groups = [
       [if (!nowPlaying) TrackMenuRow(strings.addToPlaylist, YoinSymbols.playlist, none), ?downloadRow],
       [
-        if (nowPlaying) TrackMenuRow(strings.goToAlbum, YoinSymbols.album, none),
+        if (nowPlaying || removeRow != null) TrackMenuRow(strings.goToAlbum, YoinSymbols.album, none),
         TrackMenuRow(strings.viewInScrapbook, YoinSymbols.note, none),
         TrackMenuRow(strings.goToArtist, YoinSymbols.artist, none),
       ],
+      [?removeRow],
     ];
     return DemoSheet(
       open: open,
@@ -334,9 +344,14 @@ class DemoSongSheet extends StatelessWidget {
             row.onTap();
           } else {
             onDismiss();
+            if (row == removeRow) row.onTap();
           }
         },
-        rowWrapper: (row, child) => row == downloadRow ? DemoTarget('offline', child: child) : child,
+        rowWrapper: (row, child) => row == downloadRow
+            ? DemoTarget('offline', child: child)
+            : row == removeRow
+            ? DemoTarget('remove', child: child)
+            : child,
         footer: footer,
       ),
     );

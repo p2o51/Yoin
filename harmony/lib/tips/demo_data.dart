@@ -90,3 +90,7 @@ const demoSpeakerName = 'Living Room';
 
 /// The device a Continue On hand-off comes from in the demo.
 const demoOtherDeviceName = 'HUAWEI Mate 70';
+
+/// The playlist the Remove from playlist demo edits: its name and the albums its songs come from.
+const demoPlaylistName = 'Night Walks';
+const demoPlaylistAlbums = [0, 2, 1, 3, 5, 4];

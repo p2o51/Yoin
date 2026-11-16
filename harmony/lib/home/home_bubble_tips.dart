@@ -5,8 +5,8 @@
 /// Only tips whose gesture or feature exists in this build are listed, in
 /// Android's order. Copy: Android's (strings_home.xml, key in the comment)
 /// where it holds on HarmonyOS; the rest was written for HarmonyOS by the
-/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116, -1117 and
-/// -1117b) and is used as given.
+/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116, -1117,
+/// -1117b and -1117c) and is used as given.
 library;
 
 import 'dart:io' show Platform;
@@ -19,6 +19,9 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 /// the [text]. [updated] is the day the tip last changed what it shows: a
 /// tip read before that comes back unread.
 enum HomeBubbleTip {
+  removeFromPlaylist(YoinSymbols.playlist, (2026, 11, 17)),
+  // No symbol for a bar sliding away in Yoin Symbols yet: Unfold less stands in.
+  barScrollHide(YoinSymbols.unfoldLess, (2026, 11, 17)),
   // No foldable symbol in Yoin Symbols yet: the phone stands in for the half-folded one.
   tabletop(YoinSymbols.smartphone, (2026, 11, 17), desktop: false),
   spatialAudio(YoinSymbols.headphones, (2026, 11, 17)),
@@ -75,6 +78,8 @@ enum HomeBubbleTip {
   }
 
   String title({required bool zh}) => switch (this) {
+    removeFromPlaylist => zh ? '从播放列表移除' : 'Remove from playlist', // Carbon 2026-11-17
+    barScrollHide => zh ? '收起底栏' : 'Hide the bottom bar', // Carbon 2026-11-17
     tabletop => zh ? '悬停正在播放' : 'Tabletop Now Playing', // Carbon 2026-11-17
     spatialAudio => zh ? '空间音频' : 'Spatial audio', // Carbon 2026-11-17
     lyricsTools => zh ? '歌词工具' : 'Lyrics tools', // Carbon 2026-11-16
@@ -112,6 +117,17 @@ enum HomeBubbleTip {
   };
 
   String text({required bool zh}) => switch (this) {
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117c).
+    removeFromPlaylist =>
+      zh
+          ? '在可编辑的播放列表里长按或右键点击歌曲，选「从播放列表移除」去掉这一行'
+          : 'Long-press or right-click a song in an editable playlist and choose Remove from playlist to take out just '
+                'that row',
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117c).
+    barScrollHide =>
+      zh
+          ? '在首页往下滚收起底栏，往上滚回到原位'
+          : 'Scroll down on Home to slide the bottom bar off the screen, and scroll back up to bring it back',
     // Carbon 2026-11-17 (.argon/harmony-tips-1117b).
     tabletop =>
       zh

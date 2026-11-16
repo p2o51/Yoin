@@ -37,6 +37,7 @@ import '../settings/settings_colors.dart';
 import '../settings/settings_components.dart' show SettingsBar, SettingsHeadline;
 import '../settings/settings_metrics.dart';
 import '../shell/bar_edit_pose.dart';
+import '../shell/bar_scroll_hide.dart';
 import '../shell/yoin_bottom_bar.dart';
 import '../shell/yoin_section.dart';
 import '../theme/motion.dart';
@@ -1782,6 +1783,142 @@ class _DemoMemoryCardWidget extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Scrolling Home hides the bar: the feed scrolls down and the real bar
+/// leaves with it (the app's own scroll-hide, [ShellBarScrollHide], on the
+/// Memories pose it rides in the shell); scrolling back up brings it back.
+/// The user's own scroll on the phone drives the same controller.
+class BarScrollHideDemo extends StatefulWidget {
+  const BarScrollHideDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<BarScrollHideDemo> createState() => _BarScrollHideDemoState();
+}
+
+class _BarScrollHideDemoState extends State<BarScrollHideDemo> with DemoSceneState, TickerProviderStateMixin {
+  final ScrollController _feed = ScrollController();
+  final ShellBarScrollHide _hide = ShellBarScrollHide();
+
+  @override
+  void initState() {
+    super.initState();
+    _hide.attach(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _hide.reduced = MediaQuery.disableAnimationsOf(context);
+  }
+
+  @override
+  void dispose() {
+    _hide.dispose();
+    _feed.dispose();
+    super.dispose();
+  }
+
+  /// The dot's drag scrolls the feed to [offset]; what the list took moves the bar, as a finger's would.
+  void _scrollTo(double offset) {
+    if (!_feed.hasClients) return;
+    final position = _feed.position;
+    final to = offset.clamp(position.minScrollExtent, position.maxScrollExtent);
+    final delta = to - position.pixels;
+    _feed.jumpTo(to);
+    _hide.scrolled(delta);
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    if (_feed.hasClients && _feed.offset != 0) _feed.jumpTo(0);
+    _hide.show();
+    await f.wait(500);
+    // Up the screen: the feed scrolls down and the bar goes with it.
+    await f.moveToPoint(0.5, 0.72);
+    await f.drag(0.5, 0.36, 800, onProgress: (p) => _scrollTo(p * TipSceneTokens.feedScrollTravel));
+    _hide.released(0);
+    await f.lift();
+    await f.wait(1400);
+    // Back down: the feed scrolls up and the bar comes back.
+    await f.moveToPoint(0.5, 0.36);
+    await f.drag(0.5, 0.72, 800, onProgress: (p) => _scrollTo((1 - p) * TipSceneTokens.feedScrollTravel));
+    _hide.released(0);
+    await f.lift();
+    await f.wait(1200);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = HomeStrings.of(context);
+    final titles = [
+      strings.sectionJumpBackIn,
+      strings.sectionRecentlyAdded,
+      strings.sectionRecentlyPlayed,
+      strings.sectionMadeForYou,
+      strings.sectionRediscover,
+    ];
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Stack(
+          children: [
+            NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                _hide.onScrollNotification(n, devicePixelRatio: dpr);
+                return false;
+              },
+              child: ListView(
+                controller: _feed,
+                padding: const EdgeInsets.only(bottom: TipSceneTokens.gridBottom),
+                children: [
+                  _DemoHomeHeader(avatar: _avatar(context, 0)),
+                  for (final (i, title) in titles.indexed)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        TipSceneTokens.pagePaddingH,
+                        0,
+                        TipSceneTokens.pagePaddingH,
+                        TipSceneTokens.titleGap,
+                      ),
+                      child: _DemoSection(
+                        title: title,
+                        covers: [for (final a in _sectionAlbums[i % _sectionAlbums.length]) demoAlbums[a]],
+                        editing: false,
+                        lift: 0,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: TipSceneTokens.barBottom,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _hide.fraction,
+                // The shell's pose for it: down and out, fading a little faster than it moves.
+                builder: (context, hide, child) => IgnorePointer(
+                  ignoring: hide > 0.01,
+                  child: Opacity(
+                    opacity: (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0),
+                    child: Transform.translate(offset: Offset(0, hide * MemoriesTokens.barHideTravel), child: child),
+                  ),
+                ),
+                child: DemoTarget(
+                  'bar',
+                  child: YoinBottomBar(selected: YoinSection.home, onSelect: (_) {}),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

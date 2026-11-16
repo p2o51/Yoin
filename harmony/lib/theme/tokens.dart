@@ -1802,6 +1802,9 @@ abstract final class TipSceneTokens {
   static const double albumTitleGap = 16;
   static const double albumRowsGap = 16;
 
+  /// The playlist page's cover (smaller than an album's: the Remove demo needs the rows under it).
+  static const double playlistCover = 120;
+
   /// Library's grid: top and bottom padding (room for the bar).
   static const double gridTop = 8;
   static const double gridBottom = 108;
@@ -1855,6 +1858,9 @@ abstract final class TipSceneTokens {
   static const double coverGap = 8;
   static const double liftScale = 1.02;
   static const double avatar = 40;
+
+  /// How far the bar demo's drag scrolls Home's feed (past the bar's 96 of scroll-hide).
+  static const double feedScrollTravel = 220;
 
   /// The account fan: each avatar's step down from the last, the one under the finger grown.
   static const double fanStep = 52;
