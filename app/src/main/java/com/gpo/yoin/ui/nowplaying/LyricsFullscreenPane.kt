@@ -426,7 +426,6 @@ private fun LyricsFullscreenList(
                 selectHaptics.performReject()
                 limitNudgeTick += 1
             } else {
-                selectHaptics.performSegmentTick()
                 latestOnToggleLine(index)
             }
         }
