@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/tokens.dart';
@@ -30,6 +31,7 @@ class MemoryEmblemSlot extends StatelessWidget {
     required this.size,
     required this.awards,
     required this.diary,
+    this.captionAlpha,
   });
 
   final MemoryEntry memory;
@@ -38,6 +40,9 @@ class MemoryEmblemSlot extends StatelessWidget {
 
   /// The diary's native 48 (bar surface), else the card's.
   final bool diary;
+
+  /// The "Avg." caption's own alpha (the card ⇄ diary morph fades it first).
+  final ValueListenable<double>? captionAlpha;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +59,7 @@ class MemoryEmblemSlot extends StatelessWidget {
       palette: memoryPaletteFor(context, memory),
       surface: diary ? GrooveSurface.bar : GrooveSurface.cover,
       award: controller,
+      captionAlpha: captionAlpha,
     );
   }
 }

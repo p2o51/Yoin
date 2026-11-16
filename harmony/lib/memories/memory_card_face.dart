@@ -10,9 +10,10 @@
 ///    the album row (+24) and the buttons (−16); the last candidate is the
 ///    attribution line alone, so nothing is ever cut or ellipsized.
 ///
-/// Flat: no shadow, no cover border, Go to album has no arrow. The cover
-/// itself is drawn by the page's flying cover (the card ⇄ diary shared
-/// element); the card leaves its slot empty.
+/// Flat: no shadow, no cover border, Go to album has no arrow. With a
+/// [MemoryPageMorph] every piece is a [MorphLayer] of the card ⇄ diary morph
+/// (the cover flies to the bar, the title and the 96 to the diary's head,
+/// the rest drops away); the face itself is never resized while p moves.
 library;
 
 import 'package:flutter/material.dart';
@@ -21,10 +22,11 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../nowplaying/haptics.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import '../ui/component/cover_art.dart';
 import '../ui/component/meta_line.dart';
 import 'copy/memory_voice.dart';
 import 'memories_layout.dart';
-import 'memories_motion.dart';
+import 'memories_morph.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
 import 'memory_title_editor.dart';
@@ -87,40 +89,36 @@ double _measure(String text, TextStyle style, double width, {int? maxLines, Text
   return h;
 }
 
-/// Where the exhibit's cover sits inside the card face (its top-left), for
-/// the page's flying cover.
-Offset memoryCardCoverOffset(MemoriesLayout layout, double faceWidth) =>
-    Offset((faceWidth - layout.cover) / 2, layout.air1);
-
 class MemoryCardFace extends StatelessWidget {
   const MemoryCardFace({
     super.key,
     required this.memory,
     required this.tones,
     required this.layout,
-    required this.diary,
     required this.emblem,
     required this.onOpenDiary,
     required this.onOpenAlbum,
-    required this.reducedMotion,
+    this.morph,
+    this.atCard = true,
     this.interactive = true,
     this.titleEditing,
     this.titleEnabled = false,
-    this.titleLift,
   });
 
   final MemoryEntry memory;
   final MemoryPaletteTones tones;
   final MemoriesLayout layout;
 
-  /// p: the morph moves the card's pieces (title, row, excerpt, teaser).
-  final Animation<double> diary;
+  /// The page's morph: every piece paints with its pose. Null: a still card.
+  final MemoryPageMorph? morph;
+
+  /// p is at the card (below [MemoriesTokens.cardInputBelow]): its title and buttons take taps.
+  final bool atCard;
 
   /// The emblem at [MemoriesLayout.seal], already sized.
   final Widget emblem;
   final VoidCallback onOpenDiary;
   final VoidCallback onOpenAlbum;
-  final bool reducedMotion;
   final bool interactive;
 
   /// The deck's title editor; null = the title is plain text.
@@ -129,8 +127,12 @@ class MemoryCardFace extends StatelessWidget {
   /// The page is current and the card takes input: its title can open.
   final bool titleEnabled;
 
-  /// Where the card's keyboard lift is told, for the cover the page draws outside it.
-  final ValueNotifier<double>? titleLift;
+  /// [child] painted with [pose] of the morph (keyed so the morph can measure it), or as is without one.
+  Widget _layer(GlobalKey? key, MorphPose Function()? pose, Widget child) {
+    final m = morph;
+    if (m == null || pose == null) return child;
+    return MorphLayer(key: key, listenable: m, pose: pose, child: child);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -209,175 +211,170 @@ class MemoryCardFace extends StatelessWidget {
 
         final pick = pickExcerpt(excerpts.length, (i) => excerpts[i].attributionOnly, slot, blockHeight);
 
-        return AnimatedBuilder(
-          animation: diary,
-          builder: (context, _) {
-            final p = diary.value.clamp(0.0, 1.0);
-            final travel = ((p - MemoriesTokens.titleHold) / (1 - MemoriesTokens.titleHold)).clamp(0.0, 1.0);
-            final double titleAlpha, rowAlpha, rowLift, teaserAlpha, teaserDrop, excerptAlpha;
-            if (reducedMotion) {
-              final a = 1 - smoothstep(0, MemoriesTokens.reducedSwap, p);
-              titleAlpha = rowAlpha = teaserAlpha = excerptAlpha = a;
-              rowLift = teaserDrop = 0;
-            } else {
-              titleAlpha = 1 - smoothstep(0.36, 0.72, p);
-              rowAlpha = 1 - smoothstep(0, MemoriesTokens.albumRowFadeTo, p);
-              rowLift = MemoriesTokens.albumRowLift * p;
-              teaserAlpha = 1 - smoothstep(0, MemoriesTokens.teaserFadeTo, p);
-              excerptAlpha = 1 - smoothstep(0, MemoriesTokens.excerptFadeTo, p);
-              teaserDrop = MemoriesTokens.teaserDrop * p;
-            }
-            final titleLift = reducedMotion ? 0.0 : -travel * 48;
-            return MemoryTitleLift(
-              lift: lift,
-              mirror: this.titleLift,
-              child: Stack(
-                children: [
-                  // Exhibit.
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    child: Column(
-                      children: [
-                        SizedBox(height: layout.air1),
+        final m = morph;
+        return _layer(
+          null,
+          m?.cardFace,
+          MemoryTitleLift(
+            lift: lift,
+            child: Stack(
+              children: [
+                // Exhibit.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: Column(
+                    children: [
+                      SizedBox(height: layout.air1),
+                      SizedBox(
+                        width: layout.cover,
+                        height: layout.cover + layout.seal * MemoriesTokens.sealOverhangBottom,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned(
+                              left: 0,
+                              top: 0,
+                              width: layout.cover,
+                              height: layout.cover,
+                              child: _layer(
+                                m?.coverKey,
+                                m?.cardCover,
+                                CoverArt(
+                                  cover: memory.coverArt,
+                                  size: layout.cover,
+                                  // With a morph the layer rounds it (8 → 4 dp as it flies).
+                                  radius: m == null ? MemoriesTokens.coverCornerCard : 0,
+                                  requestSize: 512,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: layout.cover - layout.seal * (1 - MemoriesTokens.sealOverhangRight),
+                              top: layout.cover - layout.seal * (1 - MemoriesTokens.sealOverhangBottom),
+                              width: layout.seal,
+                              height: layout.seal,
+                              child: _layer(m?.sealKey, m?.cardSeal, emblem),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: layout.titleTop),
+                      SizedBox(
+                        width: titleWidth,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _layer(
+                              m?.cardTitleKey,
+                              m?.cardTitle,
+                              MemoryTitleSlot(
+                                memory: memory,
+                                surface: MemoryTitleSurface.card,
+                                editing: titleEditing,
+                                tones: tones,
+                                style: (k) => memoryCardTitleStyleFor(k, layout, colors.onSurface),
+                                maxLines: memoryCardTitleLines,
+                                enabled: titleEnabled && interactive && atCard,
+                                centred: true,
+                              ),
+                            ),
+                            MemoryTitleEditRow(
+                              memory: memory,
+                              surface: MemoryTitleSurface.card,
+                              editing: titleEditing,
+                              tones: tones,
+                              centred: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _layer(
+                        null,
+                        m?.albumRow,
                         SizedBox(
-                          width: layout.cover,
-                          height: layout.cover + layout.seal * MemoriesTokens.sealOverhangBottom,
-                          child: Stack(
-                            clipBehavior: Clip.none,
+                          width: titleWidth,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Positioned(
-                                left: layout.cover - layout.seal * (1 - MemoriesTokens.sealOverhangRight),
-                                top: layout.cover - layout.seal * (1 - MemoriesTokens.sealOverhangBottom),
-                                width: layout.seal,
-                                height: layout.seal,
-                                child: emblem,
+                              // A written title brings the album name in (and out) on the spatial spring.
+                              MemorySpringFold(
+                                visible: written,
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: _albumTop(layout) - 6, bottom: 2),
+                                  child: Text(
+                                    memory.albumName,
+                                    style: albumStyle,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.fade,
+                                  ),
+                                ),
+                              ),
+                              Center(
+                                child: MetaLine(
+                                  centered: true,
+                                  style: artistStyle,
+                                  color: colors.onSurfaceVariant,
+                                  groups: [if (artist.isNotEmpty) MetaPlain(artist), if (year != null) MetaMuted(year)],
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        SizedBox(height: layout.titleTop),
-                        Opacity(
-                          opacity: titleAlpha,
-                          child: Transform.translate(
-                            offset: Offset(0, titleLift),
-                            child: SizedBox(
-                              width: titleWidth,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  MemoryTitleSlot(
-                                    memory: memory,
-                                    surface: MemoryTitleSurface.card,
-                                    editing: titleEditing,
-                                    tones: tones,
-                                    style: (k) => memoryCardTitleStyleFor(k, layout, colors.onSurface),
-                                    maxLines: memoryCardTitleLines,
-                                    enabled: titleEnabled && interactive && p < 0.05,
-                                    centred: true,
-                                  ),
-                                  MemoryTitleEditRow(
-                                    memory: memory,
-                                    surface: MemoryTitleSurface.card,
-                                    editing: titleEditing,
-                                    tones: tones,
-                                    centred: true,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Opacity(
-                          opacity: rowAlpha,
-                          child: Transform.translate(
-                            offset: Offset(0, -rowLift),
-                            child: SizedBox(
-                              width: titleWidth,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // A written title brings the album name in (and out) on the spatial spring.
-                                  MemorySpringFold(
-                                    visible: written,
-                                    child: Padding(
-                                      padding: EdgeInsets.only(top: _albumTop(layout) - 6, bottom: 2),
-                                      child: Text(
-                                        memory.albumName,
-                                        style: albumStyle,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.fade,
-                                      ),
-                                    ),
-                                  ),
-                                  Center(
-                                    child: MetaLine(
-                                      centered: true,
-                                      style: artistStyle,
-                                      color: colors.onSurfaceVariant,
-                                      groups: [
-                                        if (artist.isNotEmpty) MetaPlain(artist),
-                                        if (year != null) MetaMuted(year),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Excerpt.
-                  if (pick != null)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: bottomPad + teaserHeight + MemoriesTokens.excerptGap - teaserDrop,
-                      child: Opacity(
-                        opacity: excerptAlpha,
-                        child: MemorySpringOpacity(
-                          // While the title is open the keyboard holds the bottom: the excerpt steps aside.
-                          visible: !editingTitle,
-                          child: Center(
-                            child: SizedBox(
-                              width: excerptWidth,
-                              child: _Excerpt(candidate: excerpts[pick], strings: strings),
-                            ),
-                          ),
-                        ),
                       ),
-                    ),
-                  // Teaser.
+                    ],
+                  ),
+                ),
+                // Excerpt.
+                if (pick != null)
                   Positioned(
                     left: 0,
                     right: 0,
-                    bottom: bottomPad - teaserDrop,
-                    child: Opacity(
-                      opacity: teaserAlpha,
-                      child: MemorySpringOpacity(
+                    bottom: bottomPad + teaserHeight + MemoriesTokens.excerptGap,
+                    child: _layer(
+                      null,
+                      m?.excerpt,
+                      MemorySpringOpacity(
+                        // While the title is open the keyboard holds the bottom: the excerpt steps aside.
                         visible: !editingTitle,
-                        child: IgnorePointer(
-                          ignoring: !interactive || p > 0.05,
-                          child: _Teaser(
-                            memory: memory,
-                            tones: tones,
-                            strings: strings,
-                            onOpenDiary: onOpenDiary,
-                            onOpenAlbum: onOpenAlbum,
+                        child: Center(
+                          child: SizedBox(
+                            width: excerptWidth,
+                            child: _Excerpt(candidate: excerpts[pick], strings: strings),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
-            );
-          },
+                // Teaser.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: bottomPad,
+                  child: _layer(
+                    null,
+                    m?.teaser,
+                    MemorySpringOpacity(
+                      visible: !editingTitle,
+                      child: IgnorePointer(
+                        ignoring: !interactive || !atCard,
+                        child: _Teaser(
+                          memory: memory,
+                          tones: tones,
+                          strings: strings,
+                          onOpenDiary: onOpenDiary,
+                          onOpenAlbum: onOpenAlbum,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

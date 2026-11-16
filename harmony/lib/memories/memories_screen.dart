@@ -16,11 +16,16 @@
 /// progress: it commits through the same controllers (title edit → card,
 /// diary → card, card → Home). While a title is being edited no drag pages
 /// the deck or moves q / p.
+///
+/// p drives the card ⇄ diary morph ([MemoriesDiaryDeck], memories_morph.dart):
+/// whichever input moved p — the bar handle, the diary's pull, a button or
+/// back — the same flight scrubs, forward or back.
 library;
 
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -41,6 +46,7 @@ import '../ui/component/cover_art.dart';
 import '../ui/component/meta_line.dart';
 import 'copy/memory_copy.dart';
 import 'memories_layout.dart';
+import 'memories_morph.dart';
 import 'memories_motion.dart';
 import 'memories_reveal_scope.dart';
 import 'memories_strings.dart';
@@ -131,9 +137,9 @@ enum _Route { dismissBar, dismissBody, cardBand, diaryHandle, diaryPull, diaryEn
 
 class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerProviderStateMixin {
   late final MemoriesDiaryController _p = MemoriesDiaryController(vsync: this);
+  late final MemoriesDiaryDeck _morph = MemoriesDiaryDeck(diary: _p, vsync: this);
   PageController? _pages;
   final Map<int, ScrollController> _scrolls = {};
-  final Map<int, ValueNotifier<double>> _titleLifts = {};
   final MemoryAwards _awards = MemoryAwards();
   late final MemoryPalettes _palettes = MemoryPalettes(vsync: this);
   late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
@@ -181,15 +187,13 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     if (identical(_handle.deckBack, _back)) _handle.deckBack = null;
     widget.reveal.removeListener(_onReveal);
     _p.removeListener(_onDiary);
+    _morph.dispose();
     _p.dispose();
     _titles.removeListener(_onTitles);
     _titles.dispose();
     _pages?.dispose();
     for (final s in _scrolls.values) {
       s.dispose();
-    }
-    for (final l in _titleLifts.values) {
-      l.dispose();
     }
     _awards.dispose();
     _palettes.dispose();
@@ -198,6 +202,12 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
 
   /// The container is a spread: no diary state, back has one level.
   bool _spread = false;
+
+  @visibleForTesting
+  MemoriesDiaryController get debugDiary => _p;
+
+  @visibleForTesting
+  MemoriesDiaryDeck get debugMorph => _morph;
 
   void _onTitles() {
     if (!_titles.isEditing) FocusManager.instance.primaryFocus?.unfocus();
@@ -217,19 +227,16 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
 
   void _onReveal() => _awards.revealChanged(widget.reveal.fraction, settling: widget.reveal.isSettling);
 
-  void _onDiary() {
-    // The diary's text returns to its top, unseen, once the card is back.
-    if (_p.fraction <= 0.05 && !_p.isSettling) {
-      final s = _scrolls[_settledPage];
-      if (s != null && s.hasClients && s.offset != 0) s.jumpTo(0);
-    }
-    _awards.diaryChanged(_p.fraction);
-  }
+  // The diary's text returns to its top, unseen, once the card is back: the deck does it (frozen collapse).
+  void _onDiary() => _awards.diaryChanged(_p.fraction);
 
   ScrollController _scrollFor(int index) => _scrolls.putIfAbsent(index, ScrollController.new);
-  ValueNotifier<double> _titleLiftFor(int index) => _titleLifts.putIfAbsent(index, () => ValueNotifier(0));
 
-  PageController _pagesFor(int initial) => _pages ??= PageController(initialPage: initial)..addListener(_onPage);
+  PageController _pagesFor(int initial) {
+    final pages = _pages ??= PageController(initialPage: initial)..addListener(_onPage);
+    _morph.pages = pages;
+    return pages;
+  }
 
   void _onPage() {
     final page = _pages?.page;
@@ -393,6 +400,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   Widget build(BuildContext context) {
     _reduced = MediaQuery.disableAnimationsOf(context);
     _p.reducedMotion = _reduced;
+    _morph.reduced = _reduced;
     _awards.reducedMotion = _reduced;
     final state = ref.watch(memoriesViewModelProvider);
     final colors = Theme.of(context).colorScheme;
@@ -411,6 +419,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
         _spread = layout.isSpread;
         final memories = state is MemoriesContent ? state.memories : const <MemoryEntry>[];
         _awards.sync(memories);
+        _morph.retain(memories.map((m) => m.sessionId));
         final source = ref.watch(activeSourceProvider).value;
         final fallback = MemoryPalette.fallback(colors.primary);
         for (final m in memories) {
@@ -437,7 +446,11 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     child: _Wash(memories: memories, pages: _pages!, dark: dark),
                   ),
                 switch (state) {
-                  MemoriesContent() => _heldOverKeyboard(context, _deck(context, state, layout, top, dark), c.maxHeight),
+                  MemoriesContent() => _heldOverKeyboard(
+                    context,
+                    _deck(context, state, layout, top, dark),
+                    c.maxHeight,
+                  ),
                   _ => GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onVerticalDragStart: (_) => _verticalStart(false),
@@ -472,6 +485,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     memories: memories,
                     pages: _pages,
                     diary: _p,
+                    morphAt: _morph.morphAt,
                     spread: layout.isSpread,
                     layout: layout,
                     dark: dark,
@@ -565,7 +579,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             spreadFit: spreadFit,
             statusTop: top,
             dark: dark,
-            diary: _p,
+            morph: _morph.morphFor(memory.sessionId, index),
+            phase: _morph.phase,
             scroll: _scrollFor(index),
             awards: _awards,
             reducedMotion: _reduced,
@@ -582,7 +597,6 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             onPlayNote: (t, n) => _playNote(memory, t, n),
             onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
             titleEditing: _titleEditing,
-            titleLift: _titleLiftFor(index),
             current: index == state.currentPage,
           );
         },
@@ -677,7 +691,8 @@ class _MemoryPage extends ConsumerWidget {
     this.spreadFit,
     required this.statusTop,
     required this.dark,
-    required this.diary,
+    required this.morph,
+    required this.phase,
     required this.scroll,
     required this.awards,
     required this.reducedMotion,
@@ -695,15 +710,10 @@ class _MemoryPage extends ConsumerWidget {
     required this.onSaveReview,
     this.titleEditing,
     this.current = false,
-    this.titleLift,
   });
 
   /// The deck's title editor.
   final MemoryTitleEditing? titleEditing;
-
-  /// The card's keyboard lift, which its flying cover rides as well (on
-  /// Android the cover is in the lifted card; here the page draws it).
-  final ValueNotifier<double>? titleLift;
 
   /// This is the page the deck rests on: its titles can open.
   final bool current;
@@ -718,7 +728,12 @@ class _MemoryPage extends ConsumerWidget {
   final SpreadFit? spreadFit;
   final double statusTop;
   final bool dark;
-  final MemoriesDiaryController diary;
+
+  /// This page's share of the card ⇄ diary morph.
+  final MemoryPageMorph morph;
+
+  /// Which side of p's thresholds the deck is on (the page rebuilds only when it changes).
+  final ValueListenable<MemoriesDiaryPhase> phase;
   final ScrollController scroll;
   final MemoryAwards awards;
   final bool reducedMotion;
@@ -752,65 +767,87 @@ class _MemoryPage extends ConsumerWidget {
     if (fit != null) {
       return _spreadPage(context, fit, tones, today, playingHere ? playingId : null, litNote, barBottom);
     }
+    morph.scroll = scroll;
     return LayoutBuilder(
       builder: (context, c) {
-        final width = c.maxWidth;
-        final cardTop = barBottom;
-        final cover = memoryCardCoverOffset(layout, width);
-        final cardCover = Rect.fromLTWH(cover.dx, cardTop + cover.dy, layout.cover, layout.cover);
-        final barCover = Rect.fromLTWH(
-          layout.barCoverStart,
-          statusTop + (MemoriesTokens.barHeight - MemoriesTokens.barCover) / 2,
-          MemoriesTokens.barCover,
-          MemoriesTokens.barCover,
+        final colors = Theme.of(context).colorScheme;
+        final kind = memory.memoryTitleKind;
+        final artist = memory.artistName ?? '';
+        final barAlbum = memoriesBarAlbumStyle();
+        final barRoom =
+            c.maxWidth -
+            memoriesBarSlotEnd(layout, count) -
+            layout.slotBStart -
+            MemoriesTokens.slotBChevronGap -
+            MemoriesTokens.slotBChevron;
+        morph.spec = MemoryPageMorphSpec(
+          titleKind: kind,
+          cardTitleFont: memoryCardTitleStyleFor(kind, layout, colors.onSurface).fontSize!,
+          diaryTitleFont: memoryDiaryTitleStyle(kind, layout.type, colors.onSurface).fontSize!,
+          statusTop: statusTop,
+          barCoverStart: layout.barCoverStart,
+          slotBStart: layout.slotBStart,
+          barTitleWidth: math.min(_textWidth(memory.albumName, barAlbum), math.max(0.0, barRoom)),
+          barLines: artist.isNotEmpty || memory.year != null
+              ? MemoriesTokens.barAlbumLine + MemoriesTokens.barArtistLine
+              : MemoriesTokens.barAlbumLine,
         );
-        return AnimatedBuilder(
-          animation: diary,
-          builder: (context, _) {
-            final p = diary.fraction;
-            final pc = p.clamp(0.0, 1.0);
-            final diaryOpen = p >= 0.5;
+        return ValueListenableBuilder<MemoriesDiaryPhase>(
+          valueListenable: phase,
+          builder: (context, phase, _) {
+            final diaryOpen = phase.open;
             return Stack(
+              key: morph.pageKey,
               fit: StackFit.expand,
               children: [
-                // The diary, composed once the morph starts.
-                if (p > 0.001)
+                // The diary lies under the card, composed from the morph's first frame; the card's pieces fly
+                // over it into the bar and its head.
+                if (phase.composed)
                   Positioned.fill(
                     child: IgnorePointer(
                       ignoring: !diaryOpen,
                       child: ExcludeSemantics(
                         excluding: !diaryOpen,
-                        child: Listener(
-                          onPointerDown: onDiaryDown,
-                          onPointerMove: onDiaryMove,
-                          onPointerUp: onDiaryUp,
-                          onPointerCancel: onDiaryUp,
-                          child: NotificationListener<OverscrollIndicatorNotification>(
-                            // No stretch at either edge: past the top is p's, past the end is q's.
-                            onNotification: (n) {
-                              n.disallowIndicator();
-                              return false;
-                            },
-                            child: NotificationListener<OverscrollNotification>(
-                              onNotification: onDiaryOverscroll,
-                              child: MemoryDiary(
-                                memory: memory,
-                                tones: tones,
-                                layout: layout,
-                                diary: diary.animation,
-                                scroll: scroll,
-                                topInset: barBottom,
-                                emblem: _diaryEmblem(context, tones, pc),
-                                today: today,
-                                reducedMotion: reducedMotion,
-                                interactive: diaryOpen,
-                                playingTrackId: playingHere ? playingId : null,
-                                litNoteId: litNote,
-                                onPlayTrack: onPlayTrack,
-                                onPlayNote: onPlayNote,
-                                onOpenAlbum: onOpenAlbum,
-                                onSaveReview: onSaveReview,
-                                titleEditing: titleEditing,
+                        child: MorphLayer(
+                          listenable: morph,
+                          pose: morph.diaryViewport,
+                          child: Listener(
+                            onPointerDown: onDiaryDown,
+                            onPointerMove: onDiaryMove,
+                            onPointerUp: onDiaryUp,
+                            onPointerCancel: onDiaryUp,
+                            child: NotificationListener<OverscrollIndicatorNotification>(
+                              // No stretch at either edge: past the top is p's, past the end is q's.
+                              onNotification: (n) {
+                                n.disallowIndicator();
+                                return false;
+                              },
+                              child: NotificationListener<OverscrollNotification>(
+                                onNotification: onDiaryOverscroll,
+                                child: MemoryDiary(
+                                  memory: memory,
+                                  tones: tones,
+                                  layout: layout,
+                                  morph: morph,
+                                  scroll: scroll,
+                                  topInset: barBottom,
+                                  emblem: MemoryEmblemSlot(
+                                    memory: memory,
+                                    size: MemoriesTokens.diaryEmblem,
+                                    awards: awards,
+                                    diary: true,
+                                  ),
+                                  today: today,
+                                  reducedMotion: reducedMotion,
+                                  interactive: diaryOpen,
+                                  playingTrackId: playingHere ? playingId : null,
+                                  litNoteId: litNote,
+                                  onPlayTrack: onPlayTrack,
+                                  onPlayNote: onPlayNote,
+                                  onOpenAlbum: onOpenAlbum,
+                                  onSaveReview: onSaveReview,
+                                  titleEditing: titleEditing,
+                                ),
                               ),
                             ),
                           ),
@@ -818,15 +855,11 @@ class _MemoryPage extends ConsumerWidget {
                       ),
                     ),
                   ),
-                // The cover: one element, flying from the card to the bar's 40 dp slot.
-                _liftedWithCard(
-                  _flyingCover(cardCover.translate(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0), barCover, pc),
-                ),
-                // The card (the cover slot is left to the flying cover).
+                // The card, over the diary: its cover, title and 96 fly; the rest drops away.
                 Positioned(
                   left: 0,
                   right: 0,
-                  top: cardTop,
+                  top: barBottom,
                   bottom: 0,
                   child: IgnorePointer(
                     ignoring: diaryOpen,
@@ -837,24 +870,25 @@ class _MemoryPage extends ConsumerWidget {
                         onVerticalDragStart: (_) => onCardVerticalStart(),
                         onVerticalDragUpdate: onCardVerticalUpdate,
                         onVerticalDragEnd: (d) => onCardVerticalEnd(d.velocity.pixelsPerSecond.dy),
-                        child: Transform.translate(
-                          // The card's own pull-down (p < 0) follows the finger.
-                          offset: Offset(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0),
-                          child: Semantics(
-                            label: strings.cdPage(index + 1, count, memory.memoryTitle),
-                            child: MemoryCardFace(
+                        child: Semantics(
+                          label: strings.cdPage(index + 1, count, memory.memoryTitle),
+                          child: MemoryCardFace(
+                            memory: memory,
+                            tones: tones,
+                            layout: layout,
+                            morph: morph,
+                            atCard: phase.atCard,
+                            emblem: MemoryEmblemSlot(
                               memory: memory,
-                              tones: tones,
-                              layout: layout,
-                              diary: diary.animation,
-                              reducedMotion: reducedMotion,
-                              emblem: _cardEmblem(context, tones, pc),
-                              onOpenDiary: onOpenDiary,
-                              onOpenAlbum: onOpenAlbum,
-                              titleEditing: titleEditing,
-                              titleEnabled: current && !diaryOpen,
-                              titleLift: titleLift,
+                              size: layout.seal,
+                              awards: awards,
+                              diary: false,
+                              captionAlpha: morph.captionAlpha,
                             ),
+                            onOpenDiary: onOpenDiary,
+                            onOpenAlbum: onOpenAlbum,
+                            titleEditing: titleEditing,
+                            titleEnabled: current && !diaryOpen,
                           ),
                         ),
                       ),
@@ -930,7 +964,6 @@ class _MemoryPage extends ConsumerWidget {
                     memory: memory,
                     tones: tones,
                     layout: layout,
-                    diary: kAlwaysCompleteAnimation,
                     scroll: scroll,
                     topInset: 0,
                     emblem: const SizedBox.shrink(),
@@ -957,73 +990,23 @@ class _MemoryPage extends ConsumerWidget {
       ),
     );
   }
+}
 
-  /// [cover] (a Positioned) moved up by the card's keyboard lift.
-  Widget _liftedWithCard(Widget cover) {
-    final lift = titleLift;
-    if (lift == null || cover is! Positioned) return cover;
-    return ValueListenableBuilder<double>(
-      valueListenable: lift,
-      builder: (context, up, _) => Positioned(
-        left: cover.left,
-        top: cover.top == null ? null : cover.top! - up,
-        width: cover.width,
-        height: cover.height,
-        child: cover.child,
-      ),
-    );
-  }
+/// Where the bar's page slots end, from the right: clear of the page dots.
+double memoriesBarSlotEnd(MemoriesLayout layout, int count) {
+  final dotsWidth = count <= 1 ? 0.0 : MemoriesTokens.dotBox + (count - 1) * MemoriesTokens.dotPitch;
+  return layout.dotsEnd - MemoriesTokens.dotOverhang + dotsWidth + MemoriesTokens.slotClearOfDots;
+}
 
-  Widget _flyingCover(Rect card, Rect bar, double p) {
-    final double alpha;
-    final Rect rect;
-    final double radius;
-    if (reducedMotion) {
-      alpha = 1 - smoothstep(0, MemoriesTokens.reducedSwap, p);
-      rect = card;
-      radius = MemoriesTokens.coverCornerCard;
-    } else {
-      // Size leads position.
-      final sizeT = 1 - (1 - p) * (1 - p);
-      final size = lerpDouble(card.width, bar.width, sizeT);
-      final cx = lerpDouble(card.center.dx, bar.center.dx, p);
-      final cy = lerpDouble(card.center.dy, bar.center.dy, p);
-      rect = Rect.fromCenter(center: Offset(cx, cy), width: size, height: size);
-      radius = lerpDouble(MemoriesTokens.coverCornerCard, MemoriesTokens.coverCornerBar, p);
-      // Hands over to the bar's own cover inside its window.
-      alpha = 1 - smoothstep(0.62, 0.9, p);
-    }
-    if (alpha <= 0.001) return const SizedBox.shrink();
-    return Positioned.fromRect(
-      rect: rect,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: alpha.clamp(0.0, 1.0),
-          child: CoverArt(cover: memory.coverArt, size: rect.width, radius: radius, requestSize: 512),
-        ),
-      ),
-    );
-  }
-
-  Widget _cardEmblem(BuildContext context, MemoryPaletteTones tones, double p) {
-    final a = reducedMotion
-        ? 1 - smoothstep(0, MemoriesTokens.reducedSwap, p)
-        : 1 - smoothstep(MemoriesTokens.titleHold, MemoriesTokens.emblemSwapFrom, p);
-    return Opacity(
-      opacity: a.clamp(0.0, 1.0),
-      child: MemoryEmblemSlot(memory: memory, size: layout.seal, awards: awards, diary: false),
-    );
-  }
-
-  Widget _diaryEmblem(BuildContext context, MemoryPaletteTones tones, double p) {
-    final a = reducedMotion
-        ? smoothstep(MemoriesTokens.reducedSwap, 1, p)
-        : smoothstep(MemoriesTokens.emblemSwapFrom, MemoriesTokens.emblemSwapTo, p);
-    return Opacity(
-      opacity: a.clamp(0.0, 1.0),
-      child: MemoryEmblemSlot(memory: memory, size: MemoriesTokens.diaryEmblem, awards: awards, diary: true),
-    );
-  }
+double _textWidth(String text, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  final w = painter.width;
+  painter.dispose();
+  return w;
 }
 
 /// The note the playhead is inside, on the playing song: the latest anchored
@@ -1054,6 +1037,7 @@ class _TopBar extends ConsumerWidget {
     required this.memories,
     required this.pages,
     required this.diary,
+    required this.morphAt,
     this.spread = false,
     required this.layout,
     required this.dark,
@@ -1073,6 +1057,9 @@ class _TopBar extends ConsumerWidget {
   final List<MemoryEntry> memories;
   final PageController? pages;
   final MemoriesDiaryController diary;
+
+  /// The morph of the page at an index, while it is laid out (its bar cover flies with the card's).
+  final MemoryPageMorph? Function(int index) morphAt;
 
   /// A spread has no diary state: the bar keeps slot A and the pill its label.
   final bool spread;
@@ -1114,7 +1101,7 @@ class _TopBar extends ConsumerWidget {
               ? (pages!.page ?? 0)
               : (pages?.initialPage.toDouble() ?? 0);
           final width = MediaQuery.sizeOf(context).width;
-          final slotEnd = layout.dotsEnd - MemoriesTokens.dotOverhang + dotsWidth + MemoriesTokens.slotClearOfDots;
+          final slotEnd = memoriesBarSlotEnd(layout, count);
           // The Home pill: 88 → 36 over the cover's flight, its label first.
           final pillWidth = lerpDouble(
             MemoriesTokens.pillWidth,
@@ -1143,6 +1130,7 @@ class _TopBar extends ConsumerWidget {
                           if ((i - page).abs() < 1.6)
                             _PageSlots(
                               memory: memories[i],
+                              morph: spread ? null : morphAt(i),
                               rel: i - page,
                               width: width,
                               p: p,
@@ -1153,7 +1141,9 @@ class _TopBar extends ConsumerWidget {
                               reducedMotion: reducedMotion,
                               lastHeard: memories[i].lastHeardAt == null
                                   ? null
-                                  : strings.topbarLastHeard(strings.chromeDate(dayOf(memories[i].lastHeardAt!), dayOf(now))),
+                                  : strings.topbarLastHeard(
+                                      strings.chromeDate(dayOf(memories[i].lastHeardAt!), dayOf(now)),
+                                    ),
                               onCloseDiary: onCloseDiary,
                             ),
                       ],
@@ -1267,6 +1257,7 @@ class _DotsPainter extends CustomPainter {
 class _PageSlots extends StatelessWidget {
   const _PageSlots({
     required this.memory,
+    this.morph,
     required this.rel,
     required this.width,
     required this.p,
@@ -1280,6 +1271,9 @@ class _PageSlots extends StatelessWidget {
   });
 
   final MemoryEntry memory;
+
+  /// The page's morph: the bar cover is the card cover's twin on its flight. Null: it fades in.
+  final MemoryPageMorph? morph;
 
   /// This page's distance from the deck's position (+ = to the right).
   final double rel;
@@ -1316,7 +1310,8 @@ class _PageSlots extends StatelessWidget {
     final slotB = reducedMotion
         ? smoothstep(MemoriesTokens.reducedSwap, 1, p)
         : smoothstep(MemoriesTokens.slotBFadeFrom, MemoriesTokens.slotBFadeTo, p);
-    final coverAlpha = reducedMotion ? slotB : smoothstep(0.62, 0.9, p);
+    final coverAlpha = reducedMotion ? slotB : smoothstep(MemoriesTokens.coverSwapFrom, MemoriesTokens.coverSwapTo, p);
+    final morph = this.morph;
     final artist = memory.artistName ?? '';
     final year = memory.year?.toString();
     return Positioned.fill(
@@ -1371,21 +1366,33 @@ class _PageSlots extends StatelessWidget {
                   ),
                 ),
               if (p > 0.001) ...[
-                // The bar's cover (the flying cover's twin, handed over by alpha).
+                // The bar's cover: in flight the card cover's twin (same path, same size), handed over by alpha.
                 Positioned(
                   left: layout.barCoverStart,
                   top: (MemoriesTokens.barHeight - MemoriesTokens.barCover) / 2,
-                  child: Opacity(
-                    opacity: coverAlpha,
-                    child: GestureDetector(
-                      onTap: p >= 0.5 ? onCloseDiary : null,
-                      child: CoverArt(
-                        cover: memory.coverArt,
-                        size: MemoriesTokens.barCover,
-                        radius: MemoriesTokens.coverCornerBar,
-                        requestSize: 128,
-                      ),
-                    ),
+                  child: GestureDetector(
+                    onTap: p >= 0.5 ? onCloseDiary : null,
+                    child: morph == null
+                        ? Opacity(
+                            opacity: coverAlpha,
+                            child: CoverArt(
+                              cover: memory.coverArt,
+                              size: MemoriesTokens.barCover,
+                              radius: MemoriesTokens.coverCornerBar,
+                              requestSize: 128,
+                            ),
+                          )
+                        : MorphLayer(
+                            listenable: morph,
+                            pose: morph.barCover,
+                            child: CoverArt(
+                              cover: memory.coverArt,
+                              size: MemoriesTokens.barCover,
+                              // The layer rounds it (the card's corner as it lands, then 4 dp).
+                              radius: 0,
+                              requestSize: 128,
+                            ),
+                          ),
                   ),
                 ),
                 Positioned(
@@ -1414,12 +1421,7 @@ class _PageSlots extends StatelessWidget {
                                   children: [
                                     Text(
                                       memory.albumName,
-                                      style: gsf(
-                                        15,
-                                        weight: 600,
-                                        height: 1.3,
-                                        letterSpacing: 0,
-                                      ).copyWith(color: colors.onSurface),
+                                      style: memoriesBarAlbumStyle().copyWith(color: colors.onSurface),
                                       maxLines: 1,
                                       overflow: TextOverflow.fade,
                                       softWrap: false,
@@ -1435,8 +1437,12 @@ class _PageSlots extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              Icon(YoinSymbols.chevronDown, size: 18, color: colors.onSurfaceVariant),
+                              const SizedBox(width: MemoriesTokens.slotBChevronGap),
+                              Icon(
+                                YoinSymbols.chevronDown,
+                                size: MemoriesTokens.slotBChevron,
+                                color: colors.onSurfaceVariant,
+                              ),
                             ],
                           ),
                         ),
