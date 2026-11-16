@@ -525,6 +525,10 @@ class PlayModeButtonState extends State<PlayModeButton> with TickerProviderState
   /// Whether the button is split into its two segments.
   bool get isSplit => _split;
 
+  /// Splits the button as a hold does, without the haptic (the tip page's
+  /// demo phone acts the hold out); split again, the merge waits anew.
+  void showSplit() => _setSplit(true);
+
   double get _leftTarget => (_split ? widget.mode.shuffled : widget.mode != PlayMode.repeatAll) ? 1 : 0;
 
   // Split, the repeat segment is lit against this mode with repeat all.

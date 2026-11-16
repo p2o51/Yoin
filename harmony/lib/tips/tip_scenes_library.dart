@@ -1,0 +1,462 @@
+/// Library and an album page on the demo phone (Android ui/tips
+/// TipLibraryScenes.kt): Library is the real grid cells under the real bar;
+/// the album page is the real song rows; the song sheet is the real body.
+library;
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:yoin_symbols/yoin_symbols.dart';
+
+import '../library/library_strings.dart';
+import '../nowplaying/now_playing_pill.dart';
+import '../theme/tokens.dart';
+import '../ui/component/yoin_pull_to_refresh.dart';
+import 'demo_data.dart';
+import 'demo_phone.dart';
+import 'tip_scene_parts.dart';
+
+/// A scene's state, set only while it is on screen.
+mixin DemoSceneState<T extends StatefulWidget> on State<T> {
+  void put(VoidCallback change) {
+    if (mounted) setState(change);
+  }
+}
+
+/// Long-press a song on an album → its song sheet.
+class SongMenuDemo extends StatefulWidget {
+  const SongMenuDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<SongMenuDemo> createState() => _SongMenuDemoState();
+}
+
+class _SongMenuDemoState extends State<SongMenuDemo> with DemoSceneState {
+  bool _open = false;
+  int _row = 2;
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _open = false);
+    await f.wait(300);
+    await f.moveTo('row2', fx: 0.45);
+    await f.hold(
+      () => put(() {
+        _row = 2;
+        _open = true;
+      }),
+    );
+    await f.lift();
+    await f.wait(1800);
+    await f.moveToPoint(0.5, 0.12);
+    await f.tap(() => put(() => _open = false));
+    await f.wait(500);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final album = demoAlbums[1];
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: Stack(
+        children: [
+          DemoAlbumPage(
+            album: album,
+            onLongPressRow: (i) => put(() {
+              _row = i;
+              _open = true;
+            }),
+          ),
+          DemoSongSheet(open: _open, onDismiss: () => put(() => _open = false), track: demoTrack(_row, album)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Subsonic downloads from a song's sheet: long-press a song, tap Download,
+/// and the next time the sheet says Remove download.
+class DownloadsDemo extends StatefulWidget {
+  const DownloadsDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<DownloadsDemo> createState() => _DownloadsDemoState();
+}
+
+class _DownloadsDemoState extends State<DownloadsDemo> with DemoSceneState {
+  bool _open = false;
+  bool _downloaded = false;
+
+  Future<void> _script(DemoFinger f) async {
+    put(() {
+      _open = false;
+      _downloaded = false;
+    });
+    await f.wait(300);
+    await f.moveTo('row2', fx: 0.45);
+    await f.hold(() => put(() => _open = true));
+    // Off the song the moment the sheet is up, so the dot never sits on its buttons.
+    await f.moveTo('offline', fx: 0.4);
+    await f.wait(250);
+    await f.tap();
+    // The row answers first; the sheet goes down once the dot has left it.
+    put(() => _downloaded = true);
+    await f.lift();
+    put(() => _open = false);
+    await f.wait(900);
+    await f.moveTo('row2', fx: 0.45);
+    await f.hold(() => put(() => _open = true));
+    await f.moveTo('offline', fx: 0.4);
+    await f.wait(300);
+    await f.lift();
+    await f.wait(1800);
+    // Close on the scrim above the sheet, not on the sheet's header.
+    await f.moveToPoint(0.5, 0.12);
+    await f.tap(() => put(() => _open = false));
+    f.hide();
+    await f.wait(500);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final album = demoAlbums[1];
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: Stack(
+        children: [
+          DemoAlbumPage(album: album, onLongPressRow: (_) => put(() => _open = true)),
+          DemoSongSheet(
+            open: _open,
+            onDismiss: () => put(() => _open = false),
+            track: demoTrack(2, album),
+            downloaded: _downloaded,
+            onDownload: () => put(() => _downloaded = !_downloaded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Long-press the mini player in the bar → the playing song's sheet.
+class MiniPlayerMenuDemo extends StatefulWidget {
+  const MiniPlayerMenuDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<MiniPlayerMenuDemo> createState() => _MiniPlayerMenuDemoState();
+}
+
+class _MiniPlayerMenuDemoState extends State<MiniPlayerMenuDemo> with DemoSceneState {
+  bool _open = false;
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _open = false);
+    await f.wait(300);
+    await f.moveToWhere((w) => w is NowPlayingPill);
+    await f.hold(() => put(() => _open = true));
+    // Gone the frame the sheet starts up, so it never sits on a row.
+    f.hide();
+    await f.wait(1800);
+    await f.moveToPoint(0.5, 0.12);
+    await f.tap(() => put(() => _open = false));
+    await f.lift();
+    await f.wait(500);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = demoTrack(0, demoAlbums[0]);
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: DemoPlayerScope(
+        track: track,
+        playing: widget.playing,
+        builder: (context, _) => Stack(
+          children: [
+            DemoLibraryPage(nowPlaying: track, onMiniPlayerLongPress: () => put(() => _open = true)),
+            DemoSongSheet(open: _open, onDismiss: () => put(() => _open = false), track: track, nowPlaying: true),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pull Library down from the top: the view is read again while the real
+/// pull indicator turns. The phone has no service behind it, so a pull —
+/// the dot's, or the user's — reads for a moment and is done.
+class LibraryRefreshDemo extends StatefulWidget {
+  const LibraryRefreshDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<LibraryRefreshDemo> createState() => _LibraryRefreshDemoState();
+}
+
+class _LibraryRefreshDemoState extends State<LibraryRefreshDemo> with DemoSceneState {
+  bool _refreshing = false;
+  Timer? _done;
+
+  void _refresh() {
+    put(() => _refreshing = true);
+    _done?.cancel();
+    _done = Timer(const Duration(milliseconds: TipSceneTokens.refreshMs), () => put(() => _refreshing = false));
+  }
+
+  @override
+  void dispose() {
+    _done?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _refreshing = false);
+    await f.wait(300);
+    await f.moveTo('libraryBody', fy: 0.3);
+    final to = f.at('libraryBody', fy: 0.55);
+    await f.drag(to.dx, to.dy, 700);
+    _refresh();
+    await f.lift();
+    await f.wait(TipSceneTokens.refreshMs + 1200);
+  }
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    child: DemoLibraryPage(
+      scrollable: true,
+      body: (grid) => YoinPullToRefresh(refreshing: _refreshing, onRefresh: _refresh, child: grid),
+    ),
+  );
+}
+
+/// The keys the keyboard demo presses.
+enum _DemoKey { space, next, search }
+
+/// Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + →
+/// moves it to the next song, Ctrl + K opens search — a keyboard's keys as
+/// keycaps on a tray under the bar, pressed by the dot (or the user).
+class KeyboardShortcutsDemo extends StatefulWidget {
+  const KeyboardShortcutsDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<KeyboardShortcutsDemo> createState() => _KeyboardShortcutsDemoState();
+}
+
+class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with DemoSceneState {
+  bool _paused = false;
+  int _song = 0;
+  bool _searching = false;
+  _DemoKey? _pressed;
+
+  void _press(_DemoKey key) => put(() {
+    switch (key) {
+      case _DemoKey.space:
+        _paused = !_paused;
+      case _DemoKey.next:
+        _song = (_song + 1) % demoTrackTitles.length;
+      case _DemoKey.search:
+        _searching = !_searching;
+    }
+  });
+
+  Future<void> _key(DemoFinger f, _DemoKey key) async {
+    await f.moveTo('key-${key.name}');
+    await f.tap(() {
+      put(() => _pressed = key);
+      _press(key);
+    });
+    put(() => _pressed = null);
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    put(() {
+      _paused = false;
+      _song = 0;
+      _searching = false;
+      _pressed = null;
+    });
+    await f.wait(500);
+    await _key(f, _DemoKey.space);
+    await f.wait(900);
+    await _key(f, _DemoKey.space);
+    await f.wait(700);
+    await _key(f, _DemoKey.next);
+    await f.wait(900);
+    await _key(f, _DemoKey.search);
+    await f.lift();
+    await f.wait(1600);
+    await _key(f, _DemoKey.search);
+    await f.wait(600);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final zh = Localizations.maybeLocaleOf(context)?.languageCode == 'zh';
+    final track = demoTrack(_song, demoAlbums[_song % demoAlbums.length]);
+    final colors = Theme.of(context).colorScheme;
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: DemoPlayerScope(
+        track: track,
+        playing: widget.playing && !_paused,
+        builder: (context, _) => Column(
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  DemoLibraryPage(nowPlaying: track),
+                  Positioned.fill(child: _DemoSearchBar(visible: _searching)),
+                ],
+              ),
+            ),
+            ColoredBox(
+              color: colors.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(TipSceneTokens.keyTrayPadding),
+                child: Row(
+                  children: [
+                    for (final key in _DemoKey.values) ...[
+                      if (key != _DemoKey.space) const SizedBox(width: TipSceneTokens.keyGap),
+                      Expanded(
+                        flex: key == _DemoKey.space ? 2 : 1,
+                        child: DemoTarget(
+                          'key-${key.name}',
+                          child: _Keycap(
+                            label: switch (key) {
+                              _DemoKey.space => zh ? '空格' : 'Space',
+                              _DemoKey.next => 'Ctrl →',
+                              _DemoKey.search => 'Ctrl K',
+                            },
+                            pressed: _pressed == key,
+                            onPress: () => _press(key),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A keyboard key: a raised cap that sinks while pressed (spatial spring).
+class _Keycap extends StatelessWidget {
+  const _Keycap({required this.label, required this.pressed, required this.onPress});
+
+  final String label;
+  final bool pressed;
+  final VoidCallback onPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onPress,
+      child: DemoSpring(
+        target: pressed ? 1 : 0,
+        builder: (context, p) => SizedBox(
+          height: TipSceneTokens.keyHeight,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                top: TipSceneTokens.keyTravel,
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: colors.outlineVariant,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TipSceneTokens.keyCorner)),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                bottom: TipSceneTokens.keyTravel * (1 - p.clamp(0.0, 1.0)),
+                top: TipSceneTokens.keyTravel * p.clamp(0.0, 1.0),
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: Color.lerp(colors.surfaceBright, colors.primaryContainer, p.clamp(0.0, 1.0)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TipSceneTokens.keyCorner)),
+                  ),
+                  child: Center(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurface),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Library's search field coming down over the page.
+class _DemoSearchBar extends StatelessWidget {
+  const _DemoSearchBar({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DemoSpring(
+      target: visible ? 1 : 0,
+      builder: (context, p) {
+        if (p <= 0.001 && !visible) return const SizedBox.shrink();
+        return SizedBox.expand(
+          child: Opacity(
+            opacity: p.clamp(0.0, 1.0),
+            child: ColoredBox(
+              color: colors.surface,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    TipSceneTokens.pagePaddingH,
+                    TipSceneTokens.pageTop + (1 - p) * TipSceneTokens.searchDrop,
+                    TipSceneTokens.pagePaddingH,
+                    0,
+                  ),
+                  child: Container(
+                    height: TipSceneTokens.searchField,
+                    decoration: ShapeDecoration(color: colors.surfaceContainerHigh, shape: const StadiumBorder()),
+                    padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
+                    child: Row(
+                      children: [
+                        Icon(YoinSymbols.search, color: colors.onSurfaceVariant),
+                        const SizedBox(width: TipSceneTokens.titleGap),
+                        Expanded(
+                          child: Text(
+                            LibraryStrings.of(context).searchPlaceholder,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

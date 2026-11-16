@@ -8,6 +8,7 @@ import '../detail/detail_track_menu.dart';
 import '../detail/playback_projection.dart';
 import '../detail/playlist_detail_view_model.dart' show playlistHeroCover;
 import '../theme/tokens.dart';
+import '../ui/component/artwork_image.dart';
 import '../ui/component/elastic_press.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
@@ -21,6 +22,8 @@ const libraryCoverRequestSize = 256;
 /// The 256 px cover URL for [cover], or null.
 String? libraryCoverUrl(WidgetRef ref, CoverRef? cover) {
   if (cover == null) return null;
+  // The tip pages' made-up covers need no source.
+  if (cover is CoverUrl && DemoArtwork.parse(cover.url) != null) return cover.url;
   return ref.watch(activeSourceProvider).value?.resolveCoverUrl(cover, size: libraryCoverRequestSize);
 }
 

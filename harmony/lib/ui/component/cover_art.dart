@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../data/model/model.dart';
 import '../../theme/motion.dart';
+import 'artwork_image.dart';
 
 /// Artwork from the active source, the one way screens show covers.
 /// Square, no border (owner: covers never get strokes), [radius] from
@@ -27,7 +28,12 @@ class CoverArt extends ConsumerWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final px = requestSize ?? (size * dpr).round();
     final ref0 = cover;
-    final url = ref0 == null ? null : source?.resolveCoverUrl(ref0, size: px);
+    final url = switch (ref0) {
+      null => null,
+      // The tip pages' made-up covers need no source.
+      CoverUrl(:final url) when DemoArtwork.parse(url) != null => url,
+      _ => source?.resolveCoverUrl(ref0, size: px),
+    };
     return SizedBox.square(
       dimension: size,
       child: ClipRSuperellipse(
@@ -61,12 +67,11 @@ class _FadeInNetworkImageState extends State<_FadeInNetworkImage> with TickerPro
   }
 
   @override
-  Widget build(BuildContext context) => Image.network(
-    widget.url,
+  Widget build(BuildContext context) => Image(
+    image: artworkImageProvider(widget.url, cacheWidth: widget.cacheWidth),
     fit: BoxFit.cover,
     width: double.infinity,
     height: double.infinity,
-    cacheWidth: widget.cacheWidth,
     gaplessPlayback: true,
     errorBuilder: (_, _, _) => const SizedBox.expand(),
     frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {

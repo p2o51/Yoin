@@ -33,6 +33,9 @@ final Path cookie9Sided = _normalized(_transform(_star(9, 0.8, _round50), rotate
 /// Settings' empty pane).
 final Path cookie12Sided = _normalized(_transform(_star(12, 0.8, _round50), rotateDegrees: -90));
 
+/// Pentagon: custom(0.5, -0.009 rounded 0.172), five times round (the tip pages' sixth silhouette).
+final Path pentagon = _normalized(_custom(const [_Pnr(Offset(0.5, -0.009), CornerRounding(0.172))], reps: 5));
+
 /// The eight avatar silhouettes (AccountIdentity.kt avatarPolygon), by slot.
 final List<Path> avatarShapes = [
   // 0: Cookie6Sided.

@@ -75,29 +75,47 @@ class VolumeLevelingScreen extends ConsumerWidget {
       inPane: inPane,
       // Opened from the account's page: back returns there.
       paneBack: inPane,
-      children: [
-        RadioGroup<ReplayGainMode>(
-          groupValue: selected,
-          onChanged: (mode) {
-            if (mode != null) select(mode);
-          },
-          child: SettingsSegments(
-            children: [
-              for (final mode in ReplayGainMode.values)
-                SettingsItem(
-                  key: ValueKey(mode),
-                  title: volumeLevelingModeLabel(strings, mode),
-                  semanticsRadio: true,
-                  leading: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                    child: Radio<ReplayGainMode>(value: mode),
-                  ),
-                  onTap: () => select(mode),
+      children: [VolumeLevelingPageBody(selected: selected, onSelect: select)],
+    );
+  }
+}
+
+/// The page's one group (VolumeLevelingPageBody): Off, By track, By album as
+/// radio rows. The tip pages' demo phone shows it with a choice of its own;
+/// [rowWrapper] names a row for the demo's touch.
+class VolumeLevelingPageBody extends StatelessWidget {
+  const VolumeLevelingPageBody({super.key, required this.selected, required this.onSelect, this.rowWrapper});
+
+  final ReplayGainMode? selected;
+  final ValueChanged<ReplayGainMode> onSelect;
+  final Widget Function(ReplayGainMode mode, Widget row)? rowWrapper;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = SettingsStrings.of(context);
+    return RadioGroup<ReplayGainMode>(
+      groupValue: selected,
+      onChanged: (mode) {
+        if (mode != null) onSelect(mode);
+      },
+      child: SettingsSegments(
+        children: [
+          for (final mode in ReplayGainMode.values)
+            (rowWrapper ?? (_, row) => row)(
+              mode,
+              SettingsItem(
+                key: ValueKey(mode),
+                title: volumeLevelingModeLabel(strings, mode),
+                semanticsRadio: true,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                  child: Radio<ReplayGainMode>(value: mode),
                 ),
-            ],
-          ),
-        ),
-      ],
+                onTap: () => onSelect(mode),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

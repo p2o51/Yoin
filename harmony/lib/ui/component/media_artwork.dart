@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/motion.dart';
+import 'artwork_image.dart';
 
 /// Artwork from a resolved URL (component/ExpressiveComponents.kt
 /// ExpressiveMediaArtwork): surfaceContainerHighest fill with a 24dp
@@ -74,12 +75,11 @@ class _FadeInImageState extends State<_FadeInImage> with TickerProviderStateMixi
   }
 
   @override
-  Widget build(BuildContext context) => Image.network(
-    widget.url,
+  Widget build(BuildContext context) => Image(
+    image: artworkImageProvider(widget.url, cacheWidth: widget.decodeWidth),
     fit: BoxFit.cover,
     width: double.infinity,
     height: double.infinity,
-    cacheWidth: widget.decodeWidth,
     gaplessPlayback: true,
     errorBuilder: (_, _, _) => const SizedBox.shrink(),
     frameBuilder: (context, child, frame, sync) {

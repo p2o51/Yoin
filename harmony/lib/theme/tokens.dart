@@ -1206,3 +1206,181 @@ abstract final class LandingTokens {
   /// Ready: the account avatar.
   static const double readyAvatar = 40;
 }
+
+/// The tip pages (Android ui/tips TipScreen.kt, TipDemoPhone.kt,
+/// TipIllustration.kt): the pager's chrome, the tile, and the demo phone.
+abstract final class TipTokens {
+  /// The bar row with the back button and "3 / 20".
+  static const double barHeight = 64;
+  static const double positionEnd = 24;
+
+  /// A page: 24 around, at most the prose width, 28 under the phone, 16 between title and text.
+  static const double pagePadding = 24;
+  static const double proseMaxWidth = 640;
+  static const double illustrationGap = 28;
+  static const double titleGap = 16;
+  static const double textGap = 16;
+  static const double updatedGap = 12;
+
+  /// The illustration's card (surfaceContainerLow) and its vertical padding.
+  static const double illustrationCorner = 28;
+  static const double illustrationPaddingV = 16;
+
+  /// The symbol on its Expressive shape: 64 with a 30 glyph; it turns 40° and
+  /// shrinks a fifth as its page slides away.
+  static const double tileSize = 64;
+  static const double tileSymbol = 30;
+  static const double tileTurnDegrees = 40;
+  static const double tileShrink = 0.2;
+
+  /// Read / Next: 56 tall, 12 apart, 24 / 12 around; at least 16 off the bottom edge.
+  static const double buttonHeight = 56;
+  static const double buttonGap = 12;
+  static const double buttonsPaddingH = 24;
+  static const double buttonsPaddingV = 12;
+  static const double bottomFloor = 16;
+
+  /// The demo phone: 168 × 300 on the page, laid out as a 360-wide phone and
+  /// drawn scaled down; a tall (20:9) one lays out 412 wide.
+  static const double phoneWidth = 168;
+  static const double phoneHeight = 300;
+  static const double tallAspect = 9 / 20;
+  static const double screenWidth = 360;
+  static const double tallScreenWidth = 412;
+  static const double phoneCorner = 24;
+  static const double phoneBorder = 1.5;
+
+  /// A tall window grows the phone, up to 36 % of its height, half its width and 1.7×.
+  static const double phoneHeightShare = 0.36;
+  static const double phoneWidthShare = 0.5;
+  static const double phoneMaxGrow = 1.7;
+
+  /// The demo touch: its radius, its dot, the ripple's spread and the hold ring.
+  static const double fingerRadius = 14;
+  static const double fingerDot = 0.42;
+  static const double fingerPressShrink = 0.15;
+  static const double rippleSpread = 1.4;
+  static const double rippleStroke = 2;
+  static const double ringRadius = 1.3;
+  static const double ringStroke = 2.5;
+
+  /// The script's clock (ms): a hold is the long-press timeout; the demo
+  /// waits before it starts and between loops; a user's touch keeps it away this long.
+  static const int holdMs = 550;
+  static const int startDelayMs = 500;
+  static const int loopGapMs = 700;
+  static const int takeoverIdleMs = 5000;
+
+  /// The touch's own short fades (ms): appear, press, ripple, lift.
+  static const int fingerAppearMs = 180;
+  static const int fingerTapMs = 70;
+  static const int fingerHoldPressMs = 90;
+  static const int fingerDragPressMs = 80;
+  static const int rippleMs = 420;
+  static const int liftMs = 220;
+}
+
+/// The tip scenes' own layout on the demo phone's 360-wide screen (Android
+/// ui/tips scenes): where the made-up pages put their parts.
+abstract final class TipSceneTokens {
+  /// A page's top air, its side padding, a large title's gap to what follows.
+  static const double pageTop = 24;
+  static const double pagePaddingH = 16;
+  static const double titleGap = 12;
+
+  /// A sheet's top corners and its handle (32 × 4 in 22 of air each side).
+  static const double sheetCorner = 28;
+  static const double handleWidth = 32;
+  static const double handleHeight = 4;
+  static const double handlePadding = 22;
+
+  /// The album page: cover, gap to the name, gap to the songs.
+  static const double albumCover = 168;
+  static const double albumTitleGap = 16;
+  static const double albumRowsGap = 16;
+
+  /// Library's grid: top and bottom padding (room for the bar).
+  static const double gridTop = 8;
+  static const double gridBottom = 108;
+
+  /// The bar's gap to the screen's bottom.
+  static const double barBottom = 16;
+
+  /// Now Playing: top air (rest / focus), the cover (rest / focus), the
+  /// gaps to the title and to the transport.
+  static const double npTop = 56;
+  static const double npFocusTop = 96;
+  static const double npCover = 280;
+  static const double npFocusCover = 312;
+  static const double npTitleGap = 20;
+  static const double npTransportGap = 16;
+
+  /// Where the demo song is when a scene starts (ms).
+  static const int demoPositionMs = 42000;
+
+  /// A pull's refresh reads this long in the phone (ms).
+  static const int refreshMs = 1200;
+
+  /// The keyboard demo's tray: padding, key gap, a key's height, how far it sinks, its corner.
+  static const double keyTrayPadding = 12;
+  static const double keyGap = 8;
+  static const double keyHeight = 48;
+  static const double keyTravel = 4;
+  static const double keyCorner = 10;
+
+  /// Library's search field: its height, and how far it drops in from.
+  static const double searchField = 56;
+  static const double searchDrop = 24;
+
+  /// The lyric scenes start the demo song here (ms): the second line is being sung.
+  static const int lyricsStartMs = 5000;
+
+  /// Home: a section's padding, its slot, the covers in it and their gap, a held section's lift, the avatar.
+  static const double sectionPadding = 12;
+  static const double sectionSlot = 164;
+  static const double sectionCover = 68;
+  static const double coverGap = 8;
+  static const double liftScale = 1.02;
+  static const double avatar = 40;
+
+  /// The account fan: each avatar's step down from the last, the one under the finger grown.
+  static const double fanStep = 52;
+  static const double fanOverScale = 1.15;
+
+  /// Memories: the bar, the card's cover, the cover in the bar, the diary's rise.
+  static const double barHeight = 64;
+  static const double memoryCover = 200;
+  static const double barCover = 40;
+  static const double diaryRise = 56;
+
+  /// A pull's travel for the whole way; the share of it the demo's drag covers.
+  static const double pullDistance = 320;
+  static const double pullShare = 0.4;
+  static const double diaryDragShare = 0.6;
+
+  /// All Memories' cards view: a card's edge.
+  static const double ledgerCard = 76;
+
+  /// The phone's home screen: icons, their corner, the mark's inset, gaps, padding, the menu's top.
+  static const double appIcon = 60;
+  static const double appIconCorner = 16;
+  static const double appIconInset = 6;
+  static const double appGap = 22;
+  static const double desktopPadding = 20;
+  static const double desktopTop = 56;
+  static const double menuTop = 300;
+
+  /// A 2×4 service widget: its height, padding, cover and play symbol.
+  static const double cardSlot = 116;
+  static const double cardPadding = 14;
+  static const double cardCover = 88;
+  static const double cardPlay = 36;
+
+  /// The Welcome guide's mascot, and the name page's mark.
+  static const double mascot = 200;
+  static const double mark = 160;
+
+  /// The name page's notes: how long a ring lives and the echo between its three rings (ms).
+  static const int noteLifeMs = 2400;
+  static const int noteEchoMs = 220;
+}

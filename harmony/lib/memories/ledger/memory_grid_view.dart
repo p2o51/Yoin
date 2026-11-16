@@ -10,6 +10,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../ui/component/artwork_image.dart';
 import '../../data/memory/memory_grid.dart';
 import '../../data/memory/memory_ledger.dart';
 import '../../home/widgets/cover_palette.dart';
@@ -83,7 +84,8 @@ class LedgerColorBook extends ChangeNotifier {
       if (colors != null) entry.to = LedgerAlbumColors(colors.base, colors.accent);
       return;
     }
-    final image = ResizeImage(NetworkImage(url), width: 200, height: 200);
+    // The tip pages' made-up covers are painted, not fetched.
+    final image = ResizeImage(DemoArtwork.parse(url) ?? NetworkImage(url), width: 200, height: 200);
     _cache.colorsFor(url, image).then((colors) {
       if (_disposed || colors == null) return;
       entry.to = LedgerAlbumColors(colors.base, colors.accent);

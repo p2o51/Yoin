@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/memory/album_memory_candidate.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/home/home_memory_bubble.dart';
 import 'package:yoin/home/memory_bubble_director.dart';
 import 'package:yoin/memories/home_memory_pill.dart';
 import 'package:yoin/memories/memories_reveal_scope.dart';
 import 'package:yoin/theme/theme.dart';
+import 'package:yoin/tips/tip_screen.dart';
 
 final _pang = AlbumMemoryCandidate(
   profileId: 'p1',
@@ -49,6 +51,9 @@ class _Chain implements math.Random {
   @override
   bool nextBool() => false;
 }
+
+/// The first tip the bubble says: the first of the tips this build has.
+final _firstTip = HomeBubbleTip.available().first.title(zh: false);
 
 Future<ProviderContainer> _pump(
   WidgetTester tester,
@@ -132,17 +137,17 @@ void main() {
     expect(container.read(memoriesRevealHandleProvider).pendingFocus, isNull);
     // The idle clock started over: left alone again, it speaks again — a tip's turn now.
     await _frames(tester, const Duration(milliseconds: 4000));
-    expect(find.text('Refresh Library'), findsOneWidget);
+    expect(find.text(_firstTip), findsOneWidget);
   });
 
   testWidgets('should_sayATip_when_thereAreNoMemories', (tester) async {
     await _pump(tester, const HomeMemoryPillState(resolved: true, scope: 'subsonic|p1'));
     await _frames(tester, const Duration(milliseconds: 5500));
-    expect(find.text('Refresh Library'), findsOneWidget);
-    // Tapping a tip that isn't the pull just sends it away.
-    await tester.tapAt(tester.getCenter(find.text('Refresh Library')));
+    expect(find.text(_firstTip), findsOneWidget);
+    // Tapping a tip opens it on its own page (Android TipActivity).
+    await tester.tapAt(tester.getCenter(find.text(_firstTip)));
     await _frames(tester, const Duration(seconds: 2));
-    expect(find.text('Refresh Library'), findsNothing);
+    expect(find.byType(TipScreen), findsOneWidget);
   });
 
   testWidgets('should_openMemories_when_theArrowIsTapped', (tester) async {
@@ -206,7 +211,7 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('Pang')), findsNothing);
     // It chains on to a tip: the label moves with it.
     await _frames(tester, const Duration(milliseconds: 3500));
-    expect(find.text('Refresh Library'), findsOneWidget);
+    expect(find.text(_firstTip), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('Harbor Lights')), findsNothing);
   });
 }

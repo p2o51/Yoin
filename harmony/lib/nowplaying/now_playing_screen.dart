@@ -2026,7 +2026,7 @@ class _Accessory extends StatelessWidget {
                             },
                           ),
                           const SizedBox(width: NowPlayingTokens.pillGap),
-                          _WritePill(
+                          NowPlayingWritePill(
                             onTap: () {
                               YoinHaptics.contextClick();
                               onWrite();
@@ -2099,8 +2099,8 @@ class _Accessory extends StatelessWidget {
 
 /// The Write pill beside Queue (Android BottomPills' Write): tonal, the note
 /// glyph; opens the Note page expanded with the keyboard.
-class _WritePill extends StatelessWidget {
-  const _WritePill({required this.onTap});
+class NowPlayingWritePill extends StatelessWidget {
+  const NowPlayingWritePill({super.key, required this.onTap});
 
   final VoidCallback onTap;
 

@@ -194,7 +194,6 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
   @override
   Widget build(BuildContext context) {
     final strings = ComponentStrings.of(context);
-    final colors = Theme.of(context).colorScheme;
     final source = ref.watch(activeSourceProvider).value;
     final caps = source?.capabilities ?? const <Capability>{};
     final resolved = ref.watch(favoriteOverridesProvider)[_track.id] ?? _track.isStarred;
@@ -270,59 +269,100 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
       if ((widget.onGoToArtist, _track.artistId) case (final go?, final id?))
         TrackMenuRow(strings.goToArtist, YoinSymbols.artist, () => go(id)),
     ];
+    return TrackMenuContent(
+      track: _track,
+      quick: layout.quick,
+      groups: [playlistRows, goRows],
+      onQuick: (action) {
+        if (action.keepsOpen) {
+          YoinHaptics.tick();
+          action.onTap();
+        } else {
+          YoinHaptics.contextClick();
+          _close(action.onTap);
+        }
+      },
+      onRow: (row) {
+        YoinHaptics.contextClick();
+        _close(row.onTap);
+      },
+      footer: widget.nowPlaying ? const _KeepScreenOnRow() : null,
+    );
+  }
+}
+
+/// The song sheet's body (TrackMenu.kt TrackMenuSheetContent): the song, the
+/// top row of one-tap actions, then each group of rows, then [footer]. What
+/// a tap does is the caller's ([onQuick], [onRow]); the tip pages' demo
+/// phone shows the same body with its own rows.
+class TrackMenuContent extends StatelessWidget {
+  const TrackMenuContent({
+    super.key,
+    required this.track,
+    required this.quick,
+    required this.groups,
+    required this.onQuick,
+    required this.onRow,
+    this.footer,
+    this.rowWrapper,
+  });
+
+  final Track track;
+  final List<TrackMenuQuickAction> quick;
+  final List<List<TrackMenuRow>> groups;
+  final ValueChanged<TrackMenuQuickAction> onQuick;
+  final ValueChanged<TrackMenuRow> onRow;
+  final Widget? footer;
+
+  /// Wraps each row (the demo names one for its touch).
+  final Widget Function(TrackMenuRow row, Widget child)? rowWrapper;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     final navBottom = MediaQuery.paddingOf(context).bottom;
-    final tags = audioFormatTags(_track.audioFormat);
+    final tags = audioFormatTags(track.audioFormat);
+    Widget wrap(TrackMenuRow row, Widget child) => rowWrapper?.call(row, child) ?? child;
 
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(SheetTokens.trackMenuPaddingH, 0, SheetTokens.trackMenuPaddingH, 16 + navBottom),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(track: _track, tags: tags),
-          if (layout.quick.isNotEmpty) ...[
+          _Header(track: track, tags: tags),
+          if (quick.isNotEmpty) ...[
             const SizedBox(height: SheetTokens.trackMenuGroupGap),
-            _QuickRow(
-              actions: layout.quick,
-              onTap: (action) {
-                if (action.keepsOpen) {
-                  YoinHaptics.tick();
-                  action.onTap();
-                } else {
-                  YoinHaptics.contextClick();
-                  _close(action.onTap);
-                }
-              },
-            ),
+            _QuickRow(actions: quick, onTap: onQuick),
           ],
-          for (final rows in [playlistRows, goRows])
+          for (final rows in groups)
             if (rows.isNotEmpty) ...[
               const SizedBox(height: SheetTokens.trackMenuGroupGap),
               for (var i = 0; i < rows.length; i++) ...[
                 if (i > 0) const SizedBox(height: SheetTokens.trackMenuRowGap),
-                Material(
-                  color: colors.surfaceContainerHigh,
-                  shape: _segmentShape(i, rows.length),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () {
-                      YoinHaptics.contextClick();
-                      _close(rows[i].onTap);
-                    },
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: SheetTokens.trackMenuRowHeight),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: SheetTokens.trackMenuRowPaddingH),
-                        child: Row(
-                          children: [
-                            Icon(rows[i].icon, color: colors.onSurfaceVariant),
-                            const SizedBox(width: SheetTokens.trackMenuIconGap),
-                            Expanded(
-                              child: Text(
-                                rows[i].label,
-                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurface),
+                wrap(
+                  rows[i],
+                  Material(
+                    color: colors.surfaceContainerHigh,
+                    shape: _segmentShape(i, rows.length),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => onRow(rows[i]),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: SheetTokens.trackMenuRowHeight),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: SheetTokens.trackMenuRowPaddingH),
+                          child: Row(
+                            children: [
+                              Icon(rows[i].icon, color: colors.onSurfaceVariant),
+                              const SizedBox(width: SheetTokens.trackMenuIconGap),
+                              Expanded(
+                                child: Text(
+                                  rows[i].label,
+                                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurface),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -330,7 +370,7 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
                 ),
               ],
             ],
-          if (widget.nowPlaying) ...[const SizedBox(height: SheetTokens.trackMenuGroupGap), const _KeepScreenOnRow()],
+          if (footer case final footer?) ...[const SizedBox(height: SheetTokens.trackMenuGroupGap), footer],
         ],
       ),
     );
@@ -343,20 +383,31 @@ class _KeepScreenOnRow extends ConsumerWidget {
   const _KeepScreenOnRow();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final colors = Theme.of(context).colorScheme;
-    final on = ref.watch(keepScreenOnPreferenceProvider);
-    void toggle(bool value) {
+  Widget build(BuildContext context, WidgetRef ref) => KeepScreenOnRow(
+    on: ref.watch(keepScreenOnPreferenceProvider),
+    onChanged: (value) {
       YoinHaptics.tick();
       ref.read(keepScreenOnPreferenceProvider.notifier).set(value);
-    }
+    },
+  );
+}
 
+/// The Keep screen on row itself: a symbol, the label and a switch; a tap anywhere flips it.
+class KeepScreenOnRow extends StatelessWidget {
+  const KeepScreenOnRow({super.key, required this.on, required this.onChanged});
+
+  final bool on;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surfaceContainerHigh,
       shape: _segmentShape(0, 1),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => toggle(!on),
+        onTap: () => onChanged(!on),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: SheetTokens.trackMenuRowHeight),
           child: Padding(
@@ -371,7 +422,7 @@ class _KeepScreenOnRow extends ConsumerWidget {
                     style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurface),
                   ),
                 ),
-                Switch(value: on, onChanged: toggle),
+                Switch(value: on, onChanged: onChanged),
               ],
             ),
           ),

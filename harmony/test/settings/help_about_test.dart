@@ -16,6 +16,7 @@ import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/settings_strings.dart';
 import 'package:yoin/settings/subsonic_setup_screen.dart';
 import 'package:yoin/settings/tips.dart';
+import 'package:yoin/tips/tip_screen.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/fake_music_source.dart';
@@ -28,6 +29,12 @@ void main() {
         secretStoreProvider.overrideWithValue(store),
         musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
       ];
+
+  Future<void> frames(WidgetTester tester, Duration total) async {
+    for (var t = Duration.zero; t < total; t += const Duration(milliseconds: 16)) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+  }
 
   Future<void> settle() async {
     for (var i = 0; i < 10; i++) {
@@ -64,13 +71,13 @@ void main() {
 
     test('should_countReadTips_when_summarised', () {
       const strings = SettingsStrings.forLanguage(chinese: false);
-      final total = HomeBubbleTip.values.length;
-      expect(tipsReadSummary(strings, {HomeBubbleTip.name}), '1 of $total read');
-      expect(tipsReadSummary(strings, HomeBubbleTip.values.toSet()), 'All read');
+      final tips = HomeBubbleTip.available();
+      expect(tipsReadSummary(strings, {HomeBubbleTip.name}), '1 of ${tips.length} read');
+      expect(tipsReadSummary(strings, tips.toSet()), 'All read');
     });
 
-    testWidgets('should_checkTipAndOfferUnread_when_tipTapped', (tester) async {
-      tester.view.physicalSize = const Size(800, 2000);
+    testWidgets('should_checkTipAndOfferUnread_when_readOnItsPage', (tester) async {
+      tester.view.physicalSize = const Size(800, 4000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(ProviderScope(overrides: overrides(), child: const MaterialApp(home: TipsScreen())));
@@ -78,9 +85,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Mark all as unread'), findsNothing);
 
+      // A tap opens the tip on its own page; Read there marks it.
       await tester.tap(find.text('Behind the name'));
+      await frames(tester, const Duration(seconds: 1));
+      expect(find.byType(TipScreen), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(TipScreen), matching: find.text('Read')));
       await tester.runAsync(settle);
-      await tester.pumpAndSettle();
+      await frames(tester, const Duration(milliseconds: 500));
+      Navigator.of(tester.element(find.byType(TipScreen))).pop();
+      await frames(tester, const Duration(seconds: 1));
       expect(find.byWidgetPredicate((w) => w is Icon && w.semanticLabel == 'Read'), findsOneWidget);
       expect(find.text('Mark all as unread'), findsOneWidget);
     });

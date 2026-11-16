@@ -32,6 +32,7 @@ import '../memories/memories_motion.dart';
 import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/haptics.dart';
 import '../nowplaying/overlay_controller.dart';
+import '../settings/tips.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/motion.dart';
@@ -233,7 +234,7 @@ class HomeMemoryBubble extends ConsumerStatefulWidget {
     required this.trailingReserve,
     required this.child,
     this.timings = const MemoryBubbleTimings(),
-    this.tips = HomeBubbleTip.values,
+    this.tips,
     this.random,
   });
 
@@ -241,7 +242,9 @@ class HomeMemoryBubble extends ConsumerStatefulWidget {
   final double trailingReserve;
   final Widget child;
   final MemoryBubbleTimings timings;
-  final List<HomeBubbleTip> tips;
+
+  /// The tips it goes through; [HomeBubbleTip.available] unless a test says otherwise. Read ones are left out.
+  final List<HomeBubbleTip>? tips;
   final math.Random? random;
 
   @override
@@ -318,12 +321,15 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
       s.animation.addListener(_onSprings);
       s.animation.addStatusListener(_onSpringStatus);
     }
+    final tips = widget.tips ?? HomeBubbleTip.available();
     _director = MemoryBubbleDirector(
       store: ref.read(memoryBubbleSeenStoreProvider),
-      tips: widget.tips,
+      tips: unreadTips(ref.read(tipReadProvider), tips),
       timings: widget.timings,
       random: widget.random,
     );
+    // Read tips no longer come up (Android: the bubble brings up only unread tips).
+    ref.listenManual(tipReadProvider, (_, read) => _director.tips = unreadTips(read, tips));
     ref.listenManual(homeMemoryPillProvider, (_, next) => _director.setPill(next), fireImmediately: true);
     ref.listenManual(homeEditProvider.select((e) => e.editing), (_, _) => _syncReadable());
     _director.addListener(_onDirector);
@@ -555,10 +561,9 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
     final latest = ref.read(homeMemoryPillProvider).latest;
     _director.touch();
     switch (said) {
-      case BubbleSayTip(tip: HomeBubbleTip.pullForMemories):
-        _open();
-      case BubbleSayTip():
-        break; // It just flies away.
+      // A tip opens on its own page (Android TipActivity).
+      case BubbleSayTip(:final tip):
+        openTip(context, tip);
       case BubbleSayMemory(latest: final memory):
         _open(focus: (memory ?? latest)?.sessionId);
       case null:
@@ -756,7 +761,12 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
               label: _description(strings),
               onTap: _tapBubble,
               excludeSemantics: true,
-              child: _own(YoinHover(onTap: _tapBubble, child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _tapBubble))),
+              child: _own(
+                YoinHover(
+                  onTap: _tapBubble,
+                  child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _tapBubble),
+                ),
+              ),
             ),
           ),
         Positioned(

@@ -121,7 +121,9 @@ class MemoryBubbleDirector extends ChangeNotifier {
   }
 
   final MemoryBubbleSeenStore store;
-  final List<HomeBubbleTip> tips;
+
+  /// The tips it may say: the unread ones (Home keeps this in step with the read set).
+  List<HomeBubbleTip> tips;
   final MemoryBubbleTimings timings;
   final math.Random _random;
 

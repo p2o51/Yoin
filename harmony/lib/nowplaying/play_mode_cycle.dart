@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../home/home_bubble_tips.dart';
 import '../playback/play_mode.dart';
+import '../settings/tips.dart';
 
 /// Notices taps on the round play-mode button that go all the way round its
 /// cycle ([PlayMode.next]) and back to where they started: four quick taps,
@@ -38,34 +40,39 @@ const int playModeCycleGapMs = 1500;
 const int playModeSplitHoldMs = 3000;
 
 /// Whether a run round the cycle should still split the button to show it
-/// can. Android gates this on its Play modes tip being unread; Harmony has no
-/// tips yet, so the "shown once" flag lives in the key-value store here.
-/// Loads as true (show) and turns false once shown.
+/// can: while the Play modes tip is unread (Android PlaybackControls'
+/// `HomeBubbleTip.PlayModes !in readTips`); showing it marks the tip read.
+/// A split already shown before tips existed here (the old "shown once"
+/// flag) stays shown.
 class PlayModeSplitHint extends Notifier<bool> {
   static const storeKey = 'nowplaying.playModeSplitShown';
 
+  bool _legacyShown = false;
+
   @override
   bool build() {
-    _load();
-    return true;
+    final unread = !ref.watch(tipReadProvider).contains(HomeBubbleTip.playModes);
+    if (!_legacyShown) _load();
+    return unread && !_legacyShown;
   }
 
   Future<void> _load() async {
     try {
       final shown = await ref.read(keyValueStoreProvider).read(storeKey);
-      if (ref.mounted && shown == '1') state = false;
+      if (ref.mounted && shown == '1') {
+        _legacyShown = true;
+        state = false;
+      }
     } catch (_) {
-      // No store (tests): the hint stays pending for this session.
+      // No store (tests): the hint follows the tip alone.
     }
   }
 
-  /// The split was shown: never again.
+  /// The split was shown: the Play modes tip is read, so it never splits by itself again.
   void markShown() {
     if (!state) return;
     state = false;
-    try {
-      ref.read(keyValueStoreProvider).write(storeKey, '1').ignore();
-    } catch (_) {}
+    ref.read(tipReadProvider.notifier).setRead(HomeBubbleTip.playModes, true);
   }
 }
 

@@ -23,6 +23,7 @@ import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/stream_quality_screen.dart';
 import 'package:yoin/settings/subsonic_setup_screen.dart';
 import 'package:yoin/settings/tips.dart';
+import 'package:yoin/tips/tip_screen.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/fake_music_source.dart';
@@ -197,10 +198,18 @@ void main() {
       // Opening the page alone reads nothing (Android: a tip is read on its own page).
       await tester.tap(find.text('Tips'));
       await tester.pumpAndSettle();
-      final tip = HomeBubbleTip.values.first;
+      final tip = HomeBubbleTip.available().first;
       await tester.tap(find.text(tip.title(zh: false)));
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.tap(find.descendant(of: find.byType(TipScreen), matching: find.text('Read')));
       await tester.runAsync(settle);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
+      Navigator.of(tester.element(find.byType(TipScreen))).pop();
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       Navigator.of(tester.element(find.byType(TipsScreen))).pop();
       await tester.pumpAndSettle();
       expect(find.text(tipsReadSummary(strings, {tip})), findsOneWidget);

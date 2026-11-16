@@ -6,6 +6,7 @@ import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/artwork_image.dart';
 
 /// The layer stack behind [CoverSwap], kept pure so it can be unit tested.
 ///
@@ -186,7 +187,10 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
     final source = ref.watch(activeSourceProvider).value;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final px = widget.requestSize ?? (widget.size * dpr).round();
-    final url = source?.resolveCoverUrl(widget.cover, size: px);
+    final cover = widget.cover;
+    // The tip pages' made-up covers need no source.
+    final demo = cover is CoverUrl && DemoArtwork.parse(cover.url) != null ? cover.url : null;
+    final url = demo ?? source?.resolveCoverUrl(cover, size: px);
     if (url != null) _sync(url, px);
     final cacheWidth = _cacheWidth ?? px;
     final fallbackPx = widget.fallbackRequestSize;
@@ -203,10 +207,9 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
             fit: StackFit.expand,
             children: [
               if (fallbackUrl != null)
-                Image.network(
-                  fallbackUrl,
+                Image(
+                  image: artworkImageProvider(fallbackUrl, cacheWidth: fallbackPx),
                   fit: BoxFit.cover,
-                  cacheWidth: fallbackPx,
                   gaplessPlayback: true,
                   errorBuilder: (_, _, _) => const SizedBox.expand(),
                 ),
@@ -215,10 +218,9 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
                   key: ValueKey(layer.id),
                   child: FadeTransition(
                     opacity: _alphas[layer.id]!.animation,
-                    child: Image.network(
-                      layer.url,
+                    child: Image(
+                      image: artworkImageProvider(layer.url, cacheWidth: cacheWidth),
                       fit: BoxFit.cover,
-                      cacheWidth: cacheWidth,
                       gaplessPlayback: true,
                       errorBuilder: (_, _, _) => const SizedBox.expand(),
                       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {

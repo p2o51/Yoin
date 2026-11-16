@@ -126,7 +126,7 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
           textInputAction: TextInputAction.done,
         ),
         const SizedBox(height: SettingsMetrics.aiBlockGap),
-        _LanguageButton(language: settings.targetLanguage, onPick: vm.setTargetLanguage),
+        AiLanguageButton(language: settings.targetLanguage, onPick: vm.setTargetLanguage),
       ],
     );
   }
@@ -224,8 +224,8 @@ class _AiTierCardState extends State<AiTierCard> with TickerProviderStateMixin {
 }
 
 /// "Answer in" and the language (LanguageButton): an outlined button that opens the language menu.
-class _LanguageButton extends StatelessWidget {
-  const _LanguageButton({required this.language, required this.onPick});
+class AiLanguageButton extends StatelessWidget {
+  const AiLanguageButton({super.key, required this.language, required this.onPick});
 
   final String language;
   final ValueChanged<String> onPick;
