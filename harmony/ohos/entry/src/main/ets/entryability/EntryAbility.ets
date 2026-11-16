@@ -22,6 +22,7 @@ import YoinCastPlugin from '../yoin/cast/CastPlugin';
 import YoinAudioPlugin from '../yoin/audio/AudioPlugin';
 import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/ContinueOnPlugin';
 import YoinPosturePlugin, { YoinPostureHost } from '../yoin/posture/PosturePlugin';
+import YoinMotionPlugin from '../yoin/motion/MotionPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -49,6 +50,8 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinPosturePlugin())
     // The output (streaming quality's Auto), spatial audio and the volume keys while a DLNA speaker plays.
     flutterEngine.getPlugins()?.add(new YoinAudioPlugin(this.context))
+    // The system's reduce motion (减弱动画, animator duration scale 0): the app root's disableAnimations (yoin/motion).
+    flutterEngine.getPlugins()?.add(new YoinMotionPlugin(this.context))
   }
 
   /** Whether this ability's window already has Flutter's page (a hot continuation must not load it twice). */

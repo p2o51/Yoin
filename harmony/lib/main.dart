@@ -34,6 +34,7 @@ import 'ui/adaptive/edge_split.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 import 'ui/component/artwork_image.dart';
 import 'ui/component/artwork_retry.dart';
+import 'ui/component/system_reduce_motion_scope.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -120,19 +121,23 @@ class YoinApp extends ConsumerWidget {
       // Inside the theme (the builder's own context is above it), so the
       // status-bar icons follow light / dark.
       builder: (context, child) => Builder(
-        builder: (context) => YoinWindowCaption(
-          host: windowCaption,
-          child: YoinSystemBars(
-            // The first-run landing covers the whole chrome (bar and player included).
-            child: _PostureWindowScope(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  LandingHost(child: AppChrome(child: child!)),
-                  // A Continue On hand-off's card, over everything, the first-run landing included (Android
-                  // MainActivity draws it above LandingHost): a device without the account still says so.
-                  const ContinueOnCardHost(),
-                ],
+        // The system's reduce motion (HarmonyOS 减弱动画, animations off) as disableAnimations for every
+        // reduced path below, followed while the app runs (Android MotionCapabilityProvider).
+        builder: (context) => SystemReduceMotionScope(
+          child: YoinWindowCaption(
+            host: windowCaption,
+            child: YoinSystemBars(
+              // The first-run landing covers the whole chrome (bar and player included).
+              child: _PostureWindowScope(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    LandingHost(child: AppChrome(child: child!)),
+                    // A Continue On hand-off's card, over everything, the first-run landing included (Android
+                    // MainActivity draws it above LandingHost): a device without the account still says so.
+                    const ContinueOnCardHost(),
+                  ],
+                ),
               ),
             ),
           ),

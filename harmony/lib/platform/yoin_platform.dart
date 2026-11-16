@@ -13,6 +13,7 @@ import 'browser/url_opener.dart';
 import 'background/background_transfer.dart';
 import 'cards/cards_channel.dart';
 import 'haptics/haptics_host.dart';
+import 'motion/system_motion.dart';
 import 'cast/cast_host.dart';
 import 'continueon/continue_on_host.dart';
 import 'i18n/name_transliterator.dart';
@@ -65,6 +66,7 @@ final class YoinPlatform {
     required this.displayPosture,
     required this.audio,
     required this.volumeKeys,
+    required this.systemMotion,
   });
 
   final YoinHost host;
@@ -161,6 +163,11 @@ final class YoinPlatform {
   /// `yoin/volume_keys` → inputConsumer 'keyPressed'; Windows: none).
   final VolumeKeyHost volumeKeys;
 
+  /// The system's reduce-motion settings, folded into the app root's
+  /// `disableAnimations` (OHOS `yoin/motion` → accessibility 减弱动画 and the
+  /// animator duration scale; Windows: none, Flutter's own flag only).
+  final SystemMotionHost systemMotion;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -189,6 +196,7 @@ final class YoinPlatform {
     displayPosture: ChannelDisplayPostureHost(),
     audio: ChannelAudioHost(),
     volumeKeys: ChannelVolumeKeyHost(),
+    systemMotion: ChannelSystemMotionHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -221,6 +229,7 @@ final class YoinPlatform {
     displayPosture: const NoDisplayPostureHost(),
     audio: const FixedAudioHost(),
     volumeKeys: const NoVolumeKeyHost(),
+    systemMotion: const NoSystemMotionHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

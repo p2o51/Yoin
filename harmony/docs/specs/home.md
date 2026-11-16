@@ -205,7 +205,7 @@ Home Activities is empty forever unless something writes events, so define in th
 
 ### 19. 19. Reduced motion
 
-When MediaQuery.disableAnimationsOf is true (or the platform's reduce-motion setting): no staged reveal (alpha 1), no 16dp feed rise (fade only), no height springs on section re-packs (cut), tide waves stand still (amplitude 2.4dp, phase 0), no card/backdrop press morph (keep a plain alpha change), no marquee scrolling needed beyond static ellipsis. Colour hand-offs stay (a colour is not motion).
+When MediaQuery.disableAnimationsOf is true (the app root raises it while HarmonyOS's 减弱动画 is on or the animator duration scale is 0, followed live: lib/platform/motion/system_motion.dart): no staged reveal (alpha 1), no 16dp feed rise (fade only), no height springs on section re-packs (cut), tide waves stand still (amplitude 2.4dp, phase 0), no card/backdrop press morph (keep a plain alpha change), no marquee scrolling needed beyond static ellipsis. Colour hand-offs stay (a colour is not motion).
 
 **Motion:** Fade in place instead of moving.
 
@@ -260,7 +260,7 @@ Judge height first, then width (adaptive-principles.md; YoinWindowInfo.of). PHON
 - tokens.dart has no Home literals: add a HomeTokens block (96/80/48 activity covers, 118dp phone row height, 124/128 row-1 heights, 10dp bento gap, 100dp JBI cover and 0.72 artwork fraction, 52/82dp Recently Added covers, 14dp shelf spacing, 18dp item spacing, 108dp bottom clearance, seam/tide numbers from SeamDissolveTokens) and tell the Kotlin side per AGENTS.md ('Numbers' rule). Springs needed beyond today's set: Expressive SLOW spatial 0.8/200 exists (slowSpatial); Standard default EFFECTS = same as expressive default effects (1, 1600) - reuse.
 - Strings: YoinStrings is plain getters with no plurals/placeholders; add helper functions for time-ago, songs unit and playlist song counts, and the Home keys listed above (copy from res/values{,-zh-rCN}/strings_home.xml with the key in a comment).
 - Status-bar/nav-bar insets on HarmonyOS: confirm MediaQuery.viewPadding reports the status-bar height and gesture-nav inset the same way as Android WindowInsets (needed for header top padding, tide rest line and 108dp + inset bottom clearance); and confirm the scroll-speed signal can be read per frame from ScrollController without rebuilding.
-- Reduced motion: map MediaQuery.disableAnimationsOf (and whatever HarmonyOS exposes for 'reduce motion') to Android's MotionProfile.AdaptiveReduced behaviour list in item 19.
+- Reduced motion: MediaQuery.disableAnimationsOf stands for Android's MotionProfile.AdaptiveReduced (item 19). Done 2026-11-17: the flutter_ohos embedder never sets it, so `yoin/motion` reads 减弱动画 (accessibility, API 23+) and the animator duration scale, and SystemReduceMotionScope raises it at the app root while either asks for less motion (Android 7b8a470f8). Android's other reasons (low-RAM device, power saving, a moment of load pressure) are not mapped.
 - No haptics on Home: Android uses none for browse taps, so no ArkTS vibrator work is needed for this area (header avatar's performContextClick can be skipped).
 
 ## Risks
