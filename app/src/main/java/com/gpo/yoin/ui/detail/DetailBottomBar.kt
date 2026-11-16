@@ -96,10 +96,10 @@ fun DetailBottomBar(
     // Page actions that may leave ▾ for their own buttons where the bar has
     // room (Go to artist, Share — 断点交接 §2.3); menu rows elsewhere.
     promotable: List<BarExtraAction> = emptyList(),
-    menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
     // When a bar that rises into place ([DETAIL_EXTRA_BAR_RISES]) may start:
     // the page's entrance, so the rise plays on screen.
     riseAfter: () -> Boolean = { true },
+    menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     // A page hosted in the shell's detail column has no bar of its own: the
     // shell's ONE bar spans both columns and carries this page's Play split
