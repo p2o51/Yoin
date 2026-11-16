@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
+import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_cache.dart';
@@ -67,6 +68,8 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     ref.listen(otherProfileSourcesProvider, (previous, next) {
       if (previous?.value != null && !identical(previous!.value, next.value)) _scheduleRefresh();
     });
+    // Cloud sync brought Yoin's AI titles or narration from another device.
+    ref.listen(memoryCopySyncRevisionProvider, (_, _) => _scheduleRefresh());
     ref.onDispose(() {
       _storeChanges?.cancel();
       _refreshDebounce?.cancel();
@@ -359,7 +362,11 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       ];
       final words = a.other == null ? ai : null;
       final album = c.album;
-      final aiTitle = words == null
+      // Another account's memory wears the AI title that account was given
+      // (Android albumMemoryAiTitle with its profileId: read, never generated).
+      final aiTitle = a.other != null
+          ? await _cachedOtherTitle(a.inputs.profileId, c.albumId)
+          : words == null
           ? null
           : album != null
           ? await words.title(album, memoryTitleWriting(ratingRow, notes))
@@ -384,6 +391,15 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     }
 
     return [...(await Future.wait([for (final c in candidates) compose(c)])).nonNulls];
+  }
+
+  /// [profileId]'s cached AI title for [albumId]; null on a miss or a failed read.
+  Future<String?> _cachedOtherTitle(String profileId, MediaId albumId) async {
+    try {
+      return await MemoryCopyCache.shared(ref.read(keyValueStoreProvider), profileId).title(albumId);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<MemoryAi?> _memoryAi() async {

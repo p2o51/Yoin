@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/memory/memory_copy_cache.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
@@ -63,6 +64,9 @@ class Phone {
   late Profile profile;
   int clock = 1000;
 
+  /// The kinds each sync wrote into this device's storage (onDomainChanged).
+  final changedKinds = <String>{};
+
   Future<void> start({String user = 'alice'}) async {
     profile = await repo.add(
       provider: MediaId.providerSubsonic,
@@ -76,6 +80,7 @@ class Phone {
       adapters: (db) => yoinSyncAdapters(
         db: db,
         memory: (id) => MemoryStore.shared(kv, id),
+        memoryCopy: (id) => MemoryCopyCache.shared(kv, id),
         ratings: StoreTrackRatingAccess(LocalRatingStore(kv)),
         profiles: repo,
         store: kv,
@@ -85,10 +90,13 @@ class Phone {
       packageName: yoinPackageName,
       versionCode: 1,
       clock: () => clock,
+      onDomainChanged: changedKinds.addAll,
     );
   }
 
   MemoryStore get memory => MemoryStore.shared(kv, profile.id);
+
+  MemoryCopyCache get words => MemoryCopyCache.shared(kv, profile.id);
 
   Future<void> turnOn() async {
     expect(await sync.turnOn(), isA<TurnOnStarted>());
@@ -138,6 +146,54 @@ void main() {
     expect(b.state.lastSummaryCount, 1);
     expect(b.state.devices.map((d) => d.name), containsAll(['Pixel 9', 'Mate 70 Air']));
     expect(b.state.account?.email, 'me@example.com');
+  });
+
+  test('should_bringAiWordsAcross_when_bothDevicesSyncTheSameServer', () async {
+    final album = MediaId.subsonic('al');
+    await a.words.put(
+      album,
+      (_) => const MemoryCopyRow(
+        copy: 'Rain on the roof.\nWhat stayed?',
+        promptHash: 'narration-v2:42',
+        generatedAt: 900,
+        title: 'The rain year',
+        titlePromptHash: '-7',
+      ),
+    );
+    await a.turnOn();
+    expect(await b.sync.turnOn(), isA<TurnOnStarted>());
+    await settle();
+    // The same row, so the deck there reuses both instead of asking the model again.
+    expect(
+      await b.words.get(album),
+      const MemoryCopyRow(
+        copy: 'Rain on the roof.\nWhat stayed?',
+        promptHash: 'narration-v2:42',
+        generatedAt: 900,
+        title: 'The rain year',
+        titlePromptHash: '-7',
+      ),
+    );
+    expect(b.changedKinds, containsAll([SyncKinds.memoryCopy, SyncKinds.memoryTitle]));
+  });
+
+  test('should_keepEachDevicesHalf_when_titleAndNarrationWrittenApart', () async {
+    final album = MediaId.subsonic('al');
+    await a.words.put(album, (_) => const MemoryCopyRow(title: 'Night line', titlePromptHash: '3'));
+    await b.words.put(album, (_) => const MemoryCopyRow(copy: 'Late trains.', promptHash: 'k', generatedAt: 50));
+    await a.turnOn();
+    expect(await b.sync.turnOn(), isA<TurnOnStarted>());
+    await settle();
+    await a.sync.syncNowAndWait();
+    const both = MemoryCopyRow(
+      copy: 'Late trains.',
+      promptHash: 'k',
+      generatedAt: 50,
+      title: 'Night line',
+      titlePromptHash: '3',
+    );
+    expect(await b.words.get(album), both);
+    expect(await a.words.get(album), both);
   });
 
   test('should_removeNoteEverywhere_when_deletedOnOneDevice', () async {

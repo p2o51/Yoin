@@ -714,6 +714,15 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
         ref.read(favoriteOverridesProvider),
       ),
     );
+    // Cloud sync brought Yoin's AI title from another device.
+    ref.listen(
+      memoryCopySyncRevisionProvider,
+      (_, _) => _load(
+        ref.read(memoryStoreProvider).value,
+        ref.read(localRatingsProvider),
+        ref.read(favoriteOverridesProvider),
+      ),
+    );
     ref.onDispose(() {
       _changes?.cancel();
       _aboutChanges?.cancel();

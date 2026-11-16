@@ -55,6 +55,9 @@ class MemoryLedgerStrings {
       zh ? '从 $date 开始记。所有资料算同一个人。' : 'Kept since $date. Every account counts as you.'; // memory_ledger_since
   String get emptyTitle => zh ? '还没有回忆' : 'No memories yet'; // memory_ledger_empty_title
 
+  /// Another account's memory: whose it is (memory_ledger_from).
+  String from(String account) => zh ? '来自 $account' : 'From $account';
+
   // ---- dates (Android DateFormat best patterns: "MMMM", "yMMMM", "MMMd", "yMMMd") ----
 
   String monthName(DateTime month, DateTime today) {

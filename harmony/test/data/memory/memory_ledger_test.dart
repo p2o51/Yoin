@@ -188,14 +188,90 @@ void main() {
       final items = memoryLedgerItems(entries);
       expect(items.map((i) => i.key), [
         'album:${_a.key}',
-        'song:${MediaId.subsonic('b-t2')}',
-        'song:${MediaId.subsonic('z-t1')}',
+        'song:|${MediaId.subsonic('b-t2')}',
+        'song:|${MediaId.subsonic('z-t1')}',
       ]);
       final byScore = sortLedgerItems(items, MemoryLedgerSort.score);
       expect(byScore.first.score, 8.5);
       expect(byScore.last.score, isNull);
       final byName = sortLedgerItems(items, MemoryLedgerSort.name);
       expect(byName.map((i) => i.name), ['Glass Orchard', 'Lights', '']);
+    });
+  });
+
+  group('accounts', () {
+    test('should_scopeIdsAndEntries_when_builtForAnAccount', () {
+      final album = MediaId.subsonic('a');
+      final rows = MemoryLedgerRows(
+        albumRatings: {album: AlbumRatingRow(albumId: album, rating: 8, review: 'Rain.', updatedAt: _at(2026, 11, 2))},
+        titles: {album: MemoryTitleRow(albumId: album, title: 'The rain year', updatedAt: _at(2026, 11, 3))},
+        trackRatings: {
+          MediaId.subsonic('t'): LocalRating(
+            profileId: 'p2',
+            songId: 't',
+            provider: MediaId.providerSubsonic,
+            rating: 7,
+            serverRating: 4,
+            updatedAt: _at(2026, 11, 4),
+          ),
+        },
+      );
+      final named = MemoryLedgerAlbum(albumId: album, name: 'Glass Orchard', profileId: 'p2');
+      final entries = buildMemoryLedger(rows, album: (_) => named, track: (_) => null, profileId: 'p2');
+      expect(entries.map((e) => e.id), [
+        'track-rating:p2|subsonic|t',
+        'title:p2|subsonic|a',
+        'album-rating:p2|subsonic|a',
+        'review:p2|subsonic|a',
+      ]);
+      expect(entries.map((e) => e.profileId).toSet(), {'p2'});
+    });
+
+    test('should_keepAccountsApart_when_twoAccountsShareAnAlbumId', () {
+      final mine = MemoryLedgerAlbum(albumId: MediaId.subsonic('a'), name: 'Glass Orchard', profileId: 'p1');
+      final theirs = MemoryLedgerAlbum(albumId: MediaId.subsonic('a'), name: 'Glass Orchard', profileId: 'p2');
+      expect(mine.key, 'p1|subsonic|a');
+      expect(mine.key == theirs.key, isFalse);
+      final items = memoryLedgerItems([
+        MemoryLedgerEntry(
+          id: 'album-rating:p1|subsonic|a',
+          kind: MemoryLedgerKind.albumRating,
+          at: _at(2026, 11, 2),
+          album: mine,
+          score: 8,
+          profileId: 'p1',
+        ),
+        MemoryLedgerEntry(
+          id: 'album-rating:p2|subsonic|a',
+          kind: MemoryLedgerKind.albumRating,
+          at: _at(2026, 11, 1),
+          album: theirs,
+          score: 6,
+          profileId: 'p2',
+        ),
+        MemoryLedgerEntry(
+          id: 'tr:p2',
+          kind: MemoryLedgerKind.trackRating,
+          at: _at(2026, 10, 1),
+          score: 5,
+          songId: MediaId.subsonic('t'),
+          profileId: 'p2',
+        ),
+        MemoryLedgerEntry(
+          id: 'tr:p1',
+          kind: MemoryLedgerKind.trackRating,
+          at: _at(2026, 10, 2),
+          score: 9,
+          songId: MediaId.subsonic('t'),
+          profileId: 'p1',
+        ),
+      ]);
+      expect(items.map((i) => (i.key, i.profileId)), [
+        ('album:p1|subsonic|a', 'p1'),
+        ('album:p2|subsonic|a', 'p2'),
+        ('song:p1|subsonic:t', 'p1'),
+        ('song:p2|subsonic:t', 'p2'),
+      ]);
     });
   });
 }

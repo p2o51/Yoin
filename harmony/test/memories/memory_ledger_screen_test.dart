@@ -6,11 +6,14 @@ import 'package:yoin/data/memory/memory_ledger.dart';
 import 'package:yoin/data/memory/memory_ledger_list.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/profile/profile.dart';
+import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/memories/ledger/memory_grid_view.dart';
 import 'package:yoin/memories/ledger/memory_ledger_home_card.dart';
 import 'package:yoin/memories/ledger/memory_ledger_screen.dart';
 import 'package:yoin/memories/ledger/memory_ledger_view_model.dart';
 import 'package:yoin/memories/memories_view_model.dart';
+import 'package:yoin/memories/other_profiles.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
@@ -74,18 +77,26 @@ void main() {
     expect(MemoryLedgerLayout.of(const YoinWindowInfo(900, 400)).columns, 1);
   });
 
-  Future<InMemoryStore> pump(WidgetTester tester, Widget child, {Size size = const Size(392, 850)}) async {
+  Future<InMemoryStore> pump(
+    WidgetTester tester,
+    Widget child, {
+    Size size = const Size(392, 850),
+    MemoryLedgerState? state,
+    InMemoryStore? store,
+    ProfileRepository? repo,
+  }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final kv = InMemoryStore();
+    final kv = store ?? InMemoryStore();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           keyValueStoreProvider.overrideWithValue(kv),
           playbackEngineProvider.overrideWithValue(FakePlaybackEngine()),
           activeSourceProvider.overrideWith((ref) async => null),
-          memoryLedgerProvider.overrideWith(() => _FixedLedger(_state())),
+          memoryLedgerProvider.overrideWith(() => _FixedLedger(state ?? _state())),
+          if (repo != null) profileRepositoryProvider.overrideWithValue(repo),
         ],
         child: MaterialApp(home: YoinWindowScope.measured(child: child)),
       ),
@@ -171,5 +182,138 @@ void main() {
     );
     expect(memoryLedgerItems(entries).whereType<MemoryLedgerAlbumItem>().single.title, 'Mine');
     expect(memoriesClockProvider, isNotNull);
+  });
+
+  group('another account', () {
+    const own = LedgerProfile(id: 'p1', name: 'ann', provider: MediaId.providerSubsonic, isActive: true);
+    const other = LedgerProfile(id: 'p2', name: 'ben', provider: MediaId.providerSubsonic, shape: 3, canSwitch: true);
+    final mine = MemoryLedgerAlbum(albumId: MediaId.subsonic('a'), name: 'Glass Orchard', profileId: 'p1');
+    final theirs = MemoryLedgerAlbum(albumId: MediaId.subsonic('x'), name: 'Night Bus', profileId: 'p2');
+
+    MemoryLedgerState twoAccounts({LedgerProfile second = other}) => MemoryLedgerState.of(
+      [
+        MemoryLedgerEntry(
+          id: 'review:p1|subsonic|a',
+          kind: MemoryLedgerKind.review,
+          at: _at(11, 5),
+          album: mine,
+          text: 'Rain again.',
+          profileId: 'p1',
+        ),
+        MemoryLedgerEntry(
+          id: 'review:p2|subsonic|x',
+          kind: MemoryLedgerKind.review,
+          at: _at(11, 4),
+          album: theirs,
+          text: 'Late trains.',
+          profileId: 'p2',
+        ),
+        MemoryLedgerEntry(
+          id: 'song-note:n2',
+          kind: MemoryLedgerKind.songNote,
+          at: _at(11, 3),
+          album: theirs,
+          text: 'the tunnel',
+          trackTitle: 'Lights',
+          songId: MediaId.subsonic('x-t1'),
+          profileId: 'p2',
+        ),
+      ],
+      today: DateTime.utc(2026, 11, 15),
+      dayOf: _dayOf,
+      profiles: [own, second],
+      activeProfileId: 'p1',
+    );
+
+    testWidgets('should_sayWhoseItIs_when_memoryIsAnotherAccounts', (tester) async {
+      await pump(tester, const MemoryLedgerScreen(), state: twoAccounts());
+      // The album card and the note card each say it; the account in use's says nothing.
+      expect(find.text('From ben'), findsNWidgets(2));
+      expect(find.text('From ann'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('should_askBeforeSwitching_when_otherAccountsAlbumTapped', (tester) async {
+      final kv = InMemoryStore();
+      final repo = ProfileRepository(kv, InMemoryStore());
+      final b = await repo.add(
+        provider: MediaId.providerSubsonic,
+        displayName: 'B',
+        credentials: const SubsonicCredentials(baseUrl: 'https://b.test', username: 'ben', password: 'p'),
+      );
+      final a = await repo.add(
+        provider: MediaId.providerSubsonic,
+        displayName: 'A',
+        credentials: const SubsonicCredentials(baseUrl: 'https://a.test', username: 'ann', password: 'p'),
+      );
+      final state = MemoryLedgerState.of(
+        [
+          MemoryLedgerEntry(
+            id: 'review:x',
+            kind: MemoryLedgerKind.review,
+            at: _at(11, 4),
+            album: MemoryLedgerAlbum(albumId: MediaId.subsonic('x'), name: 'Night Bus', profileId: b.id),
+            text: 'Late trains.',
+            profileId: b.id,
+          ),
+          MemoryLedgerEntry(
+            id: 'review:a',
+            kind: MemoryLedgerKind.review,
+            at: _at(11, 5),
+            album: MemoryLedgerAlbum(albumId: MediaId.subsonic('a'), name: 'Glass Orchard', profileId: a.id),
+            text: 'Rain again.',
+            profileId: a.id,
+          ),
+        ],
+        today: DateTime.utc(2026, 11, 15),
+        dayOf: _dayOf,
+        profiles: [
+          LedgerProfile(id: a.id, name: 'ann', provider: MediaId.providerSubsonic, isActive: true),
+          LedgerProfile(id: b.id, name: 'ben', provider: MediaId.providerSubsonic, canSwitch: true),
+        ],
+        activeProfileId: a.id,
+      );
+      // A phone's width: the notice's buttons stack when the test font can't fit them in a row.
+      await pump(tester, const MemoryLedgerScreen(), state: state, store: kv, repo: repo);
+      await tester.ensureVisible(find.text('Late trains.'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Late trains.'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(find.text('Switch to ben?'), findsOneWidget);
+      // Cancel: nothing switches.
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      expect((await repo.activeProfile())!.id, a.id);
+      // Again, and switch.
+      await tester.ensureVisible(find.text('Late trains.'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Late trains.'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.tap(find.text('Switch and open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      expect((await repo.activeProfile())!.id, b.id);
+      expect(kv.values[OtherProfilesNoticeStore.key], 'true');
+    });
+
+    testWidgets('should_stayShut_when_otherAccountCantBeSwitchedTo', (tester) async {
+      await pump(
+        tester,
+        const MemoryLedgerScreen(),
+        state: twoAccounts(
+          second: const LedgerProfile(id: 'p2', name: 'ben', provider: MediaId.providerSubsonic),
+        ),
+      );
+      await tester.ensureVisible(find.text('Late trains.'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Late trains.'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(find.text('Switch to ben?'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

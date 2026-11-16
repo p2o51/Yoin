@@ -22,12 +22,14 @@ import '../../platform/sync/cloud_sync_host.dart';
 import '../../settings/licenses.dart' show yoinVersionCode, yoinVersionName;
 import '../../ui/component/seam/seam_style.dart' show seamTopStyleProvider;
 import '../about/song_about_store.dart';
+import '../memory/memory_copy_cache.dart';
 import '../memory/memory_store.dart';
 import '../model/media_id.dart';
 import '../profile/profile_repository.dart';
 import 'adapters/account_descriptor_sync_adapter.dart';
 import 'adapters/home_layout_sync_adapter.dart';
 import 'adapters/lyrics_translation_sync_adapter.dart';
+import 'adapters/memory_copy_sync_adapters.dart';
 import 'adapters/memory_sync_adapters.dart';
 import 'adapters/playlist_backup_sync_adapter.dart';
 import 'adapters/settings_sync_adapter.dart';
@@ -56,6 +58,7 @@ bool isSyncedKey(String key) =>
     key.startsWith('local_ratings.') ||
     key.startsWith('album_ratings.v1.') ||
     key.startsWith('memory_titles.v1.') ||
+    key.startsWith('memory_copy_cache.v1.') ||
     key.startsWith('home_layout.v1.') ||
     key == SongAboutStore.key ||
     key == AiSettingsStore.prefsKey ||
@@ -63,12 +66,13 @@ bool isSyncedKey(String key) =>
     key == ProfileRepository.profilesKey;
 
 /// The v1 allowlist as HarmonyOS holds it: one adapter per kind this app
-/// keeps (Android YoinSyncAdapters). Kinds HarmonyOS doesn't have (AI Memory
-/// copy and titles) are carried in the replica untouched and published
-/// again, never dropped; so is the Spotify Client ID setting.
+/// keeps (Android YoinSyncAdapters). What HarmonyOS can't hold (the Spotify
+/// Client ID setting, AI words on anything but an album) is carried in the
+/// replica untouched and published again, never dropped.
 List<SyncAdapter> yoinSyncAdapters({
   required SyncDatabase db,
   required MemoryStoreFor memory,
+  MemoryCopyCacheFor? memoryCopy,
   required TrackRatingAccess ratings,
   required ProfileRepository profiles,
   required KeyValueStore store,
@@ -91,6 +95,7 @@ List<SyncAdapter> yoinSyncAdapters({
     songAboutCount: () async => (await SongAboutStore.shared(store).all()).length,
   ),
   if (lyricsCache != null) LyricsTranslationSyncAdapter(lyricsCache, onLyricsSeeded: onLyricsSeeded),
+  if (memoryCopy != null) ...[MemoryCopySyncAdapter(memoryCopy), MemoryTitleSyncAdapter(memoryCopy)],
   AlbumTitleSyncAdapter(memory),
   if (backups != null) PlaylistBackupSyncAdapter(backups),
   AccountDescriptorSyncAdapter(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
@@ -119,6 +124,7 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
     adapters: (db) => yoinSyncAdapters(
       db: db,
       memory: (profileId) => MemoryStore.shared(store, profileId),
+      memoryCopy: (profileId) => MemoryCopyCache.shared(store, profileId),
       ratings: ratings,
       profiles: profiles,
       store: store,
@@ -135,6 +141,10 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       // Notes, album rows and titles refresh through MemoryStore.changes and
       // ratings through their notifier; the Home layout is read again.
       if (kinds.contains(SyncKinds.homeLayout)) ref.invalidate(homeLayoutProvider);
+      // Yoin's AI words: the deck, Home's memory card and the album page read them again.
+      if (kinds.contains(SyncKinds.memoryCopy) || kinds.contains(SyncKinds.memoryTitle)) {
+        ref.read(memoryCopySyncRevisionProvider.notifier).bump();
+      }
       // The translation language and the scroll edge style are read again.
       if (kinds.contains(SyncKinds.setting)) {
         ref.invalidate(aiSettingsProvider);
