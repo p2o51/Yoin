@@ -223,8 +223,9 @@ interface MusicMetadata {
 
     /**
      * The album and artist [trackId] belongs to, for a song that came without them: Apple Music names them only
-     * when the request included them, and its playlists, library songs and search rows don't. Null when the
-     * service can't say (the default: everywhere else a song carries both already).
+     * when the request included them, and its playlists, library songs and search rows don't; on every service,
+     * Home's cards rebuild songs from local history without them, and Spotify's Made For You rows carry neither.
+     * Null when the service can't say (the default).
      */
     suspend fun songLinks(trackId: MediaId): SongLinks? = null
 

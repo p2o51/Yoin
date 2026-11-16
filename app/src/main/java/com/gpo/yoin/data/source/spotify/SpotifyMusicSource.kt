@@ -23,6 +23,7 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.TrackNames
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -376,6 +377,11 @@ class SpotifyMusicSource(
             isrcById[rawId] = isrc
             return isrc.ifEmpty { null }
         }
+
+        // Songs rebuilt from local history (Home's cards) and Made For You rows come without their album and
+        // artist; one read of the track gives both, so Now Playing's title and artist open them.
+        override suspend fun songLinks(trackId: MediaId): SongLinks? =
+            library.getTrack(trackId)?.let { SongLinks(albumId = it.albumId, artistId = it.artistId) }
 
         override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =
             id.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY && it.rawId.isNotBlank() }
