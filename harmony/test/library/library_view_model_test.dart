@@ -3,10 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/activity/activity.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/profile/profile.dart';
+import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/library/library_stores.dart';
 import 'package:yoin/library/library_view_model.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/settings/account_reconnect.dart';
 
 import '../support/fake_music_source.dart';
 import '../support/library_fake_source.dart';
@@ -54,6 +57,42 @@ void main() {
     final c = _container(null);
     addTearDown(c.dispose);
     expect(await _settled(c), isA<LibraryNoAccount>());
+  });
+
+  test('should_sayAccountNeedsReconnecting_when_accountHasNoSource', () async {
+    // An account is listed, but its credentials couldn't be read: no source came.
+    final kv = InMemoryStore();
+    await ProfileRepository(kv, InMemoryStore()).add(
+      provider: MediaId.providerSubsonic,
+      displayName: 'ann',
+      credentials: const SubsonicCredentials(baseUrl: 'https://music.test', username: 'ann', password: 'p'),
+    );
+    final c = _container(null, store: kv);
+    addTearDown(c.dispose);
+    final state = await _settled(c);
+    expect(state, isA<LibraryError>().having((e) => e.error, 'error', isA<AccountNeedsReconnectError>()));
+  });
+
+  test('should_sayAccountNeedsReconnecting_when_readingTheAccountFailed', () async {
+    final kv = InMemoryStore();
+    await ProfileRepository(kv, InMemoryStore()).add(
+      provider: MediaId.providerSubsonic,
+      displayName: 'ann',
+      credentials: const SubsonicCredentials(baseUrl: 'https://music.test', username: 'ann', password: 'p'),
+    );
+    final c = ProviderContainer(
+      overrides: [
+        activeSourceProvider.overrideWith((ref) async => throw StateError('unreadable')),
+        keyValueStoreProvider.overrideWithValue(kv),
+        secretStoreProvider.overrideWithValue(InMemoryStore()),
+        activityLogProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(c.dispose);
+    final state = await _settled(c);
+    expect(state, isA<LibraryError>().having((e) => e.error, 'error', isA<AccountNeedsReconnectError>()));
+    // Copy details keeps what actually failed.
+    expect((state as LibraryError).diagnostics, contains('StateError'));
   });
 
   test('should_probeArtistsOnly_when_coldStart', () async {

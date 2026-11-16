@@ -67,6 +67,11 @@ abstract final class HomeHeaderMetrics {
   static const double avatar = 32;
   static const double avatarGap = 2;
   static const double avatarRing = 1.5;
+
+  /// The reconnect dot: M3's 6 dp small badge, cut out of the avatar by a
+  /// 1 dp ring of the header's colour (HomeAccountDotRing).
+  static const double reconnectDot = 6;
+  static const double reconnectDotRing = 1;
 }
 
 /// Section titles and section columns (HomeWidgetGrid.kt HomeSectionTitle).
@@ -87,6 +92,12 @@ abstract final class HomeAccountMetrics {
   static const double dividerHeight = 16;
   static const double rowPaddingV = 10;
   static const double rowGap = 16;
+
+  /// Reconnect beside Manage accounts: the gap between them, the rows' gap
+  /// when they wrap, and T7's loading indicator sized into its label
+  /// (HomeAccountReconnectIndicator).
+  static const double reconnectGap = 8;
+  static const double reconnectIndicator = 24;
 
   /// The card's contents come in over p from here to 1.
   static const double contentFrom = 0.55;

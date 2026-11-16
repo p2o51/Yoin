@@ -55,6 +55,18 @@ abstract final class SubsonicErrorCode {
   static const auth = {wrongCredentials, tokenAuthNotSupported, notAuthorized};
 }
 
+/// A server's non-2xx HTTP answer, kept as the cause of the
+/// [SourceServerException] it became: a 401 / 403 is the server turning the
+/// account's credentials down (profile_reconnect.dart `refusesCredentials`).
+final class SubsonicHttpStatus implements Exception {
+  const SubsonicHttpStatus(this.status);
+
+  final int status;
+
+  @override
+  String toString() => 'SubsonicHttpStatus($status)';
+}
+
 /// The transport for one server account. Immutable after construction: the
 /// salt is drawn once, like Android's `SubsonicAuth.stableToken`, so the same
 /// cover / stream URL comes out every time and image caches keep their hits.
@@ -165,7 +177,10 @@ final class SubsonicApi {
       final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
       body = ((decoded as Map)['subsonic-response'] as Map).cast<String, Object?>();
     } catch (_) {
-      throw SourceServerException(ok ? 'Not a Subsonic response' : 'HTTP $status');
+      throw SourceServerException(
+        ok ? 'Not a Subsonic response' : 'HTTP $status',
+        cause: ok ? null : SubsonicHttpStatus(status),
+      );
     }
 
     if (body['status'] != 'ok') {
@@ -177,7 +192,7 @@ final class SubsonicApi {
       if (code != null && SubsonicErrorCode.auth.contains(code)) throw SourceAuthException(message, code: code);
       throw SourceServerException(message, code: code);
     }
-    if (!ok) throw SourceServerException('HTTP $status');
+    if (!ok) throw SourceServerException('HTTP $status', cause: SubsonicHttpStatus(status));
     return body;
   }
 

@@ -127,6 +127,12 @@ class HomeStrings {
   String get accountManage => _zh ? '管理账号' : 'Manage accounts'; // home_account_manage
   String get accountAdd => _zh ? '添加账号' : 'Add account'; // home_account_add
   String get accountSettings => _zh ? '设置' : 'Settings'; // home_account_settings
+  String get accountReconnect => _zh ? '重新连接' : 'Reconnect'; // home_account_reconnect
+  String get accountReconnectNeeded => _zh ? '账号需要重新连接' : 'Account needs reconnecting'; // home_account_reconnect_needed
+
+  /// Another account on the card whose credentials can't be read (Android
+  /// AccountRow's accountIssueLabel, as Settings' pill says it).
+  String get accountCredentialsMissing => _zh ? '凭据缺失' : 'Credentials missing'; // settings_account_credentials_missing
 
   // ---- Edit Home ----
 
