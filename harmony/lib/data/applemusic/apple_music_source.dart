@@ -1,8 +1,10 @@
 /// [MusicSource] for one Apple Music account through the Apple Music API
-/// (Android data/source/applemusic/AppleMusicSource.kt), read-only for v1.
+/// (Android data/source/applemusic/AppleMusicSource.kt).
 ///
-/// What it does, as on Android: library albums / artists / playlists,
-/// catalogue album / artist / playlist detail, catalogue search; library ids
+/// What it does, as on Android: library albums / artists / playlists / songs,
+/// catalogue album / artist / playlist detail, catalogue and library search,
+/// Add to library, new library playlists and songs added to them, and names
+/// from another storefront per the account's name region; library ids
 /// stay `library:<id>`, songs fold onto their catalogue ids (see
 /// apple_music_mappers.dart). What it doesn't: favourites and ratings (Apple
 /// has neither through this API; Android refuses them too), lyrics (Apple
@@ -819,7 +821,7 @@ final class _AppleMusicMetadata implements MusicMetadata {
   /// Japan's, Kim Petras is キム・ペトラス). Its catalog answers in English when
   /// asked with `l=en-US` (one of the languages it lists), which is what lyrics
   /// sources index for songs released in English (Android
-  /// AppleMusicSource.alternateNames; HarmonyOS has no name-region setting).
+  /// AppleMusicSource.alternateNames).
   /// Catalog songs only.
   @override
   Future<TrackNames?> alternateNames(Track track) async {
