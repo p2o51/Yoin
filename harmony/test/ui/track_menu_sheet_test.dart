@@ -135,6 +135,7 @@ void main() {
       bool canFile = false,
       Track? track,
       ValueChanged<MediaId>? onViewInScrapbook,
+      VoidCallback? onRemoveFromPlaylist,
     }) async {
       filed = [];
       shared = RecordingTextShare();
@@ -161,6 +162,7 @@ void main() {
                       onGoToArtist: (id) => visits.add('artist:${id.rawId}'),
                       onViewInScrapbook: onViewInScrapbook,
                       onAddToPlaylist: canFile ? (tracks) => filed.add(tracks.single.id.rawId) : null,
+                      onRemoveFromPlaylist: onRemoveFromPlaylist,
                       onMessage: messages.add,
                     ),
                     child: const Text('open'),
@@ -224,6 +226,24 @@ void main() {
       expect(find.text('Play next'), findsNothing);
       expect(find.text('Add to queue'), findsNothing);
       expect(find.text('Go to artist'), findsOneWidget);
+    });
+
+    testWidgets('should_offerRemoveLastAndClose_when_sheetIsOnAPlaylistTheAccountEdits', (tester) async {
+      var removed = 0;
+      await pump(tester, onRemoveFromPlaylist: () => removed++);
+      final remove = find.text('Remove from playlist');
+      expect(remove, findsOneWidget);
+      // Last and on its own, under the Go to rows.
+      expect(tester.getTopLeft(remove).dy, greaterThan(tester.getTopLeft(find.text('Go to artist')).dy));
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      expect(removed, 1);
+      expect(find.text('Lantern'), findsNothing);
+    });
+
+    testWidgets('should_leaveRemoveOut_when_sheetIsNotOnAnEditablePlaylist', (tester) async {
+      await pump(tester);
+      expect(find.text('Remove from playlist'), findsNothing);
     });
 
     testWidgets('should_closeAndOpenAddToPlaylist_when_rowTapped', (tester) async {

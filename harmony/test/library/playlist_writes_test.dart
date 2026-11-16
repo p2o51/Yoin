@@ -4,7 +4,9 @@ import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/detail/playlist_detail_view_model.dart';
+import 'package:yoin/library/playlist_deletions.dart';
 import 'package:yoin/library/playlist_writes.dart';
+import 'package:yoin/shell/app_messages.dart';
 
 import '../support/fake_music_source.dart';
 
@@ -79,8 +81,16 @@ class PlaylistFakeSource extends FakeMusicSource implements MusicWriteActions, M
   }
 
   @override
-  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions) async =>
-      _call('remove:${playlistId.rawId}:${positions.join(',')}');
+  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions) async {
+    _call('remove:${playlistId.rawId}:${positions.join(',')}');
+    final p = playlists[playlistId]!;
+    final tracks = [...p.tracks];
+    for (final i in [...positions]..sort((a, b) => b.compareTo(a))) {
+      tracks.removeAt(i);
+    }
+    playlists[playlistId] = Playlist(id: p.id, name: p.name, canWrite: p.canWrite, tracks: tracks);
+  }
+
   @override
   Future<void> setPlaylistTracks(MediaId playlistId, List<MediaId> tracks) async =>
       _call('order:${playlistId.rawId}:${tracks.map((t) => t.rawId).join(',')}');
@@ -89,11 +99,18 @@ class PlaylistFakeSource extends FakeMusicSource implements MusicWriteActions, M
 void main() {
   late PlaylistFakeSource source;
   late ProviderContainer c;
+  late List<String> messages;
   final pl1 = MediaId.subsonic('pl1');
 
   setUp(() {
     source = PlaylistFakeSource();
-    c = ProviderContainer(overrides: [activeSourceProvider.overrideWith((ref) async => source)]);
+    messages = [];
+    c = ProviderContainer(
+      overrides: [
+        activeSourceProvider.overrideWith((ref) async => source),
+        appMessageSinkProvider.overrideWithValue(messages.add),
+      ],
+    );
     addTearDown(c.dispose);
   });
 
@@ -121,6 +138,34 @@ void main() {
       expect(c2.read(playlistsRevisionProvider), 0);
     });
 
+    test('should_removeTheSongWhereTheServiceHasItNow_when_thePagesPositionIsStale', () async {
+      // Another client put X first: the page's position 1 ('b') is 'a' on the service now.
+      final p = source.playlists[pl1]!;
+      source.playlists[pl1] = Playlist(
+        id: pl1,
+        name: p.name,
+        canWrite: true,
+        tracks: [Track(id: MediaId.subsonic('x')), ...p.tracks],
+      );
+      await c.read(playlistWritesProvider).remove(pl1, [(track: MediaId.subsonic('b'), position: 1)]);
+      expect(source.calls, ['remove:pl1:2']);
+      expect([for (final t in source.playlists[pl1]!.tracks) t.id.rawId], ['x', 'a', 'c']);
+      expect(c.read(playlistsRevisionProvider), 1);
+    });
+
+    test('should_sendNothing_when_theSongIsGoneFromTheServiceAlready', () async {
+      await c.read(playlistWritesProvider).remove(pl1, [(track: MediaId.subsonic('z'), position: 1)]);
+      expect(source.calls, isEmpty);
+    });
+
+    test('should_takeTheNearestEntry_when_theSongIsListedTwice', () {
+      final ids = [for (final r in ['a', 'b', 'a', 'c', 'a']) MediaId.subsonic(r)];
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 2), 2);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 3), 2);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 5), 4);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('z'), 0), isNull);
+    });
+
     test('should_tellAddFromEdit_when_readingAbilities', () {
       expect(playlistAbilities(PlaylistFakeSource()), (canAdd: true, canEdit: true));
       expect(playlistAbilities(PlaylistFakeSource(edit: false)), (canAdd: true, canEdit: false));
@@ -139,20 +184,29 @@ void main() {
       return c.read(playlistDetailProvider(pl1)) as PlaylistDetailContent;
     }
 
+    Future<void> settle() async {
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
     test('should_dropRowAtOnce_when_removing', () async {
-      await loaded();
-      final ok = await c.read(playlistDetailProvider(pl1).notifier).removeAt(1);
-      expect(ok, isTrue);
+      final content = await loaded();
+      c.read(playlistDetailProvider(pl1).notifier).removeTrack(content.entries[1].rowKey, PlaylistEditLines.en);
+      final shown = c.read(playlistDetailProvider(pl1)) as PlaylistDetailContent;
+      expect([for (final t in shown.tracks) t.id.rawId], ['a', 'c']);
+      await settle();
       expect(source.calls, ['remove:pl1:1']);
     });
 
     test('should_putRowBack_when_removeRefused', () async {
-      await loaded();
+      final content = await loaded();
       source.fail = true;
-      final ok = await c.read(playlistDetailProvider(pl1).notifier).removeAt(1);
-      expect(ok, isFalse);
+      c.read(playlistDetailProvider(pl1).notifier).removeTrack(content.entries[1].rowKey, PlaylistEditLines.en);
+      await settle();
       final state = c.read(playlistDetailProvider(pl1)) as PlaylistDetailContent;
       expect([for (final t in state.tracks) t.id.rawId], ['a', 'b', 'c']);
+      expect(messages, ["Couldn't remove track"]);
     });
 
     test('should_sendNewOrder_when_moving', () async {
@@ -167,19 +221,22 @@ void main() {
 
     test('should_rereadName_when_renamed', () async {
       await loaded();
-      expect(await c.read(playlistDetailProvider(pl1).notifier).rename('Night'), isTrue);
-      for (var i = 0; i < 5; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
+      c.read(playlistDetailProvider(pl1).notifier).rename('Night', PlaylistEditLines.en);
+      await settle();
       final state = c.read(playlistDetailProvider(pl1)) as PlaylistDetailContent;
       expect(state.playlist.name, 'Night');
+      expect(messages, ['Renamed']);
     });
 
     test('should_reportFailure_when_deleteRefused', () async {
       await loaded();
       source.fail = true;
-      expect(await c.read(playlistDetailProvider(pl1).notifier).delete(), isFalse);
+      final handed = c.read(playlistDetailProvider(pl1).notifier).delete((deleted: 'gone', failed: 'kept'));
+      expect(handed, isTrue);
+      await settle();
       expect(c.read(playlistsRevisionProvider), 0);
+      expect(c.read(playlistDeletionsProvider).pending, isEmpty);
+      expect(messages, ['kept']);
     });
   });
 }

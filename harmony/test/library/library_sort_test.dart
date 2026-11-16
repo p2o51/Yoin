@@ -97,6 +97,73 @@ void main() {
     expect(_names(sorted.albums), ['New', 'Old', 'Undated']);
   });
 
+  group('playlist dates', () {
+    Playlist playlist(String id, String name, [String? added]) =>
+        Playlist(id: MediaId.subsonic(id), name: name, libraryAddedAt: added);
+
+    test('should_putNewestPlaylistFirst_when_playlistsAreRecentlyAdded', () {
+      final sorted = sortLibrary(
+        _inputs(
+          playlists: [
+            playlist('1', 'Old', '2023-01-05T10:00:00Z'),
+            playlist('2', 'Undated'),
+            playlist('3', 'New', '2025-06-01T08:00:00Z'),
+          ],
+          sorts: {LibraryTab.playlists: LibrarySort.recentlyAdded},
+        ),
+      );
+      expect(_names(sorted.playlists), ['New', 'Old', 'Undated']);
+    });
+
+    test('should_mixPlaylistsAmongAlbumsByDate_when_allIsRecentlyAdded', () {
+      final sorted = sortLibrary(
+        _inputs(
+          albums: [
+            LibraryFixtures.album('a1', name: 'Album 2024', addedAt: '2024-05-01'),
+            LibraryFixtures.album('a2', name: 'Album 2022', addedAt: '2022-05-01'),
+          ],
+          playlists: [playlist('p1', 'Playlist 2023', '2023-05-01'), playlist('p2', 'Playlist 2025', '2025-05-01')],
+          sorts: {LibraryTab.all: LibrarySort.recentlyAdded},
+        ),
+      );
+      expect(_names(sorted.all), ['Playlist 2025', 'Album 2024', 'Playlist 2023', 'Album 2022']);
+      final years = [for (final s in sorted.all!.sections) (s.label as MonthLabel).year];
+      expect(years, [2025, 2024, 2023, 2022]);
+    });
+
+    test('should_fallBackToPlaylistDates_when_recentsHasNoRecord', () {
+      final sorted = sortLibrary(
+        _inputs(
+          playlists: [
+            playlist('1', 'Spring', '2024-03-01'),
+            playlist('2', 'Winter', '2024-12-01'),
+            playlist('3', 'Summer', '2024-07-01'),
+          ],
+        ),
+      );
+      expect(_names(sorted.playlists), ['Winter', 'Summer', 'Spring']);
+      // Nothing opened yet: the scroller is its handle alone, as Android's.
+      expect(sorted.playlists!.sections, isEmpty);
+    });
+
+    test('should_cutTimelineSections_when_playlistsAreRecentlyAdded', () {
+      final sorted = sortLibrary(
+        _inputs(
+          playlists: [
+            playlist('1', 'A', '2024-01-10'),
+            playlist('2', 'B', '2024-01-20'),
+            playlist('3', 'C', '2024-04-01'),
+            playlist('4', 'D', '2024-09-01'),
+          ],
+          sorts: {LibraryTab.playlists: LibrarySort.recentlyAdded},
+        ),
+      );
+      final sections = sorted.playlists!.sections;
+      expect([for (final s in sections) (s.label as MonthLabel).month], [9, 4, 1]);
+      expect([for (final s in sections) s.startIndex], [0, 1, 2]);
+    });
+  });
+
   test('should_orderByLastSeenThenRecentlyAdded_when_recents', () {
     final sorted = sortLibrary(
       _inputs(

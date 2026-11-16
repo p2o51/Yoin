@@ -15,6 +15,7 @@ import 'library_playlists_by_you.dart';
 import 'library_sort.dart';
 import 'library_stores.dart';
 import 'newest_album_songs_pager.dart';
+import 'playlist_deletions.dart';
 import 'playlist_writes.dart';
 
 export 'library_sort.dart' show LibraryTab, LibrarySort, LibraryItem, SortedView;
@@ -178,11 +179,17 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   /// What the last failed view read threw (its snackbar's line).
   Object? _lastLoadError;
 
+  /// The last deletion the lists have taken in ([PlaylistDeletionState.lastSeq]).
+  int _deletionsSeen = 0;
+
   @override
   LibraryUiState build() {
     ref.onDispose(() => _recentsTimer?.cancel());
     // A playlist made, renamed or deleted anywhere: the listed playlists are re-read.
     ref.listen(playlistsRevisionProvider, (_, _) => _rereadPlaylists());
+    // A playlist deleted on its page leaves Playlists and All at once, and comes back if the service refuses.
+    _deletionsSeen = ref.read(playlistDeletionsProvider).lastSeq;
+    ref.listen(playlistDeletionsProvider, (_, next) => _onDeletions(next));
     final source = ref.watch(activeSourceProvider);
     _generation++;
     _reset();
@@ -477,6 +484,36 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     }
   }
 
+  /// Deletions moved on (Android observePlaylistDeletions): the ones the
+  /// service took leave the listed playlists for good, in the same pass as
+  /// they leave [PlaylistDeletionState.pending], so they never show again
+  /// before the read that follows; the lists are sorted again either way (a
+  /// refused one comes back where it was).
+  void _onDeletions(PlaylistDeletionState next) {
+    final account = ref.read(playlistAccountProvider).value;
+    final gone = {
+      for (final key in next.doneAfter(_deletionsSeen))
+        if (key.account == account) key.id,
+    };
+    _deletionsSeen = next.lastSeq;
+    final content = _content;
+    if (content?.playlists == null) return;
+    if (gone.isNotEmpty) {
+      state = content!.copyWith(
+        playlists: [
+          for (final p in content.playlists!)
+            if (!gone.contains(p.id)) p,
+        ],
+      );
+    }
+    unawaited(_resort(_generation));
+  }
+
+  /// [playlists] as the lists show them ([PlaylistDeletionState.visible]).
+  List<Playlist>? _visiblePlaylists(List<Playlist>? playlists) => playlists == null
+      ? null
+      : ref.read(playlistDeletionsProvider).visible(playlists, ref.read(playlistAccountProvider).value);
+
   Future<bool> _loadFavorites() async {
     final source = _source;
     if (source == null || _favoritesLoading) return true;
@@ -740,7 +777,7 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     final inputs = LibraryListInputs(
       artists: content.artists,
       albums: content.albums,
-      playlists: content.playlists,
+      playlists: _visiblePlaylists(content.playlists),
       sorts: content.sorts,
       lastSeenMs: _lastSeen,
       latinNames: latinNames,

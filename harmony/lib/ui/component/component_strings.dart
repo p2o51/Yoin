@@ -80,4 +80,5 @@ class ComponentStrings {
   String get playlistDeleted => zh ? '已删除播放列表' : 'Playlist deleted'; // detail_playlist_deleted
   String get playlistErrorDelete => zh ? '无法删除播放列表' : "Couldn't delete playlist"; // detail_playlist_error_delete
   String get playlistErrorRemove => zh ? '无法移除曲目' : "Couldn't remove track"; // detail_playlist_error_remove
+  String get removeFromPlaylist => zh ? '从播放列表移除' : 'Remove from playlist'; // track_menu_remove_from_playlist
 }

@@ -27,6 +27,8 @@ import 'library_search.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
 import 'library_views.dart';
+import 'playlist_deletions.dart';
+import 'playlist_writes.dart' show playlistAccountProvider;
 
 /// Each type is capped at this many in the All layout.
 const _allSectionCap = 40;
@@ -377,8 +379,15 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
         ),
       );
     }
-    final r = state.results;
-    if (r == null) return const SizedBox.shrink();
+    final found = state.results;
+    if (found == null) return const SizedBox.shrink();
+    // A playlist deleted on its page (or on its way out) leaves the results too.
+    final shownPlaylists = ref
+        .watch(playlistDeletionsProvider)
+        .visible(found.playlists, ref.watch(playlistAccountProvider).value);
+    final r = identical(shownPlaylists, found.playlists)
+        ? found
+        : SearchResults(tracks: found.tracks, albums: found.albums, artists: found.artists, playlists: shownPlaylists);
     final empty = switch (state.filter) {
       LibrarySearchFilter.all => r.isEmpty,
       LibrarySearchFilter.artists => r.artists.isEmpty,

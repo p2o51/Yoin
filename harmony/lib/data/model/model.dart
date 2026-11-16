@@ -375,6 +375,21 @@ final class Playlist {
   /// Apple Music `dateAdded`; Android Playlist.libraryAddedAt): a playlist
   /// backup shows it as "Playlist created".
   final String? libraryAddedAt;
+
+  /// This playlist under another [name] (renamed on its page).
+  Playlist withName(String name) => Playlist(
+    id: id,
+    name: name,
+    owner: owner,
+    coverArt: coverArt,
+    songCount: songCount,
+    durationSec: durationSec,
+    tracks: tracks,
+    canWrite: canWrite,
+    comment: comment,
+    ownedByMe: ownedByMe,
+    libraryAddedAt: libraryAddedAt,
+  );
 }
 
 enum SearchResultType { tracks, albums, artists, playlists }
