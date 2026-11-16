@@ -144,6 +144,15 @@ class SettingsStrings {
   String get removeConfirm => _zh ? '移除' : 'Remove'; // settings_remove_confirm
   String get removeCancel => _zh ? '取消' : 'Cancel'; // settings_remove_cancel
   String get switchFailed => _zh ? '无法切换账号' : "Couldn't switch account"; // settings_switch_failed
+  String get switchTitle => _zh ? '正在切换账号' : 'Switching account'; // settings_switch_title
+  String get switchPreparing => _zh ? '正在关闭当前会话…' : 'Closing the current session…'; // settings_switch_preparing
+  String switchConnecting(String name) => _zh ? '正在连接 $name…' : 'Connecting to $name…'; // settings_switch_connecting
+  String get switchConnectingUnnamed =>
+      _zh ? '正在连接新账号…' : 'Connecting to the new account…'; // settings_switch_connecting_unnamed
+  String get switchOk => _zh ? '好' : 'OK'; // settings_switch_ok
+  String get playerDlnaStopFailed => _zh
+      ? '音响未确认停止。请重试后再切换账号。'
+      : 'The speaker did not confirm stopping. Retry before changing accounts.'; // player_dlna_stop_failed (strings_shell)
   String get serviceNameSubsonic => 'Subsonic'; // settings_service_name_subsonic (translatable="false")
   String get serviceNameApple => 'Apple Music'; // settings_service_name_apple (translatable="false")
 

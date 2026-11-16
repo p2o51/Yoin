@@ -8,6 +8,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../home/widgets/home_motion.dart' show StagedBeat, StagedReveal;
 import '../theme/motion.dart';
 import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
@@ -69,6 +70,22 @@ class ReshapePager extends InheritedWidget {
   bool updateShouldNotify(ReshapePager old) => old.openPage != openPage;
 }
 
+/// The page's first-open reveal (Android rememberStagedReveal("album-…") /
+/// ("playlist-…")), for what is drawn inside the hero (the playlist sleeves
+/// open on the [hero] beat).
+class DetailStagedRevealScope extends InheritedWidget {
+  const DetailStagedRevealScope({super.key, required this.hero, required super.child});
+
+  /// The hero cover's beat, 0 → 1.
+  final Animation<double> hero;
+
+  static Animation<double>? maybeHeroOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DetailStagedRevealScope>()?.hero;
+
+  @override
+  bool updateShouldNotify(DetailStagedRevealScope old) => old.hero != hero;
+}
+
 /// The Album / Playlist page on Compact (D1 + D3): header, page wash, and —
 /// once loaded — the hero ⇄ track-list reshape on one [RevealController].
 /// While not loaded [stateView] (loading / error) fills the body under the
@@ -112,16 +129,34 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
       if (_pager.hasClients) _pager.position.jumpTo(_pageSpring.value * _pager.position.viewportDimension);
     });
 
+  /// Staged '启幕' on the first open: the cover lands first (risen, grown
+  /// in), the hero details rise a beat later. Once per page: returning to
+  /// it, rotating or pulling up never replays it.
+  late final StagedReveal _staged = StagedReveal.once(vsync: this);
+  bool _stagedQueued = false;
+
   @override
   void initState() {
     super.initState();
+    // Created now: a lazy field first read in dispose() would build a ticker on a dead element.
+    _staged;
     _pager.addListener(() {
       if (_pager.hasClients && _pager.position.haveDimensions) _page.value = _pager.page ?? 0;
     });
   }
 
+  /// Starts the reveal once the page has content (not against a loading page).
+  void _stageWhenLoaded(bool loaded, bool reduce) {
+    if (!loaded || _staged.played || _stagedQueued) return;
+    _stagedQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _staged.start(reducedMotion: reduce);
+    });
+  }
+
   @override
   void dispose() {
+    _staged.dispose();
     _reveal.dispose();
     _pageSpring.dispose();
     _pager.dispose();
@@ -160,6 +195,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
   Widget _buildPage(BuildContext context) {
     final media = MediaQuery.of(context);
     final reduce = media.disableAnimations;
+    _stageWhenLoaded(widget.content != null, reduce);
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
@@ -191,6 +227,8 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 reveal: _reveal,
                 physics: _physics,
                 content: content,
+                heroBeat: _staged.beats[0].animation,
+                detailsBeat: _staged.beats[1].animation,
                 flight: paged ? _flight : null,
                 slotHeight: side + PullUpTokens.heroBand,
                 coverInSlot: Rect.fromLTWH((w - side) / 2, DetailTokens.albumCoverTopGap, side, side),
@@ -351,12 +389,19 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                                 type: MaterialType.transparency,
                                 elevation: 0,
                                 // The image's own corner, no shadow: nothing behind it is clipped.
-                                child: MediaArtwork(
-                                  url: content.coverUrl,
-                                  fallbackIcon: content.fallbackIcon,
-                                  radius: lerpDouble(PullUpMath.coverCorner(expand), _flight.coverCorner, toPage)!,
-                                  decodeWidth: 640,
-                                  fallbackIconSize: lerpDouble(lerpDouble(48, 24, expand)!, 24, toPage)!,
+                                // It lands on its staged beat (risen, grown in) on the first open.
+                                child: StagedBeat(
+                                  beat: _staged.beats[0].animation,
+                                  rise: DetailTokens.revealCoverRise,
+                                  scaleFrom: DetailTokens.revealCoverScaleFrom,
+                                  alignment: Alignment.center,
+                                  child: MediaArtwork(
+                                    url: content.coverUrl,
+                                    fallbackIcon: content.fallbackIcon,
+                                    radius: lerpDouble(PullUpMath.coverCorner(expand), _flight.coverCorner, toPage)!,
+                                    decodeWidth: 640,
+                                    fallbackIconSize: lerpDouble(lerpDouble(48, 24, expand)!, 24, toPage)!,
+                                  ),
                                 ),
                               ),
                             ),
@@ -473,6 +518,8 @@ class _Body extends StatelessWidget {
     required this.reveal,
     required this.physics,
     required this.content,
+    required this.heroBeat,
+    required this.detailsBeat,
     required this.flight,
     required this.slotHeight,
     required this.coverInSlot,
@@ -481,6 +528,11 @@ class _Body extends StatelessWidget {
   final RevealController reveal;
   final RevealScrollPhysics physics;
   final ReshapeContent content;
+
+  /// The first open's beats: the cover's (the backdrop opens behind it) and
+  /// the hero details' a beat later.
+  final Animation<double> heroBeat;
+  final Animation<double> detailsBeat;
 
   /// Page 2's cover flight: while the cover flies, the hero text fades out early.
   final AlbumPageFlight? flight;
@@ -538,17 +590,24 @@ class _Body extends StatelessWidget {
                     height: slotHeight,
                     child: content.backdrop == null
                         ? null
-                        : AnimatedBuilder(
-                            animation: reveal,
-                            builder: (context, _) =>
-                                content.backdrop!(coverInSlot, PullUpMath.smoothStep(0, 0.7, reveal.expand)),
+                        : DetailStagedRevealScope(
+                            hero: heroBeat,
+                            child: AnimatedBuilder(
+                              animation: reveal,
+                              builder: (context, _) =>
+                                  content.backdrop!(coverInSlot, PullUpMath.smoothStep(0, 0.7, reveal.expand)),
+                            ),
                           ),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _FlightTextFade(
-                      flight: flight,
-                      child: _HeroBelow(reveal: reveal, builder: content.heroBelow),
+                    child: StagedBeat(
+                      beat: detailsBeat,
+                      rise: DetailTokens.revealDetailsRise,
+                      child: _FlightTextFade(
+                        flight: flight,
+                        child: _HeroBelow(reveal: reveal, builder: content.heroBelow),
+                      ),
                     ),
                   ),
                 ],

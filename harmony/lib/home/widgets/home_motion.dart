@@ -8,33 +8,51 @@ import '../home_metrics.dart';
 /// on the Expressive slow spatial spring, started 0 / 90 / 170 ms apart, once
 /// per process (returning from a detail page, switching tabs or rotating
 /// never replays). Reduced motion: no reveal.
+///
+/// [StagedReveal.once] is a reveal of its own instead (a detail page's
+/// first open, Android rememberStagedReveal("album-…") / ("playlist-…")):
+/// it plays once for the object, with its own [delays] (the playlist
+/// sleeves' 50 / 100 ms), and is settled from the start when [played].
 class StagedReveal {
-  StagedReveal({required TickerProvider vsync})
+  StagedReveal({required TickerProvider vsync}) : this._(vsync, HomeTimings.stagedRevealDelays, _processLatch);
+
+  StagedReveal.once({
+    required TickerProvider vsync,
+    List<Duration> delays = HomeTimings.stagedRevealDelays,
+    bool played = false,
+  }) : this._(vsync, delays, _Latch(played));
+
+  StagedReveal._(TickerProvider vsync, this._delays, this._latch)
       : beats = List.generate(
-          HomeTimings.stagedRevealDelays.length,
-          (_) => SpringValue(vsync: vsync, initial: _played ? 1 : 0, spring: YoinSprings.slowSpatial),
+          _delays.length,
+          (_) => SpringValue(vsync: vsync, initial: _latch.played ? 1 : 0, spring: YoinSprings.slowSpatial),
         ) {
-    // The 0 / 90 / 170 ms delays run on the frame clock (one ticker), so a
-    // beat never starts between frames.
+    // The delays run on the frame clock (one ticker), so a beat never starts
+    // between frames.
     _clock = vsync.createTicker(_onTick);
   }
 
   /// The process-wide latch (Android rememberSaveable("home-feed")).
-  static bool _played = false;
+  static final _Latch _processLatch = _Latch(false);
 
   /// Tests reset it between cases (through HomeScreen.resetProcessState).
-  static void resetLatch() => _played = false;
+  static void resetLatch() => _processLatch.played = false;
 
-  static bool get hasPlayed => _played;
+  static bool get hasPlayed => _processLatch.played;
 
+  final List<Duration> _delays;
+  final _Latch _latch;
   final List<SpringValue> beats;
   late final Ticker _clock;
   int _started = 0;
 
-  /// Runs the beats once the feed has something to reveal.
+  /// Whether this reveal has started (or was settled from the start).
+  bool get played => _latch.played;
+
+  /// Runs the beats once there is something to reveal.
   void start({required bool reducedMotion}) {
-    if (_played) return;
-    _played = true;
+    if (_latch.played) return;
+    _latch.played = true;
     if (reducedMotion) {
       for (final b in beats) {
         b.snapTo(1);
@@ -45,8 +63,7 @@ class StagedReveal {
   }
 
   void _onTick(Duration elapsed) {
-    final delays = HomeTimings.stagedRevealDelays;
-    while (_started < beats.length && elapsed >= delays[_started]) {
+    while (_started < beats.length && elapsed >= _delays[_started]) {
       beats[_started++].animateTo(1);
     }
     if (_started >= beats.length) _clock.stop();
@@ -60,13 +77,33 @@ class StagedReveal {
   }
 }
 
+class _Latch {
+  _Latch(this.played);
+
+  bool played;
+}
+
+/// A beat this close to 1 has landed (the spring settles within 0.0005 of it).
+const double stagedBeatLanded = 0.999;
+
 /// One beat applied in paint only: alpha p, rise (1 − p) × [rise], scale lerp.
 class StagedBeat extends StatelessWidget {
-  const StagedBeat({super.key, required this.beat, required this.rise, this.scaleFrom = 1, required this.child});
+  const StagedBeat({
+    super.key,
+    required this.beat,
+    required this.rise,
+    this.scaleFrom = 1,
+    this.alignment = Alignment.topCenter,
+    required this.child,
+  });
 
   final Animation<double> beat;
   final double rise;
   final double scaleFrom;
+
+  /// Where the grow-in scales from (a detail page's cover: its centre, as
+  /// Android's graphicsLayer pivot).
+  final Alignment alignment;
   final Widget child;
 
   @override
@@ -74,13 +111,15 @@ class StagedBeat extends StatelessWidget {
         animation: beat,
         child: child,
         builder: (context, child) {
-          // One tree shape at every p, so the child never remounts.
-          final p = beat.value.clamp(0.0, 1.0);
+          // One tree shape at every p, so the child never remounts. The
+          // spring settles within its tolerance of 1: landed is exactly 1.
+          final raw = beat.value;
+          final p = raw >= stagedBeatLanded ? 1.0 : raw.clamp(0.0, 1.0);
           final scale = scaleFrom + (1 - scaleFrom) * p;
           return Opacity(
             opacity: p,
             child: Transform(
-              alignment: Alignment.topCenter,
+              alignment: alignment,
               transform: Matrix4.translationValues(0, (1 - p) * rise, 0)..scaleByDouble(scale, scale, 1, 1),
               child: child,
             ),

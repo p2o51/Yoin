@@ -9,7 +9,9 @@ import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
 import '../data/profile/profile_repository.dart';
 import '../detail/detail_cache.dart';
+import '../playback/output/playback_router.dart' show SpeakerStopRefused;
 import 'account_identity.dart';
+import 'account_switch.dart';
 
 /// One account as Settings shows it (ProfileCards.kt ProfileCard): Subsonic
 /// leads with the username and puts the server's host on the service line;
@@ -181,40 +183,40 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
     state = SettingsContent(accounts: cards);
   }
 
-  /// Makes [profileId] the active account. The playback chain, Home, Library
-  /// and the detail caches follow the active source. Returns false when the
-  /// switch could not be saved.
+  /// Makes [profileId] the active account through [AccountSwitcher]: the
+  /// outgoing playback is let go, the account's server asked, then the
+  /// playback chain, Home, Library and the detail caches follow the active
+  /// source. Settings' overlay shows the stages and a failure. True when the
+  /// account is in use afterwards.
   Future<bool> switchTo(String profileId) async {
     final current = state;
     if (current is SettingsContent && current.activeId == profileId) return true;
-    // Held across the await: storage and the running app must agree on the
-    // active account even if this view model goes away meanwhile.
+    // Held across the awaits. The switch is this page's: Settings closing calls it off before it commits.
     final container = ref.container;
+    await container.read(accountSwitcherProvider.notifier).switchTo(profileId, fromPage: true);
     try {
-      await ref.read(profileRepositoryProvider).setActive(profileId);
+      return (await container.read(profileRepositoryProvider).activeProfile())?.id == profileId;
     } catch (_) {
       return false;
     }
-    if (!ref.mounted) {
-      container.invalidate(activeSourceProvider);
-      return true;
-    }
-    if (current is SettingsContent) {
-      state = SettingsContent(accounts: [
-        for (final a in current.accounts) a.withActive(a.id == profileId),
-      ]);
-    }
-    ref.invalidate(activeSourceProvider);
-    return true;
   }
 
   /// Removes [profileId] and its credentials. Removing the active account
-  /// moves to the next one (or to none).
-  Future<void> remove(String profileId) async {
+  /// moves to the next one (or to none); its playback is let go first, and a
+  /// speaker that doesn't confirm Stop keeps the account (Android
+  /// ProfileManager.delete runs onSwitchPrepare): false then, nothing removed.
+  Future<bool> remove(String profileId) async {
     final current = state;
     final wasActive = current is SettingsContent && current.activeId == profileId;
     final repo = ref.read(profileRepositoryProvider);
     final container = ref.container;
+    if (wasActive) {
+      try {
+        await container.read(accountSwitchPrepareProvider)();
+      } on SpeakerStopRefused {
+        return false;
+      }
+    }
     try {
       await repo.remove(profileId);
     } catch (_) {
@@ -229,6 +231,7 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
     } else if (ref.mounted) {
       await _load();
     }
+    return true;
   }
 }
 

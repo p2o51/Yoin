@@ -541,6 +541,13 @@ abstract final class DetailTokens {
   /// Strips the cover breaks into for the spectrum bar.
   static const int spectrumStrips = 28;
 
+  /// The first open's staged reveal (StagedReveal.kt at Album/PlaylistDetailScreen):
+  /// the hero cover rises this far and grows from this scale on the hero beat,
+  /// the hero details rise this far on the meta beat.
+  static const double revealCoverRise = 20;
+  static const double revealCoverScaleFrom = 0.94;
+  static const double revealDetailsRise = 14;
+
   /// Detail headers: back button → title (AlbumDetailScreen.kt, ArtistDetailScreen.kt).
   static const double headerTitleGap = 14;
 

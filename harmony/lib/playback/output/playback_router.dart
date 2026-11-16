@@ -685,8 +685,24 @@ class PlaybackRouter implements QueuePlaybackEngine {
   @override
   Future<void> previous() => _remote?.previous() ?? native.previous();
 
-  /// Clearing the queue (account switch, sign-out) lets go of a renderer too;
-  /// a refused speaker Stop keeps it listed so the sheet can retry.
+  /// Lets go of the DLNA renderer before an account switch (Android
+  /// PlaybackManager.disconnectForProfileChange). Unlike [stop], a refused
+  /// Stop is not swallowed: it throws [SpeakerStopRefused] and leaves the
+  /// renderer connected and the queue as it was, so the switch fails and stays
+  /// on the old account (the Devices sheet can retry the Stop).
+  Future<void> leaveRendererForSwitch() async {
+    if (dlna.connectedDevice.value == null) return;
+    try {
+      await dlna.disconnect();
+    } catch (e) {
+      throw SpeakerStopRefused(e);
+    }
+  }
+
+  /// Clearing the queue (sign-out, a removed account) lets go of a renderer
+  /// too; a refused speaker Stop keeps it listed so the sheet can retry. An
+  /// account switch lets go of it first ([leaveRendererForSwitch]), so a
+  /// refusal there fails the switch instead of being swallowed here.
   @override
   Future<void> stop() async {
     _items = const [];
@@ -709,6 +725,17 @@ class PlaybackRouter implements QueuePlaybackEngine {
     if (_volumeKeysOn) volumeKeys.setIntercepting(false).catchError((Object _) {});
     dlna.connectedDevice.removeListener(_onDlnaDevice);
   }
+}
+
+/// The speaker Yoin plays on did not confirm Stop: an account switch (or
+/// removing the account in use) can't let its playback go.
+final class SpeakerStopRefused implements Exception {
+  const SpeakerStopRefused([this.cause]);
+
+  final Object? cause;
+
+  @override
+  String toString() => 'SpeakerStopRefused($cause)';
 }
 
 EngineItem _withGain(EngineItem item, double gain) => EngineItem(

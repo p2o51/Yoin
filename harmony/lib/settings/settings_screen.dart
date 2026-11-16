@@ -23,6 +23,7 @@ import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
+import 'account_switch_overlay.dart';
 import 'about_screen.dart';
 import 'add_account_sheet.dart';
 import 'apple_music_account_screen.dart';
@@ -266,7 +267,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ],
     );
-    return ChromeBarSuppression(
+    final page = ChromeBarSuppression(
       child: Scaffold(
         backgroundColor: wide ? settingsListPaneColor(colors) : settingsPageColor(colors),
         appBar: SettingsBar(
@@ -290,6 +291,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+    // The account switch's blocking overlay covers the whole page, both panes too.
+    return Stack(fit: StackFit.expand, children: [page, const AccountSwitchOverlay()]);
   }
 }
 
@@ -742,11 +745,8 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
     super.dispose();
   }
 
-  Future<void> _switch() async {
-    final failed = SettingsStrings.of(context).switchFailed;
-    final ok = await ref.read(settingsViewModelProvider.notifier).switchTo(widget.card.id);
-    if (!ok) ref.read(playbackControllerProvider.notifier).showMessage(failed);
-  }
+  /// The page's overlay shows the switch's stages and a failure.
+  Future<void> _switch() => ref.read(settingsViewModelProvider.notifier).switchTo(widget.card.id);
 
   Future<void> _options(BuildContext anchorContext) async {
     final strings = SettingsStrings.of(context);
@@ -769,7 +769,10 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
         await _switch();
       case _AccountAction.remove:
         final confirmed = await _confirmRemove();
-        if (confirmed == true) await ref.read(settingsViewModelProvider.notifier).remove(card.id);
+        if (confirmed != true || !mounted) break;
+        final refused = strings.playerDlnaStopFailed;
+        final removed = await ref.read(settingsViewModelProvider.notifier).remove(card.id);
+        if (!removed && mounted) ref.read(playbackControllerProvider.notifier).showMessage(refused);
       case null:
         break;
     }

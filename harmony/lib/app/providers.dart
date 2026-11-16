@@ -49,6 +49,32 @@ final musicSourceFactoryProvider = Provider<MusicSourceFactory>(
   (ref) => throw UnimplementedError('Override musicSourceFactoryProvider in main() or the test.'),
 );
 
+/// A source an account switch already built and pinged (Android
+/// ProfileManager.switchTo commits the source it asked): [activeSourceProvider]
+/// takes it for that account instead of building a second one.
+class PreparedSource {
+  String? _profileId;
+  MusicSource? _source;
+
+  /// Holds [source] for [profileId]; one held for another account is released.
+  void hand(String profileId, MusicSource source) {
+    if (!identical(_source, source)) _source?.dispose();
+    _profileId = profileId;
+    _source = source;
+  }
+
+  /// The source held for [profileId] (it is the caller's now), else null.
+  MusicSource? take(String profileId) {
+    final source = _source;
+    if (source == null || _profileId != profileId) return null;
+    _source = null;
+    _profileId = null;
+    return source;
+  }
+}
+
+final preparedSourceProvider = Provider<PreparedSource>((ref) => PreparedSource());
+
 /// The active account's source, rebuilt (and the old one disposed) when the
 /// active profile changes — invalidate this after adding/switching accounts.
 /// null = no account configured yet.
@@ -56,6 +82,11 @@ final activeSourceProvider = FutureProvider<MusicSource?>((ref) async {
   final repo = ref.watch(profileRepositoryProvider);
   final profile = await repo.activeProfile();
   if (profile == null) return null;
+  final prepared = ref.read(preparedSourceProvider).take(profile.id);
+  if (prepared != null) {
+    ref.onDispose(prepared.dispose);
+    return prepared;
+  }
   final credentials = await repo.credentials(profile.id);
   if (credentials == null) return null;
   final source = ref.watch(musicSourceFactoryProvider)(credentials);
