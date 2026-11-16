@@ -85,6 +85,7 @@ final class DisplayPosture {
     this.creaseRects = const [],
     this.leftCutout,
     this.rightCutout,
+    this.foldable,
   });
 
   /// A flat window with no crease and no cutout (Windows, tests, a phone).
@@ -112,11 +113,15 @@ final class DisplayPosture {
       ],
       leftCutout: side(map['leftCutout']),
       rightCutout: side(map['rightCutout']),
+      foldable: map['foldable'] as bool?,
     );
   }
 
   final FoldStatus foldStatus;
   final FoldDisplayMode foldDisplayMode;
+
+  /// Whether this device folds at all (`display.isFoldable()`); null when the host doesn't say.
+  final bool? foldable;
 
   /// The crease in window logical px (empty: none, or not in this window).
   final List<Rect> creaseRects;
@@ -148,10 +153,12 @@ final class DisplayPosture {
       other.foldDisplayMode == foldDisplayMode &&
       listEquals(other.creaseRects, creaseRects) &&
       other.leftCutout == leftCutout &&
-      other.rightCutout == rightCutout;
+      other.rightCutout == rightCutout &&
+      other.foldable == foldable;
 
   @override
-  int get hashCode => Object.hash(foldStatus, foldDisplayMode, Object.hashAll(creaseRects), leftCutout, rightCutout);
+  int get hashCode =>
+      Object.hash(foldStatus, foldDisplayMode, Object.hashAll(creaseRects), leftCutout, rightCutout, foldable);
 
   @override
   String toString() =>

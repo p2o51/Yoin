@@ -25,7 +25,7 @@ enum HomeBubbleTip {
   // No symbol for a bar sliding away in Yoin Symbols yet: Unfold less stands in.
   barScrollHide(YoinSymbols.unfoldLess, (2026, 11, 17)),
   // No foldable symbol in Yoin Symbols yet: the phone stands in for the half-folded one.
-  tabletop(YoinSymbols.smartphone, (2026, 11, 17), desktop: false),
+  tabletop(YoinSymbols.smartphone, (2026, 11, 17), desktop: false, foldableOnly: true),
   spatialAudio(YoinSymbols.headphones, (2026, 11, 17)),
   lyricsTools(YoinSymbols.lyrics, (2026, 11, 16)),
   lyricsSelect(YoinSymbols.check, (2026, 11, 16)),
@@ -59,13 +59,19 @@ enum HomeBubbleTip {
   scrollEdge(YoinSymbols.settings, (2026, 11, 17)),
   name(YoinSymbols.sparkle, (2026, 10, 17));
 
-  const HomeBubbleTip(this.icon, this._day, {this.desktop = true});
+  const HomeBubbleTip(this.icon, this._day, {this.desktop = true, this.foldableOnly = false});
 
   final IconData icon;
   final (int, int, int) _day;
 
   /// False: the feature isn't there on a desktop build (Windows has no service widgets and no app continuation).
   final bool desktop;
+
+  /// True: only a device that folds can reach it (Tabletop needs a hinge).
+  final bool foldableOnly;
+
+  /// Whether this device folds, from the posture host (`display.isFoldable()`). Null until known: foldable-only tips stay listed.
+  static bool? deviceFolds;
 
   DateTime get updated => DateTime(_day.$1, _day.$2, _day.$3);
 
@@ -75,7 +81,7 @@ enum HomeBubbleTip {
     final desktopHost = os == 'windows' || os == 'linux' || os == 'macos';
     return [
       for (final tip in values)
-        if (tip.desktop || !desktopHost) tip,
+        if ((tip.desktop || !desktopHost) && !(tip.foldableOnly && deviceFolds == false)) tip,
     ];
   }
 

@@ -15,6 +15,7 @@ import 'data/backup/playlist_backup_providers.dart';
 import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
+import 'home/home_bubble_tips.dart';
 import 'landing/landing_host.dart';
 import 'neodb/neodb_providers.dart';
 import 'nowplaying/haptics.dart';
@@ -169,6 +170,7 @@ class _PostureWindowScope extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final posture = ref.watch(displayPostureProvider).value ?? DisplayPosture.flat;
+    if (posture.foldable case final folds?) HomeBubbleTip.deviceFolds = folds;
     return DisplayPostureScope(
       posture: posture,
       child: YoinWindowScope.measured(posture: posture, child: child),

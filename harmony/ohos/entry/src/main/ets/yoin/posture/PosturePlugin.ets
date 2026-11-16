@@ -116,7 +116,9 @@ export class YoinPostureHost {
         hilog.warn(DOMAIN, TAG, 'window rect unavailable: %{public}s', JSON.stringify(e));
       }
     }
-    if (YoinPostureHost.foldable()) {
+    const foldable = YoinPostureHost.foldable();
+    result['foldable'] = foldable;
+    if (foldable) {
       try {
         const status: number = display.getFoldStatus();
         const mode: number = display.getFoldDisplayMode();
