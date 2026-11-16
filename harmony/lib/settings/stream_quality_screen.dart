@@ -156,17 +156,23 @@ class SpatialAudioGroup extends StatelessWidget {
         SettingsGroup(
           title: strings.spatialAudioTitle,
           children: [
-            SettingsItem(
-              key: const ValueKey('spatial-switch'),
-              icon: YoinSymbols.headphones,
-              title: strings.spatialAudioSwitch,
-              summary: spatialAudioStatus(strings, state),
-              onTap: state.canChoose ? toggle : null,
-              trailing: state.canChoose
-                  ? ExcludeSemantics(
-                      child: Switch(value: on, onChanged: (_) => toggle()),
-                    )
-                  : null,
+            // One control for screen readers: the row's tap, its text and the switch's on/off.
+            MergeSemantics(
+              child: Semantics(
+                toggled: state.canChoose ? on : null,
+                child: SettingsItem(
+                  key: const ValueKey('spatial-switch'),
+                  icon: YoinSymbols.headphones,
+                  title: strings.spatialAudioSwitch,
+                  summary: spatialAudioStatus(strings, state),
+                  onTap: state.canChoose ? toggle : null,
+                  trailing: state.canChoose
+                      ? ExcludeSemantics(
+                          child: Switch(value: on, onChanged: (_) => toggle()),
+                        )
+                      : null,
+                ),
+              ),
             ),
             // Kept while Yoin's switch is off too: the switch never adds or removes a row.
             if (state.supported)

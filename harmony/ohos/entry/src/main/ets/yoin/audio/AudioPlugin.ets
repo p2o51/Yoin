@@ -297,19 +297,35 @@ export default class YoinAudioPlugin implements FlutterPlugin, MethodCallHandler
     if (on === this.intercepting) {
       return;
     }
+    if (!on) {
+      this.releaseVolumeKeys();
+      this.intercepting = false;
+      return;
+    }
     try {
-      if (on) {
-        const up: inputConsumer.KeyPressedConfig = { key: KeyCode.KEYCODE_VOLUME_UP, action: 1, isRepeat: true };
-        const down: inputConsumer.KeyPressedConfig = { key: KeyCode.KEYCODE_VOLUME_DOWN, action: 1, isRepeat: true };
-        inputConsumer.on('keyPressed', up, this.onVolumeUp);
-        inputConsumer.on('keyPressed', down, this.onVolumeDown);
-      } else {
-        inputConsumer.off('keyPressed', this.onVolumeUp);
-        inputConsumer.off('keyPressed', this.onVolumeDown);
-      }
-      this.intercepting = on;
+      const up: inputConsumer.KeyPressedConfig = { key: KeyCode.KEYCODE_VOLUME_UP, action: 1, isRepeat: true };
+      const down: inputConsumer.KeyPressedConfig = { key: KeyCode.KEYCODE_VOLUME_DOWN, action: 1, isRepeat: true };
+      inputConsumer.on('keyPressed', up, this.onVolumeUp);
+      inputConsumer.on('keyPressed', down, this.onVolumeDown);
+      this.intercepting = true;
     } catch (e) {
-      hilog.warn(DOMAIN, TAG, 'volume keys %{public}s failed: %{public}s', on ? 'on' : 'off', JSON.stringify(e));
+      // Half taken (up without down) would leave one key dead: give both back.
+      hilog.warn(DOMAIN, TAG, 'volume keys on failed: %{public}s', JSON.stringify(e));
+      this.releaseVolumeKeys();
+    }
+  }
+
+  /** Gives both keys back to the system; each on its own, so one refusal can't keep the other taken. */
+  private releaseVolumeKeys(): void {
+    try {
+      inputConsumer.off('keyPressed', this.onVolumeUp);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'volume up release failed: %{public}s', JSON.stringify(e));
+    }
+    try {
+      inputConsumer.off('keyPressed', this.onVolumeDown);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'volume down release failed: %{public}s', JSON.stringify(e));
     }
   }
 }

@@ -255,8 +255,9 @@ final class ChannelVolumeKeyHost implements VolumeKeyHost {
     try {
       _channel.setMethodCallHandler((call) async {
         if (call.method == 'volumeKey') {
+          // A whole number may come over as a double from ArkTS.
           final step = call.arguments;
-          if (step is int && step != 0) _presses.add(step > 0 ? 1 : -1);
+          if (step is num && step != 0) _presses.add(step > 0 ? 1 : -1);
         }
       });
     } catch (_) {

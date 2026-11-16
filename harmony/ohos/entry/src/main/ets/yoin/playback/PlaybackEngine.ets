@@ -212,7 +212,12 @@ export class PlaybackEngine {
     const gen = this.generation;
     const fromFile = av.openedFile();
     av.decodedFormat().then((decoded: DecodedFormat | null) => {
-      if (gen !== this.generation || this.player !== p || decoded === null) {
+      if (gen !== this.generation || this.player !== p) {
+        return;
+      }
+      if (decoded === null) {
+        // No audio track described: the default effects, not the last song's (an AVPlayer is reused).
+        this.applySpatialChoice();
         return;
       }
       this.decodedChannels = decoded.channels;
@@ -231,6 +236,10 @@ export class PlaybackEngine {
       });
     }).catch((e: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'track description failed: %{public}s', describe(e));
+      if (gen === this.generation && this.player === p) {
+        // Channels unknown: the default effects, not the last song's (an AVPlayer is reused).
+        this.applySpatialChoice();
+      }
     });
   }
 

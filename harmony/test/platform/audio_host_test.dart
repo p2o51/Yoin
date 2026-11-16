@@ -91,6 +91,16 @@ void main() {
       expect(asked, [true, false]);
       expect(presses, [1, -1]);
     });
+
+    test('should_relayPress_when_stepArrivesAsDouble', () async {
+      final keys = ChannelVolumeKeyHost();
+      final presses = <int>[];
+      keys.presses.listen(presses.add);
+      await push('yoin/volume_keys', 'volumeKey', 1.0);
+      await push('yoin/volume_keys', 'volumeKey', -1.0);
+      await push('yoin/volume_keys', 'volumeKey', 0.0);
+      expect(presses, [1, -1]);
+    });
   });
 
   group('engine format', () {

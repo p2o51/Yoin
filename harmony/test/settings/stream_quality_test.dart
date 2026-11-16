@@ -297,6 +297,13 @@ void main() {
       expect(find.text('On. Multichannel songs are spatialized on this output.'), findsOneWidget);
       expect(find.text('System sound settings'), findsOneWidget);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      // Screen readers hear the row as one switch, with its state.
+      final semantics = tester.ensureSemantics();
+      expect(
+        tester.getSemantics(find.text('Spatialize 5.1 and 7.1 songs')),
+        isSemantics(hasToggledState: true, isToggled: true, hasTapAction: true),
+      );
+      semantics.dispose();
 
       await tester.tap(find.text('Spatialize 5.1 and 7.1 songs'));
       await tester.runAsync(() => Future<void>.delayed(Duration.zero));
