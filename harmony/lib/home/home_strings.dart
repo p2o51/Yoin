@@ -47,6 +47,7 @@ class HomeStrings {
   String get sectionOtherProfiles => _zh ? '在你的其他资料里' : 'On Your Other Accounts'; // home_section_other_profiles
   String get sectionLyricHighlight => _zh ? '歌词卡片' : 'Lyric Cards'; // home_section_lyric_highlight
   String get sectionMemoryGrid => _zh ? '全部回忆' : 'All Memories'; // home_section_memory_grid
+  String get sectionMadeForYou => _zh ? '为你推荐' : 'Made For You'; // home_section_made_for_you
 
   String sectionTitle(HomeSection section) => switch (section) {
         HomeSection.activities => sectionActivities,
@@ -58,6 +59,7 @@ class HomeStrings {
         HomeSection.otherProfiles => sectionOtherProfiles,
         HomeSection.lyricHighlight => sectionLyricHighlight,
         HomeSection.memoryGrid => sectionMemoryGrid,
+        HomeSection.madeForYou => sectionMadeForYou,
       };
 
   /// home_section_*_supporting: the edit plate's line under a section's name.
@@ -72,6 +74,7 @@ class HomeStrings {
         HomeSection.otherProfiles => _zh ? '你的其他账号常听的专辑和播放列表' : 'Albums and playlists your other accounts play most',
         HomeSection.lyricHighlight => _zh ? '从你的歌里挑出的歌词，点按从那句开播' : 'Lyrics picked from your songs, tap to play from that line',
         HomeSection.memoryGrid => _zh ? '所有笔记和评分，格子跟着你写的多少变' : 'Every note and score, on a grid that grows with you',
+        HomeSection.madeForYou => _zh ? 'Spotify 和 Apple Music 为你做的歌单' : 'Playlists Spotify and Apple Music make for you',
       };
 
   /// home_placeholder_*: an edit plate's empty section.
@@ -86,6 +89,7 @@ class HomeStrings {
         // Carbon 2026-11-17: no Gemini Nano picks a line here (Android: home_placeholder_lyric_highlight).
         HomeSection.lyricHighlight => _zh ? '在歌词里选句分享或保存，这里就会有第一张' : 'Share or save lines in Lyrics to add the first card',
         HomeSection.memoryGrid => _zh ? '还没有回忆' : 'No memories yet',
+        HomeSection.madeForYou => _zh ? '为你做的歌单会出现在这里' : 'Playlists made for you show here',
       };
 
   // ---- Jump Back In signal cards ----

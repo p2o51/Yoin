@@ -15,6 +15,7 @@ import '../platform/i18n/name_transliterator.dart';
 import '../platform/sensors/motion_sensors.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/posture/display_posture.dart';
+import '../platform/share/file_share.dart';
 import '../platform/share/image_share.dart';
 import '../platform/share/text_share.dart';
 import '../platform/storage/observed_store.dart';
@@ -47,6 +48,7 @@ List<Override> platformOverrides(YoinPlatform platform) {
     windowControlsProvider.overrideWithValue(platform.windowControls),
     imageShareProvider.overrideWithValue(platform.imageShare),
     textShareProvider.overrideWithValue(platform.textShare),
+    fileShareProvider.overrideWithValue(platform.fileShare),
     appFilesHostProvider.overrideWithValue(platform.appFiles),
     backgroundTransferHostProvider.overrideWithValue(platform.backgroundTransfer),
     cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),

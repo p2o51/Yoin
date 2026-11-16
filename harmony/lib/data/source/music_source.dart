@@ -360,6 +360,87 @@ extension MusicSourceLibraryCollection on MusicSource {
       _ => null,
     };
   }
+
+  /// How the library's server names itself after a ping; null when it can't say.
+  MusicServerIdentity? get serverIdentity => switch (library) {
+    final MusicServerIdentity i => i,
+    _ => null,
+  };
+
+  /// The playlists the service makes for the account (Home's Made For You); null when it makes none.
+  MusicMadeForYou? get madeForYou => switch (library) {
+    final MusicMadeForYou m => m,
+    _ => null,
+  };
+}
+
+/// A service that lists the playlists it makes for the user, for Home's Made
+/// For You (Android MadeForYouSource, owner 2026-11-15): Apple Music answers
+/// it from its recommendations. (Android's Spotify reads its hub over App
+/// Remote instead; HarmonyOS has no App Remote.)
+abstract interface class MusicMadeForYou {
+  /// The playlists made for the user, in the service's order; empty when it has none.
+  Future<List<MadeForYouPlaylist>> madeForYou();
+}
+
+/// One Made For You playlist as the service lists it (Android
+/// MadeForYouPlaylist): opened by [id] as any playlist is.
+@immutable
+final class MadeForYouPlaylist {
+  const MadeForYouPlaylist({required this.id, required this.title, this.subtitle = '', this.cover});
+
+  final MediaId id;
+  final String title;
+
+  /// The service's own line for it (a mix's short description); the card says whose it is instead.
+  final String subtitle;
+  final CoverRef? cover;
+
+  Map<String, Object?> toJson() => {
+    'id': id.rawId,
+    'provider': id.provider,
+    'title': title,
+    'subtitle': subtitle,
+    'image': cover?.storageKey ?? '',
+  };
+
+  /// A saved card; null when it lacks its id or name.
+  static MadeForYouPlaylist? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final id = json['id'];
+    final provider = json['provider'];
+    final title = json['title'];
+    if (id is! String || id.isEmpty || provider is! String || provider.isEmpty || title is! String || title.isEmpty) {
+      return null;
+    }
+    final subtitle = json['subtitle'];
+    return MadeForYouPlaylist(
+      id: MediaId(provider, id),
+      title: title,
+      subtitle: subtitle is String ? subtitle : '',
+      cover: CoverRef.fromStorageKey(json['image'] is String ? json['image']! as String : null),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MadeForYouPlaylist &&
+      other.id == id &&
+      other.title == title &&
+      other.subtitle == subtitle &&
+      other.cover == cover;
+
+  @override
+  int get hashCode => Object.hash(id, title, subtitle, cover);
+}
+
+/// A server that names itself when pinged (Android SubsonicMusicSource
+/// .pingServerName): the account page's Test shows it under its status.
+abstract interface class MusicServerIdentity {
+  /// One ping, answered with what the server calls itself ("Navidrome 0.64.2");
+  /// null from a server that sends no name. Fails as [MusicLibrary.ping] does
+  /// when the server isn't reached or refuses the sign-in.
+  Future<String?> pingServerName();
 }
 
 /// Where a song is fetched from to keep it on the device (Android

@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:yoin/data/lyrics/lyrics_translation.dart';
+import 'package:yoin/data/lyrics/lyrics_registry.dart';
+import 'package:yoin/data/lyrics/lyrics_repository.dart' show lyricsRegistryProvider;
 import 'package:yoin/data/lyrics/netease_provider.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/lyric_tools.dart';
@@ -66,6 +68,10 @@ Future<NowPlayingOverlayController> _pumpExpanded(
         upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
         imageShareProvider.overrideWithValue(share ?? _RecordingShare()),
         netEaseTranslatorProvider.overrideWithValue(_netEaseWithTranslation()),
+        // No online lyric sources: their real HTTP (answered 400 by the test binding at whatever moment
+        // the machine gets to it) set frames off mid-settle, so a loaded run spent past the tools' 3 s
+        // idle on the test clock and they hid before the first tap.
+        lyricsRegistryProvider.overrideWithValue(LyricsProviderRegistry(providers: const [])),
       ],
       child: MaterialApp(
         home: Material(
@@ -78,13 +84,16 @@ Future<NowPlayingOverlayController> _pumpExpanded(
     ),
   );
   controller.openPlayer();
-  await tester.pumpAndSettle();
+  await _settle(tester);
   if (size.width > 1000 && !controller.fullscreen) {
     controller.toggleFullscreen();
-    await tester.pumpAndSettle();
+    await _settle(tester);
   }
   controller.expandStage();
-  await tester.pumpAndSettle();
+  await _settle(tester);
+  // Every test starts from a player just touched: the tools up, their idle count from now.
+  _tools(tester).idle.onInteraction();
+  await tester.pump();
   return controller;
 }
 
@@ -123,6 +132,30 @@ NetEaseTranslator _netEaseWithTranslation() => NetEaseTranslator(
 
 LyricToolsController _tools(WidgetTester tester) =>
     LyricToolsScope.maybeOf(tester.element(find.byType(LyricToolsBar).first))!;
+
+/// Lets the springs land on the test's clock: a fixed span of 16 ms frames,
+/// never "until nothing animates". Now Playing has effects timed on the real
+/// clock (the room's lights, the seam's read-backs), so settling until idle
+/// spent a different span of test time on every machine and load — past the
+/// tools' 3 s idle on some runs, and they hid before the first tap.
+Future<void> _settle(WidgetTester tester, {Duration span = const Duration(milliseconds: 1200)}) async {
+  for (var t = Duration.zero; t < span; t += const Duration(milliseconds: 16)) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
+/// Lets work that runs on real time (the translator's HTTP, the share card's
+/// raster) go on, with a frame after each slice, until [done]: bounded by a
+/// generous real-time limit instead of a guess, so a loaded machine only
+/// makes it slower, never flaky.
+Future<void> _until(WidgetTester tester, bool Function() done) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 30));
+  while (!done()) {
+    if (DateTime.now().isAfter(deadline)) fail('timed out waiting on real-time work');
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+    await tester.pump();
+  }
+}
 
 bool _enabled(WidgetTester tester, String key) =>
     tester.widget<Semantics>(find.byKey(ValueKey(key))).properties.enabled ?? false;
@@ -202,17 +235,23 @@ void main() {
     testWidgets('should_showTranslationUnderLines_when_translateTapped', (tester) async {
       await _pumpExpanded(tester);
       expect(find.text('译 2'), findsNothing);
-      await tester.runAsync(() async {
-        await tester.tap(find.byKey(const ValueKey('lyrics-tool-translate')));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      });
-      await tester.pumpAndSettle();
+      await tester.runAsync(() => tester.tap(find.byKey(const ValueKey('lyrics-tool-translate'))));
+      // The translation's read runs on real time: waited for, not guessed (100 ms ran out in loaded full runs).
+      final c = ProviderScope.containerOf(tester.element(find.byType(NowPlayingScreen)));
+      await _until(
+        tester,
+        () => switch (c.read(nowPlayingViewModelProvider)) {
+          NowPlayingContent(:final showTranslation) => showTranslation,
+          _ => false,
+        },
+      );
+      await _settle(tester);
       expect(find.text('译 2'), findsOneWidget);
       expect(find.text('Lyrics translated'), findsNothing, reason: 'snackbar lives in the shell');
 
       // Again: the layer hides (the translation stays for the song).
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-translate')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(find.text('译 2'), findsNothing);
     });
 
@@ -242,7 +281,7 @@ void main() {
       await _pumpExpanded(tester);
 
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       final tools = _tools(tester);
       expect(tools.selection.active, isTrue);
       expect(find.byKey(const ValueKey('lyrics-select-close')), findsOneWidget);
@@ -250,15 +289,15 @@ void main() {
       expect(_enabled(tester, 'lyrics-select-copy'), isFalse);
 
       await tester.tap(find.text('line 2').last);
-      await tester.pumpAndSettle();
+      await _settle(tester);
       await tester.tap(find.text('line 1').last);
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(tools.selection.selected, {1, 2});
       expect(find.text('2 / 15'), findsOneWidget);
       expect(_enabled(tester, 'lyrics-select-copy'), isTrue);
 
       await tester.tap(find.byKey(const ValueKey('lyrics-select-copy')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(copied, 'line 1\nline 2\n\n— Song 0 · Artist 0');
       expect(tools.selection.active, isFalse, reason: 'copy leaves select mode');
     });
@@ -266,12 +305,12 @@ void main() {
     testWidgets('should_refuseSixteenthLine_when_pickFull', (tester) async {
       await _pumpExpanded(tester);
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       final tools = _tools(tester);
       for (var i = 10; i < 25; i++) {
         tools.selection.toggle(i);
       }
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(tools.selection.selected.length, maxSelectedLyricLines);
       expect(find.text('15 / 15'), findsOneWidget);
 
@@ -279,22 +318,22 @@ void main() {
       await tester.pump();
       expect(tools.selection.selected.contains(1), isFalse);
       expect(tools.selection.selected.length, maxSelectedLyricLines);
-      await tester.pumpAndSettle();
+      await _settle(tester);
     });
 
     testWidgets('should_leaveSelectModeFirst_when_systemBack', (tester) async {
       final c = await _pumpExpanded(tester);
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(_tools(tester).selection.active, isTrue);
 
       expect(c.handleBack(), isTrue);
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(_tools(tester).selection.active, isFalse);
       expect(c.stage, NowPlayingStage.expanded, reason: 'back only left select mode');
 
       c.handleBack();
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(c.stage, NowPlayingStage.compact);
     });
 
@@ -302,9 +341,9 @@ void main() {
       await _pumpExpanded(tester, size: const Size(1280, 800));
       expect(find.byKey(const ValueKey('lyrics-tool-select')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       await tester.tap(find.text('line 3').last);
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(_tools(tester).selection.selected, {3});
       expect(find.text('1 / 15'), findsOneWidget);
     });
@@ -312,7 +351,7 @@ void main() {
     testWidgets('should_tapToSeek_when_notSelecting', (tester) async {
       await _pumpExpanded(tester);
       await tester.tap(find.text('line 2').last);
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(_tools(tester).selection.selected, isEmpty);
     });
 
@@ -320,22 +359,21 @@ void main() {
       final share = _RecordingShare();
       await _pumpExpanded(tester, share: share);
       await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       await tester.tap(find.text('line 2').last);
-      await tester.pumpAndSettle();
+      await _settle(tester);
 
       await tester.tap(find.byKey(const ValueKey('lyrics-select-share')));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(find.byKey(const ValueKey('lyrics-share-card')), findsOneWidget);
       expect(find.text('Card'), findsOneWidget);
       expect(find.text('Story'), findsOneWidget);
       expect(_tools(tester).selection.active, isTrue, reason: 'the pick waits behind the open sheet');
 
-      await tester.runAsync(() async {
-        await tester.tap(find.byKey(const ValueKey('lyrics-share-share')));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-      await tester.pumpAndSettle();
+      await tester.runAsync(() => tester.tap(find.byKey(const ValueKey('lyrics-share-share'))));
+      // The card's raster runs on real time: waited for, not guessed (200 ms ran out in loaded full runs).
+      await _until(tester, () => share.shares > 0);
+      await _settle(tester);
       expect(share.shares, 1);
       expect(share.last, isNotEmpty);
       expect(find.byKey(const ValueKey('lyrics-share-card')), findsNothing);
@@ -352,7 +390,7 @@ void main() {
       await tester.tapAt(tester.getBottomLeft(find.byType(NowPlayingScreen)) + const Offset(40, -20));
       await tester.pump();
       expect(tools.idle.idle, isFalse);
-      await tester.pumpAndSettle();
+      await _settle(tester);
     });
   });
 }

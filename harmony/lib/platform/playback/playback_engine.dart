@@ -229,6 +229,7 @@ sealed class EngineEvent {
         'openNowPlaying' => const OpenNowPlayingEvent(),
         'networkAvailable' => const NetworkAvailableEvent(),
         'playingFormat' => PlayingFormatEvent.fromMap(map),
+        'trace' => EngineTraceEvent.fromMap(map),
         'command' => switch (map['name']) {
             'toggleFavorite' => ToggleFavoriteCommand(map['id'] as String?),
             final String name when SessionTransportCommand.names.contains(name) =>
@@ -372,6 +373,31 @@ int? _positive(Object? v) => switch (_int(v)) {
   final int i when i > 0 => i,
   _ => null,
 };
+
+/// A line for the playback log (Dart's PlayTrace, Settings › Help and about
+/// › Export log): what the native engine did — an open, a gapless swap, a
+/// player error, a focus change, a stall, a key from the system. [line]
+/// carries no URL; [detail] is free text (an error's message) to mask before
+/// it is kept. [atMs]: when it happened (a line queued while no Dart listened
+/// arrives later).
+final class EngineTraceEvent extends EngineEvent {
+  const EngineTraceEvent(this.line, {this.detail, this.atMs});
+
+  final String line;
+  final String? detail;
+  final int? atMs;
+
+  static EngineTraceEvent? fromMap(Map<Object?, Object?> map) {
+    final line = map['line'];
+    if (line is! String || line.isEmpty) return null;
+    final detail = map['detail'];
+    return EngineTraceEvent(
+      line,
+      detail: detail is String && detail.isNotEmpty ? detail : null,
+      atMs: _int(map['atMs']),
+    );
+  }
+}
 
 /// The system heart was tapped; [id] is the item's MediaId string.
 final class ToggleFavoriteCommand extends EngineEvent {

@@ -150,7 +150,7 @@ final class _IdKinds {
   }
 }
 
-final class _SubsonicLibrary implements MusicLibrary, MusicTrackLookup {
+final class _SubsonicLibrary implements MusicLibrary, MusicTrackLookup, MusicServerIdentity {
   _SubsonicLibrary(this._api, this._kinds);
   final SubsonicApi _api;
   final _IdKinds _kinds;
@@ -160,6 +160,9 @@ final class _SubsonicLibrary implements MusicLibrary, MusicTrackLookup {
     await _api.call('ping');
     return true;
   }
+
+  @override
+  Future<String?> pingServerName() async => subsonicServerName(await _api.call('ping'));
 
   @override
   Future<List<Album>> getAlbumList(AlbumListType type, {int size = 20, int offset = 0}) async {
@@ -576,4 +579,19 @@ final class _SubsonicPlayback implements MusicPlayback, MusicDownloads {
       ('submission', 'true'),
     ]);
   }
+}
+
+/// What a server calls itself in a ping's answer (Android SubsonicResponseBody
+/// .serverName): the OpenSubsonic `type` with each word capitalised, then
+/// `serverVersion` as sent ("Navidrome 0.64.2"). Null from a plain Subsonic
+/// server, which sends neither.
+String? subsonicServerName(Map<String, Object?> body) {
+  final type = body['type'] is String ? body['type']! as String : '';
+  final version = body['serverVersion'] is String ? (body['serverVersion']! as String).trim() : '';
+  final name = [
+    for (final word in type.split(' '))
+      if (word.trim().isNotEmpty) word[0].toUpperCase() + word.substring(1),
+  ].join(' ');
+  final both = [name, version].where((s) => s.isNotEmpty).join(' ');
+  return both.isEmpty ? null : both;
 }

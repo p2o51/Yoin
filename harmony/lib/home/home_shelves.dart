@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model/model.dart';
+import '../data/source/music_source.dart' show MadeForYouPlaylist;
 import '../theme/tokens.dart';
 import 'home_actions.dart';
 import 'home_album_memory_mark.dart';
@@ -11,6 +12,7 @@ import 'home_edit.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_header.dart';
+import 'home_made_for_you.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
@@ -237,7 +239,7 @@ class PlaylistShelfCard extends ConsumerWidget {
 }
 
 class _ShelfCard extends StatelessWidget {
-  const _ShelfCard({required this.card, required this.caption, required this.onTap, this.markAlbum});
+  const _ShelfCard({super.key, required this.card, required this.caption, required this.onTap, this.markAlbum});
 
   final HomeWidgetCard card;
   final String caption;
@@ -279,6 +281,51 @@ class _ShelfCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Made For You (Android MadeForYouSection, owner 2026-11-15,「为你推荐」):
+/// the playlists the service makes for this account, the Recently Added
+/// card's size on the playlist backdrop shape, whose it is under the name. A
+/// tap opens the playlist's page.
+class MadeForYouSection extends ConsumerWidget {
+  const MadeForYouSection({super.key, required this.playlists, required this.frame});
+
+  final List<MadeForYouPlaylist> playlists;
+  final HomeFeedFrame frame;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => _ShelfSection(
+    title: HomeStrings.of(context).sectionMadeForYou,
+    frame: frame,
+    gap: HomeSectionMetrics.shelfSpacing,
+    shelf: EdgeFadeShelf(
+      height: shelfCardHeight(context),
+      padding: _shelfPadding(frame),
+      itemCount: playlists.length,
+      itemBuilder: (context, i) {
+        final playlist = playlists[i];
+        final card = HomeWidgetCard(
+          stableId: 'made-for-you:${playlist.id.rawId}',
+          kind: HomeCardKind.playlist,
+          title: playlist.title,
+          subtitle: madeForYouCardSubtitle(playlist),
+          cover: playlist.cover,
+          target: HomeOpenPlaylist(
+            Playlist(id: playlist.id, name: playlist.title, coverArt: playlist.cover, comment: playlist.subtitle),
+          ),
+        );
+        return Align(
+          alignment: Alignment.topCenter,
+          child: _ShelfCard(
+            key: ValueKey(card.stableId),
+            card: card,
+            caption: card.subtitle,
+            onTap: () => openHomeTarget(context, ref, card.target),
+          ),
+        );
+      },
+    ),
+  );
 }
 
 /// Recently Played: album cards, with the scroll-aware edge fade.

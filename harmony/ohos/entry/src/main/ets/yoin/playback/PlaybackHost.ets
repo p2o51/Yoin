@@ -1,7 +1,14 @@
 import { Any, EventSink } from '@ohos/flutter_ohos';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { EngineListener, EngineSnapshot, FormatListener, PlaybackEngine, PlayingFormat } from './PlaybackEngine';
+import {
+  EngineListener,
+  EngineSnapshot,
+  FormatListener,
+  PlaybackEngine,
+  PlayingFormat,
+  TraceListener
+} from './PlaybackEngine';
 import { QueueItem } from './QueueItem';
 import { SystemSession } from './SystemSession';
 import { NetworkWatch } from './NetworkWatch';
@@ -10,6 +17,15 @@ const DOMAIN = 0x5901;
 const TAG = 'YoinPlaybackHost';
 /** An "open Now Playing" request waits this long for Dart to listen (Android NOW_PLAYING_REQUEST_TTL: 30 s). */
 const OPEN_REQUEST_TTL_MS = 30000;
+/** Playback-log lines kept while no Dart listens (the UI gone, the music on); the oldest go first. */
+const TRACE_BACKLOG = 200;
+
+/** A playback-log line waiting for Dart, with when it happened. */
+class PendingTrace {
+  line: string = '';
+  detail: string | null = null;
+  atMs: number = 0;
+}
 
 /**
  * The process-level owner of playback (Android's PlaybackService): one engine and one system session for the
@@ -33,12 +49,16 @@ export class YoinPlaybackHost {
   private lastFormat: PlayingFormat | null = null;
   /** A network came up: Dart sends the plays it queued offline. */
   private network: NetworkWatch = new NetworkWatch();
+  private traceListener: TraceListener = (line: string, detail: string | null) => this.sendTrace(line, detail);
+  /** Lines logged with no Dart listening, sent when one does (Dart's PlayTrace stamps them with [atMs]). */
+  private traceBacklog: PendingTrace[] = [];
 
   private constructor(context: common.UIAbilityContext) {
     this.context = context;
     this.engine = new PlaybackEngine();
     this.engine.addListener(this.listener);
     this.engine.addFormatListener(this.formatListener);
+    this.engine.addTraceListener(this.traceListener);
     this.session = new SystemSession(context, this.engine,
       (name: string, id: string) => this.sendCommand(name, id));
     this.network.start(() => this.sendNetworkAvailable());
@@ -86,6 +106,9 @@ export class YoinPlaybackHost {
   attachSink(sink: EventSink): void {
     this.sink = sink;
     this.sendState(this.engine.snapshot());
+    const backlog = this.traceBacklog;
+    this.traceBacklog = [];
+    backlog.forEach((t: PendingTrace) => this.sendTraceNow(sink, t));
     if (this.lastFormat !== null) {
       this.sendFormat(this.lastFormat);
     }
@@ -158,6 +181,32 @@ export class YoinPlaybackHost {
     map.set('sampleRateHz', f.decoded.sampleRateHz);
     map.set('bitDepth', f.decoded.bitDepth);
     map.set('bitRate', f.decoded.bitRate);
+    sink.success(map);
+  }
+
+  /** A playback-log line (Dart's `EngineTraceEvent`); kept for the next sink while no Dart listens. */
+  private sendTrace(line: string, detail: string | null): void {
+    const t = new PendingTrace();
+    t.line = line;
+    t.detail = detail;
+    t.atMs = Date.now();
+    const sink = this.sink;
+    if (sink === null) {
+      this.traceBacklog.push(t);
+      if (this.traceBacklog.length > TRACE_BACKLOG) {
+        this.traceBacklog.shift();
+      }
+      return;
+    }
+    this.sendTraceNow(sink, t);
+  }
+
+  private sendTraceNow(sink: EventSink, t: PendingTrace): void {
+    const map: Map<string, Any> = new Map();
+    map.set('type', 'trace');
+    map.set('line', t.line);
+    map.set('detail', t.detail);
+    map.set('atMs', t.atMs);
     sink.success(map);
   }
 

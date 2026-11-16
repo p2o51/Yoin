@@ -88,6 +88,35 @@ void main() {
       expect(source.disposed, isTrue);
     });
 
+    // Android main: the account page names the server after a Test ("Navidrome 0.64.2").
+    test('should_nameTheServer_when_theTestIsAnswered', () async {
+      final named = _NamedServer('Navidrome 0.64.2');
+      source = named;
+      final c = container();
+      addTearDown(c.dispose);
+      await c.read(subsonicSetupViewModelProvider.notifier).test(address: 'a.test', username: 'u', password: 'p');
+      expect(c.read(subsonicSetupViewModelProvider).status, const SetupReachable(server: 'Navidrome 0.64.2'));
+      expect(named.namePings, 1, reason: 'one ping, which names the server');
+      expect(named.plainPings, 0);
+    });
+
+    test('should_sayTheServerWasFoundWithoutAName_when_aPlainSubsonicServerAnswers', () async {
+      source = _NamedServer(null);
+      final c = container();
+      addTearDown(c.dispose);
+      await c.read(subsonicSetupViewModelProvider.notifier).test(address: 'a.test', username: 'u', password: 'p');
+      expect(c.read(subsonicSetupViewModelProvider).status, const SetupReachable());
+    });
+
+    test('should_sayWhyAndNameNoServer_when_theServerRefusesTheTest', () async {
+      source = _NamedServer(null, error: const SourceAuthException('Wrong username or password'));
+      final c = container();
+      addTearDown(c.dispose);
+      await c.read(subsonicSetupViewModelProvider.notifier).test(address: 'a.test', username: 'u', password: 'p');
+      final status = c.read(subsonicSetupViewModelProvider).status as SetupFailed;
+      expect(status.serverMessage, 'Wrong username or password');
+    });
+
     test('should_saveAndActivate_when_connectAnswered', () async {
       final c = container();
       addTearDown(c.dispose);
@@ -322,6 +351,39 @@ void main() {
       expect(find.text('Server found'), findsOneWidget);
     });
 
+    testWidgets('should_nameTheServerUnderTheStatus_when_theTestFoundANamedServer', (tester) async {
+      source = _NamedServer('Navidrome 0.64.2');
+      await pump(tester);
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'music.example.com');
+      await tester.enterText(fields.at(1), 'gpo');
+      await tester.enterText(fields.at(2), 'pw');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Test'));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pumpAndSettle();
+      final status = tester.getRect(find.text('Server found'));
+      final name = tester.getRect(find.text('Navidrome 0.64.2'));
+      // Under the status, on its text's line.
+      expect(name.left, status.left);
+      expect(name.top, greaterThanOrEqualTo(status.bottom));
+    });
+
+    testWidgets('should_showTheStatusAlone_when_theServerGivesNoName', (tester) async {
+      source = _NamedServer(null);
+      await pump(tester);
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'music.example.com');
+      await tester.enterText(fields.at(1), 'gpo');
+      await tester.enterText(fields.at(2), 'pw');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Test'));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pumpAndSettle();
+      expect(find.text('Server found'), findsOneWidget);
+      expect(find.byKey(const ValueKey('subsonic-server-name')), findsNothing);
+    });
+
     testWidgets('should_revealPassword_when_toggleTapped', (tester) async {
       await pump(tester);
       TextField password() => tester.widget(find.byType(TextField).at(2));
@@ -331,6 +393,29 @@ void main() {
       expect(password().obscureText, isFalse);
     });
   });
+}
+
+/// A server that names itself on a ping (MusicServerIdentity); [error] fails the ping.
+class _NamedServer extends FakeMusicSource implements MusicServerIdentity {
+  _NamedServer(this.name, {this.error});
+  final String? name;
+  final Object? error;
+  int namePings = 0;
+  int plainPings = 0;
+
+  @override
+  Future<String?> pingServerName() async {
+    namePings++;
+    if (error != null) throw error!;
+    return name;
+  }
+
+  @override
+  Future<bool> ping() async {
+    plainPings++;
+    if (error != null) throw error!;
+    return true;
+  }
 }
 
 class _ThrowingPing extends FakeMusicSource {

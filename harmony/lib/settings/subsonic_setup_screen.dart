@@ -625,7 +625,27 @@ class _StatusLine extends StatelessWidget {
             ),
           ],
         ),
-      SetupReachable() => _StatusRow(icon: YoinSymbols.check, text: strings.reachable, color: colors.primary),
+      SetupReachable(:final server) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StatusRow(icon: YoinSymbols.check, text: strings.reachable, color: colors.primary),
+          // What the server calls itself ("Navidrome 0.64.2"), under the status
+          // and on its text's line; a plain Subsonic server gives none.
+          if (server != null)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(
+                top: SettingsMetrics.statusServerGap,
+                start: SettingsMetrics.statusIcon + SettingsMetrics.statusIconGap,
+              ),
+              child: Text(
+                server,
+                key: const ValueKey('subsonic-server-name'),
+                style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
       final SetupFailed failed => _StatusRow(icon: YoinSymbols.error, text: setupFailureText(context, failed), color: colors.error),
     };
     return SpringCrossFade(childKey: status.runtimeType, fit: StackFit.loose, child: child);

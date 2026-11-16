@@ -16,7 +16,9 @@ import '../platform/storage/stores.dart';
 import '../platform/window/window_controls.dart';
 import 'now_playing_state.dart';
 import 'output/output_providers.dart';
+import 'output/playback_router.dart' show DlnaOutput, LocalOutput, SystemCastOutput;
 import 'output/playback_router.dart' show SpeakerStopRefused;
+import 'play_trace.dart';
 import 'play_history.dart';
 import 'play_mode.dart';
 import 'playback_context.dart';
@@ -133,6 +135,20 @@ class PlaybackController extends Notifier<NowPlayingState> {
       };
   PlaybackClock get _clock => ref.read(playbackClockProvider);
 
+  /// The playback log (Settings › Help and about › Export log).
+  PlayTrace get _trace => ref.read(playTraceProvider);
+
+  /// Where the queue plays, as the log names it (Android ActiveBackend):
+  /// NONE with nothing loaded, else LOCAL, DLNA or CAST.
+  String get _backend {
+    if (_entries.isEmpty) return 'NONE';
+    return switch (ref.read(playbackRouterProvider)?.route.value) {
+      DlnaOutput() => 'DLNA',
+      SystemCastOutput() => 'CAST',
+      LocalOutput() || null => 'LOCAL',
+    };
+  }
+
   /// Heart / rating failures for the UI to toast.
   Stream<PlaybackNotice> get notices => _notices.stream;
 
@@ -233,6 +249,11 @@ class PlaybackController extends Notifier<NowPlayingState> {
       final items = [
         for (var i = 0; i < built.length; i++) _withEntry(built[i].$3, entries[i].entryId, context: context),
       ];
+      _trace.log(
+        // The song that starts: the tapped one, or the next playable after it.
+        'play ${source.provider} ${entries[playableStart].track.id.rawId} at=$playableStart/${items.length} '
+        'paused=$startPaused shuffled=$shuffled stream ${PlayTrace.describe(items[playableStart].uri)}',
+      );
       _entries = entries;
       ref.read(entryDeliveriesProvider.notifier).replace(items);
       _queueProfileId = profileId;
@@ -281,6 +302,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       if (shuffled) _log('started a pre-shuffled queue of ${items.length}');
     } catch (e, st) {
       _log('play failed: ${e.runtimeType}', st);
+      _trace.log('play failed ${tracks[start].id.rawId} ${e.runtimeType}: ${PlayTrace.maskHosts(_traceMessage(e))}');
       if (_current(generation)) {
         _publish(state.copyWith(phase: PlaybackPhase.error, isPlaying: false, errorKind: PlaybackErrorKind.playFailed));
       }
@@ -319,27 +341,37 @@ class PlaybackController extends Notifier<NowPlayingState> {
   Future<void> play() async {
     if (state.phase == PlaybackPhase.idle && _entries.isNotEmpty && state.index >= 0) {
       // The native queue is gone (host released): start it again where we were.
+      _trace.log('resume $_backend (restart at ${state.index})');
       return _restartAt(state.index);
     }
+    _trace.log('resume $_backend');
     _publish(state.copyWith(playWhenReady: true));
     return _engine.play();
   }
 
   Future<void> pause() {
+    _trace.log('pause $_backend');
     _publish(state.copyWith(playWhenReady: false));
     return _engine.pause();
   }
 
   Future<void> togglePlayPause() => state.playWhenReady ? pause() : play();
-  Future<void> next() => _engine.next();
+  Future<void> next() {
+    _trace.log('next $_backend');
+    return _engine.next();
+  }
 
   /// Restart the song when more than 3 s in (or nothing before it), else the
   /// previous song in play order (Spotify rule).
-  Future<void> previous() => _engine.previous();
+  Future<void> previous() {
+    _trace.log('previous $_backend');
+    return _engine.previous();
+  }
 
   /// Jump to queue index [index] (cancels a queue still being read).
   Future<void> skipTo(int index) {
     if (index < 0 || index >= _entries.length) return Future.value();
+    _trace.log('skip to $index $_backend');
     _generation++;
     _lastRecordedTrackId = null;
     return _engine.skipTo(index);
@@ -348,6 +380,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
   Future<void> seekTo(int positionMs) {
     final duration = state.effectiveDurationMs;
     final target = positionMs < 0 ? 0 : (duration != null && duration > 0 && positionMs > duration ? duration : positionMs);
+    _trace.log('seek $target $_backend');
     // Show the new position at once; the engine's next sample confirms it.
     final now = _clock.wallMs();
     _publish(state.copyWith(positionMs: target, sampledAtMs: now));
@@ -619,6 +652,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
     );
     if (e.phase == PlaybackPhase.error) {
       next = next.copyWith(errorKind: errorKindOf(e.errorMessage), errorMessage: e.errorMessage);
+      // Once per failure, whichever renderer reported it (Android onPlayerError).
+      if (prev.errorKind == null) {
+        _trace.log('player error ${next.errorKind!.name} $_backend: ${PlayTrace.maskHosts(e.errorMessage)}');
+      }
     }
     if (index < 0) next = next.copyWith(context: const NoPlaybackContext());
     _publish(_derive(base: next));
@@ -642,8 +679,14 @@ class PlaybackController extends Notifier<NowPlayingState> {
         _toggleFavorite(MediaId.tryParse(id) ?? state.current?.id, fromSystem: true).ignore();
       case NetworkAvailableEvent():
         _flushActive();
-      case PlayingFormatEvent():
+      case PlayingFormatEvent(:final decoded, :final fromFile):
+        _trace.log(
+          'audio input mime=${decoded.contentType} channels=${decoded.channels} rate=${decoded.sampleRateHz} '
+          'bitDepth=${decoded.bitDepth} bitrate=${decoded.bitRateKbps} file=$fromFile',
+        );
         ref.read(playingFormatProvider.notifier).report(event);
+      case EngineTraceEvent(:final line, :final detail, :final atMs):
+        _trace.log(detail == null ? 'engine $line' : 'engine $line: ${PlayTrace.maskHosts(detail)}', atMs: atMs);
       case SessionTransportCommand():
         break; // The output router sends these to the remote renderer.
     }
@@ -788,8 +831,11 @@ class PlaybackController extends Notifier<NowPlayingState> {
     if (profileId != null) _scrobbles.flush(profileId).ignore();
   }
 
-  void _onLifecycle(AppLifecycleState next) =>
-      _foreground = next == AppLifecycleState.resumed || next == AppLifecycleState.inactive;
+  void _onLifecycle(AppLifecycleState next) {
+    final foreground = next == AppLifecycleState.resumed || next == AppLifecycleState.inactive;
+    if (foreground != _foreground) _trace.log(foreground ? 'app foreground' : 'app background');
+    _foreground = foreground;
+  }
 
   /// Whether the window counts as in front (tests stand in for the lifecycle).
   @visibleForTesting
@@ -1088,3 +1134,10 @@ PlaybackErrorKind errorKindOf(String? engineMessage) =>
 const appleMusicContentRestrictedTag = 'apple_music_content_restricted';
 
 final playbackControllerProvider = NotifierProvider<PlaybackController, NowPlayingState>(PlaybackController.new);
+
+/// What a failure says, for the playback log (masked by the caller): a
+/// source's own message, else the error's text.
+String _traceMessage(Object error) => switch (error) {
+  SourceException(:final message) => message,
+  _ => '$error',
+};

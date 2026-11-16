@@ -5,6 +5,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../nowplaying/haptics.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/edge_split.dart';
 import '../ui/component/artwork_image.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/spring_cross_fade.dart';
@@ -17,7 +18,9 @@ import 'continue_on_strings.dart';
 /// (Android ui/continueon/ContinueOnCard.kt, owner 2026-11-08): the song,
 /// where the other device is in it, and "Continue here". Only that tap starts
 /// it and pauses the other device. Sits over the whole window (main.dart),
-/// Now Playing and the first-run landing included, clear of the navigation bar.
+/// Now Playing and the first-run landing included, above the shell's bar and
+/// beside the edge capsules (Android main 2026-11-13: LocalShellChromeInsets,
+/// whose space includes the navigation bar; it overlapped the bar before).
 class ContinueOnCardHost extends ConsumerWidget {
   const ContinueOnCardHost({super.key});
 
@@ -26,7 +29,7 @@ class ContinueOnCardHost extends ConsumerWidget {
     final prompt = ref.watch(continueOnProvider);
     final controller = ref.read(continueOnProvider.notifier);
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+      padding: shellChromeInsetsOf(context),
       child: ContinueOnCard(prompt: prompt, onContinue: controller.confirm, onDismiss: controller.dismiss),
     );
   }
@@ -172,88 +175,124 @@ class _CardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final page = Theme.of(context);
+    // Flat on the page's inverse surface (Android main 2026-11-13): the card's own colours, for
+    // everything inside it (the meta lines, the buttons) as well.
+    final theme = page.copyWith(colorScheme: continueOnCardScheme(page.colorScheme));
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final strings = ContinueOnStrings.of(context);
     final artist = prompt.artist?.trim().isNotEmpty ?? false ? prompt.artist! : null;
     final album = prompt.album?.trim().isNotEmpty ?? false ? prompt.album! : null;
-    return Material(
-      color: scheme.surfaceContainerHigh,
-      surfaceTintColor: Colors.transparent,
-      elevation: ContinueOnCardTokens.elevation,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(ContinueOnCardTokens.corner))),
-      child: Padding(
-        padding: const EdgeInsets.all(ContinueOnCardTokens.padding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                _Cover(url: prompt.coverUrl),
-                const SizedBox(width: ContinueOnCardTokens.coverGap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        strings.from(prompt.deviceName ?? strings.otherDevice),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.labelMedium!.copyWith(color: scheme.primary),
-                      ),
-                      Text(
-                        prompt.title ?? strings.unknownSong,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.titleMedium!.copyWith(color: scheme.onSurface),
-                      ),
-                      // As a song row has them: the artist, then the album muted, no glyph between.
-                      if (artist != null || album != null)
+    return Theme(
+      data: theme,
+      child: _CardSurface(
+        child: Padding(
+          padding: const EdgeInsets.all(ContinueOnCardTokens.padding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  _Cover(url: prompt.coverUrl),
+                  const SizedBox(width: ContinueOnCardTokens.coverGap),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          strings.from(prompt.deviceName ?? strings.otherDevice),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.labelMedium!.copyWith(color: scheme.primary),
+                        ),
+                        Text(
+                          prompt.title ?? strings.unknownSong,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.titleMedium!.copyWith(color: scheme.onSurface),
+                        ),
+                        // As a song row has them: the artist, then the album muted, no glyph between.
+                        if (artist != null || album != null)
+                          MetaLine(
+                            groups: [
+                              ?(artist == null ? null : MetaPlain(artist)),
+                              ?(album == null ? null : MetaMuted(album)),
+                            ],
+                            style: text.bodyMedium,
+                          ),
                         MetaLine(
                           groups: [
-                            ?(artist == null ? null : MetaPlain(artist)),
-                            ?(album == null ? null : MetaMuted(album)),
+                            MetaKind(prompt.playing ? strings.playing : strings.paused),
+                            MetaStat(formatContinueOnPosition(prompt.positionMs), ''),
                           ],
-                          style: text.bodyMedium,
+                          style: text.labelMedium,
                         ),
-                      MetaLine(
-                        groups: [
-                          MetaKind(prompt.playing ? strings.playing : strings.paused),
-                          MetaStat(formatContinueOnPosition(prompt.positionMs), ''),
-                        ],
-                        style: text.labelMedium,
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: ContinueOnCardTokens.sectionGap),
-            SpringCrossFade(
-              childKey: (prompt.stage, prompt.account.runtimeType),
-              fit: StackFit.loose,
-              child: _Actions(
-                prompt: prompt,
-                continueKey: continueKey,
-                onContinue: () {
-                  YoinHaptics.confirm();
-                  onContinue();
-                },
-                onDismiss: () {
-                  YoinHaptics.click();
-                  onDismiss();
-                },
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: ContinueOnCardTokens.sectionGap),
+              SpringCrossFade(
+                childKey: (prompt.stage, prompt.account.runtimeType),
+                fit: StackFit.loose,
+                child: _Actions(
+                  prompt: prompt,
+                  continueKey: continueKey,
+                  onContinue: () {
+                    YoinHaptics.confirm();
+                    onContinue();
+                  },
+                  onDismiss: () {
+                    YoinHaptics.click();
+                    onDismiss();
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+/// The card's flat surface in the card's own scheme (no shadow, no tint).
+class _CardSurface extends StatelessWidget {
+  const _CardSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      surfaceTintColor: Colors.transparent,
+      textStyle: TextStyle(color: scheme.onSurface),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(ContinueOnCardTokens.corner))),
+      child: child,
+    );
+  }
+}
+
+/// The card's colours (Android continueOnCardScheme): flat, no shadow (owner
+/// 2026-11-13), so it stands on the page's inverse surface the way the
+/// snackbar does. The title takes the page's own surface tone, the quieter
+/// lines inverseOnSurface, the accent inversePrimary, and "Continue here" is
+/// an inversePrimary pill with the card's colour for text.
+ColorScheme continueOnCardScheme(ColorScheme page) => page.copyWith(
+  surface: page.inverseSurface,
+  onSurface: page.surface,
+  onSurfaceVariant: page.onInverseSurface,
+  surfaceContainerHigh: page.inverseSurface,
+  surfaceContainerHighest: Color.lerp(page.inverseSurface, page.onInverseSurface, 0.14),
+  primary: page.inversePrimary,
+  onPrimary: page.inverseSurface,
+);
 
 class _Actions extends StatelessWidget {
   const _Actions({required this.prompt, required this.onContinue, required this.onDismiss, this.continueKey});

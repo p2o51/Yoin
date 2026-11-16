@@ -18,6 +18,7 @@ void main() {
       'other_profiles',
       'lyric_highlight',
       'memory_grid',
+      'made_for_you',
     ]);
   });
 
@@ -32,6 +33,7 @@ void main() {
       HomeSection.otherProfiles,
       HomeSection.lyricHighlight,
       HomeSection.memoryGrid,
+      HomeSection.madeForYou,
     ]);
   });
 

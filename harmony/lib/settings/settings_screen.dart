@@ -25,6 +25,7 @@ import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'account_switch_overlay.dart';
 import 'about_screen.dart';
+import 'export_log.dart';
 import 'add_account_sheet.dart';
 import 'apple_music_account_screen.dart';
 import 'ai_settings_screen.dart';
@@ -514,7 +515,8 @@ class _SyncStorageGroup extends StatelessWidget {
 }
 
 /// Help and about (Android owner 2026-11-09): Tips (how many are read), the
-/// Welcome guide, Docs and Send feedback (in the browser), Yoin (its version;
+/// Welcome guide, Docs and Send feedback (in the browser), Export log (the
+/// playback diagnostics, shared as a file), Yoin (its version;
 /// the website and privacy policy inside), and the open source licenses. On a
 /// wide window the rows that open a page show a chevron and the open one is
 /// marked.
@@ -535,7 +537,7 @@ class _HelpAboutGroup extends ConsumerWidget {
         : null;
     return SettingsGroup(
       title: strings.sectionHelpAbout,
-      selected: {if (open is TipsPane) 0, if (open is AboutPane) 4, if (open is LicensesPane) 5},
+      selected: {if (open is TipsPane) 0, if (open is AboutPane) 5, if (open is LicensesPane) 6},
       children: [
         SettingsItem(
           icon: YoinSymbols.sparkle,
@@ -563,6 +565,8 @@ class _HelpAboutGroup extends ConsumerWidget {
           url: YoinLinks.feedbackForm,
           openFailed: strings.aboutFeedbackOpenFailed,
         ),
+        // The playback diagnostics log through the share sheet (Android main, iOS's row).
+        const ExportLogItem(),
         SettingsItem(
           icon: YoinSymbols.info,
           title: strings.aboutName,

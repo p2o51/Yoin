@@ -71,7 +71,6 @@ abstract final class BarTokens {
   static const double searchHintIcon = 21;
   static const double searchHintEndInset = 26;
   static const double searchHintLift = -46;
-  static const double searchHintElevation = 16;
   static const int searchHintDelayMs = 240;
   static const int searchHintSettleMs = 120;
   static const double searchHintEnterScale = 0.68;
@@ -2220,9 +2219,8 @@ abstract final class ContinueOnCardTokens {
   static const double outerVertical = 24;
   static const double maxWidth = 420;
 
-  /// YoinShapeTokens.ExtraLarge; shadowElevation 6.
+  /// YoinShapeTokens.ExtraLarge. Flat: no shadow (Android main 2026-11-13), the inverse surface sets it apart.
   static const double corner = 28;
-  static const double elevation = 6;
   static const double padding = 16;
 
   /// Between the song row and the actions.

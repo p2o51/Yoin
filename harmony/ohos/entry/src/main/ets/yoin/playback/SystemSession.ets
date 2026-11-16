@@ -133,6 +133,9 @@ export class SystemSession {
 
   /** A system key: to the engine, or to Dart while a remote renderer plays. */
   private key(name: string, local: () => void, value?: string): void {
+    // The system's keys (播控中心, lock screen, headset) in the playback log.
+    const arg = value !== undefined && value.length > 0 ? ' ' + value : '';
+    this.engine.note(`session ${name}${arg}${this.remote !== null ? ' (remote)' : ''}`);
     if (this.remote !== null) {
       this.onCommand(name, value ?? '');
     } else {

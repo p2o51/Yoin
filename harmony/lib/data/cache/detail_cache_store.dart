@@ -189,6 +189,9 @@ final class DetailCacheStore {
   /// background passes its profile + invalidation check, so an edit that drops
   /// the entry meanwhile always wins — its remove either came first (this
   /// write is skipped) or queues behind this write on the same lock.
+  ///
+  /// The write takes its place on the lock as it is called (the index is read
+  /// under it), so a later [flush] — or any locked step — runs after it.
   Future<void> _write(
     String profileId,
     String kind,
@@ -196,8 +199,6 @@ final class DetailCacheStore {
     bool Function()? stillCurrent,
     Map<String, Object?> Function() encode,
   ) async {
-    final index = await _index();
-    if (index == null) return;
     final key = _key(profileId, kind, id);
     String text;
     try {
@@ -206,6 +207,8 @@ final class DetailCacheStore {
       return;
     }
     await _locked(() async {
+      final index = await _index();
+      if (index == null) return;
       if (stillCurrent != null && !stillCurrent()) return;
       final now = _clock();
       final old = index.rows[key];

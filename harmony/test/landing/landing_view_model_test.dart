@@ -177,10 +177,10 @@ void main() {
     c.listen(landingViewModelProvider(firstRun), (_, _) {});
     final vm = c.read(landingViewModelProvider(firstRun).notifier);
     final shown = landingShownSections(c.read(landingViewModelProvider(firstRun)).layout);
-    // Move the last shown row (All Memories) to the top.
+    // Move the last shown row (Made For You) to the top.
     vm.moveShownSection(shown.length - 1, 0);
     final sections = c.read(landingViewModelProvider(firstRun)).layout.sections;
-    expect(sections.first.id, HomeSection.memoryGrid.id);
+    expect(sections.first.id, HomeSection.madeForYou.id);
     expect(sections.length, HomeLayout.defaultLayout.sections.length);
   });
 

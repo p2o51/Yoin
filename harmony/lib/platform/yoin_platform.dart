@@ -21,6 +21,7 @@ import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
 import 'posture/display_posture.dart';
 import 'sensors/motion_sensors.dart';
+import 'share/file_share.dart';
 import 'share/image_share.dart';
 import 'share/text_share.dart';
 import 'storage/app_files.dart';
@@ -51,6 +52,7 @@ final class YoinPlatform {
     required this.windowCaption,
     required this.imageShare,
     required this.textShare,
+    required this.fileShare,
     required this.appFiles,
     required this.cloudSyncHost,
     required this.urlOpener,
@@ -104,6 +106,10 @@ final class YoinPlatform {
 
   /// The share sheet for a name and its link (OHOS Share Kit).
   final TextShare textShare;
+
+  /// The share sheet for a file the app wrote: Help and about's Export log
+  /// (OHOS Share Kit; Windows: none yet).
+  final FileShare fileShare;
 
   /// The folder for files the app keeps (offline downloads): OHOS filesDir.
   final AppFilesHost appFiles;
@@ -170,6 +176,7 @@ final class YoinPlatform {
     windowCaption: const ChannelWindowCaptionHost(),
     imageShare: const ChannelImageShare(),
     textShare: const ChannelTextShare(),
+    fileShare: const ChannelFileShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
     urlOpener: const BrowserUrlOpener(ChannelCloudSyncHost()),
@@ -201,6 +208,7 @@ final class YoinPlatform {
     windowCaption: const SystemTitleBarHost(),
     imageShare: const NoImageShare(),
     textShare: const NoTextShare(),
+    fileShare: const NoFileShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
     urlOpener: BrowserUrlOpener(DesktopCloudSyncHost(folder)),

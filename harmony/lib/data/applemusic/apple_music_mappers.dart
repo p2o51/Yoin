@@ -13,6 +13,7 @@
 library;
 
 import '../model/model.dart';
+import '../source/music_source.dart' show MadeForYouPlaylist;
 import 'apple_music_api.dart';
 
 /// What [Track] can't carry about an Apple Music song (Android Track.extras).
@@ -257,6 +258,38 @@ Playlist? playlistFrom(AppleMusicJson resource) {
     // Apple names no owner: a library playlist the user can edit is theirs (Android).
     ownedByMe: isLibraryId(id) && a['canEdit'] is bool ? a['canEdit'] as bool : null,
     libraryAddedAt: text(a, 'dateAdded'),
+  );
+}
+
+/// Apple Music's personal mixes are catalog playlists with this id prefix (`pl.pm-…`).
+const personalMixPrefix = 'pl.pm-';
+
+/// The personal mixes among the recommendation [groups], once each, in
+/// Apple's order (Android AppleMusicSource.madeForYouMixes).
+List<MadeForYouPlaylist> madeForYouMixes(List<AppleMusicJson> groups) {
+  final seen = <String>{};
+  final mixes = <MadeForYouPlaylist>[];
+  for (final group in groups) {
+    for (final r in related(group, 'contents')) {
+      if (text(r, 'type') != 'playlists' || !(text(r, 'id')?.startsWith(personalMixPrefix) ?? false)) continue;
+      final mix = madeForYouMix(r);
+      if (mix != null && seen.add(mix.id.rawId)) mixes.add(mix);
+    }
+  }
+  return mixes;
+}
+
+/// One personal mix; a blank title when Apple listed it without attributes.
+MadeForYouPlaylist? madeForYouMix(AppleMusicJson resource) {
+  final id = text(resource, 'id');
+  if (id == null || id.isEmpty) return null;
+  final a = attributesOf(resource);
+  final description = obj(a['description']);
+  return MadeForYouPlaylist(
+    id: MediaId(MediaId.providerAppleMusic, id),
+    title: text(a, 'name') ?? '',
+    subtitle: text(description, 'short') ?? text(description, 'standard') ?? text(a, 'curatorName') ?? '',
+    cover: coverOf(a),
   );
 }
 

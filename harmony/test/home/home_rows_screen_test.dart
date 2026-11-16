@@ -172,6 +172,9 @@ void main() {
     await frames(tester, 40);
     expect(c.read(homeLayoutProvider).rowsOf(HomeSection.activities), HomeRowPreset.m);
     // Reset puts every preset back.
+    // At the tray's foot, past every section's plate (Made For You's placeholder among them).
+    await tester.dragUntilVisible(find.text('Reset Home'), find.byType(HomeScreen), const Offset(0, -300));
+    await frames(tester, 10);
     await tester.ensureVisible(find.text('Reset Home'));
     await frames(tester, 10);
     await tester.tap(find.text('Reset Home'));
