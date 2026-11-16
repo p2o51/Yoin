@@ -1,21 +1,29 @@
 /// The app's keyboard shortcuts on PC windows (MateBook 2in1, later
-/// Windows), mirroring the Mac app's Controls menu (YoinMacApp.swift) with
-/// Ctrl for ⌘. One Shortcuts/Actions layer around the chrome (AppChrome:
-/// above the Navigator and Now Playing), so every page and overlay sees the
-/// same keys. Every shortcut steps aside while a text field has focus (the
-/// key reaches the field), and while its target can't act (no song: Space
-/// still activates the focused button).
+/// Windows): Android's twelve (ShellShortcuts.kt, iOS's Controls and Go
+/// menus with Ctrl for ⌘ and Alt for ⌥) plus the Mac app's extras. One
+/// Shortcuts/Actions layer around the chrome (AppChrome: above the Navigator
+/// and Now Playing), so every page and overlay sees the same keys. Every
+/// shortcut steps aside while a text field has focus (the key reaches the
+/// field), and while its target can't act (no song: Space still activates
+/// the focused button — a dialog's buttons share this window here, unlike
+/// Android's). A chord takes its key once: holding it doesn't repeat it.
+/// HarmonyOS has no system shortcut list (Android's Meta + /), so the keys
+/// are listed only here and in the tip.
 ///
 /// | Keys | Does |
 /// | --- | --- |
 /// | Space | play / pause |
 /// | Ctrl+→ / Ctrl+← | next / previous |
-/// | Ctrl+D | heart / unheart the playing song |
-/// | Ctrl+Shift+P | open / close Now Playing |
+/// | Ctrl+Alt+S | shuffle on / off |
+/// | Ctrl+D | heart / unheart the playing song (a service that keeps favorites) |
+/// | Ctrl+Shift+P | open / close Now Playing (over the shell, Memories and Home edit mode close first) |
 /// | Ctrl+L | Now Playing panel ⇄ full window (opens it first) |
 /// | Ctrl+F | Now Playing focus (opens it first; where the cover can focus) |
 /// | Ctrl+K | Library search |
 /// | Ctrl+, | Settings |
+/// | Ctrl+1 / Ctrl+2 | Home / Library (back to the shell; Memories closes) |
+/// | Ctrl+3 | All Memories (not while Home is being edited) |
+/// | Ctrl+[ | back, when something is open to close (never leaves the app) |
 /// | Esc | back (the system back's path: the Navigator's maybePop); in a text field it leaves the field first (the Library search closes) |
 /// | ← / → | seek −5 s / +5 s while Now Playing is open |
 /// | Shift+F10, Menu key | the focused item's menu (its right click) |
@@ -25,7 +33,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/providers.dart' show activeSourceProvider;
+import '../data/source/music_source.dart' show Capability;
+import '../home/home_edit.dart';
 import '../library/library_search_view.dart' show librarySearchRouteName;
+import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
 import '../playback/playback_controller.dart';
@@ -33,6 +45,7 @@ import '../playback/playhead.dart';
 import '../settings/settings_screen.dart';
 import '../theme/tokens.dart';
 import '../ui/component/desktop_input.dart';
+import 'chrome_back.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 
@@ -46,6 +59,10 @@ class NextTrackIntent extends Intent {
 
 class PreviousTrackIntent extends Intent {
   const PreviousTrackIntent();
+}
+
+class ToggleShuffleIntent extends Intent {
+  const ToggleShuffleIntent();
 }
 
 class ToggleFavoriteIntent extends Intent {
@@ -76,6 +93,19 @@ class YoinBackIntent extends Intent {
   const YoinBackIntent();
 }
 
+/// Ctrl+[ (Android ShellShortcut.Back): back only when something is open to close.
+class GoBackIntent extends Intent {
+  const GoBackIntent();
+}
+
+/// Ctrl+1 / Ctrl+2 / Ctrl+3: the bar's destinations and All Memories (iOS's Go menu).
+enum GoDestination { home, library, allMemories }
+
+class GoToIntent extends Intent {
+  const GoToIntent(this.destination);
+  final GoDestination destination;
+}
+
 class SeekByIntent extends Intent {
   const SeekByIntent(this.deltaMs);
   final int deltaMs;
@@ -84,8 +114,9 @@ class SeekByIntent extends Intent {
 /// The key map (Ctrl for the Mac app's ⌘).
 const Map<ShortcutActivator, Intent> yoinShortcuts = {
   SingleActivator(LogicalKeyboardKey.space, includeRepeats: false): PlayPauseIntent(),
-  SingleActivator(LogicalKeyboardKey.arrowRight, control: true): NextTrackIntent(),
-  SingleActivator(LogicalKeyboardKey.arrowLeft, control: true): PreviousTrackIntent(),
+  SingleActivator(LogicalKeyboardKey.arrowRight, control: true, includeRepeats: false): NextTrackIntent(),
+  SingleActivator(LogicalKeyboardKey.arrowLeft, control: true, includeRepeats: false): PreviousTrackIntent(),
+  SingleActivator(LogicalKeyboardKey.keyS, control: true, alt: true, includeRepeats: false): ToggleShuffleIntent(),
   SingleActivator(LogicalKeyboardKey.keyD, control: true, includeRepeats: false): ToggleFavoriteIntent(),
   SingleActivator(LogicalKeyboardKey.keyP, control: true, shift: true, includeRepeats: false):
       ToggleNowPlayingIntent(),
@@ -93,6 +124,11 @@ const Map<ShortcutActivator, Intent> yoinShortcuts = {
   SingleActivator(LogicalKeyboardKey.keyF, control: true, includeRepeats: false): ToggleFocusIntent(),
   SingleActivator(LogicalKeyboardKey.keyK, control: true, includeRepeats: false): OpenSearchIntent(),
   SingleActivator(LogicalKeyboardKey.comma, control: true, includeRepeats: false): OpenSettingsIntent(),
+  SingleActivator(LogicalKeyboardKey.digit1, control: true, includeRepeats: false): GoToIntent(GoDestination.home),
+  SingleActivator(LogicalKeyboardKey.digit2, control: true, includeRepeats: false): GoToIntent(GoDestination.library),
+  SingleActivator(LogicalKeyboardKey.digit3, control: true, includeRepeats: false):
+      GoToIntent(GoDestination.allMemories),
+  SingleActivator(LogicalKeyboardKey.bracketLeft, control: true, includeRepeats: false): GoBackIntent(),
   SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false): YoinBackIntent(),
   SingleActivator(LogicalKeyboardKey.arrowLeft): SeekByIntent(-DesktopInputTokens.seekStepMs),
   SingleActivator(LogicalKeyboardKey.arrowRight): SeekByIntent(DesktopInputTokens.seekStepMs),
@@ -178,6 +214,75 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
   NowPlayingOverlayController get _np => widget.controller;
   PlaybackController get _playback => ref.read(playbackControllerProvider.notifier);
   bool get _hasTrack => ref.read(playerSnapshotProvider).hasTrack;
+  MemoriesRevealHandle get _memories => ref.read(memoriesRevealHandleProvider);
+  bool get _homeEditing => ref.read(homeEditProvider).editing;
+
+  /// Like needs a service that keeps favorites (Android ServiceFeatureCatalog.supportsFavorites).
+  bool get _canLike {
+    final track = ref.read(playbackControllerProvider).current;
+    final source = ref.read(activeSourceProvider).value;
+    return track != null &&
+        source != null &&
+        source.provider == track.id.provider &&
+        source.capabilities.contains(Capability.favorites);
+  }
+
+  /// Something in the window would take a back now (a pushed page, a sheet,
+  /// Now Playing, edit mode, Memories, the column): at the root Ctrl+[ never
+  /// sends the app to the background.
+  bool get _canGoBack => (widget.navigator.currentState?.canPop() ?? false) || ChromeBackEntry.anyTakesBack;
+
+  void _toggleShuffle() {
+    final now = ref.read(playbackControllerProvider);
+    _playback.setPlayMode(shuffle: !now.shuffle, repeat: now.repeat);
+  }
+
+  /// Memories leaves with Home's feed (Android dismissMemoriesIfActive).
+  void _closeMemories() {
+    final reveal = _memories.controller;
+    if (reveal != null && reveal.ownsBack) reveal.close();
+  }
+
+  /// The Go keys land on the shell itself: a full-window player and the
+  /// pages pushed over the shell (the Library search among them) give way.
+  /// On Android they belong to the shell window alone; here every page
+  /// shares the keys, so Home means going back to it.
+  void _backToShell() {
+    _clearNowPlayingForPage();
+    widget.navigator.currentState?.popUntil((route) => route.isFirst);
+  }
+
+  void _goTo(GoDestination destination) {
+    final sections = ref.read(shellSectionProvider.notifier);
+    switch (destination) {
+      case GoDestination.home:
+        _backToShell();
+        sections.select(YoinSection.home);
+        _closeMemories();
+      case GoDestination.library:
+        _backToShell();
+        ref.read(homeEditProvider.notifier).exit();
+        sections.select(YoinSection.library);
+        _closeMemories();
+      case GoDestination.allMemories:
+        _backToShell();
+        sections.select(YoinSection.home);
+        _memories.open();
+    }
+  }
+
+  /// Opens Now Playing as the shell's own way in does (Android
+  /// openNowPlayingFromShell): over the shell, Memories closes and Home
+  /// leaves edit mode first (the bar's pill isn't there in either), so
+  /// closing the player lands on the feed. Over a pushed page they wait
+  /// under it.
+  void _openNowPlaying() {
+    if (!(widget.navigator.currentState?.canPop() ?? false)) {
+      _closeMemories();
+      ref.read(homeEditProvider.notifier).exit();
+    }
+    widget.openNowPlaying();
+  }
 
   /// Opens Now Playing if needed, then runs [then] once it is up.
   void _withNowPlaying(VoidCallback then) {
@@ -185,7 +290,7 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
       then();
       return;
     }
-    widget.openNowPlaying();
+    _openNowPlaying();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _np.expanded) then();
     });
@@ -213,6 +318,9 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
       return true;
     });
     if (top == settingsRouteName) return;
+    // As the shell's own way in (Android navigateToSettingsFromShell).
+    _closeMemories();
+    ref.read(homeEditProvider.notifier).exit();
     openSettings(navigator.context);
   }
 
@@ -234,6 +342,8 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
 
   void _openSearch() {
     _clearNowPlayingForPage();
+    ref.read(homeEditProvider.notifier).exit();
+    _closeMemories();
     if (mounted) openLibrarySearchShortcut(ref.container);
   }
 
@@ -243,9 +353,13 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
       PlayPauseIntent: _KeyAction<PlayPauseIntent>((_) => _playback.togglePlayPause(), when: () => _hasTrack),
       NextTrackIntent: _KeyAction<NextTrackIntent>((_) => _playback.next(), when: () => _hasTrack),
       PreviousTrackIntent: _KeyAction<PreviousTrackIntent>((_) => _playback.previous(), when: () => _hasTrack),
-      ToggleFavoriteIntent: _KeyAction<ToggleFavoriteIntent>((_) => _playback.toggleFavorite(), when: () => _hasTrack),
+      ToggleShuffleIntent: _KeyAction<ToggleShuffleIntent>((_) => _toggleShuffle(), when: () => _hasTrack),
+      ToggleFavoriteIntent: _KeyAction<ToggleFavoriteIntent>(
+        (_) => _playback.toggleFavorite(),
+        when: () => _hasTrack && _canLike,
+      ),
       ToggleNowPlayingIntent: _KeyAction<ToggleNowPlayingIntent>(
-        (_) => _np.expanded ? _np.close() : widget.openNowPlaying(),
+        (_) => _np.expanded ? _np.close() : _openNowPlaying(),
         when: () => _np.expanded || _hasTrack,
       ),
       ToggleFullWindowIntent: _KeyAction<ToggleFullWindowIntent>(
@@ -261,6 +375,9 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
       OpenSearchIntent: _KeyAction<OpenSearchIntent>((_) => _openSearch()),
       OpenSettingsIntent: _KeyAction<OpenSettingsIntent>((_) => _openSettings()),
       YoinBackIntent: _KeyAction<YoinBackIntent>((_) => _back(), whileTyping: true),
+      GoBackIntent: _KeyAction<GoBackIntent>((_) => widget.navigator.currentState?.maybePop(), when: () => _canGoBack),
+      // Memories never opens over edit mode (as Home's own way in).
+      GoToIntent: _GoToAction(_goTo, editing: () => _homeEditing),
       SeekByIntent: _KeyAction<SeekByIntent>((i) => _seekBy(i.deltaMs), when: () => _np.expanded && _hasTrack),
       // Tab never leaves the Flutter view: at the end of the order it wraps
       // instead of handing the key to ArkUI, whose own focus box then drew a
@@ -303,6 +420,17 @@ class _KeyAction<T extends Intent> extends Action<T> {
     _invoke(intent);
     return null;
   }
+}
+
+/// Ctrl+1/2/3: off while typing; All Memories also while Home is being edited.
+class _GoToAction extends _KeyAction<GoToIntent> {
+  _GoToAction(void Function(GoDestination) go, {required this.editing}) : super((i) => go(i.destination));
+
+  final bool Function() editing;
+
+  @override
+  bool isEnabled(GoToIntent intent) =>
+      super.isEnabled(intent) && !(intent.destination == GoDestination.allMemories && editing());
 }
 
 /// Tab / Shift+Tab: move focus and always keep the key, wrapping at the ends

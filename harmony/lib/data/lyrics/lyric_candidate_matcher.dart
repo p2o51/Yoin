@@ -49,7 +49,11 @@ final class LyricCandidate {
 /// **Picking.** Artist matches first: best tier (original → decorated →
 /// doubtful), then length within [lyricDurationToleranceMs], then rank. With
 /// none, among the "unknown" hits only the first-ranked performer counts, and
-/// only with at least two same-titled recordings and more than any rival.
+/// only with at least two same-titled recordings and more than any rival;
+/// once settled on, a cut whose known length is off by more than the tolerance
+/// is dropped — with the artist unchecked, a same-titled song by someone else
+/// (Japanese Spotify's `摩天輪` / `ヒビ・ティエン` vs QQ's 罗百吉《摩天轮》) can
+/// only be stopped by its length.
 class LyricCandidateMatcher {
   LyricCandidateMatcher({String Function(String)? fold}) : _fold = fold ?? traditionalToSimplified;
 
@@ -248,7 +252,9 @@ class LyricCandidateMatcher {
       }
     }
     final strongestRival = rivalCounts.values.fold(0, (a, b) => a > b ? a : b);
-    return own.length > strongestRival ? _preferred(own) : null;
+    if (own.length <= strongestRival) return null;
+    // Nothing vouches for the artist here, so a known length that's off rules a cut out.
+    return _preferred(own.where((c) => !c.offLength).toList());
   }
 
   static _Cut? _preferred(List<_Cut> cuts) {

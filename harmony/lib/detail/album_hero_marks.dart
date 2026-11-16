@@ -6,10 +6,12 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/model/model.dart';
 import '../memories/album_score.dart';
+import '../memories/emblem/groove_geometry.dart' show GrooveScoreKind;
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../theme/motion.dart';
 import '../ui/component/artwork_image.dart';
+import '../ui/component/rating_bloom.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'detail_listening.dart';
 import 'detail_palette.dart';
@@ -411,11 +413,16 @@ class AlbumHeroMetaRow extends StatelessWidget {
                 Semantics(
                   button: true,
                   label: DetailStrings.of(context).albumCdRate,
-                  child: AlbumScoreEmblem(
+                  // "Score bloom": pops only when a rating COMMIT lands — the
+                  // settle window inside keeps page-open resolves silent.
+                  child: AlbumScoreBloom(
                     albumId: albumId,
-                    palette: palette,
-                    onTap: open,
-                    size: AlbumHeroTokens.emblem,
+                    child: AlbumScoreEmblem(
+                      albumId: albumId,
+                      palette: palette,
+                      onTap: open,
+                      size: AlbumHeroTokens.emblem,
+                    ),
                   ),
                 ),
                 AlbumRatedCoverage(albumId: albumId),
@@ -433,6 +440,30 @@ class AlbumHeroMetaRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The page emblem's score bloom (Android `.ratingBloom(spec.score)`):
+/// [child] pops when the score the emblem shows — its kind (album / average /
+/// none) and its number — changes after the page has settled.
+class AlbumScoreBloom extends ConsumerWidget {
+  const AlbumScoreBloom({super.key, required this.albumId, required this.child});
+
+  final MediaId albumId;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final trigger = ref.watch(albumScoreProvider(albumId).select(albumScoreBloomTrigger));
+    return RatingBloom(trigger: trigger, child: child);
+  }
+}
+
+/// What a bloom compares (Android AlbumScore(kind, value)): the album's own
+/// score, else the track average, else none (0).
+(GrooveScoreKind, double) albumScoreBloomTrigger(AlbumScore score) {
+  if (score.albumRating != null) return (GrooveScoreKind.album, score.albumRating!);
+  if (score.average != null) return (GrooveScoreKind.average, score.average!);
+  return (GrooveScoreKind.none, 0);
 }
 
 /// How many tracks a computed average stands on ("2/4 rated", Android
@@ -530,7 +561,17 @@ class AlbumHeroMetaBlocks extends StatelessWidget {
               Semantics(
                 button: true,
                 label: DetailStrings.of(context).albumCdRate,
-                child: AlbumScoreEmblem(albumId: albumId, palette: palette, onTap: open, size: AlbumHeroTokens.emblem),
+                // The same score bloom as the Compact hero (Android blooms
+                // inside AlbumScoreEmblem, so every layout's emblem pops).
+                child: AlbumScoreBloom(
+                  albumId: albumId,
+                  child: AlbumScoreEmblem(
+                    albumId: albumId,
+                    palette: palette,
+                    onTap: open,
+                    size: AlbumHeroTokens.emblem,
+                  ),
+                ),
               ),
               AlbumRatedCoverage(albumId: albumId),
             ],

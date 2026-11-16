@@ -103,6 +103,11 @@ class ChromeBackEntry extends PopEntry<Object?> {
 
   bool get isAttached => _route != null;
 
+  /// Whether some registered entry would take a back arriving now: an
+  /// unarbitrated one always does, an arbitrated one while it [owns] it
+  /// (Android: a shell back owner other than None).
+  static bool get anyTakesBack => _unarbitrated.isNotEmpty || _arbitrated.any((e) => e.owns!());
+
   /// Registers on [navigator]'s top route (no-op if already attached).
   void attach(NavigatorState navigator) {
     if (_route != null) return;
