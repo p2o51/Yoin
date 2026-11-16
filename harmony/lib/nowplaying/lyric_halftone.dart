@@ -33,6 +33,26 @@ double lyricDotsRestFor(YoinWindowInfo window, {bool upcoming = false}) {
   return large ? _T.lyricDotsRestLarge : _T.lyricDotsRest;
 }
 
+/// Prints the full lyrics list below it through the focus halftone, as the
+/// focus list does: the two-column layout keeps its lyrics beside a focused
+/// cover (LyricsFullscreenPane's `focus`). [focus] is the focus stage's
+/// progress, 0 = solid.
+class LyricHalftoneScope extends InheritedWidget {
+  const LyricHalftoneScope({super.key, required this.focus, required super.child});
+
+  final Animation<double> focus;
+
+  /// The focus progress the lines print at (and rebuild with), or null outside a scope.
+  static Animation<double>? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<LyricHalftoneScope>()?.focus;
+
+  /// Whether [context] sits in a scope, without depending on it.
+  static bool isIn(BuildContext context) => context.getInheritedWidgetOfExactType<LyricHalftoneScope>() != null;
+
+  @override
+  bool updateShouldNotify(LyricHalftoneScope oldWidget) => !identical(oldWidget.focus, focus);
+}
+
 /// How many radius steps a dot tile is quantised to (one tile image per step).
 const int lyricDotRadiusSteps = 30;
 

@@ -151,6 +151,10 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Ticker
   /// picks up where it left off.
   double _clock = 0;
 
+  /// Frame time the drift has not stepped by yet, and when it last stepped.
+  double _clockOwed = 0;
+  int _lastStepMs = 0;
+
   // Rest wash and its song-change flow.
   CoverField? _washShown;
   CoverField? _washPrevious;
@@ -479,7 +483,9 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Ticker
   }
 
   void _onLine() {
-    if (_focusValue > 0.02) _edge.lineChange(_clock);
+    // Out of focus a new line moves nothing here: no repaint.
+    if (_focusValue <= 0.02) return;
+    _edge.lineChange(_clock);
     _wake();
   }
 
@@ -525,7 +531,17 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Ticker
     final now = _t;
     final fieldLive = _fieldLive;
     // Reduced motion: the field holds still (it fades in place with the focus).
-    if (fieldLive && !_reduced) _clock += math.min(dt.inMicroseconds / 1000, 250);
+    // The drift steps at the field's ≤30 fps pace (every frame only while the
+    // edge band bursts), so a light running alongside repaints over the same
+    // field instead of re-rendering it every frame.
+    if (fieldLive && !_reduced) {
+      _clockOwed += math.min(dt.inMicroseconds / 1000, 250);
+      if (_edge.bursting(_clock) || now - _lastStepMs >= RoomMetrics.focusFrameMs) {
+        _clock += _clockOwed;
+        _clockOwed = 0;
+        _lastStepMs = now;
+      }
+    }
     _glows.removeWhere((g) => g.isDone(now));
     final fast = _fastLive(now);
     if (!fast && !fieldLive) {
@@ -546,14 +562,12 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Ticker
     // Published with each build (Android's SideEffect): taps are stamped with it.
     signal?.committedSongId = widget.pulseKey?.songId;
     signal?.committedPlaying = widget.pulseKey?.isPlaying == true;
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: signal == null ? null : (e) => signal.recordPointerDown(e.position),
-      child: RepaintBoundary(
-        child: CustomPaint(
-          painter: _RoomPainter(state: this, scheme: scheme, repaint: _repaint),
-          child: const SizedBox.expand(),
-        ),
+    // The finger-down a lyric-line tap lights its band at is recorded by the
+    // screen above the content: the room sits under it and never sees the press.
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _RoomPainter(state: this, scheme: scheme, repaint: _repaint),
+        child: const SizedBox.expand(),
       ),
     );
   }

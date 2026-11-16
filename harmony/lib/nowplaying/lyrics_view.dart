@@ -520,8 +520,11 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final outroMoved = _evaluateOutro();
     if (next == _active && !outroMoved) return;
     final reseat = next != _active || handingBefore != _handingOver;
-    // Focus's edge band swells once per new line (EdgeDotBand.kt).
-    if (next != _active && next >= 0 && _focusMode) NowPlayingSignalScope.maybeOf(context)?.lyricLineChanged();
+    // Focus's edge band swells once per new line (EdgeDotBand.kt): told by
+    // the lists focus shows (the focus list, two columns' halftone list).
+    if (next != _active && next >= 0 && (_focusMode || LyricHalftoneScope.isIn(context))) {
+      NowPlayingSignalScope.maybeOf(context)?.lyricLineChanged();
+    }
     setState(() => _active = next);
     if (reseat) WidgetsBinding.instance.addPostFrameCallback((_) => _seat(animate: true));
   }
@@ -1182,7 +1185,10 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _focusAnim = widget.mode == LyricsListMode.focus ? NowPlayingOverlayScope.read(context)?.focus.animation : null;
+    // The focus list, or a full list beside a focused cover (two columns), prints through the dots.
+    _focusAnim = widget.mode == LyricsListMode.focus
+        ? NowPlayingOverlayScope.read(context)?.focus.animation
+        : LyricHalftoneScope.maybeOf(context);
     final rest = _restDotsNow;
     if (_restDots == null) {
       if (!widget.active) _dots.value = rest;
@@ -1310,17 +1316,18 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
         final s = _scale.value;
         final lit = Color.lerp(colors.onSurfaceVariant, colors.primary, _on.value.clamp(0.0, 1.0))!;
         final color = Color.lerp(lit, colors.onPrimaryContainer, _picked.value.clamp(0.0, 1.0))!;
-        final text = Text(widget.text, style: style.copyWith(color: color));
-        // Focus prints the line through its dots (inside the line's own scale, as Android's layer).
-        final line = focusAnim == null
-            ? text
-            : LyricHalftone(radius: lyricDotRadius(_dots.value, focusAnim.value), child: text);
+        final line = Text(widget.text, style: style.copyWith(color: color));
+        // Focus prints the row through its dots, its translation too (inside
+        // the row's own scale, as Android's layer).
+        Widget dotted(Widget row) => focusAnim == null
+            ? row
+            : LyricHalftone(radius: lyricDotRadius(_dots.value, focusAnim.value), child: row);
         return Opacity(
           opacity: _alpha.value.clamp(0.0, 1.0),
           child: Transform(
             alignment: AlignmentDirectional.centerStart,
             transform: Matrix4.diagonal3Values(s, s, 1),
-            child: () {
+            child: dotted(() {
               final stretched = Transform(
                 alignment: AlignmentDirectional.centerStart,
                 transform: Matrix4.diagonal3Values(lastLineStretchScale(_held.value), 1, 1),
@@ -1360,7 +1367,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
                   ),
                 ],
               );
-            }(),
+            }()),
           ),
         );
       },

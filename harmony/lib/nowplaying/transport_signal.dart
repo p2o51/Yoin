@@ -236,25 +236,34 @@ class NowPlayingTransportSignal {
     }
   }
 
-  // The reporting lyrics column: several reporters may exist during a posture
-  // swap; the last to claim owns the signal, and leaving releases only what it owns.
-  Object? _lyricsOwner;
-  final Map<Object, GlobalRectProbe> _lyricsProbes = {};
-  bool _lyricsPrimary = false;
-  double _lyricsLanding = 0;
-  bool _lyricsClipLight = false;
+  // The reporting lyrics columns. Android has one reporter per layout; here
+  // the phone stage keeps up to three lists in the tree at once (the window,
+  // the focus list while it fades, the Expanded list), and they claim in
+  // build order whenever the stage rebuilds. So the claims are kept per
+  // reporter, and the surface is the latest one that is the primary surface,
+  // else the latest one on screen: a list that is only fading out can't take
+  // the lead from the one the eye is on, and leaving releases only its own claim.
+  final Map<Object, _LyricsClaim> _lyricsClaims = {};
 
   LyricsSurface? get lyricsSurface {
-    final owner = _lyricsOwner;
-    if (owner == null) return null;
-    final bounds = _lyricsProbes[owner]?.rect;
-    if (bounds == null) return null;
+    MapEntry<Object, _LyricsClaim>? lead;
+    Rect? leadBounds;
+    for (final entry in _lyricsClaims.entries) {
+      final bounds = entry.value.probe.rect;
+      if (bounds == null) continue;
+      if (lead == null || entry.value.primary || !lead.value.primary) {
+        lead = entry;
+        leadBounds = bounds;
+      }
+    }
+    if (lead == null || leadBounds == null) return null;
+    final claim = lead.value;
     return LyricsSurface(
-      owner: owner,
-      boundsRoot: bounds,
-      primary: _lyricsPrimary,
-      landingFromTopPx: _lyricsLanding,
-      clipLight: _lyricsClipLight,
+      owner: lead.key,
+      boundsRoot: leadBounds,
+      primary: claim.primary,
+      landingFromTopPx: claim.landingFromTop,
+      clipLight: claim.clipLight,
     );
   }
 
@@ -265,20 +274,13 @@ class NowPlayingTransportSignal {
     required double landingFromTop,
     required bool clipLight,
   }) {
-    _lyricsOwner = owner;
-    _lyricsProbes[owner] = probe;
-    _lyricsPrimary = primary;
-    _lyricsLanding = landingFromTop;
-    _lyricsClipLight = clipLight;
+    // Re-inserted: the map's order is the order of the latest claims.
+    _lyricsClaims
+      ..remove(owner)
+      ..[owner] = _LyricsClaim(probe, primary: primary, landingFromTop: landingFromTop, clipLight: clipLight);
   }
 
-  void releaseLyricsSurface(Object owner) {
-    _lyricsProbes.remove(owner);
-    if (identical(_lyricsOwner, owner)) {
-      _lyricsOwner = null;
-      _lyricsPrimary = false;
-    }
-  }
+  void releaseLyricsSurface(Object owner) => _lyricsClaims.remove(owner);
 
   LyricsHandover? _handover;
   LyricsHandover? get lyricsHandover => _handover;
@@ -371,6 +373,16 @@ class _LyricsSurfaceReporterState extends State<LyricsSurfaceReporter> {
     );
     return ReportBounds(probe: _probe, child: widget.child);
   }
+}
+
+/// One lyrics column's claim on the signal (where it sits, whether it leads).
+final class _LyricsClaim {
+  const _LyricsClaim(this.probe, {required this.primary, required this.landingFromTop, required this.clipLight});
+
+  final GlobalRectProbe probe;
+  final bool primary;
+  final double landingFromTop;
+  final bool clipLight;
 }
 
 /// Lights waiting for the background beyond this drop the oldest.

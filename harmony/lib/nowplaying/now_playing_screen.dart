@@ -29,6 +29,7 @@ import 'focus_field.dart';
 import 'focus_budget.dart';
 import 'focus_idle.dart';
 import 'haptics.dart';
+import 'lyric_halftone.dart';
 import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
@@ -804,10 +805,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
         : TransportPulseKey(songId: content.songKey, isPlaying: content.isPlaying, queueIndex: content.currentIndex);
     final screen = LyricToolsScope(
       controller: _tools,
-      // Any touch on the player re-arms the tools' idle count (lyricToolsTouchTracker).
+      // Any touch on the player re-arms the tools' idle count (lyricToolsTouchTracker)
+      // and tells the background where the finger went down, for a tapped
+      // line's band (the room sits under the content and never sees the press).
       child: Listener(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => _tools.idle.onInteraction(),
+        onPointerDown: (e) {
+          _tools.idle.onInteraction();
+          _signal.recordPointerDown(e.position);
+        },
         child: FocusIdleTouchTracker(
           idle: _focusIdle,
           child: ColoredBox(
@@ -2723,27 +2729,34 @@ class _DualPane extends ConsumerWidget {
                                 onDragEnd: onPageDragEnd,
                                 lyrics: Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                                  // The lyrics stay beside a focused cover and lead there too
+                                  // (WidePlayingContent), printing through focus's dots.
                                   child: LyricsSurfaceReporter(
-                                    primary: pageTarget == NowPlayingDetailPage.lyrics && !inFocus,
+                                    primary: pageTarget == NowPlayingDetailPage.lyrics,
                                     landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
                                     clipLight: true,
-                                    child: LyricsView(
-                                      mode: LyricsListMode.full,
-                                      showTranslation: state.showTranslation,
-                                      lyrics: state.lyrics,
-                                      songKey: state.songKey,
-                                      clock: clock,
-                                      onSeek: _lineSeek(context, vm),
-                                      title: track.title,
-                                      artist: track.artist,
-                                      autoFollow: autoFollow,
-                                      windowTop:
-                                          insets.top +
-                                          budget.frameTop +
-                                          DualPaneTokens.topBarHeight +
-                                          budget.barGap +
-                                          NowPlayingTokens.tabRowNominal +
-                                          DualPaneTokens.rightGap,
+                                    child: LyricHalftoneScope(
+                                      focus: budget.focusCover != null
+                                          ? controller.focus.animation
+                                          : const AlwaysStoppedAnimation<double>(0),
+                                      child: LyricsView(
+                                        mode: LyricsListMode.full,
+                                        showTranslation: state.showTranslation,
+                                        lyrics: state.lyrics,
+                                        songKey: state.songKey,
+                                        clock: clock,
+                                        onSeek: _lineSeek(context, vm),
+                                        title: track.title,
+                                        artist: track.artist,
+                                        autoFollow: autoFollow,
+                                        windowTop:
+                                            insets.top +
+                                            budget.frameTop +
+                                            DualPaneTokens.topBarHeight +
+                                            budget.barGap +
+                                            NowPlayingTokens.tabRowNominal +
+                                            DualPaneTokens.rightGap,
+                                      ),
                                     ),
                                   ),
                                 ),

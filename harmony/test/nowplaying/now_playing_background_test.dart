@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/action_glow.dart';
+import 'package:yoin/nowplaying/lyric_halftone.dart';
 import 'package:yoin/nowplaying/now_playing_background.dart';
+import 'package:yoin/nowplaying/now_playing_presentation.dart';
 import 'package:yoin/nowplaying/now_playing_screen.dart';
 import 'package:yoin/nowplaying/now_playing_spine.dart';
 import 'package:yoin/nowplaying/now_playing_view_model.dart';
@@ -146,7 +148,7 @@ void main() {
   });
 
   group('screen', () {
-    Future<NowPlayingOverlayController> pumpPhone(WidgetTester tester, Size size) async {
+    Future<NowPlayingOverlayController> pumpPhone(WidgetTester tester, Size size, {Lyrics? lyrics}) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -169,7 +171,10 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            ...nowPlayingOverrides(controller: playback, source: NowPlayingFakeSource()),
+            ...nowPlayingOverrides(
+              controller: playback,
+              source: NowPlayingFakeSource(lyrics: {'t0': ?lyrics}),
+            ),
             upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
           ],
           child: MaterialApp(
@@ -196,6 +201,64 @@ void main() {
       await tester.pump();
       expect(signal.tapDots.value?.lean, 0, reason: 'PLAY rings its own dots');
       await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    final synced = SyncedLyrics([for (var i = 0; i < 12; i++) LyricLine(i * 4000, 'line $i')]);
+
+    testWidgets('should_lightTheTappedLine_when_aLyricLineIsTappedToSeek', (tester) async {
+      final c = await pumpPhone(tester, const Size(412, 892), lyrics: synced);
+      c.expandStage();
+      await tester.pumpAndSettle();
+      final signal = tester.widget<NowPlayingBackground>(find.byType(NowPlayingBackground)).signal!;
+      expect(signal.lyricsSurface?.primary, isTrue, reason: 'the Expanded lyrics lead');
+      final at = tester.getCenter(find.text('line 3').last);
+      await tester.tapAt(at);
+      await tester.pump();
+      // The finger lands on the line, over the room: the screen still saw it go down.
+      expect(signal.lineTaps.value, 1);
+      expect(signal.lineTapY, at.dy);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('should_leadWithTheLyricWindow_when_backAtRest', (tester) async {
+      final c = await pumpPhone(tester, const Size(412, 892), lyrics: synced);
+      final signal = tester.widget<NowPlayingBackground>(find.byType(NowPlayingBackground)).signal!;
+      expect(signal.lyricsSurface?.primary, isTrue, reason: 'the lyric window leads at rest');
+      c.toggleFocus();
+      await tester.pumpAndSettle();
+      expect(signal.lyricsSurface?.primary, isFalse, reason: 'in focus the cover leads');
+      expect(c.handleBack(), isTrue);
+      await tester.pumpAndSettle();
+      expect(signal.lyricsSurface?.primary, isTrue);
+      // Back from Expanded: the Expanded list is still fading out (and builds
+      // after the window), but the window leads from the first frame.
+      c.expandStage();
+      await tester.pumpAndSettle();
+      expect(c.handleBack(), isTrue);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(signal.lyricsSurface?.primary, isTrue, reason: 'a list fading out must not keep the lead');
+      await tester.pumpAndSettle();
+      expect(signal.lyricsSurface?.primary, isTrue);
+    });
+
+    testWidgets('should_printTheLyricsBesideTheCoverThroughDots_when_twoColumnsFocus', (tester) async {
+      final c = await pumpPhone(tester, const Size(1280, 800), lyrics: synced);
+      if (!c.fullscreen) {
+        c.toggleFullscreen();
+        await tester.pumpAndSettle();
+      }
+      expect(c.frame.presentation, NowPlayingPresentation.dualPane);
+      final signal = tester.widget<NowPlayingBackground>(find.byType(NowPlayingBackground)).signal!;
+      final dots = find.descendant(of: find.byType(LyricHalftone), matching: find.byType(ShaderMask));
+      expect(dots, findsNothing, reason: 'out of focus the lines print solid');
+      expect(c.focusOffered, isTrue);
+      c.toggleFocus();
+      await tester.pumpAndSettle();
+      expect(dots, findsWidgets, reason: 'beside a focused cover the lines rest as dots (LyricsFullscreenPane focus)');
+      expect(signal.lyricsSurface?.primary, isTrue, reason: 'the lyrics stay the primary surface (WidePlayingContent)');
       expect(tester.takeException(), isNull);
     });
 

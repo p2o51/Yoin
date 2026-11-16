@@ -96,7 +96,9 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
 
   /// The play-mode key, for its action lights.
   final GlobalRectProbe _playModeKey = GlobalRectProbe();
-  bool _observing = false;
+
+  /// The clock a tapped PREVIOUS is watching, while it watches.
+  PlayheadClock? _observed;
 
   @override
   void dispose() {
@@ -132,15 +134,21 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
   }
 
   void _startObserving() {
-    if (_observing) return;
-    _observing = true;
-    widget.clock.addListener(_observe);
+    if (identical(_observed, widget.clock)) return;
+    _stopObserving();
+    _observed = widget.clock..addListener(_observe);
   }
 
   void _stopObserving() {
-    if (!_observing) return;
-    _observing = false;
-    widget.clock.removeListener(_observe);
+    _observed?.removeListener(_observe);
+    _observed = null;
+  }
+
+  @override
+  void didUpdateWidget(TransportControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new clock (another posture's) carries on the watch.
+    if (_observed != null && !identical(oldWidget.clock, widget.clock)) _startObserving();
   }
 
   void _observe() {

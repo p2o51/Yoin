@@ -360,6 +360,45 @@ void main() {
       expect(signal.lastTap, isNull);
     });
 
+    testWidgets('should_keepTheLeadingList_when_aFadingListClaimsAfterIt', (tester) async {
+      final signal = NowPlayingTransportSignal(clock: () => _now);
+      Widget host({required bool lead, required bool fading}) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: NowPlayingSignalScope(
+          signal: signal,
+          child: Column(
+            children: [
+              if (lead)
+                const LyricsSurfaceReporter(
+                  key: ValueKey('window'),
+                  primary: true,
+                  landingFromTop: 28,
+                  child: SizedBox(width: 100, height: 100),
+                ),
+              if (fading)
+                const LyricsSurfaceReporter(
+                  key: ValueKey('focus'),
+                  primary: false,
+                  landingFromTop: 28,
+                  child: SizedBox(width: 100, height: 40),
+                ),
+            ],
+          ),
+        ),
+      );
+      // The focus list, still fading out, builds after the window: the window keeps the lead.
+      await tester.pumpWidget(host(lead: true, fading: true));
+      expect(signal.lyricsSurface?.primary, isTrue);
+      expect(signal.lyricsSurface?.boundsRoot.height, 100);
+      expect(signal.currentLineRootY, 28);
+      // The leader leaves: the list still on screen takes over at once, no rebuild needed.
+      await tester.pumpWidget(host(lead: false, fading: true));
+      expect(signal.lyricsSurface?.primary, isFalse);
+      expect(signal.lyricsSurface?.boundsRoot.height, 40);
+      await tester.pumpWidget(host(lead: false, fading: false));
+      expect(signal.lyricsSurface, isNull);
+    });
+
     test('should_keepOnlyItsOwnHandover_when_aPageClearsIt', () {
       final signal = NowPlayingTransportSignal(clock: () => _now);
       signal.publishLyricsHandover('a', 'b', staged: true);
