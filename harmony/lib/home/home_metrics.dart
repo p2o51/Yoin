@@ -105,6 +105,9 @@ abstract final class HomeAccountMetrics {
   // The column: items the size of the header's button, 60 apart, 12 under it.
   static const double fanItem = 48;
   static const double fanAvatar = 36;
+
+  /// A fan avatar whose account can't be used now (HomeAccountFanItem's `usable`).
+  static const double fanUnusableAlpha = 0.5;
   static const double fanStep = 60;
   static const double fanFirstGap = 12;
   static const double fanReach = 200;

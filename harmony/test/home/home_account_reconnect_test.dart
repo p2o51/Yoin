@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
@@ -162,6 +163,31 @@ void main() {
     expect(find.text('Manage accounts'), findsNothing);
     expect(find.byType(SubsonicSetupScreen), findsOneWidget);
     expect(tester.widget<SubsonicSetupScreen>(find.byType(SubsonicSetupScreen)).profileId, ann.id);
+    await done(tester, c);
+  });
+
+  testWidgets('should_openSettingsNotSwitch_when_unreadableAccountIsPickedByAccessibilityAction', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final c = await pumpHome(tester, () async {
+      final den = await add(_den);
+      await lose(den);
+      final ann = await add(_ann);
+      await repo.setActive(ann.id);
+    });
+    await settleFrames(tester);
+    // TalkBack's "Switch to …" on the avatar is the hold's pick: as on the card, Settings.
+    final node = tester.getSemantics(find.byType(HomeAccountButton));
+    final action = CustomSemanticsAction(label: 'Switch to den @ host');
+    expect(node.getSemanticsData().customSemanticsActionIds, contains(CustomSemanticsAction.getIdentifier(action)));
+    tester.binding.renderViews.first.owner!.semanticsOwner!.performAction(
+      node.id,
+      SemanticsAction.customAction,
+      CustomSemanticsAction.getIdentifier(action),
+    );
+    await settleFrames(tester, 40);
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect((await c.read(profileRepositoryProvider).activeProfile())!.displayName, 'ann @ host');
+    semantics.dispose();
     await done(tester, c);
   });
 

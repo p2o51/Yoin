@@ -89,7 +89,8 @@ Future<bool> switchHomeAccount(WidgetRef ref, String profileId) =>
 
 Future<bool> switchHomeAccountIn(ProviderContainer container, String profileId) async {
   final pending = container.read(homeSwitchTargetProvider.notifier);
-  if (container.read(homeSwitchTargetProvider) != null) return false;
+  // Not while a switch or a Reconnect begun here runs (Android switchTo's `retrying`).
+  if (container.read(homeSwitchTargetProvider) != null || container.read(accountReconnectorProvider)) return false;
   // Set before anything awaits: the tap's own frame shows the target.
   pending.set(profileId);
   try {
@@ -246,11 +247,16 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     _hover.value = -1;
     if (chosen == null) return;
     YoinHaptics.confirm();
-    if (chosen.credentialsMissing) {
+    _quickPick(chosen);
+  }
+
+  /// A pick from the hold or its accessibility actions (Android quickPick).
+  void _quickPick(AccountCard card) {
+    if (card.credentialsMissing) {
       // As on the card: an account that can't be used now is recovered in Settings.
       openSettings(context);
     } else {
-      switchHomeAccount(ref, chosen.id);
+      switchHomeAccount(ref, card.id);
     }
   }
 
@@ -281,7 +287,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
       // The dot is heard with the avatar (Android: its description merges into the button's).
       label: needsReconnect ? '${strings.accountCd(title)}, ${strings.accountReconnectNeeded}' : strings.accountCd(title),
       customSemanticsActions: {
-        for (final o in others) CustomSemanticsAction(label: strings.accountQuickSwitch(o.title)): () => switchHomeAccount(ref, o.id),
+        for (final o in others) CustomSemanticsAction(label: strings.accountQuickSwitch(o.title)): () => _quickPick(o),
       },
       excludeSemantics: true,
       // Mouse / keyboard: hover layer, click cursor, focus ring, Enter.
@@ -470,7 +476,13 @@ class _FanRowState extends State<_FanRow> with TickerProviderStateMixin {
                   elevation: 3 + 5 * lift.clamp(0.0, 1.0),
                   child: SizedBox.square(
                     dimension: HomeAccountMetrics.fanItem,
-                    child: Center(child: _avatarOf(widget.card, size: HomeAccountMetrics.fanAvatar, ring: colors.surfaceContainerHigh)),
+                    // An account that can't be used now: there, but quieter (letting go on it opens Settings).
+                    child: Center(
+                      child: Opacity(
+                        opacity: widget.card.credentialsMissing ? HomeAccountMetrics.fanUnusableAlpha : 1,
+                        child: _avatarOf(widget.card, size: HomeAccountMetrics.fanAvatar, ring: colors.surfaceContainerHigh),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -613,7 +625,11 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
       builder: (context, ref, _) {
         final reconnecting = ref.watch(accountReconnectorProvider);
         final needsReconnect = ref.watch(activeNeedsReconnectProvider).value ?? false;
-        // While a Reconnect runs nothing on the card starts anything (Android takesInput).
+        // While a Reconnect runs nothing on the card starts anything (Android takesInput /
+        // gated): no tap, and no key or accessibility action either, read when it fires.
+        VoidCallback gated(VoidCallback action) => () {
+          if (!ref.read(accountReconnectorProvider)) action();
+        };
         return IgnorePointer(
           ignoring: reconnecting,
           child: _CardContent(
@@ -622,14 +638,14 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
             strings: strings,
             needsReconnect: needsReconnect,
             reconnecting: reconnecting,
-            onReconnect: active == null ? null : () => _reconnect(active),
-            onPick: (card) {
+            onReconnect: active == null ? null : gated(() => _reconnect(active)),
+            onPick: (card) => gated(() {
               YoinHaptics.click();
               // An account that can't be used right now is recovered in Settings.
               close(card.credentialsMissing ? () => openSettings(widget.navigator.context) : () => widget.onPick(card));
-            },
-            onSettings: () => close(() => openSettings(widget.navigator.context)),
-            onEditHome: widget.onEditHome == null ? null : () => close(widget.onEditHome),
+            })(),
+            onSettings: gated(() => close(() => openSettings(widget.navigator.context))),
+            onEditHome: widget.onEditHome == null ? null : gated(() => close(widget.onEditHome)),
           ),
         );
       },

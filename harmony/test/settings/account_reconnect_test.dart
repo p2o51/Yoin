@@ -9,6 +9,7 @@ import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/data/source/music_source.dart';
+import 'package:yoin/home/home_account_switcher.dart' show switchHomeAccountIn;
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/account_reconnect.dart';
 import 'package:yoin/settings/account_switch.dart';
@@ -260,6 +261,29 @@ void main() {
       gate.complete(true);
       expect(await first, AccountReconnectOutcome.fixed);
       expect(built, hasLength(1));
+    });
+
+    test('should_notSwitchFromHome_when_aReconnectIsUnderWay', () async {
+      final other = await repo.add(provider: MediaId.providerSubsonic, displayName: 'den', credentials: _home);
+      final lost = await lostAccount();
+      expect(await needs(), isTrue);
+      await giveCredentialsBack(lost);
+      // The Reconnect's ping waits; any other server answers at once.
+      final gate = Completer<bool>();
+      var pings = 0;
+      ping = () => pings++ == 0 ? gate.future : Future.value(true);
+      final first = c.read(accountReconnectorProvider.notifier).reconnect(lost.id);
+      for (var i = 0; i < 100 && pings == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(c.read(accountReconnectorProvider), isTrue);
+
+      // Android switchTo's `retrying`: Home starts no switch meanwhile (one would land).
+      expect(await switchHomeAccountIn(c, other.id), isFalse);
+      expect((await repo.activeProfile())!.id, lost.id);
+
+      gate.complete(true);
+      expect(await first, AccountReconnectOutcome.fixed);
     });
 
     test('should_sayNothing_when_anotherAccountIsInUseAfterwards', () async {
