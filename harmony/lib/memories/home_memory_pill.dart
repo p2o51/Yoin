@@ -124,6 +124,7 @@ String memoryNewsKey(AlbumMemoryCandidate? latest, int noteCount) => '${latest?.
 class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
   StreamSubscription<MemoryStoreChange>? _changes;
   StreamSubscription<void>? _linkChanges;
+  Timer? _linkDebounce;
   int _generation = 0;
 
   @override
@@ -144,10 +145,15 @@ class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
         : TrackAlbumLinkStore.shared(
             ref.read(keyValueStoreProvider),
             store.profileId,
-          ).changes.listen((_) => _load(source?.provider, store));
+          ).changes.listen((_) {
+            // A lookup pass writes links in quick succession: one rebuild after it settles.
+            _linkDebounce?.cancel();
+            _linkDebounce = Timer(const Duration(milliseconds: 300), () => _load(source?.provider, store));
+          });
     ref.onDispose(() {
       _changes?.cancel();
       _linkChanges?.cancel();
+      _linkDebounce?.cancel();
     });
     scheduleMicrotask(() => _load(source?.provider, store));
     return const HomeMemoryPillState();

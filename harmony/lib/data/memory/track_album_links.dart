@@ -321,6 +321,10 @@ const Duration trackAlbumLinkSpacing = Duration(milliseconds: 250);
 /// Lookups in flight on a Subsonic server (LedgerTrackResolver Parallel).
 const int trackAlbumServerParallel = 4;
 
+/// A server's answers kept in one write (Android writes each row; one JSON
+/// document per account here, so a big pass writes it a batch at a time).
+const int trackAlbumServerBatch = 25;
+
 /// A streaming service's songs one ledger pass asks about, newest first
 /// (LedgerTrackResolver ServicePerPass), and the most a streaming account
 /// answers for in one process (ServiceBudget).
@@ -477,7 +481,7 @@ class TrackAlbumLinker {
         } catch (_) {
           return looked;
         }
-        await _store(account, TrackAlbumLink.answer(trackId, track, nowMs: clock()));
+        await _store(account, [TrackAlbumLink.answer(trackId, track, nowMs: clock())]);
         looked++;
         if (spacing > Duration.zero) await Future<void>.delayed(spacing);
       }
@@ -502,8 +506,8 @@ class TrackAlbumLinker {
     }
     final failed = <String>{};
 
-    // Null: no answer (the account failed); else whether it was news.
-    Future<bool?> ask(TrackAlbumWanted want) async {
+    // The answer, or null: none (the account failed).
+    Future<TrackAlbumLink?> lookUp(TrackAlbumWanted want) async {
       final account = accounts[want.profileId];
       if (account == null || failed.contains(want.profileId) || _disposed) return null;
       final Track? track;
@@ -514,9 +518,15 @@ class TrackAlbumLinker {
         failed.add(want.profileId);
         return null;
       }
-      final link = TrackAlbumLink.answer(want.trackId, track, nowMs: clock());
+      return TrackAlbumLink.answer(want.trackId, track, nowMs: clock());
+    }
+
+    // Null: no answer (the account failed, or it couldn't be kept); else whether it was news.
+    Future<bool?> ask(TrackAlbumWanted want) async {
+      final link = await lookUp(want);
+      if (link == null) return null;
       try {
-        await _store(account, link);
+        await _store(accounts[want.profileId]!, [link]);
       } catch (_) {
         return null;
       }
@@ -537,15 +547,45 @@ class TrackAlbumLinker {
     ];
 
     final results = <bool?>[];
-    // A server of one's own: a few songs at a time.
+    // A server of one's own: a few songs at a time. Its answers come fast, so
+    // they are kept a batch at a time: one write of the account's links (and
+    // one round of reloads) per batch, not per song.
+    final answers = <(String, TrackAlbumLink)>[];
+    var kept = 0;
+    Future<void> keep() async {
+      final batch = answers.sublist(kept);
+      kept = answers.length;
+      final byAccount = <String, List<TrackAlbumLink>>{};
+      for (final (id, link) in batch) {
+        (byAccount[id] ??= []).add(link);
+      }
+      for (final MapEntry(key: id, value: links) in byAccount.entries) {
+        try {
+          await _store(accounts[id]!, links);
+          results.addAll([for (final l in links) l.isNews]);
+        } catch (_) {
+          // Not kept: asked again on a later pass.
+          results.addAll(List<bool?>.filled(links.length, null));
+        }
+      }
+    }
+
     var next = 0;
     Future<void> worker() async {
       while (next < servers.length) {
-        results.add(await ask(servers[next++]));
+        final want = servers[next++];
+        final link = await lookUp(want);
+        if (link == null) {
+          results.add(null);
+          continue;
+        }
+        answers.add((want.profileId, link));
+        if (answers.length - kept >= trackAlbumServerBatch) await keep();
       }
     }
 
     await Future.wait([for (var i = 0; i < trackAlbumServerParallel; i++) worker()]);
+    await keep();
 
     if (services.isNotEmpty) {
       final lane = Completer<void>();
@@ -577,11 +617,13 @@ class TrackAlbumLinker {
     return (answered: results.where((r) => r != null).length, found: results.any((r) => r == true));
   }
 
-  Future<void> _store(TrackAlbumAccount account, TrackAlbumLink link) async {
-    await account.links.putAll([link]);
+  Future<void> _store(TrackAlbumAccount account, List<TrackAlbumLink> links) async {
+    await account.links.putAll(links);
     // A note that came without its song's name (synced, imported) gets it.
-    if (link.title.isNotEmpty) {
-      await account.memory.fillMissingSong(link.trackId, title: link.title, artist: link.artist);
+    for (final link in links) {
+      if (link.title.isNotEmpty) {
+        await account.memory.fillMissingSong(link.trackId, title: link.title, artist: link.artist);
+      }
     }
   }
 

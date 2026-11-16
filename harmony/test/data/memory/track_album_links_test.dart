@@ -249,6 +249,22 @@ void main() {
       expect((await links.links()).length, 3);
     });
 
+    test('should_keepAServersAnswersABatchAtATime_when_manySongsResolve', () async {
+      final songs = [for (var i = 0; i < 60; i++) _s('t$i')];
+      final lookup = _Lookup({for (final id in songs) id: Track(id: id, title: 'Song', albumId: _s('a'))});
+      var writes = 0;
+      final sub = links.changes.listen((_) => writes++);
+      final pass = await linker(null).resolve([
+        for (final id in songs) TrackAlbumWanted('p1', id),
+      ], accountFor: (id) async => account(lookup));
+      await Future<void>.delayed(Duration.zero);
+      expect(pass.answered, 60);
+      expect((await links.links()).length, 60);
+      // 60 answers, 25 to a write: three writes of the account's links, not sixty.
+      expect(writes, (60 / trackAlbumServerBatch).ceil());
+      await sub.cancel();
+    });
+
     test('should_askAStreamingServiceAFewSongsOnly_when_budgetSpent', () async {
       MediaId am(String id) => MediaId(MediaId.providerAppleMusic, id);
       final lookup = _Lookup({for (var i = 0; i < 5; i++) am('s$i'): Track(id: am('s$i'), albumId: am('a'))});

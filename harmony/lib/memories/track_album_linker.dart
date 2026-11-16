@@ -43,12 +43,30 @@ final trackAlbumLinkerProvider = Provider<TrackAlbumLinker>((ref) {
   final kv = ref.watch(keyValueStoreProvider);
   final linker = TrackAlbumLinker(
     activeAccount: () async {
-      final source = await ref.read(activeSourceProvider.future);
+      if (!ref.mounted) return null;
       final store = await ref.read(memoryStoreProvider.future);
-      if (source == null || store == null) return null;
+      if (!ref.mounted) return null;
+      final source = await ref.read(activeSourceProvider.future);
+      if (source == null || store == null || !ref.mounted) return null;
+      // Mid-switch the two can belong to different accounts for a beat, and the
+      // other server's "no such song" would be kept as this account's answer for
+      // good. Only a settled pair answers (Android: a source built for the account).
+      final storeNow = ref.read(memoryStoreProvider);
+      final sourceNow = ref.read(activeSourceProvider);
+      if (storeNow.isLoading ||
+          sourceNow.isLoading ||
+          !identical(storeNow.value, store) ||
+          !identical(sourceNow.value, source)) {
+        return null;
+      }
       return trackAlbumAccount(kv: kv, store: store, source: source, liveRatings: () => ref.read(localRatingsProvider));
     },
-    isActive: (profileId) => ref.read(memoryStoreProvider).value?.profileId == profileId,
+    // A switch under way: the account it leaves is no longer the one in use.
+    isActive: (profileId) {
+      if (!ref.mounted) return false;
+      final store = ref.read(memoryStoreProvider);
+      return !store.isLoading && store.value?.profileId == profileId;
+    },
   );
   // A newly active account (one just added included) gets its pass at once.
   ref.listen(memoryStoreProvider, (previous, next) {

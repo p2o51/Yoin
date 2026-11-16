@@ -247,13 +247,13 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
 
   /// Asks the songs' services about [wanted], one pass at a time; a pass that
   /// answered any reloads the ledger, which asks for what is left.
-  void _resolve(List<TrackAlbumWanted> wanted, Map<String, TrackAlbumAccount? Function()> accounts) {
+  void _resolve(List<TrackAlbumWanted> wanted, Map<String, Future<TrackAlbumAccount?> Function()> accounts) {
     if (_resolving || wanted.isEmpty) return;
     _resolving = true;
     unawaited(() async {
       TrackAlbumPass? pass;
       try {
-        pass = await _linker.resolve(wanted, accountFor: (id) async => accounts[id]?.call());
+        pass = await _linker.resolve(wanted, accountFor: (id) async => await accounts[id]?.call());
       } catch (e) {
         debugPrint('YoinLedger: song lookups failed: ${e.runtimeType}');
       } finally {
@@ -294,10 +294,15 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     );
     final entries = [...own.entries];
     final wanted = [...own.wanted];
-    final lookups = <String, TrackAlbumAccount? Function()>{
+    final linker = _linker;
+    final lookups = <String, Future<TrackAlbumAccount?> Function()>{
+      // The account in use as the linker sees it when asked: never this load's
+      // source against a store a switch has since replaced.
       if (source != null)
-        store.profileId: () =>
-            trackAlbumAccount(kv: kv, store: store, source: source, liveRatings: () => ref.read(localRatingsProvider)),
+        store.profileId: () async {
+          final active = await linker.activeAccount();
+          return active?.profileId == store.profileId ? active : null;
+        },
     };
     // The others: what this device kept of them, read only.
     final disk = ref.read(detailCacheStoreProvider);
@@ -323,7 +328,7 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
         // Its own server answers for its songs (a streaming service only for the account in use).
         final lookup = other.source?.trackLookup;
         if (lookup != null) {
-          lookups[id] = () => TrackAlbumAccount(
+          lookups[id] = () async => TrackAlbumAccount(
             profileId: id,
             provider: other.profile.provider,
             lookup: lookup,

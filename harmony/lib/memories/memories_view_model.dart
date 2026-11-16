@@ -371,7 +371,8 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       final ratingRow = a.inputs.albumRatings[c.albumId];
       final notes = [
         for (final n in a.inputs.songNotes)
-          if (n.albumId == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
+          // Written on the album, or on a song a link places there (as the candidate counted them).
+          if (a.inputs.albumOfNote(n) == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
       ];
       final words = a.other == null ? ai : null;
       final album = c.album;
