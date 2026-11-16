@@ -16,6 +16,7 @@ import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
 import 'landing/landing_host.dart';
+import 'neodb/neodb_providers.dart';
 import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
 import 'platform/posture/display_posture.dart';
@@ -101,6 +102,8 @@ class YoinApp extends ConsumerWidget {
     ref.listen(playlistBackupFollowerProvider, (_, _) {});
     // A playlist restore's notification, tapped, opens its backup's page.
     ref.listen(restoreNoticeTapsProvider, (_, _) {});
+    // After a Phone Clone or cloud restore, the old phone's NeoDB dirty flags go (once per launch).
+    ref.listen(neoDbRestoreGuardProvider, (_, _) {});
     // Continue On lives with the app: it offers the hand-off while a song is
     // loaded and takes one this device is started or brought back with.
     ref.listen(continueOnProvider, (_, _) {});

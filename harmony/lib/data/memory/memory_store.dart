@@ -607,6 +607,21 @@ final class MemoryStore {
         await _saveRatings(rows);
       });
 
+  /// A restore from another phone: its NeoDB dirty flags were that phone's
+  /// (NeoDbRestoreGuard). Scores, words and the remote review's uuid stay.
+  /// Android AlbumRatingDao.clearAllNeoDbPending. Nothing is written when no
+  /// row was dirty.
+  Future<void> clearAllNeoDbPending() => _write(MemoryStoreChange.albumRatings, () async {
+    final rows = await _loadRatings();
+    var cleared = 0;
+    for (final e in rows.entries.toList()) {
+      if (!e.value.ratingNeedsSync && !e.value.reviewNeedsSync) continue;
+      rows[e.key] = e.value.withNeoDb(ratingNeedsSync: false, reviewNeedsSync: false);
+      cleared++;
+    }
+    if (cleared > 0) await _saveRatings(rows);
+  });
+
   /// Writes [row] as pulled from NeoDB (NeoDBSyncService.pullAlbum's upsert).
   Future<void> putPulledAlbumRating(AlbumRatingRow row) => _write(MemoryStoreChange.albumRatings, () async {
     final rows = await _loadRatings();

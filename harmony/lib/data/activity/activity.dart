@@ -110,7 +110,10 @@ abstract interface class ActivityLog {
 /// Writes are serialised; a failed write never throws to the caller
 /// (logging must not affect playback).
 final class StoredActivityLog implements ActivityLog {
-  StoredActivityLog(this._store, {required String profileId}) : _key = 'activity.v1.$profileId';
+  StoredActivityLog(this._store, {required String profileId}) : _key = keyFor(profileId);
+
+  /// [profileId]'s log in the store.
+  static String keyFor(String profileId) => 'activity.v1.$profileId';
 
   final KeyValueStore _store;
   final String _key;
