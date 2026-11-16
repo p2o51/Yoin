@@ -326,6 +326,10 @@ internal fun LyricHighlightSection(
     val editCardScope = LocalHomeEditCardScope.current
     val shown = cards.take(count.coerceIn(1, 4))
     val single = shown.size <= 1
+    // Half a two-column row (large-screen Home): the shelf stays in its column, one whole card a page.
+    val half = LocalHomeColumn.current.half
+    @Suppress("NAME_SHADOWING")
+    val frame = if (half) null else frame
     // The column's width is the content width either way (the shelf itself may bleed past it).
     val columnWidth = remember { mutableIntStateOf(0) }
     Column(
@@ -356,7 +360,7 @@ internal fun LyricHighlightSection(
                     },
                 ),
             contentPadding = sidePadding,
-            pageSize = remember(single) { LyricPageSize({ columnWidth.intValue }, single) },
+            pageSize = remember(single, half) { LyricPageSize({ columnWidth.intValue }, single || half) },
             beyondViewportPageCount = 3,
             pageSpacing = LyricCardGap,
             verticalAlignment = Alignment.Top,

@@ -208,9 +208,42 @@ internal fun kickInitialVelocity(amplitude: Float, sign: Int, running: Boolean, 
 
 // ── Hit testing ───────────────────────────────────────────────────────────
 
-/** A section's vertical extent in Box px. [bleeds]: a full-width shelf that takes touches in the margins too. */
+/**
+ * A section's vertical extent in Box px. [bleeds]: a full-width shelf that takes touches in the margins too.
+ * [left] / [right]: half of a two-column row, its column's x extent (null = the content's whole width).
+ */
 @Immutable
-internal data class SectionBand(val id: HomeSection, val top: Float, val bottom: Float, val bleeds: Boolean)
+internal data class SectionBand(
+    val id: HomeSection,
+    val top: Float,
+    val bottom: Float,
+    val bleeds: Boolean,
+    val left: Float? = null,
+    val right: Float? = null,
+)
+
+/**
+ * [bands] with every two-column pair split in two: the band of a row's left
+ * half ([pairs], left → right, only pairs laid out side by side) becomes its
+ * column and its partner's, [gap] apart across [contentLeft]..[contentRight]. Pure.
+ */
+internal fun splitPairBands(
+    bands: List<SectionBand>,
+    pairs: Map<HomeSection, HomeSection>,
+    contentLeft: Float,
+    contentRight: Float,
+    gap: Float,
+): List<SectionBand> {
+    if (pairs.isEmpty()) return bands
+    val half = (contentRight - contentLeft - gap) / 2f
+    return bands.flatMap { band ->
+        val right = pairs[band.id] ?: return@flatMap listOf(band)
+        listOf(
+            band.copy(bleeds = false, left = contentLeft, right = contentLeft + half),
+            band.copy(id = right, bleeds = false, left = contentRight - half, right = contentRight),
+        )
+    }
+}
 
 /** The band nearest to [y] (distance 0 inside); the first wins a tie. −1 when there are none. */
 internal fun nearestSectionIndex(y: Float, bands: List<SectionBand>): Int {
@@ -247,9 +280,11 @@ internal fun resolveSectionAt(
     val padH = if (editing) outsetH else 0f
     val padV = if (editing) outsetV else 0f
     return bands.firstOrNull { band ->
+        val left = band.left ?: contentLeft
+        val right = band.right ?: contentRight
         y >= band.top - padV &&
             y <= band.bottom + padV &&
-            (band.bleeds || x >= contentLeft - padH && x <= contentRight + padH)
+            (band.bleeds || x >= left - padH && x <= right + padH)
     }
 }
 

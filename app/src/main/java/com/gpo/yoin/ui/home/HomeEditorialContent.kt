@@ -160,6 +160,9 @@ import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
+import com.gpo.yoin.ui.home.edit.HomeSpanTokens
+import com.gpo.yoin.ui.home.edit.HomeSpanCommit
+import com.gpo.yoin.ui.home.edit.HomeSpanDrag
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
@@ -573,6 +576,8 @@ internal fun HomeEditorialContent(
     // local, so this is the shipped V1; only the debug harness switches it.
     val plateVariant = LocalHomePlateVariant.current
     val spacingAnchor = remember { HomePlateSpacingAnchor() }
+    // Two columns: plates keep to their half (8dp outset), so two halves' plates stay apart in the 20dp gap.
+    val plateTwoColumn by rememberUpdatedState(homeTwoColumn(windowInfo))
     val plateLook = remember(plateVariant, controller, feedFrame, spacingAnchor) {
         if (plateVariant == HomePlateVariant.V0) {
             HomePlateLook.Legacy
@@ -580,12 +585,29 @@ internal fun HomeEditorialContent(
             HomePlateLook(
                 variant = plateVariant,
                 progress = { spacingAnchor.progress(controller.progress.value) },
-                pageMargin = { minOf(feedFrame.start, feedFrame.end) },
+                pageMargin = { if (plateTwoColumn) TwoColumnPlateMargin else minOf(feedFrame.start, feedFrame.end) },
             )
         }
     }
-    val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine) {
-        HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine)
+    // Two columns: the handle's horizontal axis (HomeSpanResize.kt), written through the controller.
+    val spanSpec = YoinMotion.spatialSpring<Float>()
+    val currentSpanSpec by rememberUpdatedState(spanSpec)
+    val spanDrag = remember(controller, editFeedback) {
+        HomeSpanDrag(
+            scope = scope,
+            spec = { currentSpanSpec },
+            commit = { section, write ->
+                when (write) {
+                    HomeSpanCommit.ToHalf -> controller.setHalf(section)
+                    HomeSpanCommit.ToFull -> controller.setFull(section)
+                    HomeSpanCommit.None -> false
+                }
+            },
+            tick = editFeedback::segmentTick,
+        )
+    }
+    val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag) {
+        HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag)
     }
     // V1 grows the feed's spacing with P: a block the entering long-press lifted
     // stays under the finger while it does (HomePlateSpacingAnchor), from the
@@ -666,6 +688,8 @@ internal fun HomeEditorialContent(
             plateOutsetPx = plateOutsetPx,
             editing = { controller.isEditing },
             isHiding = { it in motion.hiding },
+            pairs = { feedRefs.pairs },
+            columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
         )
     }
     val carryHost = rememberLazyListCarryHost(
@@ -720,7 +744,11 @@ internal fun HomeEditorialContent(
     // ── What the feed renders (plan §2.5): the controller's layout, the
     // sections with something to show (placeholders while editing), then the
     // tray or the footer. The keys go out in this order for the carry's anchor.
-    val layout = controller.layoutToRender(HomeLayout(sections))
+    // Large-screen Home (owner 2026-11-16): a Wide feed (content ≥ 776dp — every
+    // narrower frame is ≤ 688dp, the Now Playing side panel's squeeze included)
+    // lays sections out in rows of one full or two half sections.
+    val twoColumn = homeTwoColumn(windowInfo)
+    val layout = controller.layoutToRender(HomeLayout(sections), twoColumn)
     val enabledOrder = layout.enabledSections
     // Derived, by value: a motion flag that leaves the blocks as they are (the
     // placeholders above a lifted block opening with none held back) recomposes nothing.
@@ -771,33 +799,51 @@ internal fun HomeEditorialContent(
             )
         }
     }
+    val blockBySection = remember(blocks) { blocks.associateBy { it.section } }
+    val feedRows = remember(blocks, layout, twoColumn) {
+        homeFeedRows(blocks.map { it.section }, layout.pairs, twoColumn)
+    }
     val trayMounted = motion.trayMounted
     // A section this device can't fill (「歌词一句」 without Gemini Nano) isn't offered in the tray either.
     val hiddenSections = layout.hiddenSections.filter { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val allHidden = enabledOrder.none { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
     SideEffect {
+        controller.twoColumn = twoColumn
         controller.feedUnseen = if (lyricHighlightAvailable) emptySet() else setOf(HomeSection.LyricHighlight)
         val displayed = blocks.map { it.section }
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
+        feedRefs.pairs = feedRows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }
+        spanDrag.info = if (!twoColumn) {
+            { null }
+        } else {
+            val rowsNow = feedRows
+            val orderNow = enabledOrder
+            val gapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() }
+            ({ section ->
+                homeSpanInfoOf(section, rowsNow, orderNow, with(density) { feedFrame.contentWidth.toPx() }, gapPx)
+            })
+        }
     }
 
     // The Home layer the controller drives (plan C4); a layer that arrives
     // while editing (an Activity recreation, a new motion) starts its session.
     val currentSafeArea by rememberUpdatedState(safeArea)
-    DisposableEffect(controller, motion, engine, press, rowsEngine) {
+    DisposableEffect(controller, motion, engine, press, rowsEngine, spanDrag) {
         val layer = object : HomeEditLayer {
             override val isCarrying: Boolean get() = engine.isCarrying
 
             override fun onEnter(origin: HomeSection?, lifted: Boolean) = motion.onEnter(origin, lifted)
 
             override fun onExit(reason: HomeEditExitReason) {
+                spanDrag.snap()
                 rowsEngine.onExit()
                 engine.onExit(reason, press)
             }
 
             override fun onSnapExit() {
+                spanDrag.snap()
                 rowsEngine.snapAll()
                 engine.onSnapExit(press)
             }
@@ -872,9 +918,12 @@ internal fun HomeEditorialContent(
         snapshotFlow { engine.fold.value > 0f || spacingAnchor.holding }.collect { seamFlow.held = it }
     }
     // A carry folds every block into a strip: any row resize lands at rest first.
-    LaunchedEffect(engine, rowsEngine) {
+    LaunchedEffect(engine, rowsEngine, spanDrag) {
         snapshotFlow { engine.session != null || engine.liftSection != null }.collect { carrying ->
-            if (carrying) rowsEngine.snapAll()
+            if (carrying) {
+                rowsEngine.snapAll()
+                spanDrag.snap()
+            }
         }
     }
     // A held resize handle near the bar (or the status tide) scrolls the feed under it.
@@ -960,6 +1009,300 @@ internal fun HomeEditorialContent(
                 shapes = stripShapes,
             )
         }
+    }
+
+    // One section's content, for a full row or half of a pair alike (large-screen Home).
+    val sectionBody: @Composable (HomeSection) -> Unit = { section ->
+            // The column this section sits in: a half reads its own width class (feedUnits).
+            val columnInfo = LocalYoinWindowInfo.current
+            when (section) {
+                HomeSection.Activities -> if (activityEntries.isNotEmpty()) {
+                    // Density by width (owner 2026-10-03): the bento's
+                    // recipe and item count follow the container's feed
+                    // units (HomeFeedDensity.kt), not LayoutMode. The
+                    // phone and landscape compositions are today's.
+                    val unitsRecipe = !isLandscapePhone && columnInfo.feedUnits >= 3
+                    // Deep enough for the XL preset; the hero is still
+                    // found where it always was (the first 6 / 16), so
+                    // every other preset seats exactly what it did.
+                    val bentoResources = LocalContext.current.resources
+                    val bentoEntries = remember(activities, buildCoverArtUrl, unitsRecipe, bentoResources.configuration) {
+                        buildActivityEntries(
+                            activities = activities,
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            resources = bentoResources,
+                            limit = if (unitsRecipe) {
+                                ActivityBentoUnitsXlEntries
+                            } else {
+                                ActivityBentoPhoneXlEntries
+                            },
+                        )
+                    }
+                    val heroWindow =
+                        if (unitsRecipe) ActivityBentoUnitsMaxEntries else ActivityBentoPhoneEntries
+                    // Hero slot = first album/playlist; artists fill the
+                    // smaller cards in recency order.
+                    val heroEntry = remember(bentoEntries, heroWindow) {
+                        bentoEntries.take(heroWindow).firstOrNull { entry -> entry.isHeroCandidate }
+                    }
+                    // The stagger is seeded by the hero's identity: the
+                    // same feed lays out the same way every time.
+                    // Remembered, like every argument below: the feed
+                    // recomposes on edit-mode flags, and fresh lists, specs
+                    // or modifiers would recompose the whole bento with it.
+                    val bentoSpec = remember(columnInfo.feedUnits, isLandscapePhone, heroEntry) {
+                        activityBentoSpec(
+                            feedUnits = columnInfo.feedUnits,
+                            isCompactHeight = isLandscapePhone,
+                            seed = activityLayoutSeed(heroEntry?.layoutKey),
+                            hasHero = heroEntry != null,
+                        )
+                    }
+                    val candidates = remember(bentoEntries, heroEntry) {
+                        bentoEntries.filterNot { it === heroEntry }
+                    }
+                    // The artists this preset seats in a card with a
+                    // picture (the hero is never one, a strip is text
+                    // only): the portraits worth asking for.
+                    val activityPreset = layout.rowsOf(HomeSection.Activities)
+                    val picturedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
+                        activityPresetPicturedEntries(
+                            spec = bentoSpec,
+                            hasHero = heroEntry != null,
+                            preset = activityPreset
+                        ).mapNotNull { index ->
+                            val target = candidates.getOrNull(index)?.target
+                            (target as? HomeEntryTarget.Artist)?.artistId
+                        }
+                    }
+                    LaunchedEffect(picturedArtistIds) {
+                        currentOnActivityArtistsShown(picturedArtistIds)
+                    }
+                    val bentoModifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.hero },
+                                rise = 18.dp,
+                                scaleFrom = 0.97f,
+                            )
+                    }
+                    ActivityBento(
+                        hero = heroEntry,
+                        candidates = candidates,
+                        spec = bentoSpec,
+                        preset = activityPreset,
+                        heroFootnoteExtra = homeHeroFootnote(
+                            year = activityHeroYear,
+                            songCount = activityHeroSongCount,
+                            minutes = activityHeroMinutes,
+                            fallback = activityHeroFootnote,
+                        ),
+                        heroVersion = activityHeroVersion,
+                        extractBackdropColors = shouldExtractBackdropColors,
+                        onEntryClick = onEntryClick,
+                        modifier = bentoModifier,
+                    )
+                } else {
+                    HomeEmptyCard(
+                        title = stringResource(R.string.home_activities_empty_title),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // The merged Jump Back In × memories widget grid.
+                // Empty, it only shows (as a placeholder) while editing.
+                HomeSection.JumpBackIn -> HomeWidgetGridSection(
+                    title = stringResource(HomeSection.JumpBackIn.titleRes),
+                    cards = widgetGrid,
+                    rows = layout.rowsOf(HomeSection.JumpBackIn),
+                    memoryMarks = albumMemoryMarks,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onCardClick = onWidgetCardClick,
+                    onHideCard = onHideJbiCard,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.meta },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // Only with something added lately — an empty
+                // "recently added" shelf is noise, not information.
+                HomeSection.RecentlyAdded -> RecentlyAddedSection(
+                    tracks = recentlyAddedTracks,
+                    albums = recentlyAddedAlbums,
+                    memoryMarks = albumMemoryMarks,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
+                    onAlbumClick = { album ->
+                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
+                    },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    frame = feedFrame,
+                    singleRowShelf = isLandscapePhone,
+                    shelfScrollEnabled = !editing,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // Only with something to bring back: an empty
+                // Rediscover is no information either.
+                HomeSection.Rediscover -> RediscoverSection(
+                    items = rediscover,
+                    frame = feedFrame,
+                    nowMillis = rediscoverNowMillis,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    scrollEnabled = !editing,
+                    onAlbumClick = { albumId, sharedTransitionKey ->
+                        onEntryClick(HomeEntryTarget.Album(albumId, sharedTransitionKey))
+                    },
+                    onSongClick = { song -> onEntryClick(HomeEntryTarget.SongTarget(song)) },
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // What the account played lately, from the provider's own history.
+                HomeSection.RecentlyPlayed -> AlbumShelfSection(
+                    title = stringResource(HomeSection.RecentlyPlayed.titleRes),
+                    albums = recentlyPlayed,
+                    memoryMarks = albumMemoryMarks,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onAlbumClick = { album ->
+                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
+                    },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    frame = feedFrame,
+                    shelfScrollEnabled = !editing,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // The library's playlists, like Spotify's "Your playlists".
+                HomeSection.YourPlaylists -> YourPlaylistsSection(
+                    playlists = playlists,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onPlaylistClick = { playlist ->
+                        onEntryClick(HomeEntryTarget.Playlist(playlist.id.toString()))
+                    },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    frame = feedFrame,
+                    shelfScrollEnabled = !editing,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // Lyric lines Gemini Nano (or the user) picked, one to four cards; a tap plays from one.
+                HomeSection.LyricHighlight -> if (lyricIntro != null) {
+                    LyricHighlightIntroCard(
+                        intro = lyricIntro,
+                        onOptIn = onLyricIntroOptIn,
+                        onDismiss = onLyricIntroDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else if (lyricHighlights.isEmpty()) {
+                    NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LyricHighlightSection(
+                        cards = lyricHighlights,
+                        count = layout.rowsOf(HomeSection.LyricHighlight).lyricCards,
+                        frame = feedFrame,
+                        shelfScrollEnabled = !editing,
+                        testLog = nanoTestLog,
+                        buildCoverArtUrl = buildCoverArtUrl,
+                        extractBackdropColors = shouldExtractBackdropColors,
+                        onPlay = onLyricHighlightPlay,
+                        modifier = remember(firstReveal) {
+                            Modifier
+                                .fillMaxWidth()
+                                .stagedBeat(
+                                    progress = { firstReveal.payload },
+                                    rise = 16.dp,
+                                )
+                        },
+                    )
+                }
+
+                // What the other accounts play most; a tap switches and plays.
+                HomeSection.OtherProfiles -> OtherProfilesSection(
+                    items = otherProfileItems,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onItemClick = onOtherProfileItemClick,
+                    frame = feedFrame,
+                    shelfScrollEnabled = !editing,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // Spotify's Made For You playlists; a tap opens the playlist's page.
+                HomeSection.MadeForYou -> MadeForYouSection(
+                    playlists = madeForYou,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onPlaylistClick = { playlist ->
+                        onEntryClick(HomeEntryTarget.Playlist(playlist.mediaId.toString()))
+                    },
+                    frame = feedFrame,
+                    shelfScrollEnabled = !editing,
+                    modifier = remember(firstReveal) {
+                        Modifier
+                            .fillMaxWidth()
+                            .stagedBeat(
+                                progress = { firstReveal.payload },
+                                rise = 16.dp,
+                            )
+                    },
+                )
+
+                // Every memory on a grid; a tap opens All Memories.
+                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
+                    MemoryLedgerSection(
+                        state = ledger,
+                        extractBackdropColors = shouldExtractBackdropColors,
+                        onOpen = onOpenMemoryLedger,
+                        modifier = remember(firstReveal) {
+                            Modifier
+                                .fillMaxWidth()
+                                .stagedBeat(
+                                    progress = { firstReveal.payload },
+                                    rise = 16.dp,
+                                )
+                        },
+                    )
+                }
+            }
     }
 
     Box(
@@ -1061,317 +1404,35 @@ internal fun HomeEditorialContent(
                 }
 
                 // Data-driven feed: each section the user keeps on, in their order,
-                // each one an edit block.
-                for (block in blocks) {
-                    val section = block.section
-                    item(key = sectionItemKey(section)) {
-                        HomeEditBlock(
-                            section = section,
-                            displayIndex = enabledOrder.indexOf(section).coerceAtLeast(0),
-                            displayCount = enabledOrder.size,
-                            deps = editDeps,
-                            placeholder = block.placeholder,
-                            // No cards to sway: the block turns as one.
-                            wholeBlockWiggle = block.placeholder ||
-                                (section == HomeSection.Activities && activityEntries.isEmpty()),
-                            itemSpacing = itemSpacing,
-                            blockTopInBox = { sectionTop(section) },
-                            safeArea = safeArea,
+                // each one an edit block. In two columns a pair shares one row
+                // (one item, keyed by its left half).
+                for (row in feedRows) {
+                    item(key = sectionItemKey(row.first)) {
+                        HomeFeedRowLayout(
+                            row = row,
+                            span = spanDrag,
+                            gap = HomeSpanTokens.ColumnGap,
                             modifier = Modifier.animateItem(
                                 // A section edit mode shows fades in by its own alpha (critique 10).
-                                fadeInSpec = if (section in motion.showing) null else specs.effectsIn,
+                                fadeInSpec = if (row.first in motion.showing) null else specs.effectsIn,
                                 placementSpec = sectionPlacement(),
                                 fadeOutSpec = specs.effectsOut,
                             ),
-                        ) {
-                            when (section) {
-                                HomeSection.Activities -> if (activityEntries.isNotEmpty()) {
-                                    // Density by width (owner 2026-10-03): the bento's
-                                    // recipe and item count follow the container's feed
-                                    // units (HomeFeedDensity.kt), not LayoutMode. The
-                                    // phone and landscape compositions are today's.
-                                    val unitsRecipe = !isLandscapePhone && windowInfo.feedUnits >= 3
-                                    // Deep enough for the XL preset; the hero is still
-                                    // found where it always was (the first 6 / 16), so
-                                    // every other preset seats exactly what it did.
-                                    val bentoResources = LocalContext.current.resources
-                                    val bentoEntries = remember(activities, buildCoverArtUrl, unitsRecipe, bentoResources.configuration) {
-                                        buildActivityEntries(
-                                            activities = activities,
-                                            buildCoverArtUrl = buildCoverArtUrl,
-                                            resources = bentoResources,
-                                            limit = if (unitsRecipe) {
-                                                ActivityBentoUnitsXlEntries
-                                            } else {
-                                                ActivityBentoPhoneXlEntries
-                                            },
-                                        )
-                                    }
-                                    val heroWindow =
-                                        if (unitsRecipe) ActivityBentoUnitsMaxEntries else ActivityBentoPhoneEntries
-                                    // Hero slot = first album/playlist; artists fill the
-                                    // smaller cards in recency order.
-                                    val heroEntry = remember(bentoEntries, heroWindow) {
-                                        bentoEntries.take(heroWindow).firstOrNull { entry -> entry.isHeroCandidate }
-                                    }
-                                    // The stagger is seeded by the hero's identity: the
-                                    // same feed lays out the same way every time.
-                                    // Remembered, like every argument below: the feed
-                                    // recomposes on edit-mode flags, and fresh lists, specs
-                                    // or modifiers would recompose the whole bento with it.
-                                    val bentoSpec = remember(windowInfo.feedUnits, isLandscapePhone, heroEntry) {
-                                        activityBentoSpec(
-                                            feedUnits = windowInfo.feedUnits,
-                                            isCompactHeight = isLandscapePhone,
-                                            seed = activityLayoutSeed(heroEntry?.layoutKey),
-                                            hasHero = heroEntry != null,
-                                        )
-                                    }
-                                    val candidates = remember(bentoEntries, heroEntry) {
-                                        bentoEntries.filterNot { it === heroEntry }
-                                    }
-                                    // The artists this preset seats in a card with a
-                                    // picture (the hero is never one, a strip is text
-                                    // only): the portraits worth asking for.
-                                    val activityPreset = layout.rowsOf(HomeSection.Activities)
-                                    val picturedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
-                                        activityPresetPicturedEntries(
-                                            spec = bentoSpec,
-                                            hasHero = heroEntry != null,
-                                            preset = activityPreset
-                                        ).mapNotNull { index ->
-                                            val target = candidates.getOrNull(index)?.target
-                                            (target as? HomeEntryTarget.Artist)?.artistId
-                                        }
-                                    }
-                                    LaunchedEffect(picturedArtistIds) {
-                                        currentOnActivityArtistsShown(picturedArtistIds)
-                                    }
-                                    val bentoModifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.hero },
-                                                rise = 18.dp,
-                                                scaleFrom = 0.97f,
-                                            )
-                                    }
-                                    ActivityBento(
-                                        hero = heroEntry,
-                                        candidates = candidates,
-                                        spec = bentoSpec,
-                                        preset = activityPreset,
-                                        heroFootnoteExtra = homeHeroFootnote(
-                                            year = activityHeroYear,
-                                            songCount = activityHeroSongCount,
-                                            minutes = activityHeroMinutes,
-                                            fallback = activityHeroFootnote,
-                                        ),
-                                        heroVersion = activityHeroVersion,
-                                        extractBackdropColors = shouldExtractBackdropColors,
-                                        onEntryClick = onEntryClick,
-                                        modifier = bentoModifier,
-                                    )
-                                } else {
-                                    HomeEmptyCard(
-                                        title = stringResource(R.string.home_activities_empty_title),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
-
-                                // The merged Jump Back In × memories widget grid.
-                                // Empty, it only shows (as a placeholder) while editing.
-                                HomeSection.JumpBackIn -> HomeWidgetGridSection(
-                                    title = stringResource(HomeSection.JumpBackIn.titleRes),
-                                    cards = widgetGrid,
-                                    rows = layout.rowsOf(HomeSection.JumpBackIn),
-                                    memoryMarks = albumMemoryMarks,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onCardClick = onWidgetCardClick,
-                                    onHideCard = onHideJbiCard,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.meta },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // Only with something added lately — an empty
-                                // "recently added" shelf is noise, not information.
-                                HomeSection.RecentlyAdded -> RecentlyAddedSection(
-                                    tracks = recentlyAddedTracks,
-                                    albums = recentlyAddedAlbums,
-                                    memoryMarks = albumMemoryMarks,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
-                                    onAlbumClick = { album ->
-                                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
-                                    },
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    frame = feedFrame,
-                                    singleRowShelf = isLandscapePhone,
-                                    shelfScrollEnabled = !editing,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // Only with something to bring back: an empty
-                                // Rediscover is no information either.
-                                HomeSection.Rediscover -> RediscoverSection(
-                                    items = rediscover,
-                                    frame = feedFrame,
-                                    nowMillis = rediscoverNowMillis,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    scrollEnabled = !editing,
-                                    onAlbumClick = { albumId, sharedTransitionKey ->
-                                        onEntryClick(HomeEntryTarget.Album(albumId, sharedTransitionKey))
-                                    },
-                                    onSongClick = { song -> onEntryClick(HomeEntryTarget.SongTarget(song)) },
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // What the account played lately, from the provider's own history.
-                                HomeSection.RecentlyPlayed -> AlbumShelfSection(
-                                    title = stringResource(HomeSection.RecentlyPlayed.titleRes),
-                                    albums = recentlyPlayed,
-                                    memoryMarks = albumMemoryMarks,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onAlbumClick = { album ->
-                                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
-                                    },
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    frame = feedFrame,
-                                    shelfScrollEnabled = !editing,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // The library's playlists, like Spotify's "Your playlists".
-                                HomeSection.YourPlaylists -> YourPlaylistsSection(
-                                    playlists = playlists,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onPlaylistClick = { playlist ->
-                                        onEntryClick(HomeEntryTarget.Playlist(playlist.id.toString()))
-                                    },
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    frame = feedFrame,
-                                    shelfScrollEnabled = !editing,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // Lyric lines Gemini Nano (or the user) picked, one to four cards; a tap plays from one.
-                                HomeSection.LyricHighlight -> if (lyricIntro != null) {
-                                    LyricHighlightIntroCard(
-                                        intro = lyricIntro,
-                                        onOptIn = onLyricIntroOptIn,
-                                        onDismiss = onLyricIntroDismiss,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                } else if (lyricHighlights.isEmpty()) {
-                                    NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
-                                } else {
-                                    LyricHighlightSection(
-                                        cards = lyricHighlights,
-                                        count = layout.rowsOf(HomeSection.LyricHighlight).lyricCards,
-                                        frame = feedFrame,
-                                        shelfScrollEnabled = !editing,
-                                        testLog = nanoTestLog,
-                                        buildCoverArtUrl = buildCoverArtUrl,
-                                        extractBackdropColors = shouldExtractBackdropColors,
-                                        onPlay = onLyricHighlightPlay,
-                                        modifier = remember(firstReveal) {
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .stagedBeat(
-                                                    progress = { firstReveal.payload },
-                                                    rise = 16.dp,
-                                                )
-                                        },
-                                    )
-                                }
-
-                                // What the other accounts play most; a tap switches and plays.
-                                HomeSection.OtherProfiles -> OtherProfilesSection(
-                                    items = otherProfileItems,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onItemClick = onOtherProfileItemClick,
-                                    frame = feedFrame,
-                                    shelfScrollEnabled = !editing,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // Spotify's Made For You playlists; a tap opens the playlist's page.
-                                HomeSection.MadeForYou -> MadeForYouSection(
-                                    playlists = madeForYou,
-                                    extractBackdropColors = shouldExtractBackdropColors,
-                                    onPlaylistClick = { playlist ->
-                                        onEntryClick(HomeEntryTarget.Playlist(playlist.mediaId.toString()))
-                                    },
-                                    frame = feedFrame,
-                                    shelfScrollEnabled = !editing,
-                                    modifier = remember(firstReveal) {
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .stagedBeat(
-                                                progress = { firstReveal.payload },
-                                                rise = 16.dp,
-                                            )
-                                    },
-                                )
-
-                                // Every memory on a grid; a tap opens All Memories.
-                                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
-                                    MemoryLedgerSection(
-                                        state = ledger,
-                                        extractBackdropColors = shouldExtractBackdropColors,
-                                        onOpen = onOpenMemoryLedger,
-                                        modifier = remember(firstReveal) {
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .stagedBeat(
-                                                    progress = { firstReveal.payload },
-                                                    rise = 16.dp,
-                                                )
-                                        },
-                                    )
-                                }
-                            }
+                        ) { section ->
+                            val block = blockBySection[section] ?: return@HomeFeedRowLayout
+                            HomeEditBlock(
+                                section = section,
+                                displayIndex = enabledOrder.indexOf(section).coerceAtLeast(0),
+                                displayCount = enabledOrder.size,
+                                deps = editDeps,
+                                placeholder = block.placeholder,
+                                // No cards to sway: the block turns as one.
+                                wholeBlockWiggle = block.placeholder ||
+                                    (section == HomeSection.Activities && activityEntries.isEmpty()),
+                                itemSpacing = itemSpacing,
+                                blockTopInBox = { sectionTop(row.first) },
+                                safeArea = safeArea,
+                            ) { sectionBody(section) }
                         }
                     }
                 }
@@ -1497,6 +1558,9 @@ private fun sectionItemKey(section: HomeSection): String = carryItemKey(section)
 
 private const val HomeHeaderKey = "home-header"
 
+// A page margin of 12dp gives V1 its least outset (8dp): what two halves 20dp apart leave room for.
+private val TwoColumnPlateMargin = 12.dp
+
 // P this close to rest counts as still (port sheet §2.5).
 private const val EditAnimatingFloor = .001f
 
@@ -1558,6 +1622,9 @@ private class HomeFeedRefs {
 
     /** The bar's Add scrolling to the tray; any press stops it. */
     var trayScroll: Job? = null
+
+    /** Two columns: the pairs laid out side by side, left → right (published after each composition). */
+    var pairs: Map<HomeSection, HomeSection> = emptyMap()
 }
 
 /** [section]'s item top in the page Box, null when not laid out (the list sits at the Box origin). */
@@ -2612,80 +2679,68 @@ private fun RecentlyAddedSection(
         albums.take(recentlyAddedAlbumLimit(maxColumns)).chunked(albumStack)
     }
     val editCardScope = LocalHomeEditCardScope.current
-    Column(
+    // ONE shelf: the 2×2 track grid is the shelf's first card and the
+    // albums follow it, all panning together (user call — the albums
+    // scrolling alone under a pinned grid read as two disjoint widgets).
+    // Full-bleed to the container's edge with page-margin content
+    // padding; content clips hard at the screen edge — no edge-fade scrim
+    // here (2026-07-18 ruling: the translucent mask read as clutter on this
+    // shelf; the seamless cut wins). In half a two-column row it pages, the
+    // grid its first page (HomeShelf).
+    HomeShelf(
+        title = stringResource(HomeSection.RecentlyAdded.titleRes),
+        frame = frame,
+        scrollEnabled = shelfScrollEnabled,
+        cardWidth = RecentlyAddedAlbumCover,
+        cardCount = shownAlbums.size,
+        leadPage = shownTracks.isNotEmpty(),
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        HomeSectionTitle(text = stringResource(HomeSection.RecentlyAdded.titleRes))
-        // ONE shelf: the 2×2 track grid is the shelf's first card and the
-        // albums follow it, all panning together (user call — the albums
-        // scrolling alone under a pinned grid read as two disjoint widgets).
-        // Full-bleed to the container's edge with page-margin content
-        // padding; content clips hard at the screen edge — no edge-fade scrim
-        // here (2026-07-18 ruling: the translucent mask read as clutter on this
-        // shelf; the seamless cut wins).
-        val shelfState = rememberLazyListState()
-        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
-        LazyRow(
-            state = shelfState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                // Plates V1 (shipped) / V2 only: clipped to the edit plate while editing.
-                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
-            contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            // Both halves hang from the top. The track covers are sized
-            // so a tight 2×2 lands at roughly the album card's height.
-            verticalAlignment = Alignment.Top,
-            userScrollEnabled = shelfScrollEnabled,
-        ) {
-            if (shownTracks.isNotEmpty()) {
-                item(key = "recently-added-tracks") {
-                    RecentlyAddedTrackGrid(
-                        tracks = shownTracks,
-                        columns = gridColumns,
-                        rows = rows,
-                        onTrackClick = onTrackClick,
-                        buildCoverArtUrl = buildCoverArtUrl,
-                        // The grid's width follows the feed's content width,
-                        // capped (HomeFeedDensity: recentlyAddedGridWidth) —
-                        // read in the layout pass only, so a column spring
-                        // never re-subcomposes the shelf.
-                        modifier = Modifier.layout { measurable, constraints ->
-                            val width = recentlyAddedGridWidth(
-                                // Less the plate's content inset (V2; else 0).
-                                contentWidth = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2,
-                                isCompactHeight = singleRowShelf,
-                                columns = gridColumns,
-                            ).roundToPx()
-                            val placeable = measurable.measure(
-                                constraints.copy(minWidth = width, maxWidth = width),
-                            )
-                            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
-                        },
-                    )
-                }
-            }
-            // Edit-mode card order: the grid's track slots, then the albums.
-            // One shelf item per stack (two albums on a tablet, newest on top).
-            itemsIndexed(
-                items = shownAlbums,
-                key = { _, stack -> "recently-added-album:${stack.first().id}" },
-            ) { stackIndex, stack ->
-                Column(verticalArrangement = Arrangement.spacedBy(RecentlyAddedAlbumStackGap)) {
-                    stack.forEachIndexed { inStack, album ->
-                        RecentlyAddedAlbumCard(
-                            album = album,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onAlbumClick(album) },
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            memoryMark = album.albumMemoryMark(memoryMarks),
-                            modifier = Modifier.homeEditCard(
-                                maxColumns * rows + stackIndex * albumStack + inStack,
-                            ),
+    ) { pageWidth ->
+        if (shownTracks.isNotEmpty()) {
+            item(key = "recently-added-tracks") {
+                RecentlyAddedTrackGrid(
+                    tracks = shownTracks,
+                    columns = gridColumns,
+                    rows = rows,
+                    onTrackClick = onTrackClick,
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    // The grid's width follows the feed's content width,
+                    // capped (HomeFeedDensity: recentlyAddedGridWidth) —
+                    // read in the layout pass only, so a column spring
+                    // never re-subcomposes the shelf. A page wide when paged.
+                    modifier = Modifier.layout { measurable, constraints ->
+                        val width = pageWidth?.roundToPx() ?: recentlyAddedGridWidth(
+                            // Less the plate's content inset (V2; else 0).
+                            contentWidth = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2,
+                            isCompactHeight = singleRowShelf,
+                            columns = gridColumns,
+                        ).roundToPx()
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = width, maxWidth = width),
                         )
-                    }
+                        layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+                    },
+                )
+            }
+        }
+        // Edit-mode card order: the grid's track slots, then the albums.
+        // One shelf item per stack (two albums on a tablet, newest on top).
+        itemsIndexed(
+            items = shownAlbums,
+            key = { _, stack -> "recently-added-album:${stack.first().id}" },
+        ) { stackIndex, stack ->
+            Column(verticalArrangement = Arrangement.spacedBy(RecentlyAddedAlbumStackGap)) {
+                stack.forEachIndexed { inStack, album ->
+                    RecentlyAddedAlbumCard(
+                        album = album,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onAlbumClick(album) },
+                        buildCoverArtUrl = buildCoverArtUrl,
+                        memoryMark = album.albumMemoryMark(memoryMarks),
+                        modifier = Modifier.homeEditCard(
+                            maxColumns * rows + stackIndex * albumStack + inStack,
+                        ),
+                    )
                 }
             }
         }
@@ -2875,34 +2930,25 @@ private fun YourPlaylistsSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val editCardScope = LocalHomeEditCardScope.current
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = stringResource(HomeSection.YourPlaylists.titleRes))
-        val shelfState = rememberLazyListState()
-        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
-        LazyRow(
-            state = shelfState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
-            contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-            userScrollEnabled = shelfScrollEnabled,
-        ) {
-            itemsIndexed(
-                items = playlists,
-                key = { _, playlist -> "your-playlist:${playlist.id}" },
-            ) { index, playlist ->
-                YourPlaylistCard(
-                    playlist = playlist,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onPlaylistClick(playlist) },
-                    buildCoverArtUrl = buildCoverArtUrl,
-                    modifier = Modifier.homeEditCard(index),
-                )
-            }
+    HomeShelf(
+        title = stringResource(HomeSection.YourPlaylists.titleRes),
+        frame = frame,
+        scrollEnabled = shelfScrollEnabled,
+        cardWidth = RecentlyAddedAlbumCover,
+        cardCount = playlists.size,
+        modifier = modifier,
+    ) {
+        itemsIndexed(
+            items = playlists,
+            key = { _, playlist -> "your-playlist:${playlist.id}" },
+        ) { index, playlist ->
+            YourPlaylistCard(
+                playlist = playlist,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onPlaylistClick(playlist) },
+                buildCoverArtUrl = buildCoverArtUrl,
+                modifier = Modifier.homeEditCard(index),
+            )
         }
     }
 }
@@ -2922,33 +2968,24 @@ private fun MadeForYouSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val editCardScope = LocalHomeEditCardScope.current
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = stringResource(HomeSection.MadeForYou.titleRes))
-        val shelfState = rememberLazyListState()
-        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
-        LazyRow(
-            state = shelfState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
-            contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-            userScrollEnabled = shelfScrollEnabled,
-        ) {
-            itemsIndexed(
-                items = playlists,
-                key = { _, playlist -> "made-for-you:${playlist.rawId}" },
-            ) { index, playlist ->
-                MadeForYouCard(
-                    playlist = playlist,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onPlaylistClick(playlist) },
-                    modifier = Modifier.homeEditCard(index),
-                )
-            }
+    HomeShelf(
+        title = stringResource(HomeSection.MadeForYou.titleRes),
+        frame = frame,
+        scrollEnabled = shelfScrollEnabled,
+        cardWidth = RecentlyAddedAlbumCover,
+        cardCount = playlists.size,
+        modifier = modifier,
+    ) {
+        itemsIndexed(
+            items = playlists,
+            key = { _, playlist -> "made-for-you:${playlist.rawId}" },
+        ) { index, playlist ->
+            MadeForYouCard(
+                playlist = playlist,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onPlaylistClick(playlist) },
+                modifier = Modifier.homeEditCard(index),
+            )
         }
     }
 }
@@ -3014,33 +3051,24 @@ private fun OtherProfilesSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val editCardScope = LocalHomeEditCardScope.current
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = stringResource(HomeSection.OtherProfiles.titleRes))
-        val shelfState = rememberLazyListState()
-        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
-        LazyRow(
-            state = shelfState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
-            contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-            userScrollEnabled = shelfScrollEnabled,
-        ) {
-            itemsIndexed(
-                items = items,
-                key = { _, item -> item.stableId },
-            ) { index, item ->
-                OtherProfileCard(
-                    item = item,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onItemClick(item) },
-                    modifier = Modifier.homeEditCard(index),
-                )
-            }
+    HomeShelf(
+        title = stringResource(HomeSection.OtherProfiles.titleRes),
+        frame = frame,
+        scrollEnabled = shelfScrollEnabled,
+        cardWidth = RecentlyAddedAlbumCover,
+        cardCount = items.size,
+        modifier = modifier,
+    ) {
+        itemsIndexed(
+            items = items,
+            key = { _, item -> item.stableId },
+        ) { index, item ->
+            OtherProfileCard(
+                item = item,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onItemClick(item) },
+                modifier = Modifier.homeEditCard(index),
+            )
         }
     }
 }
@@ -3120,35 +3148,26 @@ private fun AlbumShelfSection(
     memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
-    val editCardScope = LocalHomeEditCardScope.current
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = title)
-        val shelfState = rememberLazyListState()
-        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
-        LazyRow(
-            state = shelfState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
-            contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-            userScrollEnabled = shelfScrollEnabled,
-        ) {
-            itemsIndexed(
-                items = albums,
-                key = { _, album -> "album-shelf:$title:${album.id}" },
-            ) { index, album ->
-                RecentlyAddedAlbumCard(
-                    album = album,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onAlbumClick(album) },
-                    buildCoverArtUrl = buildCoverArtUrl,
-                    memoryMark = album.albumMemoryMark(memoryMarks),
-                    modifier = Modifier.homeEditCard(index),
-                )
-            }
+    HomeShelf(
+        title = title,
+        frame = frame,
+        scrollEnabled = shelfScrollEnabled,
+        cardWidth = RecentlyAddedAlbumCover,
+        cardCount = albums.size,
+        modifier = modifier,
+    ) {
+        itemsIndexed(
+            items = albums,
+            key = { _, album -> "album-shelf:$title:${album.id}" },
+        ) { index, album ->
+            RecentlyAddedAlbumCard(
+                album = album,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onAlbumClick(album) },
+                buildCoverArtUrl = buildCoverArtUrl,
+                memoryMark = album.albumMemoryMark(memoryMarks),
+                modifier = Modifier.homeEditCard(index),
+            )
         }
     }
 }

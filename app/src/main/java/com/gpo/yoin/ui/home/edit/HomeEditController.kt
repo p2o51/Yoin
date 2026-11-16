@@ -102,7 +102,13 @@ class HomeEditController(
     /** Hidden sections of the layout on screen (it outlives the draft through the exit fade). */
     val trayCount: Int get() = (draft ?: echoHold ?: latestVmLayout)?.hiddenSections?.size ?: 0
 
-    val canReset: Boolean get() = draft?.isDefault == false
+    val canReset: Boolean get() = draft?.isDefaultFor(twoColumn) == false
+
+    /**
+     * The feed lays its sections out in two columns (set by the feed): a
+     * never-customized layout shows as [HomeLayout.WideDefault], and Reset goes there.
+     */
+    var twoColumn: Boolean by mutableStateOf(false)
 
     private val leftSlotState = derivedStateOf { resolveEditLeftSlot(undoDepth, trayCount) }
 
@@ -150,13 +156,14 @@ class HomeEditController(
         if (this.layer === layer) this.layer = null
     }
 
-    /** The layout Home renders: the draft, then the echo hold, then [vmLayout]. */
-    fun layoutToRender(vmLayout: HomeLayout): HomeLayout = draft ?: echoHold ?: vmLayout
+    /** The layout Home renders: the draft, then the echo hold, then [vmLayout] as shown at this width. */
+    fun layoutToRender(vmLayout: HomeLayout, twoColumn: Boolean = this.twoColumn): HomeLayout =
+        draft ?: echoHold ?: vmLayout.forTwoColumn(twoColumn)
 
     /** The view model's layout arrived (persisted or reconciled). */
     fun onVmLayout(layout: HomeLayout) {
         latestVmLayout = layout
-        if (echoHold?.sameSectionsAs(layout) == true) echoHold = null
+        if (echoHold?.let { layout.matches(it) } == true) echoHold = null
         if (healDraft) {
             healDraft = false
             if (isEditing && draft == null) draft = layout
@@ -175,7 +182,7 @@ class HomeEditController(
         if (isEditing || session.homeSurface != HomeSurface.Feed || session.selectedSection != YoinSection.HOME) {
             return
         }
-        draft = echoHold ?: latestVmLayout ?: HomeLayout.Default
+        draft = echoHold ?: (latestVmLayout ?: HomeLayout.Default).forTwoColumn(twoColumn)
         undoStack.clear()
         isEditing = true
         store.setHomeSurface(HomeSurface.Edit)
@@ -230,7 +237,18 @@ class HomeEditController(
             it.withEnabled(section, true)
         }
 
-    fun reset(): Boolean = change(HomeEditChangeKind.Reset, haptic = feedback::reject) { it.reset() }
+    fun reset(): Boolean = change(HomeEditChangeKind.Reset, haptic = feedback::reject) { it.reset(twoColumn) }
+
+    /**
+     * Two columns: [section] becomes a half beside the row after it ([HomeLayout.withHalf]).
+     * One Undo step; confirms when it changed. False when nothing did (no row after it).
+     */
+    fun setHalf(section: HomeSection): Boolean =
+        change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withHalf(section) }
+
+    /** Two columns: [section] and its partner become full width ([HomeLayout.withFull]). */
+    fun setFull(section: HomeSection): Boolean =
+        change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withFull(section) }
 
     fun undo(): Boolean {
         val current = draft ?: return false
@@ -330,7 +348,7 @@ class HomeEditController(
         healDraft = false
         draft?.let { last ->
             // Unchanged from the VM's latest: no write, so no echo will ever come.
-            echoHold = if (latestVmLayout?.sameSectionsAs(last) == true) null else last
+            echoHold = if (latestVmLayout?.matches(last) == true) null else last
         }
         draft = null
         undoStack.clear()
@@ -360,6 +378,11 @@ class HomeEditController(
         apply(kind, current, next, subject)
         return true
     }
+
+    // The VM's layout stands for [shown] when they are the same arrangement, or when it is the
+    // stored "never customized" and [shown] is the default this width shows for it.
+    private fun HomeLayout.matches(shown: HomeLayout): Boolean =
+        sameSectionsAs(shown) || (isDefault && shown.isAnyDefault)
 
     private fun apply(kind: HomeEditChangeKind, previous: HomeLayout, next: HomeLayout, subject: HomeSection?) {
         draft = next

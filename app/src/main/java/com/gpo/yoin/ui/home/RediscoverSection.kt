@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -46,10 +47,13 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.data.memory.REDISCOVER_LIMIT
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.MarqueeText
@@ -167,6 +171,70 @@ internal fun RediscoverSection(
             lineCounts = shown.filter { it.song != null }.map(::rediscoverEyebrowLineCount),
         )
     }
+    // One card, either shelf: [cardWidth] is read in the layout pass only.
+    val card: @Composable LazyItemScope.(Int, HomeRediscoverItem, Density.() -> Dp) -> Unit =
+        { index, item, cardWidth ->
+        val song = item.song
+        val cardModifier = Modifier
+            .homeEditCard(index)
+            .animateItem(
+                fadeInSpec = YoinMotion.effectsSpring(),
+                placementSpec = if (paneWidthInMotion.value || frame.isBlending) {
+                    null
+                } else {
+                    YoinMotion.spatialSpring()
+                },
+                fadeOutSpec = YoinMotion.effectsSpring(),
+            )
+            .height((if (song != null) RediscoverSongCardHeight else RediscoverCardHeight) * fontScale)
+            .layout { measurable, constraints ->
+                val width = cardWidth().roundToPx()
+                val placeable = measurable.measure(
+                    constraints.copy(minWidth = width, maxWidth = width),
+                )
+                layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+            }
+        if (song != null) {
+            RediscoverSongCard(
+                item = item,
+                nowMillis = nowMillis,
+                eyebrowReserve = songEyebrows,
+                extractBackdropColors = extractBackdropColors,
+                // Plays alone, no haptic: the Now Playing pill answers the tap.
+                onClick = { onSongClick(song) },
+                modifier = cardModifier,
+            )
+        } else {
+            RediscoverCard(
+                item = item,
+                nowMillis = nowMillis,
+                eyebrowReserve = albumEyebrows,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onAlbumClick(item.albumId.toString(), null) },
+                modifier = cardModifier,
+            )
+        }
+        }
+    if (LocalHomeColumn.current.half) {
+        // Half a two-column row: two cards a page, every one of the selection paged (HomeShelf).
+        val paged = remember(items) { items.take(REDISCOVER_LIMIT) }
+        HomeShelf(
+            title = stringResource(HomeSection.Rediscover.titleRes),
+            frame = frame,
+            scrollEnabled = scrollEnabled,
+            cardWidth = 0.dp,
+            perPage = 2,
+            cardCount = paged.size,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = modifier,
+        ) { pageWidth ->
+            val width = homeShelfCardWidth(pageWidth ?: 0.dp, 2)
+            itemsIndexed(items = paged, key = { _, item -> item.shelfKey }) { index, item ->
+                card(index, item) { width }
+            }
+        }
+        return
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -192,52 +260,15 @@ internal fun RediscoverSection(
                 items = shown,
                 key = { _, item -> item.shelfKey },
             ) { index, item ->
-                val song = item.song
-                val cardModifier = Modifier
-                    .homeEditCard(index)
-                    .animateItem(
-                        fadeInSpec = YoinMotion.effectsSpring(),
-                        placementSpec = if (paneWidthInMotion.value || frame.isBlending) {
-                            null
-                        } else {
-                            YoinMotion.spatialSpring()
-                        },
-                        fadeOutSpec = YoinMotion.effectsSpring(),
-                    )
-                    .height((if (song != null) RediscoverSongCardHeight else RediscoverCardHeight) * fontScale)
+                card(index, item) {
                     // Width follows the feed's content width in the layout
                     // pass only, so a column spring never recomposes the shelf.
-                    .layout { measurable, constraints ->
-                        // Less the plate's content inset (V2; else 0).
-                        val content = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2
-                        val width = lerp(
-                            rediscoverCardWidth(content, visibleCount, itemCount = 2, gap = RediscoverCardGap),
-                            rediscoverCardWidth(content, visibleCount, itemCount = 1, gap = RediscoverCardGap),
-                            lone,
-                        ).roundToPx()
-                        val placeable = measurable.measure(
-                            constraints.copy(minWidth = width, maxWidth = width),
-                        )
-                        layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
-                    }
-                if (song != null) {
-                    RediscoverSongCard(
-                        item = item,
-                        nowMillis = nowMillis,
-                        eyebrowReserve = songEyebrows,
-                        extractBackdropColors = extractBackdropColors,
-                        // Plays alone, no haptic: the Now Playing pill answers the tap.
-                        onClick = { onSongClick(song) },
-                        modifier = cardModifier,
-                    )
-                } else {
-                    RediscoverCard(
-                        item = item,
-                        nowMillis = nowMillis,
-                        eyebrowReserve = albumEyebrows,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onAlbumClick(item.albumId.toString(), null) },
-                        modifier = cardModifier,
+                    // Less the plate's content inset (V2; else 0).
+                    val content = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2
+                    lerp(
+                        rediscoverCardWidth(content, visibleCount, itemCount = 2, gap = RediscoverCardGap),
+                        rediscoverCardWidth(content, visibleCount, itemCount = 1, gap = RediscoverCardGap),
+                        lone,
                     )
                 }
             }

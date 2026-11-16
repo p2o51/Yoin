@@ -113,6 +113,8 @@ internal class HomeEditDeps(
     val plate: HomePlateLook = HomePlateLook.Default,
     /** The row resize (HomeRowsResize.kt); null in previews and tests that don't need it. */
     val rows: HomeRowsEngine? = null,
+    /** Two columns' span drag (HomeSpanResize.kt); null in previews, tests and one column. */
+    val span: HomeSpanDrag? = null,
 )
 
 /**
@@ -319,7 +321,10 @@ internal fun HomeEditBlock(
             handleHover = { handleHover.value },
             contentInset = cardScope::contentInset,
         )
-        if (rowsTrack != null && rowsEngine != null && !placeholder && !wholeBlockWiggle) {
+        // The ⌟: rows (vertical) where the section takes presets; in two columns every section's
+        // also drags sideways to turn half or full width (HomeSpanResize.kt). Lyric Cards keeps its dots.
+        val spanHandle = deps.span != null && controller.twoColumn && section != HomeSection.LyricHighlight
+        if (!placeholder && !wholeBlockWiggle && ((rowsTrack != null && rowsEngine != null) || spanHandle)) {
             HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
         }
         // 「歌词一句」 takes its card count from its own dots, not the row resize.
