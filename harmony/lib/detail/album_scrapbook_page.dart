@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -69,7 +70,18 @@ abstract final class ScrapbookLayout {
 
   /// Review clipping width cap (beside the cover).
   static const double reviewMaxWidth = 420;
+
+  /// "View in Scrapbook" leaves this much above the song's piece, and swells it by this share.
+  static const double focusMargin = 24;
+  static const double focusSwell = 0.04;
 }
+
+/// Whether [piece] shows [songId] (its own cluster, or a contact sheet frame).
+bool scrapPieceHolds(ScrapPiece piece, MediaId songId) => switch (piece) {
+  ScrapTrackCluster(:final track) => track.track.id == songId,
+  ScrapContactSheet(:final tracks) => tracks.any((t) => t.track.id == songId),
+  _ => false,
+};
 
 /// Lanes for a content width: as many 280dp lanes (28dp apart) as fit, 1…3.
 int scrapLanes(double contentWidth) =>
@@ -166,12 +178,17 @@ final class ScrapbookColors {
 /// pager position (0 = overview, 1 = here): while it drags, each piece trails
 /// by its depth and leans a little more. Back leaves the album from here
 /// exactly as from page 1 — page 2 is an in-page state, not a place.
+///
+/// [focus] is "View in Scrapbook" (a song's sheet): the page scrolls that
+/// song's piece into view, swells it a touch and lets it settle, then clears
+/// [focus].
 class AlbumScrapbookPage extends ConsumerStatefulWidget {
-  const AlbumScrapbookPage({super.key, required this.album, required this.coverUrl, required this.page});
+  const AlbumScrapbookPage({super.key, required this.album, required this.coverUrl, required this.page, this.focus});
 
   final Album album;
   final String? coverUrl;
   final ValueListenable<double> page;
+  final ValueNotifier<MediaId?>? focus;
 
   @override
   ConsumerState<AlbumScrapbookPage> createState() => _AlbumScrapbookPageState();
@@ -183,6 +200,20 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   ScrapbookColors? _from;
   ScrapbookColors? _to;
 
+  final _scroll = ScrollController();
+  final _pieceKeys = <String, GlobalKey>{};
+
+  /// The scroll toward a focused piece, on the spatial spring.
+  late final AnimationController _scrollSpring = AnimationController.unbounded(vsync: this)
+    ..addListener(() {
+      if (_scroll.hasClients) _scroll.jumpTo(_scrollSpring.value);
+    });
+
+  /// The focused piece's swell (0 → 1 → 0) and which piece it is.
+  late final AnimationController _pulse = AnimationController.unbounded(vsync: this);
+  String? _pulsedKey;
+  bool _focusScheduled = false;
+
   @override
   void initState() {
     super.initState();
@@ -190,6 +221,61 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       final from = _from, to = _to;
       if (from != null && to != null) _colors.value = ScrapbookColors.lerp(from, to, _t.value.clamp(0.0, 1.0));
     });
+    widget.focus?.addListener(_scheduleFocus);
+    _scheduleFocus();
+  }
+
+  @override
+  void didUpdateWidget(AlbumScrapbookPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focus != widget.focus) {
+      oldWidget.focus?.removeListener(_scheduleFocus);
+      widget.focus?.addListener(_scheduleFocus);
+      _scheduleFocus();
+    }
+  }
+
+  /// After the next layout: the page may have only just been built (the pager moving here).
+  void _scheduleFocus() {
+    if (_focusScheduled || widget.focus?.value == null) return;
+    _focusScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusScheduled = false;
+      _bringFocusIntoView();
+    });
+  }
+
+  Future<void> _bringFocusIntoView() async {
+    final focus = widget.focus;
+    final songId = focus?.value;
+    if (!mounted || focus == null || songId == null) return;
+    // The paper may still be coming in: the build schedules this again when it lands.
+    final pieces = ref.read(albumScrapbookProvider(widget.album.id));
+    if (pieces == null) return;
+    focus.value = null;
+    final piece = pieces.where((p) => scrapPieceHolds(p, songId)).firstOrNull;
+    final box = piece == null ? null : _pieceKeys[piece.key]?.currentContext?.findRenderObject() as RenderBox?;
+    if (piece == null || box == null || !box.attached || !_scroll.hasClients) return;
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport == null) return;
+    final position = _scroll.position;
+    final target = (viewport.getOffsetToReveal(box, 0).offset - ScrapbookLayout.focusMargin).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scroll.jumpTo(target);
+      return;
+    }
+    _scrollSpring
+      ..value = position.pixels
+      ..animateWith(SpringSimulation(YoinSprings.defaultSpatial, position.pixels, target, 0));
+    setState(() => _pulsedKey = piece.key);
+    _pulse.value = 0;
+    await _pulse.animateWith(SpringSimulation(YoinSprings.defaultSpatial, 0, 1, 0));
+    if (!mounted) return;
+    await _pulse.animateWith(SpringSimulation(YoinSprings.defaultSpatial, _pulse.value, 0, _pulse.velocity));
+    if (mounted) setState(() => _pulsedKey = null);
   }
 
   @override
@@ -214,6 +300,10 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
 
   @override
   void dispose() {
+    widget.focus?.removeListener(_scheduleFocus);
+    _scrollSpring.dispose();
+    _pulse.dispose();
+    _scroll.dispose();
     _t.dispose();
     _colors.dispose();
     super.dispose();
@@ -224,6 +314,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     final pieces = ref.watch(albumScrapbookProvider(widget.album.id));
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     if (pieces == null) return const SizedBox.expand();
+    if (widget.focus?.value != null) _scheduleFocus();
     final reduce = MediaQuery.disableAnimationsOf(context);
     return ValueListenableBuilder<ScrapbookColors?>(
       valueListenable: _colors,
@@ -241,31 +332,51 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
             return _ScrapScope(
               motion: motion,
               colors: c,
-              child: SingleChildScrollView(
-                child: CustomPaint(
-                  painter: _DottedPaper(c.dots),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        top: ScrapbookLayout.topInset,
-                        bottom: ScrapbookLayout.bottomInset + bottomInset,
-                      ),
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: SizedBox(
-                          width: contentWidth,
-                          child: _ScrapMasonry(
-                            lanes: lanes,
-                            rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
-                            children: [
-                              for (final piece in pieces)
-                                _ScrapSpan(
-                                  key: ValueKey(piece.key),
-                                  fullLine: piece.fullLine,
-                                  child: _piece(piece, wide),
-                                ),
-                            ],
+              child: NotificationListener<ScrollStartNotification>(
+                // A drag takes the page back from a focus scroll.
+                onNotification: (n) {
+                  if (n.dragDetails != null) _scrollSpring.stop();
+                  return false;
+                },
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  child: CustomPaint(
+                    painter: _DottedPaper(c.dots),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          top: ScrapbookLayout.topInset,
+                          bottom: ScrapbookLayout.bottomInset + bottomInset,
+                        ),
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: SizedBox(
+                            width: contentWidth,
+                            child: _ScrapMasonry(
+                              lanes: lanes,
+                              rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
+                              children: [
+                                for (final piece in pieces)
+                                  _ScrapSpan(
+                                    key: ValueKey(piece.key),
+                                    fullLine: piece.fullLine,
+                                    child: KeyedSubtree(
+                                      key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
+                                      child: AnimatedBuilder(
+                                        animation: _pulse,
+                                        builder: (context, child) => Transform.scale(
+                                          scale: _pulsedKey == piece.key
+                                              ? 1 + ScrapbookLayout.focusSwell * _pulse.value
+                                              : 1,
+                                          child: child,
+                                        ),
+                                        child: _piece(piece, wide),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -871,7 +982,14 @@ class _TicketState extends ConsumerState<_Ticket> with TickerProviderStateMixin 
                       },
                       onLongPress: () {
                         YoinHaptics.longPress();
-                        openTrackMenu(context, t.track, onAlbumPage: true);
+                        // View in Scrapbook here points this ticket out in place.
+                        final focus = context.findAncestorStateOfType<_AlbumScrapbookPageState>()?.widget.focus;
+                        openTrackMenu(
+                          context,
+                          t.track,
+                          onAlbumPage: true,
+                          onViewInScrapbook: focus == null ? null : (id) => focus.value = id,
+                        );
                       },
                       child: CustomPaint(
                         painter: _Perforation(ink.withValues(alpha: 0.24)),

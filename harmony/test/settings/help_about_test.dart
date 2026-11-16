@@ -10,25 +10,32 @@ import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
+import 'package:yoin/platform/browser/url_opener.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/playback/playback_controller.dart';
+import 'package:yoin/settings/about_screen.dart';
 import 'package:yoin/settings/licenses.dart';
 import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/settings_strings.dart';
 import 'package:yoin/settings/subsonic_setup_screen.dart';
 import 'package:yoin/settings/tips.dart';
+import 'package:yoin/settings/yoin_links.dart';
 import 'package:yoin/tips/tip_screen.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/fake_music_source.dart';
+import '../support/link_fakes.dart';
 
 void main() {
   late InMemoryStore store;
+  late RecordingUrlOpener opener;
 
   List<Override> overrides() => [
-        keyValueStoreProvider.overrideWithValue(store),
-        secretStoreProvider.overrideWithValue(store),
-        musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
-      ];
+    keyValueStoreProvider.overrideWithValue(store),
+    secretStoreProvider.overrideWithValue(store),
+    musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
+    urlOpenerProvider.overrideWithValue(opener),
+  ];
 
   Future<void> frames(WidgetTester tester, Duration total) async {
     for (var t = Duration.zero; t < total; t += const Duration(milliseconds: 16)) {
@@ -42,7 +49,10 @@ void main() {
     }
   }
 
-  setUp(() => store = InMemoryStore());
+  setUp(() {
+    store = InMemoryStore();
+    opener = RecordingUrlOpener();
+  });
 
   group('tips', () {
     test('should_persistReadTips_when_marked', () async {
@@ -151,9 +161,64 @@ void main() {
       await pump(tester, const Size(400, 1600));
       expect(find.text('Help and about'), findsOneWidget);
       expect(find.text('Tips'), findsOneWidget);
+      expect(find.text('Docs'), findsOneWidget);
+      expect(find.text('Send feedback'), findsOneWidget);
       expect(find.text('Version $yoinVersionName'), findsOneWidget);
       expect(find.text('Open source licenses'), findsOneWidget);
       expect(find.text('No account selected'), findsNothing);
+    });
+
+    testWidgets('should_openDocsInBrowser_when_docsTapped', (tester) async {
+      await pump(tester, const Size(400, 1600));
+      await tester.tap(find.text('Docs'));
+      await tester.pumpAndSettle();
+      expect(opener.opened.single.toString(), YoinLinks.docs);
+      await tester.tap(find.text('Send feedback'));
+      await tester.pumpAndSettle();
+      expect(opener.opened.last.toString(), YoinLinks.feedbackForm);
+    });
+
+    testWidgets('should_sayItCouldNot_when_noBrowserOpensTheLink', (tester) async {
+      opener = RecordingUrlOpener(opens: false);
+      final messages = <String>[];
+      await pump(tester, const Size(400, 1600));
+      final c = ProviderScope.containerOf(tester.element(find.byType(SettingsScreen)));
+      final sub = c.read(playbackControllerProvider.notifier).notices.listen((n) {
+        if (n is TextNotice) messages.add(n.text);
+      });
+      addTearDown(sub.cancel);
+      await tester.tap(find.text('Docs'));
+      await tester.pumpAndSettle();
+      expect(messages, ["Couldn't open the docs"]);
+    });
+
+    testWidgets('should_pushAboutWithItsLinks_when_yoinTapped', (tester) async {
+      await pump(tester, const Size(400, 1600));
+      await tester.tap(find.text('Version $yoinVersionName'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AboutScreen), findsOneWidget);
+      expect(find.text('Website'), findsOneWidget);
+      expect(find.text('Privacy policy'), findsOneWidget);
+      await tester.tap(find.text('Website'));
+      await tester.pumpAndSettle();
+      expect(opener.opened.single.toString(), YoinLinks.website);
+      await tester.tap(find.text('Privacy policy'));
+      await tester.pumpAndSettle();
+      expect(opener.opened.last.toString(), YoinLinks.privacyPolicy);
+    });
+
+    testWidgets('should_openAboutInPane_when_wideWindow', (tester) async {
+      await pump(tester, const Size(1280, 1200));
+      await tester.tap(find.text('Version $yoinVersionName'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AboutScreen), findsOneWidget);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+    });
+
+    test('should_pickTheChineseSite_when_appSpeaksChinese', () {
+      expect(YoinLinks.websiteFor('zh'), 'https://yoin.gojyuplus.com/zh/');
+      expect(YoinLinks.docsFor('zh'), 'https://yoin.gojyuplus.com/zh/docs');
+      expect(YoinLinks.docsFor('en'), YoinLinks.docs);
     });
 
     testWidgets('should_pushTips_when_narrowWindow', (tester) async {

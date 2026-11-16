@@ -3,17 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/memories/memory_rate_sheet.dart';
 import 'package:yoin/app/providers.dart';
+import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/detail/album_detail_screen.dart';
+import 'package:yoin/detail/album_scrapbook_page.dart';
+import 'package:yoin/detail/detail_share.dart';
 import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/detail/pull_up_reveal.dart';
+import 'package:yoin/detail/scrapbook_focus.dart';
 import 'package:yoin/playback/playback_context.dart';
 import 'package:yoin/playback/playback_controller.dart';
+import 'package:yoin/platform/share/text_share.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/shell/detail_chrome.dart';
 import 'package:yoin/theme/theme.dart';
 
 import '../support/fake_playback_engine.dart';
 import '../support/library_fake_source.dart';
+import '../support/link_fakes.dart';
 
 final _album = LibraryFixtures.album(
   'al1',
@@ -27,11 +34,40 @@ final _album = LibraryFixtures.album(
   ],
 );
 
-Future<(ProviderContainer, FakePlaybackEngine)> _open(WidgetTester tester) async {
+/// [LibraryFakeSource] whose account files songs into playlists.
+class _FilingSource extends LibraryFakeSource implements MusicPlaylistWrites {
+  _FilingSource() : super(albumDetails: {_album.id: _album});
+
+  @override
+  Set<Capability> get capabilities => {...super.capabilities, Capability.playlistAdd};
+
+  @override
+  bool acceptsTracks(Playlist playlist) => true;
+  @override
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async =>
+      Playlist(id: MediaId.subsonic('new'), name: name);
+  @override
+  Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks) async {}
+  @override
+  Future<void> renamePlaylist(MediaId playlistId, String name) async {}
+  @override
+  Future<void> deletePlaylist(MediaId playlistId) async {}
+  @override
+  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions) async {}
+  @override
+  Future<void> setPlaylistTracks(MediaId playlistId, List<MediaId> tracks) async {}
+}
+
+late RecordingTextShare _shared;
+
+Future<(ProviderContainer, FakePlaybackEngine)> _open(WidgetTester tester, {MusicSource? source}) async {
   final engine = FakePlaybackEngine();
+  _shared = RecordingTextShare();
+  DetailShare.resetForTest();
   final c = ProviderContainer(
     overrides: [
-      activeSourceProvider.overrideWith((ref) async => LibraryFakeSource(albumDetails: {_album.id: _album})),
+      activeSourceProvider.overrideWith((ref) async => source ?? LibraryFakeSource(albumDetails: {_album.id: _album})),
+      textShareProvider.overrideWithValue(_shared),
       keyValueStoreProvider.overrideWithValue(InMemoryStore()),
       secretStoreProvider.overrideWithValue(InMemoryStore()),
       activityLogProvider.overrideWith((ref) async => null),
@@ -129,10 +165,66 @@ void main() {
     await _close(tester);
   });
 
-  testWidgets('should_offerQueueRowsOnly_when_albumNamesNoArtistId', (tester) async {
+  testWidgets('should_offerQueueRowsAndShare_when_albumNamesNoArtistId', (tester) async {
     final (c, _) = await _open(tester);
     final rows = c.read(topDetailActionsProvider)!.menuItems.map((r) => r.label);
-    expect(rows, ['Play next', 'Add to queue']);
+    expect(rows, ['Play next', 'Add to queue', 'Share']);
+    await _close(tester);
+  });
+
+  testWidgets('should_offerAddToPlaylist_when_accountFilesSongs', (tester) async {
+    final (c, _) = await _open(tester, source: _FilingSource());
+    final rows = c.read(topDetailActionsProvider)!.menuItems.map((r) => r.label);
+    expect(rows, ['Play next', 'Add to queue', 'Add to playlist', 'Share']);
+    await _close(tester);
+  });
+
+  testWidgets('should_shareAlbumAndArtist_when_shareChosen', (tester) async {
+    final (c, _) = await _open(tester);
+    c.read(topDetailActionsProvider)!.menuItems.last.onTap();
+    await _settle(tester);
+    expect(_shared.shared.single.$1, 'Blue – Joni');
+    await _close(tester);
+  });
+
+  testWidgets('should_openScrapbookAtSong_when_requestedFromElsewhere', (tester) async {
+    final engine = FakePlaybackEngine();
+    final c = ProviderContainer(
+      overrides: [
+        activeSourceProvider.overrideWith((ref) async => LibraryFakeSource(albumDetails: {_album.id: _album})),
+        keyValueStoreProvider.overrideWithValue(InMemoryStore()),
+        secretStoreProvider.overrideWithValue(InMemoryStore()),
+        activityLogProvider.overrideWith((ref) async => null),
+        playbackEngineProvider.overrideWithValue(engine),
+      ],
+    );
+    addTearDown(c.dispose);
+    // Now Playing's View in Scrapbook leaves the request, then opens the album.
+    ScrapbookFocusRequest.request(c, MediaId.subsonic('t2'));
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: c,
+        child: MaterialApp(
+          theme: yoinTheme(Brightness.light),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => DetailRoutes.openAlbum(context, _album.id),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await _settle(tester);
+    expect(c.read(scrapbookFocusRequestProvider), isNull, reason: 'the album page took it');
+    final pager = tester.widget<PageView>(find.byType(PageView));
+    expect(pager.controller!.page, closeTo(1, 0.01));
+    expect(find.byType(AlbumScrapbookPage), findsOneWidget);
     await _close(tester);
   });
 

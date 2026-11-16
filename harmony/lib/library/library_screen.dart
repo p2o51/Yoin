@@ -205,7 +205,13 @@ class _Content extends ConsumerWidget {
     final canAddPlaylists = playlistAbilities(ref.watch(activeSourceProvider).value).canAdd;
     return Column(
       children: [
-        LibraryFilterRow(tabs: state.availableTabs, selected: tab, onSelect: vm.selectTab),
+        LibraryFilterRow(
+          tabs: state.availableTabs,
+          selected: tab,
+          onSelect: vm.selectTab,
+          byYou: state.playlistsByYou,
+          onByYouChange: vm.selectPlaylistsByYou,
+        ),
         const SizedBox(height: 4),
         Expanded(
           child: YoinPullToRefresh(
@@ -233,11 +239,11 @@ class _Content extends ConsumerWidget {
                   fit: StackFit.expand,
                   children: [
                     LibraryPlaylistsView(
-                      view: state.sorted.playlists,
+                      view: state.shownPlaylists,
                       sort: state.sortOf(tab),
                       controller: scrolls[tab]!,
                     ),
-                    if (canAddPlaylists && state.sorted.playlists != null)
+                    if (canAddPlaylists && state.shownPlaylists != null)
                       PositionedDirectional(
                         end: PlaylistFabTokens.endMargin,
                         bottom: libraryBottomPadding(context),

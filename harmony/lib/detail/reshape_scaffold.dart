@@ -58,6 +58,9 @@ class ReshapePager extends InheritedWidget {
 
   static ReshapePager? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<ReshapePager>();
 
+  /// [maybeOf] from a callback (a tap, a sheet's row): no dependency.
+  static ReshapePager? read(BuildContext context) => context.getInheritedWidgetOfExactType<ReshapePager>();
+
   @override
   bool updateShouldNotify(ReshapePager old) => old.openPage != openPage;
 }

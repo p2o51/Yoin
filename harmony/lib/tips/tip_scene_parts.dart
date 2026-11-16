@@ -249,7 +249,7 @@ class DemoSongSheet extends StatelessWidget {
   final VoidCallback onDismiss;
   final Track track;
 
-  /// The playing song's sheet: Favorite and Add to playlist on top, Go to album below.
+  /// The playing song's sheet: Favorite, Add to playlist and Share on top, Go to album below.
   final bool nowPlaying;
 
   /// Non-null: the Download row, saying Download or Remove download.
@@ -268,6 +268,13 @@ class DemoSongSheet extends StatelessWidget {
       keepsOpen: true,
       onTap: none,
     );
+    final share = TrackMenuQuickAction(
+      id: TrackMenuActionId.share,
+      label: strings.share,
+      icon: YoinSymbols.share,
+      keepsOpen: false,
+      onTap: none,
+    );
     final quick = nowPlaying
         ? [
             favorite,
@@ -278,6 +285,7 @@ class DemoSongSheet extends StatelessWidget {
               keepsOpen: false,
               onTap: none,
             ),
+            share,
           ]
         : [
             TrackMenuQuickAction(
@@ -295,6 +303,7 @@ class DemoSongSheet extends StatelessWidget {
               onTap: none,
             ),
             favorite,
+            share,
           ];
     final offline = OfflineStrings.of(context);
     final downloadRow = switch (downloaded) {
@@ -306,6 +315,7 @@ class DemoSongSheet extends StatelessWidget {
       [if (!nowPlaying) TrackMenuRow(strings.addToPlaylist, YoinSymbols.playlist, none), ?downloadRow],
       [
         if (nowPlaying) TrackMenuRow(strings.goToAlbum, YoinSymbols.album, none),
+        TrackMenuRow(strings.viewInScrapbook, YoinSymbols.note, none),
         TrackMenuRow(strings.goToArtist, YoinSymbols.artist, none),
       ],
     ];
@@ -394,7 +404,11 @@ class DemoLibraryPage extends StatelessWidget {
     this.onMiniPlayerLongPress,
     this.pillOverride,
     this.scrollable = false,
+    this.onLibraryLongPress,
   });
+
+  /// A long-press on Library in the bar (its search).
+  final VoidCallback? onLibraryLongPress;
 
   /// The grid scrolls (a pull to refresh needs it to).
   final bool scrollable;
@@ -468,6 +482,7 @@ class DemoLibraryPage extends StatelessWidget {
                 selected: YoinSection.library,
                 onSelect: (_) {},
                 hasTrack: nowPlaying != null,
+                onLibraryLongPress: onLibraryLongPress,
                 pillBuilder:
                     pillOverride ??
                     (context, onPress) => NowPlayingPill(

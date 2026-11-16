@@ -10,6 +10,9 @@ import '../../app/providers.dart';
 import '../../data/model/model.dart';
 import '../../data/offline/offline_model.dart';
 import '../../data/source/music_source.dart';
+import '../../detail/detail_share.dart';
+import '../../detail/detail_strings.dart';
+import '../../detail/scrapbook_focus.dart';
 import '../../offline/offline_providers.dart';
 import '../../offline/offline_toggle.dart';
 import '../../nowplaying/haptics.dart';
@@ -54,7 +57,7 @@ final class TrackMenuQuickAction {
   final VoidCallback onTap;
 }
 
-enum TrackMenuActionId { playNext, addToQueue, favorite, addToPlaylist }
+enum TrackMenuActionId { playNext, addToQueue, favorite, addToPlaylist, share }
 
 /// The sheet's layout (TrackMenu.kt TrackMenuSheet): which one-tap actions sit
 /// in the top row and which fold into the list.
@@ -67,19 +70,20 @@ final class TrackMenuLayout {
   final List<TrackMenuQuickAction> folded;
 }
 
-/// Play next / Add to queue / Favorite on top; for the playing song
-/// ([nowPlaying], queueing it again makes no sense) Favorite / Add to
-/// playlist. One button alone is not a row: it goes back to the list (a lone
-/// Favorite leaves, as on Android). Null actions are what the song or
-/// provider can't do.
+/// Play next / Add to queue / Favorite / Share on top (owner 2026-11-03); for
+/// the playing song ([nowPlaying], queueing it again makes no sense)
+/// Favorite / Add to playlist / Share. One button alone is not a row: it goes
+/// back to the list (a lone Favorite leaves, as on Android). Null actions are
+/// what the song or provider can't do.
 TrackMenuLayout trackMenuLayout({
   required bool nowPlaying,
   TrackMenuQuickAction? playNext,
   TrackMenuQuickAction? addToQueue,
   TrackMenuQuickAction? favorite,
   TrackMenuQuickAction? addToPlaylist,
+  TrackMenuQuickAction? share,
 }) {
-  final candidates = nowPlaying ? [?favorite, ?addToPlaylist] : [?playNext, ?addToQueue, ?favorite];
+  final candidates = nowPlaying ? [?favorite, ?addToPlaylist, ?share] : [?playNext, ?addToQueue, ?favorite, ?share];
   if (candidates.length >= 2) return TrackMenuLayout(candidates, const []);
   return TrackMenuLayout(const [], [
     for (final a in candidates)
@@ -87,21 +91,44 @@ TrackMenuLayout trackMenuLayout({
   ]);
 }
 
+/// "Go to artist", or one "Go to `name`" per credited artist with a page of
+/// their own when the service names several (OpenSubsonic `artists`;
+/// TrackMenu.kt goToArtistRows). Empty without [go].
+List<TrackMenuRow> goToArtistRows(Track track, ValueChanged<MediaId>? go, ComponentStrings strings) {
+  if (go == null) return const [];
+  final credits = [
+    for (final c in track.artistCredits)
+      if (c.id != null) c,
+  ];
+  if (credits.length > 1) {
+    return [
+      for (final c in credits) TrackMenuRow(strings.goToNamedArtist(c.name), YoinSymbols.artist, () => go(c.id!)),
+    ];
+  }
+  final id = track.artistId;
+  return id == null ? const [] : [TrackMenuRow(strings.goToArtist, YoinSymbols.artist, () => go(id))];
+}
+
 /// A song's long-press sheet, rising from the bottom (owner 2026-10-17: a
 /// bottom sheet, never a dropdown; TrackMenu.kt TrackMenuSheet): the song
 /// (cover, title, artist, format), a top row of one-tap actions, then Add to
-/// playlist and Download (an account that downloads), then Go to album / Go
-/// to artist. Rows the song or provider can't
-/// do are left out ([onGoToAlbum] / [onGoToArtist] null leaves those out: an
-/// album row has no Go to album — it is that album). [onAddToPlaylist] null
-/// leaves out Add to playlist. [onMessage] shows the queue confirmations and
-/// failures (the caller's snackbar).
+/// playlist and Download (an account that downloads), then Go to album / View
+/// in Scrapbook / Go to artist (one row per credited artist when the service
+/// names several) / Open in Apple Music. Rows the song or provider can't do
+/// are left out ([onGoToAlbum] / [onGoToArtist] null leaves those out: an
+/// album row has no Go to album — it is that album). View in Scrapbook moves
+/// the album page to its scrapbook at this song ([onViewInScrapbook], on the
+/// album page), or opens the album there ([onGoToAlbum] with a
+/// [ScrapbookFocusRequest]). [onAddToPlaylist] null leaves out Add to
+/// playlist. [onMessage] shows the queue confirmations and failures (the
+/// caller's snackbar).
 Future<void> showTrackMenuSheet(
   BuildContext context, {
   required Track track,
   bool nowPlaying = false,
   ValueChanged<MediaId>? onGoToAlbum,
   ValueChanged<MediaId>? onGoToArtist,
+  ValueChanged<MediaId>? onViewInScrapbook,
   ValueChanged<List<Track>>? onAddToPlaylist,
   required ValueChanged<String> onMessage,
 }) {
@@ -119,6 +146,7 @@ Future<void> showTrackMenuSheet(
         nowPlaying: nowPlaying,
         onGoToAlbum: onGoToAlbum,
         onGoToArtist: onGoToArtist,
+        onViewInScrapbook: onViewInScrapbook,
         onAddToPlaylist: onAddToPlaylist,
         onMessage: onMessage,
       ),
@@ -135,6 +163,7 @@ class TrackMenuSheet extends ConsumerStatefulWidget {
     this.nowPlaying = false,
     this.onGoToAlbum,
     this.onGoToArtist,
+    this.onViewInScrapbook,
     this.onAddToPlaylist,
   });
 
@@ -142,6 +171,9 @@ class TrackMenuSheet extends ConsumerStatefulWidget {
   final bool nowPlaying;
   final ValueChanged<MediaId>? onGoToAlbum;
   final ValueChanged<MediaId>? onGoToArtist;
+
+  /// The album page's own View in Scrapbook: page 2 at this song.
+  final ValueChanged<MediaId>? onViewInScrapbook;
   final ValueChanged<List<Track>>? onAddToPlaylist;
   final ValueChanged<String> onMessage;
 
@@ -198,6 +230,12 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
     final caps = source?.capabilities ?? const <Capability>{};
     final resolved = ref.watch(favoriteOverridesProvider)[_track.id] ?? _track.isStarred;
     final favorite = _pendingFavorite ?? resolved;
+    final detailStrings = DetailStrings.of(context);
+    // Rows run after the sheet has gone: they hold the container, not this state.
+    final container = ref.container;
+    // The song's public page (Apple Music): Share carries it, Open in opens it.
+    final link = ref.watch(detailWebLinkProvider((WebLinkKind.track, _track.id))).value;
+    final openIn = openInLabel(link, detailStrings);
     final canFavorite =
         caps.contains(Capability.favorites) &&
         _track.id.rawId.trim().isNotEmpty &&
@@ -238,6 +276,20 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
               keepsOpen: false,
               onTap: () => widget.onAddToPlaylist!([_track]),
             ),
+      share: TrackMenuQuickAction(
+        id: TrackMenuActionId.share,
+        label: strings.share,
+        icon: YoinSymbols.share,
+        keepsOpen: false,
+        onTap: () => DetailShare.share(
+          container,
+          kind: WebLinkKind.track,
+          id: _track.id,
+          title: trackShareTitle(_track),
+          webLink: link,
+          linkFailedMessage: detailStrings.shareLinkFailed,
+        ),
+      ),
     );
 
     // Download this song alone (TrackMenu.kt). A song kept as part of a
@@ -266,8 +318,18 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
     final goRows = [
       if ((widget.onGoToAlbum, _track.albumId) case (final go?, final id?))
         TrackMenuRow(strings.goToAlbum, YoinSymbols.album, () => go(id)),
-      if ((widget.onGoToArtist, _track.artistId) case (final go?, final id?))
-        TrackMenuRow(strings.goToArtist, YoinSymbols.artist, () => go(id)),
+      // The song's cards on its album's second page: in place on the album
+      // page, or the album opened at page 2 from anywhere else.
+      if (widget.onViewInScrapbook case final view?)
+        TrackMenuRow(strings.viewInScrapbook, YoinSymbols.note, () => view(_track.id))
+      else if ((widget.onGoToAlbum, _track.albumId) case (final go?, final id?))
+        TrackMenuRow(strings.viewInScrapbook, YoinSymbols.note, () {
+          ScrapbookFocusRequest.request(container, _track.id);
+          go(id);
+        }),
+      ...goToArtistRows(_track, widget.onGoToArtist, strings),
+      if ((link, openIn) case (final url?, final label?))
+        TrackMenuRow(label, YoinSymbols.launch, () => openDetailLink(container, url)),
     ];
     return TrackMenuContent(
       track: _track,

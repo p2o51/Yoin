@@ -1,0 +1,102 @@
+/// "View in Scrapbook" from a song sheet outside the album page (Android
+/// ScrapbookFocusRequest): the sheet leaves this request and opens the album
+/// the usual way (Go to album); the album page that lists the song takes it,
+/// moves to page 2 and brings the song into view there. A request nobody
+/// takes within [ScrapbookFocusRequest.freshFor] is dropped, so it can't
+/// hijack a later visit.
+library;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../data/model/model.dart';
+
+/// One waiting request: the song, and when it was asked for.
+@immutable
+final class ScrapbookFocus {
+  const ScrapbookFocus(this.songId, this.at);
+
+  final MediaId songId;
+  final DateTime at;
+}
+
+/// The request waiting to be taken, if any.
+class ScrapbookFocusRequests extends Notifier<ScrapbookFocus?> {
+  @override
+  ScrapbookFocus? build() => null;
+
+  void request(MediaId songId, {DateTime? now}) => state = ScrapbookFocus(songId, now ?? DateTime.now());
+
+  /// Takes the request when it is for one of [songIds] and still fresh; null
+  /// otherwise (a stale one is dropped on the way).
+  ScrapbookFocus? takeFor(Iterable<MediaId> songIds, {DateTime? now}) {
+    final pending = state;
+    if (pending == null) return null;
+    if ((now ?? DateTime.now()).difference(pending.at) > ScrapbookFocusRequest.freshFor) {
+      state = null;
+      return null;
+    }
+    if (!songIds.contains(pending.songId)) return null;
+    state = null;
+    return pending;
+  }
+}
+
+final scrapbookFocusRequestProvider = NotifierProvider<ScrapbookFocusRequests, ScrapbookFocus?>(
+  ScrapbookFocusRequests.new,
+);
+
+abstract final class ScrapbookFocusRequest {
+  /// How long a request waits for its album page.
+  static const freshFor = Duration(seconds: 10);
+
+  static void request(ProviderContainer container, MediaId songId) =>
+      container.read(scrapbookFocusRequestProvider.notifier).request(songId);
+}
+
+/// Takes a waiting request for one of [songIds] for the album page it sits
+/// on: once the page shows them, and whenever a new request comes while it
+/// is the window's top page (a page covered by the one the request opens
+/// leaves it to that one). Lays out as nothing.
+class ScrapbookFocusTaker extends ConsumerStatefulWidget {
+  const ScrapbookFocusTaker({super.key, required this.songIds, required this.onTake});
+
+  final List<MediaId> songIds;
+  final ValueChanged<MediaId> onTake;
+
+  @override
+  ConsumerState<ScrapbookFocusTaker> createState() => _ScrapbookFocusTakerState();
+}
+
+class _ScrapbookFocusTakerState extends ConsumerState<ScrapbookFocusTaker> {
+  @override
+  void initState() {
+    super.initState();
+    _checkAfterFrame();
+  }
+
+  @override
+  void didUpdateWidget(ScrapbookFocusTaker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.songIds, widget.songIds)) _checkAfterFrame();
+  }
+
+  /// After the frame: a request that opens another album page has pushed it by then.
+  void _checkAfterFrame() => WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+
+  void _check() {
+    if (!mounted) return;
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    final taken = ref.read(scrapbookFocusRequestProvider.notifier).takeFor(widget.songIds);
+    if (taken != null) widget.onTake(taken.songId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(scrapbookFocusRequestProvider, (_, next) {
+      if (next != null) _checkAfterFrame();
+    });
+    return const SizedBox.shrink();
+  }
+}

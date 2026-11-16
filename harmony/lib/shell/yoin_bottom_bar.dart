@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -43,7 +45,12 @@ class YoinBottomBar extends StatefulWidget {
     this.navOnly = false,
     this.availableWidth,
     this.paneOpen = false,
+    this.onLibraryLongPress,
   });
+
+  /// Long-press on Library: its search (YoinNavHost onLibraryLongClick). A
+  /// search hint rises over the button while it is held. Null: no long-press.
+  final VoidCallback? onLibraryLongPress;
 
   /// The Wide window's detail column is open: with page actions the bar
   /// takes the merged pose and widens to [BarTokens.mergedMaxWidth].
@@ -111,6 +118,46 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
   /// The last detail actions, kept while the pose springs back to nav.
   DetailPlayActions? _lastActions;
 
+  /// Long-press Library's search hint: its scale (spatial) and alpha (effects).
+  late final SpringValue _hintScale = SpringValue(
+    vsync: this,
+    initial: BarTokens.searchHintEnterScale,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
+  late final SpringValue _hintAlpha = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+  bool _hintShown = false;
+  Timer? _hintTimer;
+
+  /// The hint shows 240 ms into a press on Library and leaves 120 ms after
+  /// it (a long-press shows it at once), as Android's one reveal / settle.
+  void _libraryHeld(bool down) {
+    if (widget.onLibraryLongPress == null) return;
+    _hintTimer?.cancel();
+    _hintTimer = Timer(
+      Duration(milliseconds: down ? BarTokens.searchHintDelayMs : BarTokens.searchHintSettleMs),
+      () => _showHint(down),
+    );
+  }
+
+  void _showHint(bool show) {
+    if (!mounted || show == _hintShown) return;
+    _hintShown = show;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _hintScale.snapTo(1);
+      _hintAlpha.snapTo(show ? 1 : 0);
+      return;
+    }
+    if (show) {
+      // Each reveal scales in from small; the leave shrinks only a little.
+      if (_hintAlpha.value < 0.01) _hintScale.snapTo(BarTokens.searchHintEnterScale);
+      _hintScale.animateTo(1);
+      _hintAlpha.animateTo(1);
+    } else {
+      _hintScale.animateTo(BarTokens.searchHintExitScale);
+      _hintAlpha.animateTo(0);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -148,9 +195,12 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
       _homePress,
       _libraryPress,
       _pillPress,
+      _hintScale,
+      _hintAlpha,
     ]) {
       s.dispose();
     }
+    _hintTimer?.cancel();
     super.dispose();
   }
 
@@ -197,6 +247,8 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           _homePress.animation,
           _libraryPress.animation,
           _pillPress.animation,
+          _hintScale.animation,
+          _hintAlpha.animation,
         ]),
         builder: (context, _) {
           final g = resolveBarGeometry(
@@ -231,21 +283,65 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               widget.onSelect(YoinSection.home);
             },
           );
-          Widget libraryButton() => _BarButton(
-            icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
-            label: strings.barLabelLibrary,
-            semantics: npStrings.barCdLibrary,
-            labelAlpha: g.labelAlpha,
-            selection: 1 - colorSelection,
-            ripple: false,
-            onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
-            onTap: () {
-              YoinHaptics.click();
-              widget.onSelect(YoinSection.library);
-            },
+          final onLibraryLongPress = widget.onLibraryLongPress;
+          Widget libraryButton() => Listener(
+            // The finger itself, not the tap: the hint stays while a long-press is held.
+            onPointerDown: (_) => _libraryHeld(true),
+            onPointerUp: (_) => _libraryHeld(false),
+            onPointerCancel: (_) => _libraryHeld(false),
+            child: _BarButton(
+              icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
+              label: strings.barLabelLibrary,
+              semantics: npStrings.barCdLibrary,
+              labelAlpha: g.labelAlpha,
+              selection: 1 - colorSelection,
+              ripple: false,
+              onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
+              onTap: () {
+                YoinHaptics.click();
+                widget.onSelect(YoinSection.library);
+              },
+              onLongPress: onLibraryLongPress == null
+                  ? null
+                  : () {
+                      _hintTimer?.cancel();
+                      _showHint(true);
+                      YoinHaptics.contextClick();
+                      onLibraryLongPress();
+                    },
+            ),
           );
           final merged = g.pane;
-          return Row(
+          // The search hint rides above whichever slot hosts Library: the
+          // bar's end in the nav pose, beside Home when merged.
+          final hint = _hintAlpha.value <= 0.001
+              ? null
+              : Positioned.fill(
+                  child: LayoutBuilder(
+                    builder: (context, box) {
+                      final navX = box.maxWidth - (BarTokens.searchHintEndInset - rowPadding) - BarTokens.searchHintBox;
+                      final mergedX =
+                          g.homeWidth + BarTokens.itemGap + g.libraryWidth / 2 - BarTokens.searchHintBox / 2;
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            left: lerpDouble(navX, mergedX, merged.clamp(0.0, 1.0)),
+                            top: BarTokens.searchHintLift - rowPadding,
+                            child: IgnorePointer(
+                              child: _LibrarySearchHint(
+                                scale: _hintScale.value,
+                                alpha: _hintAlpha.value.clamp(0.0, 1.0),
+                                semantics: npStrings.barCdSearch,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                );
+          final row = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
@@ -417,6 +513,8 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                 ),
             ],
           );
+          // Always the Stack, so the row keeps its state as the hint comes and goes.
+          return Stack(clipBehavior: Clip.none, fit: StackFit.passthrough, children: [row, ?hint]);
         },
       ),
     );
@@ -450,6 +548,7 @@ class _BarButton extends StatelessWidget {
     required this.selection,
     required this.onPress,
     required this.onTap,
+    this.onLongPress,
     this.ripple = true,
   });
 
@@ -462,6 +561,7 @@ class _BarButton extends StatelessWidget {
   final double selection;
   final ValueChanged<bool> onPress;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   /// Home is a FilledIconButton (ripple); Library a Surface with
   /// `indication = null` (YoinButtonGroup LibraryButton): no ripple.
@@ -484,6 +584,7 @@ class _BarButton extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             splashFactory: ripple ? null : NoSplash.splashFactory,
             highlightColor: ripple ? null : Colors.transparent,
             onTapDown: (_) => onPress(true),
@@ -509,6 +610,48 @@ class _BarButton extends StatelessWidget {
                   ),
                 ],
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Long-press Library's hint (YoinButtonGroup LibrarySearchShortcutHint): a
+/// round surfaceContainerHighest chip with the search glyph in primary,
+/// floating over the bar with a soft shadow. Drawn, not clipped (HarmonyOS
+/// paints black wedges at clipped corners over other content).
+class _LibrarySearchHint extends StatelessWidget {
+  const _LibrarySearchHint({required this.scale, required this.alpha, required this.semantics});
+
+  final double scale;
+  final double alpha;
+  final String semantics;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      label: semantics,
+      child: Opacity(
+        opacity: alpha,
+        child: Transform.scale(
+          scale: scale,
+          child: SizedBox.square(
+            dimension: BarTokens.searchHintBox,
+            child: Center(
+              child: DecoratedBox(
+                decoration: ShapeDecoration(
+                  color: colors.surfaceContainerHighest,
+                  shape: const CircleBorder(),
+                  shadows: kElevationToShadow[BarTokens.searchHintElevation.toInt()],
+                ),
+                child: SizedBox.square(
+                  dimension: BarTokens.searchHintSurface,
+                  child: Icon(YoinSymbols.search, size: BarTokens.searchHintIcon, color: colors.primary),
+                ),
+              ),
             ),
           ),
         ),

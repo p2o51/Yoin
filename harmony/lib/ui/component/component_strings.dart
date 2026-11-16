@@ -30,6 +30,8 @@ class ComponentStrings {
   String get goToAlbum => zh ? '前往专辑' : 'Go to album'; // track_menu_go_to_album
   String get goToArtist => zh ? '前往艺术家' : 'Go to artist'; // track_menu_go_to_artist
   String goToNamedArtist(String name) => zh ? '前往 $name' : 'Go to $name'; // track_menu_go_to_named_artist
+  String get share => zh ? '分享' : 'Share'; // track_menu_share
+  String get viewInScrapbook => zh ? '在剪贴簿里查看' : 'View in Scrapbook'; // track_menu_view_in_scrapbook
 
   /// detail_menu_queued (plurals).
   String queued(int n) => zh ? '已将 $n 首加入队列' : (n == 1 ? 'Added $n song to the queue' : 'Added $n songs to the queue');

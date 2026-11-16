@@ -33,6 +33,14 @@ const _allSectionCap = 40;
 Future<void> openLibrarySearch(BuildContext context, Rect pillRect) =>
     Navigator.of(context).push(_SearchRoute(pillRect: pillRect));
 
+/// A search type chip's label.
+String librarySearchFilterLabel(LibraryStrings s, LibrarySearchFilter f) => switch (f) {
+  LibrarySearchFilter.all => s.searchFilterAll,
+  LibrarySearchFilter.artists => s.tabArtists,
+  LibrarySearchFilter.albums => s.tabAlbums,
+  LibrarySearchFilter.songs => s.tabSongs,
+};
+
 /// The search route's name: Esc in its field leaves the search (Android/Mac).
 const librarySearchRouteName = 'library-search';
 
@@ -242,7 +250,7 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
                   for (final (i, f) in LibrarySearchFilter.values.indexed) ...[
                     if (i > 0) const SizedBox(width: LibraryTokens.chipGap),
                     ExpressiveSegmentChip(
-                      label: _filterLabel(strings, f),
+                      label: librarySearchFilterLabel(strings, f),
                       selected: state.filter == f,
                       onTap: () => _search.setFilter(f),
                     ),
@@ -266,13 +274,6 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
       : s.results == null
       ? 'none'
       : 'results';
-
-  static String _filterLabel(LibraryStrings s, LibrarySearchFilter f) => switch (f) {
-    LibrarySearchFilter.all => s.searchFilterAll,
-    LibrarySearchFilter.artists => s.tabArtists,
-    LibrarySearchFilter.albums => s.tabAlbums,
-    LibrarySearchFilter.songs => s.tabSongs,
-  };
 
   Widget _results(BuildContext context, LibrarySearchState state, LibraryStrings strings) {
     final colors = Theme.of(context).colorScheme;

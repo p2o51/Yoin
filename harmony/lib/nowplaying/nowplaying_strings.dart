@@ -24,6 +24,7 @@ class NowPlayingStrings {
   String get pillCurrentTrack => _zh ? '当前曲目' : 'Current track'; // cmp_pill_cd_current_track
   String get barCdHome => _zh ? '首页' : 'Home'; // cmp_bar_cd_home
   String get barCdLibrary => _zh ? '资料库' : 'Library'; // cmp_bar_cd_library
+  String get barCdSearch => _zh ? '搜索快捷方式' : 'Search shortcut'; // cmp_bar_cd_search
 
   // Detail pose Play split button.
   String get playLabel => _zh ? '播放' : 'Play'; // cmp_play_label

@@ -507,4 +507,33 @@ void main() {
       );
     });
   });
+
+  group('links', () {
+    test('should_buildCatalogPage_when_itemIsInTheCatalog', () async {
+      final source = _Server(_withStorefront({})).source();
+      final links = source.links!;
+      final apple = MediaId.providerAppleMusic;
+      expect(
+        await links.webUrl(WebLinkKind.album, MediaId(apple, '1440833098')),
+        'https://music.apple.com/jp/album/1440833098',
+      );
+      expect(
+        await links.webUrl(WebLinkKind.track, MediaId(apple, '1440833099')),
+        'https://music.apple.com/jp/song/1440833099',
+      );
+      expect(
+        await links.webUrl(WebLinkKind.playlist, MediaId(apple, 'pl.abc')),
+        'https://music.apple.com/jp/playlist/pl.abc',
+      );
+      expect(source.capabilities, isNot(contains(Capability.shareLinks)));
+    });
+
+    test('should_haveNoPage_when_itemLivesOnlyInTheLibrary', () async {
+      final links = _Server(_withStorefront({})).source().links!;
+      final apple = MediaId.providerAppleMusic;
+      expect(await links.webUrl(WebLinkKind.album, MediaId(apple, 'library:l.abc')), isNull);
+      expect(await links.webUrl(WebLinkKind.album, MediaId.subsonic('1')), isNull);
+      expect(await links.createShareLink(WebLinkKind.album, MediaId(apple, '1')), isNull);
+    });
+  });
 }

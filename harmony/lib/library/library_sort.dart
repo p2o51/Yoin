@@ -15,6 +15,7 @@ library;
 
 import '../data/model/model.dart';
 import '../platform/i18n/name_transliterator.dart' show isHan;
+import 'library_playlists_by_you.dart';
 
 /// The Library's views. [all] has no chip.
 enum LibraryTab { all, playlists, artists, albums, songs, favorites }
@@ -174,11 +175,15 @@ final class LibraryListInputs {
 
 /// The sorter's output, one entry per sortable view.
 final class SortedLibraryLists {
-  const SortedLibraryLists({this.all, this.artists, this.albums, this.playlists});
+  const SortedLibraryLists({this.all, this.artists, this.albums, this.playlists, this.playlistsByYou});
   final SortedView? all;
   final SortedView? artists;
   final SortedView? albums;
   final SortedView? playlists;
+
+  /// The user's own playlists in the Playlists order, when the loaded ones
+  /// are mixed ([hasMixedOwnership]); null otherwise: By You has nothing to narrow.
+  final SortedView? playlistsByYou;
 
   static const empty = SortedLibraryLists();
 
@@ -208,6 +213,14 @@ SortedLibraryLists sortLibrary(LibraryListInputs inputs) {
     playlists: playlists == null
         ? null
         : sortItems(playlists, inputs.sortOf(LibraryTab.playlists), inputs, artistDates),
+    playlistsByYou: inputs.playlists == null || !hasMixedOwnership(inputs.playlists!)
+        ? null
+        : sortItems(
+            _distinct([for (final p in playlistsByYou(inputs.playlists!)) LibraryPlaylistItem(p)]),
+            inputs.sortOf(LibraryTab.playlists),
+            inputs,
+            artistDates,
+          ),
     all: !anyLoaded
         ? null
         : sortItems(

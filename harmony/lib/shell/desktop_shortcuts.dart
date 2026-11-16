@@ -110,6 +110,14 @@ class LibrarySearchRequests extends Notifier<int> {
 
 final librarySearchRequestsProvider = NotifierProvider<LibrarySearchRequests, int>(LibrarySearchRequests.new);
 
+/// Library's search from anywhere in the shell (Ctrl+K, a long-press on
+/// Library in the bar; Android LibraryViewModel.openSearchShortcut): Library
+/// comes up, then opens its search from its pill once it has laid out.
+void openLibrarySearchShortcut(ProviderContainer container) {
+  container.read(shellSectionProvider.notifier).select(YoinSection.library);
+  WidgetsBinding.instance.addPostFrameCallback((_) => container.read(librarySearchRequestsProvider.notifier).request());
+}
+
 /// Whether the keyboard is typing into a text field now (every shortcut steps aside).
 bool isTypingIntoTextField() {
   final context = FocusManager.instance.primaryFocus?.context;
@@ -226,11 +234,7 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
 
   void _openSearch() {
     _clearNowPlayingForPage();
-    ref.read(shellSectionProvider.notifier).select(YoinSection.library);
-    // After the section switch has laid the Library out.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(librarySearchRequestsProvider.notifier).request();
-    });
+    if (mounted) openLibrarySearchShortcut(ref.container);
   }
 
   @override

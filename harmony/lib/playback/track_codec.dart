@@ -12,25 +12,29 @@ import 'playback_context.dart';
 
 abstract final class TrackCodec {
   static String encode(Track t) => jsonEncode({
-        'id': t.id.toString(),
-        if (t.title != null) 'title': t.title,
-        if (t.artist != null) 'artist': t.artist,
-        if (t.artistId != null) 'artistId': t.artistId.toString(),
-        if (t.album != null) 'album': t.album,
-        if (t.albumId != null) 'albumId': t.albumId.toString(),
-        if (t.coverArt != null) 'cover': t.coverArt!.storageKey,
-        if (t.durationSec != null) 'dur': t.durationSec,
-        if (t.trackNumber != null) 'no': t.trackNumber,
-        if (t.discNumber != null) 'disc': t.discNumber,
-        if (t.year != null) 'year': t.year,
-        if (t.genre != null) 'genre': t.genre,
-        if (t.userRating != null) 'rating': t.userRating,
-        if (t.isStarred) 'starred': true,
-        if (t.starredAt != null) 'starredAt': t.starredAt,
-        if (t.addedAt != null) 'added': t.addedAt,
-        if (t.audioFormat != null) 'fmt': _formatToJson(t.audioFormat!),
-        if (t.replayGain != null) 'rg': t.replayGain!.toJson(),
-      });
+    'id': t.id.toString(),
+    if (t.title != null) 'title': t.title,
+    if (t.artist != null) 'artist': t.artist,
+    if (t.artistId != null) 'artistId': t.artistId.toString(),
+    if (t.album != null) 'album': t.album,
+    if (t.albumId != null) 'albumId': t.albumId.toString(),
+    if (t.coverArt != null) 'cover': t.coverArt!.storageKey,
+    if (t.durationSec != null) 'dur': t.durationSec,
+    if (t.trackNumber != null) 'no': t.trackNumber,
+    if (t.discNumber != null) 'disc': t.discNumber,
+    if (t.year != null) 'year': t.year,
+    if (t.genre != null) 'genre': t.genre,
+    if (t.userRating != null) 'rating': t.userRating,
+    if (t.isStarred) 'starred': true,
+    if (t.starredAt != null) 'starredAt': t.starredAt,
+    if (t.addedAt != null) 'added': t.addedAt,
+    if (t.audioFormat != null) 'fmt': _formatToJson(t.audioFormat!),
+    if (t.replayGain != null) 'rg': t.replayGain!.toJson(),
+    if (t.artists.isNotEmpty)
+      'artists': [
+        for (final a in t.artists) {'n': a.name, 'id': ?a.id?.toString()},
+      ],
+  });
 
   /// null when [raw] isn't a track this codec wrote.
   static Track? decode(String? raw) {
@@ -59,11 +63,18 @@ abstract final class TrackCodec {
         addedAt: m['added'] as String?,
         audioFormat: _formatFromJson(m['fmt']),
         replayGain: ReplayGain.fromJson(m['rg']),
+        artists: _artistsFromJson(m['artists']),
       );
     } on Object {
       return null;
     }
   }
+
+  static List<ArtistCredit> _artistsFromJson(Object? json) => [
+    if (json is List)
+      for (final a in json)
+        if (a is Map && a['n'] is String) ArtistCredit(a['n'] as String, MediaId.tryParse(a['id'] as String?)),
+  ];
 
   static Map<String, Object> _formatToJson(AudioFormat f) => {
         'sfx': ?f.suffix,

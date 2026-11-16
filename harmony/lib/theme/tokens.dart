@@ -59,6 +59,20 @@ abstract final class BarTokens {
 
   /// The merged bar (Wide detail column open) spans both columns: up to 720.
   static const double mergedMaxWidth = 720;
+
+  /// Long-press Library's search hint (YoinButtonGroup LibrarySearchShortcutHint): a 46 circle with
+  /// a 21 glyph in a 48 box, 26 in from the bar's end (nav pose), lifted 46 above the bar's top.
+  /// It shows 240 ms into a press and leaves 120 ms after it, scaling in from 0.68 and out to 0.82.
+  static const double searchHintBox = 48;
+  static const double searchHintSurface = 46;
+  static const double searchHintIcon = 21;
+  static const double searchHintEndInset = 26;
+  static const double searchHintLift = -46;
+  static const double searchHintElevation = 16;
+  static const int searchHintDelayMs = 240;
+  static const int searchHintSettleMs = 120;
+  static const double searchHintEnterScale = 0.68;
+  static const double searchHintExitScale = 0.82;
 }
 
 /// Now Playing: the phone column's component sizes and the height budget's slots (NowPlayingBudget.kt, NowPlayingMetrics.kt, NowPlayingScreen.kt; iOS NowPlayingView). `_NOMINAL` is a slot's resting height, `_MIN` what it compresses to.
@@ -1331,6 +1345,12 @@ abstract final class TipSceneTokens {
   /// Library's search field: its height, and how far it drops in from.
   static const double searchField = 56;
   static const double searchDrop = 24;
+
+  /// Library's full-screen search in the phone: the input row's extra
+  /// height and start inset, and the scale it opens from.
+  static const double searchRowPadding = 16;
+  static const double searchRowInset = 4;
+  static const double searchEnterScale = 0.94;
 
   /// The lyric scenes start the demo song here (ms): the second line is being sung.
   static const int lyricsStartMs = 5000;

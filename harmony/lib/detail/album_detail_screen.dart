@@ -6,6 +6,8 @@ import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
+import '../library/add_to_playlist_flow.dart';
+import '../library/playlist_writes.dart';
 import '../offline/offline_toggle.dart';
 import '../shell/detail_chrome.dart';
 import '../theme/tokens.dart';
@@ -18,24 +20,48 @@ import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_routes.dart';
+import 'detail_share.dart';
 import 'detail_strings.dart';
 import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
 import 'pull_up_reveal.dart';
 import 'reshape_scaffold.dart';
+import 'scrapbook_focus.dart';
 
 /// The Album page (PushPage; Android AlbumDetailScreen, Compact): page wash
 /// from the cover, header, hero cover + flowing titles that pull up into
 /// the track list. No Play button on the page: Play / Shuffle live in the
 /// bar's detail pose through [DetailChromeRegistration].
-class AlbumDetailScreen extends ConsumerWidget {
+class AlbumDetailScreen extends ConsumerStatefulWidget {
   const AlbumDetailScreen({super.key, required this.albumId});
 
   final MediaId albumId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AlbumDetailScreen> createState() => _AlbumDetailScreenState();
+}
+
+class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
+  /// "View in Scrapbook": the song page 2 brings into view; cleared once it has.
+  final _scrapbookFocus = ValueNotifier<MediaId?>(null);
+
+  MediaId get albumId => widget.albumId;
+
+  @override
+  void dispose() {
+    _scrapbookFocus.dispose();
+    super.dispose();
+  }
+
+  /// Page 2, with [songId] brought into view there ([context] is under the pager).
+  void _viewInScrapbook(BuildContext context, MediaId songId) {
+    _scrapbookFocus.value = songId;
+    ReshapePager.read(context)?.openPage(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(albumDetailProvider(albumId));
     final source = ref.watch(activeSourceProvider).value;
     final strings = DetailStrings.of(context);
@@ -66,14 +92,14 @@ class AlbumDetailScreen extends ConsumerWidget {
               ),
               AlbumDetailContent() => null,
             },
-            content: state is AlbumDetailContent ? _content(context, ref, state, coverUrl) : null,
+            content: state is AlbumDetailContent ? _content(context, state, coverUrl) : null,
           ),
         ),
       ),
     );
   }
 
-  ReshapeContent _content(BuildContext context, WidgetRef ref, AlbumDetailContent state, String? coverUrl) {
+  ReshapeContent _content(BuildContext context, AlbumDetailContent state, String? coverUrl) {
     final strings = DetailStrings.of(context);
     final tracks = state.tracks;
     void playFrom(int index) =>
@@ -97,14 +123,21 @@ class AlbumDetailScreen extends ConsumerWidget {
         disc = track.discNumber;
       }
       list.add(
-        AlbumTrackRow(
+        Builder(
           key: ValueKey('${track.id}#$i'),
-          track: track,
-          index: i,
-          featArtist: state.featArtistOf(track),
-          showHeart: canFavorite,
-          onTap: () => playFrom(i),
-          onLongPress: () => openTrackMenu(context, track, onAlbumPage: true),
+          builder: (rowContext) => AlbumTrackRow(
+            track: track,
+            index: i,
+            featArtist: state.featArtistOf(track),
+            showHeart: canFavorite,
+            onTap: () => playFrom(i),
+            onLongPress: () => openTrackMenu(
+              rowContext,
+              track,
+              onAlbumPage: true,
+              onViewInScrapbook: (id) => _viewInScrapbook(rowContext, id),
+            ),
+          ),
         ),
       );
     }
@@ -115,10 +148,18 @@ class AlbumDetailScreen extends ConsumerWidget {
       // The album's family mark behind the cover (owner 2026-11-06: one mark, three readings).
       backdrop: (cover, leaving) => AlbumButterfly(leaving: leaving),
       // Page 2: the scrapbook of what the listener left on this album.
-      secondPage: (context, page) => AlbumScrapbookPage(album: state.album, coverUrl: coverUrl, page: page),
+      secondPage: (context, page) =>
+          AlbumScrapbookPage(album: state.album, coverUrl: coverUrl, page: page, focus: _scrapbookFocus),
       heroBelow: (links) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // View in Scrapbook from a song sheet elsewhere (Now Playing): this page opened for it.
+          Builder(
+            builder: (takerContext) => ScrapbookFocusTaker(
+              songIds: [for (final t in tracks) t.id],
+              onTake: (id) => _viewInScrapbook(takerContext, id),
+            ),
+          ),
           // Score emblem + comment pen, the cover's width (AlbumHeroDetails, Compact).
           LayoutBuilder(
             builder: (context, constraints) => Padding(
@@ -201,42 +242,73 @@ class _AlbumChrome extends ConsumerWidget {
   }
 }
 
-/// The Album page's ▾ rows after Shuffle play that work on Subsonic in v1
-/// (AlbumDetailActivity rememberDetailMenu + promotable): Play next, Add to
-/// queue, Download (an account that downloads; OfflineToggle), then Go to
-/// artist when the album names one. Add to playlist and Share wait for
-/// playlist writes and share links.
+/// The Album page's ▾ rows after Shuffle play (AlbumDetailActivity
+/// rememberDetailMenu + promotable, which phones show as menu rows): Play
+/// next, Add to queue, Add to playlist (the whole album; an account that
+/// files songs), Download (an account that downloads; OfflineToggle), Open in
+/// Apple Music (once the album's public page is known), then Go to artist
+/// when the album names one, and Share.
 List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, AlbumDetailContent state) {
   final strings = DetailStrings.of(context);
+  void message(String text) {
+    if (context.mounted) showDetailMessage(context, text);
+  }
+
   void queue({required bool next}) {
     final player = DetailPlayer.widget(ref);
     queueFromDetail(player, () async => state.tracks, next: next).then((count) {
-      if (count > 0 && context.mounted) {
-        showDetailMessage(context, next ? strings.menuPlayNextCount(count) : strings.menuQueued(count));
-      }
+      if (count > 0) message(next ? strings.menuPlayNextCount(count) : strings.menuQueued(count));
     });
   }
 
-  final artistId = state.album.artistId;
+  final album = state.album;
+  final artistId = album.artistId;
   final offline = watchOfflineToggle(
     ref,
     context,
-    collection: OfflineCollection.album(state.album),
+    collection: OfflineCollection.album(album),
     tracks: () async => state.tracks,
-    onMessage: (text) {
-      if (context.mounted) showDetailMessage(context, text);
-    },
+    onMessage: message,
   );
+  final canAdd = playlistAbilities(ref.watch(activeSourceProvider).value).canAdd && state.tracks.isNotEmpty;
+  final link = ref.watch(detailWebLinkProvider((WebLinkKind.album, album.id))).value;
+  final openIn = openInLabel(link, strings);
+  final container = ProviderScope.containerOf(context, listen: false);
   return [
     DetailMenuAction(icon: YoinSymbols.skipNext, label: strings.menuPlayNext, onTap: () => queue(next: true)),
     DetailMenuAction(icon: YoinSymbols.queue, label: strings.menuAddToQueue, onTap: () => queue(next: false)),
+    if (canAdd)
+      DetailMenuAction(
+        icon: YoinSymbols.playlist,
+        label: strings.menuAddToPlaylist,
+        onTap: () {
+          if (context.mounted) addToPlaylistFlow(context, state.tracks, onMessage: message);
+        },
+      ),
     if (offline != null) DetailMenuAction(icon: offline.icon, label: offline.label, onTap: offline.onTap),
+    if ((link, openIn) case (final url?, final label?))
+      DetailMenuAction(icon: YoinSymbols.launch, label: label, onTap: () => openDetailLink(container, url)),
     if (artistId != null)
       DetailMenuAction(
         icon: YoinSymbols.artist,
         label: strings.albumGoToArtist,
-        onTap: () => DetailRoutes.openArtist(context, artistId, name: state.album.artist),
+        onTap: () => DetailRoutes.openArtist(context, artistId, name: album.artist),
       ),
+    DetailMenuAction(
+      icon: YoinSymbols.share,
+      label: strings.share,
+      onTap: () => DetailShare.share(
+        container,
+        kind: WebLinkKind.album,
+        id: album.id,
+        title: switch (album.artist?.trim()) {
+          final artist? when artist.isNotEmpty => strings.shareAlbumTitle(album.name, artist),
+          _ => album.name.trim().isEmpty ? strings.shareAlbum : album.name,
+        },
+        webLink: link,
+        linkFailedMessage: strings.shareLinkFailed,
+      ),
+    ),
   ];
 }
 

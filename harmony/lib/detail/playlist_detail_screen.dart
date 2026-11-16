@@ -5,6 +5,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/offline/offline_model.dart';
+import '../data/source/music_source.dart';
 import '../library/playlist_writes.dart';
 import '../offline/offline_toggle.dart';
 import '../shell/detail_chrome.dart';
@@ -15,6 +16,7 @@ import '../ui/component/yoin_dialog.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
+import 'detail_share.dart';
 import 'detail_strings.dart';
 import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
@@ -233,10 +235,26 @@ class _PlaylistChrome extends ConsumerWidget {
   }
 }
 
-/// The Playlist page's ▾ rows (PlaylistDetailScreen overflow): Download
-/// (an account that downloads; OfflineToggle), then Rename and Delete, for a
-/// playlist this account owns on a service that can change it.
+/// The Playlist page's ▾ rows (PlaylistDetailScreen overflow + promotable):
+/// Download (an account that downloads; OfflineToggle), then Rename and
+/// Delete, for a playlist this account owns on a service that can change it,
+/// then Share (the playlist's public page, or a share link the server makes).
 List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, PlaylistDetailContent state) {
+  final detailStrings = DetailStrings.of(context);
+  final link = ref.watch(detailWebLinkProvider((WebLinkKind.playlist, state.playlist.id))).value;
+  final container = ProviderScope.containerOf(context, listen: false);
+  final share = DetailMenuAction(
+    icon: YoinSymbols.share,
+    label: detailStrings.share,
+    onTap: () => DetailShare.share(
+      container,
+      kind: WebLinkKind.playlist,
+      id: state.playlist.id,
+      title: state.playlist.name.trim().isEmpty ? detailStrings.sharePlaylist : state.playlist.name,
+      webLink: link,
+      linkFailedMessage: detailStrings.shareLinkFailed,
+    ),
+  );
   final offline = watchOfflineToggle(
     ref,
     context,
@@ -250,7 +268,7 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
     if (offline != null) DetailMenuAction(icon: offline.icon, label: offline.label, onTap: offline.onTap),
   ];
   final abilities = playlistAbilities(ref.watch(activeSourceProvider).value);
-  if (!abilities.canEdit || !state.playlist.canWrite) return download;
+  if (!abilities.canEdit || !state.playlist.canWrite) return [...download, share];
   final strings = ComponentStrings.of(context);
   final vm = ref.read(playlistDetailProvider(state.playlist.id).notifier);
   return [
@@ -295,5 +313,6 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
         if (ok) Navigator.of(context).maybePop();
       },
     ),
+    share,
   ];
 }

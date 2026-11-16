@@ -64,6 +64,7 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.songMenu => SongMenuDemo(playing: playing),
   HomeBubbleTip.playModes => PlayModesDemo(playing: playing),
   HomeBubbleTip.noteMoments => NoteMomentsDemo(playing: playing),
+  HomeBubbleTip.librarySearch => LibrarySearchDemo(playing: playing),
   HomeBubbleTip.keepScreenOn => CoverMenuDemo(playing: playing, keepScreenOn: true),
   HomeBubbleTip.name => NameDemo(playing: playing),
 };

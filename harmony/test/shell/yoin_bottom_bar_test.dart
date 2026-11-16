@@ -7,6 +7,7 @@ import 'package:yoin/shell/yoin_section.dart';
 import 'package:yoin/theme/tokens.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 import 'package:yoin/ui/component/expressive/expressive_split_button.dart';
+import 'package:yoin_symbols/yoin_symbols.dart';
 
 Widget _bar({DetailPlayActions? actions}) => MaterialApp(
   navigatorKey: appNavigatorKey,
@@ -54,5 +55,76 @@ void main() {
     expect(tester.getSize(_splitMaterials).height, BarTokens.centeredButtonHeight);
     expect(tester.getSize(_splitMaterials).width, greaterThan(BarTokens.splitWidth));
     expect(find.bySemanticsLabel('Shuffle play'), findsOneWidget);
+  });
+
+  group('long-press Library', () {
+    Widget navBar({VoidCallback? onLongPress, ValueChanged<YoinSection>? onSelect}) => MaterialApp(
+      navigatorKey: appNavigatorKey,
+      home: YoinWindowScope.measured(
+        child: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: YoinBottomBar(
+              selected: YoinSection.home,
+              onSelect: onSelect ?? (_) {},
+              onLibraryLongPress: onLongPress,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Finder hint() => find.byIcon(YoinSymbols.search);
+
+    double hintAlpha(WidgetTester tester) =>
+        tester.widget<Opacity>(find.ancestor(of: hint(), matching: find.byType(Opacity)).first).opacity;
+
+    testWidgets('should_openSearchWithoutSelecting_when_libraryLongPressed', (tester) async {
+      _window(tester, const Size(412, 915));
+      var searches = 0;
+      final selected = <YoinSection>[];
+      await tester.pumpWidget(navBar(onLongPress: () => searches++, onSelect: selected.add));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.bySemanticsLabel('Library'));
+      await tester.pumpAndSettle();
+      expect(searches, 1);
+      expect(selected, isEmpty, reason: 'the long-press is not a tap');
+    });
+
+    testWidgets('should_showSearchHintWhileHeld_when_libraryIsPressed', (tester) async {
+      _window(tester, const Size(412, 915));
+      await tester.pumpWidget(navBar(onLongPress: () {}));
+      await tester.pumpAndSettle();
+      expect(hint(), findsNothing);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.bySemanticsLabel('Library')));
+      await tester.pump(const Duration(milliseconds: BarTokens.searchHintDelayMs - 40));
+      expect(hint(), findsNothing, reason: 'a tap never flashes the hint');
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(hint(), findsOneWidget);
+      expect(hintAlpha(tester), closeTo(1, 0.02));
+      // Above the bar, over the Library end.
+      final library = tester.getRect(find.bySemanticsLabel('Library'));
+      final bubble = tester.getRect(hint());
+      expect(bubble.bottom, lessThan(library.top));
+      expect(bubble.center.dx, greaterThan(library.left));
+
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: BarTokens.searchHintSettleMs + 20));
+      await tester.pumpAndSettle();
+      expect(hint(), findsNothing);
+    });
+
+    testWidgets('should_offerNoHint_when_barHasNoLongPress', (tester) async {
+      _window(tester, const Size(412, 915));
+      await tester.pumpWidget(navBar());
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(tester.getCenter(find.bySemanticsLabel('Library')));
+      await tester.pump(const Duration(seconds: 1));
+      expect(hint(), findsNothing);
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
   });
 }

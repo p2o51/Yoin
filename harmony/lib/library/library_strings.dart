@@ -36,6 +36,7 @@ class LibraryStrings {
   String get cdSettings => zh ? '设置' : 'Settings'; // library_cd_settings
 
   String get tabPlaylists => zh ? '播放列表' : 'Playlists'; // library_tab_playlists
+  String get filterByYou => zh ? '你创建的' : 'By You'; // library_filter_by_you
   String get tabArtists => zh ? '艺术家' : 'Artists'; // library_tab_artists
   String get tabAlbums => zh ? '专辑' : 'Albums'; // library_tab_albums
   String get tabSongs => zh ? '歌曲' : 'Songs'; // library_tab_songs

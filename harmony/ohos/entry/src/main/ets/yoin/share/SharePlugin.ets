@@ -24,12 +24,14 @@ const SHARE_DIR = 'shared';
 const SHARE_PREFIX = 'yoin-lyrics-';
 
 /**
- * Serves `yoin/share` for Dart's `ChannelImageShare` (the lyrics card,
- * Android LyricsShareCard's FileProvider share and MediaStore save):
+ * Serves `yoin/share` for Dart's `ChannelTextShare` (a page's or a song's name and link, Android DetailMenu's
+ * ACTION_SEND text) and `ChannelImageShare` (the lyrics card, Android LyricsShareCard's FileProvider share and
+ * MediaStore save):
+ * - `shareText` {text, title} opens the system share sheet on plain text (Share Kit);
  * - `shareImage` {bytes, name, caption} writes the PNG to the cache and opens the system share sheet (Share Kit);
  * - `saveImage` {bytes, name} writes it to the cache and asks the system's save dialog to put it in the gallery
  *   (photoAccessHelper.showAssetsCreationDialog — the user confirms, no storage permission needed).
- * Both answer true when the sheet / the save went through, false otherwise (declined, failed).
+ * Each answers true when the sheet / the save went through, false otherwise (declined, failed).
  */
 export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler {
   private channel: MethodChannel | null = null;
@@ -54,6 +56,18 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
+    if (call.method === 'shareText') {
+      const text: Any = call.argument('text');
+      const title: Any = call.argument('title');
+      if (typeof text !== 'string' || (text as string).length === 0) {
+        result.error('bad_args', 'shareText needs text', null);
+        return;
+      }
+      this.shareText(text as string, typeof title === 'string' ? title as string : '')
+        .then((ok: boolean) => result.success(ok))
+        .catch(() => result.success(false));
+      return;
+    }
     const bytes: Any = call.argument('bytes');
     const name: Any = call.argument('name');
     if (!(bytes instanceof Uint8Array)) {
@@ -121,6 +135,29 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
       return true;
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'share failed: %{public}d', (e as BusinessError).code ?? -1);
+      return false;
+    }
+  }
+
+  /**
+   * A page's or a song's name with its link, as plain text (Android's ACTION_SEND text/plain): the share sheet
+   * (Share Kit) shows [title] in its preview, targets get the whole text with the link on its own line.
+   */
+  private async shareText(text: string, title: string): Promise<boolean> {
+    try {
+      const data = new systemShare.SharedData({
+        utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+        content: text,
+        title: title.length > 0 ? title : undefined,
+      });
+      const controller = new systemShare.ShareController(data);
+      await controller.show(this.context, {
+        previewMode: systemShare.SharePreviewMode.DEFAULT,
+        selectionMode: systemShare.SelectionMode.SINGLE,
+      });
+      return true;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'shareText failed: %{public}d', (e as BusinessError).code ?? -1);
       return false;
     }
   }

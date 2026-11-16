@@ -1,12 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/platform/applemusic/apple_music_auth.dart';
+import 'package:yoin/platform/browser/url_opener.dart';
 import 'package:yoin/platform/cards/cards_channel.dart';
 import 'package:yoin/platform/playback/channel_playback_engine.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
+import 'package:yoin/platform/share/text_share.dart';
 import 'package:yoin/platform/storage/channel_stores.dart';
+import 'package:yoin/platform/sync/cloud_sync_host.dart';
 import 'package:yoin/platform/window/window_caption.dart';
 import 'package:yoin/platform/windows/windows_platform.dart';
 import 'package:yoin/platform/yoin_platform.dart';
@@ -21,6 +25,8 @@ void main() {
       expect(p.playbackEngine, isA<ChannelPlaybackEngine>());
       expect(p.cardsHost, isA<ChannelCardsHost>());
       expect(p.windowCaption, isA<ChannelWindowCaptionHost>());
+      expect(p.textShare, isA<ChannelTextShare>());
+      expect(p.urlOpener, isA<BrowserUrlOpener>());
     });
 
     test('should_usePureDartStandIns_when_hostIsWindows', () {
@@ -31,6 +37,44 @@ void main() {
       expect(p.playbackEngine, isA<UnsupportedPlaybackEngine>());
       expect(p.cardsHost, isA<NoCardsHost>());
       expect(p.windowCaption, isA<SystemTitleBarHost>());
+      expect(p.textShare, isA<NoTextShare>());
+      expect(p.urlOpener, isA<BrowserUrlOpener>());
+    });
+  });
+
+  group('text share and browser', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    test('should_handTextToShareSheet_when_channelShares', () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('yoin/share'),
+        (call) async {
+          calls.add(call);
+          return true;
+        },
+      );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('yoin/share'),
+          null,
+        ),
+      );
+      expect(await const ChannelTextShare().shareText('Blue\nhttps://s/1', title: 'Blue'), isTrue);
+      expect(calls.single.method, 'shareText');
+      expect(calls.single.arguments, {'text': 'Blue\nhttps://s/1', 'title': 'Blue'});
+    });
+
+    test('should_reportNoShare_when_hostHasNoSheet', () async {
+      expect(await const NoTextShare().shareText('x'), isFalse);
+    });
+
+    test('should_openOnlyWebPages_when_askedToOpenALink', () async {
+      final host = _Browser();
+      final opener = BrowserUrlOpener(host);
+      expect(await opener.open(Uri.parse('https://yoin.gojyuplus.com/')), isTrue);
+      expect(await opener.open(Uri.parse('file:///etc/passwd')), isFalse);
+      expect(host.opened, [Uri.parse('https://yoin.gojyuplus.com/')]);
     });
   });
 
@@ -109,4 +153,24 @@ void main() {
     await tester.pump();
     expect(top, 0);
   });
+}
+
+/// A browser that opens everything it is handed.
+final class _Browser implements CloudSyncHost {
+  final opened = <Uri>[];
+
+  @override
+  Future<bool> openBrowser(Uri url) async {
+    opened.add(url);
+    return true;
+  }
+
+  @override
+  Future<void> holdWhileAway() async {}
+  @override
+  Future<void> releaseHold() async {}
+  @override
+  Future<String> deviceName() async => 'test';
+  @override
+  Future<Directory?> filesDirectory() async => null;
 }
