@@ -431,6 +431,27 @@ void main() {
     expect(matcher.pick(candidates, 'Pop Sound', 'Kim Petras', durationMs: 171172), 0);
   });
 
+  // Japanese Spotify's `摩天輪` / `ヒビ・ティエン` (244.8 s): nothing on QQ names Hebe Tien in a script that
+  // can be compared, and Luo Baiji's 摩天轮 leads. Its length doesn't fit, so it mustn't stand in.
+  test('should_returnNull_when_dominantUnverifiablePerformerIsOffLength', () {
+    final candidates = [
+      c('摩天轮', ['罗百吉'], seconds: 215),
+      c('摩天轮 (DJ版)', ['罗百吉'], seconds: 230),
+      c('摩天轮', ['某翻唱'], seconds: 245),
+    ];
+    expect(matcher.pick(candidates, '摩天轮', 'ヒビ・ティエン', durationMs: 244800), isNull);
+    expect(matcher.pick(candidates, '摩天轮', 'ヒビ・ティエン'), 0);
+  });
+
+  test('should_keepDominantPerformersFittingCut_when_anotherOfTheirCutsIsOffLength', () {
+    final candidates = [
+      c('I Knew You Were Trouble', ['Taylor Swift'], seconds: 300),
+      c('I Knew You Were Trouble', ['Taylor Swift'], seconds: 220),
+      c('I Knew You Were Trouble', ['Party Hit Kings'], seconds: 219),
+    ];
+    expect(matcher.pick(candidates, 'I Knew You Were Trouble', 'テイラー・スウィフト', durationMs: 219000), 1);
+  });
+
   test('should_notBacktrackForever_when_noteIsALongDigitRun', () {
     final candidates = [
       c('Placeholder Song (${'1' * 40}x)', ['Band']),
