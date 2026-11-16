@@ -20,6 +20,7 @@ import 'settings_strings.dart';
 import 'settings_view_model.dart';
 import 'stream_quality_screen.dart';
 import 'subsonic_setup_view_model.dart';
+import 'volume_leveling_screen.dart';
 
 /// Opens the page of the Subsonic account [profileId] (Manage).
 Future<void> openSubsonicManage(BuildContext context, String profileId) => Navigator.of(context)
@@ -150,7 +151,11 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
           const SizedBox(height: SettingsMetrics.sectionGap),
           SettingsGroup(
             title: strings.sectionPlayback,
-            children: [StreamQualityRow(profileId: widget.profileId!)],
+            children: [
+              StreamQualityRow(profileId: widget.profileId!),
+              // Subsonic reports ReplayGain (Capability.replayGain).
+              VolumeLevelingRow(profileId: widget.profileId!),
+            ],
           ),
         ],
       ],

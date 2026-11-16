@@ -105,6 +105,10 @@ class SettingsStrings {
   String get streamQualityMobile => _zh ? '移动数据' : 'Mobile data'; // settings_stream_quality_mobile
   String streamQualitySummary(String wifi, String mobile) =>
       _zh ? 'Wi‑Fi $wifi，移动数据 $mobile' : 'Wi‑Fi $wifi, mobile data $mobile'; // settings_stream_quality_summary
+  String get volumeLevelingTitle => _zh ? '音量平衡' : 'Volume leveling'; // settings_volume_leveling_title
+  String get volumeLevelingOff => _zh ? '关' : 'Off'; // settings_volume_leveling_off
+  String get volumeLevelingTrack => _zh ? '按曲目' : 'By track'; // settings_volume_leveling_track
+  String get volumeLevelingAlbum => _zh ? '按专辑' : 'By album'; // settings_volume_leveling_album
 
   // ── Help and about ──────────────────────────────────────────────────
   String get sectionHelpAbout => _zh ? '帮助与关于' : 'Help and about'; // settings_section_help_about

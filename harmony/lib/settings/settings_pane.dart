@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 /// What the wide window's right pane shows (SettingsTablet): an account's
-/// page, a page it opens (Streaming quality), or one of the Help and about
-/// pages.
+/// page, a page it opens (Streaming quality, Volume leveling), or one of the
+/// Help and about pages.
 sealed class SettingsPane {
   const SettingsPane();
 
@@ -10,7 +10,7 @@ sealed class SettingsPane {
   /// page's own back button, and system back) returns there. Null for the
   /// pages the list opens directly.
   SettingsPane? get parent => switch (this) {
-    StreamQualityPane(:final profileId) => AccountPane(profileId),
+    StreamQualityPane(:final profileId) || VolumeLevelingPane(:final profileId) => AccountPane(profileId),
     _ => null,
   };
 }
@@ -35,6 +35,19 @@ final class StreamQualityPane extends SettingsPane {
   bool operator ==(Object other) => other is StreamQualityPane && other.profileId == profileId;
   @override
   int get hashCode => Object.hash(3, profileId);
+}
+
+/// Volume leveling (VolumeLevelingPage.kt), opened from a Subsonic account's
+/// page. The choice is the device's, not the account's; [profileId] is the
+/// page back returns to.
+final class VolumeLevelingPane extends SettingsPane {
+  const VolumeLevelingPane(this.profileId);
+  final String profileId;
+
+  @override
+  bool operator ==(Object other) => other is VolumeLevelingPane && other.profileId == profileId;
+  @override
+  int get hashCode => Object.hash(4, profileId);
 }
 
 final class TipsPane extends SettingsPane {
