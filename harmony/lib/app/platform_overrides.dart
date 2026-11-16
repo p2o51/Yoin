@@ -12,6 +12,7 @@ import '../platform/audio/audio_host.dart';
 import '../platform/browser/url_opener.dart';
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../platform/motion/system_motion.dart';
 import '../platform/sensors/motion_sensors.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/posture/display_posture.dart';
@@ -59,5 +60,6 @@ List<Override> platformOverrides(YoinPlatform platform) {
     displayPostureHostProvider.overrideWithValue(platform.displayPosture),
     audioHostProvider.overrideWithValue(platform.audio),
     volumeKeyHostProvider.overrideWithValue(platform.volumeKeys),
+    systemMotionHostProvider.overrideWithValue(platform.systemMotion),
   ];
 }

@@ -19,6 +19,7 @@ import 'landing/landing_host.dart';
 import 'neodb/neodb_providers.dart';
 import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
+import 'platform/motion/system_motion.dart';
 import 'platform/posture/display_posture.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
@@ -35,8 +36,9 @@ import 'ui/adaptive/edge_split.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 import 'ui/component/artwork_image.dart';
 import 'ui/component/artwork_retry.dart';
+import 'ui/component/system_reduce_motion_scope.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Edge to edge: content runs under the status and navigation bars.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -54,6 +56,12 @@ void main() {
     CoverDiskCache(directory: platform.appFiles.cacheDirectory, freeBytes: platform.appFiles.cacheFreeBytes),
   );
   ArtworkRetryWatcher.start(platform.networkBearer);
+  // Reduce motion is known before the first frame, so a cold start under 减弱动画 or power saving skips
+  // Home's intro bloom (Android reads it synchronously); a plugin that never answers can't hold the launch.
+  await platform.systemMotion.read().timeout(
+    systemMotionFirstReadTimeout,
+    onTimeout: () => SystemMotionSettings.normal,
+  );
   runApp(
     ProviderScope(
       overrides: [
@@ -123,19 +131,23 @@ class YoinApp extends ConsumerWidget {
       // Inside the theme (the builder's own context is above it), so the
       // status-bar icons follow light / dark.
       builder: (context, child) => Builder(
-        builder: (context) => YoinWindowCaption(
-          host: windowCaption,
-          child: YoinSystemBars(
-            // The first-run landing covers the whole chrome (bar and player included).
-            child: _PostureWindowScope(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  LandingHost(child: AppChrome(child: child!)),
-                  // A Continue On hand-off's card, over everything, the first-run landing included (Android
-                  // MainActivity draws it above LandingHost): a device without the account still says so.
-                  const ContinueOnCardHost(),
-                ],
+        // The system's reduce motion (HarmonyOS 减弱动画, animations off) as disableAnimations for every
+        // reduced path below, followed while the app runs (Android MotionCapabilityProvider).
+        builder: (context) => SystemReduceMotionScope(
+          child: YoinWindowCaption(
+            host: windowCaption,
+            child: YoinSystemBars(
+              // The first-run landing covers the whole chrome (bar and player included).
+              child: _PostureWindowScope(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    LandingHost(child: AppChrome(child: child!)),
+                    // A Continue On hand-off's card, over everything, the first-run landing included (Android
+                    // MainActivity draws it above LandingHost): a device without the account still says so.
+                    const ContinueOnCardHost(),
+                  ],
+                ),
               ),
             ),
           ),

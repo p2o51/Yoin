@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/platform/applemusic/apple_music_auth.dart';
 import 'package:yoin/platform/audio/audio_host.dart';
 import 'package:yoin/platform/browser/url_opener.dart';
+import 'package:yoin/platform/motion/system_motion.dart';
 import 'package:yoin/platform/cards/cards_channel.dart';
 import 'package:yoin/platform/playback/channel_playback_engine.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
@@ -32,6 +33,7 @@ void main() {
       expect(p.displayPosture, isA<ChannelDisplayPostureHost>());
       expect(p.audio, isA<ChannelAudioHost>());
       expect(p.volumeKeys, isA<ChannelVolumeKeyHost>());
+      expect(p.systemMotion, isA<ChannelSystemMotionHost>());
     });
 
     test('should_usePureDartStandIns_when_hostIsWindows', () {
@@ -48,6 +50,7 @@ void main() {
       expect(p.volumeKeys, isA<NoVolumeKeyHost>());
       expect(p.urlOpener, isA<BrowserUrlOpener>());
       expect(p.displayPosture, isA<NoDisplayPostureHost>());
+      expect(p.systemMotion, isA<NoSystemMotionHost>());
     });
   });
 
