@@ -367,8 +367,15 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     }
   }
 
+  /// The album page's cover flight, told when this page is about to scroll itself.
+  AlbumPageFlight? _flight;
+
+  /// A focus scroll is pending or running: the cover won't hold still for a flight.
+  bool _scrollingToFocus() => mounted && (widget.focus?.value != null || _scrollSpring.isAnimating);
+
   @override
   void dispose() {
+    if (_flight?.pageScrolling == _scrollingToFocus) _flight?.pageScrolling = null;
     widget.focus?.removeListener(_scheduleFocus);
     _events?.cancel();
     _scrollSpring.dispose();
@@ -387,6 +394,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     ref.watch(albumScrapbookEditorProvider(widget.album.id));
     _events ??= ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).events.listen(_onEvent);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    _flight = AlbumPageFlightScope.maybeOf(context)?..pageScrolling = _scrollingToFocus;
     if (pieces == null) return const SizedBox.expand();
     if (widget.focus?.value != null) _scheduleFocus();
     final reduce = MediaQuery.disableAnimationsOf(context);
@@ -802,9 +810,9 @@ class _CoverWithEmblem extends StatelessWidget {
     );
   }
 
-  // Only while the cover can fly (a leader layer is a composited layer of its own).
+  // On every album page that can fly (not keyed on reduced motion: this page isn't rebuilt when it flips).
   static Widget _maybeEmblemTarget(AlbumPageFlight? flight, Widget child) =>
-      flight == null || !flight.flies ? child : CompositedTransformTarget(link: flight.emblemLink, child: child);
+      flight == null ? child : CompositedTransformTarget(link: flight.emblemLink, child: child);
 }
 
 /// The listener's review: told apart by its paper colour alone (no label, no rail).

@@ -372,11 +372,14 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                     return Positioned(
                       left: 0,
                       top: 0,
+                      // A stand-in: the page's own emblem keeps the taps and the reader.
                       child: IgnorePointer(
-                        child: CompositedTransformFollower(
-                          link: flight.emblemLink,
-                          showWhenUnlinked: false,
-                          child: emblem,
+                        child: ExcludeSemantics(
+                          child: CompositedTransformFollower(
+                            link: flight.emblemLink,
+                            showWhenUnlinked: false,
+                            child: emblem,
+                          ),
                         ),
                       ),
                     );

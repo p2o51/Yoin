@@ -38,6 +38,8 @@ import 'home_metrics.dart';
 import 'home_section.dart';
 import 'home_strings.dart';
 import 'widgets/elastic_press.dart';
+import 'widgets/home_text.dart';
+import 'widgets/seam.dart';
 
 /// Undo keeps this many steps.
 const int homeEditUndoLimit = 20;
@@ -76,6 +78,9 @@ class HomeEditController extends Notifier<HomeEditState> {
     ref.listen(shellSectionProvider, (_, section) {
       if (section != YoinSection.home) exit();
     });
+    // The device's hint record starts loading with Home, not on the first long-press: a session
+    // that starts before it lands shows no "New" chip.
+    ref.listen(homeEditHintsProvider, (_, _) {});
     return const HomeEditState();
   }
 
@@ -434,7 +439,8 @@ class HomeEditTray extends ConsumerWidget {
     final strings = HomeStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final hidden = hiddenSections(ref.watch(homeLayoutProvider));
+    final layout = ref.watch(homeLayoutProvider);
+    final hidden = hiddenSections(layout);
     final newBadges = ref.watch(homeEditProvider.select((s) => s.hints.newBadges));
     final editing = ref.watch(homeEditProvider.select((s) => s.editing));
     final edit = ref.read(homeEditProvider.notifier);
@@ -444,13 +450,17 @@ class HomeEditTray extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            strings.editHidden,
-            style: gsf(HomeSectionMetrics.titleSize, weight: 600).copyWith(color: colors.onSurface),
+          // Text fades into the status-bar seam, as the sections' does (HomeEditTray.kt seamFade).
+          SeamFade(
+            fontSize: HomeSectionMetrics.titleSize,
+            child: Text(
+              strings.editHidden,
+              style: gsf(HomeSectionMetrics.titleSize, weight: 600).copyWith(color: colors.onSurface),
+            ),
           ),
           const SizedBox(height: HomeEditMetrics.trayGap),
           if (hidden.isEmpty)
-            Text(strings.editHiddenEmpty, style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant))
+            SeamText(strings.editHiddenEmpty, style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant))
           else
             for (final section in hidden)
               Padding(
@@ -465,7 +475,8 @@ class HomeEditTray extends ConsumerWidget {
           const SizedBox(height: HomeEditMetrics.trayGap),
           Center(
             child: TextButton(
-              onPressed: edit.reset,
+              // Nothing to reset on the default arrangement (HomeEditController.canReset).
+              onPressed: layout.isDefault ? null : edit.reset,
               style: TextButton.styleFrom(
                 minimumSize: const Size(0, HomeEditMetrics.footerButtonHeight),
                 padding: const EdgeInsets.symmetric(horizontal: HomeEditMetrics.footerButtonPadding),
@@ -527,11 +538,8 @@ class HomeEditTrayRow extends StatelessWidget {
                         Row(
                           children: [
                             Flexible(
-                              child: Text(
+                              child: SeamText(
                                 title,
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.ellipsis,
                                 style: text.titleMedium!.copyWith(color: colors.onSurface, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -541,12 +549,13 @@ class HomeEditTrayRow extends StatelessWidget {
                             ],
                           ],
                         ),
-                        Text(
-                          strings.sectionSupporting(section),
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: TextOverflow.fade,
-                          style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
+                        // A line too long for the row keeps moving (MarqueeText), never cut.
+                        SeamFade(
+                          fontSize: text.bodySmall!.fontSize!,
+                          child: MarqueeText(
+                            strings.sectionSupporting(section),
+                            style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
+                          ),
                         ),
                       ],
                     ),

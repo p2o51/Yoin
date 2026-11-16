@@ -62,11 +62,42 @@ class AlbumPageFlight {
   /// Pager progress, 0..1.
   double get t => page.value.clamp(0.0, 1.0);
 
+  /// The scrapbook is scrolling itself (a "View in Scrapbook" focus on its
+  /// way): its cover won't hold still, so a flight that starts meanwhile
+  /// doesn't (the scrapbook sets it while built).
+  bool Function()? pageScrolling;
+
+  /// Whether this flight follows the scrapbook's cover: decided where the
+  /// pager rests and when a flight first sees the cover, then kept until the
+  /// pager rests again, so a target that moves mid-flight (the paper
+  /// scrolling) is followed instead of the cover jumping back to page 0.
+  bool? _engaged;
+  bool _lastSettled = true;
+
   /// The scrapbook cover's resting rect in the scaffold's coordinates, or null
   /// while it isn't laid out (the page not built, the paper still coming in)
-  /// or isn't wholly in its page (scrolled under the header): then nothing
-  /// flies and page 0's cover slides away as it would.
+  /// or, when the flight starts, isn't wholly in its page (scrolled under the
+  /// header) or is about to scroll: then nothing flies and page 0's cover
+  /// slides away as it would.
   Rect? coverTarget() {
+    final rest = _coverInPage();
+    if (rest == null) {
+      _engaged = null;
+      return null;
+    }
+    final (cover, pageHeight) = rest;
+    final t = this.t;
+    final settled = t <= 0 || t >= albumPageFlightLanded;
+    // Re-decided at rest and on the first frame away from it (the paper may have scrolled meanwhile).
+    if (settled || _lastSettled || _engaged == null) {
+      _engaged = cover.top >= 0 && cover.bottom <= pageHeight && !(pageScrolling?.call() ?? false);
+    }
+    _lastSettled = settled;
+    return _engaged! ? cover.shift(pageOrigin) : null;
+  }
+
+  /// The scrapbook cover's box relative to its page, and the page's height.
+  (Rect, double)? _coverInPage() {
     final pageBox = pageKey.currentContext?.findRenderObject();
     final coverBox = coverKey.currentContext?.findRenderObject();
     if (pageBox is! RenderBox || coverBox is! RenderBox) return null;
@@ -78,9 +109,7 @@ class AlbumPageFlight {
       // Not under the page (mid-rebuild): no target this frame.
       return null;
     }
-    final inPage = topLeft & coverBox.size;
-    if (inPage.top < 0 || inPage.bottom > pageBox.size.height) return null;
-    return inPage.shift(pageOrigin);
+    return (topLeft & coverBox.size, pageBox.size.height);
   }
 
   /// Whether the cover is flying (or has flown) to the scrapbook this frame.

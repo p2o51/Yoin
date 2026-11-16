@@ -122,7 +122,9 @@ class HomeEditHintsNotifier extends Notifier<HomeEditHintRecord> {
     final record = state;
     final hints = HomeEditSessionHints(
       showHeaderHint: showEditHeaderHint(record.sessions),
-      newBadges: unseenNewSections(layout, record.seen),
+      // Before the read lands nothing is known to be unseen: no chip (and none marked seen), never a
+      // stale one for a section this device has already met. It waits for the next session.
+      newBadges: record.loaded ? unseenNewSections(layout, record.seen) : const {},
     );
     state = HomeEditHintRecord(
       sessions: record.sessions + 1,

@@ -91,22 +91,50 @@ void main() {
       expect(saved['seen'], ['rediscover']);
     });
 
-    test('should_keepEarlySession_when_storedRecordLandsLater', () async {
+    test('should_keepEarlySessionButBadgeNothing_when_storedRecordLandsLater', () async {
       final store = InMemoryStore()
         ..values[HomeEditHintsNotifier.storageKey] = jsonEncode({
           'sessions': 4,
-          'seen': ['memory_grid'],
+          'seen': ['memory_grid', 'rediscover'],
         });
       final c = ProviderContainer(overrides: [keyValueStoreProvider.overrideWithValue(store)]);
       addTearDown(c.dispose);
       c.listen(homeEditHintsProvider, (_, _) {});
-      // Before the read lands.
-      c.read(homeEditHintsProvider.notifier).startSession(HomeLayout.reconcile(_legacyPrefs()));
+      // Before the read lands: this device may well have met Rediscover already, so no chip.
+      final hints = c.read(homeEditHintsProvider.notifier).startSession(HomeLayout.reconcile(_legacyPrefs()));
+      expect(hints.newBadges, isEmpty);
       await settle(() => c.read(homeEditHintsProvider).loaded);
       expect(c.read(homeEditHintsProvider).sessions, 5);
       expect(c.read(homeEditHintsProvider).seen, {'memory_grid', 'rediscover'});
       await settle(() => false, rounds: 5);
       expect((jsonDecode(store.values[HomeEditHintsNotifier.storageKey]!) as Map)['sessions'], 5);
+    });
+
+    test('should_leaveSectionUnseen_when_sessionStartsBeforeRecordLands', () async {
+      final store = InMemoryStore()..values[HomeEditHintsNotifier.storageKey] = jsonEncode({'sessions': 1, 'seen': []});
+      final c = ProviderContainer(overrides: [keyValueStoreProvider.overrideWithValue(store)]);
+      addTearDown(c.dispose);
+      c.listen(homeEditHintsProvider, (_, _) {});
+      final layout = HomeLayout.reconcile(_legacyPrefs());
+      expect(c.read(homeEditHintsProvider.notifier).startSession(layout).newBadges, isEmpty);
+      await settle(() => c.read(homeEditHintsProvider).loaded);
+      // Not marked seen unshown: the next session carries the chip.
+      expect(c.read(homeEditHintsProvider).seen, isEmpty);
+      expect(c.read(homeEditHintsProvider.notifier).startSession(layout).newBadges, {HomeSection.rediscover});
+    });
+
+    test('should_loadHintRecordWithHome_when_editControllerBuilt', () async {
+      final store = InMemoryStore()
+        ..values[HomeEditHintsNotifier.storageKey] = jsonEncode({
+          'sessions': 3,
+          'seen': ['rediscover'],
+        });
+      final c = ProviderContainer(overrides: [keyValueStoreProvider.overrideWithValue(store)]);
+      addTearDown(c.dispose);
+      // Home holds the edit controller from its first frame; nothing reads the hints yet.
+      c.listen(homeEditProvider, (_, _) {});
+      await settle(() => c.exists(homeEditHintsProvider) && c.read(homeEditHintsProvider).loaded);
+      expect(c.read(homeEditHintsProvider).sessions, 3);
     });
 
     test('should_startOver_when_storedRecordUnreadable', () async {
@@ -210,6 +238,23 @@ void main() {
       await tester.dragUntilVisible(find.byType(HomeEditTrayRow), find.byType(HomeScreen), const Offset(0, -300));
       expect(find.byType(HomeEditTrayRow), findsOneWidget, reason: 'Rediscover still waits in the tray');
       expect(find.byType(HomeEditNewChip), findsNothing);
+      await done(tester, c);
+    });
+
+    testWidgets('should_offerResetOnlyAwayFromDefault_when_trayShown', (tester) async {
+      final (c, _) = await pumpHome(tester, legacy: false);
+      final edit = c.read(homeEditProvider.notifier);
+      edit.enter();
+      await frames(tester, 30);
+      edit.hide(HomeSection.yourPlaylists);
+      await frames(tester, 30);
+      TextButton reset() => tester.widget<TextButton>(find.widgetWithText(TextButton, 'Reset Home'));
+      await tester.dragUntilVisible(find.text('Reset Home'), find.byType(HomeScreen), const Offset(0, -300));
+      expect(reset().onPressed, isNotNull);
+      edit.undo();
+      await frames(tester, 30);
+      expect(c.read(homeLayoutProvider).isDefault, isTrue);
+      expect(reset().onPressed, isNull, reason: 'already the default arrangement');
       await done(tester, c);
     });
 

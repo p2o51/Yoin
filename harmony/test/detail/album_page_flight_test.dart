@@ -135,6 +135,83 @@ void main() {
     });
   });
 
+  group('target', () {
+    /// A page box (pageKey) of 400 × 600 with the cover box (coverKey) at [coverTop].
+    Future<(AlbumPageFlight, ValueNotifier<double>, ValueNotifier<double>)> harness(WidgetTester tester) async {
+      final page = ValueNotifier<double>(0);
+      final coverTop = ValueNotifier<double>(100);
+      addTearDown(page.dispose);
+      addTearDown(coverTop.dispose);
+      final flight = AlbumPageFlight(page: page)..pageOrigin = const Offset(0, 50);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              key: flight.pageKey,
+              width: 400,
+              height: 600,
+              child: ValueListenableBuilder<double>(
+                valueListenable: coverTop,
+                builder: (context, top, _) => Stack(
+                  children: [
+                    Positioned(
+                      left: 16,
+                      top: top,
+                      width: 148,
+                      height: 148,
+                      child: SizedBox.expand(key: flight.coverKey),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      return (flight, page, coverTop);
+    }
+
+    testWidgets('should_followTheCover_when_itMovesMidFlight', (tester) async {
+      final (flight, page, coverTop) = await harness(tester);
+      page.value = 0.3;
+      expect(flight.coverTarget(), const Rect.fromLTWH(16, 150, 148, 148));
+      // The paper scrolls on under the header mid-flight: followed, not dropped (no jump back to page 0).
+      coverTop.value = -60;
+      await tester.pump();
+      page.value = 0.6;
+      expect(flight.coverTarget(), const Rect.fromLTWH(16, -10, 148, 148));
+    });
+
+    testWidgets('should_notFly_when_pageScrollsToAFocusAsTheFlightStarts', (tester) async {
+      final (flight, page, _) = await harness(tester);
+      var scrolling = true;
+      flight.pageScrolling = () => scrolling;
+      page.value = 0.2;
+      expect(flight.coverTarget(), isNull);
+      // Still not mid-flight once the scroll ends: the cover went with page 0 and stays with it.
+      scrolling = false;
+      page.value = 0.5;
+      expect(flight.coverTarget(), isNull);
+      // At rest the next flight decides again.
+      page.value = 1;
+      expect(flight.coverTarget(), isNotNull);
+    });
+
+    testWidgets('should_slideBack_when_coverScrolledUnderHeaderWhileOnScrapbook', (tester) async {
+      final (flight, page, coverTop) = await harness(tester);
+      page.value = 1;
+      expect(flight.coverTarget(), isNotNull);
+      coverTop.value = -40;
+      await tester.pump();
+      // The first frame back from the scrapbook sees where the paper is now.
+      page.value = 0.98;
+      expect(flight.coverTarget(), isNull);
+      expect(flight.coverFlying(), isFalse);
+    });
+  });
+
   group('page', () {
     testWidgets('should_flyCoverToScrapbook_when_pagerDragged', (tester) async {
       await _open(tester);
