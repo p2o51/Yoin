@@ -508,7 +508,7 @@ internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources?
             HomeSection.OtherProfiles -> "Nothing played on your other accounts lately" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.LyricHighlight -> "No lyric cards yet" // i18n-allow: matches the English resource
             HomeSection.MemoryGrid -> "No memories yet" // i18n-allow: HomeEditBlockTest asserts this English
-            HomeSection.MadeForYou -> "Spotify's playlists for you show here" // i18n-allow: matches the English resource
+            HomeSection.MadeForYou -> "Playlists made for you show here" // i18n-allow: matches the English resource
         }
     }
     return resources.getString(section.placeholderRes)

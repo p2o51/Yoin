@@ -606,6 +606,7 @@ fun PlaylistDetailScreen(
             // this window fades in). Play rides the cover-seeded primary; on an
             // empty playlist it simply no-ops.
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                 playContainer = headerScheme.primary,
                 playContent = headerScheme.onPrimary,
                 onPlay = onPlayAllClick,

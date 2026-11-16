@@ -282,6 +282,28 @@ class NowPlayingViewModel(
             }
         }
         viewModelScope.launch {
+            // About stays lazy (fetched once the page is shown), but "shown"
+            // includes staying on it while the song changes: the pager only
+            // reports a page when it SETTLES, so a listener who sat on About
+            // got the next song's "Load song info" with nothing loading
+            // (owner 2026-11-16). A fetch still running for the previous song
+            // is dropped so it can't hold the new song's About in Loading.
+            var aboutSongId: MediaId? = null
+            combine(currentSongId, _detailPage) { songId, page -> songId to page }
+                .distinctUntilChanged()
+                .collect { (songId, page) ->
+                    if (songId != aboutSongId) {
+                        if (aboutSongId != null) {
+                            canonicalFetchJob?.cancel()
+                            canonicalFetchJob = null
+                            _aboutLoading.value = false
+                        }
+                        aboutSongId = songId
+                    }
+                    if (songId != null && page == NowPlayingDetailPage.About) onAboutOpened()
+                }
+        }
+        viewModelScope.launch {
             // Preload the next song's lyrics. collectLatest + a short delay:
             // rapid skipping cancels the fetch instead of hitting providers
             // for every track it passes over. getLoadedLyrics also warms the

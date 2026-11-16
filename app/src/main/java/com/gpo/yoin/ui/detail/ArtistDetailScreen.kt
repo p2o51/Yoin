@@ -301,6 +301,7 @@ fun ArtistDetailScreen(
             // Persistent bottom bar — rendered in ALL states; Play/menu act on
             // Content and no-op during Loading/Error.
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                 playContainer = scheme.primary,
                 playContent = scheme.onPrimary,
                 onPlay = onPlay,

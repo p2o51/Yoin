@@ -69,18 +69,22 @@ enum class MadeForYouKind {
     DailyMix,
     Blend,
     Mix,
+
+    /** An Apple Music personal mix (`pl.pm-…`): Favorites Mix, New Music Mix, Chill Mix, Get Up! Mix… */
+    AppleMix,
     Other,
 }
 
-/** One Made For You playlist, as the hub lists it. */
+/** One Made For You playlist, as the service lists it: Spotify's hub, or Apple Music's recommendations. */
 data class MadeForYouPlaylist(
     val rawId: String,
     val title: String,
     val subtitle: String,
     val imageUrl: String?,
     val kind: MadeForYouKind,
+    val provider: String = MediaId.PROVIDER_SPOTIFY,
 ) {
-    val mediaId: MediaId get() = MediaId.spotify(rawId)
+    val mediaId: MediaId get() = MediaId(provider, rawId)
     val uri: String get() = "spotify:playlist:$rawId"
 }
 

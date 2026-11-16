@@ -45,7 +45,7 @@
     <string name="home_section_other_profiles_supporting">你的其他账号常听的专辑和播放列表</string>
     <string name="home_section_lyric_highlight_supporting">从你的歌里挑出的歌词，点按从那句开播</string>
     <string name="home_section_memory_grid_supporting">所有笔记和评分，格子跟着你写的多少变</string>
-    <string name="home_section_made_for_you_supporting">Spotify 为你做的 daylist、每周新发现、每日推荐等歌单</string>
+    <string name="home_section_made_for_you_supporting">Spotify 和 Apple Music 为你做的歌单</string>
 
     <string name="home_placeholder_activities">近期无动态</string>
     <string name="home_placeholder_jump_back_in">暂无可接着听的内容</string>
@@ -56,7 +56,7 @@
     <string name="home_placeholder_other_profiles">其他账号最近没有播放</string>
     <string name="home_placeholder_lyric_highlight">暂无歌词卡片</string>
     <string name="home_placeholder_memory_grid">还没有回忆</string>
-    <string name="home_placeholder_made_for_you">Spotify 为你做的歌单会出现在这里</string>
+    <string name="home_placeholder_made_for_you">为你做的歌单会出现在这里</string>
 
     <string name="home_other_profiles_switch_title">切换到「%1$s」？</string>
     <string name="home_other_profiles_switch_body">播放「%1$s」要先切换到这个账号，正在播放的内容会停下。</string>
