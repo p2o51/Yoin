@@ -208,8 +208,9 @@ abstract final class SettingsMetrics {
   static const double aiTryIconGap = 8;
 
   // TradeoffChart: a 200-high plot, 52 gutter left for the y values, the x
-  // values and label 34 under the plot; dots 5.5 (7.5 picked) on a surface
-  // ring 2 wider, a 13 halo when picked; untested tiers hollow in the corner.
+  // values and label 34 under the plot; dots 5.5 on a surface ring 2 wider,
+  // both 2 larger and a 13 halo for the chosen one. Names sit 10 from their
+  // dot's centre and keep 9.5 off every other dot (AiChartLabels).
   static const double aiChartHeight = 200;
   static const double aiChartLeft = 52;
   static const double aiChartRight = 8;
@@ -223,20 +224,15 @@ abstract final class SettingsMetrics {
   static const double aiChartXLabelTop = 16;
   static const double aiChartEndText = 10;
   static const double aiChartGap = 4; // plot → legend
+  static const double aiChartNoteTop = 8; // legend → the search note (Custom): the column's 4 and its own 4
   static const double aiDot = 5.5;
-  static const double aiDotPicked = 7.5;
   static const double aiDotRing = 7.5;
-  static const double aiDotRingPicked = 9.5;
+  static const double aiDotGrow = 2; // the chosen dot and its ring grow by this
   static const double aiDotHalo = 13;
   static const double aiDotHaloAlpha = 0.18;
   static const double aiDotDimAlpha = 0.3;
   static const double aiDotLabelGap = 10;
-  static const double aiUntestedInset = 14;
-  static const double aiUntestedStep = 18;
-  static const double aiUntestedStroke = 2;
-  static const double aiUntestedDash = 6;
-  static const double aiUntestedDashGap = 4;
-  static const double aiUntestedDimAlpha = 0.45;
+  static const double aiDotLabelKeepOff = 9.5;
   static const double aiLegendDot = 8;
   static const double aiLegendDotGap = 4;
   static const double aiLegendGap = 10;
@@ -255,9 +251,9 @@ abstract final class SettingsMetrics {
   static const double aiFactsGap = 10;
 
   // 「拿一首歌试试」 (AiTryPageContent).
-  static const double aiTryFieldGap = 8;
-  static const double aiTryLoading = 32;
-  static const double aiTryLoadingGap = 12;
+  static const double aiTryGap = 16; // the song list → the readout
+  static const double aiTryLoading = 32; // on the running song's row
+  static const double aiTryMarkScale = 0.6; // it scales in from this
   static const double aiTryResultGap = 12;
   static const double aiTryCardCorner = 20;
   static const double aiTryCardPadding = 16;

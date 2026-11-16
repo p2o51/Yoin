@@ -60,6 +60,10 @@ class HttpAiClient implements AiClient {
   static const int maxPagesInPrompt = 10;
   static const int maxPageChars = 2000;
   static const int _deepSeekQueryLimit = 128;
+  static const int _doubaoQueryLimit = 100;
+  static const String _doubaoSearchUrl = 'https://open.feedcoopapi.com/search_api/web_search';
+  static const String _braveBaseUrl = 'https://api.search.brave.com/';
+  static const Set<int> _braveFallbackCodes = {403, 404, 422};
   static const String _anthropicVersion = '2023-06-01';
 
   // Thinking counts against the cap and current Claude models think by default; a long
@@ -180,6 +184,34 @@ class HttpAiClient implements AiClient {
           for (final item in _array(root, 'results'))
             AiSearchHit(title: _str(item, 'title'), url: _str(item, 'url'), text: _str(item, 'content')),
         ];
+      case AiSearchService.brave:
+        hits = await _braveSearch(key, query);
+      case AiSearchService.doubao:
+        // 豆包搜索, Custom edition (Volcengine). NeedContent asks for each page's text.
+        final root = await _post(
+          _doubaoSearchUrl,
+          {
+            'Query': _take(query, _doubaoQueryLimit),
+            'SearchType': 'web',
+            'Count': searchResults,
+            'Filter': {'NeedContent': true},
+          },
+          'Doubao',
+          null,
+          {'Authorization': 'Bearer $key'},
+        );
+        // A refused call still answers 200: Result is null and the reason is in ResponseMetadata.
+        if (doubaoError(root) case final error?) throw AiException('Doubao error: $error');
+        final result = root['Result'];
+        hits = [
+          if (result is Map<String, Object?>)
+            for (final item in _array(result, 'WebResults'))
+              AiSearchHit(
+                title: _str(item, 'Title'),
+                url: _str(item, 'Url'),
+                text: _str(item, 'Content').isEmpty ? _str(item, 'Summary') : _str(item, 'Content'),
+              ),
+        ];
       case AiSearchService.none:
         hits = const [];
     }
@@ -187,6 +219,54 @@ class HttpAiClient implements AiClient {
       for (final hit in hits)
         if (hit.text.trim().isNotEmpty)
           AiSearchHit(title: hit.title, url: hit.url, text: _take(hit.text, maxPageChars)),
+    ];
+  }
+
+  /// Brave: the LLM Context endpoint, which returns page text. A plan without
+  /// it (403, 404 or 422) falls back once to web search, each page then being
+  /// its description and extra snippets.
+  Future<List<AiSearchHit>> _braveSearch(String key, String query) async {
+    Future<Map<String, Object?>> get(String path, [Map<String, String> extra = const {}]) {
+      final url = Uri.parse(
+        '$_braveBaseUrl$path',
+      ).replace(queryParameters: {'q': query, 'count': '$searchResults', ...extra});
+      return _send(
+        () => _client.get(url, headers: {'X-Subscription-Token': key, 'Accept': 'application/json'}),
+        'Brave',
+        null,
+      );
+    }
+
+    Map<String, Object?>? context;
+    try {
+      context = await get('res/v1/llm/context');
+    } on AiException catch (error) {
+      if (!_braveFallbackCodes.contains(error.httpCode)) rethrow;
+    }
+    if (context != null) {
+      final grounding = context['grounding'];
+      return [
+        if (grounding is Map<String, Object?>)
+          for (final item in _array(grounding, 'generic'))
+            AiSearchHit(
+              title: _str(item, 'title'),
+              url: _str(item, 'url'),
+              text: _strings(item, 'snippets').join('\n'),
+            ),
+      ];
+    }
+    final web = (await get('res/v1/web/search', {'extra_snippets': 'true'}))['web'];
+    return [
+      if (web is Map<String, Object?>)
+        for (final item in _array(web, 'results'))
+          AiSearchHit(
+            title: _str(item, 'title'),
+            url: _str(item, 'url'),
+            text: [
+              _str(item, 'description'),
+              ..._strings(item, 'extra_snippets'),
+            ].where((t) => t.trim().isNotEmpty).join('\n'),
+          ),
     ];
   }
 
@@ -340,12 +420,30 @@ class HttpAiClient implements AiClient {
         if (error is Map && error['message'] is String && (error['message'] as String).trim().isNotEmpty) {
           return error['message'] as String;
         }
+        // Brave names the reason `detail`.
+        if (error is Map && error['detail'] is String && (error['detail'] as String).trim().isNotEmpty) {
+          return error['detail'] as String;
+        }
         if (error is String) return error;
         final message = root['message'];
         if (message is String && message.trim().isNotEmpty) return message;
+        if (root is Map<String, Object?>) {
+          if (doubaoError(root) case final doubao?) return doubao;
+        }
       }
     } catch (_) {}
     return _take(body, 200);
+  }
+
+  /// 豆包搜索's refusal, "Message (Code)", from ResponseMetadata.Error; null when there is none.
+  static String? doubaoError(Map<String, Object?> root) {
+    final metadata = root['ResponseMetadata'];
+    final error = metadata is Map<String, Object?> ? metadata['Error'] : null;
+    if (error is! Map<String, Object?>) return null;
+    final message = _str(error, 'Message');
+    final code = _str(error, 'Code').isEmpty ? _str(error, 'CodeN') : _str(error, 'Code');
+    if (message.isEmpty && code.isEmpty) return null;
+    return code.isEmpty ? message : '${message.isEmpty ? code : message} ($code)';
   }
 
   /// What a service is called in errors: its name, or Custom's model.
@@ -440,6 +538,11 @@ String _take(String text, int n) => text.length > n ? text.substring(0, n) : tex
 List<Map<String, Object?>> _array(Map<String, Object?> root, String key) {
   final value = root[key];
   return value is List ? value.whereType<Map<String, Object?>>().toList() : const [];
+}
+
+List<String> _strings(Map<String, Object?> root, String key) {
+  final value = root[key];
+  return value is List ? value.whereType<String>().toList() : const [];
 }
 
 String _str(Map<String, Object?> root, String key) {

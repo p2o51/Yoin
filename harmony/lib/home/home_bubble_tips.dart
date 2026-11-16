@@ -32,7 +32,7 @@ enum HomeBubbleTip {
   homeScreenWidgets(YoinSymbols.library, (2026, 11, 13), desktop: false),
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
   memoryLedger(YoinSymbols.memory, (2026, 11, 17)),
-  aiServices(YoinSymbols.sparkle, (2026, 11, 16)),
+  aiServices(YoinSymbols.sparkle, (2026, 11, 17)),
   settingsRegrouped(YoinSymbols.settings, (2026, 11, 17)),
   continueOn(YoinSymbols.tablet, (2026, 11, 17), desktop: false),
   lyricHighlight(YoinSymbols.musicNote, (2026, 11, 17)),

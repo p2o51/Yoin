@@ -7,6 +7,7 @@ import '../home/widgets/spring_height.dart';
 import '../nowplaying/haptics.dart';
 import '../theme/motion.dart';
 import '../ui/component/expressive_text_field.dart';
+import '../ui/component/keep_in_view_above_keyboard.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/navigation/yoin_push_route.dart';
@@ -37,14 +38,19 @@ class AiSettingsRow extends ConsumerWidget {
     final strings = SettingsStrings.of(context);
     final ai = ref.watch(aiSettingsProvider).value ?? const AiSettings();
     final colors = Theme.of(context).colorScheme;
-    final tier = ai.provider == AiProvider.custom ? ai.modelId : strings.aiTier(ai.tier);
+    // Beside the service: Custom's model, the tier where the service has two, nothing for one tier.
+    final detail = switch (ai.provider) {
+      AiProvider.custom => ai.modelId,
+      final p when p.tiers.length > 1 => strings.aiTier(ai.activeTier),
+      _ => null,
+    };
     return SettingsItem(
       icon: YoinSymbols.sparkle,
       title: strings.aiTitle,
       summary: ai.isReady ? null : strings.aiSummaryEmpty,
       summaryContent: ai.isReady
           ? MetaLine(
-              groups: [MetaPlain(strings.aiProvider(ai.provider)), MetaMuted(tier)],
+              groups: [MetaPlain(strings.aiProvider(ai.provider)), if (detail != null) MetaMuted(detail)],
               style: Theme.of(context).textTheme.bodyMedium,
               color: colors.onSurfaceVariant,
             )
@@ -241,17 +247,17 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
           wrapper: widget.providerWrapper,
         ),
         const SizedBox(height: SettingsMetrics.aiBlockGap),
-        AiTradeoffChart(provider: s.provider, tier: s.tier),
+        AiTradeoffChart(provider: s.provider, tier: s.activeTier, searchService: s.searchService),
         const SizedBox(height: SettingsMetrics.aiBlockGap),
         // Tiers ⇄ Custom is the page's one body swap: the two cross-fade and the page takes its new
-        // height on the spatial spring. The tiered services share a body, so picking among them
-        // swaps nothing.
+        // height on the spatial spring. The other services share a body, so picking among them
+        // swaps nothing; the tier choice folds away for a service with one tier (Qwen).
         AiSpringSwap(
           childKey: s.provider == AiProvider.custom,
           child: s.provider == AiProvider.custom ? _custom(context) : _tiered(context, s.provider),
         ),
         const SizedBox(height: SettingsMetrics.aiBlockGap),
-        AiLanguageButton(language: s.targetLanguage, onPick: widget.actions.setTargetLanguage),
+        AiLanguageRow(language: s.targetLanguage, onPick: widget.actions.setTargetLanguage),
         const SizedBox(height: SettingsMetrics.aiBlockGap),
         widget.tryWrapper?.call(tryButton) ?? tryButton,
       ],
@@ -270,50 +276,65 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(child: _SectionLabel(strings.aiTiersLabel)),
-            IconButton(
-              key: const ValueKey('ai-tier-info'),
-              tooltip: strings.aiCdTierDetails,
-              icon: Icon(YoinSymbols.info, color: colors.onSurfaceVariant),
-              onPressed: () {
-                YoinHaptics.click();
-                widget.onOpenTiers();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: SettingsMetrics.aiGroupGap),
-        Row(
-          children: [
-            for (final tier in AiTier.values) ...[
-              if (tier != AiTier.values.first) const SizedBox(width: SettingsMetrics.aiTierGap),
-              Expanded(
-                child: _wrap(
-                  widget.tierWrapper,
-                  tier,
-                  AiTierCard(
-                    key: ValueKey('ai-tier-${tier.name}'),
-                    label: strings.aiTier(tier),
-                    selected: widget.settings.tier == tier,
-                    onTap: () {
-                      YoinHaptics.segmentTick();
-                      widget.actions.setTier(tier);
-                    },
-                  ),
+        SpringReveal(
+          visible: provider.tiers.length > 1,
+          // The gap to the key field folds away with the choice.
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: SettingsMetrics.aiBlockGap),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _SectionLabel(strings.aiTiersLabel)),
+                    IconButton(
+                      key: const ValueKey('ai-tier-info'),
+                      tooltip: strings.aiCdTierDetails,
+                      icon: Icon(YoinSymbols.info, color: colors.onSurfaceVariant),
+                      onPressed: () {
+                        YoinHaptics.click();
+                        widget.onOpenTiers();
+                      },
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ],
+                const SizedBox(height: SettingsMetrics.aiGroupGap),
+                Row(
+                  children: [
+                    // Both, whatever [provider] offers: this is only seen for a service with two,
+                    // and while it folds away it must not change.
+                    for (final tier in AiTier.values) ...[
+                      if (tier != AiTier.values.first) const SizedBox(width: SettingsMetrics.aiTierGap),
+                      Expanded(
+                        child: _wrap(
+                          widget.tierWrapper,
+                          tier,
+                          AiTierCard(
+                            key: ValueKey('ai-tier-${tier.name}'),
+                            label: strings.aiTier(tier),
+                            selected: widget.settings.tier == tier,
+                            onTap: () {
+                              YoinHaptics.segmentTick();
+                              widget.actions.setTier(tier);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: SettingsMetrics.aiBlockGap),
         // One field per service: its own key, and a key shown in the clear for one is masked for the next.
-        SecretTextField(
-          key: ValueKey('ai-key-${provider.name}'),
-          controller: _keys[provider]!,
-          label: strings.aiKeyLabel,
-          placeholder: provider == AiProvider.gemini ? 'AIza…' : 'sk-…',
+        KeepInViewAboveKeyboard(
+          child: SecretTextField(
+            key: ValueKey('ai-key-${provider.name}'),
+            controller: _keys[provider]!,
+            label: strings.aiKeyLabel,
+            placeholder: provider == AiProvider.gemini ? 'AIza…' : 'sk-…',
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiKeyGap),
         Align(
@@ -332,12 +353,6 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
     final chips = modelChips(models.ids, _model.text);
     final searchOn = s.searchService != AiSearchService.none;
     final keyName = strings.aiSearchService(_keyService);
-    final searchUrl = switch (_keyService) {
-      AiSearchService.deepSeek => 'https://platform.deepseek.com/api_keys',
-      AiSearchService.exa => 'https://dashboard.exa.ai/api-keys',
-      AiSearchService.tavily => 'https://app.tavily.com/home',
-      AiSearchService.none => '',
-    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -362,52 +377,60 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
           ],
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap + SettingsMetrics.aiKeyGap),
-        ExpressiveTextField(
-          key: const ValueKey('ai-custom-url'),
-          controller: _url,
-          label: strings.aiCustomUrl,
-          placeholder: s.customFormat == AiApiFormat.openAi ? 'https://api.openai.com/v1' : 'https://api.anthropic.com',
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.next,
+        KeepInViewAboveKeyboard(
+          child: ExpressiveTextField(
+            key: const ValueKey('ai-custom-url'),
+            controller: _url,
+            label: strings.aiCustomUrl,
+            placeholder: s.customFormat == AiApiFormat.openAi
+                ? 'https://api.openai.com/v1'
+                : 'https://api.anthropic.com',
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.next,
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap),
-        SecretTextField(
-          key: const ValueKey('ai-key-custom'),
-          controller: _keys[AiProvider.custom]!,
-          label: strings.aiKeyLabel,
-          placeholder: 'sk-…',
+        KeepInViewAboveKeyboard(
+          child: SecretTextField(
+            key: const ValueKey('ai-key-custom'),
+            controller: _keys[AiProvider.custom]!,
+            label: strings.aiKeyLabel,
+            placeholder: 'sk-…',
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap),
         // The model field and the rows that come and go under it. They bring their own gaps, so a
         // row opening or closing moves what is below it the whole way, with no jump at either end.
-        Stack(
-          children: [
-            ExpressiveTextField(
-              key: const ValueKey('ai-custom-model'),
-              controller: _model,
-              label: strings.aiCustomModel,
-              placeholder: '',
-              textInputAction: TextInputAction.done,
-              endInset: SettingsMetrics.aiPullReserve,
-            ),
-            PositionedDirectional(
-              end: 0,
-              bottom: 0,
-              height: SettingsMetrics.fieldBoxHeight,
-              child: Center(
-                child: TextButton(
-                  key: const ValueKey('ai-custom-pull'),
-                  onPressed: !models.loading && s.customBaseUrl.trim().isNotEmpty && s.customKey.trim().isNotEmpty
-                      ? () {
-                          YoinHaptics.click();
-                          widget.actions.pullModels();
-                        }
-                      : null,
-                  child: Text(strings.aiCustomPull),
+        KeepInViewAboveKeyboard(
+          child: Stack(
+            children: [
+              ExpressiveTextField(
+                key: const ValueKey('ai-custom-model'),
+                controller: _model,
+                label: strings.aiCustomModel,
+                placeholder: '',
+                textInputAction: TextInputAction.done,
+                endInset: SettingsMetrics.aiPullReserve,
+              ),
+              PositionedDirectional(
+                end: 0,
+                bottom: 0,
+                height: SettingsMetrics.fieldBoxHeight,
+                child: Center(
+                  child: TextButton(
+                    key: const ValueKey('ai-custom-pull'),
+                    onPressed: !models.loading && s.customBaseUrl.trim().isNotEmpty && s.customKey.trim().isNotEmpty
+                        ? () {
+                            YoinHaptics.click();
+                            widget.actions.pullModels();
+                          }
+                        : null,
+                    child: Text(strings.aiCustomPull),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         ClipRect(
           child: SpringHeight(
@@ -486,23 +509,16 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
           ),
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap + SettingsMetrics.aiKeyGap),
-        _SectionLabel(strings.aiSearchLabel),
-        const SizedBox(height: SettingsMetrics.aiGroupGap),
-        Wrap(
-          spacing: SettingsMetrics.aiChipGap,
-          runSpacing: SettingsMetrics.aiChipGap,
-          children: [
-            for (final service in AiSearchService.values)
-              AiChoiceChip(
-                key: ValueKey('ai-search-${service.name}'),
-                text: strings.aiSearchService(service),
-                selected: s.searchService == service,
-                onTap: () {
-                  YoinHaptics.segmentTick();
-                  widget.actions.setSearchService(service);
-                },
-              ),
-          ],
+        // Six services: a value row and its menu, as the answer language is (a chip row no
+        // longer fits a phone).
+        AiValueRow<AiSearchService>(
+          key: const ValueKey('ai-search-service'),
+          icon: YoinSymbols.search,
+          title: strings.aiSearchLabel,
+          value: s.searchService,
+          options: AiSearchService.values,
+          label: strings.aiSearchService,
+          onPick: widget.actions.setSearchService,
         ),
         SpringReveal(
           visible: searchOn,
@@ -513,19 +529,21 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
               children: [
                 // One field per service: its own key, and a key shown in the clear for one
                 // service is masked again for the next.
-                SecretTextField(
-                  key: ValueKey('ai-search-key-${_keyService.name}'),
-                  controller: _searchKeys[_keyService]!,
-                  label: strings.aiSearchKey(keyName),
-                  placeholder: '',
+                KeepInViewAboveKeyboard(
+                  child: SecretTextField(
+                    key: ValueKey('ai-search-key-${_keyService.name}'),
+                    controller: _searchKeys[_keyService]!,
+                    label: strings.aiSearchKey(keyName),
+                    placeholder: '',
+                  ),
                 ),
                 const SizedBox(height: SettingsMetrics.aiGroupGap),
                 Align(
                   alignment: AlignmentDirectional.centerStart,
                   child: _LinkButton(
                     key: const ValueKey('ai-search-link'),
-                    text: strings.aiGetSearchKey(keyName),
-                    onTap: () => widget.onOpenLink(searchUrl),
+                    text: strings.aiGetSearchKey(_keyService),
+                    onTap: () => widget.onOpenLink(aiSearchKeyUrl(_keyService)),
                   ),
                 ),
               ],
@@ -538,6 +556,16 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
 }
 
 Widget _wrap<T>(AiPartWrapper<T>? wrapper, T part, Widget child) => wrapper?.call(part, child) ?? child;
+
+/// Where a search service's key is made (searchKeyUrl).
+String aiSearchKeyUrl(AiSearchService service) => switch (service) {
+  AiSearchService.deepSeek => 'https://platform.deepseek.com/api_keys',
+  AiSearchService.exa => 'https://dashboard.exa.ai/api-keys',
+  AiSearchService.tavily => 'https://app.tavily.com/home',
+  AiSearchService.brave => 'https://api-dashboard.search.brave.com/app/keys',
+  AiSearchService.doubao => 'https://console.volcengine.com/search-infinity/api-key',
+  AiSearchService.none => '',
+};
 
 /// The fetched model ids to offer as chips (modelChips). An endpoint with a
 /// short list shows all of it; an aggregator's hundreds are narrowed by what
@@ -930,40 +958,75 @@ class _AiTierCardState extends State<AiTierCard> with TickerProviderStateMixin {
   }
 }
 
-/// "Answer in" and the language (LanguageButton): an outlined button that opens the language menu.
-class AiLanguageButton extends StatelessWidget {
-  const AiLanguageButton({super.key, required this.language, required this.onPick});
+/// A value row (SearchServiceRow, LanguageRow): the setting's name, the
+/// value on the right, and a menu of every option from the row.
+class AiValueRow<T> extends StatelessWidget {
+  const AiValueRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.options,
+    required this.label,
+    required this.onPick,
+  });
+
+  final IconData icon;
+  final String title;
+  final T value;
+  final List<T> options;
+  final String Function(T) label;
+  final ValueChanged<T> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SettingsSegments(
+      children: [
+        Builder(
+          builder: (anchor) => SettingsItem(
+            icon: icon,
+            title: title,
+            trailing: Text(
+              label(value),
+              maxLines: 1,
+              style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            onTap: () async {
+              final picked = await showYoinDropdownMenu<T>(
+                context: anchor,
+                anchor: globalRectOf(anchor),
+                items: [for (final option in options) YoinMenuItem(value: option, label: label(option))],
+              );
+              if (picked != null) {
+                YoinHaptics.contextClick();
+                onPick(picked);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The answer language (LanguageRow): a value row opening the language menu.
+class AiLanguageRow extends StatelessWidget {
+  const AiLanguageRow({super.key, required this.language, required this.onPick});
 
   final String language;
   final ValueChanged<String> onPick;
 
   @override
-  Widget build(BuildContext context) {
-    final strings = SettingsStrings.of(context);
-    return Builder(
-      builder: (context) => OutlinedButton(
-        key: const ValueKey('ai-answer-in'),
-        onPressed: () async {
-          YoinHaptics.tick();
-          final box = context.findRenderObject() as RenderBox?;
-          if (box == null || !box.hasSize) return;
-          final picked = await showYoinDropdownMenu<String>(
-            context: context,
-            anchor: box.localToGlobal(Offset.zero) & box.size,
-            items: [
-              for (final option in AiLanguages.supported)
-                YoinMenuItem(value: option, label: option, checked: option == language),
-            ],
-          );
-          if (picked != null) {
-            YoinHaptics.contextClick();
-            onPick(picked);
-          }
-        },
-        child: Align(alignment: AlignmentDirectional.centerStart, child: Text(strings.aiAnswerIn(language))),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AiValueRow<String>(
+    key: const ValueKey('ai-answer-language'),
+    icon: YoinSymbols.translate,
+    title: SettingsStrings.of(context).aiAnswerLanguage,
+    value: language,
+    options: AiLanguages.supported,
+    label: (option) => option,
+    onPick: onPick,
+  );
 }
 
 /// Opens the AI page: in the wide window's right pane, else pushed.

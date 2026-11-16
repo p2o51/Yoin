@@ -8,13 +8,28 @@ import '../../platform/storage/stores.dart';
 
 /// Which online AI writes About, answers Ask and translates lyrics (Android
 /// AiProvider, AI settings v2 2026-11-12). The user picks a service, one of
-/// two tiers, and pastes a key; Custom adds an endpoint, a model, a thinking
-/// level and a search service.
+/// its tiers where it has two, and pastes a key; Custom adds an endpoint, a
+/// model, a thinking level and a search service.
 ///
 /// Search is two kinds: the service's own (Gemini's Google Search, Qwen's
 /// enable_search), or Yoin calling a search API first and putting the pages in
 /// the prompt (DeepSeek, Custom). The second kind works with any model.
-enum AiProvider { gemini, deepSeek, qwen, custom }
+enum AiProvider {
+  gemini,
+  deepSeek,
+  qwen,
+  custom;
+
+  /// The tiers this service offers. Qwen has one (owner 2026-11-13): on the
+  /// 500-song benchmark qwen-flash was more accurate, faster and cheaper than
+  /// qwen-plus and qwen3.8-flash, so there was nothing for a second tier to
+  /// be. Custom has none: its model is typed.
+  List<AiTier> get tiers => switch (this) {
+    gemini || deepSeek => AiTier.values,
+    qwen => const [AiTier.good],
+    custom => const [],
+  };
+}
 
 /// 「好」/「最佳」. What each means per service is in [AiSettings.modelId] / [AiSettings.searchQueries].
 enum AiTier { good, best }
@@ -23,7 +38,8 @@ enum AiApiFormat { openAi, anthropic }
 
 enum AiThinking { off, low, medium, high }
 
-enum AiSearchService { deepSeek, exa, tavily, none }
+/// Custom's search choices, in the order the menu lists them (owner 2026-11-14 added Brave and 豆包).
+enum AiSearchService { deepSeek, exa, tavily, brave, doubao, none }
 
 /// Where search comes from for a call that wants it (AiSettings.SearchKind).
 enum AiSearchKind { builtIn, external, none }
@@ -67,14 +83,15 @@ final class AiSettings {
     this.searchKeyDeepSeek = '',
     this.searchKeyExa = '',
     this.searchKeyTavily = '',
+    this.searchKeyBrave = '',
+    this.searchKeyDoubao = '',
     this.targetLanguage = AiLanguages.defaultTarget,
   });
 
   static const String geminiGood = 'gemini-3.1-flash-lite';
   static const String geminiBest = 'gemini-3.5-flash-lite';
   static const String deepSeekModel = 'deepseek-flash';
-  static const String qwenGood = 'qwen-flash';
-  static const String qwenBest = 'qwen-plus';
+  static const String qwenModel = 'qwen-flash';
   static const String deepSeekBaseUrl = 'https://api.deepseek.com';
   static const String qwenBaseUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
@@ -96,7 +113,14 @@ final class AiSettings {
   final String searchKeyDeepSeek;
   final String searchKeyExa;
   final String searchKeyTavily;
+  final String searchKeyBrave;
+  final String searchKeyDoubao;
   final String targetLanguage;
+
+  /// The tier in use: [tier] where [provider] offers it, otherwise the one it
+  /// has. [tier] itself is kept as chosen, so going to Qwen and back to Gemini
+  /// does not lose 「最佳」.
+  AiTier get activeTier => provider.tiers.contains(tier) ? tier : provider.tiers.firstOrNull ?? tier;
 
   /// The key typed for [p], as stored.
   String keyFor(AiProvider p) => switch (p) {
@@ -111,6 +135,8 @@ final class AiSettings {
     AiSearchService.deepSeek => searchKeyDeepSeek,
     AiSearchService.exa => searchKeyExa,
     AiSearchService.tavily => searchKeyTavily,
+    AiSearchService.brave => searchKeyBrave,
+    AiSearchService.doubao => searchKeyDoubao,
     AiSearchService.none => '',
   };
 
@@ -125,6 +151,8 @@ final class AiSettings {
     AiSearchService.deepSeek => copyWith(searchKeyDeepSeek: key),
     AiSearchService.exa => copyWith(searchKeyExa: key),
     AiSearchService.tavily => copyWith(searchKeyTavily: key),
+    AiSearchService.brave => copyWith(searchKeyBrave: key),
+    AiSearchService.doubao => copyWith(searchKeyDoubao: key),
     AiSearchService.none => this,
   };
 
@@ -137,9 +165,9 @@ final class AiSettings {
       (provider != AiProvider.custom || (customBaseUrl.trim().isNotEmpty && customModel.trim().isNotEmpty));
 
   String get modelId => switch (provider) {
-    AiProvider.gemini => tier == AiTier.best ? geminiBest : geminiGood,
+    AiProvider.gemini => activeTier == AiTier.best ? geminiBest : geminiGood,
     AiProvider.deepSeek => deepSeekModel,
-    AiProvider.qwen => tier == AiTier.best ? qwenBest : qwenGood,
+    AiProvider.qwen => qwenModel,
     AiProvider.custom => customModel.trim(),
   };
 
@@ -159,7 +187,7 @@ final class AiSettings {
   /// How many searches Yoin runs per About. 35-song test (2026-11-12): one
   /// search reading full pages in the song's own language got most of the
   /// gain; DeepSeek's 「最佳」 adds a second query on the album.
-  int get searchQueries => provider == AiProvider.deepSeek && tier == AiTier.best ? 2 : 1;
+  int get searchQueries => provider == AiProvider.deepSeek && activeTier == AiTier.best ? 2 : 1;
 
   AiSettings copyWith({
     AiProvider? provider,
@@ -176,6 +204,8 @@ final class AiSettings {
     String? searchKeyDeepSeek,
     String? searchKeyExa,
     String? searchKeyTavily,
+    String? searchKeyBrave,
+    String? searchKeyDoubao,
     String? targetLanguage,
   }) => AiSettings(
     provider: provider ?? this.provider,
@@ -192,6 +222,8 @@ final class AiSettings {
     searchKeyDeepSeek: searchKeyDeepSeek ?? this.searchKeyDeepSeek,
     searchKeyExa: searchKeyExa ?? this.searchKeyExa,
     searchKeyTavily: searchKeyTavily ?? this.searchKeyTavily,
+    searchKeyBrave: searchKeyBrave ?? this.searchKeyBrave,
+    searchKeyDoubao: searchKeyDoubao ?? this.searchKeyDoubao,
     targetLanguage: targetLanguage ?? this.targetLanguage,
   );
 
@@ -210,6 +242,8 @@ final class AiSettings {
     searchKeyDeepSeek,
     searchKeyExa,
     searchKeyTavily,
+    searchKeyBrave,
+    searchKeyDoubao,
     targetLanguage,
   ];
 
@@ -236,6 +270,8 @@ class AiSettingsStore {
   static const String searchDeepSeekKeyKey = 'yoin.ai.search.deepseek.key';
   static const String searchExaKeyKey = 'yoin.ai.search.exa.key';
   static const String searchTavilyKeyKey = 'yoin.ai.search.tavily.key';
+  static const String searchBraveKeyKey = 'yoin.ai.search.brave.key';
+  static const String searchDoubaoKeyKey = 'yoin.ai.search.doubao.key';
 
   /// Each secret's store key and how to read it from the settings.
   static final Map<String, String Function(AiSettings)> _secretFields = {
@@ -246,6 +282,8 @@ class AiSettingsStore {
     searchDeepSeekKeyKey: (s) => s.searchKeyDeepSeek,
     searchExaKeyKey: (s) => s.searchKeyExa,
     searchTavilyKeyKey: (s) => s.searchKeyTavily,
+    searchBraveKeyKey: (s) => s.searchKeyBrave,
+    searchDoubaoKeyKey: (s) => s.searchKeyDoubao,
   };
 
   static T _enumOr<T extends Enum>(List<T> values, Object? name, T fallback) =>
@@ -283,6 +321,8 @@ class AiSettingsStore {
       searchKeyDeepSeek: secrets[searchDeepSeekKeyKey]!,
       searchKeyExa: secrets[searchExaKeyKey]!,
       searchKeyTavily: secrets[searchTavilyKeyKey]!,
+      searchKeyBrave: secrets[searchBraveKeyKey]!,
+      searchKeyDoubao: secrets[searchDoubaoKeyKey]!,
       targetLanguage: AiLanguages.normalize(json['targetLanguage'] as String?),
     );
   }

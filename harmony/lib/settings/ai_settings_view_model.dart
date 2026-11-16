@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/providers.dart';
 import '../data/about/song_about_repository.dart';
 import '../data/about/song_about_store.dart';
 import '../data/ai/ai_client.dart';
 import '../data/ai/ai_service.dart';
 import '../data/ai/ai_settings.dart';
+import '../data/memory/memory_store.dart';
+import '../data/model/model.dart';
 import '../data/sync/cloud_sync_providers.dart';
-import '../playback/playback_controller.dart';
 
 /// What the AI page's controls do (Android AiSettingsActions): the stored
 /// settings in the app, local state in the Tips demo.
@@ -154,7 +156,64 @@ final class AiTrySong {
 
   @override
   int get hashCode => Object.hash(title, artist, album);
+
+  @override
+  String toString() => 'AiTrySong($title, $artist, $album)';
 }
+
+/// One song the test page offers (RecentTestSong): [key] is its song id,
+/// [cover] its cover when it has one.
+@immutable
+final class AiRecentSong {
+  const AiRecentSong({required this.key, required this.song, this.cover});
+
+  final MediaId key;
+  final AiTrySong song;
+  final CoverRef? cover;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AiRecentSong && other.key == key && other.song == song && other.cover == cover;
+
+  @override
+  int get hashCode => Object.hash(key, song, cover);
+}
+
+/// How many recently played songs 「拿一首歌试试」 offers (owner 2026-11-14).
+const int recentTestSongCount = 6;
+
+/// The test page's songs from the account's plays (recentTestSongs): each
+/// song once, at its newest play, newest first, at most [recentTestSongCount].
+/// A play without a title is left out.
+List<AiRecentSong> recentTestSongs(List<TrackPlays> plays) {
+  final rows = plays.where((p) => p.title.trim().isNotEmpty).toList()
+    ..sort((a, b) => b.lastPlayedAt.compareTo(a.lastPlayedAt));
+  return [
+    for (final row in rows.take(recentTestSongCount))
+      AiRecentSong(
+        key: row.trackId,
+        song: AiTrySong(row.title, row.artist, row.album),
+        cover: CoverRef.fromStorageKey(row.coverArtKey),
+      ),
+  ];
+}
+
+/// The active account's recent songs for 「拿一首歌试试」 (AiSettingsViewModel
+/// recentSongs). Loading until the plays have been read; empty with none. A
+/// new play while the page is open brings it to the top.
+final aiRecentSongsProvider = FutureProvider.autoDispose<List<AiRecentSong>>((ref) async {
+  final MemoryStore? store;
+  try {
+    store = await ref.watch(memoryStoreProvider.future);
+  } catch (_) {
+    // No account or no storage (a harness): no history.
+    return const [];
+  }
+  if (store == null) return const [];
+  final changes = store.changes.where((c) => c == MemoryStoreChange.plays).listen((_) => ref.invalidateSelf());
+  ref.onDispose(changes.cancel);
+  return recentTestSongs(await store.trackPlays());
+});
 
 /// One run of the test page (TestRun).
 sealed class AiTryRun {
@@ -200,14 +259,26 @@ final class AiTryFailed extends AiTryRun {
   final int millis;
 }
 
-/// 「拿一首歌试试」: writes About for one song with the settings as they are, nothing saved.
+/// 「拿一首歌试试」: writes About for one song with the settings as they are,
+/// nothing saved. One run at a time: a tap while one is running does nothing.
 class AiTryNotifier extends Notifier<AiTryRun> {
   int _run = 0;
+  bool _busy = false;
 
   @override
   AiTryRun build() => const AiTryIdle();
 
   Future<void> run(AiTrySong song) async {
+    if (_busy) return;
+    _busy = true;
+    try {
+      await _runOne(song);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> _runOne(AiTrySong song) async {
     final run = ++_run;
     final AiSettings ai;
     try {
@@ -251,17 +322,6 @@ class AiTryNotifier extends Notifier<AiTryRun> {
 }
 
 final aiTryProvider = NotifierProvider.autoDispose<AiTryNotifier, AiTryRun>(AiTryNotifier.new);
-
-/// The song playing now, to prefill the test page; null when nothing plays.
-final aiTryPrefillProvider = Provider.autoDispose<AiTrySong?>((ref) {
-  try {
-    final track = ref.read(playbackControllerProvider).current;
-    if (track == null) return null;
-    return AiTrySong(track.title ?? '', track.artist ?? '', track.album ?? '');
-  } catch (_) {
-    return null;
-  }
-});
 
 /// Opens a "Get a key" page in the system browser (the cloud sync host's
 /// browser seam: a view-data Want on HarmonyOS, the shell on Windows).
