@@ -439,9 +439,18 @@ class _AboutCarouselState extends State<AboutCarousel> {
         ],
       ),
     };
+    // Centred on the window's height; a window shorter than the page (a landscape
+    // handset's few lines) cuts it at both edges rather than squeezing it.
     return SpringCrossFade(
       childKey: '${widget.songKey}#$current',
-      child: Align(alignment: AlignmentDirectional.centerStart, child: body),
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: AlignmentDirectional.centerStart,
+          minHeight: 0,
+          maxHeight: double.infinity,
+          child: body,
+        ),
+      ),
     );
   }
 }

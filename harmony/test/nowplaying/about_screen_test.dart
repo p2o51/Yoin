@@ -31,8 +31,12 @@ void main() {
   late InMemoryStore kv;
   late FakeAiClient client;
 
-  Future<NowPlayingOverlayController> pump(WidgetTester tester, {bool ready = true}) async {
-    tester.view.physicalSize = const Size(412, 892);
+  Future<NowPlayingOverlayController> pump(
+    WidgetTester tester, {
+    bool ready = true,
+    Size size = const Size(412, 892),
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     kv = InMemoryStore();
@@ -46,8 +50,8 @@ void main() {
     ];
     final controller = NowPlayingOverlayController(vsync: tester);
     addTearDown(controller.dispose);
-    controller.window = const YoinWindowInfo(412, 892);
-    controller.height = 892;
+    controller.window = YoinWindowInfo(size.width, size.height);
+    controller.height = size.height;
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -161,5 +165,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.prompts, hasLength(2));
     expect(find.text('H. Lewy'), findsWidgets);
+  });
+
+  testWidgets('should_showPaneAndAskBarInRightColumn_when_dualPane', (tester) async {
+    final controller = await pump(tester, size: const Size(1280, 800));
+    if (!controller.fullscreen) {
+      controller.toggleFullscreen();
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('About').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(AboutPane), findsOneWidget);
+    expect(find.byType(AskGeminiBar), findsOneWidget);
+    expect(find.text('Henry Lewy'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('should_showAboutInLandscape_when_handsetTurned', (tester) async {
+    final details = <FlutterErrorDetails>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = details.add;
+    await pump(tester, size: const Size(892, 412));
+    FlutterError.onError = previous;
+    expect(details, isEmpty, reason: 'before About');
+    FlutterError.onError = details.add;
+    await tester.tap(find.text('About').last);
+    await tester.pumpAndSettle();
+    FlutterError.onError = previous;
+    expect(find.byType(SongInfoDisplay).evaluate().length + find.byType(AboutPane).evaluate().length, 1);
+    expect(details, isEmpty);
   });
 }
