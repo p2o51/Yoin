@@ -10,6 +10,7 @@ import 'data/applemusic/apple_music_source.dart';
 import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
+import 'landing/landing_host.dart';
 import 'offline/offline_providers.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
@@ -84,7 +85,8 @@ class YoinApp extends ConsumerWidget {
         builder: (context) => YoinWindowCaption(
           host: windowCaption,
           child: YoinSystemBars(
-            child: YoinWindowScope.measured(child: AppChrome(child: child!)),
+            // The first-run landing covers the whole chrome (bar and player included).
+            child: YoinWindowScope.measured(child: LandingHost(child: AppChrome(child: child!))),
           ),
         ),
       ),

@@ -796,6 +796,15 @@ abstract final class MotionTokens {
   /// Seam halftone flow settle (critically damped equivalent).
   static const double seamFlowSettleStiffness = 90;
 
+  /// The landing mascot's own springs (YoinMotion.mascot*Spring; a character,
+  /// not a surface): land = the fins flying into the mark; gesture = a wave,
+  /// a nod, a cheer; hop = the vertical kick of a nod or a cheer; shake = the
+  /// head ringing out a "no" (also the refused form's sideways shake).
+  static const mascotLand = SpringToken(0.62, 340);
+  static const mascotGesture = SpringToken(0.5, 420);
+  static const mascotHop = SpringToken(0.42, 520);
+  static const mascotShake = SpringToken(0.18, 520);
+
   /// Predictive back settle: low-bouncy, medium-low stiffness × this.
   static const double predictiveBackSpeedMultiplier = 1.3;
 
@@ -1032,4 +1041,121 @@ abstract final class DesktopInputTokens {
   static const double focusRingCorner = 12;
 
   static const int seekStepMs = 5000;
+}
+
+/// The first-run landing (ui/landing/: LandingStage.kt, LandingScenes.kt,
+/// LandingPill.kt, LandingConnect.kt, LandingHomeStep.kt). Dart-only for now.
+abstract final class LandingTokens {
+  /// The floating window: corner, its gap above the pill, the scene's padding.
+  static const double windowCorner = 28;
+  static const double windowGap = 12;
+  static const double scenePaddingH = 18;
+  static const double scenePaddingV = 20;
+
+  /// Scenes slide this far along the axis of travel while they cross-fade.
+  static const double sceneSlide = 28;
+
+  /// The column: 16 from the window edges, at most 560; two columns: at most
+  /// 520 or 44 % of the window, 48 (or 6 %) from the end.
+  static const double columnMargin = 16;
+  static const double columnMax = 560;
+  static const double twoColumnMax = 520;
+  static const double twoColumnFraction = 0.44;
+  static const double twoColumnEndMin = 48;
+  static const double twoColumnEndFraction = 0.06;
+
+  /// The hello pill: the whole bar on a phone, at most 380 elsewhere.
+  static const double helloPillMax = 380;
+
+  /// The window's room: below the status bar (two columns 28, else 18 + the
+  /// mascot row + 14), and its minimum height (wide / medium).
+  static const double topGapWide = 28;
+  static const double topGap = 18;
+  static const double mascotRowGap = 14;
+  static const double minHeightWide = 380;
+  static const double minHeightWideFraction = 0.62;
+  static const double minHeightMedium = 360;
+  static const double minHeightMediumFraction = 0.55;
+
+  /// The mascot: 88 (medium 120) on the window, growing to 132 (170) with
+  /// room; 300 (phone: 62 % of the width, at most 250) saying hello; 220 in
+  /// the left column; 56 at the greeting corner after the hand-off.
+  static const double mascotBase = 88;
+  static const double mascotBaseMedium = 120;
+  static const double mascotGrown = 132;
+  static const double mascotGrownMedium = 170;
+  static const double mascotHello = 300;
+  static const double mascotHelloPhone = 250;
+  static const double mascotHelloPhoneFraction = 0.62;
+  static const double mascotColumn = 220;
+  static const double mascotCorner = 56;
+  static const double mascotCornerX = 44;
+  static const double mascotCornerY = 32;
+
+  /// The speech bubble: corner, padding, tail (22 × 11) and widths.
+  static const double bubbleCorner = 22;
+  static const double bubblePaddingStart = 18;
+  static const double bubblePaddingTop = 13;
+  static const double bubblePaddingBottom = 14;
+  static const double bubbleTail = 11;
+  static const double bubbleTailEdge = 8;
+  static const double bubbleSideTailY = 26;
+  static const double bubbleMaxWide = 360;
+  static const double bubbleMaxWideFraction = 0.40;
+  static const double bubbleMaxMedium = 420;
+  static const double bubbleMax = 340;
+  static const double bubbleTitleSize = 19;
+  static const double bubbleTitleLine = 25;
+  static const double bubbleBodySize = 15;
+  static const double bubbleBodyLine = 21;
+  static const double bubbleBodyGap = 4;
+
+  /// The pill's step dots (current 22 wide), back glyph, primary padding.
+  static const double dot = 8;
+  static const double dotCurrent = 22;
+  static const double dotGap = 6;
+  static const double backGlyph = 22;
+  static const double primaryPadding = 22;
+  static const double primaryArrow = 20;
+  static const double primaryArrowGap = 8;
+
+  /// The pill rises this far in at first launch.
+  static const double pillRise = 120;
+
+  /// Pick tiles: corner 24 (32 picked), 44 avatar, 26 check.
+  static const double tileCorner = 24;
+  static const double tileCornerPicked = 32;
+  static const double tileAvatar = 44;
+  static const double tileGlyph = 24;
+  static const double tileCheck = 26;
+  static const double tileCheckGlyph = 18;
+  static const double tileCheckStroke = 2;
+  static const double tileGap = 8;
+  static const double tileMorphTurn = 22.5;
+
+  /// Groups (About, Apple's token rows, Home's sections): 22 / 20 outer, 4 inner, 2 apart.
+  static const double groupCorner = 22;
+  static const double rowOuter = 20;
+  static const double rowInner = 4;
+  static const double rowGap = 2;
+  static const double markSize = 24;
+  static const double markGlyph = 16;
+  static const double serviceMarkGlyph = 15;
+
+  /// A connect step's header mark and its button.
+  static const double headerMark = 48;
+  static const double headerGlyph = 26;
+  static const double ctaHeight = 56;
+
+  /// A refused form shakes sideways at this speed (px/s).
+  static const double shakeVelocity = 900;
+
+  /// Home step rows: the handle's box, the section sketch, the lift.
+  static const double handleWidth = 36;
+  static const double handleHeight = 44;
+  static const double sectionGlyph = 36;
+  static const double liftScale = 1.02;
+
+  /// Ready: the account avatar.
+  static const double readyAvatar = 40;
 }

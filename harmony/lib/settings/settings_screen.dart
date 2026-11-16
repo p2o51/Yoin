@@ -6,6 +6,8 @@ import '../ui/component/corner_mask.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../landing/landing_host.dart';
+import '../landing/landing_strings.dart';
 import '../offline/downloads_screen.dart';
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
@@ -366,7 +368,7 @@ class _SyncStorageGroup extends StatelessWidget {
   );
 }
 
-/// Help and about: Tips (how many are read), Yoin and its version, and the
+/// Help and about: Tips (how many are read), the Welcome guide, Yoin and its version, and the
 /// open source licenses. On a wide window the rows that open a page show a
 /// chevron and the open one is marked.
 class _HelpAboutGroup extends ConsumerWidget {
@@ -387,7 +389,7 @@ class _HelpAboutGroup extends ConsumerWidget {
       title: strings.sectionHelpAbout,
       selected: {
         if (open is TipsPane) 0,
-        if (open is LicensesPane) 2,
+        if (open is LicensesPane) 3,
       },
       children: [
         SettingsItem(
@@ -396,6 +398,14 @@ class _HelpAboutGroup extends ConsumerWidget {
           summary: tipsReadSummary(strings, read),
           trailing: chevron,
           onTap: () => onOpen(const TipsPane()),
+        ),
+        // Runs the first-run landing again, accounts kept (after Tips, as on
+        // Android). Android's summary names the scroll-edge step, which
+        // HarmonyOS doesn't have: no summary until the owner's copy has one.
+        SettingsItem(
+          icon: YoinSymbols.refresh,
+          title: LandingStrings.of(context).welcomeGuide,
+          onTap: () => openWelcomeGuide(context, ref),
         ),
         // No website or privacy links on Harmony yet (nothing opens a browser): just the version.
         SettingsItem(icon: YoinSymbols.info, title: strings.aboutName, summary: strings.aboutVersion(yoinVersionName)),
