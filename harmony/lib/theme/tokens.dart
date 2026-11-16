@@ -1886,3 +1886,83 @@ abstract final class ContinueOnCardTokens {
   /// It rises from half its height and this scale.
   static const double enterScale = 0.92;
 }
+
+/// NeoDB: the "别人怎么说" page (Android NeoDbVoicesScreen.kt), the rate
+/// sheet's NeoDB line (AlbumDetailComponents AlbumNeoDbLine) and the Memories
+/// diary's (MemoryDiary DiaryNeoDbLine).
+abstract final class NeoDbTokens {
+  /// The page's column on a wide window (YoinPageWidths.Feed).
+  static const double pageMaxWidth = 720;
+
+  // ---- top bar ----
+  static const double topBarPaddingH = 12;
+  static const double topBarPaddingV = 8;
+  static const double topBarGap = 12;
+
+  // ---- the list ----
+  static const double sidePadding = 16;
+  static const double listTop = 8;
+  static const double listBottom = 16;
+  static const double gridGap = 8;
+  static const double messagePadding = 32;
+  static const double emptyPaddingV = 24;
+  static const double tailPaddingV = 8;
+  static const double tailIndicator = 32;
+
+  // ---- the spread ----
+  static const double spreadPaddingV = 8;
+  static const double spreadGap = 10;
+  static const double spreadColumnGap = 8;
+  static const double spreadLabelGap = 6;
+  static const double spreadBarMax = 92;
+  static const double spreadBarMin = 3;
+  static const double spreadBarTopCorner = 12;
+  static const double spreadBarBottomCorner = 4;
+  static const double spreadAverageGap = 8;
+  static const double spreadRatedBottom = 3;
+
+  // ---- other catalogues' scores ----
+  static const double referenceCorner = 18;
+  static const double referencePaddingH = 14;
+  static const double referencePaddingV = 10;
+  static const double referenceMinWidth = 72;
+  static const double referenceScaleBottom = 2;
+
+  // ---- one voice ----
+  static const double cardCorner = 24;
+  static const double cardPaddingH = 16;
+  static const double cardPaddingTop = 14;
+  static const double cardPaddingBottom = 12;
+  static const double cardGap = 10;
+  static const double avatar = 20;
+  static const double bylineGap = 8;
+  static const double grade = 10;
+  static const double gradeGap = 2;
+
+  // ---- the ways out ----
+  static const double waysOutGap = 8;
+  static const double waysOutTop = 8;
+  static const double waysOutBottom = 12;
+  static const double openNeoDbHeight = 52;
+  static const double otherWayOutHeight = 40;
+
+  // ---- the rate sheet's line ----
+  /// Between the review field and the line (the sheet's column spacing).
+  static const double sheetLineTop = 20;
+  static const double sheetLineCorner = 12;
+  static const double sheetLinePaddingH = 4;
+  static const double sheetLinePaddingV = 6;
+  static const double sheetLineGap = 8;
+
+  // ---- the Memories diary's line ----
+  static const double diaryLineHeight = 48;
+  static const double diaryLinePaddingH = 16;
+  static const double diaryLineTop = 8;
+
+  // ---- Settings › NeoDB (SettingsExpandableItem as a page) ----
+  static const double settingsPanelPaddingH = 16;
+  static const double settingsPanelPaddingV = 18;
+  static const double settingsPanelGap = 14;
+  static const double settingsTokenGap = 12;
+  static const double settingsButtonGap = 8;
+}

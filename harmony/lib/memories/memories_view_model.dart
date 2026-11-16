@@ -18,6 +18,8 @@ import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_cache.dart';
+import '../neodb/neodb_providers.dart';
+import '../neodb/neodb_strings.dart';
 import '../playback/local_ratings.dart';
 import 'copy/memory_copy.dart';
 import 'copy/memory_voice.dart';
@@ -90,8 +92,25 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
 
   /// Saves [text] as the album's review (blank clears it). False when the
   /// write failed: the caller keeps the draft (mem_snackbar_save_review).
-  Future<bool> saveReview(MemoryEntry memory, String text) =>
-      _write(memory, (store, now) => store.setAlbumReview(memory.albumId, text, nowMs: now));
+  /// Saved, the words go to NeoDB on their own when signed in (owner R3).
+  Future<bool> saveReview(MemoryEntry memory, String text) async {
+    final saved = await _write(memory, (store, now) => store.setAlbumReview(memory.albumId, text, nowMs: now));
+    if (saved) unawaited(_pushToNeoDb(memory));
+    return saved;
+  }
+
+  Future<void> _pushToNeoDb(MemoryEntry memory) async {
+    try {
+      final account = await ref.read(neoDbAccountProvider.future);
+      if (!ref.mounted || !account.configured) return;
+      final zh = ref.read(memoriesAppLanguageProvider) == MemoryProseLanguage.zh;
+      await ref
+          .read(neoDbPushProvider.notifier)
+          .push(memory.albumId, failureMessage: NeoDbStrings.forLanguage(chinese: zh).snackbarSyncFailed);
+    } catch (e) {
+      debugPrint('YoinMemories: NeoDB push failed: ${e.runtimeType}');
+    }
+  }
 
   /// The album score, 0.0–10.0; null clears it.
   Future<bool> setAlbumRating(MemoryEntry memory, double? rating) =>

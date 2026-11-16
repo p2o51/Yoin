@@ -587,6 +587,7 @@ class _Opening extends ConsumerWidget {
           albumName: albumTitleWithoutVersion(album.name, album.version),
           palette: palette,
           focusReview: focusReview,
+          coverUrl: url,
         );
         Widget reviewPiece() => _scrapFade(
           review == null
