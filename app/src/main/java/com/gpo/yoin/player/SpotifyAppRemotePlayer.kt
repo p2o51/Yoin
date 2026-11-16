@@ -300,6 +300,16 @@ internal class SpotifyAppRemotePlayer(
     private var autoOpenedFor: PendingStart? = null
 
     /**
+     * Yoin opened the Spotify app (by itself or from the hint) and hasn't connected to it
+     * since. A Spotify woken after a long sleep takes seconds to take its first App Remote
+     * connection, so a start meanwhile waits [SPOTIFY_WAKE_GRACE_MS], not
+     * [SPOTIFY_UNREACHABLE_AFTER_MS], and isn't bounced to Spotify again: on 51's Fold 8
+     * (2026-11-15) every connect after the wake was cut at 1.5 s, over and over, until Yoin
+     * was relaunched, even with Spotify playing by then.
+     */
+    private var wakingSpotify: Boolean = false
+
+    /**
      * The other device Spotify plays on while App Remote isn't connected: Yoin drives it
      * through the Web API ([connectWeb]) and polls its state ([webPollJob]). Null otherwise.
      */
@@ -422,6 +432,7 @@ internal class SpotifyAppRemotePlayer(
         replaceableOperationJob = null
         pendingStart = null
         clearUnreachable()
+        wakingSpotify = false
         exitWebMode()
         webCheckJob?.cancel()
         deviceNameJob?.cancel()
@@ -991,7 +1002,13 @@ internal class SpotifyAppRemotePlayer(
         )
         wantsConnection = true
         if (replacePending) {
-            // A new start replaces whatever a hint held, and asks again from scratch.
+            // A new start replaces whatever a hint held, and asks again from scratch: a connect
+            // left out since the hint ([reportUnreachable]) may be one Spotify, asleep when it
+            // was made, never answers, so a fresh one is made for this start.
+            if (parked) {
+                connectJob?.cancel()
+                connectJob = null
+            }
             clearUnreachable()
             pendingOperations.clear()
             // Cancel the old start, including its confirmation wait. The mutex
@@ -1099,6 +1116,7 @@ internal class SpotifyAppRemotePlayer(
                 Log.d(tag, "connectIfPossible: connected")
                 unreachableWatch?.cancel()
                 unreachableWatch = null
+                wakingSpotify = false
                 // App Remote reaches Spotify, wherever it plays (Spotify Connect included).
                 exitWebMode()
                 refreshPlayingOn()
@@ -1410,6 +1428,17 @@ internal class SpotifyAppRemotePlayer(
 
         // The Spotify app didn't answer while a start waits on it: say so, with a way to wake it.
         if (duringConnect && pendingOperations.isNotEmpty() && isUnreachable(error)) {
+            // Spotify was just opened and is still starting up: try again until the wake grace
+            // runs out ([armUnreachableWatch] then says it's asleep, which ends these retries).
+            if (wakingSpotify && unreachableWatch?.isActive == true) {
+                Log.d(tag, "handleRemoteError: Spotify still waking, connecting again")
+                disconnectRemote(preserveSnapshot = true)
+                retryJob = scope.launch {
+                    delay(TRANSPORT_RETRY_DELAY_MS)
+                    connectIfPossible()
+                }
+                return
+            }
             reportUnreachable()
             return
         }
@@ -1482,15 +1511,16 @@ internal class SpotifyAppRemotePlayer(
      */
     private fun armUnreachableWatch() {
         if (remote?.isConnected == true || hostContext == null || unreachableWatch?.isActive == true) return
+        val after = if (wakingSpotify) SPOTIFY_WAKE_GRACE_MS else SPOTIFY_UNREACHABLE_AFTER_MS
         unreachableWatch = scope.launch {
-            delay(SPOTIFY_UNREACHABLE_AFTER_MS)
+            delay(after)
             unreachableWatch = null
             // Only a start still waiting: a typed failure (no Client ID, auth, …) already said what's wrong.
             if (remote?.isConnected != true &&
                 pendingOperations.isNotEmpty() &&
                 lastSnapshot.connectionPhase != ConnectionPhase.Error
             ) {
-                Log.d(tag, "unreachableWatch: no connection after ${SPOTIFY_UNREACHABLE_AFTER_MS}ms")
+                Log.d(tag, "unreachableWatch: no connection after ${after}ms")
                 reportUnreachable()
             }
         }
@@ -1507,10 +1537,16 @@ internal class SpotifyAppRemotePlayer(
         retryJob = null
         unreachableWatch?.cancel()
         unreachableWatch = null
-        connectJob?.cancel()
-        connectJob = null
+        // A connect still out is left to finish: Spotify may answer late (it was asleep), and
+        // a late connect settles the held start ([settleHeldStart]) like any other. Cutting it
+        // here used to leave nothing that could ever connect while a start was held.
+        // Said again for the start already held (the woken Spotify still didn't answer): the
+        // user's opening Spotify for it still counts.
+        if (!parked) openedForStart = false
         parked = true
-        openedForStart = false
+        // Spotify was opened and still didn't answer within the grace: the next tap may open it again.
+        val wasWaking = wakingSpotify
+        wakingSpotify = false
         val held = pendingOperations.size
         scope.launch {
             val state = readConnectState()
@@ -1525,7 +1561,8 @@ internal class SpotifyAppRemotePlayer(
                 // user (51, 2026-11-07), once per tap and only while Yoin is on screen. The
                 // launcher intent carries no song; the held start plays when Yoin is back.
                 val start = pendingStart
-                val opened = hostContext != null && start != null && autoOpenedFor !== start && openSpotify()
+                val opened = hostContext != null && start != null && autoOpenedFor !== start && !wasWaking &&
+                    openSpotify()
                 if (opened) autoOpenedFor = start
                 Log.d(tag, "reportUnreachable: openedSpotify=$opened")
                 val message = if (opened) {
@@ -1550,7 +1587,10 @@ internal class SpotifyAppRemotePlayer(
         val opened = runCatching { context.startActivity(intent) }
             .onFailure { Log.w(tag, "openSpotify: launch failed", it) }
             .isSuccess
-        if (opened && parked) openedForStart = true
+        if (opened) {
+            if (parked) openedForStart = true
+            wakingSpotify = true
+        }
         return opened
     }
 
@@ -1972,6 +2012,12 @@ internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
 
 /** How long a start waits on a Spotify app that doesn't answer before Yoin opens it ([SpotifyAppRemotePlayer.openSpotify]): at most 2 s (51, 11-08), since an asleep Spotify is the common case. */
 internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 1_500L
+
+/**
+ * How long a start waits on a Spotify app Yoin has just opened ([SpotifyAppRemotePlayer.openSpotify])
+ * before saying it's asleep: after a long sleep, its first App Remote connection takes seconds.
+ */
+internal const val SPOTIFY_WAKE_GRACE_MS = 8_000L
 
 /** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
 internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L
