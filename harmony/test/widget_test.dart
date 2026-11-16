@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_screen.dart';
+import 'package:yoin/landing/landing_store.dart';
 import 'package:yoin/library/library_screen.dart';
 import 'package:yoin/main.dart';
 import 'package:yoin/platform/storage/stores.dart';
@@ -17,7 +18,8 @@ double _pageOpacity(WidgetTester tester, Type page) => tester
 
 void main() {
   testWidgets('should_showLibrary_when_libraryHalfTapped', (tester) async {
-    final store = InMemoryStore();
+    // Past the first-run landing (test/landing/ covers it).
+    final store = InMemoryStore()..values[KeyValueLandingStore.key] = 'true';
     await tester.pumpWidget(ProviderScope(
       overrides: [
         keyValueStoreProvider.overrideWithValue(store),
@@ -27,6 +29,8 @@ void main() {
       ],
       child: const YoinApp(),
     ));
+    // The landing's first-run check (the store answers at once).
+    await tester.pump();
     expect(_pageOpacity(tester, HomeScreen), 1);
     expect(_pageOpacity(tester, LibraryScreen), 0);
 
