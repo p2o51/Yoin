@@ -52,6 +52,17 @@ abstract final class LyricsPaneMetrics {
   static const double outsideLineAlpha = 0.42;
 }
 
+/// The largest scroll offset that still leaves the song's last row ending
+/// [endTail] above the window's bottom, where the full list rests when nothing
+/// follows it (Android lyricsEndClampScrollOffsetPx). [endRowBottom]: the last
+/// row's bottom in the list's content, under [contentPadTop] of padding.
+double lyricsEndClampOffset({
+  required double viewport,
+  required double contentPadTop,
+  required double endRowBottom,
+  required double endTail,
+}) => contentPadTop + endRowBottom + endTail - viewport;
+
 /// The lyric list's edge mask (LyricsDisplay `edgeFade(top, bottom)`) for a
 /// box [height] tall: opaque between the fades, transparent above [clearTop]
 /// (select mode's label band) and [clearBottom] above the bottom edge. The bottom fade eases out (alpha
@@ -561,7 +572,10 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     fraction = (fraction * 50).round() / 50;
     final rowH = _rowHeight(row) ?? 0;
     final rowTop = (fade + band * fraction - rowH / 2).clamp(fade, math.max(fade, fade + band - rowH));
-    return top - rowTop;
+    // [top] is measured inside the list's top padding: a scroll offset of s
+    // puts it at contentPad + top - s in the window (Android's scrollToItem
+    // offset is from the content padding too), so the seat lands on [rowTop].
+    return LyricsPaneMetrics.contentPad + top - rowTop;
   }
 
   double _targetOffset() {
@@ -593,7 +607,29 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final top = _rowTop(focus);
     if (top == null) return current;
     if (!_full) return top - _viewport * NowPlayingTokens.lyricsAnchorFraction;
-    return _seatFull(focus, top);
+    return _clampToSongEnd(_seatFull(focus, top));
+  }
+
+  /// Once the song's last line is on screen there is nothing left to scroll
+  /// in from below: the staged up-next block (a viewport-tall tail) must not
+  /// let the sung line hold its raised seat over an empty bottom. The list
+  /// stops where its natural end would, and the highlight walks on down the
+  /// screen (Android 11-16, lyricsFocusScrollOffsetPx's end clamp).
+  double _clampToSongEnd(double seated) {
+    final last = widget.sheet.rows.length - 1;
+    if (last < 0) return seated;
+    final top = _rowTop(last);
+    final height = _rowHeight(last);
+    if (top == null || height == null) return seated;
+    return math.min(
+      seated,
+      lyricsEndClampOffset(
+        viewport: _viewport,
+        contentPadTop: LyricsPaneMetrics.contentPad,
+        endRowBottom: top + height,
+        endTail: LyricsPaneMetrics.contentPad + LyricsPaneMetrics.tail,
+      ),
+    );
   }
 
   void _seat({required bool animate}) {
@@ -658,6 +694,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final gap = full ? LyricsPaneMetrics.spacing : NowPlayingTokens.lyricsListLineGap;
     final selecting = full && _selecting;
     final selected = _selection?.selected ?? const <int>{};
+    final hasHeader = full && (widget.title?.trim().isNotEmpty ?? false);
 
     Widget row(int index, LyricRow line) {
       final key = _rowKeys.putIfAbsent(index, GlobalKey.new);
@@ -669,12 +706,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         active: active && !selecting,
         distance: synced ? distance : 0,
         above: synced && focus >= 0 && index < focus,
-        // One of the next lines: in focus its dots stay full enough to read.
-        upcoming:
-            synced &&
-            _active >= 0 &&
-            index > _active &&
-            index - _active <= NowPlayingEffectTokens.lyricDotsReadableLines,
+        // One of the next lines, or the line just sung: in focus its dots stay full enough to read.
+        readable: synced && lyricRowReadable(index, _active, introOnHeader: focus == _header && hasHeader),
         linesAbove: widget.linesAbove,
         mode: widget.mode,
         synced: synced,
@@ -708,7 +741,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     ];
 
     final current = <Widget>[
-      if (full && (widget.title?.trim().isNotEmpty ?? false))
+      if (hasHeader)
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: synced && !selecting
@@ -1061,7 +1094,7 @@ class _LyricLineView extends StatefulWidget {
     required this.mode,
     required this.synced,
     required this.stretch,
-    this.upcoming = false,
+    this.readable = false,
     this.linesAbove = NowPlayingFocusTokens.linesAbove,
     this.secondary,
     this.showSecondary = true,
@@ -1079,8 +1112,9 @@ class _LyricLineView extends StatefulWidget {
   /// Sung already (above the current line): focus fades these out.
   final bool above;
 
-  /// One of the next lines after the current one: focus's dots stay readable.
-  final bool upcoming;
+  /// One of the next lines after the current one, or the line just sung:
+  /// focus's dots stay readable (isReadableLyricLine).
+  final bool readable;
   final int linesAbove;
   final LyricsListMode mode;
   final bool synced;
@@ -1151,7 +1185,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
   /// The focus stage's progress (the overlay's), read in build only.
   Animation<double>? _focusAnim;
 
-  double get _restDotsNow => lyricDotsRestFor(YoinWindowInfo.of(context), upcoming: widget.upcoming);
+  double get _restDotsNow => lyricDotsRestFor(YoinWindowInfo.of(context), readable: widget.readable);
 
   /// Develops the current line, breaks a sung one back, settles the rest.
   void _syncDots({required bool becameActive}) {
@@ -1254,7 +1288,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
       _secondaryOpen.animateTo(widget.showSecondary ? 1 : 0);
       _secondaryAlpha.animateTo(widget.showSecondary ? 1 : 0);
     }
-    if (widget.active != oldWidget.active || widget.upcoming != oldWidget.upcoming) {
+    if (widget.active != oldWidget.active || widget.readable != oldWidget.readable) {
       _restDots = _restDotsNow;
       _syncDots(becameActive: widget.active && !oldWidget.active);
     }

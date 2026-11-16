@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,8 +13,10 @@ import 'package:yoin/nowplaying/ask_bar.dart';
 import 'package:yoin/nowplaying/now_playing_screen.dart';
 import 'package:yoin/nowplaying/now_playing_view_model.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
+import 'package:yoin/nowplaying/stage_tabs.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
+import 'package:yoin/ui/component/yoin_loading_indicator.dart';
 
 import '../support/fake_ai_client.dart';
 import '../support/nowplaying_fakes.dart';
@@ -30,11 +34,22 @@ const _about = '''
 void main() {
   late InMemoryStore kv;
   late FakeAiClient client;
+  late NowPlayingFakeController playback;
+  final blue = Track(
+    id: MediaId.subsonic('t0'),
+    title: 'Blue',
+    artist: 'Joni',
+    album: 'Blue',
+    durationSec: 200,
+    genre: 'Folk',
+  );
 
   Future<NowPlayingOverlayController> pump(
     WidgetTester tester, {
     bool ready = true,
     Size size = const Size(412, 892),
+    List<Track>? queue,
+    FakeAiClient? ai,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -44,10 +59,9 @@ void main() {
     if (ready) {
       await AiSettingsStore(kv, secrets).write(const AiSettings(provider: AiProvider.qwen, qwenKey: 'q'));
     }
-    client = FakeAiClient(reply: _about);
-    final tracks = [
-      Track(id: MediaId.subsonic('t0'), title: 'Blue', artist: 'Joni', album: 'Blue', durationSec: 200, genre: 'Folk'),
-    ];
+    client = ai ?? FakeAiClient(reply: _about);
+    final tracks = queue ?? [blue];
+    playback = NowPlayingFakeController(playingState(tracks));
     final controller = NowPlayingOverlayController(vsync: tester);
     addTearDown(controller.dispose);
     controller.window = YoinWindowInfo(size.width, size.height);
@@ -55,7 +69,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          ...nowPlayingOverrides(controller: NowPlayingFakeController(playingState(tracks))),
+          ...nowPlayingOverrides(controller: playback),
           upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
           keyValueStoreProvider.overrideWithValue(kv),
           secretStoreProvider.overrideWithValue(secrets),
@@ -109,6 +123,61 @@ void main() {
     expect(client.prompts, hasLength(1));
     final rows = await SongAboutStore.shared(kv).all();
     expect(rows.where((r) => r.isCanonical), hasLength(6));
+  });
+
+  testWidgets('should_loadTheNewSongsAbout_when_theSongChangesWhileOnAbout', (tester) async {
+    // Android 11-16 (5145074a9): staying on About across a song change loads the new song's About.
+    final river = Track(
+      id: MediaId.subsonic('t1'),
+      title: 'River',
+      artist: 'Joni',
+      album: 'Blue',
+      durationSec: 240,
+      genre: 'Folk',
+    );
+    final tracks = [blue, river];
+    await pump(tester, queue: tracks);
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+    expect(client.prompts, hasLength(1));
+
+    client.reply = _about.replaceAll('Henry Lewy', 'Joni Mitchell');
+    playback.emit(playingState(tracks, index: 1));
+    await tester.pumpAndSettle();
+    expect(client.prompts, hasLength(2));
+    expect(client.prompts.last, contains('River'));
+    expect(find.text('Load song info'), findsNothing);
+  });
+
+  testWidgets('should_showTheBusyIndicatorInTheTabRow_when_theAiLoadsOverServerFacts', (tester) async {
+    // Android 11-16 (5145074a9): the server's facts show at once; the wait sits between About and Note.
+    final gated = _GatedAiClient(reply: _about);
+    await pump(tester, ai: gated);
+    await tester.tap(find.text('About'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final busy = find.descendant(of: find.byType(StageTabs), matching: find.byType(YoinLoadingIndicator));
+    expect(busy, findsOneWidget);
+    final x = tester.getCenter(busy).dx;
+    expect(x, greaterThan(tester.getCenter(find.text('About')).dx));
+    expect(x, lessThan(tester.getCenter(find.text('Note')).dx));
+    expect(find.text('Folk'), findsWidgets);
+    expect(find.text('Searching for song info…'), findsNothing);
+
+    gated.gate.complete();
+    await tester.pumpAndSettle();
+    expect(busy, findsNothing);
+    expect(find.text('Joni Mitchell'), findsWidgets);
+  });
+
+  testWidgets('should_notFetch_when_theSongChangesOnAnotherPage', (tester) async {
+    final river = Track(id: MediaId.subsonic('t1'), title: 'River', artist: 'Joni', album: 'Blue', durationSec: 240);
+    final tracks = [blue, river];
+    await pump(tester, queue: tracks);
+    playback.emit(playingState(tracks, index: 1));
+    await tester.pumpAndSettle();
+    expect(client.prompts, isEmpty);
   });
 
   testWidgets('should_showNoKeyAndSettings_when_noAiService', (tester) async {
@@ -198,4 +267,23 @@ void main() {
     expect(find.byType(SongInfoDisplay).evaluate().length + find.byType(AboutPane).evaluate().length, 1);
     expect(details, isEmpty);
   });
+}
+
+/// Holds the AI's answers until [gate] completes: About stays loading.
+class _GatedAiClient extends FakeAiClient {
+  _GatedAiClient({super.reply});
+
+  final gate = Completer<void>();
+
+  @override
+  Future<String> generate(
+    AiSettings ai,
+    String prompt, {
+    required double temperature,
+    required bool useSearch,
+    Duration? timeout,
+  }) async {
+    await gate.future;
+    return super.generate(ai, prompt, temperature: temperature, useSearch: useSearch, timeout: timeout);
+  }
 }

@@ -60,6 +60,34 @@ void main() {
     expect(focus.stageWidth, lessThanOrEqualTo(800));
   });
 
+  test('should_evenTheGapsOverTheCoverAndUnderTheTitle_when_focusOnTheEnlargedColumn', () {
+    // Android 11-14 (cabd5e434): on a 3:2 tablet the equal side/top margin hung the
+    // focus stage low. The gaps over the cover and under the title match now.
+    final spec = nowPlayingEnlargedSpec(800);
+    final rest = resolveStageColumnBudget(width: 800, height: 1180, enlarged: spec);
+    final focus = resolveStageFocus(rest: rest, enlarged: spec)!;
+    expect(focus.top, closeTo(focus.bottom, 1));
+    expect(focus.total, closeTo(1180, 1));
+  });
+
+  test('should_keepTheCoverAndLiftTheStage_when_enlargedFocusGapsAreEvened', () {
+    final spec = nowPlayingEnlargedSpec(800);
+    final rest = resolveStageColumnBudget(width: 800, height: 1180, enlarged: spec);
+    final focus = resolveStageFocus(rest: rest, enlarged: spec)!;
+    // The equal side margin still picks the cover; only the vertical gaps move.
+    expect(focus.cover, greaterThan(rest.cover));
+    expect(focus.lyrics, greaterThanOrEqualTo(0));
+    expect(focus.top, lessThan((800 - focus.cover) / 2));
+  });
+
+  test('should_keepEqualMargins_when_phoneFocuses', () {
+    final rest = phone();
+    final focus = resolveStageFocus(rest: rest)!;
+    expect(focus.top, closeTo((rest.width - focus.cover) / 2, 1));
+    // No lift on a phone: the top keeps its equal margin over the smaller gap under the title.
+    expect(focus.top, greaterThan(focus.bottom));
+  });
+
   test('should_interpolateSlots_when_focusAndDetailMove', () {
     final rest = phone();
     final focus = resolveStageFocus(rest: rest)!;

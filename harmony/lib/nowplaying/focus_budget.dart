@@ -197,13 +197,20 @@ StageFocusPose? resolveStageFocus({
     StageFocusPose pose(double cover, double listMin) {
       final top = math.max(_F.topMin, math.min((width - cover) / 2, height - cover - fixedMin - listMin));
       final s = squeezeGaps(math.max(0, top + cover + nominal + listMin - height), lower, upper);
+      final bottom = focusBottom.at(s.lower);
+      // On the enlarged column (tablets, the MateBook's Full window) the equal
+      // side/top margin still picks the cover's size, but the stage no longer
+      // hangs from it: the gap over the cover and the one under the title are
+      // evened out, so the cover and the lyrics keep their sizes and the whole
+      // stage moves up (Android 11-14). Phones keep the equal margins.
+      final lift = enlarged == null ? 0.0 : math.max(0.0, (top - bottom) / 2);
       return finish(
-        top: top,
+        top: top - lift,
         cover: cover,
         cg: coverGap.at(s.upper),
         ctl: controls.at(s.lower),
         hr: hero.at(s.lower),
-        bottom: focusBottom.at(s.lower),
+        bottom: bottom + lift,
         labelsUnder: labelsUnder,
         short: false,
       );
