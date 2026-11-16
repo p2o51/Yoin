@@ -12,7 +12,7 @@ restore bring back the user's data instead of an empty Yoin.
 
 | Travels | Where it lives here | Android table |
 | --- | --- | --- |
-| Accounts (name, server, kind) and which one is in use | `profiles.v1`, `profiles.active.v1` | `profiles`, `yoin_profiles.xml` |
+| Accounts (name and kind; the server address and sign-in are credentials and stay) and which one is in use | `profiles.v1`, `profiles.active.v1` | `profiles`, `yoin_profiles.xml` |
 | Song ratings | `local_ratings.<account>` | `local_ratings` |
 | Album scores and reviews (with their NeoDB flags, cleared on arrival) | `album_ratings.v1.<account>` | `album_ratings` |
 | Notes | `song_notes.v1.<account>` | `song_notes` |
@@ -67,14 +67,17 @@ the backup:
    values whose keys are in `BackupScope.ets` to
    `files/backup/yoin-backup.json` (any older payload is deleted first). The
    system copies that folder and `files/playlist_backups/`. `onRelease` deletes
-   the payload afterwards.
+   the payload afterwards. `onRelease` is API 20: on API 18–19 the payload stays
+   until the next backup replaces it or a restore deletes it.
 2. **Restore** (`onRestoreEx`): the system puts both folders back, then the
    extension replaces every key in scope in both Preferences files with the
    payload's values. This is Android's "the database file is replaced": what this
    install held of them goes; its own settings, downloads and secrets stay. Keys
    this build doesn't carry are skipped, even if a newer build's backup holds them.
    Then the extension deletes the payload and leaves
-   `files/neodb/restored_pending_clear`.
+   `files/neodb/restored_pending_clear`. An import that fails part-way may have
+   put some values back already, so it leaves the marker and deletes the payload
+   too, and reports the failure to the backup service.
 3. **Next launch**: `NeoDbRestoreGuard` sees the marker and clears
    `ratingNeedsSync` / `reviewNeedsSync` on every account's album scores
    (`MemoryStore.clearAllNeoDbPending`). Scores, words and the remote review's
@@ -116,7 +119,8 @@ the new one with no Yoin.
 5. Open Yoin on the new phone:
    - there is no landing, Home's avatar has the reconnect dot, and the account
      card offers Reconnect;
-   - after you enter the password again, Library, ratings, the album score and
+   - after you sign in again (server address, username and password: Android
+     doesn't carry them either), Library, ratings, the album score and
      review, the note, Memories (candidates, titles, AI copy), Home's layout and
      the playlist backup are all there;
    - the scroll edge style is back to the default, NeoDB and cloud sync are
@@ -136,17 +140,37 @@ change between releases):
 ```sh
 hdc shell "mkdir -p /data/backup/tmp && touch /data/backup/tmp/yoin.txt"
 hdc shell "backup_tool backup --isLocal=true --bundle com.gpo.yoin --pathCapFile /data/backup/tmp/yoin.txt"
-# change or clear Yoin's data, then:
+# change or clear Yoin's data, stop Yoin, then restore:
+hdc shell "aa force-stop com.gpo.yoin"
 hdc shell "backup_tool restore --bundle com.gpo.yoin --pathCapFile /data/backup/tmp/yoin.txt"
 ```
+
+Stop Yoin before a restore. A running Yoin holds both Preferences files in
+memory, and its next write saves that copy over the restored file. Phone Clone
+and a restore during setup run before Yoin has started.
+
+## Not yet checked on a device
+
+- That the backup service calls `onBackupEx` before it collects the folders, and
+  `onRestoreEx` after it put them back (the API reference says so).
+- That a restore started from Settings › Cloud while Yoin runs in the background
+  stops Yoin first. If it doesn't, the restored values are lost at Yoin's next
+  write (above). Check: start a song, then restore from the cloud, then reopen Yoin.
+- On API 18–19, a payload left after a backup (no `onRelease`) is read again by a
+  later restore that brings none of its own, which only happens when that
+  backup's export failed. That restore would put this phone's older values back.
 
 ## Differences from Android
 
 - Android backs up the Room file whole. Here a payload of the matching values
   travels (above), and pure re-fetchable caches are left out.
 - Android's restore guard marks every restore. Here only a restore that put
-  values back leaves the marker, because a restore without them changed nothing
-  NeoDB could push.
+  values back (or tried to) leaves the marker, because a restore without them
+  changed nothing NeoDB could push.
+- Android clears the flags on every row of `album_ratings`. Here the guard
+  clears every account in the restored list; scores kept under an account that
+  was deleted before the backup keep their flags, but nothing syncs them, since
+  NeoDB only pushes the account in use.
 - Android's Spotify "Restore sign-in" reason (`ReconnectReason.BackupRestored`)
   has no counterpart: there is no Spotify here. Subsonic and Apple Music accounts
   without their secrets use the existing reconnect path.

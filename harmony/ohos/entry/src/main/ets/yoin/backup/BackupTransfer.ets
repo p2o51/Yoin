@@ -98,6 +98,32 @@ export class BackupTransfer {
     fileIo.closeSync(file);
   }
 
+  /**
+   * An import that came back failing may have replaced some values already (the settings file before the caches'
+   * one), the old phone's NeoDB dirty flags among them, so the marker is left all the same (Android marks every
+   * restore) and the payload goes: onRelease is API 20, and a payload left behind would be read again by the next
+   * restore. Best effort: nothing here throws.
+   */
+  static afterFailedImport(ctx: common.Context): void {
+    try {
+      if (!fileIo.accessSync(BackupTransfer.payloadPath(ctx))) {
+        return;
+      }
+    } catch (e) {
+      return;
+    }
+    try {
+      BackupTransfer.markRestored(ctx);
+    } catch (e) {
+      // The guard just won't run; the restore already reported its failure.
+    }
+    try {
+      BackupTransfer.removePayload(ctx);
+    } catch (e) {
+      // Left for the next backup or restore to replace.
+    }
+  }
+
   /** Deletes the payload (after a backup was taken, or once it was read back). */
   static removePayload(ctx: common.Context): void {
     const path = BackupTransfer.payloadPath(ctx);
