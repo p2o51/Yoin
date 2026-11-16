@@ -162,6 +162,43 @@ const _sectionAlbums = [
   [2, 3, 4, 5],
 ];
 
+/// Home in the phone, still: its header and three sections (a scene that
+/// goes to Home and back draws the bar over it).
+class DemoHomeFeed extends StatelessWidget {
+  const DemoHomeFeed({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = HomeStrings.of(context);
+    final titles = [strings.sectionJumpBackIn, strings.sectionRecentlyAdded, strings.sectionRecentlyPlayed];
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: ListView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        children: [
+          _DemoHomeHeader(avatar: _avatar(context, 0)),
+          for (final (i, title) in titles.indexed)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                TipSceneTokens.pagePaddingH,
+                0,
+                TipSceneTokens.pagePaddingH,
+                TipSceneTokens.titleGap,
+              ),
+              child: _DemoSection(
+                title: title,
+                covers: [for (final a in _sectionAlbums[i]) demoAlbums[a]],
+                editing: false,
+                lift: 0,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Long-press Home → edit mode; a section held up and dragged moves; Done leaves.
 class EditHomeDemo extends StatefulWidget {
   const EditHomeDemo({super.key, required this.playing});

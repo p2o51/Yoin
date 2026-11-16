@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import '../home/home_bubble_tips.dart';
 import '../theme/tokens.dart';
 import 'demo_phone.dart';
+import 'tip_scenes_detail.dart';
 import 'tip_scenes_home.dart';
 import 'tip_scenes_library.dart';
 import 'tip_scenes_now_playing.dart';
@@ -43,6 +44,7 @@ class TipIllustration extends StatelessWidget {
 
 /// The demo phone for [tip].
 Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
+  HomeBubbleTip.coverStamp => CoverStampDemo(playing: playing),
   HomeBubbleTip.removeFromPlaylist => RemoveFromPlaylistDemo(playing: playing),
   HomeBubbleTip.barScrollHide => BarScrollHideDemo(playing: playing),
   HomeBubbleTip.tabletop => TabletopDemo(playing: playing),

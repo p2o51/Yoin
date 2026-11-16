@@ -1948,6 +1948,11 @@ abstract final class TipSceneTokens {
   /// The playlist page's cover (smaller than an album's: the Remove demo needs the rows under it).
   static const double playlistCover = 120;
 
+  /// The Cover stamp demo's pull: how far up the phone the finger goes, and
+  /// the upward speed it lets go at (px/s), past the page's fling.
+  static const double stampPull = 0.32;
+  static const double stampFling = 900;
+
   /// Library's grid: top and bottom padding (room for the bar).
   static const double gridTop = 8;
   static const double gridBottom = 108;

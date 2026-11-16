@@ -435,7 +435,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 right: 0,
                 top: topInset,
                 height: DetailHeaderMetrics.bandHeight,
-                child: _Header(
+                child: DetailBarHeader(
                   reveal: _reveal,
                   page: _page,
                   docks: content != null,
@@ -697,7 +697,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 right: 0,
                 top: topInset,
                 height: DetailHeaderMetrics.bandHeight,
-                child: _Header(
+                child: DetailBarHeader(
                   reveal: morph,
                   page: _page,
                   docks: docks,
@@ -1093,8 +1093,12 @@ class _HeroBelowState extends State<_HeroBelow> {
   Widget build(BuildContext context) => widget.builder(_links);
 }
 
-class _Header extends StatelessWidget {
-  const _Header({
+/// The page's header row: back, the title and its meta, and the room the
+/// stamp takes as the bar forms (white over the spectrum). Public for the
+/// Cover stamp tip's demo page.
+class DetailBarHeader extends StatelessWidget {
+  const DetailBarHeader({
+    super.key,
     required this.reveal,
     required this.page,
     required this.docks,
@@ -1105,6 +1109,7 @@ class _Header extends StatelessWidget {
     required this.endPadding,
     this.stampSide = DetailTokens.albumStamp,
     this.trailing,
+    this.onBack,
   });
 
   final BarMorph reveal;
@@ -1123,6 +1128,9 @@ class _Header extends StatelessWidget {
 
   /// At the title row's end, before the stamp's room (Short: the page dots).
   final Widget? trailing;
+
+  /// In place of popping the route (a Tips demo's page goes nowhere).
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1150,6 +1158,7 @@ class _Header extends StatelessWidget {
                 DetailBackButton(
                   container: Color.lerp(colors.surfaceContainer, onBar.withValues(alpha: 0.2), ink),
                   content: Color.lerp(colors.onSurface, onBar, ink),
+                  onBack: onBack,
                 ),
                 const SizedBox(width: DetailHeaderMetrics.titleGap - 4),
                 Expanded(

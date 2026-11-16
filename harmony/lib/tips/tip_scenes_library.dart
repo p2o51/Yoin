@@ -20,6 +20,7 @@ import '../library/library_search.dart';
 import '../library/library_search_view.dart' show librarySearchFilterLabel;
 import '../library/library_strings.dart';
 import '../nowplaying/now_playing_pill.dart';
+import '../shell/yoin_section.dart';
 import '../theme/tokens.dart';
 import '../ui/component/cover_art.dart';
 import '../ui/component/expressive_segment_chip.dart';
@@ -27,6 +28,7 @@ import '../ui/component/yoin_pull_to_refresh.dart';
 import 'demo_data.dart';
 import 'demo_phone.dart';
 import 'tip_scene_parts.dart';
+import 'tip_scenes_home.dart' show DemoHomeFeed;
 
 /// A scene's state, set only while it is on screen.
 mixin DemoSceneState<T extends StatefulWidget> on State<T> {
@@ -374,11 +376,12 @@ class _LibraryRefreshDemoState extends State<LibraryRefreshDemo> with DemoSceneS
 }
 
 /// The keys the keyboard demo presses.
-enum _DemoKey { space, next, search }
+enum _DemoKey { space, next, home, library, search }
 
 /// Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + →
-/// moves it to the next song, Ctrl + K opens search — a keyboard's keys as
-/// keycaps on a tray under the bar, pressed by the dot (or the user).
+/// moves it to the next song, Ctrl + 1 / Ctrl + 2 go to Home and Library,
+/// Ctrl + K opens search — a keyboard's keys as keycaps under the phone's
+/// screen; the user can press them too.
 class KeyboardShortcutsDemo extends StatefulWidget {
   const KeyboardShortcutsDemo({super.key, required this.playing});
   final bool playing;
@@ -391,6 +394,7 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
   bool _paused = false;
   int _song = 0;
   bool _searching = false;
+  YoinSection _section = YoinSection.home;
   _DemoKey? _pressed;
 
   void _press(_DemoKey key) => put(() {
@@ -399,6 +403,13 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
         _paused = !_paused;
       case _DemoKey.next:
         _song = (_song + 1) % demoTrackTitles.length;
+      // Going to a section leaves the search, as the shell's Ctrl + 1 / 2 do.
+      case _DemoKey.home:
+        _searching = false;
+        _section = YoinSection.home;
+      case _DemoKey.library:
+        _searching = false;
+        _section = YoinSection.library;
       case _DemoKey.search:
         _searching = !_searching;
     }
@@ -418,6 +429,7 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
       _paused = false;
       _song = 0;
       _searching = false;
+      _section = YoinSection.home;
       _pressed = null;
     });
     await f.wait(500);
@@ -427,11 +439,14 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
     await f.wait(700);
     await _key(f, _DemoKey.next);
     await f.wait(900);
+    await _key(f, _DemoKey.library);
+    await f.wait(1100);
     await _key(f, _DemoKey.search);
     await f.lift();
     await f.wait(1600);
-    await _key(f, _DemoKey.search);
-    await f.wait(600);
+    await _key(f, _DemoKey.home);
+    await f.lift();
+    await f.wait(1100);
   }
 
   @override
@@ -450,7 +465,7 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
             Expanded(
               child: Stack(
                 children: [
-                  DemoLibraryPage(nowPlaying: track),
+                  DemoLibraryPage(nowPlaying: track, section: _section, home: const DemoHomeFeed()),
                   Positioned.fill(child: _DemoSearchBar(visible: _searching)),
                 ],
               ),
@@ -471,6 +486,8 @@ class _KeyboardShortcutsDemoState extends State<KeyboardShortcutsDemo> with Demo
                             label: switch (key) {
                               _DemoKey.space => zh ? '空格' : 'Space',
                               _DemoKey.next => 'Ctrl →',
+                              _DemoKey.home => 'Ctrl 1',
+                              _DemoKey.library => 'Ctrl 2',
                               _DemoKey.search => 'Ctrl K',
                             },
                             pressed: _pressed == key,
@@ -527,9 +544,14 @@ class _Keycap extends StatelessWidget {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TipSceneTokens.keyCorner)),
                   ),
                   child: Center(
-                    child: Text(
-                      label,
-                      style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurface),
+                    // Five keys on a phone's width: a chord's label shrinks to its cap rather than wrapping.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurface),
+                      ),
                     ),
                   ),
                 ),

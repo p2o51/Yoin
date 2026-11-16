@@ -20,6 +20,8 @@ import 'package:yoin/settings/appearance/scroll_edge_screen.dart';
 import 'package:yoin/ui/component/seam/seam_style.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/detail/detail_track_rows.dart' show TrackCountLine;
+import 'package:yoin/detail/reshape_scaffold.dart' show DetailBarHeader;
+import 'package:yoin/shell/yoin_section.dart';
 import 'package:yoin/settings/tips.dart';
 import 'package:yoin/shell/yoin_bottom_bar.dart';
 import 'package:yoin/theme/theme.dart';
@@ -93,6 +95,11 @@ void main() {
     test('should_bringAiFeaturesBackUnread_when_readBeforeTheChartOpenedOnCost', () {
       // Read on 11-16: the AI page's chart now opens on cost against the overall score.
       expect(decodeReadTips(['aiServices@2026-11-16', 'lyricsTools@2026-11-16']), {HomeBubbleTip.lyricsTools});
+    });
+
+    test('should_bringKeyboardShortcutsBackUnread_when_readBeforeCtrl1And2', () {
+      // Read on 11-13: the demo now goes to Library and Home with Ctrl + 2 / Ctrl + 1.
+      expect(decodeReadTips(['keyboardShortcuts@2026-11-13', 'name@2026-10-17']), {HomeBubbleTip.name});
     });
 
     test('should_bringMemoriesTipsBackUnread_when_readBeforeTheDeckAurora', () {
@@ -408,6 +415,29 @@ void main() {
       expect(barAlpha(), 1);
       expect(await playUntil(tester, () => barAlpha() == 0), isTrue);
       expect(await playUntil(tester, () => barAlpha() == 1), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_dockTheCoverAndBringItBack_when_theCoverStampDemoPlays', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.coverStamp);
+      double docked() => tester.widget<DetailBarHeader>(find.byType(DetailBarHeader)).reveal.barProgress;
+      expect(docked(), 0);
+      // The pull-up flies the cover into the bar's stamp…
+      expect(await playUntil(tester, () => docked() > 0.99), isTrue);
+      // …and the stamp's tap brings it back.
+      expect(await playUntil(tester, () => docked() < 0.01), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_goToLibraryAndBackHome_when_theKeyboardDemoPressesCtrl2AndCtrl1', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.keyboardShortcuts);
+      YoinSection selected() => tester.widget<YoinBottomBar>(find.byType(YoinBottomBar)).selected;
+      expect(selected(), YoinSection.home);
+      expect(find.text('Ctrl 1'), findsOneWidget);
+      expect(await playUntil(tester, () => selected() == YoinSection.library), isTrue);
+      expect(await playUntil(tester, () => selected() == YoinSection.home), isTrue);
       expect(tester.takeException(), isNull);
       await leave(tester);
     });

@@ -26,6 +26,7 @@ class AlbumSpectrumLayer extends StatefulWidget {
     required this.cover,
     required this.bar,
     this.reduce = false,
+    this.ticks = true,
   });
 
   final BarMorph reveal;
@@ -35,6 +36,9 @@ class AlbumSpectrumLayer extends StatefulWidget {
   final Rect cover;
   final Rect bar;
   final bool reduce;
+
+  /// False: no haptic tick as the strips land (a Tips demo plays on its own).
+  final bool ticks;
 
   @override
   State<AlbumSpectrumLayer> createState() => _AlbumSpectrumLayerState();
@@ -103,7 +107,7 @@ class _AlbumSpectrumLayerState extends State<AlbumSpectrumLayer> with TickerProv
   AlbumSpectrumSource get _shown => _loaded ?? _fallback ?? AlbumSpectrumSource(AlbumSpectrum.fallback(const []), null);
 
   void _onReveal() {
-    if (widget.reduce) return;
+    if (widget.reduce || !widget.ticks) return;
     final now = albumSpectrumLanded(_shown.spectrum, widget.reveal.barProgress);
     if (now != _landed) {
       final at = _clock.elapsedMilliseconds;

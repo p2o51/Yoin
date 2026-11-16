@@ -6,7 +6,7 @@
 /// Android's order. Copy: Android's (strings_home.xml, key in the comment)
 /// where it holds on HarmonyOS; the rest was written for HarmonyOS by the
 /// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116, -1117,
-/// -1117b and -1117c) and is used as given.
+/// -1117b, -1117c and -1117d) and is used as given.
 library;
 
 import 'dart:io' show Platform;
@@ -19,6 +19,8 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 /// the [text]. [updated] is the day the tip last changed what it shows: a
 /// tip read before that comes back unread.
 enum HomeBubbleTip {
+  // No stamp symbol in Yoin Symbols yet: Image stands in for the cover.
+  coverStamp(YoinSymbols.image, (2026, 11, 17)),
   removeFromPlaylist(YoinSymbols.playlist, (2026, 11, 17)),
   // No symbol for a bar sliding away in Yoin Symbols yet: Unfold less stands in.
   barScrollHide(YoinSymbols.unfoldLess, (2026, 11, 17)),
@@ -30,7 +32,7 @@ enum HomeBubbleTip {
   memoriesDiary(YoinSymbols.article, (2026, 11, 17)),
   cloudSync(YoinSymbols.cloud, (2026, 11, 17)),
   welcomeGuide(YoinSymbols.refresh, (2026, 11, 16)),
-  keyboardShortcuts(YoinSymbols.keyboard, (2026, 11, 13)),
+  keyboardShortcuts(YoinSymbols.keyboard, (2026, 11, 17)),
   volumeLeveling(YoinSymbols.volumeUp, (2026, 11, 13)),
   homeScreenWidgets(YoinSymbols.library, (2026, 11, 13), desktop: false),
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
@@ -78,6 +80,7 @@ enum HomeBubbleTip {
   }
 
   String title({required bool zh}) => switch (this) {
+    coverStamp => zh ? '顶栏小封面' : 'Cover in the top bar', // Carbon 2026-11-17
     removeFromPlaylist => zh ? '从播放列表移除' : 'Remove from playlist', // Carbon 2026-11-17
     barScrollHide => zh ? '收起底栏' : 'Hide the bottom bar', // Carbon 2026-11-17
     tabletop => zh ? '悬停正在播放' : 'Tabletop Now Playing', // Carbon 2026-11-17
@@ -117,6 +120,12 @@ enum HomeBubbleTip {
   };
 
   String text({required bool zh}) => switch (this) {
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117d).
+    coverStamp =>
+      zh
+          ? '手机上把专辑或歌单页往上拉，或在平板与宽窗口里滚动专辑歌曲列表，大封面会收进顶栏；轻点顶栏小封面，恢复大封面或回到顶部'
+          : "Pull the page up in an album or playlist on a phone, or scroll an album's songs on a tablet or wider window, "
+                'to shrink the cover into the top bar; tap the small cover to bring it back or return to the top',
     // Carbon 2026-11-17 (.argon/harmony-tips-1117c).
     removeFromPlaylist =>
       zh
@@ -173,12 +182,14 @@ enum HomeBubbleTip {
           ? '随时可在设置 › 帮助与关于 › 欢迎向导中重新打开首次引导，选择音乐服务并连接'
           : 'Reopen the first-run setup guide any time in Settings › Help and about › Welcome guide to choose a service '
                 'and connect',
-    // Carbon 2026-11-16 (Android's home_tip_keyboard_shortcuts names a list HarmonyOS doesn't have).
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117d: Ctrl+1/2/3 joined; Android's home_tip_keyboard_shortcuts
+    // names a list HarmonyOS doesn't have).
     keyboardShortcuts =>
       zh
-          ? '按空格播放或暂停，Ctrl+← 或 Ctrl+→ 切歌，正在播放里按 ← 或 → 快退快进 5 秒，Ctrl+K 搜索，Ctrl+Shift+P 开关正在播放'
-          : 'Press Space to play or pause, Ctrl+← or Ctrl+→ to skip, ← or → in Now Playing to seek 5 s, Ctrl+K to '
-                'search, and Ctrl+Shift+P to open or close Now Playing',
+          ? '按空格播放或暂停，Ctrl+← 或 Ctrl+→ 切歌，正在播放里按 ← 或 → 快退快进 5 秒，Ctrl+1 去「首页」、Ctrl+2 去「资料库」、Ctrl+3 去「全部回忆」，Ctrl+K 搜索，Ctrl+Shift+P 开关正在播放'
+          : 'Press Space to play or pause, Ctrl+← or Ctrl+→ to skip, ← or → in Now Playing to seek 5 s, Ctrl+1 for Home, '
+                'Ctrl+2 for Library, Ctrl+3 for All Memories, Ctrl+K to search, and Ctrl+Shift+P to open or close Now '
+                'Playing',
     // home_tip_volume_leveling
     volumeLeveling =>
       zh

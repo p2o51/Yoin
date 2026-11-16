@@ -420,7 +420,14 @@ class DemoLibraryPage extends StatelessWidget {
     this.pillOverride,
     this.scrollable = false,
     this.onLibraryLongPress,
+    this.section = YoinSection.library,
+    this.home,
   });
+
+  /// The bar's selection; Home shows [home] in place of Library, the two
+  /// cross-fading on the effects spring as the shell's pages do.
+  final YoinSection section;
+  final Widget? home;
 
   /// A long-press on Library in the bar (its search).
   final VoidCallback? onLibraryLongPress;
@@ -467,25 +474,26 @@ class DemoLibraryPage extends StatelessWidget {
       color: colors.surface,
       child: Stack(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: TipSceneTokens.pageTop),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
-                child: Text(
-                  strings.title,
-                  style: Theme.of(context).textTheme.headlineMedium!.copyWith(color: colors.onSurface),
-                ),
-              ),
-              const SizedBox(height: TipSceneTokens.titleGap),
-              LibraryFilterRow(
-                tabs: const [LibraryTab.all, LibraryTab.albums, LibraryTab.artists, LibraryTab.songs],
-                selected: LibraryTab.albums,
-                onSelect: (_) {},
-              ),
-              Expanded(child: DemoTarget('libraryBody', child: body?.call(grid) ?? grid)),
-            ],
+          DemoSpring(
+            target: section == YoinSection.home ? 1 : 0,
+            spring: YoinSprings.defaultEffects,
+            builder: (context, h) {
+              final shown = home == null ? 0.0 : h.clamp(0.0, 1.0);
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  IgnorePointer(
+                    ignoring: shown >= 0.5,
+                    child: Opacity(opacity: 1 - shown, child: _libraryColumn(context, strings, colors, grid)),
+                  ),
+                  if (home != null && shown > 0)
+                    IgnorePointer(
+                      ignoring: shown < 0.5,
+                      child: Opacity(opacity: shown, child: home),
+                    ),
+                ],
+              );
+            },
           ),
           Positioned(
             left: 0,
@@ -494,7 +502,7 @@ class DemoLibraryPage extends StatelessWidget {
             child: DemoTarget(
               'bar',
               child: YoinBottomBar(
-                selected: YoinSection.library,
+                selected: section,
                 onSelect: (_) {},
                 hasTrack: nowPlaying != null,
                 onLibraryLongPress: onLibraryLongPress,
@@ -511,6 +519,27 @@ class DemoLibraryPage extends StatelessWidget {
       ),
     );
   }
+
+  Widget _libraryColumn(BuildContext context, LibraryStrings strings, ColorScheme colors, Widget grid) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const SizedBox(height: TipSceneTokens.pageTop),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
+        child: Text(
+          strings.title,
+          style: Theme.of(context).textTheme.headlineMedium!.copyWith(color: colors.onSurface),
+        ),
+      ),
+      const SizedBox(height: TipSceneTokens.titleGap),
+      LibraryFilterRow(
+        tabs: const [LibraryTab.all, LibraryTab.albums, LibraryTab.artists, LibraryTab.songs],
+        selected: LibraryTab.albums,
+        onSelect: (_) {},
+      ),
+      Expanded(child: DemoTarget('libraryBody', child: body?.call(grid) ?? grid)),
+    ],
+  );
 }
 
 /// Now Playing in the phone: the cover (a demo target `cover`), the song,
