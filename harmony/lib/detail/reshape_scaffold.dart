@@ -496,6 +496,8 @@ class _Body extends StatelessWidget {
     final list = DetailColorsBuilder(
       builder: (context, page) => ChromeSeam(
         background: SeamBackground([page.wash, colors.surface, colors.surfaceContainerLow]),
+        // Rows near the bar open into the bottom field.
+        field: true,
         child: ListView(
           physics: physics,
           padding: EdgeInsets.fromLTRB(16, 4, 16, 112 + bottomInset),

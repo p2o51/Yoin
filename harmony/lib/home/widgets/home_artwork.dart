@@ -7,6 +7,7 @@ import '../../app/providers.dart';
 import '../../data/model/model.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import '../../ui/component/seam/seam_dissolve.dart' show SeamDissolve, SeamPrint;
 import '../home_metrics.dart';
 import '../home_ui_state.dart';
 import 'backdrop_shapes.dart';
@@ -72,9 +73,13 @@ class HomeArtwork extends StatelessWidget {
     );
     return SizedBox.square(
       dimension: size,
-      child: circle
-          ? ClipOval(child: content)
-          : ClipRSuperellipse(borderRadius: BorderRadius.circular(radius), child: content),
+      // Near the bar the cover breaks into the bottom field (seamDissolve).
+      child: SeamDissolve(
+        round: circle,
+        child: circle
+            ? ClipOval(child: content)
+            : ClipRSuperellipse(borderRadius: BorderRadius.circular(radius), child: content),
+      ),
     );
   }
 }
@@ -142,23 +147,28 @@ class BackdropCover extends ConsumerWidget {
     final artworkSide = size * HomeBackdropMetrics.artworkFraction;
     final image = resolveHomeCover(ref, context, cover, requestSize: requestSize, side: artworkSide);
     final fallback = Theme.of(context).colorScheme.secondaryContainer;
-    return SizedBox.square(
-      dimension: size,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: BackdropColorBuilder(
-              cacheKey: image?.url,
-              image: image?.image,
-              fallback: fallback,
-              builder: (context, base, _) => _MorphingShape(kind: kind, color: base),
+    // The shape and its cover break up as one print (a card around it takes them into its own).
+    return SeamPrint(
+      child: SizedBox.square(
+        dimension: size,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: SeamDissolve(
+                child: BackdropColorBuilder(
+                  cacheKey: image?.url,
+                  image: image?.image,
+                  fallback: fallback,
+                  builder: (context, base, _) => _MorphingShape(kind: kind, color: base),
+                ),
+              ),
             ),
-          ),
-          Align(
-            alignment: AlignmentDirectional.bottomEnd,
-            child: _PressedArtwork(child: HomeArtwork(image: image, kind: kind, size: artworkSide)),
-          ),
-        ],
+            Align(
+              alignment: AlignmentDirectional.bottomEnd,
+              child: _PressedArtwork(child: HomeArtwork(image: image, kind: kind, size: artworkSide)),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -206,6 +206,7 @@ class _ArtistBody extends ConsumerWidget {
           builder: (context, page) => ChromeSeam(
             controller: scroll,
             background: SeamBackground([page.wash, colors.surface, colors.surfaceContainerLow]),
+            field: true,
             child: SingleChildScrollView(
               controller: scroll,
               padding: EdgeInsets.only(bottom: DetailTokens.artistBottomPadding + bottomInset),

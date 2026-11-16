@@ -27,6 +27,7 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/seam/seam_field.dart' show SeamBarField, SeamBarFieldScope, SeamBarSlot;
 import '../ui/navigation/pane/detail_pane.dart';
 import '../ui/navigation/pane/pane_split.dart';
 import 'app_messages.dart';
@@ -74,6 +75,9 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   /// 0 = the bar may show, 1 = a bar-less page (setup, search) sent it away.
   late final OverlaySpring _barAway = OverlaySpring(vsync: this, initial: 0);
 
+  /// Where the bar is, for the seams' bottom field (one per window, ProvideSeamBarField).
+  late final SeamBarField _seamBar = SeamBarField(vsync: this);
+
   @override
   void initState() {
     super.initState();
@@ -94,6 +98,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
     _back.dispose();
     _barAway.dispose();
+    _seamBar.dispose();
     _controller.dispose();
     // _entry lives and dies with this chrome's own Overlay (already unmounted here).
     super.dispose();
@@ -119,6 +124,8 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   /// Back belongs to the overlay exactly while it is open.
   void _syncBack() {
     _syncKeepAwake();
+    // The field fades as Now Playing starts to rise and grows back once it has collapsed (OverlayChromeVisibility).
+    _seamBar.shown = !_controller.expanded;
     final navigator = appNavigatorKey.currentState;
     if (_controller.expanded && navigator != null) {
       _back.attach(navigator);
@@ -171,7 +178,11 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
           BesideNowPlayingPanel(
             controller: _controller,
             providesWindow: false,
-            child: _ChromeBar(controller: _controller, away: _barAway),
+            // The window's bar reports itself to the seams' bottom field.
+            child: SeamBarSlot(
+              field: _seamBar,
+              child: _ChromeBar(controller: _controller, away: _barAway),
+            ),
           ),
           // The player's own Navigator blocks the semantics painted before
           // it (its route's barrier). Full, that is right: nothing under it
@@ -212,7 +223,11 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
         _barAway.animateTo(away ? 1 : 0, YoinSprings.standardDefaultSpatial);
       }
     });
-    return Overlay(initialEntries: [_entry]);
+    // Every page under this chrome reads the window's bar for the seams' bottom field.
+    return SeamBarFieldScope(
+      field: _seamBar,
+      child: Overlay(initialEntries: [_entry]),
+    );
   }
 }
 

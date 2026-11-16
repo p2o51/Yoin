@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/activity/activity.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/seam/seam_dissolve.dart' show SeamSurface;
 import 'home_actions.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
@@ -333,11 +334,12 @@ class _BentoCard extends ConsumerWidget {
           image: image?.image,
           fallback: colors.secondaryContainer,
           child: child,
-          builder: (context, base, child) => Material(
-            color: Color.lerp(low, base, HomeTokens.cardWashFraction),
+          // The tinted card and its cover break up as one print near the bar; the text on it stays whole.
+          builder: (context, base, child) => SeamSurface(
+            color: Color.lerp(low, base, HomeTokens.cardWashFraction)!,
             shape: shapeBorder,
             clipBehavior: Clip.antiAlias,
-            child: child,
+            child: child!,
           ),
         ),
       ),
@@ -608,11 +610,9 @@ class HomeEmptyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final style = Theme.of(context).textTheme.titleLarge!.copyWith(color: colors.onSurface);
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        color: ElevationOverlay.applySurfaceTint(colors.surfaceContainerLow, colors.surfaceTint, HomeBackdropMetrics.tonalElevation),
-        shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.panel)),
-      ),
+    return SeamSurface(
+      color: ElevationOverlay.applySurfaceTint(colors.surfaceContainerLow, colors.surfaceTint, HomeBackdropMetrics.tonalElevation),
+      shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.panel)),
       child: Padding(
         padding: const EdgeInsets.all(HomeEmptyCardMetrics.padding),
         child: Column(

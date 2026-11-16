@@ -27,6 +27,7 @@ import '../playback/local_ratings.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../ui/component/cover_art.dart';
+import '../ui/component/seam/seam_dissolve.dart' show SeamDissolve, SeamPrint;
 import '../ui/component/desktop_input.dart';
 import 'copy/memory_copy.dart';
 import 'memories_reveal_scope.dart';
@@ -283,41 +284,59 @@ class _HomeMemoryPillState extends ConsumerState<HomeMemoryPill> with TickerProv
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: open,
-            child: CustomPaint(
-              painter: _PillOutline(
-                kind: latest == null ? MemoryPillScore.none : kind,
-                color: colors.outline.withValues(alpha: 0.6),
-                wash: colors.secondaryContainer,
-              ),
-              child: SizedBox(
-                height: 40,
-                child: Padding(
-                  padding: EdgeInsetsDirectional.only(start: latest == null ? 14 : 6, end: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (latest != null) ...[
-                        CoverArt(cover: latest.coverArt, size: 28, radius: 4, requestSize: 96),
-                        if (pill.scoreText != null) ...[
-                          const SizedBox(width: 10),
-                          Text(
-                            pill.scoreText!,
-                            style: textStyle.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-                          ),
-                        ],
-                      ] else
-                        Text(strings.label, style: textStyle),
-                      if (notes != null) ...[
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(notes, style: quiet, maxLines: 1, overflow: TextOverflow.fade, softWrap: false),
+            // The container and cover break up as one print near the bar; the text stays whole.
+            child: SeamPrint(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: SeamDissolve(
+                      child: CustomPaint(
+                        painter: _PillOutline(
+                          kind: latest == null ? MemoryPillScore.none : kind,
+                          color: colors.outline.withValues(alpha: 0.6),
+                          wash: colors.secondaryContainer,
                         ),
-                      ],
-                      const SizedBox(width: 4),
-                      Icon(YoinSymbols.chevronDown, size: 20, color: colors.onSurfaceVariant),
-                    ],
+                      ),
+                    ),
                   ),
-                ),
+                  SizedBox(
+                    height: 40,
+                    child: Padding(
+                      padding: EdgeInsetsDirectional.only(start: latest == null ? 14 : 6, end: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (latest != null) ...[
+                            SeamDissolve(child: CoverArt(cover: latest.coverArt, size: 28, radius: 4, requestSize: 96)),
+                            if (pill.scoreText != null) ...[
+                              const SizedBox(width: 10),
+                              Text(
+                                pill.scoreText!,
+                                style: textStyle.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+                              ),
+                            ],
+                          ] else
+                            Text(strings.label, style: textStyle),
+                          if (notes != null) ...[
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Text(
+                                notes,
+                                style: quiet,
+                                maxLines: 1,
+                                overflow: TextOverflow.fade,
+                                softWrap: false,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 4),
+                          Icon(YoinSymbols.chevronDown, size: 20, color: colors.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

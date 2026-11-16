@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../detail/detail_routes.dart';
 import '../memories/copy/memory_copy.dart';
 import '../theme/tokens.dart';
+import '../ui/component/seam/seam_dissolve.dart' show SeamSurface;
 import 'home_edit.dart';
 import 'home_edit_wiggle.dart';
 import 'home_header.dart';
@@ -97,11 +98,12 @@ class RediscoverCard extends ConsumerWidget {
           cacheKey: image?.url,
           image: image?.image,
           fallback: colors.secondaryContainer,
-          builder: (context, base, child) => Material(
-            color: Color.lerp(colors.surfaceContainerLow, base, HomeTokens.cardWashFraction),
+          // The tinted card, its cover and badge break up as one print near the bar; the text stays whole.
+          builder: (context, base, child) => SeamSurface(
+            color: Color.lerp(colors.surfaceContainerLow, base, HomeTokens.cardWashFraction)!,
             shape: shape,
             clipBehavior: Clip.antiAlias,
-            child: child,
+            child: child!,
           ),
           child: BackdropColorBuilder(
             cacheKey: image?.url,
@@ -229,21 +231,22 @@ class _ScoreBadge extends StatelessWidget {
     return Semantics(
       label: solid ? strings.rediscoverCdYourRating(score) : strings.rediscoverCdTrackAverage(score),
       excludeSemantics: true,
-      child: Container(
-        height: HomeRediscoverMetrics.badgeHeight,
-        padding: const EdgeInsets.symmetric(horizontal: HomeRediscoverMetrics.badgePadding),
-        alignment: Alignment.center,
-        decoration: ShapeDecoration(
-          color: solid ? ink : wash,
-          shape: StadiumBorder(side: solid ? BorderSide.none : BorderSide(color: ink, width: HomeRediscoverMetrics.badgeLine)),
-        ),
-        child: Text(
-          score,
-          maxLines: 1,
-          style: Theme.of(context).textTheme.labelLarge!.copyWith(
-            fontWeight: FontWeight.w700,
-            color: solid ? wash : ink,
-            fontFeatures: const [FontFeature.tabularFigures()],
+      // The sticker breaks up with the card near the bar; its score stays whole.
+      child: SeamSurface(
+        color: solid ? ink : wash,
+        shape: StadiumBorder(side: solid ? BorderSide.none : BorderSide(color: ink, width: HomeRediscoverMetrics.badgeLine)),
+        child: Container(
+          height: HomeRediscoverMetrics.badgeHeight,
+          padding: const EdgeInsets.symmetric(horizontal: HomeRediscoverMetrics.badgePadding),
+          alignment: Alignment.center,
+          child: Text(
+            score,
+            maxLines: 1,
+            style: Theme.of(context).textTheme.labelLarge!.copyWith(
+              fontWeight: FontWeight.w700,
+              color: solid ? wash : ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
       ),

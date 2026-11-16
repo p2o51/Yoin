@@ -423,6 +423,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
                     Theme.of(context).colorScheme.surface,
                     Theme.of(context).colorScheme.surfaceContainerLow,
                   ]),
+                  field: true,
                   child: NotificationListener<ScrollStartNotification>(
                     // A drag takes the page back from a focus scroll.
                     onNotification: (n) {

@@ -1921,6 +1921,52 @@ abstract final class SeamTokens {
 
   /// The lip's front is sampled this often (dp) when cut as a path.
   static const double cookieStep = 1;
+
+  // ── The bottom field around the floating bar (dissolve-final §1.2) ──
+  /// Where the approach starts: this far above the bar's top edge.
+  static const double fieldStart = 20;
+
+  /// The rest of the approach is hidden behind the bar's top edge.
+  static const double fieldHidden = 28;
+
+  /// A fling lifts the start this much further.
+  static const double fieldStretch = 20;
+
+  /// The pure field's coverage (k0 = √(coverage × 0.866 / π) ≈ 0.332 cells); the approach starts at this radius.
+  static const double fieldCoverage = 0.40;
+  static const double fieldApproachRadius = 0.62;
+
+  /// The pure field thins to this share of k0 at the screen's bottom edge.
+  static const double fieldThinning = 0.9;
+  static const double fieldFront = 3;
+  static const double fieldFrontNear = 10;
+  static const double fieldFlowScale = 24;
+
+  /// 退色: how far the dots ease toward the page colour at the bar's top and at the screen's edge.
+  static const double fieldFadeAtBar = 0.16;
+  static const double fieldFadeAtEdge = 0.32;
+  static const double fieldFadeOvershoot = 20;
+
+  /// 按亮度让位: similar dots vanish 1.5 from the bar and are whole again 7 further out.
+  static const double yieldReach = 7;
+  static const double yieldInset = 1.5;
+  static const double yieldFullDelta = 6;
+  static const double yieldNoneDelta = 18;
+
+  /// Items whose bottom is within this of the window's bottom edge watch the field.
+  static const double fieldWatch = 240;
+
+  /// The content can still scroll this far when the approach starts to shrink (RevealDistance).
+  static const double fieldRestDistance = 40;
+
+  /// Dots smaller than this (px) are left out of a mask.
+  static const double minDotRadius = 0.3;
+
+  /// A print near the bar re-reads its own lightness at most this often (ms).
+  static const int yieldProbeIntervalMs = 500;
+
+  /// The lightness probe renders this many pixels per lattice cell.
+  static const double yieldProbePixelsPerCell = 2;
 }
 
 /// Settings › Appearance › Scroll edge and its live previews (ScrollEdgePage.kt,

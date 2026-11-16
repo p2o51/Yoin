@@ -5,5 +5,6 @@ library;
 
 export '../../../home/widgets/seam.dart' show SeamFade;
 export 'chrome_seam.dart' show ChromeSeam, SeamBackground;
-export 'seam_dissolve.dart' show SeamDissolve, SeamPrint;
+export 'seam_dissolve.dart' show SeamDissolve, SeamPrint, SeamSurface;
+export 'seam_field.dart' show SeamFieldViewport;
 export 'seam_style.dart' show SeamTopStyle, seamTopStyleProvider;
