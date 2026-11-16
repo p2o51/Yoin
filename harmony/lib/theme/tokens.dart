@@ -640,6 +640,19 @@ abstract final class DetailTokens {
   static const double artistBottomPadding = 120;
 }
 
+/// "Score bloom" (component/RatingBloom.kt): a committed rating pops its badge.
+abstract final class RatingBloomTokens {
+  /// The pop starts this small and springs back to 1 (overshooting) on the slow expressive spatial spring.
+  static const double fromScale = 0.72;
+
+  /// It rises by up to this much while small: the pop reads stronger with a lift.
+  static const double lift = 6;
+
+  /// Quiet this long after the badge appears before a change counts as a commit: the page-open
+  /// resolve (the score arrives async) never blooms.
+  static const Duration settle = Duration(milliseconds: 800);
+}
+
 /// Android MetaLine (component/MetaLine.kt): groups never joined by a glyph.
 abstract final class MetaLineTokens {
   /// Gap between groups.
