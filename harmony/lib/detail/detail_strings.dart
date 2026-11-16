@@ -116,6 +116,82 @@ class DetailStrings {
   /// detail_scrap_hidden_notes (plurals).
   String scrapHiddenNotes(int n) => zh ? '+$n 条笔记' : (n == 1 ? '+$n note' : '+$n notes');
 
+  // Page 2's Ask / About cards and fact tags (strings_detail detail_scrap_*).
+  String get scrapAbout => zh ? '关于' : 'About'; // detail_scrap_about
+  String get scrapReadAll => zh ? '阅读全部' : 'Read all'; // detail_scrap_read_all
+  String get scrapCdReadAll => zh ? '阅读全部' : 'Read all'; // detail_scrap_cd_read_all
+  String get scrapQ => 'Q'; // detail_scrap_q (untranslatable)
+  String scrapCdAsk(String track, String question) =>
+      zh ? '关于 $track 的提问：$question' : 'Asked about $track: $question'; // detail_scrap_cd_ask
+  String scrapCdAbout(String track, String line) =>
+      zh ? '关于 $track：$line' : 'About $track: $line'; // detail_scrap_cd_about
+  String scrapFactMore(String value, int n) => '$value  +$n'; // detail_scrap_fact_more
+
+  /// A fact's label (detail_scrap_fact_created … detail_scrap_fact_about).
+  String scrapFact(String key) => switch (key) {
+    'creation_time' => zh ? '创作时间' : 'Created',
+    'creation_location' => zh ? '录制地点' : 'Recorded in',
+    'lyricist' => zh ? '作词' : 'Lyricist',
+    'composer' => zh ? '作曲' : 'Composer',
+    'producer' => zh ? '制作人' : 'Producer',
+    'review' => zh ? '关于' : 'About',
+    _ => key,
+  };
+
+  // The track sheet (AlbumScrapbookTrackSheet, detail_scrap_*).
+  String get scrapCdManageTrack => zh ? '评分和编辑' : 'Score and edit'; // detail_scrap_cd_manage_track
+  String get scrapTabAbout => zh ? '关于' : 'About'; // detail_scrap_tab_about
+  String scrapTabNotes(int n) => n == 0
+      ? (zh ? '笔记' : 'Note') // detail_scrap_tab_notes_none
+      : (zh ? '笔记 · $n' : 'Note · $n'); // detail_scrap_tab_notes
+  String get scrapRate => zh ? '打分' : 'Rate'; // detail_scrap_rate
+  String get scrapRateHint => zh ? '点按或拖动来打分' : 'Tap or slide to rate'; // detail_scrap_rate_hint
+  String get scrapNotRated => zh ? '未评分' : 'Not rated'; // detail_scrap_not_rated
+  String scrapCdScore(String score) => zh ? '评分 $score' : 'Score $score'; // detail_scrap_cd_score
+  String get scrapCdScoreOpen => zh ? '评分条已展开' : 'Score bar open'; // detail_scrap_cd_score_open
+  String get scrapCdScoreClosed => zh ? '点按修改评分' : 'Tap to change the score'; // detail_scrap_cd_score_closed
+  String get scrapClear => zh ? '清除评分' : 'Clear rating'; // detail_scrap_clear
+  String get scrapScoreCleared => zh ? '已清除评分' : 'Rating cleared'; // detail_scrap_score_cleared
+  String get scrapAboutEmpty => zh ? '这首歌还没有资料。' : 'Nothing about this song yet.'; // detail_scrap_about_empty
+  String get scrapAboutGenerate => zh ? '让 Gemini 生成' : 'Generate with Gemini'; // detail_scrap_about_generate
+  String get scrapAboutGenerating => zh ? 'Gemini 正在写…' : 'Gemini is writing…'; // detail_scrap_about_generating
+  String scrapAsked(String q) => zh ? '问：$q' : 'Asked: $q'; // detail_scrap_asked
+  String get scrapByGemini => 'Gemini'; // detail_scrap_by_gemini
+  String get scrapByYou => zh ? '我写的' : 'Written by you'; // detail_scrap_by_you
+  String get scrapCdEdit => zh ? '编辑' : 'Edit'; // detail_scrap_cd_edit
+  String get scrapEditTitleHint => zh ? '标题' : 'Title'; // detail_scrap_edit_title_hint
+  String get scrapEditTextHint => zh ? '留空即删除' : 'Empty removes it'; // detail_scrap_edit_text_hint
+  String get scrapDelete => zh ? '删除' : 'Delete'; // detail_scrap_delete
+  String get scrapRegenerate => zh ? '重新生成' : 'Regenerate'; // detail_scrap_regenerate
+  String get scrapDone => zh ? '完成' : 'Done'; // detail_scrap_done
+  String get scrapDeleted => zh ? '已删除' : 'Deleted'; // detail_scrap_deleted
+  String scrapDeletedNamed(String name) => zh ? '已删除「$name」' : 'Deleted “$name”'; // detail_scrap_deleted_named
+  String get scrapRegenerated => zh ? '已重新生成' : 'Regenerated'; // detail_scrap_regenerated
+  String get scrapUndo => zh ? '撤销' : 'Undo'; // detail_scrap_undo
+  String get scrapNewTitleHint =>
+      zh ? '写个标题，比如：这首歌在讲什么' : 'A title, like: what is this song about'; // detail_scrap_new_title_hint
+  String get scrapNewTextHint => zh ? '写下你知道的…' : 'Write what you know…'; // detail_scrap_new_text_hint
+  String get scrapAskGemini => zh ? '问 Gemini' : 'Ask Gemini'; // detail_scrap_ask_gemini
+  String get scrapWrite => zh ? '输入' : 'Write'; // detail_scrap_write
+  String get scrapSave => zh ? '保存' : 'Save'; // detail_scrap_save
+  String get scrapGeminiFailed =>
+      zh ? 'Gemini 没能回答，再试一次' : "Gemini couldn't answer. Try again."; // detail_scrap_gemini_failed
+  String get scrapGeminiNothing => zh ? 'Gemini 没有新的内容' : 'Gemini had nothing new'; // detail_scrap_gemini_nothing
+  String get scrapApiKeyMissing => zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
+  String get scrapExpandLyrics => zh ? '展开全部歌词' : 'All lyrics'; // detail_scrap_expand_lyrics
+  String get scrapCollapseLyrics => zh ? '只看笔记' : 'Notes only'; // detail_scrap_collapse_lyrics
+  String get scrapLyricsLoading => zh ? '正在加载歌词…' : 'Loading lyrics…'; // detail_scrap_lyrics_loading
+  String get scrapNotesEmpty => zh ? '还没有笔记。' : 'No notes yet.'; // detail_scrap_notes_empty
+  String get scrapNewNote => zh ? '新建笔记' : 'New note'; // detail_scrap_new_note
+  String scrapPlayFrom(String at) => zh ? '从 $at 播放' : 'Play from $at'; // detail_scrap_play_from
+  String scrapPlayingFrom(String at) => zh ? '从 $at 开始播放' : 'Playing from $at'; // detail_scrap_playing_from
+  String get scrapCdPlay => zh ? '播放' : 'Play'; // detail_scrap_cd_play
+  String get scrapEditNote => zh ? '修改' : 'Edit'; // detail_scrap_edit_note
+  String get scrapNoteDeleted => zh ? '已删除笔记' : 'Note deleted'; // detail_scrap_note_deleted
+  String scrapNoteHint(String at) => zh ? '在 $at 记一笔…' : 'A note at $at…'; // detail_scrap_note_hint
+  String get scrapNoteHintPlain => zh ? '记一笔…' : 'A note…'; // detail_scrap_note_hint_plain
+  String get scrapCancel => zh ? '取消' : 'Cancel'; // detail_scrap_cancel
+
   /// detail_unit_play (plurals).
   String unitPlay(int n) => zh ? '次' : (n == 1 ? 'play' : 'plays');
 

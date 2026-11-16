@@ -204,7 +204,7 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
               ],
             ),
             const SizedBox(height: 20),
-            _HorizontalRating(
+            HorizontalRatingBar(
               rating: live > 0 ? live : null,
               fill: tones.button,
               onFill: tones.onButton,
@@ -275,13 +275,15 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
 /// The horizontal rating bar (RatingSlider, Orientation.Horizontal): a 48 dp
 /// stadium, filled to the score in the cover's colour, 0.1 a step; a tap
 /// rates too. A vertical swipe that starts on it belongs to the sheet.
-class _HorizontalRating extends StatelessWidget {
-  const _HorizontalRating({
+class HorizontalRatingBar extends StatelessWidget {
+  const HorizontalRatingBar({
+    super.key,
     required this.rating,
     required this.fill,
     required this.onFill,
     required this.onChanged,
     required this.onActive,
+    this.unratedHint,
   });
 
   final double? rating;
@@ -289,6 +291,9 @@ class _HorizontalRating extends StatelessWidget {
   final Color onFill;
   final ValueChanged<double> onChanged;
   final ValueChanged<bool> onActive;
+
+  /// Shown in the empty bar while unrated (the scrapbook sheet's "Tap or slide to rate").
+  final String? unratedHint;
 
   @override
   Widget build(BuildContext context) {
@@ -333,6 +338,13 @@ class _HorizontalRating extends StatelessWidget {
                       decoration: ShapeDecoration(shape: const StadiumBorder(), color: fill),
                     ),
                   ),
+                  if (rating == null && unratedHint != null)
+                    Center(
+                      child: Text(
+                        unratedHint!,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant),
+                      ),
+                    ),
                   if (rating != null)
                     Align(
                       alignment: Alignment.centerRight,

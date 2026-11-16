@@ -4,10 +4,11 @@
 /// every tilt comes from a hash of the album id and the piece's key, never
 /// from a random draw, so a page reopens exactly the same.
 ///
-/// HarmonyOS keeps what is the listener's own — the review, the track scores,
-/// the notes, the plays and the user's Memory title. The Ask / About cards,
-/// their fact tags and the AI Memory title are Gemini's and are not built;
-/// nor is the album-note sticky (nothing writes album notes any more).
+/// Besides what is the listener's own — the review, the track scores, the
+/// notes, the plays and the Memory title (theirs, else Yoin's AI title) — a
+/// track's Ask / About rows from Now Playing show as a question card (or the
+/// About paragraph's first sentence) with its facts as tags. The album-note
+/// sticky is not built (nothing writes album notes any more).
 ///
 /// This file is the model, its pure builder and its live loader;
 /// album_scrapbook_page.dart draws it.
@@ -20,6 +21,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/about/song_about_store.dart';
+import '../data/ai/ai_service.dart' show AboutFields;
+import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../memories/memories_view_model.dart';
@@ -34,8 +38,18 @@ abstract final class ScrapbookRules {
   /// Notes shown on a clipping before "+N notes".
   static const int notesShown = 3;
 
+  /// About facts shown as tags under a card before the rest go to the sheet.
+  static const int tagsShown = 3;
+
   /// Rating-only tracks per small-ticket row.
   static const int contactSheetSize = 2;
+
+  /// Weighted characters (CJK counts 2) a question card shows on a phone / a wider lane.
+  static const int answerBudget = 130;
+  static const int answerBudgetWide = 160;
+
+  /// Answers show at most this many whole sentences on the card, never an ellipsis.
+  static const int answerSentences = 2;
 
   /// Weighted characters (CJK counts 2) up to which the review sits beside the phone cover.
   static const int openingBesideBudget = 160;
@@ -46,6 +60,203 @@ abstract final class ScrapbookRules {
   static const ticketTilts = [-2.0, -1.25, 1.25, 2.0];
   static const stickerTilts = [-12.0, -8.0, -5.0, 5.0, 8.0, 12.0];
   static const coverTilts = [-3.0, 3.0];
+  static const tagTilts = [-3.0, -2.0, 2.0, 3.0];
+}
+
+/// A question asked about a track (in Now Playing or on its sheet), or the
+/// listener's own entry ([own]) (Android AlbumScrapbookAsk).
+@immutable
+final class ScrapAsk {
+  const ScrapAsk({required this.question, this.title, required this.answer, this.ref, this.own = false});
+
+  /// The listener's words: the question asked, or the heading of their own entry.
+  final String question;
+
+  /// The AI's short heading for the answer; null on the listener's own entries.
+  final String? title;
+  final String answer;
+  final AboutRef? ref;
+  final bool own;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrapAsk &&
+      other.question == question &&
+      other.title == title &&
+      other.answer == answer &&
+      other.ref == ref &&
+      other.own == own;
+
+  @override
+  int get hashCode => Object.hash(question, title, answer, ref, own);
+}
+
+/// One About field of a track (Android AlbumScrapbookFact): [key] is one of [AboutFields].
+@immutable
+final class ScrapFact {
+  const ScrapFact({required this.key, required this.value, this.ref});
+
+  final String key;
+  final String value;
+  final AboutRef? ref;
+
+  @override
+  bool operator ==(Object other) => other is ScrapFact && other.key == key && other.value == value && other.ref == ref;
+
+  @override
+  int get hashCode => Object.hash(key, value, ref);
+}
+
+/// A track's Ask / About: questions newest first, facts in [AboutFields.order].
+@immutable
+final class ScrapAbout {
+  const ScrapAbout({this.asks = const [], this.facts = const []});
+
+  final List<ScrapAsk> asks;
+  final List<ScrapFact> facts;
+
+  bool get isEmpty => asks.isEmpty && facts.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrapAbout && listEquals(other.asks, asks) && listEquals(other.facts, facts);
+
+  @override
+  int get hashCode => Object.hash(Object.hashAll(asks), Object.hashAll(facts));
+}
+
+/// A fact as a tag (its field key, value and tilt).
+@immutable
+final class ScrapTag {
+  const ScrapTag({required this.key, required this.value, required this.tilt, this.ref});
+
+  final String key;
+  final String value;
+  final double tilt;
+  final AboutRef? ref;
+
+  /// The long About paragraph (the "review" field).
+  bool get isParagraph => key == AboutFields.review;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrapTag && other.key == key && other.value == value && other.tilt == tilt && other.ref == ref;
+
+  @override
+  int get hashCode => Object.hash(key, value, tilt, ref);
+}
+
+/// Everything Ask / About holds for one track (the track sheet's About tab).
+@immutable
+final class ScrapAboutSheet {
+  const ScrapAboutSheet({required this.asks, required this.facts});
+
+  final List<ScrapAsk> asks;
+  final List<ScrapTag> facts;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrapAboutSheet && listEquals(other.asks, asks) && listEquals(other.facts, facts);
+
+  @override
+  int get hashCode => Object.hash(Object.hashAll(asks), Object.hashAll(facts));
+}
+
+/// About rows (every row under the album's key) matched to [tracks] by
+/// normalised title + artist; a row whose artist matches no track falls back
+/// to the one track with that title. Rows of same-named albums by other
+/// artists match nothing and are dropped (matchAboutToTracks).
+Map<MediaId, ScrapAbout> matchAboutToTracks(List<SongAboutEntry> rows, List<Track> tracks) {
+  if (rows.isEmpty || tracks.isEmpty) return const {};
+  final byTitleArtist = <(String, String), MediaId>{};
+  final byTitle = <String, Set<MediaId>>{};
+  for (final t in tracks) {
+    final title = normalizeAboutKey(t.title ?? '');
+    byTitleArtist.putIfAbsent((title, normalizeAboutKey(t.artist ?? '')), () => t.id);
+    (byTitle[title] ??= <MediaId>{}).add(t.id);
+  }
+  final grouped = <MediaId, List<SongAboutEntry>>{};
+  for (final row in rows) {
+    final candidates = byTitle[row.titleKey];
+    final id = byTitleArtist[(row.titleKey, row.artistKey)] ?? (candidates?.length == 1 ? candidates!.first : null);
+    if (id != null) (grouped[id] ??= []).add(row);
+  }
+  return {for (final e in grouped.entries) e.key: _toAbout(e.value)};
+}
+
+ScrapAbout _toAbout(List<SongAboutEntry> rows) {
+  final asks =
+      [
+        for (final r in rows)
+          if (!r.isCanonical && r.answerText.trim().isNotEmpty) r,
+      ]..sort((a, b) {
+        // By when it was first asked: an answer edited (or restored by Undo) keeps its place.
+        final c = b.createdAt.compareTo(a.createdAt);
+        return c != 0 ? c : b.updatedAt.compareTo(a.updatedAt);
+      });
+  final canonical = {
+    for (final r in rows)
+      if (r.isCanonical && r.answerText.trim().isNotEmpty) r.entryKey: r,
+  };
+  return ScrapAbout(
+    asks: [
+      for (final r in asks)
+        r.isOwn
+            ? ScrapAsk(
+                question: (r.titleText?.trim().isNotEmpty ?? false) ? r.titleText! : r.entryKey,
+                answer: r.answerText.trim(),
+                ref: r.ref,
+                own: true,
+              )
+            : ScrapAsk(
+                question: (r.promptText?.trim().isNotEmpty ?? false) ? r.promptText! : r.entryKey,
+                title: (r.titleText?.trim().isNotEmpty ?? false) ? r.titleText : null,
+                answer: r.answerText.trim(),
+                ref: r.ref,
+              ),
+    ],
+    facts: [
+      for (final key in AboutFields.order)
+        if (canonical[key] case final row?) ScrapFact(key: key, value: row.answerText.trim(), ref: row.ref),
+    ],
+  );
+}
+
+/// The excerpt a card shows and whether anything was left for the sheet.
+@immutable
+final class AnswerExcerpt {
+  const AnswerExcerpt(this.text, {required this.truncated});
+  final String text;
+  final bool truncated;
+}
+
+final RegExp _sentence = RegExp(r'[^。！？.!?]+[。！？.!?]+["”’）)]*|[^。！？.!?]+$');
+
+/// The sentences of [text], their closing punctuation kept (splitSentences).
+List<String> splitSentences(String text) => [
+  for (final m in _sentence.allMatches(text))
+    if (m.group(0)!.trim().isNotEmpty) m.group(0)!,
+];
+
+/// Whole sentences of [answer], never an ellipsis: the first always, then
+/// more while they fit [budget] weighted characters, up to [maxSentences] (answerExcerpt).
+AnswerExcerpt answerExcerpt(String answer, int budget, {int maxSentences = ScrapbookRules.answerSentences}) {
+  final sentences = splitSentences(answer.trim());
+  if (sentences.isEmpty) return const AnswerExcerpt('', truncated: false);
+  final shown = StringBuffer();
+  var weight = 0;
+  var count = 0;
+  for (final sentence in sentences) {
+    final w = weightedLength(sentence);
+    if (count < maxSentences && (count == 0 || weight + w <= budget)) {
+      shown.write(sentence);
+      weight += w;
+      count++;
+    } else {
+      break;
+    }
+  }
+  return AnswerExcerpt(shown.toString().trim(), truncated: count < sentences.length);
 }
 
 /// One track as the page shows it.
@@ -141,6 +352,13 @@ final class ScrapTrackCluster extends ScrapPiece {
     required this.notes,
     required this.hiddenNotes,
     required this.notesTilt,
+    this.ask,
+    this.moreAsks = 0,
+    this.aboutLine,
+    this.cardTilt = 0,
+    this.tags = const [],
+    this.hiddenTags = 0,
+    this.sheet,
   });
 
   final ScrapTrack track;
@@ -156,6 +374,21 @@ final class ScrapTrackCluster extends ScrapPiece {
   final List<SongNote> notes;
   final int hiddenNotes;
   final double notesTilt;
+
+  /// The newest question (or own entry); [moreAsks] past it.
+  final ScrapAsk? ask;
+  final int moreAsks;
+
+  /// The About paragraph's first sentence, only when the track has no question.
+  final String? aboutLine;
+  final double cardTilt;
+
+  /// The short facts as tags (the first [ScrapbookRules.tagsShown]); [hiddenTags] past them.
+  final List<ScrapTag> tags;
+  final int hiddenTags;
+
+  /// Everything Ask / About holds for the track (its sheet); null with none.
+  final ScrapAboutSheet? sheet;
 
   @override
   String get key => 'track:${track.key}';
@@ -213,7 +446,9 @@ final class AlbumScrapbookData {
     this.trackPlays = const {},
     this.plays,
     this.title,
+    this.aiTitle,
     this.starred = const {},
+    this.about = const {},
   });
 
   final String? review;
@@ -229,7 +464,18 @@ final class AlbumScrapbookData {
 
   /// The user's own Memory title.
   final String? title;
+
+  /// Yoin's AI Memory title, only when Memories already wrote it (never generated from here).
+  final String? aiTitle;
   final Set<MediaId> starred;
+
+  /// Ask / About rows matched to the tracks.
+  final Map<MediaId, ScrapAbout> about;
+}
+
+String? _written(String? text) {
+  final t = text?.trim();
+  return t == null || t.isEmpty ? null : t;
 }
 
 /// FNV-1a over UTF-16 units, as an unsigned 32-bit value (Android scrapHash).
@@ -310,7 +556,7 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
     return list;
   }
 
-  bool touched(ScrapTrack t) => t.score != null || notesOf(t).isNotEmpty;
+  bool touched(ScrapTrack t) => t.score != null || notesOf(t).isNotEmpty || !(data.about[t.track.id]?.isEmpty ?? true);
 
   final pieces = <ScrapPiece>[];
   final review = data.review?.trim();
@@ -320,7 +566,8 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
       review: hasReview ? review : null,
       coverTilt: tilt('cover', ScrapbookRules.coverTilts),
       reviewTilt: tilt(hasReview ? 'review' : 'ghost', ScrapbookRules.cardTilts),
-      title: data.title?.trim().isEmpty ?? true ? null : data.title!.trim(),
+      // The user's own name, else Yoin's AI title (scrapTitle).
+      title: _written(data.title) ?? _written(data.aiTitle),
       reviewAt: hasReview ? data.reviewAt : null,
     ),
   );
@@ -355,13 +602,30 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   for (final t in tracks) {
     if (!touched(t)) continue;
     final notes = notesOf(t);
+    final about = data.about[t.track.id];
+    final asks = about?.asks ?? const <ScrapAsk>[];
+    final facts = about?.facts ?? const <ScrapFact>[];
     final isBest = t.key == best;
-    if (notes.isEmpty && !isBest) {
+    if (notes.isEmpty && asks.isEmpty && facts.isEmpty && !isBest) {
       run.add(t);
       continue;
     }
     flushRun();
     final ticketTilt = tilt('${t.number}/tk', ScrapbookRules.ticketTilts);
+    var previous = ticketTilt;
+    final notesTilt = notes.isEmpty
+        ? 0.0
+        : previous = oppositeTilt(previous, tilt('${t.number}/nt', ScrapbookRules.paperTilts));
+    final paragraph = facts.where((f) => f.key == AboutFields.review).firstOrNull?.value;
+    final aboutLine = asks.isEmpty && paragraph != null
+        ? answerExcerpt(paragraph, ScrapbookRules.answerBudget, maxSentences: 1).text
+        : null;
+    final cardTilt = asks.isNotEmpty || aboutLine != null
+        ? oppositeTilt(previous, tilt('${t.number}/qa', ScrapbookRules.cardTilts))
+        : 0.0;
+    ScrapTag tagOf(int i, ScrapFact f) =>
+        ScrapTag(key: f.key, value: f.value, tilt: tilt('${t.number}/fact$i', ScrapbookRules.tagTilts), ref: f.ref);
+    final allTags = [for (final (i, f) in facts.where((f) => f.key != AboutFields.review).indexed) tagOf(i, f)];
     pieces.add(
       ScrapTrackCluster(
         track: t,
@@ -370,7 +634,16 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
         ticketTilt: ticketTilt,
         notes: notes,
         hiddenNotes: math.max(0, notes.length - ScrapbookRules.notesShown),
-        notesTilt: notes.isEmpty ? 0 : oppositeTilt(ticketTilt, tilt('${t.number}/nt', ScrapbookRules.paperTilts)),
+        notesTilt: notesTilt,
+        ask: asks.firstOrNull,
+        moreAsks: math.max(0, asks.length - 1),
+        aboutLine: aboutLine,
+        cardTilt: cardTilt,
+        tags: allTags.take(ScrapbookRules.tagsShown).toList(),
+        hiddenTags: math.max(0, allTags.length - ScrapbookRules.tagsShown),
+        sheet: asks.isEmpty && facts.isEmpty
+            ? null
+            : ScrapAboutSheet(asks: asks, facts: [for (final (i, f) in facts.indexed) tagOf(i, f)]),
       ),
     );
     clusterIndex++;
@@ -381,7 +654,12 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   // a title, a score, a note, a play), page 2 shows just what was left (owner 2026-10-05: "Not yet" read as
   // unexplained; the receipt already says "Rated 0 / N"). No heading, no sticker: one muted line.
   final played = (data.plays?.playCount ?? 0) > 0;
-  if (tracks.isNotEmpty && !tracks.any(touched) && !hasReview && (data.title?.trim().isEmpty ?? true) && !played) {
+  if (tracks.isNotEmpty &&
+      !tracks.any(touched) &&
+      !hasReview &&
+      _written(data.title) == null &&
+      _written(data.aiTitle) == null &&
+      !played) {
     pieces.add(const ScrapNotYet());
   }
 
@@ -399,6 +677,7 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
           ('Last played', scrapRelativeDay(plays.lastPlayedAt, nowMs)),
           ('Rated', '$rated / ${tracks.length}'),
           ('Notes', '$notes'),
+          ('Asked', '${[for (final id in ids) ...?data.about[id]?.asks].where((a) => !a.own).length}'),
         ],
         tilt: tilt('receipt', ScrapbookRules.paperTilts),
       ),
@@ -414,6 +693,7 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
 
   final MediaId albumId;
   StreamSubscription<MemoryStoreChange>? _changes;
+  StreamSubscription<void>? _aboutChanges;
   int _generation = 0;
 
   @override
@@ -425,7 +705,19 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
     _changes = store?.changes.listen(
       (_) => _load(store, ref.read(localRatingsProvider), ref.read(favoriteOverridesProvider)),
     );
-    ref.onDispose(() => _changes?.cancel());
+    // A question, an answer or an edit from Now Playing or the track sheet.
+    _aboutChanges?.cancel();
+    _aboutChanges = _aboutStore()?.changes.listen(
+      (_) => _load(
+        ref.read(memoryStoreProvider).value,
+        ref.read(localRatingsProvider),
+        ref.read(favoriteOverridesProvider),
+      ),
+    );
+    ref.onDispose(() {
+      _changes?.cancel();
+      _aboutChanges?.cancel();
+    });
     final previous = stateOrNull;
     scheduleMicrotask(() => _load(store, ratings, starred));
     return previous;
@@ -446,6 +738,8 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
       final trackPlays = await store?.trackPlays() ?? const <TrackPlays>[];
       final plays = await store?.playsOf(albumId);
       final title = await store?.titleOf(albumId);
+      final aboutRows = await _aboutStore()?.byAlbum(normalizeAboutKey(album.name)) ?? const <SongAboutEntry>[];
+      final aiTitle = store == null ? null : await _aiTitle(store.profileId);
       if (!ref.mounted || generation != _generation) return;
       final data = AlbumScrapbookData(
         review: row?.review,
@@ -460,6 +754,8 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
         },
         plays: plays,
         title: title?.title,
+        aiTitle: aiTitle,
+        about: matchAboutToTracks(aboutRows, album.tracks),
         starred: {
           for (final t in album.tracks)
             if (starred[t.id] ?? t.isStarred) t.id,
@@ -468,6 +764,24 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
       state = buildAlbumScrapbook(album, data, nowMs: ref.read(memoriesClockProvider)());
     } catch (_) {
       // Best-effort: the page keeps what it showed.
+    }
+  }
+
+  /// The About table; null where the app's storage isn't there (previews).
+  SongAboutStore? _aboutStore() {
+    try {
+      return SongAboutStore.shared(ref.read(keyValueStoreProvider));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Yoin's AI Memory title as Memories last wrote it (never generated here).
+  Future<String?> _aiTitle(String profileId) async {
+    try {
+      return await MemoryCopyCache.shared(ref.read(keyValueStoreProvider), profileId).title(albumId);
+    } catch (_) {
+      return null;
     }
   }
 
