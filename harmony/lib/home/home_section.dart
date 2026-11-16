@@ -166,6 +166,10 @@ HomeLayout withSectionMoved(HomeLayout layout, List<HomeSection> visible, HomeSe
 class HomeLayoutNotifier extends Notifier<HomeLayout> {
   static String keyFor(String provider, String profileId) => 'home_layout.v1.$provider|$profileId';
 
+  /// When the layout was last edited here (ms), beside it: Android's
+  /// home_layout.updatedAt, which cloud sync compares across devices.
+  static String updatedAtKeyFor(String provider, String profileId) => 'home_layout.updatedAt.v1.$provider|$profileId';
+
   String? _key;
   int _generation = 0;
 
@@ -174,12 +178,15 @@ class HomeLayoutNotifier extends Notifier<HomeLayout> {
     final source = ref.watch(activeSourceProvider);
     final generation = ++_generation;
     _key = null;
+    _updatedAtKey = null;
     Future.microtask(() async {
       try {
         final profile = await ref.read(profileRepositoryProvider).activeProfile();
         if (!ref.mounted || generation != _generation || profile == null) return;
-        final key = keyFor(source.value?.provider ?? profile.provider, profile.id);
+        final provider = source.value?.provider ?? profile.provider;
+        final key = keyFor(provider, profile.id);
         _key = key;
+        _updatedAtKey = updatedAtKeyFor(provider, profile.id);
         final raw = await ref.read(keyValueStoreProvider).read(key);
         if (!ref.mounted || generation != _generation || raw == null) return;
         state = HomeLayout.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
@@ -190,12 +197,31 @@ class HomeLayoutNotifier extends Notifier<HomeLayout> {
     return HomeLayout.defaultLayout;
   }
 
+  String? _updatedAtKey;
+
   /// Shows [layout] and saves it for the active account.
   void set(HomeLayout layout) {
     state = layout;
     final key = _key;
-    if (key == null) return;
-    ref.read(keyValueStoreProvider).write(key, jsonEncode(layout.toJson())).catchError((Object _) {});
+    final updatedAtKey = _updatedAtKey;
+    if (key == null || updatedAtKey == null) return;
+    final store = ref.read(keyValueStoreProvider);
+    store
+        .write(key, jsonEncode(layout.toJson()))
+        .then((_) => store.write(updatedAtKey, '${DateTime.now().millisecondsSinceEpoch}'))
+        .catchError((Object _) {});
+  }
+
+  /// Back to the default layout: the saved one is deleted (Android
+  /// HomeLayoutStore.clearLayout), so cloud sync takes every device back to
+  /// the default instead of pulling an old layout back.
+  void clear() {
+    state = HomeLayout.defaultLayout;
+    final key = _key;
+    final updatedAtKey = _updatedAtKey;
+    if (key == null || updatedAtKey == null) return;
+    final store = ref.read(keyValueStoreProvider);
+    store.write(key, null).then((_) => store.write(updatedAtKey, null)).catchError((Object _) {});
   }
 }
 

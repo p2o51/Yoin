@@ -112,7 +112,7 @@ Future<void> updateProfileCredentials(
         ProfileRepository.profilesKey,
         jsonEncode([
           for (final p in profiles)
-            (p.id == profileId ? Profile(id: p.id, provider: p.provider, displayName: displayName) : p).toJson(),
+            (p.id == profileId ? Profile(id: p.id, provider: p.provider, displayName: displayName, createdAt: p.createdAt) : p).toJson(),
         ]),
       );
 }

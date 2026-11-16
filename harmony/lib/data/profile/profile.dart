@@ -5,7 +5,7 @@ library;
 import '../model/media_id.dart';
 
 final class Profile {
-  const Profile({required this.id, required this.provider, required this.displayName});
+  const Profile({required this.id, required this.provider, required this.displayName, this.createdAt = 0});
 
   /// Stable local id (UUID-like); never shown.
   final String id;
@@ -14,12 +14,22 @@ final class Profile {
   final String provider;
   final String displayName;
 
-  Map<String, Object?> toJson() => {'id': id, 'provider': provider, 'displayName': displayName};
+  /// When the account was added (ms); 0 for accounts added before it was
+  /// recorded. Cloud sync orders accounts oldest first and describes them by it.
+  final int createdAt;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'provider': provider,
+    'displayName': displayName,
+    if (createdAt != 0) 'createdAt': createdAt,
+  };
 
   factory Profile.fromJson(Map<String, Object?> json) => Profile(
         id: json['id']! as String,
         provider: json['provider']! as String,
         displayName: json['displayName']! as String,
+        createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
       );
 }
 

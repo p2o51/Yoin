@@ -37,7 +37,12 @@ class ProfileRepository {
 
   /// Saves a new profile with its credentials and makes it active.
   Future<Profile> add({required String provider, required String displayName, required ProfileCredentials credentials}) async {
-    final profile = Profile(id: _newId(), provider: provider, displayName: displayName);
+    final profile = Profile(
+      id: _newId(),
+      provider: provider,
+      displayName: displayName,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
     // Secret first: a listed profile must always have credentials.
     await _secrets.write(credentialsKey(profile.id), jsonEncode(credentials.toJson()));
     await _saveList([...await profiles(), profile]);

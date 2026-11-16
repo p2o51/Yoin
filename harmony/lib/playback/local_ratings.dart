@@ -347,6 +347,36 @@ class LocalRatings extends Notifier<Map<MediaId, LocalRating>> {
     }
   }
 
+  /// Cloud sync's step over [profileId]'s rows: [edit] changes them in place
+  /// (or not) and its answer comes back. Runs behind this notifier's own
+  /// writes, so a rating made meanwhile never overwrites a synced one; for the
+  /// active account the screen state follows at once. Rows written here keep
+  /// their own needsSync (sync sets it), and no push starts: another device
+  /// already sent its rating to the provider.
+  Future<R> syncEdit<R>(String profileId, R Function(Map<MediaId, LocalRating> rows) edit) async {
+    if (!_ready.isCompleted) await _ready.future;
+    final kv = _kv;
+    if (kv == null) throw StateError('No store');
+    final done = Completer<R>();
+    _storeChain = _storeChain.then((_) async {
+      try {
+        final active = ref.mounted && _profileId == profileId;
+        final rows = active ? Map<MediaId, LocalRating>.of(state) : await LocalRatingStore(kv).read(profileId);
+        final before = jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+        final result = edit(rows);
+        final after = jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+        if (after != before) {
+          await LocalRatingStore(kv).write(profileId, rows);
+          if (active && ref.mounted && _profileId == profileId) state = rows;
+        }
+        done.complete(result);
+      } catch (e, st) {
+        done.completeError(e, st);
+      }
+    });
+    return done.future;
+  }
+
   String _key(LocalRating r) => '${r.profileId}|${r.provider}:${r.songId}';
 
   void _log(String message) => debugPrint('YoinRatings: $message');
