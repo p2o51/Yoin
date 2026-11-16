@@ -336,7 +336,9 @@ class _AboutReceiptState extends State<AboutReceipt> {
         ),
         // The card follows its content on the spatial spring (animateContentSize).
         child: SpringHeight(
-          heightKey: (_expanded, rows.length, others.length, notices.length),
+          // Any change of what the card holds (an AI row landing or rewritten, the credits unrolling, a new
+          // song's credits) springs; the thinking dots swap in place.
+          heightKey: (_expanded, Object.hashAll(rows), widget.credits),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -353,21 +355,25 @@ class _AboutReceiptState extends State<AboutReceipt> {
                 if (rows.isNotEmpty) const DashedRule(),
                 if (_expanded)
                   for (final credit in others) ...[_OtherCreditLine(credit), const DashedRule()],
+                // clickable(role = Button): a plain rectangular ripple inside the card's padding, so no
+                // rounded clip (CornerMask) is needed.
                 Semantics(
                   button: true,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => setState(() => _expanded = !_expanded),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.creditsTogglePadV),
-                      child: Text(
-                        _expanded
-                            ? strings.lyricCreditsLess
-                            : strings.lyricCreditsMore(
-                                others.length,
-                                lyricCreditsMorePreview(others, strings.lyricCreditsNote),
-                              ),
-                        style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.creditsTogglePadV),
+                        child: Text(
+                          _expanded
+                              ? strings.lyricCreditsLess
+                              : strings.lyricCreditsMore(
+                                  others.length,
+                                  lyricCreditsMorePreview(others, strings.lyricCreditsNote),
+                                ),
+                          style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
+                        ),
                       ),
                     ),
                   ),
