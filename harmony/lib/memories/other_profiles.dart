@@ -293,9 +293,14 @@ class AccountSwitchNoticeSheet extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(top: OtherProfileTokens.noticeButtonsTop),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            // Side by side at the end, as on Android; stacked (confirm on top)
+            // when a narrow phone or a large font can't fit both in one row.
+            child: OverflowBar(
+              alignment: MainAxisAlignment.end,
+              overflowAlignment: OverflowBarAlignment.end,
+              overflowDirection: VerticalDirection.up,
               spacing: OtherProfileTokens.noticeButtonGap,
+              overflowSpacing: OtherProfileTokens.noticeButtonGap,
               children: [
                 TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(strings.switchCancel)),
                 FilledButton(

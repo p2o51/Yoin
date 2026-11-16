@@ -273,8 +273,8 @@ void main() {
         ],
         activeProfileId: a.id,
       );
-      // The notice's buttons need a little more than a phone's width in the test font.
-      await pump(tester, const MemoryLedgerScreen(), state: state, store: kv, repo: repo, size: const Size(480, 900));
+      // A phone's width: the notice's buttons stack when the test font can't fit them in a row.
+      await pump(tester, const MemoryLedgerScreen(), state: state, store: kv, repo: repo);
       await tester.ensureVisible(find.text('Late trains.'));
       await tester.pump(const Duration(milliseconds: 600));
       await tester.tap(find.text('Late trains.'));

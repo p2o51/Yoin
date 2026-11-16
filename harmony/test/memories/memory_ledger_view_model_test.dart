@@ -9,7 +9,9 @@ import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/memories/ledger/memory_ledger_view_model.dart';
 import 'package:yoin/memories/memories_view_model.dart';
+import 'package:yoin/platform/storage/observed_store.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/playback/local_ratings.dart';
 
 import '../support/library_fake_source.dart';
 
@@ -110,10 +112,10 @@ void main() {
       sourceB = LibraryFakeSource();
     });
 
-    ProviderContainer accounts() {
+    ProviderContainer accounts({KeyValueStore? store}) {
       final c = ProviderContainer(
         overrides: [
-          keyValueStoreProvider.overrideWithValue(kv),
+          keyValueStoreProvider.overrideWithValue(store ?? kv),
           secretStoreProvider.overrideWithValue(secrets),
           profileRepositoryProvider.overrideWithValue(repo),
           musicSourceFactoryProvider.overrideWithValue((credentials) => sourceB),
@@ -201,6 +203,32 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
       expect(c.read(memoryLedgerProvider).value!.entries.single.profileId, b.id);
+    });
+
+    test('should_reload_when_cloudSyncWritesOtherAccountsScores', () async {
+      // The app's store reports its writes; cloud sync writes another
+      // account's scores straight to it, past localRatingsProvider.
+      final observed = ObservedKeyValueStore(kv);
+      final c = accounts(store: observed);
+      c.listen(memoryLedgerProvider, (_, _) {});
+      expect((await c.read(memoryLedgerProvider.future)).isEmpty, isTrue);
+      await LocalRatingStore(observed).write(b.id, {
+        MediaId.subsonic('x-t1'): LocalRating(
+          profileId: b.id,
+          songId: 'x-t1',
+          provider: MediaId.providerSubsonic,
+          rating: 8,
+          serverRating: 4,
+          updatedAt: now,
+        ),
+      });
+      for (var i = 0; i < 20 && (c.read(memoryLedgerProvider).value?.isEmpty ?? true); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      final entry = c.read(memoryLedgerProvider).value!.entries.single;
+      expect(entry.kind, MemoryLedgerKind.trackRating);
+      expect(entry.profileId, b.id);
+      expect(entry.score, 8);
     });
   });
 }

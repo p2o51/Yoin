@@ -25,6 +25,7 @@ import '../../data/memory/memory_store.dart';
 import '../../data/model/model.dart';
 import '../../data/profile/profile.dart';
 import '../../detail/detail_cache.dart';
+import '../../platform/storage/observed_store.dart';
 import '../../playback/local_ratings.dart';
 import '../../settings/account_identity.dart';
 import '../../settings/settings_view_model.dart';
@@ -176,7 +177,17 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       if (previous?.value != null && !identical(previous!.value, next.value)) _scheduleReload();
     });
     ref.listen(accountsRevisionProvider, (_, _) => _scheduleReload());
+    // Another account's song scores, written by cloud sync straight to its
+    // store (the account in use's come through localRatingsProvider).
+    final kv = ref.read(keyValueStoreProvider);
+    final ownRatings = store == null ? null : LocalRatingStore.keyFor(store.profileId);
+    final ratingWrites = kv is ObservedKeyValueStore
+        ? kv.writes.listen((key) {
+            if (key != ownRatings && _changes.keys.any((id) => key == LocalRatingStore.keyFor(id))) _scheduleReload();
+          })
+        : null;
     ref.onDispose(() {
+      ratingWrites?.cancel();
       for (final s in _changes.values) {
         s.cancel();
       }
