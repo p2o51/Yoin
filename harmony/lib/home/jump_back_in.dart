@@ -30,7 +30,7 @@ import 'widgets/spring_height.dart';
 /// a signal card (rating / note, "1×2") taking two with one cover beside it;
 /// landscape handset: up to 6 × 2. Wider feeds (N ≥ 3): K phone-sized lanes
 /// staggered by a seeded template (home_jbi_template.dart), covers 100–128
-/// following the live column, a signal card standing (1×2) or lying (2×1);
+/// following the live column, a signal card always lying (2×1);
 /// a shelf too short for even one templated row falls back to the packed
 /// grid. A short last row keeps its column width. Those are the L row
 /// preset; S / M / XL trim or grow them (home_row_presets.dart), and under
@@ -59,19 +59,19 @@ class JumpBackInSection extends StatelessWidget {
       preset: preset,
       builder: (context, stop) => switch (stop.payload) {
         JbiTemplatePreset(:final layout) => _JbiLaneGrid(
-            layout: layout,
-            children: [
-              for (final cell in layout.cells)
-                HomeRowsCard(
-                  key: ValueKey(cell.card.stableId),
-                  cardKey: cell.card.stableId,
-                  kind: cell.piece.kind,
-                  child: cell.piece.kind.isSignal
-                      ? JbiSignalCard(card: cell.card, coverSide: geometry.coverSide, tall: cell.piece.kind == JbiPieceKind.tallSignal)
-                      : JbiCoverCell(card: cell.card, coverSide: geometry.coverSide),
-                ),
-            ],
-          ),
+          layout: layout,
+          children: [
+            for (final cell in layout.cells)
+              HomeRowsCard(
+                key: ValueKey(cell.card.stableId),
+                cardKey: cell.card.stableId,
+                kind: cell.piece.kind,
+                child: cell.piece.kind.isSignal
+                    ? JbiSignalCard(card: cell.card, coverSide: geometry.coverSide)
+                    : JbiCoverCell(card: cell.card, coverSide: geometry.coverSide),
+              ),
+          ],
+        ),
         JbiPackedPreset(:final rows) => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -141,9 +141,9 @@ class _PackedRow extends StatelessWidget {
 }
 
 /// The templated lanes (JbiSpanGrid): every cell measured at its span's
-/// width, height loose; the row pitch is the tallest cover / lying card + the
-/// 16 row gap (or half a standing card's), and each piece sits at (row + its
-/// lane's offset) × pitch. [children] are in [layout]'s cell order.
+/// width, height loose; the row pitch is the tallest piece + the 16 row gap,
+/// so covers keep one rhythm down every lane, and each piece sits at (row +
+/// its lane's offset) × pitch. [children] are in [layout]'s cell order.
 class _JbiLaneGrid extends MultiChildRenderObjectWidget {
   const _JbiLaneGrid({required this.layout, required super.children});
 
@@ -192,34 +192,16 @@ class _RenderJbiLaneGrid extends RenderBox
     final pitchX = (width - gap * (_template.columns - 1)) / _template.columns + gap;
     double widthOf(JbiPiece p) => math.max(0.0, p.kind.columnSpan * pitchX - gap);
     final pieces = _template.pieces;
-    // Covers and lying cards set the row; a standing card takes two rows at least.
     var rowHeight = 0.0;
     var child = firstChild;
     var index = 0;
     while (child != null && index < pieces.length) {
-      final piece = pieces[index];
-      if (piece.kind != JbiPieceKind.tallSignal) {
-        child.layout(BoxConstraints.tightFor(width: widthOf(piece)), parentUsesSize: true);
-        rowHeight = math.max(rowHeight, child.size.height);
-      }
+      child.layout(BoxConstraints.tightFor(width: widthOf(pieces[index])), parentUsesSize: true);
+      rowHeight = math.max(rowHeight, child.size.height);
       child = childAfter(child);
       index++;
     }
-    final tallMin = rowHeight * 2 + HomeTokens.jbiRowGap;
-    var tallest = tallMin;
-    child = firstChild;
-    index = 0;
-    while (child != null && index < pieces.length) {
-      final piece = pieces[index];
-      if (piece.kind == JbiPieceKind.tallSignal) {
-        final w = widthOf(piece);
-        child.layout(BoxConstraints(minWidth: w, maxWidth: w, minHeight: tallMin), parentUsesSize: true);
-        tallest = math.max(tallest, child.size.height);
-      }
-      child = childAfter(child);
-      index++;
-    }
-    final pitchY = math.max(rowHeight + HomeTokens.jbiRowGap, (tallest + HomeTokens.jbiRowGap) / 2);
+    final pitchY = rowHeight + HomeTokens.jbiRowGap;
     var height = 0.0;
     index = 0;
     child = firstChild;
@@ -280,8 +262,32 @@ class _CoverBlock extends StatelessWidget {
   final HomeWidgetCard card;
   final double coverSide;
 
-  /// The album whose memory mark the cover wears; null = a bare cover (the signal cards').
+  /// The album whose memory mark the cover wears; null = a bare cover.
   final MediaId? markAlbum;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      BackdropCover(
+        cover: card.cover,
+        kind: card.kind,
+        size: coverSide,
+        requestSize: HomeCoverRequest.jbi,
+        markAlbum: markAlbum,
+      ),
+      const SizedBox(height: HomeJbiMetrics.captionGap),
+      _CoverCaption(card: card),
+    ],
+  );
+}
+
+/// A cover's title (16 / 22 SemiBold, version tag) and subtitle (hidden when
+/// blank), flush — one text cluster (WidgetCoverCaption).
+class _CoverCaption extends StatelessWidget {
+  const _CoverCaption({required this.card});
+
+  final HomeWidgetCard card;
 
   @override
   Widget build(BuildContext context) {
@@ -296,54 +302,146 @@ class _CoverBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        BackdropCover(
-          cover: card.cover,
-          kind: card.kind,
-          size: coverSide,
-          requestSize: HomeCoverRequest.jbi,
-          markAlbum: markAlbum,
-        ),
-        const SizedBox(height: HomeJbiMetrics.captionGap),
         VersionTitle(title: card.title, version: card.version, style: titleStyle),
-        if (card.subtitle.trim().isNotEmpty) SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
+        if (card.subtitle.trim().isNotEmpty)
+          SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
       ],
     );
   }
 }
 
-/// The signal card (WidgetCard12): its cover block, and the copy — the score
-/// tinted to the cover (the palette's base on a light surface, its brighter
-/// accent on a dark one), what it rests on, the note or Memory title. Lying
-/// (the phone's 1×2, a template's 2×1) the copy sits 16 to the cover's right,
-/// hung from its top; [tall] (a template's 1×2) it sits 10 below. One tap
+/// The signal card (WidgetCard12), on the phone and on the template's lanes
+/// alike, always lying: the bare cover, the copy 16 to its right hung from its
+/// top — the score tinted to the cover (the palette's base on a light surface,
+/// its brighter accent on a dark one), what it rests on, the note or Memory
+/// title — and the cover's title and subtitle 5 under the cover, running the
+/// card's whole width, under the copy too (owner 2026-11-14: a title cut at
+/// the cover's width with empty room beside it). A note running past the
+/// cover keeps them to the cover's width ([jbiWideCaptionWidth]). One tap
 /// target, the cover's press.
 class JbiSignalCard extends ConsumerWidget {
-  const JbiSignalCard({super.key, required this.card, required this.coverSide, this.tall = false});
+  const JbiSignalCard({super.key, required this.card, required this.coverSide});
 
   final HomeWidgetCard card;
   final double coverSide;
-  final bool tall;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final block = SizedBox(width: coverSide, child: _CoverBlock(card: card, coverSide: coverSide));
-    final copy = _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines);
-    return HomeEditCard(
-      kickKey: card.stableId,
-      child: ElasticPress(
-        onTap: () => _tapCard(context, ref, card),
-        child: tall
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [block, const SizedBox(height: HomeJbiMetrics.tallCopyGap), copy],
-              )
-            : Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [block, const SizedBox(width: HomeJbiMetrics.signalCopyGap), Expanded(child: copy)],
-              ),
+  Widget build(BuildContext context, WidgetRef ref) => HomeEditCard(
+    kickKey: card.stableId,
+    child: ElasticPress(
+      onTap: () => _tapCard(context, ref, card),
+      child: JbiWideCardLayout(
+        coverSide: coverSide,
+        children: [
+          BackdropCover(cover: card.cover, kind: card.kind, size: coverSide, requestSize: HomeCoverRequest.jbi),
+          _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines),
+          _CoverCaption(card: card),
+        ],
       ),
+    ),
+  );
+}
+
+/// How wide a lying card's caption may run: the card's whole width when the
+/// copy ends above the caption's top, else the cover's width (a long note
+/// running down beside the title would overlap it).
+double jbiWideCaptionWidth({
+  required double cardWidth,
+  required double coverSide,
+  required double copyHeight,
+  required double captionTop,
+}) => copyHeight <= captionTop ? cardWidth : math.min(coverSide, cardWidth);
+
+/// The lying signal card's layout (JbiWideCardLayout). Exactly three
+/// children: the cover, the copy, the title + subtitle caption. The cover is
+/// [coverSide] square (at most the card's width); the copy takes the rest of
+/// the width at `x = side + 16`, both hung from the top; the caption sits 5
+/// under the cover, as wide as [jbiWideCaptionWidth] allows. The card is as
+/// tall as the lower of the caption and the copy.
+class JbiWideCardLayout extends MultiChildRenderObjectWidget {
+  const JbiWideCardLayout({super.key, required this.coverSide, required super.children});
+
+  final double coverSide;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => RenderJbiWideCard(coverSide, Directionality.of(context));
+
+  @override
+  void updateRenderObject(BuildContext context, RenderJbiWideCard renderObject) {
+    renderObject
+      ..coverSide = coverSide
+      ..textDirection = Directionality.of(context);
+  }
+}
+
+class _JbiWideCardParentData extends ContainerBoxParentData<RenderBox> {}
+
+class RenderJbiWideCard extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _JbiWideCardParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _JbiWideCardParentData> {
+  RenderJbiWideCard(this._coverSide, this._textDirection);
+
+  double _coverSide;
+  set coverSide(double value) {
+    if (value == _coverSide) return;
+    _coverSide = value;
+    markNeedsLayout();
+  }
+
+  TextDirection _textDirection;
+  set textDirection(TextDirection value) {
+    if (value == _textDirection) return;
+    _textDirection = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _JbiWideCardParentData) child.parentData = _JbiWideCardParentData();
+  }
+
+  void _place(RenderBox? child, double x, double y, double width, double childWidth) {
+    if (child == null) return;
+    (child.parentData! as _JbiWideCardParentData).offset = Offset(
+      _textDirection == TextDirection.rtl ? width - x - childWidth : x,
+      y,
     );
   }
+
+  @override
+  void performLayout() {
+    final width = constraints.maxWidth.isFinite ? constraints.maxWidth : constraints.minWidth;
+    final side = _coverSide.clamp(0.0, width);
+    final copyX = side + HomeJbiMetrics.signalCopyGap;
+    final copyWidth = math.max(0.0, width - copyX);
+    final cover = firstChild;
+    cover?.layout(BoxConstraints.tight(Size(side, side)));
+    final copy = cover == null ? null : childAfter(cover);
+    copy?.layout(BoxConstraints(minWidth: copyWidth, maxWidth: copyWidth), parentUsesSize: true);
+    final caption = copy == null ? null : childAfter(copy);
+    final captionY = side + HomeJbiMetrics.captionGap;
+    final copyHeight = copy?.size.height ?? 0;
+    final captionWidth = jbiWideCaptionWidth(
+      cardWidth: width,
+      coverSide: side,
+      copyHeight: copyHeight,
+      captionTop: captionY,
+    );
+    caption?.layout(BoxConstraints(maxWidth: captionWidth), parentUsesSize: true);
+    _place(cover, 0, 0, width, side);
+    _place(copy, copyX, 0, width, copyWidth);
+    _place(caption, 0, captionY, width, caption?.size.width ?? 0);
+    final height = math.max(captionY + (caption?.size.height ?? 0), copyHeight);
+    size = constraints.constrain(Size(width, height));
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) => defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
 }
 
 /// The signal card's big line (Android HomeWidgetCard.shownRating): the

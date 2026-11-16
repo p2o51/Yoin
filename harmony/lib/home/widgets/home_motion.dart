@@ -192,113 +192,40 @@ class _SectionAppearState extends State<SectionAppear> with TickerProviderStateM
       );
 }
 
-/// A horizontal shelf whose sides fade (24 dp) only while more content lies
-/// beyond them, the fade's alpha springing on the effects spring
-/// (horizontalEdgeFadeOnScroll). [fade] false = a plain shelf.
-class EdgeFadeShelf extends StatefulWidget {
-  const EdgeFadeShelf({super.key, required this.height, required this.padding, required this.itemCount, required this.itemBuilder, this.fade = true, this.gap = HomeShelfMetrics.itemGap, this.scrollable = true});
+/// A horizontal Home shelf. It bleeds to the screen edge and the edge simply
+/// cuts it, with no fade, at every size (owner 2026-11-14: 「大屏好像也可以直接
+/// 搂到右边」「可参考 recently added」); at rest its first card sits on the page
+/// margin ([padding]).
+class HomeShelf extends StatelessWidget {
+  const HomeShelf({
+    super.key,
+    required this.height,
+    required this.padding,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.gap = HomeShelfMetrics.itemGap,
+    this.scrollable = true,
+  });
 
   final double height;
   final EdgeInsetsDirectional padding;
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
-  final bool fade;
   final double gap;
 
   /// False: the cards sit still (side by side, nothing beyond the edge).
   final bool scrollable;
 
   @override
-  State<EdgeFadeShelf> createState() => _EdgeFadeShelfState();
-}
-
-class _EdgeFadeShelfState extends State<EdgeFadeShelf> with TickerProviderStateMixin {
-  final ScrollController _scroll = ScrollController();
-  late final SpringValue _start = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
-  late final SpringValue _end = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
-
-  @override
-  void initState() {
-    super.initState();
-    // Create eagerly: a lazy field first read in dispose() would build a ticker on a dead element.
-    _start;
-    _end;
-    _scroll.addListener(_update);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _update();
-    });
-  }
-
-  void _update() {
-    if (!_scroll.hasClients) return;
-    final p = _scroll.position;
-    if (!p.hasContentDimensions) return;
-    _start.animateTo(p.pixels > p.minScrollExtent + 0.5 ? 1 : 0);
-    _end.animateTo(p.pixels < p.maxScrollExtent - 0.5 ? 1 : 0);
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    _start.dispose();
-    _end.dispose();
-    super.dispose();
-  }
-
-  /// smoothstep stops of the fade (0, .104, .352, .648, .896, 1).
-  static const _stops = [0.0, 0.104, 0.352, 0.648, 0.896, 1.0];
-
-  static double _smooth(double x) => x * x * (3 - 2 * x);
-
-  @override
-  Widget build(BuildContext context) {
-    final list = SizedBox(
-      height: widget.height,
-      child: NotificationListener<ScrollMetricsNotification>(
-        onNotification: (_) {
-          _update();
-          return false;
-        },
-        child: ListView.separated(
-          controller: _scroll,
-          scrollDirection: Axis.horizontal,
-          padding: widget.padding,
-          physics: widget.scrollable ? null : const NeverScrollableScrollPhysics(),
-          itemCount: widget.itemCount,
-          separatorBuilder: (_, _) => SizedBox(width: widget.gap),
-          itemBuilder: widget.itemBuilder,
-        ),
-      ),
-    );
-    if (!widget.fade) return list;
-    final rtl = Directionality.of(context) == TextDirection.rtl;
-    return AnimatedBuilder(
-      animation: Listenable.merge([_start.animation, _end.animation]),
-      child: list,
-      builder: (context, child) {
-        final start = _start.value.clamp(0.0, 1.0), end = _end.value.clamp(0.0, 1.0);
-        if (start == 0 && end == 0) return child!;
-        return ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (rect) {
-            final w = rect.width <= 0 ? 1.0 : rect.width;
-            final f = (HomeShelfMetrics.edgeFade / w).clamp(0.0, 0.5);
-            final left = rtl ? end : start, right = rtl ? start : end;
-            final colors = <Color>[];
-            final stops = <double>[];
-            for (final s in _stops) {
-              stops.add(s * f);
-              colors.add(Color.fromRGBO(255, 255, 255, 1 - left * (1 - _smooth(s))));
-            }
-            for (final s in _stops.reversed) {
-              stops.add(1 - s * f);
-              colors.add(Color.fromRGBO(255, 255, 255, 1 - right * (1 - _smooth(s))));
-            }
-            return LinearGradient(colors: colors, stops: stops).createShader(rect);
-          },
-          child: child,
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => SizedBox(
+    height: height,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: padding,
+      physics: scrollable ? null : const NeverScrollableScrollPhysics(),
+      itemCount: itemCount,
+      separatorBuilder: (_, _) => SizedBox(width: gap),
+      itemBuilder: itemBuilder,
+    ),
+  );
 }

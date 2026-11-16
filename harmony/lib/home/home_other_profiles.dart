@@ -285,7 +285,7 @@ class OtherProfilesSection extends StatelessWidget {
         child: HomeSectionTitle(HomeStrings.of(context).sectionOtherProfiles),
       ),
       const SizedBox(height: HomeSectionMetrics.shelfSpacing),
-      EdgeFadeShelf(
+      HomeShelf(
         height: shelfCardHeight(context),
         padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
         itemCount: items.length,

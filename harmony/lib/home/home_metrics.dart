@@ -369,7 +369,6 @@ abstract final class HomeJbiMetrics {
 
   // Signal cards (WidgetCard12 / WidgetRatingColumn).
   static const double signalCopyGap = 16;
-  static const double tallCopyGap = 10;
   static const double signalCopySpacing = 3;
   static const double signalBasisGap = 6;
   static const double signalBasisLift = 3;
@@ -424,9 +423,6 @@ abstract final class HomeShelfMetrics {
   /// Album shelf depth under a 3 / 4-column grid (2 columns: [phoneAlbums]).
   static const int threeColumnAlbums = 16;
   static const int fourColumnAlbums = 20;
-
-  /// horizontalEdgeFadeOnScroll width.
-  static const double edgeFade = 24;
 }
 
 /// The backdrop cover (HomeWidgetGrid.kt WidgetBackdropArtwork).
