@@ -1,0 +1,9 @@
+{
+  "allowToBackupRestore": true,
+  "fullBackupOnly": false,
+  "includes": [
+    "/data/storage/el2/base/files/backup/",
+    "/data/storage/el2/base/files/playlist_backups/"
+  ],
+  "excludes": []
+}

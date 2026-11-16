@@ -19,10 +19,12 @@ import '../data/model/model.dart';
 import '../data/neodb/neodb_api.dart';
 import '../data/neodb/neodb_config.dart';
 import '../data/neodb/neodb_oauth.dart';
+import '../data/neodb/neodb_restore_guard.dart';
 import '../data/neodb/neodb_sync_service.dart';
 import '../data/neodb/neodb_voices_service.dart';
 import '../data/sync/cloud_sync_providers.dart';
 import '../detail/detail_cache.dart';
+import '../offline/offline_providers.dart';
 import '../platform/storage/stores.dart';
 import '../playback/playback_controller.dart';
 import 'album_neodb_sync.dart';
@@ -85,6 +87,26 @@ final neoDbOpenLinkProvider = Provider<Future<bool> Function(Uri url)>((ref) {
       return false;
     }
   };
+});
+
+/// After a restore from another phone, drops that phone's NeoDB dirty flags
+/// on every account's album scores ([NeoDbRestoreGuard]; Android
+/// AppContainer.clearNeoDbPendingAfterRestore). Runs once per launch, with the
+/// app (main.dart); a failure keeps the marker for the next launch.
+final neoDbRestoreGuardProvider = FutureProvider<void>((ref) async {
+  try {
+    final filesDir = await ref.read(appFilesHostProvider).filesDirectory();
+    if (filesDir == null) return;
+    final store = ref.read(keyValueStoreProvider);
+    final profiles = ref.read(profileRepositoryProvider);
+    await NeoDbRestoreGuard.clearIfRestored(filesDir, () async {
+      for (final profile in await profiles.profiles()) {
+        await MemoryStore.shared(store, profile.id).clearAllNeoDbPending();
+      }
+    });
+  } catch (e) {
+    debugPrint('NeoDB restore guard: ${e.runtimeType}');
+  }
 });
 
 /// Shows a one-line message on the window's snackbar (with an optional action).

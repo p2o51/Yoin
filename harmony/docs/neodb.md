@@ -53,7 +53,8 @@ Storage: the instance is `neodb.instance` in the key-value store; the token is
 ## Differences from Android
 
 - Loopback redirect instead of the `yoin://` scheme (above).
-- No backup restore guard: HarmonyOS has no backup agent clearing flags on restore.
+- The restore guard runs after a Phone Clone or cloud restore (`docs/backup.md`); a restore
+  that put no values back leaves no marker (Android marks every restore).
 - The token field has no show/hide eye (Harmony's `ExpressiveTextField` has no
   trailing slot; the AI key field is the same).
 - `pullAlbum` is ported and tested but, as on Android, nothing calls it yet.

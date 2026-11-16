@@ -53,6 +53,18 @@
             "resource": "$profile:form_config"
           }
         ]
+      },
+      {
+        "name": "YoinBackupExtension",
+        "srcEntry": "./ets/yoin/backup/YoinBackupExtension.ets",
+        "type": "backup",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.backup",
+            "resource": "$profile:backup_config"
+          }
+        ]
       }
     ],
     "requestPermissions": [
