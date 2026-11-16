@@ -9,6 +9,7 @@ import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
 import 'cards/cards_channel.dart';
+import 'cast/cast_host.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
@@ -42,6 +43,7 @@ final class YoinPlatform {
     required this.imageShare,
     required this.appFiles,
     required this.cloudSyncHost,
+    required this.castHost,
   });
 
   final YoinHost host;
@@ -88,6 +90,10 @@ final class YoinPlatform {
   /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
   final CloudSyncHost cloudSyncHost;
 
+  /// The system's output / cast panel and cast session (OHOS AVCastPicker +
+  /// AVCastController; Windows: none, DLNA only).
+  final CastHost castHost;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -104,6 +110,7 @@ final class YoinPlatform {
     imageShare: const ChannelImageShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
+    castHost: ChannelCastHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -124,6 +131,7 @@ final class YoinPlatform {
     imageShare: const NoImageShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
+    castHost: const NoCastHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

@@ -616,6 +616,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
         _toggleFavorite(MediaId.tryParse(id) ?? state.current?.id, fromSystem: true).ignore();
       case NetworkAvailableEvent():
         _flushActive();
+      case SessionTransportCommand():
+        break; // The output router sends these to the remote renderer.
     }
   }
 

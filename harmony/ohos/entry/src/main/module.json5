@@ -23,7 +23,8 @@
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "backgroundModes": [
-          "audioPlayback"
+          "audioPlayback",
+          "multiDeviceConnection"
         ],
         "skills": [
           {

@@ -122,6 +122,9 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
         case 'stop':
           engine.stop();
           break;
+        case 'setRemote':
+          host.session.setRemote(call.argument('state'));
+          break;
         default:
           result.notImplemented();
           return;

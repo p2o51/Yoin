@@ -203,10 +203,77 @@ sealed class EngineEvent {
         'networkAvailable' => const NetworkAvailableEvent(),
         'command' => switch (map['name']) {
             'toggleFavorite' => ToggleFavoriteCommand(map['id'] as String?),
+            final String name when SessionTransportCommand.names.contains(name) =>
+              SessionTransportCommand(name, map['id'] as String?),
             _ => null,
           },
         _ => null,
       };
+}
+
+/// A system control (播控中心, lock screen, headset keys) pressed while the
+/// session mirrors a remote renderer ([RemoteSessionMirror]): the native
+/// engine is paused and hands the key to Dart, where the output router
+/// sends it to the speaker. [value]: the seek target in ms for `seek`,
+/// `repeat|shuffle` (e.g. `all|true`) for `playMode`.
+final class SessionTransportCommand extends EngineEvent {
+  const SessionTransportCommand(this.name, this.value);
+  final String name;
+  final String? value;
+
+  static const names = {'play', 'pause', 'stop', 'next', 'previous', 'seek', 'playMode'};
+}
+
+/// What the system media session shows while another renderer plays (a DLNA
+/// speaker, the system's cast device): the song, where it is and whether it
+/// plays, as the remote queue engine reports it.
+final class RemoteSessionState {
+  const RemoteSessionState({
+    required this.item,
+    required this.phase,
+    required this.isPlaying,
+    required this.playWhenReady,
+    required this.positionMs,
+    required this.sampledAtMs,
+    this.durationMs,
+    required this.repeat,
+    required this.shuffle,
+  });
+
+  final EngineItem item;
+  final PlaybackPhase phase;
+  final bool isPlaying;
+  final bool playWhenReady;
+  final int positionMs;
+  final int sampledAtMs;
+  final int? durationMs;
+  final EngineRepeat repeat;
+  final bool shuffle;
+
+  /// No stream URL or headers: the session only shows the song.
+  Map<String, Object?> toMap() => {
+        'id': item.id,
+        'entryId': item.entryId,
+        'title': item.title,
+        'artist': item.artist,
+        'album': item.album,
+        'artworkUri': item.artworkUri,
+        'phase': phase.name,
+        'isPlaying': isPlaying,
+        'playWhenReady': playWhenReady,
+        'positionMs': positionMs,
+        'sampledAtMs': sampledAtMs,
+        'durationMs': durationMs,
+        'repeat': repeat.name,
+        'shuffle': shuffle,
+      };
+}
+
+/// An engine whose system session can show a remote renderer in place of
+/// its own (paused) player and route the system's keys to Dart while it does.
+abstract interface class RemoteSessionMirror {
+  /// [state] null hands the session back to the engine's own player.
+  Future<void> setRemoteSession(RemoteSessionState? state);
 }
 
 /// The user tapped Yoin's card in 播控中心 / the lock screen / the
