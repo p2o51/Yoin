@@ -205,6 +205,8 @@ final class PlayTraceRing {
       while (_lines.length > capacity) {
         _lines.removeFirst();
       }
+      // The cache folder may not exist yet (the Windows build's is made on first use).
+      file.parent.createSync(recursive: true);
       _out = file.openSync(mode: FileMode.append);
       kept.forEach(_write);
     } on Object {

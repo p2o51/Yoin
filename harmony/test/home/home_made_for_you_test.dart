@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -148,6 +149,54 @@ void main() {
     await flush();
     expect(source.reads, 2);
     expect(c.read(madeForYouProvider).single.title, 'Get Up! Mix');
+  });
+
+  test('should_neverKeepTheOldAccountsMixes_when_aSwitchIsStillLoading', () async {
+    final first = _MixSource([
+      [_mix('fav', 'Favorites Mix')],
+    ]);
+    final second = _MixSource([
+      [_mix('chill', 'Chill Mix')],
+    ]);
+    var current = Future<MusicSource?>.value(first);
+    final c = ProviderContainer(
+      overrides: [
+        keyValueStoreProvider.overrideWithValue(store),
+        secretStoreProvider.overrideWithValue(InMemoryStore()),
+        activeSourceProvider.overrideWith((ref) => current),
+        homeClockProvider.overrideWithValue(() => now),
+        madeForYouRetryDelaysProvider.overrideWithValue(const [Duration.zero]),
+      ],
+    );
+    addTearDown(c.dispose);
+    Future<String> add(String name) async => (await c
+            .read(profileRepositoryProvider)
+            .add(
+              provider: MediaId.providerAppleMusic,
+              displayName: name,
+              credentials: const AppleMusicCredentials(endpoint: 'https://token.test', musicUserToken: 'u'),
+            ))
+        .id;
+    await add('First');
+    c.listen(madeForYouProvider, (_, _) {});
+    await c.read(activeSourceProvider.future);
+    await flush();
+    expect(first.reads, 1);
+
+    // The switch: the second account is active in storage, its source still being built.
+    final secondId = await add('Second');
+    final building = Completer<MusicSource?>();
+    current = building.future;
+    c.invalidate(activeSourceProvider);
+    await flush();
+    expect(first.reads, 1, reason: "the first account's source is not read for the second");
+    expect(store.values[MadeForYouNotifier.keyFor(secondId)], isNull);
+
+    building.complete(second);
+    await flush();
+    expect(c.read(madeForYouProvider).single.title, 'Chill Mix');
+    final saved = jsonDecode(store.values[MadeForYouNotifier.keyFor(secondId)]!) as List;
+    expect(saved.map((m) => (m as Map)['title']), ['Chill Mix']);
   });
 
   test('should_haveNoShelf_when_theServiceMakesNone', () async {

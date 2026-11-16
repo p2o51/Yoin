@@ -179,6 +179,9 @@ void main() {
         expect(ratio(card.onSurfaceVariant, card.surface), greaterThanOrEqualTo(4.5), reason: 'quiet line, $where');
         expect(ratio(card.primary, card.surface), greaterThanOrEqualTo(4.5), reason: 'accent, $where');
         expect(ratio(card.onPrimary, card.primary), greaterThanOrEqualTo(4.5), reason: 'button text, $where');
+        // Library's search hint (yoin_bottom_bar.dart LibrarySearchHint), flat the same way.
+        expect(ratio(page.inverseSurface, page.surface), greaterThanOrEqualTo(3.0), reason: 'hint on page, $where');
+        expect(ratio(page.inversePrimary, page.inverseSurface), greaterThanOrEqualTo(3.0), reason: 'hint icon, $where');
       }
     }
   });

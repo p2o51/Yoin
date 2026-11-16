@@ -127,4 +127,19 @@ void main() {
       await tester.pumpAndSettle();
     });
   });
+
+  // Android c95004e82 (owner 2026-11-13): no shadow, the inverse surface sets the hint apart.
+  testWidgets('should_drawTheSearchHintFlatOnTheInverseSurface_when_shown', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: LibrarySearchHint(scale: 1, alpha: 1, semantics: 'Search'))),
+    );
+    final colors = Theme.of(tester.element(find.byType(LibrarySearchHint))).colorScheme;
+    final chip = tester.widget<DecoratedBox>(
+      find.descendant(of: find.byType(LibrarySearchHint), matching: find.byType(DecoratedBox)),
+    );
+    final decoration = chip.decoration as ShapeDecoration;
+    expect(decoration.color, colors.inverseSurface);
+    expect(decoration.shadows, anyOf(isNull, isEmpty));
+    expect(tester.widget<Icon>(find.byIcon(YoinSymbols.search)).color, colors.inversePrimary);
+  });
 }

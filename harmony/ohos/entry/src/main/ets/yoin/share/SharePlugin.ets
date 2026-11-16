@@ -179,14 +179,22 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
 
   /** Whether [path] is a file in this app's cache or files folder (nothing else is handed to the sheet). */
   private isSandboxed(path: string): boolean {
-    if (path.includes('/../')) {
+    // No step up out of the folder ("…/cache/../…" or a trailing "/.."), and a file, not a folder.
+    if (path.split('/').some((segment: string) => segment === '..' || segment === '.')) {
       return false;
     }
     const inside = (dir: string): boolean => path.startsWith(`${dir}/`);
     // Dart reads its folders from the application context (`yoin/storage`), this plugin holds the ability's.
     const app = this.context.getApplicationContext();
-    return (inside(this.context.cacheDir) || inside(this.context.filesDir) || inside(app.cacheDir) ||
-      inside(app.filesDir)) && fileIo.accessSync(path);
+    if (!(inside(this.context.cacheDir) || inside(this.context.filesDir) || inside(app.cacheDir) ||
+      inside(app.filesDir))) {
+      return false;
+    }
+    try {
+      return fileIo.accessSync(path) && fileIo.statSync(path).isFile();
+    } catch (e) {
+      return false;
+    }
   }
 
   /**

@@ -250,7 +250,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
         for (var i = 0; i < built.length; i++) _withEntry(built[i].$3, entries[i].entryId, context: context),
       ];
       _trace.log(
-        'play ${source.provider} ${tracks[start].id.rawId} at=$playableStart/${items.length} '
+        // The song that starts: the tapped one, or the next playable after it.
+        'play ${source.provider} ${entries[playableStart].track.id.rawId} at=$playableStart/${items.length} '
         'paused=$startPaused shuffled=$shuffled stream ${PlayTrace.describe(items[playableStart].uri)}',
       );
       _entries = entries;

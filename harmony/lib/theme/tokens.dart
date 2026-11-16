@@ -71,7 +71,6 @@ abstract final class BarTokens {
   static const double searchHintIcon = 21;
   static const double searchHintEndInset = 26;
   static const double searchHintLift = -46;
-  static const double searchHintElevation = 16;
   static const int searchHintDelayMs = 240;
   static const int searchHintSettleMs = 120;
   static const double searchHintEnterScale = 0.68;

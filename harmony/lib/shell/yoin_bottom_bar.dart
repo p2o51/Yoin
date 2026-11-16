@@ -797,8 +797,9 @@ class _BarButton extends StatelessWidget {
 }
 
 /// Long-press Library's hint (YoinButtonGroup LibrarySearchShortcutHint): a
-/// round surfaceContainerHighest chip with the search glyph in primary,
-/// floating over the bar with a soft shadow. Drawn, not clipped (HarmonyOS
+/// round chip over the bar with the search glyph. Flat, no shadow (Android
+/// main 2026-11-13): the inverse surface sets it apart from the page, as the
+/// snackbar does, the glyph in inversePrimary. Drawn, not clipped (HarmonyOS
 /// paints black wedges at clipped corners over other content).
 class LibrarySearchHint extends StatelessWidget {
   const LibrarySearchHint({super.key, required this.scale, required this.alpha, required this.semantics});
@@ -820,14 +821,10 @@ class LibrarySearchHint extends StatelessWidget {
             dimension: BarTokens.searchHintBox,
             child: Center(
               child: DecoratedBox(
-                decoration: ShapeDecoration(
-                  color: colors.surfaceContainerHighest,
-                  shape: const CircleBorder(),
-                  shadows: kElevationToShadow[BarTokens.searchHintElevation.toInt()],
-                ),
+                decoration: ShapeDecoration(color: colors.inverseSurface, shape: const CircleBorder()),
                 child: SizedBox.square(
                   dimension: BarTokens.searchHintSurface,
-                  child: Icon(YoinSymbols.search, size: BarTokens.searchHintIcon, color: colors.primary),
+                  child: Icon(YoinSymbols.search, size: BarTokens.searchHintIcon, color: colors.inversePrimary),
                 ),
               ),
             ),

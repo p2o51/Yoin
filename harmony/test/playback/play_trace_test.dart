@@ -91,6 +91,12 @@ void main() {
     expect(fileLines(), ['old 1', 'old 2', 'early 1', 'late 1']);
   });
 
+  test('should_makeTheFolder_when_theCacheFolderDoesNotExistYet', () {
+    final file = File('${temp.path}/cache/playtrace.log');
+    PlayTraceRing(3, file).append('app launch');
+    expect(file.readAsLinesSync(), ['app launch']);
+  });
+
   test('should_dropLines_when_neverInstalled', () {
     final trace = PlayTrace();
     trace.log('play subsonic s1');

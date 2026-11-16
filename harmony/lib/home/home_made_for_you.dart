@@ -54,7 +54,10 @@ class MadeForYouNotifier extends Notifier<List<MadeForYouPlaylist>> {
 
   @override
   List<MadeForYouPlaylist> build() {
-    final source = ref.watch(activeSourceProvider).value;
+    // Only a settled source: while an account switch loads, the previous account's source is
+    // still the provider's value, and its mixes would be read and kept under the new account's id.
+    final active = ref.watch(activeSourceProvider);
+    final source = active.isLoading || active.hasError ? null : active.value;
     final generation = ++_generation;
     _profileId = null;
     _reader = null;
