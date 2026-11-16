@@ -513,7 +513,14 @@ internal fun AlbumTrackRow(
             .clip(YoinContainerShapes.ListRow)
             .handPointer()
             .combinedClickable(
-                onClick = if (song.isUnavailable) ({ showUnavailableReason = !showUnavailableReason }) else onClick,
+                onClick = if (song.isUnavailable) {
+                    { showUnavailableReason = !showUnavailableReason }
+                } else {
+                    {
+                        haptics.performContextClick()
+                        onClick()
+                    }
+                },
                 onLongClick = {
                     haptics.performLongPress()
                     onLongClick()

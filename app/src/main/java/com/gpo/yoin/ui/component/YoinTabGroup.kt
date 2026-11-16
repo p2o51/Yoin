@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,7 @@ fun YoinTabGroup(
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val interactions = remember(labels.size) { List(labels.size) { MutableInteractionSource() } }
+        val haptics = rememberYoinHaptics()
         ButtonGroup(
             overflowIndicator = { _ -> },
             modifier = modifier
@@ -67,7 +69,10 @@ fun YoinTabGroup(
                             label = label,
                             isSelected = index == selectedIndex,
                             interactionSource = interactions[index],
-                            onClick = { onSelect(index) },
+                            onClick = {
+                                if (index != selectedIndex) haptics.performSegmentTick()
+                                onSelect(index)
+                            },
                             colors = TabColors(selectedContainer, selectedContent, container, content),
                             modifier = Modifier.weight(1f),
                         )

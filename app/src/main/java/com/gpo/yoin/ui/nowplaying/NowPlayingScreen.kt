@@ -464,6 +464,19 @@ fun NowPlayingScreen(
     val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
     val latestTranslationShown by rememberUpdatedState(translationShown)
     var wasTranslating by remember { mutableStateOf(false) }
+    // Translation shown / hidden on the same song: a soft pluck that rings
+    // while the lines open (or close) down the page. A song change clears
+    // translation silently.
+    val translationHaptics = rememberYoinHaptics()
+    val translationSeen = remember { arrayOf<Any?>(translationShown, revealSongId) }
+    LaunchedEffect(translationShown, revealSongId) {
+        val (lastShown, lastSong) = translationSeen
+        if (lastSong == revealSongId && lastShown != translationShown) {
+            translationHaptics.performPluck(opening = translationShown)
+        }
+        translationSeen[0] = translationShown
+        translationSeen[1] = revealSongId
+    }
     LaunchedEffect(translating) {
         transportSignal.lyricsWaiting = translating
         if (wasTranslating && !translating && latestTranslationShown) revealLyrics()

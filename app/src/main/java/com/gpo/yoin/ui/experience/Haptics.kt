@@ -1,6 +1,11 @@
 package com.gpo.yoin.ui.experience
 
 import android.os.Build
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
@@ -14,6 +19,67 @@ import androidx.compose.ui.platform.LocalView
  * HapticFeedback interface doesn't fully expose across all API levels.
  */
 class YoinHaptics internal constructor(private val view: View) {
+
+    private val vibrator: Vibrator? by lazy {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            view.context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            null
+        }
+    }
+
+    /**
+     * A plucked string: one soft attack, then a ring that dies away over
+     * about a quarter second. Paired with motion that travels (the lyric
+     * translation opening line after line down the page), so the ring lasts
+     * roughly as long as the wave is still moving near the eye. [opening]
+     * plucks a touch brighter than closing.
+     *
+     * Composed primitives where the vibrator has them (API 31+); otherwise
+     * the lightest View tick, which every device maps to something gentle.
+     */
+    fun performPluck(opening: Boolean = true) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composePluck(opening)) return
+        performLightTick()
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composePluck(opening: Boolean): Boolean {
+        val v = vibrator ?: return false
+        if (!v.hasVibrator()) return false
+        val attack = VibrationEffect.Composition.PRIMITIVE_CLICK
+        val ring = VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+        if (!v.areAllPrimitivesSupported(attack, ring)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // USAGE_TOUCH only exists from 33; before that honour the switch by hand.
+            val enabled = Settings.System.getInt(
+                view.context.contentResolver,
+                Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                1,
+            )
+            if (enabled == 0) return true
+        }
+        val strength = if (opening) 1f else 0.8f
+        val effect = VibrationEffect.startComposition()
+            .addPrimitive(attack, 0.42f * strength)
+            .addPrimitive(ring, 0.30f * strength, PluckRingGapMs)
+            .addPrimitive(ring, 0.18f * strength, PluckRingGapMs)
+            .addPrimitive(ring, 0.09f * strength, PluckRingGapMs + 12)
+            .compose()
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH))
+            } else {
+                @Suppress("DEPRECATION")
+                v.vibrate(effect)
+            }
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+    }
 
     fun performClick() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -101,6 +167,9 @@ class YoinHaptics internal constructor(private val view: View) {
         }
     }
 }
+
+/** Silence between the pluck's ring beats (counted from the end of the previous one). */
+private const val PluckRingGapMs = 34
 
 @Composable
 fun rememberYoinHaptics(): YoinHaptics {

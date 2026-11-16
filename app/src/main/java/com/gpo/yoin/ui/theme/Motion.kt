@@ -285,6 +285,27 @@ object YoinMotion {
      * a cheer; hop = the vertical kick of a nod or a cheer; shake = the head
      * ringing out a "no".
      */
+    /**
+     * Lyric translations unrolling under their lines (owner 2026-11-16: soft,
+     * like a plucked string). Slower than the default spatial spring and
+     * almost without overshoot, so a page of lines opening one after another
+     * reads as one gentle wave rather than a row of snaps.
+     */
+    fun <T> translationUnrollSpring(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = TranslationUnrollDamping,
+        stiffness = TranslationUnrollStiffness,
+    )
+
+    /** The translation text's alpha: a little slower than its row's growth. */
+    fun <T> translationFadeSpring(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = TranslationFadeStiffness,
+    )
+
+    private const val TranslationUnrollDamping = 0.92f
+    private const val TranslationUnrollStiffness = 170f
+    private const val TranslationFadeStiffness = 120f
+
     fun mascotLandSpring(): FiniteAnimationSpec<Float> = spring(MascotLandDamping, MascotLandStiffness)
 
     fun mascotGestureSpring(): FiniteAnimationSpec<Float> = spring(MascotGestureDamping, MascotGestureStiffness)
