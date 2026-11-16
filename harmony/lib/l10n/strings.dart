@@ -15,6 +15,14 @@ class YoinStrings {
   String get barLabelHome => _zh ? '首页' : 'Home'; // cmp_bar_label_home
   String get barLabelLibrary => _zh ? '资料库' : 'Library'; // cmp_bar_label_library
 
+  // The bar's Home edit pose (strings_component.xml).
+  String get barLabelDone => _zh ? '完成' : 'Done'; // cmp_bar_label_done
+  String get barCdDone => _zh ? '完成' : 'Done'; // cmp_bar_cd_done
+  String get barLabelAdd => _zh ? '添加' : 'Add'; // cmp_bar_label_add
+  String get barLabelUndo => _zh ? '撤销' : 'Undo'; // cmp_bar_label_undo
+  String get barCdUndo => _zh ? '撤销' : 'Undo'; // cmp_bar_cd_undo
+  String get barCdShowHidden => _zh ? '显示隐藏分区' : 'Show hidden sections'; // cmp_bar_cd_show_hidden
+
   // Subsonic account setup (strings_settings.xml).
   String get setupAddressLabel => _zh ? '服务器地址' : 'Server address'; // settings_setup_address_label
   String get setupAddressPlaceholder => 'https://music.example.com'; // settings_setup_address_placeholder

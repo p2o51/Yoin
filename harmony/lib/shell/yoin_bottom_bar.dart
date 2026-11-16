@@ -14,6 +14,7 @@ import '../ui/component/expressive/expressive_surface_button.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/desktop_input.dart';
+import 'bar_edit_pose.dart';
 import 'bar_geometry.dart';
 import 'detail_chrome.dart';
 import 'shell_state.dart';
@@ -24,7 +25,9 @@ import 'yoin_section.dart';
 /// Poses, all from [resolveBarGeometry] so surface and slots agree each frame:
 /// - idle (nothing playing): Home and Library as two labelled halves;
 /// - nav: [Home][now-playing pill][Library], the selected button 1.5× wide;
-/// - detail (a detail page registered [DetailPlayActions]): [Play split][pill].
+/// - detail (a detail page registered [DetailPlayActions]): [Play split][pill];
+/// - edit (Home being edited, [BarEditPose]): the idle path with Home →
+///   [Undo|Add] and Library → [Done], the pill folded.
 /// Widths spring on the Standard role (default spatial for selection / idle /
 /// pose, fast spatial for press echoes); colours on the effects spring.
 /// Portrait bar below 600 wide; at 600+ the bar is centred, capped at 600
@@ -43,7 +46,12 @@ class YoinBottomBar extends StatefulWidget {
     this.navOnly = false,
     this.availableWidth,
     this.paneOpen = false,
+    this.editPose,
   });
+
+  /// Home is being edited (or was, while the pose springs back): the bar's
+  /// destinations become [Undo|Add] and [Done].
+  final BarEditPose? editPose;
 
   /// The Wide window's detail column is open: with page actions the bar
   /// takes the merged pose and widens to [BarTokens.mergedMaxWidth].
@@ -108,6 +116,30 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
   late final SpringValue _libraryPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
   late final SpringValue _pillPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
 
+  /// The edit pose P (Home's edit progress spring, so the bar and the header move as one).
+  late final SpringValue _edit = SpringValue(
+    vsync: this,
+    initial: widget.editPose?.editing ?? false ? 1 : 0,
+    spring: YoinSprings.defaultSpatial,
+  );
+
+  /// The left slot's three layers (Undo, Add, the dimmed Undo) cross-fade on the fast effects spring.
+  late final List<SpringValue> _slotAlphas = [
+    for (final slot in BarEditLeftSlot.values)
+      SpringValue(
+        vsync: this,
+        initial: (widget.editPose?.leftSlot ?? BarEditLeftSlot.undoDisabled) == slot ? 1 : 0,
+        spring: YoinSprings.fastEffects,
+      ),
+  ];
+
+  /// While editing a press squares the button off to the small corner (the haptic's visual twin).
+  late final SpringValue _homeCorner = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+  late final SpringValue _libraryCorner = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+
+  /// The last edit pose, kept while the bar springs back to nav.
+  BarEditPose? _lastPose;
+
   /// The last detail actions, kept while the pose springs back to nav.
   DetailPlayActions? _lastActions;
 
@@ -115,6 +147,7 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
   void initState() {
     super.initState();
     _lastActions = widget.detailActions;
+    _lastPose = widget.editPose;
   }
 
   @override
@@ -134,6 +167,18 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
       _pane.animateTo(pane);
     }
     if (widget.detailActions != null) _lastActions = widget.detailActions;
+    final pose = widget.editPose;
+    if (pose != null) _lastPose = pose;
+    final editing = pose?.editing ?? false;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _edit.snapTo(editing ? 1 : 0);
+    } else {
+      _edit.animateTo(editing ? 1 : 0);
+    }
+    final slot = (pose ?? _lastPose)?.leftSlot ?? BarEditLeftSlot.undoDisabled;
+    for (final v in BarEditLeftSlot.values) {
+      _slotAlphas[v.index].animateTo(v == slot ? 1 : 0);
+    }
   }
 
   @override
@@ -148,10 +193,59 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
       _homePress,
       _libraryPress,
       _pillPress,
+      _edit,
+      ..._slotAlphas,
+      _homeCorner,
+      _libraryCorner,
     ]) {
       s.dispose();
     }
     super.dispose();
+  }
+
+  String _leftSlotCd(YoinStrings strings, BarEditLeftSlot slot) => switch (slot) {
+    BarEditLeftSlot.undo || BarEditLeftSlot.undoDisabled => strings.barCdUndo,
+    BarEditLeftSlot.add => strings.barCdShowHidden,
+  };
+
+  /// The edit pose's left-slot content, stacked and cross-faded: Undo, Add and
+  /// the dimmed Undo (Undo is a text label, as on Android).
+  Widget _leftSlotLayers(BuildContext context, YoinStrings strings, double editSwap, double labelAlpha) {
+    final colors = Theme.of(context).colorScheme;
+    final style = Theme.of(context).textTheme.labelLarge;
+    Widget layer(BarEditLeftSlot slot, Widget child) {
+      final a = editSwap * _slotAlphas[slot.index].value.clamp(0.0, 1.0);
+      if (a <= 0.002) return const SizedBox.shrink();
+      return Opacity(opacity: a, child: child);
+    }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        layer(
+          BarEditLeftSlot.undo,
+          Text(strings.barLabelUndo, maxLines: 1, softWrap: false, style: style?.copyWith(color: colors.onSurface)),
+        ),
+        layer(
+          BarEditLeftSlot.add,
+          _BarIconLabel(
+            icon: YoinSymbols.add,
+            label: strings.barLabelAdd,
+            labelAlpha: labelAlpha,
+            color: colors.onSurface,
+          ),
+        ),
+        layer(
+          BarEditLeftSlot.undoDisabled,
+          Text(
+            strings.barLabelUndo,
+            maxLines: 1,
+            softWrap: false,
+            style: style?.copyWith(color: colors.onSurface.withValues(alpha: BarEditPose.disabledAlpha)),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -197,6 +291,10 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           _homePress.animation,
           _libraryPress.animation,
           _pillPress.animation,
+          _edit.animation,
+          for (final a in _slotAlphas) a.animation,
+          _homeCorner.animation,
+          _libraryCorner.animation,
         ]),
         builder: (context, _) {
           final g = resolveBarGeometry(
@@ -214,19 +312,47 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               navOnly: _navOnly.value,
               pane: _pane.value,
               mergedCount: _lastActions?.onShuffle != null ? 1 : 0,
+              edit: _edit.value,
             ),
           );
+          final edit = _edit.value.clamp(0.0, 1.0);
+          final editSwap = barEditSwap(edit);
+          final pose = _lastPose;
+          final editing = widget.editPose?.editing ?? false;
+          final slot = pose?.leftSlot ?? BarEditLeftSlot.undoDisabled;
           final colorSelection = _selectionColor.value.clamp(0.0, 1.0);
           final detail = _detail.value.clamp(0.0, 1.0);
           final actions = _lastActions;
+          final homeContainer = Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, colorSelection)!;
+          final libraryContainer = Color.lerp(
+            colors.surfaceContainerHighest,
+            colors.primaryContainer,
+            1 - colorSelection,
+          )!;
+          final libraryContent = Color.lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, 1 - colorSelection)!;
+          // The left slot's press morphs only when it does something (Undo, Add).
+          final slotActive = editing && slot != BarEditLeftSlot.undoDisabled;
           Widget homeButton() => _BarButton(
             icon: colorSelection > 0.5 ? YoinSymbols.homeFilled : YoinSymbols.home,
             label: strings.barLabelHome,
-            semantics: npStrings.barCdHome,
+            semantics: editing ? _leftSlotCd(strings, slot) : npStrings.barCdHome,
+            enabled: !editing || slot != BarEditLeftSlot.undoDisabled,
             labelAlpha: g.labelAlpha,
             selection: colorSelection,
-            onPress: (down) => _homePress.animateTo(down ? 1 : 0),
+            container: Color.lerp(homeContainer, colors.surfaceContainerHighest, editSwap),
+            editSwap: editSwap,
+            editLayer: editSwap > 0.01 ? _leftSlotLayers(context, strings, editSwap, g.labelAlpha) : null,
+            pressCorner: _homeCorner.value,
+            onPress: (down) {
+              _homePress.animateTo(down ? 1 : 0);
+              _homeCorner.animateTo(down && slotActive ? 1 : 0);
+            },
             onTap: () {
+              if (editing) {
+                // Edit haptics belong to the controller alone.
+                widget.editPose?.onLeftSlot();
+                return;
+              }
               YoinHaptics.click();
               widget.onSelect(YoinSection.home);
             },
@@ -234,12 +360,31 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           Widget libraryButton() => _BarButton(
             icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
             label: strings.barLabelLibrary,
-            semantics: npStrings.barCdLibrary,
+            semantics: editing ? strings.barCdDone : npStrings.barCdLibrary,
             labelAlpha: g.labelAlpha,
             selection: 1 - colorSelection,
             ripple: false,
-            onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
+            container: Color.lerp(libraryContainer, colors.primary, edit),
+            content: Color.lerp(libraryContent, colors.onPrimary, edit),
+            editSwap: editSwap,
+            editLayer: editSwap > 0.01
+                ? _BarIconLabel(
+                    icon: YoinSymbols.check,
+                    label: strings.barLabelDone,
+                    labelAlpha: g.labelAlpha,
+                    color: Color.lerp(libraryContent, colors.onPrimary, edit)!,
+                  )
+                : null,
+            pressCorner: _libraryCorner.value,
+            onPress: (down) {
+              _libraryPress.animateTo(down ? 1 : 0);
+              _libraryCorner.animateTo(down && editing ? 1 : 0);
+            },
             onTap: () {
+              if (editing) {
+                widget.editPose?.onDone();
+                return;
+              }
               YoinHaptics.click();
               widget.onSelect(YoinSection.library);
             },
@@ -438,9 +583,11 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
 }
 
 /// A Home / Library button: stadium (FilledIconButton's filledShape / the
-/// 28 dp extraLarge corner at 48 dp — no press morph outside Home edit, which
-/// v1 doesn't have), the 24 dp glyph, container lerp(surfaceContainerHighest
-/// → primaryContainer, selection); the label fades in over the idle tail.
+/// 28 dp extraLarge corner at 48 dp), the 24 dp glyph, container
+/// lerp(surfaceContainerHighest → primaryContainer, selection); the label
+/// fades in over the idle tail. In the edit pose its content cross-fades to
+/// [editLayer] over [editSwap], and a press while editing squares its
+/// corners off toward the small corner ([pressCorner]).
 class _BarButton extends StatelessWidget {
   const _BarButton({
     required this.icon,
@@ -451,6 +598,12 @@ class _BarButton extends StatelessWidget {
     required this.onPress,
     required this.onTap,
     this.ripple = true,
+    this.enabled = true,
+    this.container,
+    this.content,
+    this.editSwap = 0,
+    this.editLayer,
+    this.pressCorner = 0,
   });
 
   final IconData icon;
@@ -467,20 +620,44 @@ class _BarButton extends StatelessWidget {
   /// `indication = null` (YoinButtonGroup LibraryButton): no ripple.
   final bool ripple;
 
+  /// False for the edit pose's dimmed Undo (the reader hears it disabled).
+  final bool enabled;
+
+  /// Edit-pose colours (null: the selection's).
+  final Color? container;
+  final Color? content;
+
+  /// 0 = the destination, 1 = the edit pose's content.
+  final double editSwap;
+  final Widget? editLayer;
+
+  /// 0 = stadium, 1 = the pressed small corner.
+  final double pressCorner;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final container = Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, selection)!;
-    final content = Color.lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, selection)!;
+    final fill = container ?? Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, selection)!;
+    final ink = content ?? Color.lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, selection)!;
+    final corner = pressCorner.clamp(0.0, 1.0);
+    final shape = corner <= 0.001
+        ? const StadiumBorder()
+        : ShapeBorder.lerp(
+            const StadiumBorder(),
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(BarTokens.editPressedCorner)),
+            corner,
+          )!;
+    final destination = _BarIconLabel(icon: icon, label: label, labelAlpha: labelAlpha, color: ink);
     return Semantics(
       button: true,
-      selected: selection > 0.5,
+      enabled: enabled,
+      selected: editSwap < 0.5 && selection > 0.5,
       label: semantics,
       excludeSemantics: true,
       child: YoinFocusRing(
         child: Material(
-          color: container,
-          shape: const StadiumBorder(),
+          color: fill,
+          shape: shape,
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
@@ -489,32 +666,55 @@ class _BarButton extends StatelessWidget {
             onTapDown: (_) => onPress(true),
             onTapUp: (_) => onPress(false),
             onTapCancel: () => onPress(false),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: BarTokens.iconSize, color: content),
-                if (labelAlpha > 0.01) ...[
-                  SizedBox(width: BarTokens.iconLabelGap * labelAlpha),
-                  Flexible(
-                    child: Opacity(
-                      opacity: labelAlpha,
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.fade,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: content),
-                      ),
-                    ),
+            child: editLayer == null
+                ? destination
+                // Both stacked in one button, so the swap never re-lays out the slot.
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (editSwap < 0.99) Opacity(opacity: 1 - editSwap, child: destination),
+                      editLayer!,
+                    ],
                   ),
-                ],
-              ],
-            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// A bar button's glyph with its idle-pose label, which shows only while [labelAlpha] does.
+class _BarIconLabel extends StatelessWidget {
+  const _BarIconLabel({required this.icon, required this.label, required this.labelAlpha, required this.color});
+
+  final IconData icon;
+  final String label;
+  final double labelAlpha;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: BarTokens.iconSize, color: color),
+      if (labelAlpha > 0.01) ...[
+        SizedBox(width: BarTokens.iconLabelGap * labelAlpha),
+        Flexible(
+          child: Opacity(
+            opacity: labelAlpha,
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.fade,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
+            ),
+          ),
+        ),
+      ],
+    ],
+  );
 }
 
 /// The detail pose's Play split button (PlaySplitButton.kt): [▶ Play][▾],

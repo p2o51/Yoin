@@ -13,17 +13,22 @@
 /// Done, system back or a tap on the page's blank space leaves. The edit
 /// controller is the only writer.
 ///
-/// Not ported yet: the wiggle, the bar's edit pose (Undo and Done sit in the
-/// header instead) and the shelves' clip to their plate.
+/// While editing, the cards sway (home_edit_wiggle.dart), the bar's two
+/// destinations become [Undo|Add] and [Done] (BarEditPose: Add scrolls to the
+/// tray when there is nothing to undo), the header's controls fade away, and
+/// full-bleed shelves are cut back to their plate ([HomeEditShelfClip]).
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../nowplaying/haptics.dart';
+import '../shell/bar_edit_pose.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
@@ -37,12 +42,15 @@ const int homeEditUndoLimit = 20;
 
 @immutable
 final class HomeEditState {
-  const HomeEditState({this.editing = false, this.undo = const []});
+  const HomeEditState({this.editing = false, this.undo = const [], this.trayRequests = 0});
 
   final bool editing;
 
   /// Layouts before each step, oldest first.
   final List<HomeLayout> undo;
+
+  /// Bumped by the bar's Add: Home scrolls the "Hidden" tray into view.
+  final int trayRequests;
 
   bool get canUndo => undo.isNotEmpty;
 }
@@ -71,12 +79,38 @@ class HomeEditController extends Notifier<HomeEditState> {
     state = const HomeEditState();
   }
 
+  /// The bar's Done: leaves with the confirm haptic.
+  void done() {
+    if (!state.editing) return;
+    YoinHaptics.confirm();
+    exit();
+  }
+
+  /// The bar's left slot: Undo while there is history, else Add (scrolls to
+  /// the tray) while sections are hidden, else nothing.
+  void barLeftSlot() {
+    if (!state.editing) return;
+    switch (resolveEditLeftSlot(state.undo.length, hiddenSections(ref.read(homeLayoutProvider)).length)) {
+      case BarEditLeftSlot.undo:
+        undo();
+      case BarEditLeftSlot.add:
+        YoinHaptics.click();
+        state = HomeEditState(editing: true, undo: state.undo, trayRequests: state.trayRequests + 1);
+      case BarEditLeftSlot.undoDisabled:
+        break;
+    }
+  }
+
   void _apply(HomeLayout next) {
     final layouts = ref.read(homeLayoutProvider.notifier);
     final current = ref.read(homeLayoutProvider);
     if (identical(next, current)) return;
     final undo = [...state.undo, current];
-    state = HomeEditState(editing: state.editing, undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo);
+    state = HomeEditState(
+      editing: state.editing,
+      undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
+      trayRequests: state.trayRequests,
+    );
     layouts.set(next);
   }
 
@@ -125,6 +159,7 @@ class HomeEditController extends Notifier<HomeEditState> {
       state = HomeEditState(
         editing: state.editing,
         undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
+        trayRequests: state.trayRequests,
       );
     }
     // Restore default deletes the saved layout (Android clearLayout), so it syncs as "default".
@@ -135,7 +170,11 @@ class HomeEditController extends Notifier<HomeEditState> {
     if (!state.canUndo) return;
     YoinHaptics.click();
     final previous = state.undo.last;
-    state = HomeEditState(editing: state.editing, undo: state.undo.sublist(0, state.undo.length - 1));
+    state = HomeEditState(
+      editing: state.editing,
+      undo: state.undo.sublist(0, state.undo.length - 1),
+      trayRequests: state.trayRequests,
+    );
     ref.read(homeLayoutProvider.notifier).set(previous);
   }
 }
@@ -181,7 +220,11 @@ class HomeEditPlate extends StatelessWidget {
     this.onFewerRows,
     this.resizeHandle,
     this.childTaps = false,
+    this.onPlateTap,
   });
+
+  /// A tap on the plate while editing (it kicks the block).
+  final VoidCallback? onPlateTap;
 
   /// While editing, [child] still takes taps (Jump Back In's cards open their "not now" menu).
   final bool childTaps;
@@ -242,7 +285,7 @@ class HomeEditPlate extends StatelessWidget {
       child: GestureDetector(
         // A tap on a plate is not a tap on the page's blank space.
         behavior: HitTestBehavior.translucent,
-        onTap: on ? () {} : null,
+        onTap: on ? () => onPlateTap?.call() : null,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -272,7 +315,15 @@ class HomeEditPlate extends StatelessWidget {
                     )
                   : const SizedBox.shrink(),
             ),
-            IgnorePointer(ignoring: e > 0.5 && !childTaps, child: child),
+            IgnorePointer(
+              ignoring: e > 0.5 && !childTaps,
+              child: HomeEditPlateScope(
+                progress: e,
+                outsetStart: homeEditPlateOutset(start),
+                outsetEnd: homeEditPlateOutset(end),
+                child: child,
+              ),
+            ),
             PositionedDirectional(
               top: -vertical,
               end: end - homeEditPlateOutset(end),
@@ -436,35 +487,172 @@ class HomeEmptyLayoutCard extends ConsumerWidget {
   }
 }
 
-/// The header's edit pose: Undo (dim when there is nothing to undo) and Done.
-class HomeEditActions extends ConsumerWidget {
-  const HomeEditActions({super.key});
+/// What a section's content knows of its plate while editing: the edit
+/// progress and the plate's horizontal reach past the content on each side.
+class HomeEditPlateScope extends InheritedWidget {
+  const HomeEditPlateScope({
+    super.key,
+    required this.progress,
+    required this.outsetStart,
+    required this.outsetEnd,
+    required super.child,
+  });
+
+  final double progress;
+  final double outsetStart;
+  final double outsetEnd;
+
+  static HomeEditPlateScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<HomeEditPlateScope>();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final edit = ref.watch(homeEditProvider);
-    final controller = ref.read(homeEditProvider.notifier);
-    final strings = HomeStrings.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // A tooltip alone is no label on HarmonyOS' reader: say it.
-        Semantics(
-          container: true,
-          button: true,
-          enabled: edit.canUndo,
-          label: strings.undo,
-          onTap: edit.canUndo ? controller.undo : null,
-          excludeSemantics: true,
-          child: IconButton(
-            tooltip: strings.undo,
-            onPressed: edit.canUndo ? controller.undo : null,
-            icon: const Icon(YoinSymbols.undo),
-          ),
-        ),
-        const SizedBox(width: HomeEditMetrics.actionGap),
-        FilledButton(onPressed: controller.exit, child: Text(strings.done)),
-      ],
+  bool updateShouldNotify(HomeEditPlateScope old) =>
+      old.progress != progress || old.outsetStart != outsetStart || old.outsetEnd != outsetEnd;
+}
+
+/// A full-bleed shelf cut back to its plate while editing (Android
+/// homeEditShelfClip, plate V1): past the plate the shelf fades out, and over
+/// [HomeEditMetrics.shelfFade] inside the plate's edges it eases in
+/// (smoothstep), by as much as edit mode has come in. [escapeStart] /
+/// [escapeEnd] are how far the shelf reaches past its section's content (the
+/// page margins it bleeds over).
+///
+/// No clip and no mask layer (CornerMask's way, which HarmonyOS needs): what
+/// lies behind the shelf — the page's ground beyond the plate, the plate
+/// within it — is painted over it. Outside edit mode nothing is painted.
+class HomeEditShelfClip extends StatelessWidget {
+  const HomeEditShelfClip({super.key, required this.escapeStart, required this.escapeEnd, required this.child});
+
+  final double escapeStart;
+  final double escapeEnd;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = HomeEditPlateScope.maybeOf(context);
+    if (scope == null) return child;
+    final colors = Theme.of(context).colorScheme;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return _ShelfMask(
+      progress: scope.progress,
+      // Physical left / right reach, from the reading direction's start / end.
+      left: (rtl ? escapeEnd : escapeStart) - (rtl ? scope.outsetEnd : scope.outsetStart),
+      right: (rtl ? escapeStart : escapeEnd) - (rtl ? scope.outsetStart : scope.outsetEnd),
+      page: homePageGround(colors),
+      pageHeight: MediaQuery.sizeOf(context).height,
+      plate: colors.surfaceContainerHigh,
+      child: child,
     );
+  }
+}
+
+/// Home's ground, top to bottom of the window (home_screen.dart's page gradient).
+List<Color> homePageGround(ColorScheme colors) => [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow];
+
+/// The colour of a vertical [stops]-even gradient at [t] (0 top … 1 bottom).
+Color homePageGroundAt(List<Color> ground, double t) {
+  final x = t.clamp(0.0, 1.0) * (ground.length - 1);
+  final i = x.floor().clamp(0, ground.length - 2);
+  return Color.lerp(ground[i], ground[i + 1], x - i)!;
+}
+
+class _ShelfMask extends SingleChildRenderObjectWidget {
+  const _ShelfMask({
+    required this.progress,
+    required this.left,
+    required this.right,
+    required this.page,
+    required this.pageHeight,
+    required this.plate,
+    super.child,
+  });
+
+  final double progress;
+  final double left;
+  final double right;
+  final List<Color> page;
+  final double pageHeight;
+  final Color plate;
+
+  @override
+  _RenderShelfMask createRenderObject(BuildContext context) => _RenderShelfMask()..set(this);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderShelfMask render) => render.set(this);
+}
+
+class _RenderShelfMask extends RenderProxyBox {
+  double _progress = 0;
+  double _left = 0;
+  double _right = 0;
+  List<Color> _page = const [];
+  double _pageHeight = 1;
+  Color _plate = const Color(0x00000000);
+
+  void set(_ShelfMask w) {
+    _progress = w.progress;
+    _left = w.left;
+    _right = w.right;
+    _page = w.page;
+    _pageHeight = w.pageHeight;
+    _plate = w.plate;
+    markNeedsPaint();
+  }
+
+  static const _rampSteps = 6;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    final m = homeEditSmoothstep(_progress);
+    if (m <= 0.001 || size.width <= 0 || _page.length < 2) return;
+    final canvas = context.canvas;
+    // The page's ground around the shelf's middle (a shelf is short next to the window).
+    final global = localToGlobal(Offset.zero);
+    final ground = homePageGroundAt(_page, (global.dy + size.height / 2) / math.max(_pageHeight, 1));
+    final behindPlate = Color.alphaBlend(_plate.withValues(alpha: _plate.a * _progress.clamp(0.0, 1.0)), ground);
+    final plateLeft = _left, plateRight = size.width - _right;
+    final ramp = math.min(HomeEditMetrics.shelfFade, math.max(0.0, (plateRight - plateLeft) / 2));
+    Paint fill(Color c, double a) => Paint()..color = c.withValues(alpha: c.a * a.clamp(0.0, 1.0));
+    // Beyond the plate: the page's ground, as far as edit mode has come in.
+    if (plateLeft > 0) {
+      canvas.drawRect(
+        Rect.fromLTRB(offset.dx, offset.dy, offset.dx + plateLeft, offset.dy + size.height),
+        fill(ground, m),
+      );
+    }
+    if (plateRight < size.width) {
+      canvas.drawRect(
+        Rect.fromLTRB(offset.dx + plateRight, offset.dy, offset.dx + size.width, offset.dy + size.height),
+        fill(ground, m),
+      );
+    }
+    if (ramp <= 0) return;
+    // Inside each plate edge: the plate, easing off over the ramp.
+    for (var i = 0; i < _rampSteps; i++) {
+      final t0 = i / _rampSteps, t1 = (i + 1) / _rampSteps;
+      final a = m * (1 - homeEditSmoothstep((t0 + t1) / 2));
+      if (a <= 0.001) continue;
+      final paint = fill(behindPlate, a);
+      canvas
+        ..drawRect(
+          Rect.fromLTRB(
+            offset.dx + plateLeft + ramp * t0,
+            offset.dy,
+            offset.dx + plateLeft + ramp * t1,
+            offset.dy + size.height,
+          ),
+          paint,
+        )
+        ..drawRect(
+          Rect.fromLTRB(
+            offset.dx + plateRight - ramp * t1,
+            offset.dy,
+            offset.dx + plateRight - ramp * t0,
+            offset.dy + size.height,
+          ),
+          paint,
+        );
+    }
   }
 }

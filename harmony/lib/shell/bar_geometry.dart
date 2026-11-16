@@ -33,7 +33,12 @@ final class BarGeometryInput {
     this.navOnly = 0,
     this.pane = 0,
     this.mergedCount = 0,
+    this.edit = 0,
   });
+
+  /// 1 = Home being edited: the idle path, with Home → [Undo|Add] and
+  /// Library → [Done] (BarEditPose).
+  final double edit;
 
   /// The row's width inside the surface's padding (window − 2 × 16 − 2 × 10 on a phone).
   final double innerWidth;
@@ -158,7 +163,9 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   // The idle halves (idleWeight): the detail pose replaces the left slot
   // with the split and drops the right one, so it needs no factor of its own.
   final detail = _clamp01(i.detailPose);
-  final idle = _clamp01(i.idle);
+  // Editing Home rides the shipped idle path: the pill folds in every pose
+  // and the nav slots become [Undo|Add] [Done].
+  final idle = math.max(_clamp01(i.idle), _clamp01(i.edit));
   final pane = _clamp01(i.pane);
   final navOnly = _clamp01(i.navOnly);
   // The panel fold and the merged pose win over the idle halves: the nav

@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/model/model.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_edit.dart';
+import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
@@ -45,7 +47,8 @@ class _ShelfSection extends StatelessWidget {
         children: [
           Padding(padding: _shelfPadding(frame), child: HomeSectionTitle(title)),
           SizedBox(height: gap),
-          shelf,
+          // Edit mode: the bleeding shelf is cut back to its plate.
+          HomeEditShelfClip(escapeStart: frame.start, escapeEnd: frame.end, child: shelf),
         ],
       );
 }
@@ -171,24 +174,28 @@ class TrackTile extends ConsumerWidget {
     final image = resolveHomeCover(ref, context, trackCover(track),
         requestSize: HomeCoverRequest.standard, side: HomeTokens.recentlyAddedTrackCover);
     final artist = track.artist ?? '';
-    return ElasticPress(
-      onTap: () => openHomeTarget(context, ref, HomePlaySong(track)),
-      child: Row(
-        spacing: HomeTokens.recentlyAddedTileGap,
-        children: [
-          HomeArtwork(image: image, kind: HomeCardKind.album, size: HomeTokens.recentlyAddedTrackCover),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SeamText(track.title ?? '',
-                    style: text.bodyMedium!.copyWith(fontSize: HomeShelfMetrics.trackTitleSize, fontWeight: FontWeight.w500, color: colors.onSurface)),
-                if (artist.isNotEmpty) SeamText(artist, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
-              ],
+    // Edit mode: the tile sways on its own (homeEditCard).
+    return HomeEditCard(
+      kickKey: track.id,
+      child: ElasticPress(
+        onTap: () => openHomeTarget(context, ref, HomePlaySong(track)),
+        child: Row(
+          spacing: HomeTokens.recentlyAddedTileGap,
+          children: [
+            HomeArtwork(image: image, kind: HomeCardKind.album, size: HomeTokens.recentlyAddedTrackCover),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SeamText(track.title ?? '',
+                      style: text.bodyMedium!.copyWith(fontSize: HomeShelfMetrics.trackTitleSize, fontWeight: FontWeight.w500, color: colors.onSurface)),
+                  if (artist.isNotEmpty) SeamText(artist, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -240,21 +247,24 @@ class _ShelfCard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return SizedBox(
       width: HomeTokens.recentlyAddedAlbumCover,
-      child: ElasticPress(
-        onTap: onTap,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            BackdropCover(cover: card.cover, kind: card.kind, size: HomeTokens.recentlyAddedAlbumCover),
-            const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
-            VersionTitle(
-              title: card.title,
-              version: card.version,
-              style: text.bodySmall!.copyWith(fontWeight: FontWeight.w500, color: colors.onSurface),
-            ),
-            if (caption.isNotEmpty) SeamText(caption, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
-          ],
+      child: HomeEditCard(
+        kickKey: card.stableId,
+        child: ElasticPress(
+          onTap: onTap,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              BackdropCover(cover: card.cover, kind: card.kind, size: HomeTokens.recentlyAddedAlbumCover),
+              const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
+              VersionTitle(
+                title: card.title,
+                version: card.version,
+                style: text.bodySmall!.copyWith(fontWeight: FontWeight.w500, color: colors.onSurface),
+              ),
+              if (caption.isNotEmpty) SeamText(caption, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
+            ],
+          ),
         ),
       ),
     );

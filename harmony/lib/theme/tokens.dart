@@ -54,6 +54,9 @@ abstract final class BarTokens {
   /// CenteredBar: horizontal margin inside a narrow pane (bar = pane − 40, max 600).
   static const double centeredHorizontalMargin = 20;
 
+  /// Edit pose: a press squares Undo / Add / Done off to this corner (M3 Expressive's small shape).
+  static const double editPressedCorner = 8;
+
   /// CenteredBar: width cap.
   static const double centeredMaxWidth = 600;
 

@@ -121,7 +121,7 @@ void main() {
     );
     expect(saved.rowsOf(HomeSection.jumpBackIn), rows);
     // Undo springs it back.
-    await tester.tap(find.byTooltip('Undo'));
+    c.read(homeEditProvider.notifier).barLeftSlot(); // the bar's Undo
     await frames(tester, 40);
     expect(c.read(homeLayoutProvider).rowsOf(HomeSection.jumpBackIn), HomeRowPreset.l);
     expect(covers(tester), 12);

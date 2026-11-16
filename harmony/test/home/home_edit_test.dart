@@ -175,7 +175,8 @@ void main() {
       await tester.longPress(find.text('Jump Back In'));
       await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isTrue);
-      expect(find.text('Done'), findsOneWidget);
+      // Undo and Done are the bar's now (BarEditPose), not the header's.
+      expect(find.text('Edit Home'), findsWidgets);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('No hidden sections'), findsOneWidget);
       // Cards take no taps while editing — but Jump Back In's, which open their "not now" menu.
@@ -194,7 +195,8 @@ void main() {
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsNothing);
       expect(find.byTooltip('Show Jump Back In'), findsOneWidget);
-      await tester.tap(find.byTooltip('Undo'));
+      // The bar's left slot: Undo while there is history.
+      c.read(homeEditProvider.notifier).barLeftSlot();
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
       await tester.tap(find.byTooltip('Hide Jump Back In'));
@@ -202,6 +204,27 @@ void main() {
       await tester.tap(find.byTooltip('Show Jump Back In'));
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
+      await done(tester, c);
+    });
+
+    testWidgets('should_scrollToTheTray_when_barAddsWithNothingToUndo', (tester) async {
+      final c = await pumpHome(tester, size: const Size(400, 700));
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      // A new session: nothing to undo, one hidden section — the bar offers Add.
+      c.read(homeEditProvider.notifier).done();
+      await frames(tester, 30);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      expect(c.read(homeEditProvider).canUndo, isFalse);
+      c.read(homeEditProvider.notifier).barLeftSlot();
+      await frames(tester, 60);
+      expect(c.read(homeEditProvider).trayRequests, 1);
+      final position = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(position.pixels, closeTo(position.maxScrollExtent, 2));
+      expect(find.byTooltip('Show Jump Back In'), findsOneWidget);
       await done(tester, c);
     });
 
@@ -215,10 +238,10 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
       c.read(homeEditProvider.notifier).enter();
       await frames(tester, 30);
-      await tester.tap(find.text('Done'));
+      // The bar's Done.
+      c.read(homeEditProvider.notifier).done();
       await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isFalse);
-      expect(find.text('Done'), findsNothing);
       await done(tester, c);
     });
 
@@ -360,7 +383,6 @@ void main() {
       await frames(tester, 30);
       expect(find.bySemanticsLabel('Hide Jump Back In'), findsOneWidget);
       expect(find.bySemanticsLabel('Reorder Jump Back In'), findsOneWidget);
-      expect(find.bySemanticsLabel('Undo'), findsOneWidget);
       semantics.dispose();
       await done(tester, c);
     });
