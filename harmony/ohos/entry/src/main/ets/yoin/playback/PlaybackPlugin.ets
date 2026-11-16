@@ -13,7 +13,7 @@ import {
 import { common } from '@kit.AbilityKit';
 import { EngineRepeat } from './PlaybackEngine';
 import { YoinPlaybackHost } from './PlaybackHost';
-import { QueueItem } from './QueueItem';
+import { QueueItem, StreamCacheEpoch } from './QueueItem';
 
 const METHOD_CHANNEL = 'yoin/playback';
 const EVENT_CHANNEL = 'yoin/playback/events';
@@ -47,6 +47,8 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
   }
 
   onDetachedFromEngine(binding: FlutterPluginBinding): void {
+    // Dart's stream cache server goes with this engine: queued items stream from their server from now on.
+    StreamCacheEpoch.end();
     this.methodChannel?.setMethodCallHandler(null);
     this.methodChannel = null;
     this.eventChannel = null;

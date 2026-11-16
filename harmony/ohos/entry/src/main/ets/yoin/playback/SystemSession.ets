@@ -6,6 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { image } from '@kit.ImageKit';
 import { ArtworkLoader } from './ArtworkLoader';
 import { describe, EngineListener, EngineRepeat, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
+import { ContinuousTasks, HeldTask } from '../background/ContinuousTasks';
 
 const DOMAIN = 0x5901;
 const TAG = 'YoinSession';
@@ -44,6 +45,8 @@ export class SystemSession {
   private lastPlaying: boolean = false;
   private favoriteRegistered: boolean = false;
   private backgroundRunning: boolean = false;
+  /** The AUDIO_PLAYBACK task, ended by its own id so the downloads' task (TransferPlugin) carries on. */
+  private audioTask: HeldTask | null = null;
   private pausedTimer: number = -1;
   private launchAgent: WantAgent | null = null;
   private pending: EngineSnapshot | null = null;
@@ -81,16 +84,18 @@ export class SystemSession {
   private retire(old: common.UIAbilityContext): void {
     const session = this.session;
     const wasRunning = this.backgroundRunning;
+    const task = this.audioTask;
     this.session = null;
     this.backgroundRunning = false;
+    this.audioTask = null;
     this.resetSessionState();
     if (session !== null) {
       session.destroy().catch((e: BusinessError) => {
         hilog.warn(DOMAIN, TAG, 'old session destroy failed: %{public}s', describe(e));
       });
     }
-    if (wasRunning) {
-      backgroundTaskManager.stopBackgroundRunning(old).catch((e: BusinessError) => {
+    if (wasRunning && task !== null) {
+      ContinuousTasks.stop(old, task).catch((e: BusinessError) => {
         hilog.warn(DOMAIN, TAG, 'old task stop failed: %{public}s', describe(e));
       });
     }
@@ -366,9 +371,24 @@ export class SystemSession {
     if (this.backgroundRunning) {
       return;
     }
+    const agent = await this.getLaunchAgent();
+    if (ContinuousTasks.multipleSupported()) {
+      // API 21+: a task of its own, so the downloads can hold theirs beside it.
+      try {
+        this.audioTask = await ContinuousTasks.start(this.context,
+          backgroundTaskManager.BackgroundTaskMode.MODE_AUDIO_PLAYBACK,
+          backgroundTaskManager.BackgroundTaskSubmode.SUBMODE_NORMAL_NOTIFICATION, agent);
+        this.backgroundRunning = true;
+        return;
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'audio task request failed, using the single-task call: %{public}s',
+          describe(e as BusinessError));
+      }
+    }
     try {
       await backgroundTaskManager.startBackgroundRunning(this.context,
-        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK, await this.getLaunchAgent());
+        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK, agent);
+      this.audioTask = new HeldTask(-1, -1);
       this.backgroundRunning = true;
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'startBackgroundRunning failed: %{public}s', describe(e as BusinessError));
@@ -380,8 +400,10 @@ export class SystemSession {
       return;
     }
     this.backgroundRunning = false;
+    const task = this.audioTask ?? new HeldTask(-1, -1);
+    this.audioTask = null;
     try {
-      await backgroundTaskManager.stopBackgroundRunning(this.context);
+      await ContinuousTasks.stop(this.context, task);
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'stopBackgroundRunning failed: %{public}s', describe(e as BusinessError));
     }

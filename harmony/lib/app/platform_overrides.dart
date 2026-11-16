@@ -29,5 +29,6 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   windowControlsProvider.overrideWithValue(platform.windowControls),
   imageShareProvider.overrideWithValue(platform.imageShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
+  backgroundTransferHostProvider.overrideWithValue(platform.backgroundTransfer),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
 ];

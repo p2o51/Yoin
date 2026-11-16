@@ -8,6 +8,7 @@ library;
 import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
+import 'background/background_transfer.dart';
 import 'cards/cards_channel.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
@@ -42,6 +43,7 @@ final class YoinPlatform {
     required this.imageShare,
     required this.appFiles,
     required this.cloudSyncHost,
+    required this.backgroundTransfer,
   });
 
   final YoinHost host;
@@ -88,6 +90,11 @@ final class YoinPlatform {
   /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
   final CloudSyncHost cloudSyncHost;
 
+  /// Keeping the app running while songs download, with their progress
+  /// notification (OHOS `yoin/transfer`: a data-transfer continuous task;
+  /// Windows: nothing to hold).
+  final BackgroundTransferHost backgroundTransfer;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -104,6 +111,7 @@ final class YoinPlatform {
     imageShare: const ChannelImageShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
+    backgroundTransfer: ChannelBackgroundTransferHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -124,6 +132,7 @@ final class YoinPlatform {
     imageShare: const NoImageShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
+    backgroundTransfer: const NoBackgroundTransferHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

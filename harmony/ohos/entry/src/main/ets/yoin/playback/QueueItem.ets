@@ -1,6 +1,24 @@
 import { Any } from '@ohos/flutter_ohos';
 
 /**
+ * Dart's stream cache is a loopback server in the Flutter engine's isolate: it goes when that engine detaches
+ * (the ability destroyed while the process plays on). Every detach starts a new epoch; a [QueueItem.cacheUri]
+ * handed over in an earlier epoch points at a server that is gone, so that item streams from [QueueItem.uri].
+ */
+export class StreamCacheEpoch {
+  private static value: number = 0;
+
+  static current(): number {
+    return StreamCacheEpoch.value;
+  }
+
+  /** The Flutter engine (and the cache server with it) went away. */
+  static end(): void {
+    StreamCacheEpoch.value++;
+  }
+}
+
+/**
  * One queue entry as Dart's `EngineItem.toMap()` sends it. Optional fields are `undefined` (not null) so they
  * can be copied straight into AVSession's optional metadata fields.
  */
@@ -11,6 +29,14 @@ export class QueueItem {
   headerCount: number = 0;
   /** A downloaded copy (`file://`) played in place of [uri] while the file is there; [uri] streams otherwise. */
   localUri: string | undefined = undefined;
+  /**
+   * Dart's stream cache (`http://127.0.0.1:<port>/…`): played in place of [uri] so the song is stored as it plays
+   * (Android CacheDataSource). [localUri] still comes first; [uri] plays once this failed ([cacheBypassed]) or its
+   * server is gone ([cacheEpoch]).
+   */
+  cacheUri: string | undefined = undefined;
+  cacheEpoch: number = 0;
+  cacheBypassed: boolean = false;
   title: string = '';
   artist: string | undefined = undefined;
   album: string | undefined = undefined;
@@ -41,6 +67,8 @@ export class QueueItem {
     item.id = id;
     item.uri = uri;
     item.localUri = readString(map, 'localUri');
+    item.cacheUri = readString(map, 'cacheUri');
+    item.cacheEpoch = StreamCacheEpoch.current();
     item.title = readString(map, 'title') ?? '';
     item.artist = readString(map, 'artist');
     item.album = readString(map, 'album');
@@ -73,6 +101,20 @@ export class QueueItem {
       });
     }
     return out;
+  }
+
+  /** The address the player opens when it streams: the stream cache's while it is there, else [uri]. */
+  streamUri(): string {
+    const cache = this.cacheUri;
+    if (cache !== undefined && !this.cacheBypassed && this.cacheEpoch === StreamCacheEpoch.current()) {
+      return cache;
+    }
+    return this.uri;
+  }
+
+  /** Whether the player opens [cacheUri] now. */
+  viaCache(): boolean {
+    return this.streamUri() !== this.uri;
   }
 
   /** What `getSnapshot` echoes (no stream URL or headers: they carry credentials). */

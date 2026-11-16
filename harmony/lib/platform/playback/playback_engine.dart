@@ -11,6 +11,7 @@ final class EngineItem {
     required this.uri,
     this.headers = const {},
     this.localUri,
+    this.cacheUri,
     required this.title,
     this.artist,
     this.album,
@@ -31,6 +32,13 @@ final class EngineItem {
   /// gone (removed after the queue was built), as Android's
   /// OfflineFirstDataSource decides as the song opens.
   final String? localUri;
+
+  /// The stream cache's loopback address for [uri] (Android CacheDataSource):
+  /// the native player streams through it, so the song is stored as it plays
+  /// and plays from storage next time. A downloaded [localUri] still comes
+  /// first, and [uri] plays when this address fails (the cache's server went
+  /// with the Flutter engine).
+  final String? cacheUri;
   final String title;
   final String? artist;
   final String? album;
@@ -55,6 +63,7 @@ final class EngineItem {
         'uri': uri,
         'headers': headers,
         if (localUri != null) 'localUri': localUri,
+        if (cacheUri != null) 'cacheUri': cacheUri,
         'title': title,
         'artist': artist,
         'album': album,

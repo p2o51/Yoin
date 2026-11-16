@@ -22,7 +22,8 @@ const CACHE_PREFS_NAME = 'yoin_cache';
 /**
  * Serves `yoin/storage` for Dart's `ChannelKeyValueStore` / `ChannelSecretStore`: plain values in a Preferences
  * file (`yoin_prefs`, or `yoin_cache` when the call's `file` names it), secrets (account credentials) in Asset Store Kit, which encrypts them with a device key and keeps them out
- * of backups. A null value deletes in both stores. `filesDir` answers the app's sandbox files folder (offline downloads).
+ * of backups. A null value deletes in both stores. `filesDir` answers the app's sandbox files folder (offline downloads),
+ * `cacheDir` its cache folder (the stream cache).
  */
 export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandler {
   private context: common.Context | null = null;
@@ -45,13 +46,14 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
-    if (call.method === 'filesDir') {
-      // The sandbox folder Dart keeps files in (offline downloads): removed with the app, never cleared as cache.
+    if (call.method === 'filesDir' || call.method === 'cacheDir') {
+      // filesDir: the sandbox folder Dart keeps files in (offline downloads), removed with the app, never cleared as
+      // cache. cacheDir: the stream cache's folder, which the system may empty when storage runs low.
       const context = this.context;
       if (context === null) {
         result.error('storage', 'storage plugin is not attached', null);
       } else {
-        result.success(context.filesDir);
+        result.success(call.method === 'filesDir' ? context.filesDir : context.cacheDir);
       }
       return;
     }

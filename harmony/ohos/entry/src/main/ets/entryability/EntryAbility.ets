@@ -15,6 +15,7 @@ import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
 import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import YoinSharePlugin from '../yoin/share/SharePlugin';
 import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
+import YoinTransferPlugin from '../yoin/background/TransferPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -32,6 +33,8 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinNetworkPlugin())
     flutterEngine.getPlugins()?.add(new YoinSharePlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinCloudSyncPlugin(this.context))
+    // Downloads keep running behind other apps (a data-transfer continuous task with their progress).
+    flutterEngine.getPlugins()?.add(new YoinTransferPlugin(this.context))
   }
 
   /**
