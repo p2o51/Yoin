@@ -27,6 +27,10 @@ class NowPlayingNotes extends ChangeNotifier {
   final int Function() nowMs;
   final void Function(int ms) seekTo;
 
+  /// A note was saved / one was deleted: the screen lights the background (ActionGlow.kt).
+  VoidCallback? onSaved;
+  VoidCallback? onDeleted;
+
   /// The write bar's one field: its words are the draft's words.
   final TextEditingController text = TextEditingController();
   final FocusNode focus = FocusNode(debugLabel: 'noteWriteBar');
@@ -191,6 +195,7 @@ class NowPlayingNotes extends ChangeNotifier {
       positionMs: _draft.anchorMs,
     );
     YoinHaptics.confirm();
+    onSaved?.call();
     _draft = _draft.cleared(current, positionMs());
     _justSaved = true;
     text.clear();
@@ -255,6 +260,7 @@ class NowPlayingNotes extends ChangeNotifier {
 
   /// Hides [note] and offers it back for [noteUndoWindowMs]; the store deletes it after.
   void delete(SongNote note) {
+    onDeleted?.call();
     _deletion.delete(note, _commitDelete);
     _commitWhenLifted = false;
     _undoTimer?.cancel();

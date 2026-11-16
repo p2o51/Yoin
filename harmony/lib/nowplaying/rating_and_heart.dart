@@ -5,8 +5,10 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import 'action_glow.dart';
 import 'haptics.dart';
 import 'nowplaying_strings.dart';
+import 'transport_signal.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 
@@ -54,10 +56,40 @@ class _RatingSliderState extends State<RatingSlider> with TickerProviderStateMix
   double? _draft;
   double? _committed;
 
+  /// Action lights (ActionGlow.kt): a column up the bar while held, a band
+  /// across the room when the rating lands, a drain when it is cleared.
+  final GlobalRectProbe _glowBounds = GlobalRectProbe();
+  NowPlayingTransportSignal? _signal;
+
+  void _glowHold(double value) {
+    final signal = _signal;
+    final b = _glowBounds.rect;
+    if (signal == null || b == null) return;
+    signal.glowHold.value = GlowHold(
+      kind: GlowHoldKind.rating,
+      pointRoot: ratingPoint(b, value, vertical: true, rtl: false),
+      barRoot: b,
+      value: value,
+    );
+  }
+
+  void _glowLetGo() {
+    final signal = _signal;
+    if (signal != null && signal.glowHold.value?.kind == GlowHoldKind.rating) signal.glowHold.value = null;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _signal = NowPlayingSignalScope.maybeOf(context);
+  }
+
   @override
   void didUpdateWidget(RatingSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.songKey != widget.songKey) {
+      // A new song cancels the press without a lift: its light goes too.
+      if (_draft != null) _glowLetGo();
       _draft = null;
       _committed = null;
     }
@@ -68,6 +100,7 @@ class _RatingSliderState extends State<RatingSlider> with TickerProviderStateMix
 
   @override
   void dispose() {
+    _glowLetGo();
     _fill.dispose();
     _labelOnFill.dispose();
     super.dispose();
@@ -89,21 +122,36 @@ class _RatingSliderState extends State<RatingSlider> with TickerProviderStateMix
     if (_draft != null && value != _draft) YoinHaptics.tick();
     if (value == _draft) return;
     setState(() => _draft = value);
+    _glowHold(value);
     _sync();
   }
 
   void _lift() {
     final draft = _draft;
+    _glowLetGo();
     if (draft == null) return;
     setState(() {
       _committed = draft;
       _draft = null;
     });
+    final b = _glowBounds.rect;
+    if (b != null) {
+      _signal?.glow(
+        ratingGlowKind(draft),
+        Rect.fromCircle(center: ratingPoint(b, draft, vertical: true, rtl: false), radius: 1),
+        value: draft,
+      );
+    }
     widget.onCommit(draft);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ReportBounds(
+    probe: _glowBounds,
+    child: Builder(builder: _buildSlider),
+  );
+
+  Widget _buildSlider(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
     final shown = _shown;
@@ -125,7 +173,10 @@ class _RatingSliderState extends State<RatingSlider> with TickerProviderStateMix
                   })
                   ..onUpdate = ((d) => _setFromLocal(d.localPosition, height))
                   ..onEnd = ((_) => _lift())
-                  ..onCancel = (() => setState(() => _draft = null)),
+                  ..onCancel = (() {
+                    _glowLetGo();
+                    setState(() => _draft = null);
+                  }),
               ),
             },
             child: SizedBox(
@@ -203,6 +254,9 @@ class _FavoriteHeartState extends State<FavoriteHeart> with TickerProviderStateM
   );
   late final AnimationController _scale = AnimationController.unbounded(vsync: this, value: 1);
 
+  /// The heart's bounds, for its action light (ActionGlow.kt FavoriteOn / Off).
+  final GlobalRectProbe _glowBounds = GlobalRectProbe();
+
   @override
   void didUpdateWidget(FavoriteHeart oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -219,6 +273,9 @@ class _FavoriteHeartState extends State<FavoriteHeart> with TickerProviderStateM
   Future<void> _tap() async {
     final starring = !widget.starred;
     starring ? YoinHaptics.confirm() : YoinHaptics.tick();
+    NowPlayingSignalScope.maybeOf(
+      context,
+    )?.glow(starring ? ActionGlowKind.favoriteOn : ActionGlowKind.favoriteOff, _glowBounds.rect);
     widget.onToggle();
     if (MediaQuery.disableAnimationsOf(context)) return;
     await _scale.animateTo(starring ? 1.25 : 1.15, duration: const Duration(milliseconds: 90));
@@ -235,32 +292,35 @@ class _FavoriteHeartState extends State<FavoriteHeart> with TickerProviderStateM
     // before clip in FavoriteButton). Round, no press morph.
     return SizedBox.square(
       dimension: _heartTouchTarget,
-      child: Center(
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_on.animation, _scale]),
-          builder: (context, _) {
-            final on = _on.value.clamp(0.0, 1.0);
-            final content = Color.lerp(colors.onTertiaryContainer, colors.onTertiary, on)!;
-            return Transform.scale(
-              scale: _scale.value,
-              child: SizedBox.square(
-                dimension: NowPlayingTokens.heartSize,
-                child: ExpressiveSurfaceButton(
-                  shapes: const InteractionShapes.fixed(CornerRadii.full),
-                  height: NowPlayingTokens.heartSize,
-                  color: Color.lerp(colors.tertiaryContainer, colors.tertiary, on)!,
-                  contentColor: content,
-                  semanticLabel: widget.starred ? strings.cdRemoveFavorite : strings.cdAddFavorite,
-                  onTap: _tap,
-                  child: Icon(
-                    widget.starred ? YoinSymbols.favoriteFilled : YoinSymbols.favorite,
-                    size: _heartGlyph,
-                    color: content,
+      child: ReportBounds(
+        probe: _glowBounds,
+        child: Center(
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_on.animation, _scale]),
+            builder: (context, _) {
+              final on = _on.value.clamp(0.0, 1.0);
+              final content = Color.lerp(colors.onTertiaryContainer, colors.onTertiary, on)!;
+              return Transform.scale(
+                scale: _scale.value,
+                child: SizedBox.square(
+                  dimension: NowPlayingTokens.heartSize,
+                  child: ExpressiveSurfaceButton(
+                    shapes: const InteractionShapes.fixed(CornerRadii.full),
+                    height: NowPlayingTokens.heartSize,
+                    color: Color.lerp(colors.tertiaryContainer, colors.tertiary, on)!,
+                    contentColor: content,
+                    semanticLabel: widget.starred ? strings.cdRemoveFavorite : strings.cdAddFavorite,
+                    onTap: _tap,
+                    child: Icon(
+                      widget.starred ? YoinSymbols.favoriteFilled : YoinSymbols.favorite,
+                      size: _heartGlyph,
+                      color: content,
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

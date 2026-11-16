@@ -1178,6 +1178,56 @@ abstract final class NowPlayingFocusTokens {
   static const int upNextPrefetchRetryMs = 15000;
 }
 
+/// Now Playing's focus effects (LyricHalftone.kt, NowPlayingSpine.kt,
+/// TransportPulse.kt): the lyric halftone's dots, the spine on short
+/// windows, and where a new song's first line lands for the background.
+abstract final class NowPlayingEffectTokens {
+  /// Focus prints every lyric line through a grid of dots this far apart.
+  static const double lyricDotsCell = 4;
+
+  /// At or above this radius a 4 dp cell is fully covered: solid text, no mask.
+  static const double lyricDotsSolid = 3;
+
+  /// Where the current line starts developing from.
+  static const double lyricDotsDevelopFrom = 1;
+
+  /// Other lines' resting dots; fuller on tablets and the fold's inner screen
+  /// (medium width AND height); the next lines readable; under the transport loose.
+  static const double lyricDotsRest = 1.3;
+  static const double lyricDotsRestLarge = 1.8;
+  static const double lyricDotsReadable = 2.2;
+  static const double lyricDotsLoose = 1;
+
+  /// How many lines after the current one print as [lyricDotsReadable].
+  static const int lyricDotsReadableLines = 2;
+
+  /// The current line develops dots → solid, a sung line breaks back (EaseOutCubic).
+  static const int lyricDotsDevelopMs = 700;
+  static const int lyricDotsBreakMs = 600;
+
+  /// The spine shows only in a band at least this wide between the cover and the rating bar.
+  static const double spineMinWidth = 24;
+
+  /// A fact rests this long; one longer than the band waits, then pans at this speed.
+  static const int spineDwellMs = 9000;
+  static const int spinePanDelayMs = 1200;
+  static const double spinePanSpeed = 18;
+
+  /// A swipe moves the fact at this share of the finger, never past the
+  /// reach, and steps past the step of finger travel.
+  static const double spineSwipeDamping = 0.15;
+  static const double spineSwipeReach = 14;
+  static const double spineSwipeStep = 32;
+
+  /// The band's ends fade over this much; nothing is cut.
+  static const double spineFadeEdge = 20;
+
+  /// Where a new song's title lands below the top of the expanded lyrics page
+  /// (48 top padding + half a title card), and the compact window's first line.
+  static const double lyricsPageLandingFromTop = 84;
+  static const double lyricsWindowLandingFromTop = 28;
+}
+
 /// Pointer and keyboard input on PC windows (MateBook 2in1, later Windows):
 /// the M3 state layers (hover 8 %, focus 10 %) and focus indicator (3 dp,
 /// 2 dp outside the target), and the keyboard seek step (Now Playing ←/→).

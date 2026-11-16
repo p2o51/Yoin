@@ -13,20 +13,50 @@ import 'theme.dart';
 
 /// The cover's colour field for Now Playing's room (FocusField.kt
 /// buildCoverField): the four heaviest hue buckets, most present first, and
-/// the most chromatic cell.
+/// the most chromatic cell; the box-averaged [grid] focus's field samples the
+/// rim from, and the [swatches] dark / light focus take their other hues from.
 @immutable
 final class CoverField {
-  const CoverField({required this.palette, required this.accent});
+  const CoverField({required this.palette, required this.accent, this.grid = const [], this.swatches = const []});
+
+  /// [gridSize]² ARGB samples per side.
+  static const int gridSize = 24;
 
   /// Four colours (padded by repeating the last).
   final List<Color> palette;
   final Color accent;
 
-  @override
-  bool operator ==(Object other) => other is CoverField && listEquals(other.palette, palette) && other.accent == accent;
+  /// [gridSize]² ARGB samples, row-major from the cover's top-left; empty = unknown.
+  final List<int> grid;
+
+  /// The cover's chromatic colours in order of importance (ARGB; Android:
+  /// Palette's swatches, here MCU Score's picks, then the dominant colour).
+  final List<int> swatches;
+
+  List<int> get argbPalette => [for (final c in palette) c.toARGB32()];
+  int get accentArgb => accent.toARGB32();
+
+  /// The cover's colour at ([u], [v]) in 0..1, nearest sample (the main hue without a grid).
+  int at(double u, double v) {
+    if (grid.length < gridSize * gridSize) return palette.first.toARGB32();
+    final x = (u * gridSize).floor().clamp(0, gridSize - 1);
+    final y = (v * gridSize).floor().clamp(0, gridSize - 1);
+    return grid[y * gridSize + x];
+  }
+
+  CoverField withPalette(List<int> argb) =>
+      CoverField(palette: [for (final c in argb) Color(c)], accent: accent, grid: grid, swatches: swatches);
 
   @override
-  int get hashCode => Object.hash(Object.hashAll(palette), accent);
+  bool operator ==(Object other) =>
+      other is CoverField &&
+      listEquals(other.palette, palette) &&
+      other.accent == accent &&
+      listEquals(other.grid, grid) &&
+      listEquals(other.swatches, swatches);
+
+  @override
+  int get hashCode => Object.hash(Object.hashAll(palette), accent, Object.hashAll(grid), Object.hashAll(swatches));
 }
 
 /// One cover's colours: the scheme seed and the room field.
@@ -98,12 +128,17 @@ class NetworkCoverColorLoader implements CoverColorLoader {
     if (result == null) return null;
     return CoverColors(
       seed: Color(result.$1),
-      field: CoverField(palette: [for (final c in result.$2) Color(c)], accent: Color(result.$3)),
+      field: CoverField(
+        palette: [for (final c in result.$2) Color(c)],
+        accent: Color(result.$3),
+        grid: result.$4,
+        swatches: result.$5,
+      ),
     );
   }
 }
 
-Future<(int, List<int>, int)?> _extract((Uint8List, int, int) input) async {
+Future<(int, List<int>, int, List<int>, List<int>)?> _extract((Uint8List, int, int) input) async {
   final (rgba, width, height) = input;
   final pixels = <int>[];
   for (var i = 0; i + 3 < rgba.length; i += 4) {
@@ -113,7 +148,27 @@ Future<(int, List<int>, int)?> _extract((Uint8List, int, int) input) async {
   if (pixels.isEmpty) return null;
   final quantized = await QuantizerCelebi().quantize(pixels, 128);
   final field = buildCoverField(rgba, width, height);
-  return (pickCoverSeed(quantized.colorToCount), [for (final c in field.palette) c.toARGB32()], field.accent.toARGB32());
+  return (
+    pickCoverSeed(quantized.colorToCount),
+    [for (final c in field.palette) c.toARGB32()],
+    field.accent.toARGB32(),
+    field.grid,
+    coverSwatches(quantized.colorToCount),
+  );
+}
+
+/// The cover's swatches for focus's room (FocusField.kt CoverField.swatches):
+/// MCU Score's chromatic picks, most suitable first, then the most populous
+/// colour. Android reads androidx Palette's swatches here; both give the
+/// cover's main colours in order of importance, greys included last.
+List<int> coverSwatches(Map<int, int> colorToCount) {
+  if (colorToCount.isEmpty) return const [];
+  var dominant = colorToCount.keys.first;
+  colorToCount.forEach((argb, count) {
+    if (count > colorToCount[dominant]!) dominant = argb;
+  });
+  final picks = Score.score(colorToCount, desired: 5, fallbackColorARGB: dominant, filter: true);
+  return [...picks, if (!picks.contains(dominant)) dominant];
 }
 
 /// The theme seed from the quantized cover: MCU Score's top pick, but when
@@ -136,6 +191,7 @@ int pickCoverSeed(Map<int, int> colorToCount) {
 /// means (padded); accent = the most chromatic cell.
 CoverField buildCoverField(Uint8List rgba, int width, int height, {int grid = 24, int buckets = 12}) {
   final sums = List.generate(buckets, (_) => [0.0, 0.0, 0.0, 0.0]);
+  final cells = List<int>.filled(grid * grid, 0xFF000000);
   var bestChroma = -1.0;
   var accent = const Color(0xFF808080);
   for (var gy = 0; gy < grid; gy++) {
@@ -154,6 +210,7 @@ CoverField buildCoverField(Uint8List rgba, int width, int height, {int grid = 24
       }
       if (n == 0) continue;
       final color = Color.fromARGB(255, r ~/ n, g ~/ n, b ~/ n);
+      cells[gy * grid + gx] = color.toARGB32();
       final hsl = HSLColor.fromColor(color);
       final chroma = hsl.saturation * (1 - (2 * hsl.lightness - 1).abs());
       final weight = 0.15 + chroma;
@@ -181,7 +238,7 @@ CoverField buildCoverField(Uint8List rgba, int width, int height, {int grid = 24
   while (palette.length < 4) {
     palette.add(palette.last);
   }
-  return CoverField(palette: palette, accent: accent);
+  return CoverField(palette: palette, accent: accent, grid: grid == CoverField.gridSize ? cells : const []);
 }
 
 final coverColorLoaderProvider = Provider<CoverColorLoader>((ref) => const NetworkCoverColorLoader());

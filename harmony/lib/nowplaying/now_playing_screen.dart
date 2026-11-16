@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
 import '../detail/scrapbook_focus.dart';
+import '../playback/keep_screen_on.dart';
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
@@ -27,12 +29,15 @@ import 'about_logic.dart';
 import 'about_view_model.dart';
 import 'about_widgets.dart';
 import 'ask_bar.dart';
+import 'action_glow.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
+import 'focus_field.dart';
 import 'focus_budget.dart';
 import 'focus_idle.dart';
 import 'gemini_wash.dart';
 import 'haptics.dart';
+import 'lyric_halftone.dart';
 import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
@@ -47,6 +52,7 @@ import 'note_logic.dart';
 import 'note_page.dart';
 import 'note_write_bar.dart';
 import 'now_playing_presentation.dart';
+import 'now_playing_spine.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
@@ -59,6 +65,8 @@ import 'rating_and_heart.dart';
 import 'stage_budget.dart';
 import 'stage_tabs.dart';
 import 'transport.dart';
+import 'transport_pulse.dart';
+import 'transport_signal.dart';
 
 double _smooth(double edge0, double edge1, double x) {
   final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -140,6 +148,23 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 
 class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with TickerProviderStateMixin {
   final ValueNotifier<TransportKey> _pressed = ValueNotifier(TransportKey.none);
+
+  /// The controls publish their presses, taps and lights here; the background
+  /// answers them (NowPlayingTransportSignal).
+  final NowPlayingTransportSignal _signal = NowPlayingTransportSignal();
+
+  /// Focus's colour journey enters from the side the song came from, latched per song.
+  String? _journeySong;
+  int _journeyIndex = 0;
+  bool _journeyFromRight = true;
+
+  /// A translation was being fetched (its lines light once when it lands).
+  bool _wasTranslating = false;
+
+  /// Dark / light focus's rooms, from the cover's dark scheme and swatches.
+  (Color?, List<int>)? _roomKey;
+  RoomPalette? _darkRoom;
+  RoomPalette? _lightRoom;
   final ValueNotifier<bool> _autoFollow = ValueNotifier(true);
   LyricFrame? _lastFrame;
 
@@ -162,7 +187,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     loadStore: () => ref.read(memoryStoreProvider.future),
     positionMs: () => ref.read(playheadClockProvider).positionMs(),
     nowMs: () => ref.read(playbackClockProvider).wallMs(),
-    seekTo: (ms) => ref.read(nowPlayingViewModelProvider.notifier).seekTo(ms),
+    seekTo: (ms) {
+      // A note row: the seek's buffering is not a play/pause, and a faint band lights at the row.
+      _signal
+        ..recordSeek()
+        ..recordLineTap();
+      ref.read(nowPlayingViewModelProvider.notifier).seekTo(ms);
+    },
   );
 
   /// The detail pager's ONE progress (0 = Lyrics, 1 = Note), shared by the
@@ -224,6 +255,73 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _tools.addListener(_onTools);
     _tools.idle.addListener(_onToolsIdle);
     _autoFollow.addListener(_onTools);
+    _notes
+      ..onSaved = _glowSaveNote
+      ..onDeleted = _glowDeleteNote;
+  }
+
+  /// A note saved: ink rises from the Write pill (or the lyrics' foot) to the current line.
+  void _glowSaveNote() {
+    final area = _signal.lyricsAreaRoot;
+    final from =
+        _signal.anchorOf(GlowAnchor.write) ??
+        (area == null ? null : Rect.fromCircle(center: Offset(area.center.dx, area.bottom), radius: 1));
+    _signal.glow(ActionGlowKind.noteSave, from, targetY: _signal.currentLineRootY ?? double.nan);
+  }
+
+  /// A note deleted: its line's light shrinks back.
+  void _glowDeleteNote() => _signal.glow(
+    ActionGlowKind.noteDelete,
+    _signal.lyricsAreaRoot ?? _signal.anchorOf(GlowAnchor.write),
+    targetY: _signal.currentLineRootY ?? double.nan,
+  );
+
+  /// New lines arrived (a search result, the editor, a translation): each lights once, top to bottom.
+  void _revealLyrics() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) _signal.glow(ActionGlowKind.lyricsReveal, null, areaRoot: _signal.lyricsAreaRoot);
+  });
+
+  /// Copied or shared lyrics: a band over the current line.
+  void _glowLines() =>
+      _signal.glow(ActionGlowKind.lineGlow, _signal.lyricsAreaRoot, targetY: _signal.currentLineRootY ?? double.nan);
+
+  /// The room's colours for focus: the cover's DARK scheme (whatever the
+  /// theme) seeds both rooms, its other hues off the cover's swatches.
+  void _syncRooms(Color? seed, CoverField? field) {
+    final key = (seed, field?.swatches ?? const <int>[]);
+    if (_roomKey != null && _roomKey!.$1 == key.$1 && listEquals(_roomKey!.$2, key.$2)) return;
+    _roomKey = key;
+    final dark = playbackThemeData(seed, Brightness.dark).colorScheme;
+    final p = dark.primary.toARGB32(), sc = dark.secondary.toARGB32(), t = dark.tertiary.toARGB32();
+    _darkRoom = darkRoomOf(p, sc, t, key.$2);
+    _lightRoom = lightRoomOf(p, sc, t, key.$2);
+  }
+
+  /// The journey's side for the song now on screen: a step back in the queue
+  /// enters from the left, anything else from the right.
+  void _syncJourney(NowPlayingUiState state) {
+    if (state is! NowPlayingContent) return;
+    if (state.songKey == _journeySong) {
+      _journeyIndex = state.currentIndex;
+      return;
+    }
+    if (_journeySong != null) _journeyFromRight = lyricFlowForward(_journeyIndex, state.currentIndex);
+    _journeySong = state.songKey;
+    _journeyIndex = state.currentIndex;
+  }
+
+  /// A translation: the slow sweep while it is fetched, each line lights once when it lands.
+  void _syncTranslating(NowPlayingUiState state) {
+    final translating = state is NowPlayingContent && state.translating;
+    final shown = state is NowPlayingContent && state.showTranslation;
+    if (translating == _wasTranslating) return;
+    final landed = _wasTranslating && !translating && shown;
+    _wasTranslating = translating;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _signal.lyricsWaiting.value = translating;
+      if (landed) _revealLyrics();
+    });
   }
 
   /// Select mode changed (the pager stops swiping, the tools stay) or the
@@ -384,6 +482,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
               .applyLyrics(hit.lrc, provider: hit.providerName, providerSongId: hit.providerSongId);
         });
         if (!mounted) return applied;
+        if (applied) _revealLyrics();
         _say(applied ? lyricsAppliedMessage(strings, hit.providerName) : strings.msgCouldntApply);
         return applied;
       },
@@ -399,6 +498,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       applied = await ref.read(nowPlayingViewModelProvider.notifier).applyLyrics(text);
     });
     if (!mounted) return;
+    if (applied) _revealLyrics();
     _say(applied ? strings.msgLyricsApplied : strings.msgCouldntApply);
   }
 
@@ -412,6 +512,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     if (content == null || lines.isEmpty) return;
     final strings = NowPlayingStrings.of(context);
     YoinHaptics.confirm();
+    _glowLines();
     await Clipboard.setData(
       ClipboardData(
         text: lyricsClipboardText(
@@ -435,6 +536,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     final lines = selectedLyricLines(sheet.rows, selected);
     if (content == null || lines.isEmpty) return;
     final selection = _tools.selection;
+    _glowLines();
     showLyricsShareSheet(
       context,
       snapshot: LyricsShareSnapshot(
@@ -528,6 +630,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _atEase.dispose();
     _pressed.dispose();
     _autoFollow.dispose();
+    _signal.dispose();
     super.dispose();
   }
 
@@ -730,7 +833,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       _lastStore = store;
       if (hadStore) _notes.accountChanged();
     });
+    // Keep screen on switched on (the cover's song sheet): the room brightens for a moment.
+    ref.listen(keepScreenOnPreferenceProvider, (was, on) {
+      if (on && was == false) _signal.glow(ActionGlowKind.roomLift, null);
+    });
     final field = ref.watch(playbackThemeProvider.select((t) => t.field));
+    _syncRooms(ref.watch(playbackThemeProvider.select((t) => t.seed)), field);
+    _syncJourney(state);
+    _syncTranslating(state);
     final colors = Theme.of(context).colorScheme;
     final padding = MediaQuery.paddingOf(context);
     final insets = EdgeInsets.fromLTRB(
@@ -765,12 +875,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     } else {
       _heroYield.animateTo(yieldHero ? 1 : 0);
     }
-    return LyricToolsScope(
+    final content = state is NowPlayingContent ? state : null;
+    final pulseKey = content == null
+        ? null
+        : TransportPulseKey(songId: content.songKey, isPlaying: content.isPlaying, queueIndex: content.currentIndex);
+    final screen = LyricToolsScope(
       controller: _tools,
-      // Any touch on the player re-arms the tools' idle count (lyricToolsTouchTracker).
+      // Any touch on the player re-arms the tools' idle count (lyricToolsTouchTracker)
+      // and tells the background where the finger went down, for a tapped
+      // line's band (the room sits under the content and never sees the press).
       child: Listener(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => _tools.idle.onInteraction(),
+        onPointerDown: (e) {
+          _tools.idle.onInteraction();
+          _signal.recordPointerDown(e.position);
+        },
         child: FocusIdleTouchTracker(
           idle: _focusIdle,
           child: ColoredBox(
@@ -778,7 +897,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
             child: Stack(
               fit: StackFit.expand,
               children: [
-                NowPlayingBackground(field: field, focus: widget.controller.focus.animation),
+                NowPlayingBackground(
+                  field: field,
+                  focus: widget.controller.focus.animation,
+                  signal: _signal,
+                  pulseKey: pulseKey,
+                  isPlaying: content?.isPlaying ?? false,
+                  songProgress: () => ref.read(playheadClockProvider).progress(),
+                  journeyFromRight: _journeyFromRight,
+                  darkRoom: _darkRoom,
+                  lightRoom: _lightRoom,
+                  // The current lyric line is drawn in primary.
+                  lyricColor: colors.primary,
+                ),
                 // The AI thinking (a question, About's first fetch), or the key hint's glow.
                 GeminiWash(thinking: about.thinking, keyHint: _keyHint),
                 switch (state) {
@@ -885,10 +1016,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
         ),
       ),
     );
+    return NowPlayingSignalScope(signal: _signal, child: screen);
   }
 }
 
-enum _Slot { topBar, cover, rating, tabs, lyricsWindow, lyricsFocus, lyricsFull, controls, hero, accessory }
+enum _Slot { topBar, cover, rating, spine, tabs, lyricsWindow, lyricsFocus, lyricsFull, controls, hero, accessory }
 
 class _StageDelegate extends MultiChildLayoutDelegate {
   _StageDelegate({
@@ -983,6 +1115,11 @@ class _StageDelegate extends MultiChildLayoutDelegate {
         Offset(lerpDouble(baseX, x0 + _dockedCoverX, g)!, lerpDouble(baseY, _dockedCoverY, g)!),
       );
     }
+    if (hasChild(_Slot.spine)) {
+      // The spine: the band a height-capped cover leaves before the rating bar.
+      layoutChild(_Slot.spine, BoxConstraints.tight(Size(stageSpineBand(budget), budget.cover)));
+      positionChild(_Slot.spine, Offset(restX + NowPlayingTokens.columnPadding + budget.cover, s.topBar));
+    }
     if (hasChild(_Slot.rating)) {
       layoutChild(_Slot.rating, BoxConstraints.tight(Size(budget.ratingColumn, budget.cover)));
       positionChild(
@@ -1045,6 +1182,16 @@ class _StageDelegate extends MultiChildLayoutDelegate {
       old.imeLift != imeLift ||
       old.toolsCollapse != toolsCollapse;
 }
+
+/// The band between the resting cover and the rating bar (NowPlayingScreen
+/// spineBand): wide enough on short windows, where the cover is height-capped,
+/// for the spine to read the song in.
+double stageSpineBand(StageColumnBudget budget) =>
+    budget.stageWidth -
+    2 * NowPlayingTokens.columnPadding -
+    NowPlayingTokens.ratingGap -
+    budget.ratingColumn -
+    budget.cover;
 
 /// What steps away in focus (FocusRetreat.kt): [progress] 0 = here, 1 =
 /// gone. It fades over the first 1/1.4 of the way, moves by [shift], and
@@ -1211,7 +1358,7 @@ class _Stage extends ConsumerWidget {
                   detail: detail,
                   requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
                   onTap: coverTap,
-                  onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
+                  onLongPress: () => _coverMenu(context, controller, state.track),
                 ),
               ),
             ),
@@ -1244,6 +1391,28 @@ class _Stage extends ConsumerWidget {
                       ],
                       const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
                     ],
+                  ),
+                ),
+              ),
+            ),
+          // Short windows: the spine reads the song in the band beside the cover (书脊).
+          if (!budget.coverHidden && stageSpineBand(budget) >= NowPlayingEffectTokens.spineMinWidth)
+            LayoutId(
+              id: _Slot.spine,
+              child: IgnorePointer(
+                ignoring: !restStage,
+                child: FadeTransition(
+                  opacity: _Mapped(ratingRetreat, (r) => (1 - r).clamp(0.0, 1.0)),
+                  child: NowPlayingSpine(
+                    items: spineItems(
+                      facts: SpineSourceFacts.of(track),
+                      albumName: track.album ?? '',
+                      artist: track.artist ?? '',
+                      title: track.title ?? '',
+                      labels: SpineLabels.of(context),
+                    ),
+                    songKey: state.songKey,
+                    length: budget.cover,
                   ),
                 ),
               ),
@@ -1287,12 +1456,16 @@ class _Stage extends ConsumerWidget {
                   onDrag: onPageDrag,
                   onDragEnd: onPageDragEnd,
                   onTap: controller.expandStage,
-                  lyrics: LyricsView(
-                    mode: LyricsListMode.window,
-                    lyrics: state.lyrics,
-                    songKey: state.songKey,
-                    clock: clock,
-                    onSeek: vm.seekTo,
+                  lyrics: LyricsSurfaceReporter(
+                    primary: lyricsPage && !oneLine && restStage,
+                    landingFromTop: NowPlayingEffectTokens.lyricsWindowLandingFromTop,
+                    child: LyricsView(
+                      mode: LyricsListMode.window,
+                      lyrics: state.lyrics,
+                      songKey: state.songKey,
+                      clock: clock,
+                      onSeek: _lineSeek(context, vm),
+                    ),
                   ),
                   about: _AboutCompactPage(controller: controller, track: track),
                   note: ListenableBuilder(
@@ -1314,15 +1487,19 @@ class _Stage extends ConsumerWidget {
                     behavior: HitTestBehavior.opaque,
                     // A tap on the focus lyrics opens them (the lyric window's tap).
                     onTap: controller.expandStage,
-                    child: LyricsView(
-                      mode: LyricsListMode.focus,
-                      lyrics: state.lyrics,
-                      songKey: state.songKey,
-                      clock: clock,
-                      onSeek: vm.seekTo,
-                      upNext: state.upNext,
-                      durationMs: state.durationMs,
-                      horizontalInset: focusPose.lyricInset,
+                    child: LyricsSurfaceReporter(
+                      primary: false,
+                      landingFromTop: NowPlayingEffectTokens.lyricsWindowLandingFromTop,
+                      child: LyricsView(
+                        mode: LyricsListMode.focus,
+                        lyrics: state.lyrics,
+                        songKey: state.songKey,
+                        clock: clock,
+                        onSeek: _lineSeek(context, vm),
+                        upNext: state.upNext,
+                        durationMs: state.durationMs,
+                        horizontalInset: focusPose.lyricInset,
+                      ),
                     ),
                   ),
                 ),
@@ -1345,24 +1522,28 @@ class _Stage extends ConsumerWidget {
                   swipe: expandedStage && !selecting,
                   onDrag: onPageDrag,
                   onDragEnd: onPageDragEnd,
-                  lyrics: LyricsView(
-                    mode: LyricsListMode.full,
-                    showTranslation: state.showTranslation,
-                    lyrics: state.lyrics,
-                    songKey: state.songKey,
-                    clock: clock,
-                    onSeek: vm.seekTo,
-                    title: track.title,
-                    artist: track.artist,
-                    autoFollow: autoFollow,
-                    upNext: state.upNext,
-                    durationMs: state.durationMs,
-                    windowTop:
-                        windowTop +
-                        NowPlayingTokens.topBarNominal +
-                        NowPlayingTokens.coverGapMin +
-                        NowPlayingTokens.expandedTabRow +
-                        NowPlayingTokens.expandedTabGap,
+                  lyrics: LyricsSurfaceReporter(
+                    primary: lyricsPage && expandedStage,
+                    landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
+                    child: LyricsView(
+                      mode: LyricsListMode.full,
+                      showTranslation: state.showTranslation,
+                      lyrics: state.lyrics,
+                      songKey: state.songKey,
+                      clock: clock,
+                      onSeek: _lineSeek(context, vm),
+                      title: track.title,
+                      artist: track.artist,
+                      autoFollow: autoFollow,
+                      upNext: state.upNext,
+                      durationMs: state.durationMs,
+                      windowTop:
+                          windowTop +
+                          NowPlayingTokens.topBarNominal +
+                          NowPlayingTokens.coverGapMin +
+                          NowPlayingTokens.expandedTabRow +
+                          NowPlayingTokens.expandedTabGap,
+                    ),
                   ),
                   about: _AboutFullPage(controller: controller, track: track),
                   note: NotePage(notes: notes, clock: clock),
@@ -1402,7 +1583,7 @@ class _Stage extends ConsumerWidget {
                       onSetPlayMode: vm.setPlayMode,
                       showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
                       onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-                      onSeek: vm.seekToFraction,
+                      onSeek: _barSeek(context, vm),
                       pressed: pressed,
                     ),
                   ),
@@ -1455,6 +1636,29 @@ class _Stage extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// A lyric line's seek: the background is told first — the player may
+/// buffer at the new spot and that dip is the seek's, not a play/pause — and
+/// a faint band lights at the tapped line (NowPlayingScreen seekToMsSettled).
+ValueChanged<int> _lineSeek(BuildContext context, NowPlayingViewModel vm) => (ms) {
+  NowPlayingSignalScope.maybeOf(context)
+    ?..recordSeek()
+    ..recordLineTap();
+  vm.seekTo(ms);
+};
+
+/// The wave bar's seek: settled like any user seek (seekSettled).
+ValueChanged<double> _barSeek(BuildContext context, NowPlayingViewModel vm) => (fraction) {
+  NowPlayingSignalScope.maybeOf(context)?.recordSeek();
+  vm.seekToFraction(fraction);
+};
+
+/// The cover's long-press: a ring closes in on the cover as its menu opens (ActionGlow.kt CoverHold).
+void _coverMenu(BuildContext context, NowPlayingOverlayController controller, Track track) {
+  final signal = NowPlayingSignalScope.maybeOf(context);
+  signal?.glow(ActionGlowKind.coverHold, signal.cover.rect);
+  showNowPlayingTrackMenu(context, controller, track);
 }
 
 /// Closes the player, then opens a detail page on the app Navigator (the
@@ -1571,13 +1775,15 @@ class _StageCover extends StatelessWidget {
     );
     // One detector for tap, long-press and right click (two-finger tap): a
     // nested tap detector around it never competes for the press.
+    // The focus field opens out from where the cover sits.
+    final signal = NowPlayingSignalScope.maybeOf(context);
     return GestureDetector(
       key: const ValueKey('np-stage-cover'),
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       onLongPress: onLongPress,
       onSecondaryTap: onLongPress,
-      child: cover,
+      child: signal == null ? cover : ReportBounds(probe: signal.cover, child: cover),
     );
   }
 }
@@ -2293,7 +2499,7 @@ class NowPlayingWritePill extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
     const icon = NowPlayingTokens.pillHeight * 0.36;
-    return Semantics(
+    final pill = Semantics(
       button: true,
       label: strings.pillWrite,
       excludeSemantics: true,
@@ -2324,6 +2530,9 @@ class NowPlayingWritePill extends StatelessWidget {
         ),
       ),
     );
+    // A saved note's ink rises from here (ActionGlow.kt GlowAnchor.Write).
+    final signal = NowPlayingSignalScope.maybeOf(context);
+    return signal == null ? pill : ReportBounds(probe: signal.anchorProbe(GlowAnchor.write), child: pill);
   }
 }
 
@@ -2549,8 +2758,7 @@ class _DualPane extends ConsumerWidget {
                                             detail: const AlwaysStoppedAnimation(0),
                                             requestEdge: math.max(budget.cover, budget.focusCover ?? 0),
                                             onTap: budget.focusCover != null || inFocus ? controller.toggleFocus : null,
-                                            onLongPress: () =>
-                                                showNowPlayingTrackMenu(context, controller, state.track),
+                                            onLongPress: () => _coverMenu(context, controller, state.track),
                                           ),
                                         ),
                                       ),
@@ -2633,7 +2841,7 @@ class _DualPane extends ConsumerWidget {
                                       onSetPlayMode: vm.setPlayMode,
                                       showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
                                       onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-                                      onSeek: vm.seekToFraction,
+                                      onSeek: _barSeek(context, vm),
                                       pressed: pressed,
                                     ),
                                   ),
@@ -2709,23 +2917,35 @@ class _DualPane extends ConsumerWidget {
                                 onDragEnd: onPageDragEnd,
                                 lyrics: Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                                  child: LyricsView(
-                                    mode: LyricsListMode.full,
-                                    showTranslation: state.showTranslation,
-                                    lyrics: state.lyrics,
-                                    songKey: state.songKey,
-                                    clock: clock,
-                                    onSeek: vm.seekTo,
-                                    title: track.title,
-                                    artist: track.artist,
-                                    autoFollow: autoFollow,
-                                    windowTop:
-                                        insets.top +
-                                        budget.frameTop +
-                                        DualPaneTokens.topBarHeight +
-                                        budget.barGap +
-                                        NowPlayingTokens.tabRowNominal +
-                                        DualPaneTokens.rightGap,
+                                  // The lyrics stay beside a focused cover and lead there too
+                                  // (WidePlayingContent), printing through focus's dots.
+                                  child: LyricsSurfaceReporter(
+                                    primary: pageTarget == NowPlayingDetailPage.lyrics,
+                                    landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
+                                    clipLight: true,
+                                    child: LyricHalftoneScope(
+                                      focus: budget.focusCover != null
+                                          ? controller.focus.animation
+                                          : const AlwaysStoppedAnimation<double>(0),
+                                      child: LyricsView(
+                                        mode: LyricsListMode.full,
+                                        showTranslation: state.showTranslation,
+                                        lyrics: state.lyrics,
+                                        songKey: state.songKey,
+                                        clock: clock,
+                                        onSeek: _lineSeek(context, vm),
+                                        title: track.title,
+                                        artist: track.artist,
+                                        autoFollow: autoFollow,
+                                        windowTop:
+                                            insets.top +
+                                            budget.frameTop +
+                                            DualPaneTokens.topBarHeight +
+                                            budget.barGap +
+                                            NowPlayingTokens.tabRowNominal +
+                                            DualPaneTokens.rightGap,
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 about: _AboutFullPage(controller: controller, track: track),
@@ -2911,7 +3131,7 @@ class _LandscapePane extends ConsumerWidget {
           detail: const AlwaysStoppedAnimation(0),
           requestEdge: request,
           onTap: controller.toggleFocus,
-          onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
+          onLongPress: () => _coverMenu(context, controller, state.track),
         ),
       ),
     );
@@ -2987,7 +3207,7 @@ class _LandscapePane extends ConsumerWidget {
           onSetPlayMode: vm.setPlayMode,
           showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
           onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-          onSeek: vm.seekToFraction,
+          onSeek: _barSeek(context, vm),
           pressed: pressed,
         ),
       ),
@@ -3081,23 +3301,33 @@ class _LandscapePane extends ConsumerWidget {
       lyrics: full
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+              child: LyricsSurfaceReporter(
+                primary: pageTarget == NowPlayingDetailPage.lyrics && !inFocus,
+                landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
+                clipLight: true,
+                child: LyricsView(
+                  mode: LyricsListMode.full,
+                  showTranslation: state.showTranslation,
+                  lyrics: state.lyrics,
+                  songKey: state.songKey,
+                  clock: clock,
+                  onSeek: _lineSeek(context, vm),
+                  autoFollow: autoFollow,
+                  windowTop: padding.top + LandscapeTokens.headerHeight + LandscapeTokens.tabRow,
+                ),
+              ),
+            )
+          : LyricsSurfaceReporter(
+              primary: pageTarget == NowPlayingDetailPage.lyrics && !inFocus,
+              landingFromTop: NowPlayingEffectTokens.lyricsWindowLandingFromTop,
+              clipLight: true,
               child: LyricsView(
-                mode: LyricsListMode.full,
-                showTranslation: state.showTranslation,
+                mode: LyricsListMode.window,
                 lyrics: state.lyrics,
                 songKey: state.songKey,
                 clock: clock,
-                onSeek: vm.seekTo,
-                autoFollow: autoFollow,
-                windowTop: padding.top + LandscapeTokens.headerHeight + LandscapeTokens.tabRow,
+                onSeek: _lineSeek(context, vm),
               ),
-            )
-          : LyricsView(
-              mode: LyricsListMode.window,
-              lyrics: state.lyrics,
-              songKey: state.songKey,
-              clock: clock,
-              onSeek: vm.seekTo,
             ),
       about: full
           ? _AboutFullPage(controller: controller, track: track)
@@ -3122,15 +3352,20 @@ class _LandscapePane extends ConsumerWidget {
       opacity: _smooth(0.15, 1, f),
       child: IgnorePointer(
         ignoring: !inFocus,
-        child: LyricsView(
-          mode: LyricsListMode.focus,
-          lyrics: state.lyrics,
-          songKey: state.songKey,
-          clock: clock,
-          onSeek: vm.seekTo,
-          upNext: state.upNext,
-          durationMs: state.durationMs,
-          linesAbove: 2,
+        child: LyricsSurfaceReporter(
+          primary: false,
+          landingFromTop: NowPlayingEffectTokens.lyricsWindowLandingFromTop,
+          clipLight: true,
+          child: LyricsView(
+            mode: LyricsListMode.focus,
+            lyrics: state.lyrics,
+            songKey: state.songKey,
+            clock: clock,
+            onSeek: _lineSeek(context, vm),
+            upNext: state.upNext,
+            durationMs: state.durationMs,
+            linesAbove: 2,
+          ),
         ),
       ),
     );
