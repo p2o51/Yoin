@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/memories/emblem/groove_tilt.dart';
 import 'package:yoin/platform/sensors/motion_sensors.dart';

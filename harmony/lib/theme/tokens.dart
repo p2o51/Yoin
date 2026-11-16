@@ -1001,6 +1001,22 @@ abstract final class MemoryLedgerTokens {
   // ---- Home's Memories card ----
   static const double homeCardMax = 560;
   static const double homeCardCorner = 28;
+
+  // ---- the grid's lift into the top bar (MemoryGridLift.kt) ----
+  /// Past this many rows the bar's squares would be specks; extra squares then share places.
+  static const int liftMaxBarRows = 8;
+
+  /// How far into the lift the bar counts as formed (white bar content, light status bar icons).
+  static const double liftFormed = 0.5;
+
+  /// The spread of the squares' take-offs, oldest first (share of the lift).
+  static const double liftLag = 0.1;
+
+  /// A square's corner in flight, as a share of its side (gone as it lands).
+  static const double liftCorner = 0.18;
+
+  /// The black veil under the formed bar's title.
+  static const double liftVeil = 0.24;
 }
 
 /// Now Playing FOCUS (tap the cover; NowPlayingBudget.kt focus solver,

@@ -9,8 +9,10 @@
 /// Settings' bar and its explicit back button. An album opens its album
 /// page, as on Android.
 ///
-/// Not ported yet: the grid's rise into the top bar as the page scrolls
-/// (Android MemoryGridLift).
+/// As the page scrolls up past its grid, the grid's squares rise into the top
+/// bar and piece together as its mosaic; the bar's title and back button turn
+/// white and the status bar icons light (Android MemoryGridLift,
+/// memory_grid_lift.dart). Scrolling back down they come home.
 library;
 
 import 'package:flutter/material.dart';
@@ -21,11 +23,15 @@ import '../../app/providers.dart';
 import '../../data/memory/memory_grid.dart';
 import '../../data/memory/memory_ledger.dart';
 import '../../data/memory/memory_ledger_list.dart';
+import '../../detail/detail_page.dart';
 import '../../detail/detail_routes.dart';
 import '../../nowplaying/haptics.dart';
 import '../../settings/settings_colors.dart';
 import '../../settings/settings_components.dart';
+import '../../settings/settings_metrics.dart';
 import '../../shell/bar_suppression.dart';
+import '../../theme/motion.dart';
+import '../../theme/system_bars.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../../ui/adaptive/yoin_window_info.dart';
@@ -37,6 +43,7 @@ import '../../ui/component/yoin_loading_indicator.dart';
 import '../../ui/navigation/yoin_push_route.dart';
 import '../copy/memory_copy.dart';
 import '../memory_title_editor.dart';
+import 'memory_grid_lift.dart';
 import 'memory_grid_view.dart';
 import 'memory_ledger_strings.dart';
 import 'memory_ledger_view_model.dart';
@@ -99,6 +106,21 @@ class MemoryLedgerScreen extends ConsumerStatefulWidget {
 class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with TickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
   late final LedgerColorBook _colors = LedgerColorBook(vsync: this);
+
+  // The grid's lift into the top bar.
+  final MemoryGridLift _lift = MemoryGridLift();
+  late final MemoryGridLiftProgress _liftProgress = MemoryGridLiftProgress(_lift, _scroll);
+  final GlobalKey _liftLayer = GlobalKey();
+
+  /// The real grid steps aside the moment its copies take off, so no square shows twice.
+  final ValueNotifier<bool> _lifted = ValueNotifier(false);
+
+  /// 0 → 1 as the bar forms: its title and back button turn white.
+  late final SpringValue _barWhite = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+  bool _formed = false;
+  double _barBottom = kToolbarHeight;
+  MemoryGrid? _pixelsOf;
+  List<LiftPixel> _pixels = const [];
   MemoryLedgerView _view = MemoryLedgerView.timeline;
   MemoryLedgerSort _sort = MemoryLedgerSort.recent;
 
@@ -108,7 +130,30 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     _restoreView();
+  }
+
+  RenderBox? _layerBox() {
+    final box = _liftLayer.currentContext?.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize ? box : null;
+  }
+
+  /// Follows the lift: hides the real grid once its copies take off, and
+  /// turns the bar white once it has formed.
+  void _onScroll() {
+    final box = _layerBox();
+    // The list's layout lags its offset here: the grid's last measured place, moved by the offset.
+    final p = box == null || _pixels.isEmpty ? 0.0 : _liftProgress.of(box, _barBottom, measure: false);
+    _lifted.value = p > 0.001;
+    final formed = p > MemoryLedgerTokens.liftFormed;
+    if (formed == _formed) return;
+    setState(() => _formed = formed);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _barWhite.snapTo(formed ? 1 : 0);
+    } else {
+      _barWhite.animateTo(formed ? 1 : 0);
+    }
   }
 
   Future<void> _restoreView() async {
@@ -127,8 +172,11 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _colors.dispose();
+    _lifted.dispose();
+    _barWhite.dispose();
     super.dispose();
   }
 
@@ -152,32 +200,70 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
       }
     }
     final layout = MemoryLedgerLayout.of(YoinWindowInfo.of(context));
+    // The bar's bottom from the screen's top, status bar included: the list runs under the bar, the lift lands in it.
+    _barBottom = MediaQuery.paddingOf(context).top + kToolbarHeight;
+    if (!identical(_pixelsOf, state?.grid)) {
+      _pixelsOf = state?.grid;
+      _pixels = state == null || state.isEmpty ? const [] : liftPixels(state.grid);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onScroll();
+      });
+    }
     return ChromeBarSuppression(
       child: Scaffold(
         backgroundColor: settingsPageColor(colors),
-        appBar: SettingsBar(
+        extendBodyBehindAppBar: true,
+        appBar: _LedgerBar(
           title: strings.title,
           controller: _scroll,
           titleTop: SettingsBar.headlineOffset,
           titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
+          white: _barWhite.animation,
+          formed: _formed,
         ),
         body: state == null
-            ? const Center(child: YoinLoadingIndicator())
-            : Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: layout.maxWidth),
-                  child: ListView(
-                    controller: _scroll,
-                    padding: EdgeInsets.fromLTRB(
-                      MemoryLedgerTokens.pageSide,
-                      MemoryLedgerTokens.pageTop,
-                      MemoryLedgerTokens.pageSide,
-                      MemoryLedgerTokens.pageBottom + MediaQuery.paddingOf(context).bottom,
+            ? Padding(
+                padding: EdgeInsets.only(top: _barBottom),
+                child: const Center(child: YoinLoadingIndicator()),
+              )
+            : Stack(
+                children: [
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: layout.maxWidth),
+                      child: ListView(
+                        controller: _scroll,
+                        padding: EdgeInsets.fromLTRB(
+                          MemoryLedgerTokens.pageSide,
+                          _barBottom + MemoryLedgerTokens.pageTop,
+                          MemoryLedgerTokens.pageSide,
+                          MemoryLedgerTokens.pageBottom + MediaQuery.paddingOf(context).bottom,
+                        ),
+                        children: _body(context, state, layout, strings),
+                      ),
                     ),
-                    children: _body(context, state, layout, strings),
                   ),
-                ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        key: _liftLayer,
+                        painter: MemoryGridLiftPainter(
+                          lift: _lift,
+                          progress: _liftProgress,
+                          pixels: _pixels,
+                          colors: _colors,
+                          faint: colors.onSurface.withValues(alpha: 0.07),
+                          barBottom: _barBottom,
+                          into: _layerBox,
+                          reduced: MediaQuery.disableAnimationsOf(context),
+                          rtl: Directionality.of(context) == TextDirection.rtl,
+                          repaint: Listenable.merge([_scroll, _colors]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
       ),
     );
@@ -222,15 +308,20 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
             constraints: BoxConstraints(
               maxWidth: layout.wide ? MemoryLedgerTokens.gridMaxWide : MemoryLedgerTokens.gridMax,
             ),
-            child: MemoryGridView(
-              grid: state.grid,
-              colors: _colors,
-              placement: MemoryGridPlacement.page,
-              selected: selected,
-              onCellClick: (i) {
-                YoinHaptics.tick();
-                setState(() => _selected = selected == i ? null : i);
-              },
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _lifted,
+              builder: (context, lifted, child) => Opacity(opacity: lifted ? 0 : 1, child: child),
+              child: MemoryGridView(
+                grid: state.grid,
+                colors: _colors,
+                placement: MemoryGridPlacement.page,
+                selected: selected,
+                lift: _lift,
+                onCellClick: (i) {
+                  YoinHaptics.tick();
+                  setState(() => _selected = selected == i ? null : i);
+                },
+              ),
             ),
           ),
         ),
@@ -306,6 +397,83 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
           children: [for (final item in items) _ListRow(item: item, state: state, onOpen: _openAlbum)],
         );
     }
+  }
+}
+
+/// Settings' bar for this page (SettingsBar's metrics and title hand-off)
+/// whose title and back button turn white, and status bar icons light, as
+/// the grid's mosaic forms under them.
+class _LedgerBar extends StatelessWidget implements PreferredSizeWidget {
+  const _LedgerBar({
+    required this.title,
+    required this.controller,
+    required this.titleTop,
+    required this.titleHeight,
+    required this.white,
+    required this.formed,
+  });
+
+  final String title;
+  final ScrollController controller;
+  final double titleTop;
+  final double titleHeight;
+  final Animation<double> white;
+  final bool formed;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  double _progress() {
+    if (!controller.hasClients) return 0;
+    return ((controller.offset - titleTop) / titleHeight.clamp(1.0, double.infinity)).clamp(0.0, 1.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AppBar(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      // Over the formed mosaic: light icons; else as the page.
+      systemOverlayStyle: yoinStatusBarStyle(formed ? Brightness.dark : Theme.of(context).brightness),
+      scrolledUnderElevation: 0,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      leadingWidth: SettingsMetrics.backStart + SettingsMetrics.backTouch + SettingsMetrics.backEnd,
+      titleSpacing: 0,
+      leading: Padding(
+        padding: const EdgeInsetsDirectional.only(start: SettingsMetrics.backStart, end: SettingsMetrics.backEnd),
+        child: AnimatedBuilder(
+          animation: white,
+          builder: (context, _) => DetailBackButton(
+            container: colors.surfaceContainerHighest,
+            content: Color.lerp(colors.onSurface, Colors.white, white.value.clamp(0.0, 1.0)),
+          ),
+        ),
+      ),
+      title: AnimatedBuilder(
+        animation: Listenable.merge([controller, white]),
+        builder: (context, _) {
+          final p = _progress();
+          return Opacity(
+            opacity: p,
+            child: FractionalTranslation(
+              translation: Offset(0, (1 - p) * 0.5),
+              child: ExcludeSemantics(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge!.copyWith(
+                    color: Color.lerp(colors.onSurface, Colors.white, white.value.clamp(0.0, 1.0)),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
