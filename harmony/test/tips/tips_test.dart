@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +13,7 @@ import 'package:yoin/memories/ledger/memory_grid_view.dart';
 import 'package:yoin/memories/memories_aurora.dart';
 import 'package:yoin/memories/palette/memory_palette.dart' show MemoryPaletteSamples;
 import 'package:yoin/memories/other_profiles.dart' show AccountSwitchNoticeSheet;
+import 'package:yoin/platform/motion/system_motion.dart';
 import 'package:yoin/nowplaying/now_playing_screen.dart' show TabletopExpandLyricsKey;
 import 'package:yoin/playback/spatial_audio.dart' show SpatialAudioMode;
 import 'package:yoin/settings/stream_quality_screen.dart' show SpatialAudioGroup;
@@ -29,6 +32,7 @@ import 'package:yoin/tips/demo_phone.dart';
 import 'package:yoin/tips/tip_illustration.dart';
 import 'package:yoin/tips/tip_screen.dart';
 import 'package:yoin/ui/component/artwork_image.dart';
+import 'package:yoin/ui/component/system_reduce_motion_scope.dart';
 
 import '../support/fake_music_source.dart';
 
@@ -442,6 +446,40 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('should_holdStillUntilMotionIsBack_when_theSystemAsksForLessMotion', (tester) async {
+      // Power saving was on when the tip opened; the app root's scope (as in YoinApp) reads it.
+      final host = _FakeMotionHost(const SystemMotionSettings(powerSave: true));
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [...overrides(), systemMotionHostProvider.overrideWithValue(host)],
+          child: MaterialApp(
+            theme: yoinTheme(Brightness.light),
+            builder: (context, child) => SystemReduceMotionScope(child: child!),
+            home: const Scaffold(
+              body: Center(child: TipIllustration(tip: HomeBubbleTip.keyboardShortcuts, playing: true)),
+            ),
+          ),
+        ),
+      );
+      YoinSection selected() => tester.widget<YoinBottomBar>(find.byType(YoinBottomBar)).selected;
+      // The scripted finger stays put: Ctrl 2 never goes to Library.
+      expect(await playUntil(tester, () => selected() != YoinSection.home), isFalse);
+      // Power saving off while the page is open: the demo starts.
+      host.emit(SystemMotionSettings.normal);
+      expect(await playUntil(tester, () => selected() == YoinSection.library), isTrue);
+      // On again (HarmonyOS 减弱动画): it steps aside and stays where it was.
+      host.emit(const SystemMotionSettings(animationReduce: true));
+      await frames(tester, const Duration(milliseconds: 500));
+      final held = selected();
+      await frames(tester, const Duration(seconds: 8));
+      expect(selected(), held);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
     testWidgets('should_stepAside_when_theUserTouchesThePhone', (tester) async {
       await pumpDemo(tester, HomeBubbleTip.name);
       await frames(tester, const Duration(seconds: 1));
@@ -454,4 +492,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+}
+
+final class _FakeMotionHost implements SystemMotionHost {
+  _FakeMotionHost(this.current);
+
+  final _controller = StreamController<SystemMotionSettings>.broadcast();
+
+  @override
+  SystemMotionSettings current;
+
+  void emit(SystemMotionSettings settings) => _controller.add(current = settings);
+
+  @override
+  Future<SystemMotionSettings> read() async => current;
+
+  @override
+  Stream<SystemMotionSettings> watch() => _controller.stream;
 }
