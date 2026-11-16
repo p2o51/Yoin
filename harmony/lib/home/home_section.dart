@@ -33,9 +33,16 @@ enum HomeSection {
 
   /// Built in the HarmonyOS v1 (the Subsonic build can fill it).
   bool get availableInV1 => switch (this) {
-        activities || jumpBackIn || recentlyAdded || rediscover || recentlyPlayed || yourPlaylists || memoryGrid => true,
-        otherProfiles || lyricHighlight => false,
-      };
+    activities ||
+    jumpBackIn ||
+    recentlyAdded ||
+    rediscover ||
+    recentlyPlayed ||
+    yourPlaylists ||
+    otherProfiles ||
+    memoryGrid => true,
+    lyricHighlight => false,
+  };
 
   static HomeSection? byId(String id) {
     for (final s in values) {

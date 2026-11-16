@@ -30,6 +30,7 @@ enum HomeBubbleTip {
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
   memoryLedger(YoinSymbols.memory, (2026, 11, 12)),
   aiServices(YoinSymbols.sparkle, (2026, 11, 13)),
+  memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 16)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 4)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
@@ -75,6 +76,7 @@ enum HomeBubbleTip {
     libraryRefresh => zh ? '刷新资料库' : 'Refresh Library', // home_tip_library_refresh_title
     memoryLedger => zh ? '全部回忆' : 'All Memories', // home_tip_memory_ledger_title
     aiServices => zh ? 'AI 功能' : 'AI features', // home_tip_ai_services_title
+    memoriesAllAccounts => zh ? '各账号的回忆' : 'Memories across accounts', // home_tip_memories_all_accounts_title
     accountQuickSwitch => zh ? '切换账号' : 'Switch accounts', // home_tip_account_quick_switch_title
     miniPlayerMenu => zh ? '迷你播放器菜单' : 'Mini player options', // home_tip_mini_player_menu_title
     focusCover => zh ? '轻点封面聚焦' : 'Tap cover to Focus', // home_tip_focus_cover_title
@@ -154,6 +156,11 @@ enum HomeBubbleTip {
           ? '在设置 › AI 功能中粘贴 Gemini API 密钥，选择「好」或「最佳」档位与回答语言，用于歌曲信息、「问 Gemini」、歌词翻译与 Memories 标题'
           : 'Paste a Gemini API key in Settings › AI features and pick the Good or Best tier and answer language to '
                 'power song info, Ask Gemini, lyrics translation, and Memory titles',
+    // home_tip_memories_all_accounts
+    memoriesAllAccounts =>
+      zh
+          ? 'Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号'
+          : 'Memories includes all your accounts, and switches to that account first when you play or go to the album',
     // home_tip_account_quick_switch
     accountQuickSwitch => zh ? '长按头像并滑动以切换账号' : 'Long-press the avatar and slide to switch accounts',
     // home_tip_mini_player_menu

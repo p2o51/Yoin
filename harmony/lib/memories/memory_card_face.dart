@@ -29,6 +29,7 @@ import 'memories_layout.dart';
 import 'memories_morph.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
+import 'memory_other_profile_line.dart';
 import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
 
@@ -194,7 +195,10 @@ class MemoryCardFace extends StatelessWidget {
                 clearance: MemoryTitleTokens.imeClearance,
               )
             : 0.0;
-        final teaserHeight = MemoriesTokens.buttonHeight;
+        // Another account's memory: its "From …" line under the buttons.
+        final teaserHeight =
+            MemoriesTokens.buttonHeight +
+            (memory.isFromOtherProfile ? OtherProfileTokens.lineCardGap + OtherProfileTokens.lineHeight : 0);
         final bottomPad = layout.teaserBottom > MediaQuery.paddingOf(context).bottom
             ? layout.teaserBottom
             : MediaQuery.paddingOf(context).bottom;
@@ -450,7 +454,8 @@ class _Teaser extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = gsf(15, weight: 600, height: 1, letterSpacing: 0);
     final notes = memory.noteCount;
-    return Row(
+    final owner = memory.otherProfile;
+    final buttons = Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Semantics(
@@ -504,6 +509,15 @@ class _Teaser extends StatelessWidget {
           },
           child: Text(strings.cardGoAlbum, style: label.copyWith(color: tones.onButton), maxLines: 1, softWrap: false),
         ),
+      ],
+    );
+    if (owner == null) return buttons;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        buttons,
+        const SizedBox(height: OtherProfileTokens.lineCardGap),
+        MemoryOtherProfileLine(owner: owner, tones: tones),
       ],
     );
   }

@@ -273,3 +273,34 @@ class _AccountAvatarState extends State<AccountAvatar> with SingleTickerProvider
     );
   }
 }
+
+/// An account's small mark (Android AccountMark): its avatar shape in its
+/// service's hue with the service's glyph, no letter. Beside an account's name
+/// where the avatar would be too much (Home's other-accounts shelf, a
+/// memory's "From …" line). Decorative: the name next to it is what's read.
+class AccountMark extends StatelessWidget {
+  const AccountMark({super.key, required this.shapeIndex, required this.identity, this.size = 16});
+
+  final int shapeIndex;
+  final ServiceIdentity identity;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = identity.hue.tone(Theme.of(context).brightness);
+    return ExcludeSemantics(
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: tone.accent,
+          shape: PolygonBorder(avatarShapes[shapeIndex % avatarShapeCount]),
+        ),
+        child: SizedBox.square(
+          dimension: size,
+          child: Center(
+            child: Icon(identity.glyph, size: size * SettingsMetrics.markGlyphFraction, color: tone.onAccent),
+          ),
+        ),
+      ),
+    );
+  }
+}

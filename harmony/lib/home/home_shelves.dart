@@ -19,7 +19,7 @@ import 'widgets/home_text.dart';
 import 'widgets/spring_height.dart';
 
 /// A shelf card's height: the 82 cover, 6, then two caption lines.
-double _cardHeight(BuildContext context) {
+double shelfCardHeight(BuildContext context) {
   final scaler = MediaQuery.textScalerOf(context);
   return HomeTokens.recentlyAddedAlbumCover +
       HomeShelfMetrics.albumCardCaptionGap +
@@ -83,7 +83,7 @@ class RecentlyAddedSection extends StatelessWidget {
         ? frame.content
         : recentlyAddedGridWidth(frame.content, compactHeight: frame.landscape, columns: columns);
     final stackDepth = stacks.isEmpty ? 0 : stacks.map((s) => s.length).reduce(math.max);
-    final stackHeight = stackDepth * _cardHeight(context) + math.max(0, stackDepth - 1) * HomeShelfMetrics.albumStackGap;
+    final stackHeight = stackDepth * shelfCardHeight(context) + math.max(0, stackDepth - 1) * HomeShelfMetrics.albumStackGap;
     final height = math.max(shownTracks.isEmpty ? 0.0 : gridHeight, stackHeight);
     final hasGrid = shownTracks.isNotEmpty;
     return _ShelfSection(
@@ -274,7 +274,7 @@ class RecentlyPlayedSection extends StatelessWidget {
         frame: frame,
         gap: HomeSectionMetrics.shelfSpacing,
         shelf: EdgeFadeShelf(
-          height: _cardHeight(context),
+          height: shelfCardHeight(context),
           padding: _shelfPadding(frame),
           itemCount: albums.length,
           itemBuilder: (context, i) => Align(alignment: Alignment.topCenter, child: AlbumShelfCard(key: ValueKey(albums[i].id), album: albums[i])),
@@ -295,7 +295,7 @@ class YourPlaylistsSection extends StatelessWidget {
         frame: frame,
         gap: HomeSectionMetrics.shelfSpacing,
         shelf: EdgeFadeShelf(
-          height: _cardHeight(context),
+          height: shelfCardHeight(context),
           padding: _shelfPadding(frame),
           itemCount: playlists.length,
           itemBuilder: (context, i) =>

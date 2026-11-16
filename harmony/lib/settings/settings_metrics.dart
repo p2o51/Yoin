@@ -54,6 +54,9 @@ abstract final class SettingsMetrics {
   // Avatar (AccountAvatar).
   static const double avatarSize = 48;
   static const double avatarGlyphFraction = 0.54;
+
+  /// An account mark's glyph: 60 % of the mark (Android AccountMark).
+  static const double markGlyphFraction = 0.6;
   static const double avatarGlyphLeanFraction = 0.07;
   static const double avatarBadgeFraction = 0.46;
   static const double avatarBadgeMin = 18;

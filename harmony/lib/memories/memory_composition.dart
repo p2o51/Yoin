@@ -29,6 +29,8 @@ MemoryEntry composeAlbumMemory({
   MemoryProseLanguage appLanguage = MemoryProseLanguage.en,
   String? aiTitle,
   String? userTitle,
+  MemoryOtherProfile? otherProfile,
+  CoverRef? Function(CoverRef? cover)? coverFor,
 }) {
   final album = candidate.album;
   final songs = album?.tracks ?? const <Track>[];
@@ -120,7 +122,10 @@ MemoryEntry composeAlbumMemory({
     albumName: album?.name ?? candidate.albumName,
     artistName: candidate.artistName,
     year: album?.year ?? candidate.year,
-    coverArt: album?.coverArt ?? candidate.coverArt,
+    // Another account's cover id means that account's server: [coverFor] makes it a URL.
+    coverArt: coverFor == null
+        ? (album?.coverArt ?? candidate.coverArt)
+        : coverFor(album?.coverArt ?? candidate.coverArt),
     scoreKind: scoreKind,
     score: albumScore ?? average,
     albumRating: albumScore,
@@ -154,6 +159,7 @@ MemoryEntry composeAlbumMemory({
     playsInYoin: listening?.plays,
     firstHeardAt: listening == null ? null : plays!.firstPlayedAt,
     lastHeardAt: listening == null ? null : plays!.lastPlayedAt,
+    otherProfile: otherProfile,
   );
 }
 

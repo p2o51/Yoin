@@ -15,7 +15,10 @@ import '../landing/landing_mascot.dart';
 import '../memories/ledger/memory_grid_view.dart';
 import '../memories/ledger/memory_ledger_strings.dart';
 import '../memories/memories_strings.dart';
+import '../memories/memories_ui_state.dart' show MemoryOtherProfile;
 import '../memories/memory_card_face.dart' show MemoryPillButton;
+import '../memories/memory_other_profile_line.dart';
+import '../memories/palette/memory_palette.dart' show MemoryPaletteTones;
 import '../settings/account_identity.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -251,10 +254,16 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
 /// A memory's card in the phone: the cover, the album, a line written about
 /// it, and the real Diary and Go to album pills.
 class _DemoMemoryCard extends StatelessWidget {
-  const _DemoMemoryCard({required this.album, required this.onDiary});
+  const _DemoMemoryCard({required this.album, required this.onDiary, this.owner, this.targets = true});
+
+  /// False for a second card on the same screen (a target names one part).
+  final bool targets;
 
   final DemoAlbum album;
   final VoidCallback onDiary;
+
+  /// Another account's memory: its "From …" line under the buttons.
+  final MemoryOtherProfile? owner;
 
   @override
   Widget build(BuildContext context) {
@@ -276,9 +285,10 @@ class _DemoMemoryCard extends StatelessWidget {
           spacing: TipSceneTokens.coverGap,
           runSpacing: TipSceneTokens.coverGap,
           children: [
-            DemoTarget(
+            _target(
+              targets,
               'diary',
-              child: MemoryPillButton(
+              MemoryPillButton(
                 label: strings.cardDiary,
                 color: colors.primary,
                 onColor: colors.onPrimary,
@@ -293,6 +303,24 @@ class _DemoMemoryCard extends StatelessWidget {
             ),
           ],
         ),
+        if (owner case final owner?) ...[
+          const SizedBox(height: OtherProfileTokens.lineCardGap),
+          _target(
+            targets,
+            'otherProfileLine',
+            MemoryOtherProfileLine(
+              owner: owner,
+              tones: MemoryPaletteTones(
+                ink: colors.onSurface,
+                highlight: colors.primary,
+                button: colors.secondaryContainer,
+                onButton: colors.onSecondaryContainer,
+                dot: colors.primary,
+                tint: colors.surfaceContainer,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -302,11 +330,23 @@ class _DemoMemoryCard extends StatelessWidget {
 /// [diary] (0 card, 1 diary): the cover flies into the bar's leading slot and
 /// the diary's lines rise behind the title.
 class _DemoMemories extends StatelessWidget {
-  const _DemoMemories({required this.album, required this.diary, required this.onDiary});
+  const _DemoMemories({
+    required this.album,
+    required this.diary,
+    required this.onDiary,
+    this.owner,
+    this.targets = true,
+  });
+
+  /// False for a second deck page on the same screen (a target names one part).
+  final bool targets;
 
   final DemoAlbum album;
   final double diary;
   final VoidCallback onDiary;
+
+  /// Another account's memory (the card's "From …" line).
+  final MemoryOtherProfile? owner;
 
   @override
   Widget build(BuildContext context) {
@@ -330,9 +370,10 @@ class _DemoMemories extends StatelessWidget {
             right: 0,
             top: 0,
             height: TipSceneTokens.barHeight,
-            child: DemoTarget(
+            child: _target(
+              targets,
               'memoriesBar',
-              child: Padding(
+              Padding(
                 padding: EdgeInsets.only(
                   left: TipSceneTokens.pagePaddingH + (TipSceneTokens.barCover + TipSceneTokens.titleGap) * p,
                 ),
@@ -359,7 +400,7 @@ class _DemoMemories extends StatelessWidget {
               opacity: (1 - p * 2).clamp(0.0, 1.0),
               child: Transform.translate(
                 offset: Offset(0, TipSceneTokens.diaryRise * p),
-                child: _DemoMemoryCard(album: album, onDiary: onDiary),
+                child: _DemoMemoryCard(album: album, onDiary: onDiary, owner: owner, targets: targets),
               ),
             ),
           ),
@@ -404,6 +445,9 @@ class _DemoMemories extends StatelessWidget {
     );
   }
 }
+
+/// [child] as the demo target [name], or as is when [on] is false.
+Widget _target(bool on, String name, Widget child) => on ? DemoTarget(name, child: child) : child;
 
 /// "m:ss" for a demo stamp.
 String formatTrackStamp(int seconds) => '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
@@ -479,6 +523,77 @@ class _PullForMemoriesDemoState extends State<PullForMemoriesDemo> with DemoScen
               child: _DemoMemories(album: demoAlbums[0], diary: 0, onDiary: () {}),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Memories deals every account's memories (Android MemoriesAllAccountsDemo):
+/// a swipe brings the next card, one from another account, which says whose
+/// it is under its buttons (the real "From …" line).
+class MemoriesAllAccountsDemo extends StatefulWidget {
+  const MemoriesAllAccountsDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<MemoriesAllAccountsDemo> createState() => _MemoriesAllAccountsDemoState();
+}
+
+class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
+    with DemoSceneState, TickerProviderStateMixin {
+  /// 0 = this account's card, 1 = the next one, from another account.
+  late final SpringValue _shift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+
+  @override
+  void dispose() {
+    _shift.dispose();
+    super.dispose();
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    _shift.snapTo(0);
+    await f.wait(900);
+    await f.moveToPoint(0.8, 0.45);
+    await f.drag(0.25, 0.45, 600, release: false, onProgress: (p) => _shift.snapTo(p * TipSceneTokens.swipeTravel));
+    _shift.animateTo(1);
+    await f.release();
+    await f.lift();
+    await f.wait(2800);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (name, identity, shape) = _accounts[1];
+    final owner = MemoryOtherProfile(
+      id: 'demo-other',
+      name: name,
+      provider: identity == ServiceIdentity.appleMusic ? MediaId.providerAppleMusic : MediaId.providerSubsonic,
+      shape: shape,
+    );
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: GestureDetector(
+        onHorizontalDragUpdate: (d) =>
+            _shift.snapTo((_shift.value - d.delta.dx / TipTokens.screenWidth).clamp(0.0, 1.0)),
+        onHorizontalDragEnd: (_) => _shift.animateTo(_shift.value > 0.5 ? 1 : 0),
+        child: AnimatedBuilder(
+          animation: _shift.animation,
+          builder: (context, _) => ClipRect(
+            child: Stack(
+              children: [
+                FractionalTranslation(
+                  translation: Offset(-_shift.value, 0),
+                  child: _DemoMemories(album: demoAlbums[0], diary: 0, onDiary: () {}),
+                ),
+                FractionalTranslation(
+                  translation: Offset(1 - _shift.value, 0),
+                  child: _DemoMemories(album: demoAlbums[2], diary: 0, onDiary: () {}, owner: owner, targets: false),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

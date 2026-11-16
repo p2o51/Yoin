@@ -68,6 +68,35 @@ final class MemoryWriting {
 
 enum MemoryWritingKind { review, songNote }
 
+/// The account a memory belongs to when it isn't the one in use (Android
+/// MemoryOtherProfile): what its "From …" line shows. Memories deals every
+/// account's memories (owner 2026-11-08); another account's is read-only, and
+/// Go to album or playing one of its tracks switches to it first.
+@immutable
+final class MemoryOtherProfile {
+  const MemoryOtherProfile({required this.id, required this.name, required this.provider, this.shape = 0});
+
+  final String id;
+  final String name;
+
+  /// [MediaId] provider token: the mark's service.
+  final String provider;
+
+  /// The account's avatar shape, for the mark before its name.
+  final int shape;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MemoryOtherProfile &&
+      other.id == id &&
+      other.name == name &&
+      other.provider == provider &&
+      other.shape == shape;
+
+  @override
+  int get hashCode => Object.hash(id, name, provider, shape);
+}
+
 /// One song of the album as the diary lists it.
 @immutable
 final class MemoryTrack {
@@ -136,6 +165,7 @@ final class MemoryEntry {
     this.firstHeardAt,
     this.lastHeardAt,
     this.albumRating,
+    this.otherProfile,
   });
 
   /// Stable per (account, provider, album): the deck's identity of a card.
@@ -196,6 +226,14 @@ final class MemoryEntry {
   final int? playsInYoin;
   final int? firstHeardAt;
   final int? lastHeardAt;
+
+  /// The account this memory is from when it isn't the one in use; null for
+  /// the account in use's own.
+  final MemoryOtherProfile? otherProfile;
+
+  /// Another account's memory: read-only here (no title, no review), and
+  /// Go to album / play switch to that account first.
+  bool get isFromOtherProfile => otherProfile != null;
 
   /// The score the card shows, with the shared rounding ("8.5"); null when unrated.
   String? get scoreText => score == null ? null : MemoryScores.text(score!);
