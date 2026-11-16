@@ -39,6 +39,7 @@ import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'licenses.dart';
 import 'material_shapes.dart';
+import 'playback_cache_row.dart';
 import 'settings_metrics.dart';
 import 'settings_pane.dart';
 import 'settings_rows.dart';
@@ -436,7 +437,8 @@ class _FeaturesGroup extends StatelessWidget {
 }
 
 /// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage):
-/// Cloud sync, then Playlist cloud backup (PlaylistBackupsItem). HarmonyOS has no NeoDB or cache row yet.
+/// Cloud sync, Playlist cloud backup (PlaylistBackupsItem), then the playback cache (CacheItem).
+/// HarmonyOS has no NeoDB row yet.
 class _SyncStorageGroup extends StatelessWidget {
   const _SyncStorageGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -461,6 +463,8 @@ class _SyncStorageGroup extends StatelessWidget {
             : null,
         onTap: () => onOpen(const PlaylistBackupsPane()),
       ),
+      // Last in the group, as on Android.
+      const PlaybackCacheRow(),
     ],
   );
 }

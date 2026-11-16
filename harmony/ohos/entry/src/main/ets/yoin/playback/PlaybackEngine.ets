@@ -733,6 +733,10 @@ export class PlaybackEngine {
   private onSpareError(p: EnginePlayer, e: BusinessError): void {
     if (p === this.spare && this.preloadItem !== null) {
       hilog.warn(DOMAIN, TAG, 'preload error: %{public}s', describe(e));
+      if (this.preloadItem.viaCache()) {
+        // Loaded again when it starts, from the server.
+        this.preloadItem.cacheBypassed = true;
+      }
       this.discardPreload();
     }
   }
@@ -989,6 +993,15 @@ export class PlaybackEngine {
   }
 
   private fail(e: BusinessError): void {
+    const item = this.currentItem();
+    if (item !== null && item.viaCache()) {
+      // The stream cache failed (its server gone with the Flutter engine, or it could not reach the server):
+      // the same item again from the server, where it was (Android FLAG_IGNORE_CACHE_ON_ERROR).
+      hilog.warn(DOMAIN, TAG, 'stream cache failed, streaming directly: %{public}s', describe(e));
+      item.cacheBypassed = true;
+      this.load(this.index, this.readPosition());
+      return;
+    }
     // Never log the stream URL: it carries the account's token.
     hilog.error(DOMAIN, TAG, 'playback error: %{public}s', describe(e));
     this.lastPositionMs = this.readPosition();

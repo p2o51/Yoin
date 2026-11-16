@@ -252,6 +252,10 @@ class SettingsStrings {
   String get volumeLevelingTrack => _zh ? '按曲目' : 'By track'; // settings_volume_leveling_track
   String get volumeLevelingAlbum => _zh ? '按专辑' : 'By album'; // settings_volume_leveling_album
 
+  // ── Sync and storage › Playback cache ───────────────────────────────
+  String get storageCache => _zh ? '播放缓存' : 'Playback cache'; // settings_storage_cache
+  String get storageClear => _zh ? '清除' : 'Clear'; // settings_storage_clear
+
   // ── Help and about ──────────────────────────────────────────────────
   String get sectionHelpAbout => _zh ? '帮助与关于' : 'Help and about'; // settings_section_help_about
   String get aboutName => 'Yoin'; // settings_about_name (translatable="false")

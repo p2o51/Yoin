@@ -10,6 +10,7 @@ import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../offline/offline_providers.dart';
+import '../offline/stream_cache_providers.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
 import '../platform/window/window_controls.dart';
@@ -829,6 +830,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
       // was kept at, whatever the network would stream (OfflineFirstDataSource);
       // the stream above is what plays if the download is removed meanwhile.
       localUri: offlinePlayableUri(ref, source, track.id),
+      // Any other song streams through the stream cache (CacheDataSource).
+      cacheUri: await streamCacheAddress(ref, track, handle.uri, handle.headers),
       title: track.title ?? '',
       artist: track.artist,
       album: track.album,
@@ -894,6 +897,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         uri: item.uri,
         headers: item.headers,
         localUri: item.localUri,
+        cacheUri: item.cacheUri,
         title: item.title,
         artist: item.artist,
         album: item.album,

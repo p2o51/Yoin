@@ -92,7 +92,10 @@ export class AvEnginePlayer implements EnginePlayer {
         return;
       }
     }
-    if (item.headerCount > 0) {
+    if (item.viaCache()) {
+      // Dart's stream cache: it adds the server's headers itself.
+      this.p.url = item.streamUri();
+    } else if (item.headerCount > 0) {
       await this.p.setMediaSource(media.createMediaSourceWithUrl(item.uri, item.headers));
     } else {
       this.p.url = item.uri;

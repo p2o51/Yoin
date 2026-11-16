@@ -12,12 +12,19 @@ import '../data/model/model.dart';
 import '../data/offline/offline_downloads.dart';
 import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
+import '../platform/background/background_transfer.dart';
 import '../platform/storage/app_files.dart';
 import '../settings/stream_quality.dart' show networkBearerProvider;
+import 'offline_background.dart';
 
 /// The app's files folder. No folder by default (tests, previews): downloads
 /// stay off. main() wires the platform's (`platformOverrides`).
 final appFilesHostProvider = Provider<AppFilesHost>((ref) => const NoAppFilesHost());
+
+/// What keeps the app running while songs download (HarmonyOS: a data-transfer
+/// continuous task). Nothing to hold by default (tests, desktop); main() wires
+/// the platform's (`platformOverrides`).
+final backgroundTransferHostProvider = Provider<BackgroundTransferHost>((ref) => const NoBackgroundTransferHost());
 
 /// The app's downloads, every account's. Started as it is first read (the
 /// app reads it as it starts, so queued downloads carry on).
@@ -40,6 +47,9 @@ final offlineDownloadsProvider = Provider<OfflineDownloads>((ref) {
   }
 
   ref.listen(activeSourceProvider, (_, _) => unawaited(follow()), fireImmediately: true);
+  // Downloads go on with the app behind, with their progress notification (YoinDownloadService).
+  final keeper = OfflineTransferKeeper(downloads: downloads, host: ref.watch(backgroundTransferHostProvider))..start();
+  ref.onDispose(keeper.dispose);
   unawaited(downloads.start());
   return downloads;
 });

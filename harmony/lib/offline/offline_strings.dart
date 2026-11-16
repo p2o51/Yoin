@@ -25,6 +25,10 @@ class OfflineStrings {
       zh ? '$n 首歌会在连上 Wi‑Fi 后下载' : '$n songs will download on Wi‑Fi'; // offline_queued_waiting_wifi
   String get removed => zh ? '已移除下载' : 'Download removed'; // offline_removed
 
+  // ── The progress notification (YoinDownloadService) ─────────────────
+  String get notificationDownloading =>
+      zh ? '正在下载，供离线收听' : 'Downloading for offline listening'; // offline_notification_downloading
+
   // ── Settings › account › Storage › Downloads ────────────────────────
   String get sectionStorage => zh ? '存储' : 'Storage'; // settings_section_storage
   String get title => zh ? '下载' : 'Downloads'; // settings_downloads_title

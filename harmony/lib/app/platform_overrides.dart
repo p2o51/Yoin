@@ -34,6 +34,7 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   imageShareProvider.overrideWithValue(platform.imageShare),
   textShareProvider.overrideWithValue(platform.textShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
+  backgroundTransferHostProvider.overrideWithValue(platform.backgroundTransfer),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
   urlOpenerProvider.overrideWithValue(platform.urlOpener),
   displayCornersProvider.overrideWithValue(platform.displayCorners),
