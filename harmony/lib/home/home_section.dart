@@ -45,7 +45,11 @@ enum HomeSection {
   }
 }
 
-/// Rows preset (HomeRowPreset): L is the default and is not written.
+/// How many rows a section shows (HomeRowPreset, D1). Presets, not numbers:
+/// each screen turns one into its own composition (home_row_presets.dart), so
+/// the choice travels with the account across screens. [l] is the
+/// composition from before presets existed — a section nobody resized stores
+/// nothing and renders as it did. Declaration order is the size order.
 enum HomeRowPreset {
   s('s'),
   m('m'),
@@ -55,7 +59,18 @@ enum HomeRowPreset {
   const HomeRowPreset(this.id);
   final String id;
 
-  static HomeRowPreset byId(String? id) => values.firstWhere((p) => p.id == id, orElse: () => HomeRowPreset.l);
+  static const HomeRowPreset defaultPreset = HomeRowPreset.l;
+
+  /// The preset stored under [id]; null for an id this build doesn't know.
+  static HomeRowPreset? fromId(String? id) {
+    for (final p in values) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// [fromId], or [defaultPreset] for a missing or unknown id.
+  static HomeRowPreset byId(String? id) => fromId(id) ?? defaultPreset;
 }
 
 /// One slot of a layout. [id] is kept verbatim so unknown (newer) ids survive.
@@ -65,30 +80,59 @@ final class HomeSectionPref {
   final String id;
   final bool enabled;
 
-  /// Persisted as {"rows": "s"|"m"|"xl"}; L is not written.
-  final Map<String, String> config;
+  /// The section's settings bag, kept verbatim (keys a newer build adds ride
+  /// along): {"rows": "s"|"m"|"xl"} today; L is not written.
+  final Map<String, Object?> config;
+
+  static const String rowsKey = 'rows';
 
   HomeSection? get section => HomeSection.byId(id);
-  HomeRowPreset get rows => HomeRowPreset.byId(config['rows']);
+
+  /// The row preset; [HomeRowPreset.defaultPreset] when unset or unreadable.
+  HomeRowPreset get rows => HomeRowPreset.byId(config[rowsKey] is String ? config[rowsKey]! as String : null);
+
+  /// This pref at [preset]: `rows` written, or dropped for the default — the
+  /// rest of the bag (and an unreadable `rows` when nothing changes) kept.
+  HomeSectionPref withRows(HomeRowPreset preset) {
+    if (rows == preset) return this;
+    final bag = {...config}..remove(rowsKey);
+    if (preset != HomeRowPreset.defaultPreset) bag[rowsKey] = preset.id;
+    return HomeSectionPref(id: id, enabled: enabled, config: bag);
+  }
 
   Map<String, Object?> toJson() => {'id': id, 'enabled': enabled, if (config.isNotEmpty) 'config': config};
 
   factory HomeSectionPref.fromJson(Map<String, Object?> json) => HomeSectionPref(
         id: json['id']! as String,
         enabled: (json['enabled'] as bool?) ?? true,
-        config: ((json['config'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', '$v')),
+        config: ((json['config'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v)),
       );
 
   @override
   bool operator ==(Object other) =>
-      other is HomeSectionPref &&
-      other.id == id &&
-      other.enabled == enabled &&
-      other.config.length == config.length &&
-      config.entries.every((e) => other.config[e.key] == e.value);
+      other is HomeSectionPref && other.id == id && other.enabled == enabled && _jsonEquals(other.config, config);
 
   @override
-  int get hashCode => Object.hash(id, enabled, Object.hashAllUnordered(config.entries.map((e) => '${e.key}=${e.value}')));
+  int get hashCode => Object.hash(id, enabled, Object.hashAllUnordered(config.keys));
+}
+
+/// Deep equality of decoded JSON values (maps by key, lists in order).
+bool _jsonEquals(Object? a, Object? b) {
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final e in a.entries) {
+      if (!b.containsKey(e.key) || !_jsonEquals(e.value, b[e.key])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_jsonEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 /// The user's Home layout (HomeLayout), edited in place (home_edit.dart).
@@ -122,6 +166,25 @@ final class HomeLayout {
     return HomeLayout(out);
   }
 
+  /// [section]'s row preset ([HomeRowPreset.defaultPreset] when it is not in this layout).
+  HomeRowPreset rowsOf(HomeSection section) {
+    for (final p in sections) {
+      if (p.id == section.id) return p.rows;
+    }
+    return HomeRowPreset.defaultPreset;
+  }
+
+  /// The catalogue arrangement, every section at its default rows; unknown ids ignored.
+  bool get isDefault {
+    final known = [for (final p in sections) if (p.section != null) p];
+    final defaults = defaultLayout.sections;
+    if (known.length != defaults.length) return false;
+    for (var i = 0; i < known.length; i++) {
+      if (known[i] != defaults[i]) return false;
+    }
+    return true;
+  }
+
   /// Sections the v1 feed draws, in layout order (enabled, known, built).
   List<HomeSection> get visibleV1Sections => [
         for (final pref in sections)
@@ -136,11 +199,33 @@ final class HomeLayout {
       ]);
 }
 
-/// [layout] with [section] hidden or shown again (in its own place).
-HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabled) => HomeLayout([
-      for (final p in layout.sections)
-        p.id == section.id ? HomeSectionPref(id: p.id, enabled: enabled, config: p.config) : p,
-    ]);
+/// [layout] with [section] hidden or shown again (in its own place); [layout]
+/// itself when nothing changes.
+HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabled) {
+  if (!layout.sections.any((p) => p.id == section.id && p.enabled != enabled)) return layout;
+  return HomeLayout([
+    for (final p in layout.sections)
+      p.id == section.id ? HomeSectionPref(id: p.id, enabled: enabled, config: p.config) : p,
+  ]);
+}
+
+/// [layout] with [section] at row preset [rows] (HomeLayout.withRows): [layout]
+/// itself for a section without presets, one not in it, or one already there.
+HomeLayout withSectionRows(HomeLayout layout, HomeSection section, HomeRowPreset rows) {
+  if (!section.takesPresets || !layout.sections.any((p) => p.id == section.id && p.rows != rows)) return layout;
+  return HomeLayout([
+    for (final p in layout.sections) p.id == section.id ? p.withRows(rows) : p,
+  ]);
+}
+
+/// The catalogue arrangement — rows back to their defaults too — keeping the
+/// ids this build doesn't know at the end (HomeLayout.reset); [layout] itself
+/// when it already is.
+HomeLayout resetLayout(HomeLayout layout) {
+  if (layout.isDefault) return layout;
+  final unknown = [for (final p in layout.sections) if (p.section == null) p];
+  return unknown.isEmpty ? HomeLayout.defaultLayout : HomeLayout([...HomeLayout.defaultLayout.sections, ...unknown]);
+}
 
 /// [layout] with [section] moved to [to] among [visible] (the sections the
 /// feed draws, in order): the visible slots keep their places in the saved

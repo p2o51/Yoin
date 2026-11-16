@@ -130,6 +130,25 @@ final class JbiTemplate {
 
   /// Where [piece] sits, in row pitches from the grid's top.
   double topOf(JbiPiece piece) => piece.row + offsets[piece.column];
+
+  @override
+  bool operator ==(Object other) =>
+      other is JbiTemplate &&
+      other.columns == columns &&
+      other.rows == rows &&
+      _listEquals(other.offsets, offsets) &&
+      _listEquals(other.pieces, pieces);
+
+  @override
+  int get hashCode => Object.hash(columns, rows, Object.hashAll(offsets), Object.hashAll(pieces));
+}
+
+bool _listEquals<T>(List<T> a, List<T> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// A card seated on its piece.
@@ -140,6 +159,19 @@ final class JbiLayout {
   const JbiLayout(this.template, this.cells);
   final JbiTemplate template;
   final List<JbiCell> cells;
+
+  /// Same template, same cards on the same pieces (cards by stable id).
+  @override
+  bool operator ==(Object other) {
+    if (other is! JbiLayout || other.template != template || other.cells.length != cells.length) return false;
+    for (var i = 0; i < cells.length; i++) {
+      if (other.cells[i].piece != cells[i].piece || other.cells[i].card.stableId != cells[i].card.stableId) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(template, Object.hashAll(cells.map((c) => c.card.stableId)));
 }
 
 /// At most this many signal cards on one template.
@@ -426,4 +458,221 @@ List<List<HomeWidgetCard>> packWidgetRows(List<HomeWidgetCard> cards, int column
     rows.add(compact.sublist(i, math.min(i + columns, compact.length)));
   }
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Row presets (HomeJbiTemplate.kt jbiPresetLayout).
+
+/// [layout] at [rows] rows (D1 row presets), keeping every card it can where
+/// it is, so neighbouring presets interpolate card by card.
+///
+/// More rows: whole rows are appended at the bottom of every lane, seated
+/// with the next covers in [cards] in reading order (a row the shelf can't
+/// fill is left off); the template's own rows and offsets stay. The rows
+/// added bring signal cards of their own when [cards] has more than the
+/// template seated ([jbiGrowSignals]): each stands in a lane away from the
+/// others, over the old bottom row and the first new one, and the cover it
+/// stands on moves down into the new rows — first of them, so the order of
+/// every card the smaller layout seated holds.
+///
+/// Fewer rows: the bottom rows are cut. A signal card past the new bottom
+/// moves up in its own lane (a standing one on a single row lies down across
+/// its neighbour); past [jbiSignalLimit] the lower-ranked one leaves. Covers
+/// above the cut keep their cards; a cell a moved or departed signal leaves to
+/// a cover takes the first of the displaced covers in the old reading order,
+/// so the result seats only cards [layout] seated. Offsets stay.
+JbiLayout jbiPresetLayout(JbiLayout layout, List<HomeWidgetCard> cards, int rows) {
+  final template = layout.template;
+  if (rows == template.rows) return layout;
+  if (rows > template.rows) return _growJbiLayout(layout, cards, rows);
+  return _shrinkJbiLayout(layout, math.max(1, rows));
+}
+
+/// Signal cards [addedRows] rows of [columns] lanes bring along: one for every
+/// [jbiCellsPerExtraSignal] cells they add, rounded to the nearest, at least one.
+int jbiGrowSignals(int addedRows, int columns) =>
+    math.max(1, (addedRows * columns + jbiCellsPerExtraSignal ~/ 2) ~/ jbiCellsPerExtraSignal);
+
+int Function(JbiPiece, JbiPiece) _reading(List<double> offsets) => (a, b) {
+      final byTop = (a.row + offsets[a.column]).compareTo(b.row + offsets[b.column]);
+      return byTop != 0 ? byTop : a.column.compareTo(b.column);
+    };
+
+JbiLayout _growJbiLayout(JbiLayout layout, List<HomeWidgetCard> cards, int rows) {
+  final template = layout.template;
+  final columns = template.columns;
+  final oldRows = template.rows;
+  final seated = {for (final c in layout.cells) c.card.stableId};
+  final spare = [for (final c in cards) if (!c.expanded && !seated.contains(c.stableId)) c];
+  final spareSignals = [for (final c in cards) if (c.expanded && !seated.contains(c.stableId)) c];
+  // As many whole rows as the shelf fills: each standing card covers one new
+  // cell and lends its old cover another, so it takes no extra cover.
+  var addedRows = rows - oldRows;
+  var standing = <int>[];
+  while (addedRows > 0) {
+    final wanted = math.min(spareSignals.length, jbiGrowSignals(addedRows, columns));
+    standing = _growSignalColumns(layout, wanted);
+    if (spare.length >= addedRows * columns - 2 * standing.length) break;
+    addedRows--;
+  }
+  if (addedRows <= 0) return layout;
+  final reading = _reading(template.offsets);
+  final bottom = oldRows - 1;
+  // The covers the new cards stand on, in the old reading order: they move down first.
+  final lent = [
+    for (final c in layout.cells)
+      if (c.piece.kind == JbiPieceKind.cover && c.piece.row == bottom && standing.contains(c.piece.column)) c,
+  ]..sort((a, b) => reading(a.piece, b.piece));
+  final kept = [for (final c in layout.cells) if (!lent.contains(c)) c];
+  final sortedStanding = [...standing]..sort();
+  final signalCells = <JbiCell>[
+    for (var i = 0; i < sortedStanding.length; i++)
+      (card: spareSignals[i], piece: JbiPiece(sortedStanding[i], bottom, JbiPieceKind.tallSignal)),
+  ];
+  final newCovers = <JbiPiece>[
+    for (var r = oldRows; r < oldRows + addedRows; r++)
+      for (var c = 0; c < columns; c++)
+        if (!(r == oldRows && standing.contains(c))) JbiPiece(c, r),
+  ]..sort(reading);
+  final supply = [...lent.map((c) => c.card), ...spare];
+  var next = 0;
+  final cells = <JbiCell>[
+    ...kept,
+    ...signalCells,
+    for (final piece in newCovers) (card: supply[next++], piece: piece),
+  ]..sort((a, b) => reading(a.piece, b.piece));
+  return JbiLayout(
+    JbiTemplate(columns: columns, rows: oldRows + addedRows, offsets: template.offsets, pieces: [for (final c in cells) c.piece]),
+    cells,
+  );
+}
+
+/// Up to [count] lanes for new standing cards over [layout]'s bottom row: a
+/// lane whose bottom cell is a cover, never beside another signal card on
+/// that row or another new one, farthest from the signals already there
+/// first (ties by a seed from the template, so the same shelf grows the same
+/// way). Fewer when the lanes run out.
+List<int> _growSignalColumns(JbiLayout layout, int count) {
+  if (count <= 0) return const [];
+  final template = layout.template;
+  final bottom = template.rows - 1;
+  final signalColumns = <int>{
+    for (final cell in layout.cells)
+      if (cell.piece.kind.isSignal)
+        for (var c = cell.piece.column; c < cell.piece.endColumn; c++) c,
+  };
+  final bottomSignal = <int>{
+    for (final cell in layout.cells)
+      if (cell.piece.kind.isSignal && bottom >= cell.piece.row && bottom < cell.piece.endRow)
+        for (var c = cell.piece.column; c < cell.piece.endColumn; c++) c,
+  };
+  final coverOnBottom = <int>{
+    for (final cell in layout.cells)
+      if (cell.piece.kind == JbiPieceKind.cover && cell.piece.row == bottom) cell.piece.column,
+  };
+  final random = KotlinRandom(template.columns * 7919 + template.rows * 104729 + template.pieces.length);
+  final picked = <int>[];
+  for (var n = 0; n < count; n++) {
+    final taken = [...signalColumns, ...picked];
+    final open = [
+      for (var c = 0; c < template.columns; c++)
+        if (coverOnBottom.contains(c) &&
+            !picked.contains(c) &&
+            !bottomSignal.contains(c - 1) &&
+            !bottomSignal.contains(c + 1) &&
+            !picked.contains(c - 1) &&
+            !picked.contains(c + 1))
+          c,
+    ];
+    if (open.isEmpty) return picked;
+    int distance(int c) => taken.isEmpty ? template.columns : taken.map((t) => (t - c).abs()).reduce(math.min);
+    final best = open.map(distance).reduce(math.max);
+    final ties = [for (final c in open) if (distance(c) == best) c];
+    picked.add(ties[random.nextIntBelow(ties.length)]);
+  }
+  return picked;
+}
+
+JbiLayout _shrinkJbiLayout(JbiLayout layout, int rows) {
+  final template = layout.template;
+  final columns = template.columns;
+  final taken = List.generate(rows, (_) => List.filled(columns, false));
+  bool fits(JbiPiece piece) {
+    if (piece.column < 0 || piece.endColumn > columns || piece.row < 0 || piece.endRow > rows) return false;
+    for (var r = piece.row; r < piece.endRow; r++) {
+      for (var c = piece.column; c < piece.endColumn; c++) {
+        if (taken[r][c]) return false;
+      }
+    }
+    return true;
+  }
+
+  void take(JbiPiece piece) {
+    for (var r = piece.row; r < piece.endRow; r++) {
+      for (var c = piece.column; c < piece.endColumn; c++) {
+        taken[r][c] = true;
+      }
+    }
+  }
+
+  // Signals by card rank (the incoming order), at most the limit for this size.
+  final signals = [for (final c in layout.cells) if (c.piece.kind.isSignal) c];
+  final limit = jbiSignalLimit(rows, rows * columns);
+  final kept = <JbiCell>[];
+  for (final cell in signals.take(limit)) {
+    final piece = cell.piece;
+    final List<JbiPiece> candidates;
+    if (piece.endRow <= rows) {
+      candidates = [piece];
+    } else if (piece.kind == JbiPieceKind.tallSignal && rows >= 2) {
+      candidates = [piece.copyWith(row: rows - 2)];
+    } else if (piece.kind == JbiPieceKind.wideSignal) {
+      candidates = [piece.copyWith(row: rows - 1)];
+    } else {
+      // A standing card on one row lies down, across its right neighbour or else its left.
+      candidates = [
+        JbiPiece(piece.column, rows - 1, JbiPieceKind.wideSignal),
+        JbiPiece(piece.column - 1, rows - 1, JbiPieceKind.wideSignal),
+      ];
+    }
+    JbiPiece? placed;
+    for (final c in candidates) {
+      if (fits(c)) {
+        placed = c;
+        break;
+      }
+    }
+    if (placed == null) continue;
+    take(placed);
+    kept.add((card: cell.card, piece: placed));
+  }
+
+  final oldCovers = [for (final c in layout.cells) if (c.piece.kind == JbiPieceKind.cover) c];
+  final coverAt = {for (final c in oldCovers) (c.piece.column, c.piece.row): c};
+  final keptCovers = <JbiCell>[];
+  final open = <JbiPiece>[];
+  for (var r = 0; r < rows; r++) {
+    for (var c = 0; c < columns; c++) {
+      if (taken[r][c]) continue;
+      final old = coverAt[(c, r)];
+      if (old != null) {
+        keptCovers.add(old);
+      } else {
+        open.add(JbiPiece(c, r));
+      }
+    }
+  }
+  final keptIds = {for (final c in keptCovers) c.card.stableId};
+  // Displaced covers, best first (the old reading order), fill the open cells in the new one.
+  final displaced = [for (final c in oldCovers) if (!keptIds.contains(c.card.stableId)) c];
+  final reading = _reading(template.offsets);
+  open.sort(reading);
+  final refilled = <JbiCell>[
+    for (var i = 0; i < open.length && i < displaced.length; i++) (card: displaced[i].card, piece: open[i]),
+  ];
+  final cells = [...kept, ...keptCovers, ...refilled]..sort((a, b) => reading(a.piece, b.piece));
+  return JbiLayout(
+    JbiTemplate(columns: columns, rows: rows, offsets: template.offsets, pieces: [for (final c in cells) c.piece]),
+    cells,
+  );
 }

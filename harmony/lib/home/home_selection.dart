@@ -477,12 +477,22 @@ BentoRecipe bentoRecipeFor(HomeFeedFrame frame) => frame.landscape
 /// Jump Back In's grid: columns, rows and the cover's side. [templated] =
 /// the seeded lanes (home_jbi_template.dart); otherwise a packed grid.
 final class JbiGeometry {
-  const JbiGeometry({required this.columns, required this.rows, required this.columnWidth, required this.coverSide, this.templated = false});
+  const JbiGeometry({
+    required this.columns,
+    required this.rows,
+    required this.columnWidth,
+    required this.coverSide,
+    this.templated = false,
+    this.landscape = false,
+  });
   final int columns;
   final int rows;
   final double columnWidth;
   final double coverSide;
   final bool templated;
+
+  /// The landscape handset's shelf (its own row presets).
+  final bool landscape;
   int get cells => columns * rows;
 }
 
@@ -494,7 +504,13 @@ JbiGeometry jbiGeometry(HomeFeedFrame frame) {
   if (frame.landscape) {
     final k = math.min(frame.coverColumns, HomeJbiMetrics.landscapeMaxColumns);
     final w = columnWidth(k);
-    return JbiGeometry(columns: k, rows: HomeJbiMetrics.landscapeRows, columnWidth: w, coverSide: math.min(w, HomeTokens.jbiCover));
+    return JbiGeometry(
+      columns: k,
+      rows: HomeJbiMetrics.landscapeRows,
+      columnWidth: w,
+      coverSide: math.min(w, HomeTokens.jbiCover),
+      landscape: true,
+    );
   }
   if (frame.units <= 2) {
     final w = columnWidth(HomeJbiMetrics.phoneColumns);

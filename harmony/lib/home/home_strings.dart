@@ -148,6 +148,11 @@ class HomeStrings {
   String get editHide => _zh ? '隐藏' : 'Hide'; // home_edit_hide
   String sectionIndexCd(int index, int count) =>
       _zh ? '第 $index 个分区，共 $count 个' : 'Section $index of $count'; // home_cd_section_index
+  String sectionIndexRowsCd(int index, int count, String rows) =>
+      _zh ? '第 $index 个分区，共 $count 个，$rows' : 'Section $index of $count, $rows'; // home_cd_section_index_rows
+
+  /// home_edit_rows (plural).
+  String rowsLabel(int rows) => _zh ? '$rows 行' : (rows == 1 ? '$rows row' : '$rows rows');
 
   String get activitiesEmptyTitle => _zh ? '暂无动态' : 'No activity yet'; // home_activities_empty_title
 

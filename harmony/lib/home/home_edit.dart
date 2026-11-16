@@ -3,13 +3,16 @@
 /// footer's "Edit Home") enters; every section gets a plate, a hide button and
 /// — with more than one — a drag handle; hidden sections wait in the "Hidden"
 /// tray at the feed's end, a + puts one back where it was, "Reset Home" goes
-/// back to the default. Every step saves at once (per account) and can be
-/// undone (20 steps; leaving clears them). Done, system back or a tap on the
-/// page's blank space leaves. The edit controller is the only writer.
+/// back to the default. Activities and Jump Back In take a row preset
+/// (S / M / L / XL): the ⌟ at their plate's bottom-end corner resizes them
+/// (home_rows_resize.dart, home_rows_handle.dart), and the reader's / the
+/// keyboard's "More rows" / "Fewer rows" step one preset. Every step saves at
+/// once (per account) and can be undone (20 steps; leaving clears them).
+/// Done, system back or a tap on the page's blank space leaves. The edit
+/// controller is the only writer.
 ///
-/// Not ported yet: row presets (S / M / L / XL), the wiggle, the bar's edit
-/// pose (Undo and Done sit in the header instead) and the shelves' clip to
-/// their plate.
+/// Not ported yet: the wiggle, the bar's edit pose (Undo and Done sit in the
+/// header instead) and the shelves' clip to their plate.
 library;
 
 import 'package:flutter/material.dart';
@@ -85,6 +88,16 @@ class HomeEditController extends Notifier<HomeEditState> {
     _apply(withSectionEnabled(ref.read(homeLayoutProvider), section, true));
   }
 
+  /// [section] at row preset [rows] (D1). Saved at once, one Undo step;
+  /// false when it changed nothing (the resize gives the confirm haptic).
+  bool setRows(HomeSection section, HomeRowPreset rows) {
+    final layout = ref.read(homeLayoutProvider);
+    final next = withSectionRows(layout, section, rows);
+    if (identical(next, layout)) return false;
+    _apply(next);
+    return true;
+  }
+
   /// Moves [section] to [to] among the sections the feed draws.
   void move(HomeSection section, int to) {
     final layout = ref.read(homeLayoutProvider);
@@ -96,7 +109,7 @@ class HomeEditController extends Notifier<HomeEditState> {
 
   void reset() {
     YoinHaptics.confirm();
-    _apply(HomeLayout.defaultLayout);
+    _apply(resetLayout(ref.read(homeLayoutProvider)));
   }
 
   void undo() {
@@ -144,11 +157,23 @@ class HomeEditPlate extends StatelessWidget {
     this.count = 1,
     this.onMoveUp,
     this.onMoveDown,
+    this.rowCount,
+    this.onMoreRows,
+    this.onFewerRows,
+    this.resizeHandle,
   });
 
   /// TalkBack's Move up / Move down (null at the ends).
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+
+  /// A resizable section: the rows it shows now (the reader hears them), its
+  /// "More rows" / "Fewer rows" (null at the ends) and the ⌟ handle, whose
+  /// bottom-end corner is the plate's.
+  final int? rowCount;
+  final VoidCallback? onMoreRows;
+  final VoidCallback? onFewerRows;
+  final Widget? resizeHandle;
 
   final double progress;
 
@@ -177,11 +202,17 @@ class HomeEditPlate extends StatelessWidget {
     // section's state (a shelf's scroll, a palette in flight).
     return Semantics(
       container: on,
-      label: on ? strings.sectionIndexCd(index + 1, count) : null,
+      label: on
+          ? (rowCount == null
+              ? strings.sectionIndexCd(index + 1, count)
+              : strings.sectionIndexRowsCd(index + 1, count, strings.rowsLabel(rowCount!)))
+          : null,
       customSemanticsActions: on
           ? {
               CustomSemanticsAction(label: strings.editMoveUp): ?onMoveUp,
               CustomSemanticsAction(label: strings.editMoveDown): ?onMoveDown,
+              CustomSemanticsAction(label: strings.editMoreRows): ?onMoreRows,
+              CustomSemanticsAction(label: strings.editFewerRows): ?onFewerRows,
               CustomSemanticsAction(label: strings.editHide): ?onHide,
             }
           : null,
@@ -250,6 +281,12 @@ class HomeEditPlate extends StatelessWidget {
                     )
                   : const SizedBox.shrink(),
             ),
+            if (on && resizeHandle != null)
+              PositionedDirectional(
+                bottom: -vertical,
+                end: end - homeEditPlateOutset(end),
+                child: resizeHandle!,
+              ),
           ],
         ),
       ),

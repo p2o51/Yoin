@@ -8,6 +8,9 @@ import 'home_actions.dart';
 import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
+import 'home_row_presets.dart';
+import 'home_rows_resize.dart';
+import 'home_section.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
 import 'home_ui_state.dart';
@@ -18,92 +21,184 @@ import 'widgets/home_text.dart';
 import 'widgets/seam.dart';
 import 'widgets/spring_height.dart';
 
-/// Activities: the title and the phone bento, or one "No activity yet" card
-/// (no title) when there is no history.
+/// Activities: the title and the bento at its row preset (S / M / L / XL,
+/// home_row_presets.dart), or one "No activity yet" card (no title) when
+/// there is no history. Under Home's [HomeRowsScope] the bento renders
+/// through [HomeRowsBody], so edit mode's ⌟ can resize it card by card.
 class ActivitiesSection extends StatelessWidget {
-  const ActivitiesSection({super.key, required this.content, required this.frame});
+  const ActivitiesSection({super.key, required this.content, required this.frame, this.preset = HomeRowPreset.defaultPreset});
 
   final HomeContent content;
   final HomeFeedFrame frame;
+  final HomeRowPreset preset;
 
   @override
   Widget build(BuildContext context) {
     final entries = content.activityEntries;
     final strings = HomeStrings.of(context);
     if (entries.isEmpty) return HomeEmptyCard(title: strings.activitiesEmptyTitle);
-    final recipe = bentoRecipeFor(frame);
+    final units = bentoRecipeFor(frame) == BentoRecipe.units;
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, double.infinity);
     final title = Padding(
       padding: const EdgeInsets.only(bottom: HomeSectionMetrics.titleBottomPadding),
       child: HomeSectionTitle(strings.sectionActivities),
     );
-    if (recipe == BentoRecipe.units) {
-      final unitEntries = entries.take(HomeBentoMetrics.unitsEntries).toList();
-      final heroIndex = selectHeroIndex(unitEntries, window: HomeBentoMetrics.unitsHeroWindow);
-      final hero = heroIndex < 0 ? null : unitEntries[heroIndex];
-      final spec = activityBentoSpec(
-        feedUnits: frame.units,
-        compactHeight: false,
-        seed: activityLayoutSeed(hero?.entityKey),
-        hasHero: hero != null,
-      );
-      final supporting = [
-        for (var i = 0; i < unitEntries.length; i++)
-          if (i != heroIndex) unitEntries[i],
-      ].take(seatedSupportingCount(spec, hasHero: hero != null)).toList();
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          title,
-          const SizedBox(height: HomeSectionMetrics.activitiesSpacing),
-          // A width class (N) re-seats in place — no crossfade (2026-11-12) —
-          // and the section's height springs between the two.
-          SpringHeight(
-            heightKey: spec,
-            child: _UnitGrid(
-              spec: spec,
-              slots: activityUnitSlots(spec, hasHero: hero != null, supportingCount: supporting.length),
-              hero: hero,
-              supporting: supporting,
-              scale: scale,
-              nowMs: content.activitiesAtMs,
-              footnote: content.heroFootnote,
-            ),
-          ),
-        ],
-      );
-    }
-    final rows = bentoRows(entries, recipe);
-    final landscape = frame.landscape;
-    final gap = landscape ? HomeBentoMetrics.landscapeGap : HomeTokens.activityRowGap;
+    // Deep enough for XL; the hero is still found where it always was (the
+    // first 6 / 16), so every other preset seats exactly what it did.
+    final pool = entries.take(units ? HomeBentoMetrics.unitsEntries : HomeBentoMetrics.phoneEntries).toList();
+    final heroIndex = selectHeroIndex(pool, window: units ? HomeBentoMetrics.unitsHeroWindow : HomeBentoMetrics.heroWindow);
+    final hero = heroIndex < 0 ? null : pool[heroIndex];
+    final candidates = [
+      for (var i = 0; i < pool.length; i++)
+        if (i != heroIndex) pool[i],
+    ];
+    final spec = activityBentoSpec(
+      feedUnits: frame.units,
+      compactHeight: frame.landscape,
+      seed: activityLayoutSeed(hero?.entityKey),
+      hasHero: hero != null,
+    );
+    final ladder = activityRowLadder(spec, hasHero: hero != null, supportingCount: candidates.length);
+    final track = HomeRowsScope.maybeOf(context)?.track(HomeSection.activities);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         title,
         const SizedBox(height: HomeSectionMetrics.activitiesSpacing),
+        // A width class (N) re-seats in place — no crossfade (2026-11-12) —
+        // and the section's height springs between the two. A row preset
+        // updates in place (edit mode's resize interpolates it).
         SpringHeight(
-          heightKey: recipe,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var r = 0; r < rows.length; r++) ...[
-                if (r > 0) SizedBox(height: gap),
-                _BentoRow(
-                  cells: rows[r],
-                  gap: gap,
-                  height: switch (rows[r].first.size) {
-                    BentoCardSize.strip => null,
-                    _ when landscape => HomeBentoMetrics.landscapeRowHeight * scale,
-                    BentoCardSize.hero => HomeBentoMetrics.heroHeight * scale,
-                    _ => HomeTokens.activityRowHeight * scale,
-                  },
+          heightKey: spec,
+          child: HomeRowsBody<ActivityPresetLayout>(
+            track: track,
+            ladder: ladder,
+            ladderKey: (spec, hero?.stableId, candidates.map((e) => e.stableId).join('|')),
+            preset: preset,
+            builder: (context, stop) {
+              final composition = stop.payload;
+              // Without a hero, row 1's lead slot is a supporting entry too.
+              final supporting = candidates.take(composition.seated).toList();
+              if (spec.recipe == BentoRecipe.units) {
+                return _UnitGrid(
+                  spec: spec,
+                  slots: composition.slots,
+                  hero: hero,
+                  supporting: supporting,
+                  scale: scale,
                   nowMs: content.activitiesAtMs,
                   footnote: content.heroFootnote,
-                ),
-              ],
-            ],
+                );
+              }
+              return _CodeRows(
+                rows: composition.rows,
+                hero: hero,
+                supporting: supporting,
+                scale: scale,
+                nowMs: content.activitiesAtMs,
+                footnote: content.heroFootnote,
+              );
+            },
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// One bento card, on the row resize's card layer (its entry's id, its kind).
+Widget _activityCard(BuildContext context, SlotKind kind, HomeActivityEntry entry, int nowMs, HeroFootnote? footnote) {
+  final ago = HomeStrings.of(context).timeAgo(timeAgoOf(nowMs: nowMs, timestampMs: entry.timestampMs));
+  return HomeRowsCard(
+    cardKey: entry.stableId,
+    kind: kind,
+    child: switch (kind) {
+      SlotKind.hero => ActivityHeroCard(entry: entry, timeAgo: ago, footnote: footnote),
+      SlotKind.wide => ActivityWideCard(entry: entry, timeAgo: ago),
+      SlotKind.small => ActivitySmallCard(entry: entry, timeAgo: ago),
+      SlotKind.strip => ActivityStripCard(entry: entry, timeAgo: ago),
+    },
+  );
+}
+
+/// The code-built bento (feed units ≤ 2 and the landscape handset) from its
+/// [rows] (activityCodeRows): phone — a full-width hero, a small square + wide
+/// row, one strip; narrow phone — two equal smalls per row; landscape — one
+/// row. At L each is today's composition. Rows 10 apart; slots past the
+/// supply give their weight to the row's last card (W8), a small that grows
+/// reading as a wide.
+class _CodeRows extends StatelessWidget {
+  const _CodeRows({
+    required this.rows,
+    required this.hero,
+    required this.supporting,
+    required this.scale,
+    required this.nowMs,
+    required this.footnote,
+  });
+
+  final List<ActivityCodeRow> rows;
+  final HomeActivityEntry? hero;
+  final List<HomeActivityEntry> supporting;
+  final double scale;
+  final int nowMs;
+  final HeroFootnote? footnote;
+
+  HomeActivityEntry? _entryOf(ActivityCodeSlot slot) =>
+      slot.entryIndex < 0 ? hero : (slot.entryIndex < supporting.length ? supporting[slot.entryIndex] : null);
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    for (final row in rows) {
+      switch (row.shape) {
+        case ActivityRowShape.hero || ActivityRowShape.strip:
+          final slot = row.slots.first;
+          final entry = _entryOf(slot);
+          if (entry == null) continue;
+          final card = _activityCard(context, slot.kind, entry, nowMs, footnote);
+          children.add(KeyedSubtree(
+            key: ValueKey(entry.stableId),
+            child: row.shape == ActivityRowShape.hero ? SizedBox(height: HomeBentoMetrics.heroHeight * scale, child: card) : card,
+          ));
+        case ActivityRowShape.cards:
+          final shown = [
+            for (final slot in row.slots)
+              if (_entryOf(slot) case final entry?) (slot, entry),
+          ];
+          if (shown.isEmpty) continue;
+          final spare = row.slots.fold<double>(0, (n, s) => n + s.weight) - shown.fold<double>(0, (n, p) => n + p.$1.weight);
+          children.add(SizedBox(
+            height: row.height * scale,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < shown.length; i++) ...[
+                  if (i > 0) SizedBox(width: row.gap),
+                  () {
+                    final (slot, entry) = shown[i];
+                    final stretched = i == shown.length - 1 && spare > 0;
+                    final kind = stretched && slot.kind == SlotKind.small ? SlotKind.wide : slot.kind;
+                    final weight = stretched ? slot.weight + spare : slot.weight;
+                    return Expanded(
+                      key: ValueKey(entry.stableId),
+                      flex: (weight * 10).round(),
+                      child: _activityCard(context, kind, entry, nowMs, footnote),
+                    );
+                  }(),
+                ],
+              ],
+            ),
+          ));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(height: HomeTokens.activityRowGap),
+          children[i],
+        ],
       ],
     );
   }
@@ -144,18 +239,8 @@ class _UnitGrid extends StatelessWidget {
     ];
     final rowIndices = {for (final p in placed) p.$1.row}.toList()..sort();
     final rows = [for (final r in rowIndices) placed.where((p) => p.$1.row == r).toList()];
-    Widget card(ActivitySlot slot, HomeActivityEntry entry) {
-      final ago = HomeStrings.of(context).timeAgo(timeAgoOf(nowMs: nowMs, timestampMs: entry.timestampMs));
-      return KeyedSubtree(
-        key: ValueKey(entry.stableId),
-        child: switch (slot.kind) {
-          SlotKind.hero => ActivityHeroCard(entry: entry, timeAgo: ago, footnote: footnote),
-          SlotKind.wide => ActivityWideCard(entry: entry, timeAgo: ago),
-          SlotKind.small => ActivitySmallCard(entry: entry, timeAgo: ago),
-          SlotKind.strip => ActivityStripCard(entry: entry, timeAgo: ago),
-        },
-      );
-    }
+    Widget card(ActivitySlot slot, HomeActivityEntry entry) =>
+        KeyedSubtree(key: ValueKey(entry.stableId), child: _activityCard(context, slot.kind, entry, nowMs, footnote));
 
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
@@ -203,40 +288,6 @@ class _UnitGrid extends StatelessWidget {
         ],
       );
     });
-  }
-}
-
-class _BentoRow extends StatelessWidget {
-  const _BentoRow({required this.cells, required this.gap, required this.height, required this.nowMs, required this.footnote});
-
-  final List<BentoCell> cells;
-  final double gap;
-  final double? height;
-  final int nowMs;
-  final HeroFootnote? footnote;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget card(BentoCell cell) {
-      final ago = HomeStrings.of(context).timeAgo(timeAgoOf(nowMs: nowMs, timestampMs: cell.entry.timestampMs));
-      return switch (cell.size) {
-        BentoCardSize.hero => ActivityHeroCard(entry: cell.entry, timeAgo: ago, footnote: footnote),
-        BentoCardSize.small => ActivitySmallCard(entry: cell.entry, timeAgo: ago),
-        BentoCardSize.wide => ActivityWideCard(entry: cell.entry, timeAgo: ago),
-        BentoCardSize.strip => ActivityStripCard(entry: cell.entry, timeAgo: ago),
-      };
-    }
-
-    final row = Row(
-      crossAxisAlignment: height == null ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < cells.length; i++) ...[
-          if (i > 0) SizedBox(width: gap),
-          Expanded(flex: (cells[i].weight * 10).round(), child: KeyedSubtree(key: ValueKey(cells[i].entry.stableId), child: card(cells[i]))),
-        ],
-      ],
-    );
-    return height == null ? row : SizedBox(height: height, child: row);
   }
 }
 

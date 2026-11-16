@@ -136,6 +136,63 @@ abstract final class HomeEditMetrics {
   static const double dragCacheExtent = 100000;
 }
 
+/// Edit Home's row resize (HomeRowsResize.kt HomeRowsTokens, d1-rows.md §3).
+abstract final class HomeRowsMetrics {
+  /// A stop changes this far past the midpoint between two stops.
+  static const double hysteresis = 6;
+
+  /// A release this fast (dp/s) travels one more stop when its short projection crosses the next midpoint.
+  static const double flingVelocity = 650;
+  static const double projectSeconds = 0.15;
+
+  /// Released past the smallest or largest stop, the spring takes this share of the finger's velocity.
+  static const double overVelocityShare = 0.25;
+
+  /// Past the smallest or largest stop the height follows the finger on a rubber band (HomeEditTokens.RubberD / RubberK).
+  static const double rubberRange = 56;
+  static const double rubberK = 0.55;
+
+  /// The finger's velocity: capped, over the last 100 ms, stale after 60 ms (HomeEditTokens.MaxV / Velocity*).
+  static const double maxVelocity = 8000;
+  static const int velocityWindowMs = 100;
+  static const int velocityStaleMs = 60;
+  static const int velocityMinDtMs = 4;
+
+  /// Cards arriving with the larger stop grow from this scale.
+  static const double incomingScale = 0.88;
+
+  /// The handle: the ⌟ glyph's box, stroke, inset from the plate's corner, touch box.
+  static const double handleGlyph = 24;
+  static const double handleStroke = 3;
+  static const double handleInset = 6;
+  static const double handleTouch = 48;
+
+  /// The glyph's corner sits this far into the touch box from its top-left: the box's bottom-right is the plate's corner.
+  static const double handleCornerInTouch = handleTouch - handleInset;
+
+  /// Held: the glyph grows by this much (on top of the tick pulse).
+  static const double heldScale = 0.12;
+
+  /// Hovered (mouse, trackpad): the handle's held look, this much of it.
+  static const double hoverHot = 0.6;
+
+  /// The handle's pulse on a stop crossing: one bounce 1 → 1.2 → 1 (HomeEditTokens.PulseVelocity).
+  static const double pulseVelocity = 11.3;
+
+  /// The settle stops within this many dp (HomeEditTokens.SettlePxThreshold).
+  static const double settleThreshold = 0.4;
+
+  // Card transition windows over the stop-to-stop progress p (d1-rows.md §3.0).
+  static const double kindOutStart = 0.08;
+  static const double kindOutEnd = 0.42;
+  static const double kindInStart = 0.48;
+  static const double kindInEnd = 0.86;
+  static const double incomingFirst = 0.08;
+  static const double incomingSpread = 0.32;
+  static const double incomingSpan = 0.55;
+  static const double incomingLone = 0.15;
+}
+
 abstract final class HomeSectionMetrics {
   static const double titleSize = 18;
   static const double titleBottomPadding = 6;
@@ -194,6 +251,11 @@ abstract final class HomeBentoMetrics {
 abstract final class HomeJbiMetrics {
   static const int phoneColumns = 3;
   static const int phoneRows = 4;
+
+  /// The phone shelf's rows at the S / M / XL row presets (L is [phoneRows]).
+  static const int phoneRowsS = 2;
+  static const int phoneRowsM = 3;
+  static const int phoneRowsXl = 6;
   static const int phoneCells = 12;
   static const double captionGap = 5;
   static const double titleSize = 16;

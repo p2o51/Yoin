@@ -13,6 +13,7 @@ import 'dart:math' as math;
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import 'home_metrics.dart';
+import 'home_section.dart';
 
 // ---------------------------------------------------------------------------
 // Frame.
@@ -309,7 +310,9 @@ final class ActivitySlot {
   String toString() => 'ActivitySlot(r$row u$startUnit ×$span $kind #$entryIndex)';
 }
 
-/// Supporting entries a composition seats: every slot but the hero's, or every slot without a hero.
+/// Supporting entries the default (L) composition seats: every slot but the
+/// hero's, or every slot without a hero. Another preset's count:
+/// activityPresetSupportingCount (home_row_presets.dart).
 int seatedSupportingCount(ActivityBentoSpec spec, {required bool hasHero}) => hasHero ? spec.supportingSlots : spec.totalSlots;
 
 /// activityUnitSlots: walks row 1, row 2, then the strips, handing out
@@ -318,9 +321,21 @@ int seatedSupportingCount(ActivityBentoSpec spec, {required bool hasHero}) => ha
 /// degrades from the bottom (owner W8): strips first, then row 2's tail; the
 /// row the supply ran out in ends on its last card, stretched to the row's end
 /// (a small that reaches 2+ units reads as a wide). Non-units recipes → [].
-List<ActivitySlot> activityUnitSlots(ActivityBentoSpec spec, {required bool hasHero, required int supportingCount}) {
+/// Row presets (D1): S keeps row 1, M rows 1–2, L (default) adds the strips,
+/// XL a third unit row ([activityExtraRow]) before them.
+List<ActivitySlot> activityUnitSlots(
+  ActivityBentoSpec spec, {
+  required bool hasHero,
+  required int supportingCount,
+  HomeRowPreset preset = HomeRowPreset.defaultPreset,
+}) {
   if (spec.recipe != BentoRecipe.units) return const [];
-  final unitRows = [spec.row1, spec.row2];
+  final unitRows = switch (preset) {
+    HomeRowPreset.s => [spec.row1],
+    HomeRowPreset.m || HomeRowPreset.l => [spec.row1, spec.row2],
+    HomeRowPreset.xl => [spec.row1, spec.row2, activityExtraRow(spec.units, spec.row2)],
+  };
+  final strips = preset.index >= HomeRowPreset.l.index ? spec.strips : 0;
   final slots = <ActivitySlot>[];
   var next = 0;
   for (var rowIndex = 0; rowIndex < unitRows.length; rowIndex++) {
@@ -331,17 +346,64 @@ List<ActivitySlot> activityUnitSlots(ActivityBentoSpec spec, {required bool hasH
       if (rowIndex == 0 && i == 0 && hasHero) {
         slots.add(ActivitySlot(0, 0, span, SlotKind.hero, -1));
       } else {
-        if (next >= supportingCount) return _withLastRowFilled(slots, spec.units, spec.strips);
+        if (next >= supportingCount) return _withLastRowFilled(slots, spec.units, strips);
         slots.add(ActivitySlot(rowIndex, start, span, span >= 2 ? SlotKind.wide : SlotKind.small, next++));
       }
       start += span;
     }
   }
-  for (var strip = 0; strip < spec.strips; strip++) {
-    if (next >= supportingCount) return _withLastRowFilled(slots, spec.units, spec.strips);
+  for (var strip = 0; strip < strips; strip++) {
+    if (next >= supportingCount) return _withLastRowFilled(slots, spec.units, strips);
     slots.add(ActivitySlot(unitRows.length, strip, 1, SlotKind.strip, next++));
   }
   return slots;
+}
+
+/// The XL bento's extra unit row (between row 2 and the strips) for [units]
+/// columns under [row2]: of every way to split [units] into smalls (1) and
+/// wides (2), the one whose interior seams meet row 2's the fewest times, then
+/// the one with the fewest cards (wides first), then the one leading with the
+/// widest card — row 2's mirror: N = 3 `[2, 1]` under `[1, 2]`, N = 4
+/// `[2, 2]` under `[1, 2, 1]`, N = 5 `[2, 2, 1]`. Deterministic.
+List<int> activityExtraRow(int units, List<int> row2) {
+  if (units <= 1) return const [1];
+  final below = _interiorSeams(row2);
+  final options = _compositionsOf(units)
+    ..sort((a, b) {
+      final seams = _interiorSeams(a).where(below.contains).length.compareTo(_interiorSeams(b).where(below.contains).length);
+      if (seams != 0) return seams;
+      final size = a.length.compareTo(b.length);
+      if (size != 0) return size;
+      return _compareLexicographicDescending(a, b);
+    });
+  return options.first;
+}
+
+Set<int> _interiorSeams(List<int> spans) {
+  final out = <int>{};
+  var at = 0;
+  for (var i = 0; i < spans.length - 1; i++) {
+    at += spans[i];
+    out.add(at);
+  }
+  return out;
+}
+
+/// Every ordered split of [n] into 1s and 2s, wides first (Kotlin's order, for a stable sort).
+List<List<int>> _compositionsOf(int n) {
+  if (n == 0) return [<int>[]];
+  if (n < 0) return [];
+  return [
+    for (final rest in _compositionsOf(n - 2)) [2, ...rest],
+    for (final rest in _compositionsOf(n - 1)) [1, ...rest],
+  ];
+}
+
+int _compareLexicographicDescending(List<int> a, List<int> b) {
+  for (var i = 0; i < a.length && i < b.length; i++) {
+    if (a[i] != b[i]) return b[i] - a[i];
+  }
+  return a.length - b.length;
 }
 
 List<ActivitySlot> _withLastRowFilled(List<ActivitySlot> slots, int units, int strips) {

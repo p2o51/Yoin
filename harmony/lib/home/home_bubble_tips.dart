@@ -11,6 +11,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 /// The bubble shows the [title]; readers hear the [text].
 enum HomeBubbleTip {
   libraryRefresh(YoinSymbols.refresh),
+  editHome(YoinSymbols.dragHandle),
   pullForMemories(YoinSymbols.memory),
   playModes(YoinSymbols.shuffle),
   noteMoments(YoinSymbols.editNote),
@@ -22,6 +23,7 @@ enum HomeBubbleTip {
 
   String title({required bool zh}) => switch (this) {
     libraryRefresh => zh ? '刷新资料库' : 'Refresh Library', // home_tip_library_refresh_title
+    editHome => zh ? '重新排版首页' : 'Rearrange Home', // home_tip_edit_home_title
     pullForMemories => 'Memories', // home_tip_pull_memories_title
     playModes => zh ? '随机与循环' : 'Shuffle and repeat', // home_tip_play_modes_title
     noteMoments => zh ? '笔记记住那一秒' : 'Notes pin the second', // home_tip_note_moments_title
@@ -31,6 +33,8 @@ enum HomeBubbleTip {
   String text({required bool zh}) => switch (this) {
     // home_tip_library_refresh
     libraryRefresh => zh ? '在资料库顶部往下拉，刷新正在看的内容' : 'Pull down at the top of Library to refresh the current view',
+    // home_tip_edit_home
+    editHome => zh ? '长按首页，重新排版' : 'Long-press Home to rearrange sections',
     // home_tip_pull_memories
     pullForMemories => zh ? '首页往下拉，打开 Memories' : 'Pull down on Home to open Memories',
     // home_tip_play_modes
