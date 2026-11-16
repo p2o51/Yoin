@@ -191,9 +191,9 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
   Future<bool> switchTo(String profileId) async {
     final current = state;
     if (current is SettingsContent && current.activeId == profileId) return true;
-    // Held across the awaits: the switch finishes even if this view model goes away meanwhile.
+    // Held across the awaits. The switch is this page's: Settings closing calls it off before it commits.
     final container = ref.container;
-    await container.read(accountSwitcherProvider.notifier).switchTo(profileId);
+    await container.read(accountSwitcherProvider.notifier).switchTo(profileId, fromPage: true);
     try {
       return (await container.read(profileRepositoryProvider).activeProfile())?.id == profileId;
     } catch (_) {

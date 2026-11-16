@@ -469,8 +469,6 @@ class PlaybackController extends Notifier<NowPlayingState> {
     await _engine.stop();
   }
 
-  /// Account switch / sign-out: aborts in-flight starts, stops the engine,
-  /// ends the scrobble session.
   /// Lets the outgoing account's playback go before an account switch
   /// (Android PlaybackManager.disconnectForProfileChange): the speaker Yoin
   /// plays on must confirm Stop first. Refused, this throws
@@ -483,6 +481,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
     await disconnect();
   }
 
+  /// Account switch / sign-out: aborts in-flight starts, stops the engine,
+  /// ends the scrobble session.
   Future<void> disconnect() async {
     _generation++;
     _resetQueue();

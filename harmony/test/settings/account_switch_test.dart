@@ -15,6 +15,7 @@ import 'package:yoin/playback/output/output_providers.dart';
 import 'package:yoin/playback/output/playback_router.dart';
 import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/settings/account_switch.dart';
+import 'package:yoin/settings/account_switch_overlay.dart';
 import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/settings_strings.dart';
 import 'package:yoin/settings/settings_view_model.dart';
@@ -253,12 +254,45 @@ void main() {
       final (home, _) = await twoAccounts();
       final gate = Completer<void>();
       prepare = () => gate.future;
-      final run = switcher().switchTo(home.id);
+      final run = switcher().switchTo(home.id, fromPage: true);
       await settle();
       switcher().releaseFromPage();
       gate.completeError(const SpeakerStopRefused());
       await run;
       expect(c.read(accountSwitcherProvider), isA<AccountSwitchIdle>());
+    });
+
+    test('should_stayOnTheOldAccount_when_itsPageGoesBeforeTheServerAnswers', () async {
+      final (home, work) = await twoAccounts();
+      final answer = Completer<bool>();
+      ping = () => answer.future;
+      pingTimeout = const Duration(minutes: 1);
+      c.dispose();
+      c = ProviderContainer(overrides: overrides());
+      final run = c.read(accountSwitcherProvider.notifier).switchTo(home.id, fromPage: true);
+      await settle();
+      expect(c.read(accountSwitcherProvider), AccountSwitching(home.id, AccountSwitchStage.connecting));
+
+      // Settings closes (Android cancels the switch with its page), then the server answers.
+      c.read(accountSwitcherProvider.notifier).releaseFromPage();
+      answer.complete(true);
+      await run;
+
+      expect(c.read(accountSwitcherProvider), isA<AccountSwitchIdle>());
+      expect((await repo.activeProfile())!.id, work.id);
+      expect(built.single.disposed, isTrue);
+    });
+
+    test('should_runOn_when_thePageGoesMidASwitchBegunElsewhere', () async {
+      final (home, _) = await twoAccounts();
+      final gate = Completer<void>();
+      prepare = () => gate.future;
+      final run = switcher().switchAndSettle(home.id);
+      await settle();
+      switcher().releaseFromPage();
+      gate.complete();
+      expect(await run, AccountSwitchOutcome.landed);
+      expect((await repo.activeProfile())!.id, home.id);
     });
 
     test('should_sayTheSpeakerLine_when_theSpeakerRefusedStop', () {
@@ -410,13 +444,23 @@ void main() {
       pingTimeout = const Duration(minutes: 1);
       await pump(tester);
       expect(find.text('Switching account'), findsNothing);
+      bool reachesCard() {
+        final card = tester.renderObject(find.text('bob'));
+        return tester.hitTestOnBinding(tester.getCenter(find.text('bob'))).path.any((e) => identical(e.target, card));
+      }
+
+      expect(reachesCard(), isTrue);
 
       await tester.tap(find.text('ann'));
       await frames(tester);
       expect(find.text('Switching account'), findsOneWidget);
       expect(find.text('Closing the current session…'), findsOneWidget);
-      // It blocks the page: a tap on another card goes nowhere.
-      expect(find.byType(ModalBarrier), findsWidgets);
+      // It blocks the page: a tap on another card lands on the overlay's barrier, not the card.
+      expect(
+        find.descendant(of: find.byType(AccountSwitchOverlay), matching: find.byType(ModalBarrier)),
+        findsOneWidget,
+      );
+      expect(reachesCard(), isFalse);
 
       stop.complete();
       await tester.runAsync(settle);

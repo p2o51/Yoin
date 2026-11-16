@@ -123,36 +123,53 @@ class AccountSwitcher extends Notifier<AccountSwitchState> {
   /// The switch under way: its target and its end.
   (String, Future<void>)? _running;
 
-  /// The page that started the running switch went away: a failure it leaves
-  /// is nobody's to tell (Android cancels with its page; this one finishes).
-  bool _dropFailure = false;
+  /// The running switch was begun by Settings, so it lives with that page
+  /// (Android runs it in SettingsViewModel's scope).
+  bool _pageOwned = false;
+
+  /// Its page went away before it committed: it ends with nothing changed
+  /// and no error left behind (Android cancels it with the page).
+  bool _cancelled = false;
 
   @override
   AccountSwitchState build() => const AccountSwitchIdle();
 
   /// Switch to [profileId]. Nothing starts while a switch is under way, for
   /// an account that is gone, or for the account in use. Never throws: a
-  /// failure is [AccountSwitchFailed] until [acknowledgeError].
-  Future<void> switchTo(String profileId) {
+  /// failure is [AccountSwitchFailed] until [acknowledgeError]. [fromPage]:
+  /// begun by Settings, so it is called off when that page goes
+  /// ([releaseFromPage]) before it commits.
+  Future<void> switchTo(String profileId, {bool fromPage = false}) {
     if (_running != null || state is AccountSwitching) return Future.value();
+    _pageOwned = fromPage;
+    _cancelled = false;
     final run = _switch(profileId);
     _running = (profileId, run);
     return run.whenComplete(() {
-      if (identical(_running?.$2, run)) _running = null;
+      if (identical(_running?.$2, run)) {
+        _running = null;
+        _pageOwned = false;
+        _cancelled = false;
+      }
     });
+  }
+
+  /// Throws [_SwitchCalledOff] once the page that owns the switch went away.
+  void _checkpoint() {
+    if (_cancelled) throw const _SwitchCalledOff();
   }
 
   Future<void> _switch(String profileId) async {
     final repo = ref.read(profileRepositoryProvider);
     final target = (await repo.profiles()).where((p) => p.id == profileId).firstOrNull;
-    if (target == null || !ref.mounted) return;
-    if ((await repo.activeProfile())?.id == profileId || !ref.mounted) return;
-    _dropFailure = false;
+    if (target == null || !ref.mounted || _cancelled) return;
+    if ((await repo.activeProfile())?.id == profileId || !ref.mounted || _cancelled) return;
     state = AccountSwitching(profileId, AccountSwitchStage.preparing);
     MusicSource? candidate;
     try {
       await ref.read(accountSwitchPrepareProvider)();
       if (!ref.mounted) return;
+      _checkpoint();
       state = AccountSwitching(profileId, AccountSwitchStage.connecting);
       ProfileCredentials? credentials;
       try {
@@ -160,24 +177,28 @@ class AccountSwitcher extends Notifier<AccountSwitchState> {
       } catch (_) {
         credentials = null;
       }
+      _checkpoint();
       if (credentials == null) throw InvalidCredentialsFailure(target.displayName);
       final source = candidate = ref.read(musicSourceFactoryProvider)(credentials);
       final timeout = ref.read(accountSwitchPingTimeoutProvider);
       await source.library.ping().timeout(timeout, onTimeout: () => throw NoAnswerFailure(timeout));
       if (!ref.mounted) return;
+      // The last point a closed page calls it off: past here the switch commits.
+      _checkpoint();
       await repo.setActive(profileId);
-      if (!ref.mounted) return;
       // The source that answered is the one the app uses.
       ref.read(preparedSourceProvider).hand(profileId, source);
       candidate = null;
+      if (!ref.mounted) return;
       ref.invalidate(activeSourceProvider);
       state = const AccountSwitchIdle();
     } catch (e) {
       candidate?.dispose();
       if (!ref.mounted) return;
-      state = _dropFailure ? const AccountSwitchIdle() : AccountSwitchFailed(profileId, _failureOf(e));
-    } finally {
-      _dropFailure = false;
+      // Its page went meanwhile: nothing failed that anyone is shown.
+      state = e is _SwitchCalledOff || _cancelled
+          ? const AccountSwitchIdle()
+          : AccountSwitchFailed(profileId, _failureOf(e));
     }
   }
 
@@ -194,14 +215,18 @@ class AccountSwitcher extends Notifier<AccountSwitchState> {
     if (state is AccountSwitchFailed) state = const AccountSwitchIdle();
   }
 
-  /// The page that shows the switch went away: an error it shows goes, and a
-  /// switch under way ends without one (it isn't told anywhere).
+  /// The page that shows the switch went away: an error it shows goes, and
+  /// a switch it began is called off unless it already committed (Android
+  /// cancels it with SettingsViewModel's scope); one begun elsewhere runs on.
   void releaseFromPage() {
     if (!ref.mounted) return;
-    if (state is AccountSwitchFailed) {
-      state = const AccountSwitchIdle();
-    } else if (state is AccountSwitching) {
-      _dropFailure = true;
+    switch (state) {
+      case AccountSwitchFailed():
+        state = const AccountSwitchIdle();
+      case AccountSwitching() when _pageOwned:
+        _cancelled = true;
+      case _:
+        break;
     }
   }
 
@@ -225,6 +250,11 @@ class AccountSwitcher extends Notifier<AccountSwitchState> {
     final active = await ref.read(profileRepositoryProvider).activeProfile();
     return active?.id == profileId ? AccountSwitchOutcome.landed : AccountSwitchOutcome.turnedAway;
   }
+}
+
+/// A switch its page called off ([AccountSwitcher.releaseFromPage]).
+final class _SwitchCalledOff implements Exception {
+  const _SwitchCalledOff();
 }
 
 final accountSwitcherProvider = NotifierProvider<AccountSwitcher, AccountSwitchState>(AccountSwitcher.new);

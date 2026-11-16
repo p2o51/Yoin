@@ -164,7 +164,12 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
         accounts: accounts,
         navigator: navigator,
         barSuppression: ref.read(barSuppressionProvider.notifier),
-        onEditHome: widget.onEditHome,
+        // Not while a switch begun here runs: the layout being edited is the outgoing account's.
+        onEditHome: widget.onEditHome == null
+            ? null
+            : () {
+                if (ref.read(homeSwitchTargetProvider) == null) widget.onEditHome!();
+              },
         onPick: (card) => switchHomeAccount(ref, card.id),
         onClosed: () {
           _card?.remove();
@@ -228,10 +233,13 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     // A switch begun here shows its target from the tap on.
     final target = ref.watch(homeSwitchTargetProvider);
     final active = accounts.where((a) => a.id == target).firstOrNull ?? accounts.where((a) => a.isActive).firstOrNull;
-    final others = [
-      for (final a in accounts)
-        if (a.id != active?.id) a,
-    ];
+    // The hold offers nothing while a switch begun here runs (Android quickSwitch).
+    final others = target != null
+        ? const <AccountCard>[]
+        : [
+            for (final a in accounts)
+              if (a.id != active?.id) a,
+          ];
     // Android labels the button with the active card's title (the username,
     // else the profile's name); the header's title is only the fallback.
     final title = active?.title ?? widget.fallbackTitle;
