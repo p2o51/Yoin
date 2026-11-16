@@ -37,6 +37,15 @@ final class StreamQualityPane extends SettingsPane {
   int get hashCode => Object.hash(3, profileId);
 }
 
+/// Settings › Cloud sync (CloudSyncScreen).
+final class CloudSyncPane extends SettingsPane {
+  const CloudSyncPane();
+  @override
+  bool operator ==(Object other) => other is CloudSyncPane;
+  @override
+  int get hashCode => 4;
+}
+
 final class TipsPane extends SettingsPane {
   const TipsPane();
   @override

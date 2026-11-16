@@ -30,6 +30,9 @@ import 'settings_strings.dart';
 import 'settings_view_model.dart';
 import 'stream_quality_screen.dart';
 import 'subsonic_setup_screen.dart';
+import 'sync/cloud_sync_entry.dart';
+import 'sync/cloud_sync_screen.dart';
+import 'sync/cloud_sync_strings.dart';
 import 'tips.dart';
 
 export 'settings_pane.dart';
@@ -135,6 +138,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const LicensesScreen()));
+      case CloudSyncPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const CloudSyncScreen()));
       case StreamQualityPane(:final profileId):
         navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
     }
@@ -178,6 +183,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _AccountsSection(state: state, onOpen: _open),
+                  const SizedBox(height: SettingsMetrics.sectionGap),
+                  // Where your data goes (Android owner 2026-11-09, plan A): Cloud sync first.
+                  _SyncStorageGroup(open: pane, listDetail: wide, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   _HelpAboutGroup(open: pane, listDetail: wide, onOpen: _open),
                 ],
@@ -235,6 +243,7 @@ class _ListDetail extends StatelessWidget {
         SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
+      CloudSyncPane() => const CloudSyncScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
     };
     return Row(
@@ -332,6 +341,23 @@ class _PanePlaceholder extends StatelessWidget {
 /// Help and about: Tips (how many are read), Yoin and its version, and the
 /// open source licenses. On a wide window the rows that open a page show a
 /// chevron and the open one is marked.
+/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage).
+/// HarmonyOS has Cloud sync of that group (no NeoDB, playlist backups or cache row yet).
+class _SyncStorageGroup extends StatelessWidget {
+  const _SyncStorageGroup({required this.open, required this.listDetail, required this.onOpen});
+
+  final SettingsPane? open;
+  final bool listDetail;
+  final OpenSettingsPane onOpen;
+
+  @override
+  Widget build(BuildContext context) => SettingsGroup(
+    title: CloudSyncStrings.of(context).sectionSyncStorage,
+    selected: {if (open is CloudSyncPane) 0},
+    children: [CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane()))],
+  );
+}
+
 class _HelpAboutGroup extends ConsumerWidget {
   const _HelpAboutGroup({required this.open, required this.listDetail, required this.onOpen});
 

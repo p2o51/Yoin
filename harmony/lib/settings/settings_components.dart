@@ -52,9 +52,13 @@ class SettingsGroupLabel extends StatelessWidget {
 /// Pixel's sub-page header: the page title set large (displaySmall) on the
 /// 24dp line the group labels share, with air above and below.
 class SettingsHeadline extends StatelessWidget {
-  const SettingsHeadline({super.key, required this.title});
+  const SettingsHeadline({super.key, required this.title, this.lead});
 
   final String title;
+
+  /// A line under the title, inside the headline's air (Cloud sync's pitch
+  /// while it is off, CloudSyncHeadline).
+  final Widget? lead;
 
   @override
   Widget build(BuildContext context) {
@@ -63,12 +67,18 @@ class SettingsHeadline extends StatelessWidget {
       padding: const EdgeInsets.only(top: SettingsMetrics.headlineTop, bottom: SettingsMetrics.headlineBottom),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.labelInset),
-        child: Semantics(
-          header: true,
-          child: Text(
-            title,
-            style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
+              ),
+            ),
+            ?lead,
+          ],
         ),
       ),
     );

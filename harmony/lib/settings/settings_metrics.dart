@@ -130,6 +130,22 @@ abstract final class SettingsMetrics {
   static const double seamBand = 12; // SeamDissolve Band
   static const double seamRevealDistance = 40; // SeamDissolve RevealDistance
 
+  // Cloud sync (CloudSyncScreen.kt).
+  /// Where a row's text starts: padding 16 + icon box 40 + gap 12 (SettingsRowTextInset).
+  static const double rowTextInset = 68;
+  static const double syncLeadTop = 12; // CloudSyncHeadline lead
+  static const double syncStatusEnd = 8; // StatusRow: Sync now sits closer to the edge
+  static const double syncLoading = 32; // StatusRow's loading indicator
+  static const double syncPanelTop = 14; // ActionPanel
+  static const double syncPanelBottom = 16;
+  static const double syncPanelGap = 12;
+  static const double syncButtonGap = 8; // FlowRow spacing of panel / account buttons
+  static const double syncActionsGap = 12; // OffContent's notice, details and Try again
+  static const double syncExpandBottom = 18; // SettingsExpandableItem body
+  static const double syncExpandGap = 14;
+  static const double syncListLineGap = 4; // WhatSyncsList
+  static const double syncSummaryAlpha = 0.6; // account status line on a service line
+
   // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
   static const double splitListFraction = 0.33;
   static const double splitListMinWidth = 360;
