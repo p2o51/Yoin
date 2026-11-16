@@ -8,6 +8,12 @@
 /// for that request while the fetch carries on. A fetch nobody listens to for
 /// [StreamCacheProxy.idleTimeout] (the song was skipped) stops and keeps nothing.
 ///
+/// A transcode has no byte ranges (Navidrome sends it from the start whatever
+/// the Range asks). A constant-bit-rate one the server can start mid-song
+/// ([StreamCacheSource.timeSeek], Android SubsonicStreamResolver's
+/// `timeOffset`) is asked from the second a far range falls in instead, and
+/// its bytes stand in for the ones from there on.
+///
 /// Only addresses handed out by [StreamCacheProxy.addressFor] are served,
 /// under an unguessable token, so another app on the device can't use the
 /// port to reach the server or read the cache. The native player falls back
@@ -20,12 +26,13 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../model/model.dart' show StreamTimeSeek;
 import 'stream_cache.dart';
 
 /// What one queue entry streams: the server's address and headers, and the song.
 @immutable
 final class StreamCacheSource {
-  const StreamCacheSource({required this.uri, this.headers = const {}, required this.song, this.suffix});
+  const StreamCacheSource({required this.uri, this.headers = const {}, required this.song, this.suffix, this.timeSeek});
 
   final Uri uri;
   final Map<String, String> headers;
@@ -33,6 +40,10 @@ final class StreamCacheSource {
 
   /// The file's kind (`mp3`, `flac`), for the cached file's name.
   final String? suffix;
+
+  /// How a range past the start reaches the server when [uri] is a transcode
+  /// without byte ranges; null when the server takes ranges (the file).
+  final StreamTimeSeek? timeSeek;
 }
 
 class StreamCacheProxy {
@@ -251,7 +262,7 @@ class StreamCacheProxy {
       final end = span?.$2 ?? (total == null ? null : total - 1);
       if (start > fetch.available + lookaheadBytes) {
         // A seek well ahead of the fetch: the server answers it now.
-        await _passThrough(request, source, range);
+        await _passThrough(request, source, range, total: total);
         return;
       }
       final RandomAccessFile reader;
@@ -263,7 +274,7 @@ class StreamCacheProxy {
         if (hit != null) {
           await _serveFile(request, hit.$1, hit.$2.contentType, range);
         } else {
-          await _passThrough(request, source, range);
+          await _passThrough(request, source, range, total: total);
         }
         return;
       }
@@ -409,7 +420,11 @@ class StreamCacheProxy {
   }
 
   /// Answers [request] straight from the server (no caching), headers and all.
-  Future<void> _passThrough(HttpRequest request, StreamCacheSource source, _Range? range) async {
+  /// A range past the start of a transcode that can start mid-song is asked
+  /// by time instead ([_answerFromTime]); [total] is the song's length when
+  /// the running fetch knows it.
+  Future<void> _passThrough(HttpRequest request, StreamCacheSource source, _Range? range, {int? total}) async {
+    if (request.method != 'HEAD' && range != null && await _answerFromTime(request, source, range, total)) return;
     final response = request.response;
     final upstreamRequest = request.method == 'HEAD'
         ? await _client.headUrl(source.uri).timeout(connectTimeout)
@@ -442,6 +457,13 @@ class StreamCacheProxy {
 
   /// The rest of an answer already under way ([from]–[to]), from the server.
   Future<void> _continueFromServer(_Body body, StreamCacheSource source, int from, int to) async {
+    final timed = await _openFromTime(source, from);
+    if (timed != null) {
+      final (upstream, _) = timed;
+      // Stopping early cancels the server's answer.
+      await body.addStream(upstream.timeout(stallTimeout), limit: to - from + 1);
+      return;
+    }
     final request = await _client.getUrl(source.uri).timeout(connectTimeout);
     source.headers.forEach(request.headers.set);
     request.headers.set(HttpHeaders.rangeHeader, 'bytes=$from-$to');
@@ -452,6 +474,85 @@ class StreamCacheProxy {
       return;
     }
     await body.addStream(upstream.timeout(stallTimeout));
+  }
+
+  /// Answers a [range] of a transcode from the second its start falls in
+  /// (Android SubsonicStreamResolver.resolveDataSpec with `timeOffset`): the
+  /// server starts the transcode there, and at a constant bit rate its bytes
+  /// stand in for the ones from the range's start. False, with nothing sent,
+  /// when this one can't: no [StreamCacheSource.timeSeek], a range at the
+  /// start, a server that won't start there, or no length to answer with.
+  Future<bool> _answerFromTime(HttpRequest request, StreamCacheSource source, _Range range, int? total) async {
+    final start = range.start;
+    if (start == null || start <= 0) return false;
+    final timed = await _openFromTime(source, start);
+    if (timed == null) return false;
+    final (upstream, seconds) = timed;
+    // The song's length: the fetch's, else what is left plus where it starts.
+    final length = total ?? (upstream.contentLength >= 0 ? start + upstream.contentLength : null);
+    if (length == null) {
+      _drain(upstream);
+      return false;
+    }
+    final response = request.response;
+    final span = range.resolve(length);
+    if (span == null) {
+      _drain(upstream);
+      await _unsatisfiable(response, length);
+      return true;
+    }
+    final (first, last) = span;
+    debugPrint('YoinStreamCache: seek by time ${seconds}s');
+    final _Body body;
+    try {
+      _head(
+        response,
+        range: true,
+        start: first,
+        end: last,
+        total: length,
+        contentType: upstream.headers.value(HttpHeaders.contentTypeHeader),
+      );
+      body = await _Body.open(response);
+    } catch (_) {
+      // The player went away first: stop the server's transcode too.
+      _drain(upstream);
+      rethrow;
+    }
+    try {
+      // Stopping early (the span is sent, the player hung up) cancels the server's answer.
+      await body.addStream(upstream.timeout(stallTimeout), limit: last - first + 1);
+    } finally {
+      await body.close();
+    }
+    return true;
+  }
+
+  /// The server's transcode of [source] from the second byte [position]
+  /// falls in, and that second; null when it can't start there (no time
+  /// seek, the very start, the server lacks it, refused or unreachable).
+  Future<(HttpClientResponse, int)?> _openFromTime(StreamCacheSource source, int position) async {
+    final seek = source.timeSeek;
+    if (seek == null) return null;
+    final seconds = seek.secondsAt(position);
+    if (seconds <= 0) return null;
+    try {
+      final uri = await seek.uriAt(seconds).timeout(connectTimeout);
+      if (uri == null) return null;
+      final request = await _client.getUrl(uri).timeout(connectTimeout);
+      source.headers.forEach(request.headers.set);
+      final upstream = await request.close().timeout(connectTimeout);
+      final type = upstream.headers.contentType?.mimeType.toLowerCase() ?? '';
+      // Not audio (a Subsonic error is a 200 with XML / JSON): ask as before.
+      if (upstream.statusCode != HttpStatus.ok || type.contains('xml') || type.contains('json')) {
+        _drain(upstream);
+        return null;
+      }
+      return (upstream, seconds);
+    } catch (e) {
+      debugPrint('YoinStreamCache: no seek by time: ${e.runtimeType}');
+      return null;
+    }
   }
 
   static void _drain(HttpClientResponse response) {
@@ -498,10 +599,17 @@ final class _Body {
     return !gone;
   }
 
-  /// Sends [stream] until it ends or the player hangs up (which stops reading it).
-  Future<void> addStream(Stream<List<int>> stream) async {
+  /// Sends [stream] until it ends, [limit] bytes have gone, or the player
+  /// hangs up (each stops reading it).
+  Future<void> addStream(Stream<List<int>> stream, {int? limit}) async {
+    var left = limit;
     await for (final chunk in stream) {
+      if (left != null && chunk.length >= left) {
+        if (left > 0) await add(chunk.sublist(0, left));
+        break;
+      }
       if (!await add(chunk)) break;
+      if (left != null) left -= chunk.length;
     }
   }
 

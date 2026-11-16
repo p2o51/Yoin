@@ -53,7 +53,14 @@ const streamCacheStartTimeout = Duration(seconds: 2);
 /// server address [uri]; null when there is no cache (tests, a build without
 /// a cache folder) or the address can't be cached. The native player opens a
 /// downloaded file before this, and the server's address when this fails.
-Future<String?> streamCacheAddress(Ref ref, Track track, String uri, Map<String, String> headers) async {
+/// [timeSeek] is how a far seek in a transcode reaches the server ([DirectStream.timeSeek]).
+Future<String?> streamCacheAddress(
+  Ref ref,
+  Track track,
+  String uri,
+  Map<String, String> headers, {
+  StreamTimeSeek? timeSeek,
+}) async {
   final parsed = Uri.tryParse(uri);
   if (parsed == null || !(parsed.isScheme('http') || parsed.isScheme('https'))) return null;
   try {
@@ -71,6 +78,7 @@ Future<String?> streamCacheAddress(Ref ref, Track track, String uri, Map<String,
           album: track.album,
         ),
         suffix: _suffixOf(parsed, track),
+        timeSeek: timeSeek,
       ),
     );
   } catch (_) {

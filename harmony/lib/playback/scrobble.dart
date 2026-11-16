@@ -61,22 +61,59 @@ sealed class ScrobbleEvent {
   final String profileId;
   final String provider;
   final String songId;
+
+  bool _same(ScrobbleEvent other) =>
+      other.profileId == profileId && other.provider == provider && other.songId == songId;
 }
 
-/// The song started playing: "now playing" (scrobble submission=false).
+/// The song started playing: "now playing" (scrobble submission=false,
+/// reportPlayback `starting`).
 final class ScrobbleStarted extends ScrobbleEvent {
-  const ScrobbleStarted(super.profileId, super.provider, super.songId);
+  const ScrobbleStarted(super.profileId, super.provider, super.songId, {this.positionMs = 0});
+  final int positionMs;
+
+  @override
+  bool operator ==(Object other) => other is ScrobbleStarted && _same(other) && other.positionMs == positionMs;
+
+  @override
+  int get hashCode => Object.hash(profileId, provider, songId, positionMs);
+}
+
+/// Play / pause / stop of a song already started, or a seek in it
+/// (reportPlayback only; plain scrobble has no such call).
+final class ScrobbleStateChanged extends ScrobbleEvent {
+  const ScrobbleStateChanged(super.profileId, super.provider, super.songId, this.state, this.positionMs);
+  final PlaybackReportState state;
+  final int positionMs;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrobbleStateChanged && _same(other) && other.state == state && other.positionMs == positionMs;
+
+  @override
+  int get hashCode => Object.hash(profileId, provider, songId, state, positionMs);
+
+  @override
+  String toString() => 'ScrobbleStateChanged($songId, ${state.wire}, $positionMs)';
 }
 
 /// Listened long enough: one play, dated when it started (submission=true).
 final class ScrobbleSubmit extends ScrobbleEvent {
   const ScrobbleSubmit(super.profileId, super.provider, super.songId, this.startedAtMs);
   final int startedAtMs;
+
+  @override
+  bool operator ==(Object other) => other is ScrobbleSubmit && _same(other) && other.startedAtMs == startedAtMs;
+
+  @override
+  int get hashCode => Object.hash(profileId, provider, songId, startedAtMs);
 }
 
 /// Follows the player one snapshot at a time and says what to report.
 /// Listened time accrues on [monotonicMs] only while playing, so a seek
-/// forward earns nothing and a pause does not count.
+/// forward earns nothing and a pause does not count. Once a song has
+/// started, a play / pause, a seek and its end (another song, or nothing)
+/// are reported too, for a server's live now-playing view.
 final class ScrobbleTracker {
   ScrobbleTracker({this.rule = const ScrobbleRule(), required this.monotonicMs, required this.wallMs});
 
@@ -93,25 +130,54 @@ final class ScrobbleTracker {
     if (current != null && (snapshot == null || !current.sameKey(snapshot))) {
       current.accrue(now);
       current.checkDue(rule, events);
+      if (current.announced) {
+        final s = current.snapshot;
+        events.add(
+          ScrobbleStateChanged(s.profileId, s.provider, s.songId, PlaybackReportState.stopped, current.lastPositionMs),
+        );
+      }
       _session = null;
     }
     if (snapshot == null) return events;
     final active = _session ??= _Session(snapshot);
+    // Where the song would be had nothing moved it: a seek shows as a jump from there.
+    final expectedPositionMs = active.lastPositionMs + (active.playingSinceMs != null ? now - active.lastUpdateMs : 0);
+    final seeked = active.announced && (snapshot.positionMs - expectedPositionMs).abs() > seekToleranceMs;
     active.accrue(now);
     if (snapshot.durationMs > 0) active.durationMs = snapshot.durationMs;
+    active.lastPositionMs = snapshot.positionMs;
+    active.lastUpdateMs = now;
     if (snapshot.isPlaying) {
       active.playingSinceMs = now;
       if (!active.announced) {
         active.announced = true;
         active.startedAtWallMs = wallMs();
-        events.add(ScrobbleStarted(snapshot.profileId, snapshot.provider, snapshot.songId));
+        events.add(
+          ScrobbleStarted(snapshot.profileId, snapshot.provider, snapshot.songId, positionMs: snapshot.positionMs),
+        );
       }
     } else {
       active.playingSinceMs = null;
     }
+    // A play / pause, or a seek (the server estimates the position between reports).
+    if (active.announced && (active.lastReportedPlaying != snapshot.isPlaying || seeked)) {
+      active.lastReportedPlaying = snapshot.isPlaying;
+      events.add(
+        ScrobbleStateChanged(
+          snapshot.profileId,
+          snapshot.provider,
+          snapshot.songId,
+          snapshot.isPlaying ? PlaybackReportState.playing : PlaybackReportState.paused,
+          snapshot.positionMs,
+        ),
+      );
+    }
     active.checkDue(rule, events);
     return events;
   }
+
+  /// Drift between reports that isn't a seek (position reads, ticks).
+  static const seekToleranceMs = 3000;
 
   /// Listening left before the current song counts; null when it has, can't, or isn't playing.
   int? msUntilSubmit() {
@@ -126,7 +192,7 @@ final class ScrobbleTracker {
 }
 
 final class _Session {
-  _Session(this.snapshot) : durationMs = snapshot.durationMs;
+  _Session(this.snapshot) : durationMs = snapshot.durationMs, lastPositionMs = snapshot.positionMs;
   final ScrobbleSnapshot snapshot;
   int startedAtWallMs = 0;
   bool announced = false;
@@ -134,6 +200,9 @@ final class _Session {
   int listenedMs = 0;
   int? playingSinceMs;
   int durationMs;
+  int lastPositionMs;
+  int lastUpdateMs = 0;
+  bool lastReportedPlaying = false;
 
   bool sameKey(ScrobbleSnapshot s) => s.profileId == snapshot.profileId && s.playKey == snapshot.playKey;
 
@@ -235,6 +304,12 @@ typedef ScrobbleTargetResolver = MusicPlayback? Function(String profileId);
 /// Feeds a [ScrobbleTracker] and sends what it says: now playing (dropped on
 /// failure) and plays (queued on disk, flushed in order; offline-safe).
 /// Plain Dart, owned by PlaybackController; never held by a widget.
+///
+/// A server with OpenSubsonic `playbackReport` ([MusicPlaybackStateReports])
+/// hears live states instead of plain now playing: starting, playing,
+/// paused and stopped, with the position (Android ScrobbleReporter). Plays
+/// are still counted by [ScrobbleRule] and sent through scrobble, so a play
+/// counts once whether it was heard online or off.
 final class ScrobbleReporter {
   ScrobbleReporter({
     required this.tracker,
@@ -252,6 +327,9 @@ final class ScrobbleReporter {
   Timer? _due;
   List<PendingScrobble>? _queue;
   Future<void> _tail = Future.value();
+
+  /// Live reports, kept in order apart from the play queue.
+  Future<void> _live = Future.value();
   bool _disposed = false;
 
   /// Call with every player change (null when nothing countable plays).
@@ -264,6 +342,10 @@ final class ScrobbleReporter {
 
   /// Sends queued plays of [profileId] (after a submit, on source change, on resume).
   Future<void> flush(String profileId) => _serial(() => _flush(profileId));
+
+  /// Completes once the live reports asked for so far went out (tests).
+  @visibleForTesting
+  Future<void> get liveReported => _live;
 
   /// The queue as stored (tests and diagnostics).
   Future<List<PendingScrobble>> pending() => _serial(() async => List.unmodifiable(await _load()));
@@ -284,12 +366,9 @@ final class ScrobbleReporter {
   void _handle(List<ScrobbleEvent> events) {
     for (final event in events) {
       switch (event) {
-        case ScrobbleStarted():
-          final target = targetFor(event.profileId);
-          if (target == null) continue;
-          unawaited(target.reportNowPlaying(MediaId(event.provider, event.songId)).catchError((Object e) {
-            log('now playing dropped: ${e.runtimeType}');
-          }));
+        case ScrobbleStarted() || ScrobbleStateChanged():
+          // Live or nothing: a failure (offline) is dropped, never queued. In order, one at a time.
+          _live = _live.then((_) => _report(event));
         case ScrobbleSubmit():
           final play = PendingScrobble(
             profileId: event.profileId,
@@ -303,6 +382,31 @@ final class ScrobbleReporter {
             await _flush(event.profileId);
           }).ignore();
       }
+    }
+  }
+
+  /// Now playing, or the state [event] says, to the account it belongs to.
+  Future<void> _report(ScrobbleEvent event) async {
+    final target = targetFor(event.profileId);
+    if (target == null) return;
+    final id = MediaId(event.provider, event.songId);
+    try {
+      final states = target is MusicPlaybackStateReports ? target as MusicPlaybackStateReports : null;
+      final live = states != null && await states.supportsPlaybackStateReport() ? states : null;
+      switch (event) {
+        case ScrobbleStarted(:final positionMs):
+          if (live != null) {
+            await live.reportPlaybackState(id, PlaybackReportState.starting, positionMs);
+          } else {
+            await target.reportNowPlaying(id);
+          }
+        case ScrobbleStateChanged(:final state, :final positionMs):
+          await live?.reportPlaybackState(id, state, positionMs);
+        case ScrobbleSubmit():
+          break;
+      }
+    } catch (e) {
+      log('now playing not sent: ${e.runtimeType}');
     }
   }
 

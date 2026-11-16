@@ -519,13 +519,42 @@ sealed class PlaybackHandle {
 
 /// A URL the HarmonyOS AVPlayer can stream directly (Subsonic).
 final class DirectStream extends PlaybackHandle {
-  const DirectStream(this.uri, {this.headers = const {}, this.delivery = StreamDelivery.original});
+  const DirectStream(this.uri, {this.headers = const {}, this.delivery = StreamDelivery.original, this.timeSeek});
   final String uri;
   final Map<String, String> headers;
 
   /// What [uri] sends: the file, or the transcode Streaming quality asked for
   /// (Now Playing's format tags show what arrives).
   final StreamDelivery delivery;
+
+  /// How a far seek in [uri] reaches the server when it is a transcode that
+  /// has no byte ranges; null when bytes are all it takes (the file).
+  final StreamTimeSeek? timeSeek;
+}
+
+/// A constant-bit-rate transcode the server can start mid-song (Android
+/// SubsonicStreamResolver: OpenSubsonic `transcodeOffset`, `timeOffset`). A
+/// transcode has no byte ranges, but at a constant [kbps] a byte position is
+/// a time: a read from byte N asks for the stream starting at the second N
+/// falls in, and its bytes stand in for the ones from N on.
+@immutable
+final class StreamTimeSeek {
+  const StreamTimeSeek({required this.kbps, required this.uriAt});
+
+  /// The bit rate the server encodes at.
+  final int kbps;
+
+  /// The stream starting [seconds] in; null when the server can't start
+  /// there (it lacks `transcodeOffset`, or didn't say).
+  final Future<Uri?> Function(int seconds) uriAt;
+
+  /// The whole second a byte [position] falls in (Android timeOffsetSeconds).
+  int secondsAt(int position) => timeOffsetSeconds(position, kbps);
+
+  static int timeOffsetSeconds(int position, int kbps) {
+    if (position <= 0 || kbps <= 0) return 0;
+    return position ~/ (kbps * 1000 ~/ 8);
+  }
 }
 
 /// What the player asks the server for one song (Android StreamDelivery):
