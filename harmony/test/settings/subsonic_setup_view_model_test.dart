@@ -288,6 +288,11 @@ void main() {
       final hero = need;
       await tester.dragUntilVisible(find.text('What you get'), find.byType(ListView), const Offset(0, -200));
       expect(tester.getTopLeft(find.text('What you get')).dx, greaterThan(hero.dx));
+      // The short side's name a step down (Android compactTitle in landscape).
+      final text = Theme.of(tester.element(find.byType(SetupColumns))).textTheme;
+      final names = tester.widgetList<Text>(find.text('Subsonic'));
+      expect(names.any((t) => t.style?.fontSize == text.headlineLarge!.fontSize), isTrue);
+      expect(names.any((t) => t.style?.fontSize == text.displaySmall!.fontSize), isFalse);
     });
 
     testWidgets('should_splitIntoColumns_when_wideWindow', (tester) async {

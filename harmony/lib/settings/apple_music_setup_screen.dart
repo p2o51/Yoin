@@ -72,11 +72,12 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
     ref.listen(appleMusicSetupViewModelProvider.select((s) => s.connected), (_, connected) {
       if (connected) Navigator.of(context).pop();
     });
-    const hero = _ServiceHero();
+    final columns = setupUsesColumns(YoinWindowInfo.of(context));
+    // Two columns: the name a step down (Android compactTitle), so the hero fits the short side.
+    final hero = _ServiceHero(compactTitle: columns);
     final requirements = _RequirementsGroup(requirements: [strings.introAppleNeedSub, strings.introAppleNeedToken]);
     final connect = _ConnectGroup(endpoint: _endpoint, onConnect: _connect);
     const highlights = ServiceHighlightsGroup(service: SetupService.appleMusic);
-    final columns = setupUsesColumns(YoinWindowInfo.of(context));
     // Landscape / wide: the service stays put on the left, the form and "What
     // you get" scroll on the right. Otherwise the pitch first, then connect.
     final Widget body = columns
@@ -114,8 +115,14 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
           title: strings.introAppleName,
           // Two columns: the hero doesn't scroll with the form.
           controller: columns ? _leadScroll : _scroll,
-          titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
-          titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
+          titleTop:
+              (columns ? SettingsMetrics.setupColumnTop : SettingsMetrics.pageTop) +
+              SettingsMetrics.heroMark +
+              SettingsMetrics.heroGap,
+          titleHeight: SettingsBar.lineHeight(
+            context,
+            columns ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
+          ),
         ),
         body: SafeArea(top: false, bottom: false, child: body),
       ),
@@ -128,7 +135,10 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
 /// The service's mark in its own colour on a nine-sided cookie, blooming in
 /// once; then its name, large, and its tagline (shared with the Subsonic page).
 class _ServiceHero extends StatefulWidget {
-  const _ServiceHero();
+  const _ServiceHero({this.compactTitle = false});
+
+  /// The name in headlineLarge, not displaySmall (two columns).
+  final bool compactTitle;
 
   @override
   State<_ServiceHero> createState() => _ServiceHeroState();
@@ -195,7 +205,8 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
                   header: true,
                   child: Text(
                     strings.introAppleName,
-                    style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
+                    style: (widget.compactTitle ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
+                        .copyWith(color: theme.colorScheme.onSurface),
                   ),
                 ),
               ),

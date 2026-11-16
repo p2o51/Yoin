@@ -131,7 +131,10 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     }
     final managing = widget.profileId != null;
     final account = state.account;
-    final hero = _ServiceHero(account: account);
+    final columns = setupUsesColumns(YoinWindowInfo.of(context));
+    // Two columns: the name a step down (Android compactTitle), so the hero fits the short side.
+    final compactTitle = managing || columns;
+    final hero = _ServiceHero(account: account, compactTitle: compactTitle);
     final requirements = _RequirementsGroup(requirements: [strings.introSubsonicNeed]);
     final connect = _ConnectGroup(
       provider: _provider,
@@ -161,7 +164,6 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
           ),
       ],
     ];
-    final columns = setupUsesColumns(YoinWindowInfo.of(context));
     final Widget body;
     if (columns) {
       // Landscape / wide: the service stays put on the left; the form first,
@@ -210,10 +212,13 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
           // Two columns: the hero doesn't scroll with the form.
           controller: columns ? _leadScroll : _scroll,
           // The hero's title sits under its mark.
-          titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
+          titleTop:
+              (columns ? SettingsMetrics.setupColumnTop : SettingsMetrics.pageTop) +
+              SettingsMetrics.heroMark +
+              SettingsMetrics.heroGap,
           titleHeight: SettingsBar.lineHeight(
             context,
-            managing ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
+            compactTitle ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
           ),
         ),
         body: SafeArea(
@@ -233,9 +238,12 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
 /// tagline. Managing ([account]): the account's own avatar — same shape,
 /// letter and badge as its card — its name a step smaller, and the service line.
 class _ServiceHero extends StatefulWidget {
-  const _ServiceHero({this.account});
+  const _ServiceHero({this.account, this.compactTitle = false});
 
   final AccountCard? account;
+
+  /// The name in headlineLarge, not displaySmall: a managed account's name, or two columns.
+  final bool compactTitle;
 
   @override
   State<_ServiceHero> createState() => _ServiceHeroState();
@@ -310,7 +318,7 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
             header: true,
             child: Text(
               account?.title ?? strings.introSubsonicName,
-              style: (account != null ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
+              style: (widget.compactTitle ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
                   .copyWith(color: theme.colorScheme.onSurface),
             ),
           ),
