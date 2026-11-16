@@ -324,8 +324,10 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           )
         : room - 2 * BarTokens.horizontalMargin;
     final innerWidth = (barWidth - 2 * rowPadding).clamp(0.0, double.infinity);
-    // The centred bar promotes Shuffle out of the ▾ menu into its own button.
-    final promoted = centered && _lastActions?.onShuffle != null ? 1 : 0;
+    // The centred bar's detail pose pulls Shuffle and the page's promotable actions (Go to
+    // artist, Share) out of the ▾ menu into round buttons (YoinButtonGroup promotedExtras).
+    final promotedExtras = centered ? _promotedExtras(_lastActions, npStrings.playMenuShuffle) : const <_BarExtra>[];
+    final promoted = promotedExtras.length;
 
     // The surface wraps the slots (its width is the row's): the full bar
     // width normally, hugging the destinations beside the side panel.
@@ -541,7 +543,12 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                               alignment: AlignmentDirectional.centerStart,
                               minWidth: g.splitDetailWidth,
                               maxWidth: g.splitDetailWidth,
-                              child: _PlaySplit(actions: actions, height: buttonHeight, shuffleInMenu: promoted == 0),
+                              child: _PlaySplit(
+                                actions: actions,
+                                height: buttonHeight,
+                                shuffleInMenu: actions.onShuffle == null || promoted == 0,
+                                promotedOut: promoted > 0,
+                              ),
                             ),
                           ),
                         ),
@@ -550,32 +557,35 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                 ),
               ),
               const SizedBox(width: BarTokens.itemGap),
-              // EXTRAS (centred detail pose): Shuffle as its own round button, each with its trailing gap.
-              if (g.extrasSlotWidth > 0.5 && actions?.onShuffle != null)
+              // EXTRAS (centred detail pose): Shuffle and the page's promotable actions as round
+              // buttons, each with its trailing gap.
+              if (g.extrasSlotWidth > 0.5 && promotedExtras.isNotEmpty)
                 SizedBox(
                   width: g.extrasSlotWidth,
                   height: buttonHeight,
                   child: ClipRect(
                     child: OverflowBox(
                       alignment: AlignmentDirectional.centerStart,
-                      minWidth: buttonHeight + BarTokens.itemGap,
-                      maxWidth: buttonHeight + BarTokens.itemGap,
+                      minWidth: (buttonHeight + BarTokens.itemGap) * promoted,
+                      maxWidth: (buttonHeight + BarTokens.itemGap) * promoted,
                       child: Opacity(
                         opacity: g.splitAlpha,
                         child: IgnorePointer(
                           ignoring: detail < 0.5,
                           child: Row(
                             children: [
-                              _BarExtraButton(
-                                icon: YoinSymbols.shuffle,
-                                label: npStrings.playMenuShuffle,
-                                size: buttonHeight,
-                                onTap: () {
-                                  YoinHaptics.click();
-                                  actions!.onShuffle!();
-                                },
-                              ),
-                              const SizedBox(width: BarTokens.itemGap),
+                              for (final extra in promotedExtras) ...[
+                                _BarExtraButton(
+                                  icon: extra.icon,
+                                  label: extra.label,
+                                  size: buttonHeight,
+                                  onTap: () {
+                                    YoinHaptics.click();
+                                    extra.onTap();
+                                  },
+                                ),
+                                const SizedBox(width: BarTokens.itemGap),
+                              ],
                             ],
                           ),
                         ),
@@ -877,10 +887,22 @@ class _BarIconLabel extends StatelessWidget {
 /// The menu is Shuffle play + the page's own rows
 /// ([DetailPlayActions.menuItems]: Play next, Add to queue, Go to artist…).
 class _PlaySplit extends StatefulWidget {
-  const _PlaySplit({required this.actions, required this.height, this.shuffleInMenu = true});
+  const _PlaySplit({required this.actions, required this.height, this.shuffleInMenu = true, this.promotedOut = false});
 
   final DetailPlayActions actions;
   final double height;
+
+  /// The page's promotable rows are round buttons beside the split (the
+  /// centred detail pose): they leave the menu.
+  final bool promotedOut;
+
+  /// The ▾ menu's page rows.
+  List<DetailMenuAction> get menuRows => promotedOut
+      ? [
+          for (final item in actions.menuItems)
+            if (!item.promotable) item,
+        ]
+      : actions.menuItems;
 
   /// False when the bar shows Shuffle as its own button (centred detail
   /// pose): an action pulled out of the menu never stays in it too. The
@@ -934,7 +956,7 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
       split.bottom,
     );
     setState(() => _menuOpen = true);
-    final pageItems = widget.actions.menuItems;
+    final pageItems = widget.menuRows;
     // Shuffle is row −1; the page's rows follow by index.
     final chosen = await showYoinDropdownMenu<int>(
       context: navigatorContext,
@@ -1002,7 +1024,7 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
               ),
             ],
           ),
-          onTrailingTap: onShuffle == null && widget.actions.menuItems.isEmpty
+          onTrailingTap: onShuffle == null && widget.menuRows.isEmpty
               ? null
               // TrailingButton(onCheckedChange): no haptic of its own on Android.
               : () => _openMenu(onShuffle),
@@ -1057,3 +1079,24 @@ const double _splitTrailingPadding = 14;
 
 /// ButtonDefaults.IconSpacing.
 const double _buttonIconSpacing = 8;
+
+/// A round button beside the Play split in the centred detail pose.
+@immutable
+final class _BarExtra {
+  const _BarExtra({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+}
+
+/// Shuffle, then the page's promotable rows (YoinButtonGroup promotedExtras).
+List<_BarExtra> _promotedExtras(DetailPlayActions? actions, String shuffleLabel) {
+  if (actions == null) return const [];
+  return [
+    if (actions.onShuffle case final shuffle?)
+      _BarExtra(icon: YoinSymbols.shuffle, label: shuffleLabel, onTap: shuffle),
+    for (final item in actions.menuItems)
+      if (item.promotable) _BarExtra(icon: item.icon, label: item.label, onTap: item.onTap),
+  ];
+}

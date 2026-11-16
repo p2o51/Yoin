@@ -12,14 +12,17 @@ import '../shell/detail_chrome.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/edge_split.dart';
+import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/user_message.dart';
+import 'album_hero_marks.dart' show SpringSizeReveal;
 import 'artist_detail_view_model.dart';
 import 'artist_most_played.dart';
+import 'detail_layout.dart';
 import 'detail_listening.dart';
 import 'detail_page.dart';
 import 'dot_dissolve.dart';
@@ -119,6 +122,12 @@ class _ArtistHeader extends ConsumerWidget {
     final strings = DetailStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final span = content?.activeSpan;
+    // From Medium up the hero carries the name and the star: the header keeps only back,
+    // so the name appears once (ArtistTopHeader showIdentity).
+    final heroCarriesIdentity = switch (resolveDetailLayout(YoinWindowInfo.of(context))) {
+      DetailLayout.medium || DetailLayout.wide => true,
+      _ => false,
+    };
     return Padding(
       padding: const EdgeInsetsDirectional.only(
         start: DetailHeaderMetrics.paddingStart,
@@ -137,8 +146,8 @@ class _ArtistHeader extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DetailTitle(content?.artist.name ?? ''),
-                  if (span != null)
+                  if (!heroCarriesIdentity) DetailTitle(content?.artist.name ?? ''),
+                  if (span != null && !heroCarriesIdentity)
                     Text(
                       span,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -149,7 +158,7 @@ class _ArtistHeader extends ConsumerWidget {
                 ],
               ),
             ),
-            if (content != null) _ArtistStar(artist: content.artist, strings: strings),
+            if (content != null && !heroCarriesIdentity) _ArtistStar(artist: content.artist, strings: strings),
           ],
         ),
       ),
@@ -157,27 +166,61 @@ class _ArtistHeader extends ConsumerWidget {
   }
 }
 
+/// (idle, active) labels for the star (artistFollowLabels): Spotify has a
+/// real Follow; the others only star, so it reads Favorite.
+(String, String) artistFollowLabels(MediaId artistId, DetailStrings strings) =>
+    artistId.provider == MediaId.providerSpotify
+    ? (strings.artistFollow, strings.artistFollowing)
+    : (strings.artistFavorite, strings.artistFavorited);
+
 class _ArtistStar extends ConsumerWidget {
-  const _ArtistStar({required this.artist, required this.strings});
+  const _ArtistStar({required this.artist, required this.strings, this.showLabel = false});
 
   final ArtistDetail artist;
   final DetailStrings strings;
 
+  /// The wide hero names the action beside the star (Follow / Favorite).
+  final bool showLabel;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final on = ref.watch(favoriteOverridesProvider.select((m) => m[artist.id] ?? artist.isStarred));
-    final colors = Theme.of(context).colorScheme;
-    return DetailColorsBuilder(
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final labels = artistFollowLabels(artist.id, strings);
+    final star = DetailColorsBuilder(
       builder: (context, page) => PopToggle(
         on: on,
         size: 48,
-        tooltip: on ? strings.artistFavorited : strings.artistFavorite,
+        tooltip: on ? labels.$2 : labels.$1,
         onToggle: () => ref.read(favoriteOverridesProvider.notifier).setFavorite(artist.id, target: !on, previous: on),
         builder: (t) => Icon(
           t > 0.5 ? YoinSymbols.starFilled : YoinSymbols.star,
           color: Color.lerp(colors.onSurfaceVariant, page.accent, t),
         ),
       ),
+    );
+    if (!showLabel) return star;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SpringCrossFade(
+          childKey: on,
+          fit: StackFit.loose,
+          child: Text(
+            on ? labels.$2 : labels.$1,
+            key: ValueKey(on),
+            style: theme.textTheme.labelLarge?.copyWith(
+              decoration: TextDecoration.underline,
+              decorationColor: colors.onSurface,
+              fontWeight: FontWeight.w500,
+              color: colors.onSurface,
+            ),
+          ),
+        ),
+        const SizedBox(width: DetailLayoutTokens.artistFollowLabelGap),
+        star,
+      ],
     );
   }
 }
@@ -195,12 +238,96 @@ class _ArtistBody extends ConsumerWidget {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final colors = Theme.of(context).colorScheme;
     final listening = ref.watch(artistListeningProvider(artistId));
+    // Height first: a landscape handset turns the hero sideways; from Medium up the
+    // hero carries the identity; a Wide window sets Most Played beside the discography.
+    final layout = resolveDetailLayout(YoinWindowInfo.of(context));
+    final landscape = layout == DetailLayout.landscape;
+    final desktop = layout == DetailLayout.wide;
+    final mostPlayedVisible = listening.mostPlayed.isNotEmpty;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final portrait = math.min(
-          constraints.maxWidth * DetailTokens.artistPortraitWidthFraction,
-          DetailTokens.artistPortraitMax,
-        );
+        final Widget hero = switch (layout) {
+          DetailLayout.landscape => _ArtistLandscapeHero(
+            content: content,
+            heroUrl: heroUrl,
+            scroll: scroll,
+            listening: listening,
+          ),
+          DetailLayout.medium ||
+          DetailLayout.wide => _ArtistWideHero(content: content, heroUrl: heroUrl, scroll: scroll, desktop: desktop),
+          DetailLayout.compact || DetailLayout.short => () {
+            final portrait = math.min(
+              constraints.maxWidth * DetailTokens.artistPortraitWidthFraction,
+              DetailTokens.artistPortraitMax,
+            );
+            return SizedBox(
+              height: portrait + DetailTokens.artistBandExtra,
+              child: Center(
+                child: _RingPortrait(portrait: portrait, url: heroUrl, scroll: scroll),
+              ),
+            );
+          }(),
+        };
+        final Widget sections;
+        if (desktop) {
+          // Wide full window (ArtistDesktop): Most Played (480) beside the discography. It arrives
+          // with the personal layer and widens in from the start, carrying its 48 gap, so the
+          // discography narrows with it instead of jumping.
+          sections = Padding(
+            padding: const EdgeInsets.symmetric(horizontal: DetailLayoutTokens.artistDesktopInset),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SpringSizeReveal(
+                  axis: Axis.horizontal,
+                  visible: mostPlayedVisible,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(end: DetailLayoutTokens.artistDesktopMostPlayedGap),
+                    child: SizedBox(
+                      width: DetailLayoutTokens.artistDesktopMostPlayed,
+                      child: ArtistMostPlayed(artist: content.artist, listening: listening),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: _Discography(content: content, artistId: artistId),
+                ),
+              ],
+            ),
+          );
+        } else {
+          final column = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // The personal layer: arrives after the page paints, grows in instead of popping.
+              // Landscape shows it beside the portrait already.
+              if (!landscape)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _VerticalSpringReveal(
+                    visible: mostPlayedVisible,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: ArtistMostPlayedTokens.bottomGap),
+                      child: ArtistMostPlayed(artist: content.artist, listening: listening),
+                    ),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _Discography(content: content, artistId: artistId),
+              ),
+            ],
+          );
+          // Medium: the sections keep to the 720 page column, centred.
+          sections = layout == DetailLayout.medium
+              ? Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: DetailLayoutTokens.pageMaxWidth),
+                    child: column,
+                  ),
+                )
+              : column;
+        }
         // Scrolls under the fixed header through the chrome seam (the user's Scroll edge style).
         return DetailColorsBuilder(
           builder: (context, page) => ChromeSeam(
@@ -209,37 +336,206 @@ class _ArtistBody extends ConsumerWidget {
             field: true,
             child: SingleChildScrollView(
               controller: scroll,
-              padding: EdgeInsets.only(bottom: DetailTokens.artistBottomPadding + bottomInset),
+              // Landscape keeps the group in the cutout band: only the nav bar needs clearing.
+              padding: EdgeInsets.only(
+                bottom:
+                    (landscape ? DetailLayoutTokens.artistLandscapeBottom : DetailTokens.artistBottomPadding) +
+                    bottomInset,
+              ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(
-                    height: portrait + DetailTokens.artistBandExtra,
-                    child: Center(
-                      child: _RingPortrait(portrait: portrait, url: heroUrl, scroll: scroll),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  // The personal layer: arrives after the page paints, grows in instead of popping.
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _VerticalSpringReveal(
-                      visible: listening.mostPlayed.isNotEmpty,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: ArtistMostPlayedTokens.bottomGap),
-                        child: ArtistMostPlayed(artist: content.artist, listening: listening),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _Discography(content: content, artistId: artistId),
-                  ),
+                  hero,
+                  SizedBox(height: landscape ? DetailLayoutTokens.artistLandscapeSectionGap : 32),
+                  sections,
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Landscape handset (ArtistLandscapeHero): the 220 portrait in its ring on
+/// the left — kept whole, clear of the capsule band and the scroll edge —
+/// with Most Played on the right. The name stays in the header row.
+class _ArtistLandscapeHero extends StatelessWidget {
+  const _ArtistLandscapeHero({
+    required this.content,
+    required this.heroUrl,
+    required this.scroll,
+    required this.listening,
+  });
+
+  final ArtistDetailContent content;
+  final String? heroUrl;
+  final ScrollController scroll;
+  final ArtistListening listening;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.only(
+      start: DetailLayoutTokens.artistLandscapeStart,
+      end: DetailLayoutTokens.artistLandscapeEnd,
+      top: DetailLayoutTokens.artistLandscapeTop,
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SideRingPortrait(
+          portrait: DetailLayoutTokens.artistLandscapePortrait,
+          reach: DetailLayoutTokens.artistLandscapeRingReach,
+          url: heroUrl,
+          scroll: scroll,
+        ),
+        const SizedBox(width: DetailLayoutTokens.artistLandscapeGap),
+        Expanded(
+          child: _VerticalSpringReveal(
+            visible: listening.mostPlayed.isNotEmpty,
+            child: ArtistMostPlayed(artist: content.artist, listening: listening),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The Medium / Wide hero (ArtistWideHero): the ringed portrait on the left
+/// (180 Medium, 220 Wide), the identity column on the right — the only place
+/// the name appears here — with "N releases" and the span, and the star with
+/// its label. Medium keeps to the 720 page column.
+class _ArtistWideHero extends StatelessWidget {
+  const _ArtistWideHero({required this.content, required this.heroUrl, required this.scroll, required this.desktop});
+
+  final ArtistDetailContent content;
+  final String? heroUrl;
+  final ScrollController scroll;
+  final bool desktop;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = DetailStrings.of(context);
+    final theme = Theme.of(context);
+    final nameStyle = desktop ? theme.textTheme.displayMedium : theme.textTheme.headlineLarge;
+    final count = content.releases.length;
+    final span = content.activeSpan;
+    final row = Padding(
+      // The ring stays inside the page (a column's edge would clip it otherwise).
+      padding: EdgeInsets.symmetric(
+        horizontal: desktop ? DetailLayoutTokens.artistWideHeroInset : DetailLayoutTokens.artistMediumHeroInset,
+        vertical: DetailLayoutTokens.artistWideHeroGap,
+      ),
+      child: Row(
+        children: [
+          _SideRingPortrait(
+            portrait: desktop ? DetailLayoutTokens.artistWidePortrait : DetailLayoutTokens.artistMediumPortrait,
+            reach: desktop ? DetailLayoutTokens.artistWideRingReach : DetailLayoutTokens.artistMediumRingReach,
+            url: heroUrl,
+            scroll: scroll,
+          ),
+          const SizedBox(width: DetailLayoutTokens.artistWideHeroGap),
+          Expanded(
+            child: SeamFade(
+              fontSize: nameStyle?.fontSize ?? 36,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: DetailLayoutTokens.artistIdentityGap,
+                children: [
+                  DetailColorsBuilder(
+                    builder: (context, page) => Text(
+                      content.artist.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: nameStyle?.copyWith(color: page.accent),
+                    ),
+                  ),
+                  MetaLine(
+                    style: theme.textTheme.titleSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+                    groups: [MetaStat('$count', strings.unitRelease(count)), if (span != null) MetaPlain(span)],
+                  ),
+                  _ArtistStar(artist: content.artist, strings: strings, showLabel: true),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (desktop) return row;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: DetailLayoutTokens.pageMaxWidth),
+        child: row,
+      ),
+    );
+  }
+}
+
+/// A ringed portrait beside the page's text (landscape, Medium, Wide): the
+/// box is the portrait's, the ring (outer radius [reach] × the portrait) is
+/// drawn centred on it past its bounds, turning and dissolving with the
+/// page's scroll like the phone hero's.
+class _SideRingPortrait extends StatelessWidget {
+  const _SideRingPortrait({required this.portrait, required this.reach, required this.url, required this.scroll});
+
+  final double portrait;
+  final double reach;
+  final String? url;
+  final ScrollController scroll;
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final ring = ArtistRingGeometry.stage(portrait, reach: reach);
+    final inset = (ring - portrait) / 2;
+    return SizedBox.square(
+      dimension: portrait,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: -inset,
+            top: -inset,
+            width: ring,
+            height: ring,
+            child: IgnorePointer(
+              child: DotDissolve(
+                repaint: scroll,
+                progress: () => reduce ? 0 : ArtistRingGeometry.leaving(scroll),
+                child: DetailColorsBuilder(
+                  builder: (context, page) => CustomPaint(
+                    painter: _RingPainter(
+                      scroll: scroll,
+                      portrait: portrait,
+                      ring: page.accent,
+                      dot: page.ring,
+                      turns: !reduce,
+                      reach: reach,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Material(
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              elevation: 0,
+              surfaceTintColor: Colors.transparent,
+              child: MediaArtwork(
+                url: url,
+                fallbackIcon: YoinSymbols.artist,
+                circle: true,
+                decodeWidth: math.min(720, (portrait * dpr).round()),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -305,7 +601,7 @@ class _RingPortrait extends StatelessWidget {
 
 /// The ring's geometry from the portrait size.
 abstract final class ArtistRingGeometry {
-  /// Outer radius as a share of the portrait.
+  /// Outer radius as a share of the portrait (the phone hero's).
   static const double reach = 0.84;
 
   /// The opening: centred at −45° (upper right), 0.9 rad wide.
@@ -315,10 +611,17 @@ abstract final class ArtistRingGeometry {
   /// Fully gone after this much scroll.
   static const double leaveDistance = 220;
 
-  static double room(double portrait) => portrait * (reach - 0.5);
-  static double stroke(double portrait) => room(portrait) * 0.59;
-  static double radius(double portrait) => portrait / 2 + room(portrait) * 0.41 + stroke(portrait) / 2;
-  static double dotRadius(double portrait) => stroke(portrait) * 0.45;
+  static double room(double portrait, {double reach = ArtistRingGeometry.reach}) => portrait * (reach - 0.5);
+  static double stroke(double portrait, {double reach = ArtistRingGeometry.reach}) =>
+      room(portrait, reach: reach) * 0.59;
+  static double radius(double portrait, {double reach = ArtistRingGeometry.reach}) =>
+      portrait / 2 + room(portrait, reach: reach) * 0.41 + stroke(portrait, reach: reach) / 2;
+  static double dotRadius(double portrait, {double reach = ArtistRingGeometry.reach}) =>
+      stroke(portrait, reach: reach) * 0.45;
+
+  /// The square the ring is drawn in, centred on the portrait (ArtistOpenRing's requiredSize).
+  static double stage(double portrait, {double reach = ArtistRingGeometry.reach}) =>
+      portrait * 2 * reach + portrait * 0.1;
 
   /// How far the ring has left (0 = whole, 1 = dissolved) at the page's scroll.
   static double leaving(ScrollController scroll) =>
@@ -332,6 +635,7 @@ class _RingPainter extends CustomPainter {
     required this.ring,
     required this.dot,
     required this.turns,
+    this.reach = ArtistRingGeometry.reach,
   }) : super(repaint: scroll);
 
   final ScrollController scroll;
@@ -339,14 +643,15 @@ class _RingPainter extends CustomPainter {
   final Color ring;
   final Color dot;
   final bool turns;
+  final double reach;
 
   @override
   void paint(Canvas canvas, Size size) {
     final offset = scroll.hasClients ? scroll.offset.clamp(0.0, double.infinity) : 0.0;
     final turn = turns ? offset * DetailTokens.artistMarkDegreesPerPx * math.pi / 180 : 0.0;
     final c = size.center(Offset.zero);
-    final r = ArtistRingGeometry.radius(portrait);
-    final stroke = ArtistRingGeometry.stroke(portrait);
+    final r = ArtistRingGeometry.radius(portrait, reach: reach);
+    final stroke = ArtistRingGeometry.stroke(portrait, reach: reach);
     final gapCenter = ArtistRingGeometry.openingCenter + turn;
     final start = gapCenter + ArtistRingGeometry.openingWidth / 2;
     final sweep = 2 * math.pi - ArtistRingGeometry.openingWidth;
@@ -363,14 +668,19 @@ class _RingPainter extends CustomPainter {
     );
     canvas.drawCircle(
       c + Offset(math.cos(gapCenter), math.sin(gapCenter)) * r,
-      ArtistRingGeometry.dotRadius(portrait),
+      ArtistRingGeometry.dotRadius(portrait, reach: reach),
       Paint()..color = dot,
     );
   }
 
   @override
   bool shouldRepaint(_RingPainter old) =>
-      old.ring != ring || old.dot != dot || old.portrait != portrait || old.scroll != scroll || old.turns != turns;
+      old.ring != ring ||
+      old.dot != dot ||
+      old.portrait != portrait ||
+      old.scroll != scroll ||
+      old.turns != turns ||
+      old.reach != reach;
 }
 
 class _Discography extends ConsumerWidget {
@@ -684,6 +994,7 @@ class _ArtistChrome extends ConsumerWidget {
                 DetailMenuAction(
                   icon: YoinSymbols.share,
                   label: strings.share,
+                  promotable: true,
                   onTap: () {
                     final name = content.artist.name.trim();
                     container

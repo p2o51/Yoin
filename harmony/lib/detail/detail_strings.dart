@@ -36,6 +36,10 @@ class DetailStrings {
 
   String get artistFavorite => zh ? '收藏' : 'Favorite'; // detail_artist_favorite
   String get artistFavorited => zh ? '已收藏' : 'Favorited'; // detail_artist_favorited
+  String get artistFollow => zh ? '关注' : 'Follow'; // detail_artist_follow
+  String get artistFollowing => zh ? '已关注' : 'Following'; // detail_artist_following
+  String unitRelease(int n) => zh ? '张作品' : (n == 1 ? 'release' : 'releases'); // detail_unit_release
+  String get albumCdShowCover => zh ? '显示封面' : 'Show cover'; // detail_album_cd_show_cover
   String get artistDiscography => zh ? '作品列表' : 'Discography'; // detail_artist_discography
   String artistReleases(int n) => zh ? '$n 张作品' : (n == 1 ? '$n release' : '$n releases'); // detail_artist_releases
   String get artistNoReleases => zh ? '无发行作品' : 'No releases'; // detail_artist_no_releases

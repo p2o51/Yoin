@@ -219,6 +219,11 @@ mixin DetailPaneYieldingRoute<T> on ModalRoute<T> {
 
 /// Opens detail pages where they belong (used by DetailRoutes only).
 abstract final class DetailPane {
+  /// Whether [context] sits in the detail column (Android DetailHostMode.Pane):
+  /// its sides are not the screen's edges, and the status bar belongs to the window.
+  static bool isInColumn(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_DetailPaneScope>()?.inColumn ?? false;
+
   /// True when [builder] went to the column (a Wide, tall window, opened
   /// from the shell, from a page in the column, from a surface that yields
   /// to the column, or from above the shell).

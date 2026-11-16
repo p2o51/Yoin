@@ -88,10 +88,47 @@ abstract final class PullUpMath {
       math.min(width * fraction, max);
 }
 
+/// What moves the cover → bar morph (AlbumSpectrumBar.kt's one progress):
+/// the pull-up on Compact, Short and landscape handsets, the page scroll on
+/// the Medium overview. Read at layout / paint time only.
+abstract interface class BarMorph implements Listenable {
+  /// 0 = the cover at rest, 1 = the formed bar (not clamped).
+  double get barProgress;
+
+  /// How far the page has carried the resting cover up, px (the Medium scroll; 0 for the pull-up).
+  double get coverLift;
+}
+
+/// The Medium overview's [BarMorph]: the list's scroll. The cover rides the
+/// first item up, and the bar has formed once the cover's [coverSide] has
+/// gone by (progress = scrollOffset / coverSide).
+class ScrollBarMorph extends ChangeNotifier implements BarMorph {
+  ScrollBarMorph(this.controller, {required this.coverSide}) {
+    controller.addListener(notifyListeners);
+  }
+
+  final ScrollController controller;
+  double coverSide;
+
+  double get _offset => controller.hasClients && controller.position.hasPixels ? controller.position.pixels : 0;
+
+  @override
+  double get barProgress => coverSide <= 0 ? 0 : (_offset / coverSide).clamp(0.0, 1.0);
+
+  @override
+  double get coverLift => _offset;
+
+  @override
+  void dispose() {
+    controller.removeListener(notifyListeners);
+    super.dispose();
+  }
+}
+
 /// The one reveal state per page. [expanded] is the durable truth; only
 /// [_settle] animates the fraction, gestures drag it live and on release
 /// set [expanded] and launch the settle — never a second animator.
-class RevealController extends ChangeNotifier {
+class RevealController extends ChangeNotifier implements BarMorph {
   RevealController({required TickerProvider vsync})
     : _controller = AnimationController.unbounded(vsync: vsync, value: 1) {
     _controller.addListener(notifyListeners);
@@ -106,6 +143,12 @@ class RevealController extends ChangeNotifier {
   double get fraction => _controller.value;
   double get expand => (1 - fraction).clamp(0.0, 1.0);
   bool get expanded => _expanded;
+
+  @override
+  double get barProgress => expand;
+
+  @override
+  double get coverLift => 0;
 
   static final settleSpring = SpringDescription.withDampingRatio(
     mass: 1,

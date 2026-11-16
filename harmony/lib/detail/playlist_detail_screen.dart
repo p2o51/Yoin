@@ -16,6 +16,7 @@ import '../ui/component/component_strings.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/user_message.dart';
 import '../ui/component/yoin_dialog.dart';
+import '../theme/tokens.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
@@ -159,6 +160,27 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             ),
           ),
       ]),
+      // Landscape turns the hero sideways (cover on its sleeves at the left, Length | Owner and the
+      // titles on the right) over the same pull-up; Medium and Wide set the cover in the page (no stamp).
+      overviews: ReshapeOverviews(
+        meta: (layout, interactive) => _HeroMeta(state: state),
+        titles: (layout, links) => state.entries.isEmpty
+            ? const SizedBox.shrink()
+            : FlowingTitles(
+                enabled: links,
+                style: Theme.of(context).textTheme.headlineSmall,
+                titles: [for (final t in state.tracks) FlowingTitle(t.title ?? '')],
+                onTap: playFrom,
+              ),
+        coverBackdrop: sleeveUrls.isEmpty
+            ? null
+            : (side, room, leaving) =>
+                  PlaylistCoverSleeves(urls: sleeveUrls, side: side, sideRoom: room, leaving: leaving),
+        landscapeCoverStart: DetailLayoutTokens.playlistLandscapeCoverStart,
+        landscapeTop: DetailLayoutTokens.playlistLandscapeTop,
+        landscapeTitlesGap: DetailLayoutTokens.playlistLandscapeTitlesGap,
+        shortFooterFades: false,
+      ),
       heroBelow: (links) => state.entries.isEmpty
           ? Center(child: Text(strings.playlistEmpty, style: emptyStyle))
           : Column(
@@ -290,6 +312,7 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
   final share = DetailMenuAction(
     icon: YoinSymbols.share,
     label: detailStrings.share,
+    promotable: true,
     onTap: () => DetailShare.share(
       container,
       kind: WebLinkKind.playlist,

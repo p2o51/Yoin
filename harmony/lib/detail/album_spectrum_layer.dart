@@ -10,9 +10,10 @@ import 'pull_up_reveal.dart';
 /// The bands land a frame or so apart: one tick per this many ms, never a buzz (SpectrumTickGapMillis).
 const _tickGapMs = 22;
 
-/// The cover → spectrum bar's spectrum (AlbumSpectrumLayer, Compact): rides
-/// the page's one pull-up progress ([reveal].expand, 0 = cover, 1 = bar) and
-/// paints the cover's strips flying from [cover] into [bar]. The theme's
+/// The cover → spectrum bar's spectrum (AlbumSpectrumLayer): rides the
+/// page's one bar progress ([reveal], 0 = cover, 1 = bar: the pull-up, or the
+/// Medium overview's scroll) and paints the cover's strips flying from
+/// [cover] (carried up by the scroll on Medium) into [bar]. The theme's
 /// stand-in spectrum (the cover scheme's primary / secondary / tertiary)
 /// hands over to the cover's own on the effects spring — colours never snap.
 /// A small tick as each band lands on the way up, and as each leaves again.
@@ -27,10 +28,10 @@ class AlbumSpectrumLayer extends StatefulWidget {
     this.reduce = false,
   });
 
-  final RevealController reveal;
+  final BarMorph reveal;
   final String? coverUrl;
 
-  /// The resting cover and the header band, in this layer's space.
+  /// The resting cover (Medium: at scroll 0) and the header band, in this layer's space.
   final Rect cover;
   final Rect bar;
   final bool reduce;
@@ -103,7 +104,7 @@ class _AlbumSpectrumLayerState extends State<AlbumSpectrumLayer> with TickerProv
 
   void _onReveal() {
     if (widget.reduce) return;
-    final now = albumSpectrumLanded(_shown.spectrum, widget.reveal.expand);
+    final now = albumSpectrumLanded(_shown.spectrum, widget.reveal.barProgress);
     if (now != _landed) {
       final at = _clock.elapsedMilliseconds;
       if (at - _lastTickMs >= _tickGapMs) {
@@ -159,7 +160,7 @@ class _SpectrumPainter extends CustomPainter {
     required this.rtl,
   }) : super(repaint: repaint);
 
-  final RevealController reveal;
+  final BarMorph reveal;
   final AlbumSpectrumSource source;
   final AlbumSpectrum? previous;
   final double Function() swap;
@@ -177,9 +178,9 @@ class _SpectrumPainter extends CustomPainter {
     paintAlbumSpectrum(
       canvas,
       source: source,
-      cover: cover,
+      cover: cover.translate(0, -reveal.coverLift),
       bar: bar,
-      progress: reveal.expand.clamp(0.0, 1.0),
+      progress: reveal.barProgress.clamp(0.0, 1.0),
       previous: t >= 1 ? null : previous,
       swap: t,
       reduced: reduce,

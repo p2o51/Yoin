@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../home/widgets/home_motion.dart' show StagedReveal, stagedBeatLanded;
+import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import 'dot_dissolve.dart';
 import 'pull_up_reveal.dart';
@@ -74,12 +75,16 @@ class PlaylistSleeves extends StatefulWidget {
     required this.cover,
     required this.leaving,
     required this.corner,
+    this.sideRoom,
   });
 
   final List<String?> urls;
   final Rect cover;
   final double leaving;
   final double corner;
+
+  /// The room beside the cover the fan may take; null = to this box's sides.
+  final double? sideRoom;
 
   @override
   State<PlaylistSleeves> createState() => _PlaylistSleevesState();
@@ -135,7 +140,7 @@ class _PlaylistSleevesState extends State<PlaylistSleeves> with TickerProviderSt
     final rtl = Directionality.of(context) == TextDirection.rtl;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final sideRoom = (constraints.maxWidth - cover.width) / 2;
+        final sideRoom = widget.sideRoom ?? (constraints.maxWidth - cover.width) / 2;
         final spread = PlaylistSleeveGeometry.spread(sideRoom, cover.width);
         final side = cover.width * PlaylistSleeveGeometry.sideShare;
         final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -191,3 +196,45 @@ const _sleeveCount = 2;
 
 /// The resting hero corner, for the sleeves.
 const playlistSleeveCorner = PullUpTokens.heroCorner;
+
+/// The sleeves behind a cover drawn in the page (PlaylistCoverSleeves: a
+/// landscape hero, the Medium row, the Wide identity column), filled into
+/// the cover's box: whole, on a stage 1.6 × the cover centred on it (so the
+/// dissolve holds the fanned sheets), fanned no wider than [sideRoom] less
+/// the edge clearance allows.
+class PlaylistCoverSleeves extends StatelessWidget {
+  const PlaylistCoverSleeves({
+    super.key,
+    required this.urls,
+    required this.side,
+    required this.sideRoom,
+    this.leaving = 0,
+  });
+
+  final List<String?> urls;
+  final double side;
+  final double sideRoom;
+  final double leaving;
+
+  /// The stage's side, × the cover side (PlaylistCoverSleeveStage).
+  static const double stage = 1.6;
+
+  @override
+  Widget build(BuildContext context) {
+    final stageSide = side * stage;
+    final inset = (stageSide - side) / 2;
+    return OverflowBox(
+      minWidth: stageSide,
+      maxWidth: stageSide,
+      minHeight: stageSide,
+      maxHeight: stageSide,
+      child: PlaylistSleeves(
+        urls: urls,
+        cover: Rect.fromLTWH(inset, inset, side, side),
+        leaving: leaving,
+        corner: playlistSleeveCorner,
+        sideRoom: math.max(0, sideRoom - DetailLayoutTokens.sleeveEdgeClearance),
+      ),
+    );
+  }
+}

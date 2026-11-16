@@ -5,13 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// promotable BarExtraActions, which phones show as menu rows).
 @immutable
 final class DetailMenuAction {
-  const DetailMenuAction({required this.icon, required this.label, required this.onTap});
+  const DetailMenuAction({required this.icon, required this.label, required this.onTap, this.promotable = false});
 
   final IconData icon;
   final String label;
 
   /// Runs after the menu has closed.
   final VoidCallback onTap;
+
+  /// Android's BarExtraAction (Go to artist, Share): where the bar has room —
+  /// the centred bar's detail pose — it leaves ▾ for a round button beside
+  /// Shuffle; everywhere else it stays a menu row.
+  final bool promotable;
 }
 
 /// What a detail page puts in the window's one bar (its "detail pose":
