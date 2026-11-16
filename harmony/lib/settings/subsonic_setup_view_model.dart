@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
+import '../data/profile/profile_repository.dart';
 import '../data/source/music_source.dart';
+import '../ui/component/user_message.dart';
 import 'account_identity.dart';
 import 'settings_view_model.dart';
 
@@ -16,6 +18,7 @@ enum SetupError {
   serverError, // settings_setup_server_error
   unreachable, // settings_setup_unreachable
   saveFailed, // settings_setup_save_failed
+  accountLimit, // settings_setup_account_limit
 }
 
 /// The status line under the fields (ServiceSetupUiState.kt SubsonicStatus).
@@ -43,11 +46,14 @@ final class SetupReachable extends SetupStatus {
 }
 
 /// [error], or — when the server said what was wrong ("Wrong username or
-/// password") — its own words in [serverMessage], as Android shows them.
+/// password") — its own words in [serverMessage], as Android shows them; a
+/// server that didn't answer says which way in [line] (unreachable, taking
+/// too long, or the secure connection failed: UserMessage.kt).
 final class SetupFailed extends SetupStatus {
-  const SetupFailed(this.error, {this.serverMessage});
+  const SetupFailed(this.error, {this.serverMessage, this.line});
   final SetupError error;
   final String? serverMessage;
+  final UserLine? line;
 }
 
 /// Adding or managing a Subsonic account (Android ServiceSetupViewModel,
@@ -60,9 +66,15 @@ final class SubsonicSetupState {
     this.loaded = true,
     this.stored,
     this.account,
+    this.canAddProfile = true,
   });
 
   final SetupStatus status;
+
+  /// Adding: fewer than [ProfileRepository.maxProfiles] accounts are kept, so
+  /// Connect may save one (ServiceSetupUiState.canAddProfile). Always true
+  /// while managing.
+  final bool canAddProfile;
 
   /// The stored values have been read (always true while adding).
   final bool loaded;
@@ -87,7 +99,13 @@ final class SubsonicSetupState {
 
   bool get isBusy => status is SetupTesting || status is SetupSaving;
 
-  SubsonicSetupState copyWith({SetupStatus? status, SetupError? addressError, bool clearAddressError = false, bool? connected}) =>
+  SubsonicSetupState copyWith({
+    SetupStatus? status,
+    SetupError? addressError,
+    bool clearAddressError = false,
+    bool? connected,
+    bool? canAddProfile,
+  }) =>
       SubsonicSetupState(
         status: status ?? this.status,
         addressError: clearAddressError ? null : (addressError ?? this.addressError),
@@ -95,6 +113,7 @@ final class SubsonicSetupState {
         loaded: loaded,
         stored: stored,
         account: account,
+        canAddProfile: canAddProfile ?? this.canAddProfile,
       );
 }
 
@@ -107,9 +126,25 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
   @override
   SubsonicSetupState build() {
     final id = profileId;
-    if (id == null) return const SubsonicSetupState();
+    if (id == null) {
+      _readLimit();
+      return const SubsonicSetupState();
+    }
     _loadExisting(id);
     return const SubsonicSetupState(loaded: false);
+  }
+
+  /// Adding: whether another account fits (MAX_PROFILES).
+  Future<void> _readLimit() async {
+    final List<Profile> profiles;
+    try {
+      profiles = await ref.read(profileRepositoryProvider).profiles();
+    } catch (_) {
+      return;
+    }
+    if (!ref.mounted) return;
+    final fits = profiles.length < ProfileRepository.maxProfiles;
+    if (fits != state.canAddProfile) state = state.copyWith(canAddProfile: fits);
   }
 
   Future<void> _loadExisting(String id) async {
@@ -154,6 +189,10 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     if (editing != null) return _save(editing, address: address, username: username, password: password);
     final credentials = _validate(address, username, password);
     if (credentials == null) return;
+    if (!state.canAddProfile) {
+      state = state.copyWith(status: const SetupFailed(SetupError.accountLimit));
+      return;
+    }
     // Held across the awaits: once the save has started, the app has to
     // follow the new active account even if this page was closed meanwhile.
     final container = ref.container;
@@ -171,6 +210,12 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
             displayName: displayNameFor(credentials),
             credentials: credentials,
           );
+    } on ProfileLimitReachedException {
+      // Another account was added meanwhile (another page, cloud sync's Add).
+      if (ref.mounted) {
+        state = state.copyWith(status: const SetupFailed(SetupError.accountLimit), canAddProfile: false);
+      }
+      return;
     } catch (_) {
       if (ref.mounted) state = state.copyWith(status: const SetupFailed(SetupError.saveFailed));
       return;
@@ -238,13 +283,13 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     final source = ref.read(musicSourceFactoryProvider)(credentials);
     try {
       return await source.library.ping() ? null : const SetupFailed(SetupError.serverError);
-    } on SourceNetworkException {
-      return const SetupFailed(SetupError.unreachable);
+    } on SourceNetworkException catch (e) {
+      return SetupFailed(SetupError.unreachable, line: UserLine.forNetwork(e.kind));
     } on SourceException catch (e) {
       final message = e.message.trim();
       return SetupFailed(SetupError.serverError, serverMessage: message.isEmpty ? null : message);
-    } catch (_) {
-      return const SetupFailed(SetupError.unreachable);
+    } catch (e) {
+      return SetupFailed(SetupError.unreachable, line: userLineOf(e));
     } finally {
       source.dispose();
     }

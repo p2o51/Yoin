@@ -88,6 +88,20 @@ abstract final class SettingsMetrics {
   static const double heroBloomFrom = 0.6;
   static const double heroBloomTurnDegrees = -40;
 
+  // Two columns (ServiceSetupScreen.kt, landscape handset / wide window): the
+  // hero side 0.42, the form side 0.58, 32 apart; 4 from the bar, the hero
+  // side's blocks 20 apart.
+  static const int setupLeadFlex = 42;
+  static const int setupSideFlex = 58;
+  static const double setupColumnsGap = 32;
+  static const double setupColumnTop = 4;
+  static const double setupLeadGap = 20;
+
+  // The Preview badge beside Apple Music's name (ServiceHero): labelLarge, 12 × 4, 12 from the name.
+  static const double heroBadgeGap = 12;
+  static const double heroBadgeHorizontal = 12;
+  static const double heroBadgeVertical = 4;
+
   // "You'll need" chips (RequirementsGroup).
   static const double needGap = 10;
   static const double chipSpacing = 8;

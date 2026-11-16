@@ -13,6 +13,7 @@ import '../shell/detail_chrome.dart';
 import '../ui/component/add_to_playlist_sheet.dart';
 import '../ui/component/component_strings.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/user_message.dart';
 import '../ui/component/yoin_dialog.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
@@ -62,8 +63,9 @@ class PlaylistDetailScreen extends ConsumerWidget {
             ],
             stateView: switch (state) {
               PlaylistDetailLoading() => const DetailLoadingView(),
-              PlaylistDetailError(:final notFound) => DetailErrorView(
-                message: notFound ? strings.playlistNotFound : strings.playlistLoadError,
+              PlaylistDetailError(:final notFound, :final cause, :final diagnostics) => DetailErrorView(
+                message: notFound ? strings.playlistNotFound : userMessageText(context, cause, strings.playlistLoadError),
+                diagnostics: notFound ? null : diagnostics,
                 onRetry: () => ref.read(playlistDetailProvider(playlistId).notifier).retry(),
               ),
               PlaylistDetailContent() => null,

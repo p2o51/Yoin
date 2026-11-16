@@ -315,7 +315,10 @@ final class AppleMusicSource implements MusicSource {
       throw sourceExceptionFor(e);
     } on ArgumentError catch (e) {
       if (e.message == 'Invalid Apple Music pagination link') {
-        throw const SourceServerException('Apple Music returned an invalid pagination link');
+        throw const SourceServerException(
+          'Apple Music returned an invalid pagination link',
+          cause: AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Invalid pagination link'),
+        );
       }
       rethrow;
     }
@@ -334,19 +337,28 @@ final class AppleMusicSource implements MusicSource {
 
 /// The interface's exception for an Apple failure. [SourceServerException.code]
 /// is the HTTP status here (Subsonic's is its error code).
+/// [SourceException.cause] keeps [e]: the UI's line and the diagnostics read it.
 SourceException sourceExceptionFor(AppleMusicApiException e) => switch (e.failure) {
-  AppleMusicFailure.network => SourceNetworkException(e.detail ?? 'Apple Music unreachable'),
-  AppleMusicFailure.userAuthorizationRequired => const SourceAuthException('Sign in to Apple Music again'),
-  AppleMusicFailure.developerTokenRejected => const SourceAuthException('Apple Music refused the developer token'),
+  AppleMusicFailure.network => SourceNetworkException(
+    e.detail ?? 'Apple Music unreachable',
+    kind: e.networkKind ?? NetworkFailureKind.io,
+    cause: e,
+  ),
+  AppleMusicFailure.userAuthorizationRequired => SourceAuthException('Sign in to Apple Music again', cause: e),
+  AppleMusicFailure.developerTokenRejected => SourceAuthException('Apple Music refused the developer token', cause: e),
   AppleMusicFailure.developerTokenUnavailable => SourceServerException(
     e.detail ?? 'Apple Music developer token unavailable',
     code: e.status,
+    cause: e,
   ),
   // Not proof the account was revoked (Android): a server refusal, retryable later.
-  AppleMusicFailure.accessDenied => const SourceServerException('Apple Music refused this request', code: 403),
-  AppleMusicFailure.rateLimited => const SourceServerException('Apple Music is busy, try again later', code: 429),
-  AppleMusicFailure.http => SourceServerException('Apple Music HTTP ${e.status}', code: e.status),
-  AppleMusicFailure.invalidResponse => SourceServerException(e.detail ?? 'Apple Music returned an invalid response'),
+  AppleMusicFailure.accessDenied => SourceServerException('Apple Music refused this request', code: 403, cause: e),
+  AppleMusicFailure.rateLimited => SourceServerException('Apple Music is busy, try again later', code: 429, cause: e),
+  AppleMusicFailure.http => SourceServerException('Apple Music HTTP ${e.status}', code: e.status, cause: e),
+  AppleMusicFailure.invalidResponse => SourceServerException(
+    e.detail ?? 'Apple Music returned an invalid response',
+    cause: e,
+  ),
 };
 
 // ------------------------------------------------------------------ queries (Android AppleMusicSource.kt)

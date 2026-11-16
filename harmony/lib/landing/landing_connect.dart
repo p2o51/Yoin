@@ -5,9 +5,10 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../nowplaying/haptics.dart';
 import '../platform/applemusic/apple_music_auth.dart';
 import '../settings/apple_music_setup_view_model.dart';
+import '../settings/service_intro.dart' show ServiceIntroStrings;
 import '../settings/settings_components.dart';
 import '../settings/settings_strings.dart';
-import '../settings/subsonic_setup_screen.dart' show SecretTextField;
+import '../settings/subsonic_setup_screen.dart' show SecretTextField, setupErrorText, setupFailureText;
 import '../settings/subsonic_setup_view_model.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -258,16 +259,6 @@ class _ErrorLine extends StatelessWidget {
   }
 }
 
-String _setupErrorText(SettingsStrings strings, SetupError error) => switch (error) {
-  SetupError.addressRequired => strings.addressRequired,
-  SetupError.checkAddress => strings.checkAddress,
-  SetupError.usernameRequired => strings.usernameRequired,
-  SetupError.passwordRequired => strings.passwordRequired,
-  SetupError.serverError => strings.serverError,
-  SetupError.unreachable => strings.unreachable,
-  SetupError.saveFailed => strings.saveFailed,
-};
-
 // ── Subsonic ────────────────────────────────────────────────────────────
 
 /// Connect = reach the server, then save: an unreachable server never becomes an account.
@@ -315,8 +306,9 @@ class _SubsonicConnectSceneState extends ConsumerState<SubsonicConnectScene> wit
     final forms = widget.forms;
     final status = state.status;
     final error = switch ((state.addressError, status)) {
-      (final SetupError e, _) => _setupErrorText(settings, e),
-      (_, SetupFailed(:final error, :final serverMessage)) => serverMessage ?? _setupErrorText(settings, error),
+      (final SetupError e, _) => setupErrorText(context, e),
+      // The server's words, which way it didn't answer, or the form's line (the setup page's own text).
+      (_, final SetupFailed failed) => setupFailureText(context, failed),
       _ => null,
     };
     return LandingSceneColumn(
@@ -430,6 +422,7 @@ class _AppleConnectSceneState extends ConsumerState<AppleConnectScene> with Tick
         : switch ((state.endpointError, state.status)) {
             (AppleSetupError.endpointRequired, _) => settings.appleEndpointRequired,
             (AppleSetupError.endpointInvalid, _) => settings.appleEndpointInvalid,
+            (_, AppleSetupFailed(accountLimit: true)) => ServiceIntroStrings.of(context).accountLimit,
             (_, AppleSetupFailed(failure: AppleMusicAuthFailure.cancelled)) => settings.appleStatusCancelled,
             (_, AppleSetupFailed()) => settings.appleStatusFailed,
             _ => null,

@@ -47,4 +47,31 @@ void main() {
   test('should_returnNoActiveProfile_when_noneConfigured', () async {
     expect(await repo.activeProfile(), isNull);
   });
+
+  test('should_refuseSixthAccount_when_fiveKept', () async {
+    for (var i = 0; i < ProfileRepository.maxProfiles; i++) {
+      await repo.add(provider: 'subsonic', displayName: 'A$i', credentials: creds);
+    }
+    final before = Map.of(secrets.values);
+    final active = (await repo.activeProfile())!.id;
+
+    await expectLater(
+      repo.add(provider: 'subsonic', displayName: 'F', credentials: creds),
+      throwsA(isA<ProfileLimitReachedException>().having((e) => e.limit, 'limit', 5)),
+    );
+    expect(await repo.profiles(), hasLength(5));
+    // Nothing written: no orphan secret, the account in use unchanged.
+    expect(secrets.values, before);
+    expect((await repo.activeProfile())!.id, active);
+  });
+
+  test('should_acceptAccountAgain_when_oneRemovedAtLimit', () async {
+    final ids = [
+      for (var i = 0; i < ProfileRepository.maxProfiles; i++)
+        (await repo.add(provider: 'subsonic', displayName: 'A$i', credentials: creds)).id,
+    ];
+    await repo.remove(ids.first);
+    final added = await repo.add(provider: 'subsonic', displayName: 'F', credentials: creds);
+    expect((await repo.profiles()).map((p) => p.id), [...ids.skip(1), added.id]);
+  });
 }

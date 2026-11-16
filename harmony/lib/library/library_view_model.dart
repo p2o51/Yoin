@@ -9,6 +9,7 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../ui/component/error_diagnostics.dart';
 import 'library_playlists_by_you.dart';
 import 'library_sort.dart';
 import 'library_stores.dart';
@@ -32,19 +33,24 @@ final class LibraryNoAccount extends LibraryUiState {
 }
 
 final class LibraryError extends LibraryUiState {
-  const LibraryError(this.error);
+  LibraryError(this.error, {String? diagnostics}) : diagnostics = diagnostics ?? diagnosticReport(error);
   final Object error;
+
+  /// The scrubbed report Copy details copies, taken when the read failed.
+  final String diagnostics;
 }
 
 /// Whether the Songs list can grow.
 enum SongsMore { none, available, loading, failed }
 
-/// A view whose read failed: the page shows a snackbar naming it.
+/// A view whose read failed: the page shows a snackbar naming it, or the
+/// failure's own line ([error], Android snackbarOr).
 @immutable
 final class LibraryNotice {
-  const LibraryNotice(this.serial, this.tab);
+  const LibraryNotice(this.serial, this.tab, {this.error});
   final int serial;
   final LibraryTab tab;
+  final Object? error;
 }
 
 /// Per-view payloads: null = not loaded yet, empty = loaded and empty.
@@ -167,6 +173,9 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   Timer? _recentsTimer;
   int _sortToken = 0;
   int _noticeSerial = 0;
+
+  /// What the last failed view read threw (its snackbar's line).
+  Object? _lastLoadError;
 
   @override
   LibraryUiState build() {
@@ -345,11 +354,12 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     state = content.copyWith(selected: target);
     _releaseHeld();
     final gen = _generation;
+    _lastLoadError = null;
     final ok = await _ensureLoaded(target);
     if (!_alive(gen)) return;
     final after = _content;
     if (!ok && after != null && after.selected == target && target != LibraryTab.all) {
-      state = after.copyWith(selected: previous, notice: LibraryNotice(++_noticeSerial, target));
+      state = after.copyWith(selected: previous, notice: LibraryNotice(++_noticeSerial, target, error: _lastLoadError));
     }
   }
 
@@ -389,7 +399,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       state = _content!.copyWith(artists: artists);
       await _resort(gen);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastLoadError = e;
       return false;
     } finally {
       _artistsLoading = false;
@@ -408,7 +419,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       _settleAll();
       await _resort(gen);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastLoadError = e;
       return false;
     } finally {
       _playlistsLoading = false;
@@ -440,7 +452,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       if (!_alive(gen)) return true;
       state = _content!.copyWith(favorites: starred);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastLoadError = e;
       return false;
     } finally {
       _favoritesLoading = false;
@@ -468,7 +481,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       if (!_alive(gen) || !identical(pager, _pager)) return true;
       state = _content!.copyWith(songs: songs, songsMore: pager.ended ? SongsMore.none : SongsMore.available);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastLoadError = e;
       return false;
     }
   }
@@ -528,8 +542,9 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       _releaseHeld();
       _settleAll();
       return true;
-    } catch (_) {
+    } catch (e) {
       if (!_alive(gen)) return true;
+      _lastLoadError = e;
       // Stops where it is; the next Library visit reads on from this offset.
       _settleAll();
       return _content?.albums != null;
@@ -568,11 +583,13 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     final gen = _generation;
     final view = content.selected;
     final failed = <LibraryTab>[];
+    final errors = <LibraryTab, Object>{};
     Future<void> guard(LibraryTab tab, Future<void> Function() read) async {
       try {
         await read();
-      } catch (_) {
+      } catch (e) {
         failed.add(tab);
+        errors[tab] = e;
       }
     }
 
@@ -619,7 +636,13 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     final now = _content!;
     state = now.copyWith(
       isRefreshing: false,
-      notice: failed.isEmpty ? null : LibraryNotice(++_noticeSerial, view == LibraryTab.all ? failed.first : view),
+      notice: failed.isEmpty
+          ? null
+          : LibraryNotice(
+              ++_noticeSerial,
+              view == LibraryTab.all ? failed.first : view,
+              error: errors[view == LibraryTab.all ? failed.first : view],
+            ),
     );
   }
 

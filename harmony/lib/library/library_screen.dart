@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
-import '../data/source/music_source.dart';
 import '../l10n/strings.dart';
 import '../playback/playback_controller.dart';
 import '../settings/settings_screen.dart';
@@ -12,7 +11,9 @@ import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/tokens.dart';
 import '../ui/component/seam/chrome_seam.dart';
+import '../ui/component/error_diagnostics.dart';
 import '../ui/component/spring_cross_fade.dart';
+import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
 import 'library_filter_row.dart';
@@ -83,7 +84,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     ref.listen(libraryViewModelProvider.select((s) => s is LibraryContent ? s.notice : null), (previous, notice) {
       if (notice == null || notice.serial == previous?.serial) return;
       final strings = LibraryStrings.of(context);
-      ref.read(playbackControllerProvider.notifier).showMessage(_tabError(strings, notice.tab));
+      // The failure's own line first (connectivity, the server's words), else the view's.
+      ref
+          .read(playbackControllerProvider.notifier)
+          .showMessage(userMessageText(context, notice.error, _tabError(strings, notice.tab)));
     });
     final colors = Theme.of(context).colorScheme;
     return DecoratedBox(
@@ -106,7 +110,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 child: switch (state) {
                   LibraryLoading() => const Center(child: YoinLoadingIndicator()),
                   LibraryNoAccount() => const _ConnectPrompt(),
-                  LibraryError(:final error) => _ErrorPrompt(error: error, onSettings: _openSettings),
+                  LibraryError(:final error, :final diagnostics) => _ErrorPrompt(
+                    error: error,
+                    diagnostics: diagnostics,
+                    onSettings: _openSettings,
+                  ),
                   LibraryContent() => _Content(state: state, scrolls: _scrolls),
                 },
               ),
@@ -297,23 +305,20 @@ class _ConnectPrompt extends StatelessWidget {
   }
 }
 
-/// The page error: message (bodyLarge, error) + Retry / Settings.
+/// The page error: message (bodyLarge, error) + Retry / Settings, then
+/// Copy details (LibraryScreen.kt Error).
 class _ErrorPrompt extends ConsumerWidget {
-  const _ErrorPrompt({required this.error, required this.onSettings});
+  const _ErrorPrompt({required this.error, required this.diagnostics, required this.onSettings});
 
   final Object error;
+  final String diagnostics;
   final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = LibraryStrings.of(context);
-    final yoin = YoinStrings.of(context);
     final colors = Theme.of(context).colorScheme;
-    final message = switch (error) {
-      SourceNetworkException() => yoin.setupUnreachable,
-      SourceServerException() || SourceAuthException() => yoin.setupServerError,
-      _ => strings.errorLoadLibrary,
-    };
+    final message = userMessageText(context, error, strings.errorLoadLibrary);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -337,6 +342,8 @@ class _ErrorPrompt extends ConsumerWidget {
                 TextButton(onPressed: onSettings, child: Text(strings.errorSettings)),
               ],
             ),
+            const SizedBox(height: 8),
+            CopyDiagnosticsButton(report: diagnostics),
           ],
         ),
       ),

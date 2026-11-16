@@ -7,15 +7,18 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../platform/applemusic/apple_music_auth.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
+import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive_text_field.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'account_identity.dart';
 import 'apple_music_setup_view_model.dart';
 import 'material_shapes.dart';
+import 'service_intro.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'settings_metrics.dart';
+import 'settings_rows.dart' show SettingsNotice;
 import 'settings_strings.dart';
 
 /// Adding an Apple Music account (Android ServiceSetupScreen, Apple Music):
@@ -33,6 +36,9 @@ class AppleMusicSetupScreen extends ConsumerStatefulWidget {
 class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
   final _endpoint = TextEditingController(text: yoinAppleMusicTokenServiceUrl);
   final _scroll = ScrollController();
+
+  /// Two columns: the hero side's own scroll (the bar's title reads it).
+  final _leadScroll = ScrollController();
   String _lastEndpoint = yoinAppleMusicTokenServiceUrl;
 
   @override
@@ -53,6 +59,7 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
   void dispose() {
     _endpoint.dispose();
     _scroll.dispose();
+    _leadScroll.dispose();
     super.dispose();
   }
 
@@ -65,19 +72,21 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
     ref.listen(appleMusicSetupViewModelProvider.select((s) => s.connected), (_, connected) {
       if (connected) Navigator.of(context).pop();
     });
-    return ChromeBarSuppression(
-      child: Scaffold(
-        backgroundColor: settingsPageColor(colors),
-        appBar: SettingsBar(
-          title: strings.introAppleName,
-          controller: _scroll,
-          titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
-          titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
-        ),
-        body: SafeArea(
-          top: false,
-          bottom: false,
-          child: SettingsSeam(
+    const hero = _ServiceHero();
+    final requirements = _RequirementsGroup(requirements: [strings.introAppleNeedSub, strings.introAppleNeedToken]);
+    final connect = _ConnectGroup(endpoint: _endpoint, onConnect: _connect);
+    const highlights = ServiceHighlightsGroup(service: SetupService.appleMusic);
+    final columns = setupUsesColumns(YoinWindowInfo.of(context));
+    // Landscape / wide: the service stays put on the left, the form and "What
+    // you get" scroll on the right. Otherwise the pitch first, then connect.
+    final Widget body = columns
+        ? SetupColumns(
+            leadController: _leadScroll,
+            sideController: _scroll,
+            lead: [hero, requirements],
+            side: [connect, highlights],
+          )
+        : SettingsSeam(
             controller: _scroll,
             child: ListView(
               controller: _scroll,
@@ -88,15 +97,27 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
                 SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
               ),
               children: [
-                const _ServiceHero(),
+                hero,
                 const SizedBox(height: SettingsMetrics.sectionGap),
-                _RequirementsGroup(requirements: [strings.introAppleNeedSub, strings.introAppleNeedToken]),
+                highlights,
                 const SizedBox(height: SettingsMetrics.sectionGap),
-                _ConnectGroup(endpoint: _endpoint, onConnect: _connect),
+                requirements,
+                const SizedBox(height: SettingsMetrics.sectionGap),
+                connect,
               ],
             ),
-          ),
+          );
+    return ChromeBarSuppression(
+      child: Scaffold(
+        backgroundColor: settingsPageColor(colors),
+        appBar: SettingsBar(
+          title: strings.introAppleName,
+          // Two columns: the hero doesn't scroll with the form.
+          controller: columns ? _leadScroll : _scroll,
+          titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
+          titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
         ),
+        body: SafeArea(top: false, bottom: false, child: body),
       ),
     );
   }
@@ -167,12 +188,33 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
             ),
           ),
           const SizedBox(height: SettingsMetrics.heroGap),
-          Semantics(
-            header: true,
-            child: Text(
-              strings.introAppleName,
-              style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
-            ),
+          Row(
+            children: [
+              Flexible(
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    strings.introAppleName,
+                    style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
+                  ),
+                ),
+              ),
+              const SizedBox(width: SettingsMetrics.heroBadgeGap),
+              // Preview (settings_intro_apple_badge), as Android's hero says it.
+              DecoratedBox(
+                decoration: ShapeDecoration(color: theme.colorScheme.tertiaryContainer, shape: const StadiumBorder()),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: SettingsMetrics.heroBadgeHorizontal,
+                    vertical: SettingsMetrics.heroBadgeVertical,
+                  ),
+                  child: Text(
+                    ServiceIntroStrings.of(context).appleBadge,
+                    style: theme.textTheme.labelLarge!.copyWith(color: theme.colorScheme.onTertiaryContainer),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: SettingsMetrics.heroTextGap),
           Text(
@@ -242,10 +284,14 @@ String _endpointErrorText(SettingsStrings strings, AppleSetupError error) => swi
       AppleSetupError.endpointInvalid => strings.appleEndpointInvalid,
     };
 
-String _failureText(SettingsStrings strings, AppleMusicAuthFailure failure) => switch (failure) {
-      AppleMusicAuthFailure.cancelled => strings.appleStatusCancelled,
-      _ => strings.appleStatusFailed,
-    };
+String _failureText(BuildContext context, AppleSetupFailed failed) {
+  final strings = SettingsStrings.of(context);
+  if (failed.accountLimit) return ServiceIntroStrings.of(context).accountLimit;
+  return switch (failed.failure) {
+    AppleMusicAuthFailure.cancelled => strings.appleStatusCancelled,
+    _ => strings.appleStatusFailed,
+  };
+}
 
 class _ConnectGroup extends ConsumerWidget {
   const _ConnectGroup({required this.endpoint, required this.onConnect});
@@ -258,7 +304,7 @@ class _ConnectGroup extends ConsumerWidget {
     final strings = SettingsStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final state = ref.watch(appleMusicSetupViewModelProvider);
-    final canSubmit = endpoint.text.trim().isNotEmpty && !state.isBusy;
+    final canSubmit = endpoint.text.trim().isNotEmpty && !state.isBusy && state.canAddProfile;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -305,6 +351,14 @@ class _ConnectGroup extends ConsumerWidget {
                           child: _StatusLine(status: state.status),
                         ),
                 ),
+                // Five accounts already: Connect waits, and says why.
+                SpringReveal(
+                  visible: !state.canAddProfile,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
+                    child: SettingsNotice(text: ServiceIntroStrings.of(context).accountLimit),
+                  ),
+                ),
                 const SizedBox(height: SettingsMetrics.formGap),
                 FilledButton(onPressed: canSubmit ? onConnect : null, child: Text(strings.appleConnect)),
               ],
@@ -341,8 +395,8 @@ class _StatusLine extends StatelessWidget {
             ),
           ],
         ),
-      AppleSetupFailed(:final failure) =>
-        _StatusRow(icon: YoinSymbols.error, text: _failureText(strings, failure), color: colors.error),
+      final AppleSetupFailed failed =>
+        _StatusRow(icon: YoinSymbols.error, text: _failureText(context, failed), color: colors.error),
     };
     return SpringCrossFade(childKey: status.runtimeType, fit: StackFit.loose, child: child);
   }

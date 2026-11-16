@@ -227,7 +227,8 @@ void main() {
     testWidgets('should_drawTideAndFadeText_when_accountPageScrolled', (tester) async {
       await tester.runAsync(() => ProfileRepository(store, store)
           .add(provider: MediaId.providerSubsonic, displayName: 'ann @ home.test', credentials: _home));
-      await pump(tester, const Size(400, 420));
+      // A short portrait window (under 480 high the page splits into two columns).
+      await pump(tester, const Size(400, 500));
       await tester.tap(find.text('ann'));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();

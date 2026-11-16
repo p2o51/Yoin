@@ -100,6 +100,25 @@ void main() {
       await c.read(albumDetailProvider(album.id).notifier).retry();
       expect(c.read(albumDetailProvider(album.id)), isA<AlbumDetailContent>());
     });
+
+    test('should_keepCauseAndDiagnostics_when_readThrows', () async {
+      const failure = SourceNetworkException('down', kind: NetworkFailureKind.timeout);
+      source.failures['getAlbum'] = failure;
+      c.listen(albumDetailProvider(album.id), (_, _) {});
+      await _pump();
+      final error = c.read(albumDetailProvider(album.id)) as AlbumDetailError;
+      expect(error.cause, same(failure));
+      expect(error.diagnostics, contains('Network timeout'));
+      expect(error.diagnostics, startsWith('Yoin '));
+    });
+
+    test('should_haveNoDiagnostics_when_albumNotFound', () async {
+      c.listen(albumDetailProvider(MediaId.subsonic('missing')), (_, _) {});
+      await _pump();
+      final error = c.read(albumDetailProvider(MediaId.subsonic('missing'))) as AlbumDetailError;
+      expect(error.notFound, isTrue);
+      expect(error.diagnostics, isNull);
+    });
   });
 
   group('detail cache', () {
@@ -182,6 +201,32 @@ void main() {
       await _pump();
 
       expect(engine.queue.map((i) => i.id), ['subsonic:elsewhere']);
+    });
+  });
+
+  group('load errors', () {
+    test('should_keepCauseAndDiagnostics_when_artistReadThrows', () async {
+      const failure = SourceAuthException('Wrong username or password', code: 40);
+      source.failures['getArtist'] = failure;
+      final id = MediaId.subsonic('ar1');
+      c.listen(artistDetailProvider(id), (_, _) {});
+      await _pump();
+      final error = c.read(artistDetailProvider(id)) as ArtistDetailError;
+      expect(error.notFound, isFalse);
+      expect(error.cause, same(failure));
+      expect(error.diagnostics, contains('Subsonic auth 40'));
+      expect(error.diagnostics, isNot(contains('Wrong username')));
+    });
+
+    test('should_keepCauseAndDiagnostics_when_playlistReadThrows', () async {
+      const failure = SourceNetworkException('x', kind: NetworkFailureKind.tls);
+      source.failures['getPlaylist'] = failure;
+      final id = MediaId.subsonic('pl1');
+      c.listen(playlistDetailProvider(id), (_, _) {});
+      await _pump();
+      final error = c.read(playlistDetailProvider(id)) as PlaylistDetailError;
+      expect(error.cause, same(failure));
+      expect(error.diagnostics, contains('Network tls'));
     });
   });
 

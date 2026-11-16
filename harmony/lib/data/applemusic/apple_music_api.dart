@@ -12,6 +12,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../source/network_failure.dart';
+
 /// A decoded Apple Music API document.
 typedef AppleMusicJson = Map<String, Object?>;
 
@@ -44,8 +46,12 @@ enum AppleMusicFailure {
 }
 
 final class AppleMusicApiException implements Exception {
-  const AppleMusicApiException(this.failure, {this.status, this.appleCode, this.detail});
+  const AppleMusicApiException(this.failure, {this.status, this.appleCode, this.detail, this.networkKind});
   final AppleMusicFailure failure;
+
+  /// For [AppleMusicFailure.network]: which kind of no-answer it was (the UI's
+  /// unreachable / timeout / TLS line).
+  final NetworkFailureKind? networkKind;
 
   /// The HTTP status, for refusals.
   final int? status;
@@ -306,11 +312,23 @@ final class AppleMusicApi {
     try {
       response = await http.Response.fromStream(await _client.send(request).timeout(timeout)).timeout(timeout);
     } on TimeoutException {
-      throw AppleMusicApiException(AppleMusicFailure.network, detail: 'Timed out after ${timeout.inSeconds} s');
-    } on IOException {
-      throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Apple Music unreachable');
-    } on http.ClientException {
-      throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Apple Music unreachable');
+      throw AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Timed out after ${timeout.inSeconds} s',
+        networkKind: NetworkFailureKind.timeout,
+      );
+    } on IOException catch (e) {
+      throw AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Apple Music unreachable',
+        networkKind: networkFailureKindOf(e),
+      );
+    } on http.ClientException catch (e) {
+      throw AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Apple Music unreachable',
+        networkKind: networkFailureKindOf(e),
+      );
     }
 
     if (response.statusCode != expectedStatus) {

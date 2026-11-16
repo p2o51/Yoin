@@ -121,6 +121,36 @@ void main() {
       expect(status.failure, AppleMusicAuthFailure.pageFailed);
     });
 
+    test('should_refuseWithoutSignIn_when_fiveAccountsKept', () async {
+      await _fillAccounts(store);
+      final auth = _FakeAuth.success();
+      final c = container(auth);
+      addTearDown(c.dispose);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(c.read(appleMusicSetupViewModelProvider).canAddProfile, isFalse);
+
+      await c.read(appleMusicSetupViewModelProvider.notifier).connect(yoinAppleMusicTokenServiceUrl);
+      final status = c.read(appleMusicSetupViewModelProvider).status;
+      expect(status, isA<AppleSetupFailed>().having((f) => f.accountLimit, 'accountLimit', isTrue));
+      // No Apple ID sign-in for an account that can't be kept.
+      expect(auth.askedEndpoint, isNull);
+      expect(await c.read(profileRepositoryProvider).profiles(), hasLength(ProfileRepository.maxProfiles));
+    });
+
+    test('should_sayLimit_when_sixthArrivesDuringSignIn', () async {
+      final auth = _FakeAuth.success();
+      final c = container(auth);
+      addTearDown(c.dispose);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await _fillAccounts(store);
+
+      await c.read(appleMusicSetupViewModelProvider.notifier).connect(yoinAppleMusicTokenServiceUrl);
+      final state = c.read(appleMusicSetupViewModelProvider);
+      expect(state.status, isA<AppleSetupFailed>().having((f) => f.accountLimit, 'accountLimit', isTrue));
+      expect(state.canAddProfile, isFalse);
+      expect(state.connected, isFalse);
+    });
+
     test('should_clearError_when_endpointEdited', () async {
       final c = container(_FakeAuth.failing(AppleMusicAuthFailure.authFailed));
       addTearDown(c.dispose);
@@ -169,6 +199,25 @@ void main() {
     FilledButton connectButton(WidgetTester tester) =>
         tester.widget(find.widgetWithText(FilledButton, 'Connect Apple Music'));
 
+    testWidgets('should_pitchWhatYouGetAndPreview_when_opened', (tester) async {
+      await pump(tester, _FakeAuth.success());
+      expect(find.text('What you get'), findsOneWidget);
+      expect(find.text('Library and catalog'), findsOneWidget);
+      expect(find.text('Browse your library and search the Apple Music catalog'), findsOneWidget);
+      expect(find.text('Playback'), findsOneWidget);
+      expect(find.text('Play catalog songs directly in Yoin'), findsOneWidget);
+      expect(find.text('Preview'), findsOneWidget);
+    });
+
+    testWidgets('should_disableConnectAndSayLimit_when_fiveAccountsKept', (tester) async {
+      await tester.runAsync(() => _fillAccounts(store));
+      await pump(tester, _FakeAuth.success());
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pumpAndSettle();
+      expect(find.text('Account limit reached'), findsOneWidget);
+      expect(connectButton(tester).onPressed, isNull);
+    });
+
     testWidgets('should_prefillTokenServiceAndEnableConnect_when_opened', (tester) async {
       await pump(tester, _FakeAuth.success());
       expect(find.text(yoinAppleMusicTokenServiceUrl), findsOneWidget);
@@ -202,5 +251,17 @@ class _GatedRepository extends ProfileRepository {
     entered.complete();
     await gate.future;
     return super.add(provider: provider, displayName: displayName, credentials: credentials);
+  }
+}
+
+/// Five accounts kept: the limit.
+Future<void> _fillAccounts(InMemoryStore store) async {
+  final repo = ProfileRepository(store, store);
+  for (var i = 0; i < ProfileRepository.maxProfiles; i++) {
+    await repo.add(
+      provider: MediaId.providerSubsonic,
+      displayName: 'u$i',
+      credentials: SubsonicCredentials(baseUrl: 'https://s$i.example', username: 'u$i', password: 'p'),
+    );
   }
 }

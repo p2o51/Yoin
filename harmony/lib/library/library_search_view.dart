@@ -18,6 +18,7 @@ import '../settings/settings_components.dart' show SpringReveal;
 import '../ui/component/seam/seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/track_library_button.dart';
+import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
@@ -319,7 +320,12 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(strings.errorSearch, style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.error)),
+            Text(
+              // The failure's own line (connectivity, the server's words), else Search failed.
+              userMessageText(context, state.error, strings.errorSearch),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.error),
+            ),
             TextButton(onPressed: _search.retry, child: Text(strings.searchRetry)),
           ],
         ),
@@ -387,7 +393,11 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
           visible: feedback != null,
           child: feedback == null
               ? null
-              : _AddFeedbackLine(feedback: feedback, added: membership == LibraryMembership.added),
+              : _AddFeedbackLine(
+                  feedback: feedback,
+                  added: membership == LibraryMembership.added,
+                  failure: state.addFailures[track.id],
+                ),
         ),
       ],
     );
@@ -498,10 +508,13 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
 /// The line under a song after Add to library: Added (primary), waiting for
 /// Apple Music, or that it couldn't (error).
 class _AddFeedbackLine extends StatelessWidget {
-  const _AddFeedbackLine({required this.feedback, required this.added});
+  const _AddFeedbackLine({required this.feedback, required this.added, this.failure});
 
   final LibraryAddFeedback feedback;
   final bool added;
+
+  /// What the failed add threw: its own line when it has one.
+  final Object? failure;
 
   @override
   Widget build(BuildContext context) {
@@ -512,7 +525,7 @@ class _AddFeedbackLine extends StatelessWidget {
         : switch (feedback) {
             LibraryAddFeedback.added => (strings.searchAdded, colors.primary),
             LibraryAddFeedback.pending => (strings.feedbackApplePending, colors.onSurfaceVariant),
-            LibraryAddFeedback.failed => (strings.errorAddSong, colors.error),
+            LibraryAddFeedback.failed => (userMessageText(context, failure, strings.errorAddSong), colors.error),
           };
     return Padding(
       padding: const EdgeInsetsDirectional.only(

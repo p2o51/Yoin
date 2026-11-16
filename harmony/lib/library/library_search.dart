@@ -44,6 +44,7 @@ final class LibrarySearchState {
     this.membership = const {},
     this.adding = const {},
     this.feedback = const {},
+    this.addFailures = const {},
   });
 
   final String query;
@@ -66,6 +67,9 @@ final class LibrarySearchState {
 
   /// The line under a song after its Add to library.
   final Map<MediaId, LibraryAddFeedback> feedback;
+
+  /// What a failed Add to library threw: its line says why (Android toUserMessage).
+  final Map<MediaId, Object> addFailures;
 
   static const empty = LibrarySearchState();
 
@@ -90,6 +94,7 @@ final class LibrarySearchState {
     Map<MediaId, LibraryMembership>? membership,
     Set<MediaId>? adding,
     Map<MediaId, LibraryAddFeedback>? feedback,
+    Map<MediaId, Object>? addFailures,
   }) => LibrarySearchState(
     query: query ?? this.query,
     results: clearResults ? null : (results ?? this.results),
@@ -101,6 +106,7 @@ final class LibrarySearchState {
     membership: membership ?? this.membership,
     adding: adding ?? this.adding,
     feedback: feedback ?? this.feedback,
+    addFailures: addFailures ?? this.addFailures,
   );
 }
 
@@ -179,7 +185,8 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
     state = state.copyWith(isSearching: true, clearError: true);
     try {
       final source = await ref.read(activeSourceProvider.future);
-      if (source == null) throw const SourceNetworkException('no account');
+      // No account: Search failed, not a connectivity line.
+      if (source == null) throw StateError('No account');
       final collection = source.libraryCollection;
       // A service with a catalogue searches it only when asked; its library has a search of its own.
       final results =
@@ -239,16 +246,19 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
     if (adds == null || !ref.mounted || generation != _generation) return;
     state = state.copyWith(adding: {...state.adding, id}, feedback: {...state.feedback}..remove(id));
     LibraryMembership? result;
+    Object? failure;
     try {
       result = await adds.addToLibrary(id);
-    } catch (_) {
+    } catch (e) {
       result = null;
+      failure = e;
     }
     // Another account in use meanwhile: its search starts over, nothing to say here.
     if (!ref.mounted || generation != _generation) return;
     state = state.copyWith(
       adding: {...state.adding}..remove(id),
       membership: result == null ? state.membership : {...state.membership, id: result},
+      addFailures: failure == null ? ({...state.addFailures}..remove(id)) : {...state.addFailures, id: failure},
       feedback: {
         ...state.feedback,
         id: switch (result) {

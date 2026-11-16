@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
+import '../data/profile/profile_repository.dart';
 import '../platform/applemusic/apple_music_auth.dart';
 
 /// The MusicKit developer-token service Yoin runs (Android YoinTokenService.URL).
@@ -37,16 +38,26 @@ final class AppleSetupSaving extends AppleSetupStatus {
 }
 
 /// Sign-in did not finish ([failure] decides the message; Android collapses
-/// every Apple failure to "Couldn't connect").
+/// every Apple failure to "Couldn't connect"), or [accountLimit]: five
+/// accounts are kept already, so none was added (settings_setup_account_limit).
 final class AppleSetupFailed extends AppleSetupStatus {
-  const AppleSetupFailed(this.failure);
+  const AppleSetupFailed(this.failure, {this.accountLimit = false});
   final AppleMusicAuthFailure failure;
+  final bool accountLimit;
 }
 
 final class AppleMusicSetupState {
-  const AppleMusicSetupState({this.status = const AppleSetupIdle(), this.endpointError, this.connected = false});
+  const AppleMusicSetupState({
+    this.status = const AppleSetupIdle(),
+    this.endpointError,
+    this.connected = false,
+    this.canAddProfile = true,
+  });
 
   final AppleSetupStatus status;
+
+  /// Fewer than [ProfileRepository.maxProfiles] accounts are kept: Connect may add one.
+  final bool canAddProfile;
 
   /// Said under the endpoint field, cleared as it is edited.
   final AppleSetupError? endpointError;
@@ -61,11 +72,13 @@ final class AppleMusicSetupState {
     AppleSetupError? endpointError,
     bool clearEndpointError = false,
     bool? connected,
+    bool? canAddProfile,
   }) =>
       AppleMusicSetupState(
         status: status ?? this.status,
         endpointError: clearEndpointError ? null : (endpointError ?? this.endpointError),
         connected: connected ?? this.connected,
+        canAddProfile: canAddProfile ?? this.canAddProfile,
       );
 }
 
@@ -73,14 +86,37 @@ final class AppleMusicSetupState {
 /// connect half). The ArkWeb sign-in does the Apple ID step; this only starts
 /// it, then saves the Music User Token it returns.
 class AppleMusicSetupViewModel extends Notifier<AppleMusicSetupState> {
+  /// The account limit's refusal (no sign-in is started for an account that can't be kept).
+  static const limitReached = AppleSetupFailed(AppleMusicAuthFailure.unavailable, accountLimit: true);
+
   @override
-  AppleMusicSetupState build() => const AppleMusicSetupState();
+  AppleMusicSetupState build() {
+    _readLimit();
+    return const AppleMusicSetupState();
+  }
+
+  /// Whether another account fits (MAX_PROFILES).
+  Future<void> _readLimit() async {
+    final List<Profile> profiles;
+    try {
+      profiles = await ref.read(profileRepositoryProvider).profiles();
+    } catch (_) {
+      return;
+    }
+    if (!ref.mounted) return;
+    final fits = profiles.length < ProfileRepository.maxProfiles;
+    if (fits != state.canAddProfile) state = state.copyWith(canAddProfile: fits);
+  }
 
   /// Starts sign-in for [endpoint], then saves the account and makes it active.
   Future<void> connect(String endpoint) async {
     if (state.isBusy) return;
     final checked = _validate(endpoint);
     if (checked == null) return;
+    if (!state.canAddProfile) {
+      state = state.copyWith(status: limitReached);
+      return;
+    }
     // Held across the awaits: once the save starts, the app must follow the
     // new active account even if this page was closed meanwhile.
     final container = ref.container;
@@ -107,6 +143,9 @@ class AppleMusicSetupViewModel extends Notifier<AppleMusicSetupState> {
         displayName: 'Apple Music',
         credentials: AppleMusicCredentials(endpoint: checked, musicUserToken: result.musicUserToken),
       );
+    } on ProfileLimitReachedException {
+      if (ref.mounted) state = state.copyWith(status: limitReached, canAddProfile: false);
+      return;
     } catch (_) {
       if (ref.mounted) state = state.copyWith(status: const AppleSetupFailed(AppleMusicAuthFailure.unavailable));
       return;

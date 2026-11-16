@@ -12,6 +12,7 @@ import '../offline/offline_toggle.dart';
 import '../shell/detail_chrome.dart';
 import '../theme/tokens.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/user_message.dart';
 import 'album_detail_view_model.dart';
 import 'album_hero_marks.dart';
 import 'album_scrapbook_page.dart';
@@ -88,8 +89,9 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
             ],
             stateView: switch (state) {
               AlbumDetailLoading() => const DetailLoadingView(),
-              AlbumDetailError(:final notFound) => DetailErrorView(
-                message: notFound ? strings.albumNotFound : strings.albumLoadError,
+              AlbumDetailError(:final notFound, :final cause, :final diagnostics) => DetailErrorView(
+                message: notFound ? strings.albumNotFound : userMessageText(context, cause, strings.albumLoadError),
+                diagnostics: notFound ? null : diagnostics,
                 onRetry: () => ref.read(albumDetailProvider(albumId).notifier).retry(),
               ),
               AlbumDetailContent() => null,

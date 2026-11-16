@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
+import '../ui/component/error_diagnostics.dart';
 import 'detail_cache.dart';
 
 /// Artist page state (Android ArtistDetailUiState).
@@ -17,8 +18,16 @@ final class ArtistDetailLoading extends ArtistDetailState {
 }
 
 final class ArtistDetailError extends ArtistDetailState {
-  const ArtistDetailError({required this.notFound});
+  const ArtistDetailError({required this.notFound, this.cause, this.diagnostics});
+
+  /// The server has no such artist (vs. a failed read).
   final bool notFound;
+
+  /// What the failed read threw: the page says its line (`userMessageText`).
+  final Object? cause;
+
+  /// The scrubbed report Copy details copies ([diagnosticReport]), taken when it failed.
+  final String? diagnostics;
 }
 
 final class ArtistDetailContent extends ArtistDetailState {
@@ -143,9 +152,9 @@ class ArtistDetailNotifier extends Notifier<ArtistDetailState> {
         cache.prefetchAlbum(r.id);
       }
       _recordVisit(artist);
-    } catch (_) {
+    } catch (e) {
       if (!ref.mounted || gen != _generation) return;
-      state = const ArtistDetailError(notFound: false);
+      state = ArtistDetailError(notFound: false, cause: e, diagnostics: diagnosticReport(e));
     }
   }
 
