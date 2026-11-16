@@ -80,6 +80,17 @@ void main() {
     expect(readable(-1, 11), isEmpty);
   });
 
+  test('should_readTheFirstTwoRowsAsTheTitleCardsNext_when_theIntroSeatsTheTitle', () {
+    // Android's full list counts the title card as item 0: in the intro the first two lines read.
+    final rows = [
+      for (var i = 0; i < 6; i++)
+        if (lyricRowReadable(i, -1, introOnHeader: true)) i,
+    ];
+    expect(rows, [0, 1]);
+    expect(lyricRowReadable(0, -1), isFalse);
+    expect(lyricRowReadable(4, 5, introOnHeader: true), isTrue);
+  });
+
   test('should_letLinesTwoOrMoreAboveRestAsFineDots_when_aLineIsCurrent', () {
     expect(isReadableLyricLine(3, 5), isFalse);
     expect(isReadableLyricLine(8, 5), isFalse);

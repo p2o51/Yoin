@@ -15,9 +15,8 @@ const _lines = 30;
 const _lineMs = 4000;
 const _durationMs = _lines * _lineMs + 100000;
 
-LyricSheet _sheet(String prefix) => LyricSheet([
-  for (var i = 0; i < _lines; i++) LyricRow('$prefix line $i', startMs: i * _lineMs),
-]);
+LyricSheet _sheet(String prefix) =>
+    LyricSheet([for (var i = 0; i < _lines; i++) LyricRow('$prefix line $i', startMs: i * _lineMs)]);
 
 Future<void> _pump(WidgetTester tester, {required int positionMs, bool staged = true}) async {
   tester.view.physicalSize = const Size(400, 800);
@@ -79,6 +78,19 @@ void main() {
   testWidgets('should_keepTheRaisedSeat_when_farFromTheSongsEnd', (tester) async {
     await _pump(tester, positionMs: 10 * _lineMs + 500);
     final line = tester.getRect(find.text('this line 10'));
-    expect(line.center.dy, lessThan(800 * 0.6));
+    // The row's centre on the seat: the clean band between the 64 fades, at
+    // 40 % of the 800 screen rounded to a 2 % step (0.38), measured from the
+    // window's top, not from under the list's 48 top padding.
+    const fade = LyricsPaneMetrics.fade;
+    const seat = fade + (800 - 2 * fade) * 0.38;
+    expect(line.center.dy, closeTo(seat, 1));
+  });
+
+  testWidgets('should_walkTheHighlightDown_when_theSongsLastLinesAreSung', (tester) async {
+    await _pump(tester, positionMs: (_lines - 3) * _lineMs + 500);
+    final earlier = tester.getRect(find.text('this line ${_lines - 3}')).center.dy;
+    await _pump(tester, positionMs: (_lines - 1) * _lineMs + 500);
+    final last = tester.getRect(find.text('this line ${_lines - 1}')).center.dy;
+    expect(last, greaterThan(earlier + 2 * LyricsPaneMetrics.rowPadV));
   });
 }

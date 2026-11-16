@@ -35,6 +35,13 @@ bool isReadableLyricLine(int index, int current) {
   return gap > 0 ? gap <= _T.lyricDotsReadableLines : -gap <= _T.lyricDotsReadableLinesAbove;
 }
 
+/// [isReadableLyricLine] for a lyric row of a list whose title card may hold
+/// the focus: while the song's intro seats the title card ([introOnHeader],
+/// no line current yet), the first rows read as the lines after it, as
+/// Android's full list counts the header as item 0.
+bool lyricRowReadable(int index, int active, {bool introOnHeader = false}) =>
+    active >= 0 ? isReadableLyricLine(index, active) : introOnHeader && isReadableLyricLine(index + 1, 0);
+
 /// The other lines' resting dot radius for [window] ([readable]: see
 /// [isReadableLyricLine]; full enough to read everywhere). Tablets and the
 /// fold's inner screen (medium width AND height) rest fuller, so the other

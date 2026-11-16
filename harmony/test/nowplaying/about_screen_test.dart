@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,8 +13,10 @@ import 'package:yoin/nowplaying/ask_bar.dart';
 import 'package:yoin/nowplaying/now_playing_screen.dart';
 import 'package:yoin/nowplaying/now_playing_view_model.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
+import 'package:yoin/nowplaying/stage_tabs.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
+import 'package:yoin/ui/component/yoin_loading_indicator.dart';
 
 import '../support/fake_ai_client.dart';
 import '../support/nowplaying_fakes.dart';
@@ -45,6 +49,7 @@ void main() {
     bool ready = true,
     Size size = const Size(412, 892),
     List<Track>? queue,
+    FakeAiClient? ai,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -54,7 +59,7 @@ void main() {
     if (ready) {
       await AiSettingsStore(kv, secrets).write(const AiSettings(provider: AiProvider.qwen, qwenKey: 'q'));
     }
-    client = FakeAiClient(reply: _about);
+    client = ai ?? FakeAiClient(reply: _about);
     final tracks = queue ?? [blue];
     playback = NowPlayingFakeController(playingState(tracks));
     final controller = NowPlayingOverlayController(vsync: tester);
@@ -142,6 +147,28 @@ void main() {
     expect(client.prompts, hasLength(2));
     expect(client.prompts.last, contains('River'));
     expect(find.text('Load song info'), findsNothing);
+  });
+
+  testWidgets('should_showTheBusyIndicatorInTheTabRow_when_theAiLoadsOverServerFacts', (tester) async {
+    // Android 11-16 (5145074a9): the server's facts show at once; the wait sits between About and Note.
+    final gated = _GatedAiClient(reply: _about);
+    await pump(tester, ai: gated);
+    await tester.tap(find.text('About'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final busy = find.descendant(of: find.byType(StageTabs), matching: find.byType(YoinLoadingIndicator));
+    expect(busy, findsOneWidget);
+    final x = tester.getCenter(busy).dx;
+    expect(x, greaterThan(tester.getCenter(find.text('About')).dx));
+    expect(x, lessThan(tester.getCenter(find.text('Note')).dx));
+    expect(find.text('Folk'), findsWidgets);
+    expect(find.text('Searching for song info…'), findsNothing);
+
+    gated.gate.complete();
+    await tester.pumpAndSettle();
+    expect(busy, findsNothing);
+    expect(find.text('Joni Mitchell'), findsWidgets);
   });
 
   testWidgets('should_notFetch_when_theSongChangesOnAnotherPage', (tester) async {
@@ -240,4 +267,23 @@ void main() {
     expect(find.byType(SongInfoDisplay).evaluate().length + find.byType(AboutPane).evaluate().length, 1);
     expect(details, isEmpty);
   });
+}
+
+/// Holds the AI's answers until [gate] completes: About stays loading.
+class _GatedAiClient extends FakeAiClient {
+  _GatedAiClient({super.reply});
+
+  final gate = Completer<void>();
+
+  @override
+  Future<String> generate(
+    AiSettings ai,
+    String prompt, {
+    required double temperature,
+    required bool useSearch,
+    Duration? timeout,
+  }) async {
+    await gate.future;
+    return super.generate(ai, prompt, temperature: temperature, useSearch: useSearch, timeout: timeout);
+  }
 }

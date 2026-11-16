@@ -576,6 +576,9 @@ class AboutCarouselFrame extends SingleChildRenderObjectWidget {
   void updateRenderObject(BuildContext context, RenderAboutCarouselFrame renderObject) => renderObject.fade = fade;
 }
 
+/// smoothstep sampled at six points (EdgeFade.kt easedMaskColors).
+const _easedFadeStops = [0.0, 0.104, 0.352, 0.648, 0.896, 1.0];
+
 /// [AboutCarouselFrame]'s box: lays the page out unbounded, centres or tops it, clips and fades an overflow.
 class RenderAboutCarouselFrame extends RenderShiftedBox {
   RenderAboutCarouselFrame(this._fade) : super(null);
@@ -629,12 +632,14 @@ class RenderAboutCarouselFrame extends RenderShiftedBox {
     _clip.layer = context.pushClipRect(needsCompositing, offset, Offset.zero & size, (context, offset) {
       final layer = _mask.layer ??= ShaderMaskLayer();
       final start = size.height <= 0 ? 1.0 : (1 - _fade / size.height).clamp(0.0, 1.0);
+      // Opaque down to the fade, then out on a smoothstep ramp (edgeFade's
+      // eased stops), so the fade has no visible onset line.
       layer
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
-          stops: [0, start, 1],
+          colors: [const Color(0xFFFFFFFF), for (final t in _easedFadeStops) Color.fromRGBO(255, 255, 255, 1 - t)],
+          stops: [0, for (final t in _easedFadeStops) start + (1 - start) * t],
         ).createShader(Offset.zero & size)
         ..maskRect = offset & size
         ..blendMode = BlendMode.dstIn;

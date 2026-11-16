@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/about_logic.dart';
@@ -19,7 +20,9 @@ const _facts = AboutSourceFacts(genre: 'Folk', year: 1971, durationSec: 200);
 
 Widget _app(Widget child, {Size size = const Size(412, 600)}) => MaterialApp(
   home: Material(
-    child: Center(child: SizedBox.fromSize(size: size, child: child)),
+    child: Center(
+      child: SizedBox.fromSize(size: size, child: child),
+    ),
   ),
 );
 
@@ -43,9 +46,7 @@ void main() {
   group('expanded About', () {
     Future<void> pumpPane(WidgetTester tester, AboutUiState state, {LyricCredits? credits, AboutSourceFacts? facts}) =>
         tester.pumpWidget(
-          _app(
-            AboutPane(state: state, onRetry: () {}, onOpenSettings: () {}, credits: credits, facts: facts),
-          ),
+          _app(AboutPane(state: state, onRetry: () {}, onOpenSettings: () {}, credits: credits, facts: facts)),
         );
 
     testWidgets('should_showTheCreditsAndFacts_when_theAiIsLoading', (tester) async {
@@ -104,6 +105,10 @@ void main() {
       final top = tester.getTopLeft(find.byType(AboutCarouselFrame)).dy;
       // The first line sits at the window's top, not cut off above it.
       expect(tester.getTopLeft(find.text('Joni Mitchell')).dy, greaterThanOrEqualTo(top));
+      final page = find.descendant(of: find.byType(AboutCarouselFrame), matching: find.byType(Column)).first;
+      expect(tester.getTopLeft(page).dy, closeTo(top, 0.5));
+      // Clipped to the window and masked out over its bottom.
+      expect(tester.layers.whereType<ShaderMaskLayer>(), isNotEmpty);
       expect(tester.takeException(), isNull);
     });
 
@@ -117,6 +122,7 @@ void main() {
         find.descendant(of: find.byType(AboutCarouselFrame), matching: find.byType(Column)).first,
       );
       expect(page.center.dy, closeTo(box.center.dy, 1));
+      expect(tester.layers.whereType<ShaderMaskLayer>(), isEmpty);
     });
   });
 

@@ -572,7 +572,10 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     fraction = (fraction * 50).round() / 50;
     final rowH = _rowHeight(row) ?? 0;
     final rowTop = (fade + band * fraction - rowH / 2).clamp(fade, math.max(fade, fade + band - rowH));
-    return top - rowTop;
+    // [top] is measured inside the list's top padding: a scroll offset of s
+    // puts it at contentPad + top - s in the window (Android's scrollToItem
+    // offset is from the content padding too), so the seat lands on [rowTop].
+    return LyricsPaneMetrics.contentPad + top - rowTop;
   }
 
   double _targetOffset() {
@@ -691,6 +694,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final gap = full ? LyricsPaneMetrics.spacing : NowPlayingTokens.lyricsListLineGap;
     final selecting = full && _selecting;
     final selected = _selection?.selected ?? const <int>{};
+    final hasHeader = full && (widget.title?.trim().isNotEmpty ?? false);
 
     Widget row(int index, LyricRow line) {
       final key = _rowKeys.putIfAbsent(index, GlobalKey.new);
@@ -703,7 +707,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         distance: synced ? distance : 0,
         above: synced && focus >= 0 && index < focus,
         // One of the next lines, or the line just sung: in focus its dots stay full enough to read.
-        readable: synced && isReadableLyricLine(index, _active),
+        readable: synced && lyricRowReadable(index, _active, introOnHeader: focus == _header && hasHeader),
         linesAbove: widget.linesAbove,
         mode: widget.mode,
         synced: synced,
@@ -737,7 +741,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     ];
 
     final current = <Widget>[
-      if (full && (widget.title?.trim().isNotEmpty ?? false))
+      if (hasHeader)
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: synced && !selecting
