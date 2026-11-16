@@ -145,6 +145,7 @@ abstract final class SettingsMetrics {
   static const double syncExpandGap = 14;
   static const double syncListLineGap = 4; // WhatSyncsList
   static const double syncSummaryAlpha = 0.6; // account status line on a service line
+  static const double syncDisabledAlpha = 0.38; // a destructive row while it can't be used (M3 disabled content)
 
   // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
   static const double splitListFraction = 0.33;

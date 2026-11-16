@@ -17,14 +17,13 @@ import 'package:yoin/platform/storage/stores.dart';
 
 void main() {
   late InMemoryStore kv;
-  MemoryStore memory(String id) => MemoryStore.forSync(kv, id);
+  MemoryStore memory(String id) => MemoryStore.shared(kv, id);
 
   setUp(() => kv = InMemoryStore());
 
   group('SongNoteSyncAdapter', () {
     test('should_projectAndroidsFields_when_noteRead', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       await store.putSongNote(
         SongNote(
           id: 'n1',
@@ -55,8 +54,7 @@ void main() {
     });
 
     test('should_writeNoteAndTellScreens_when_androidPayloadApplied', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       final changes = <MemoryStoreChange>[];
       final sub = store.changes.listen(changes.add);
       addTearDown(sub.cancel);
@@ -81,8 +79,7 @@ void main() {
     });
 
     test('should_skipChangedLocally_when_rowChangedSinceCapture', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       await store.putSongNote(
         SongNote(id: 'n1', trackId: MediaId.subsonic('t'), content: 'mine', createdAt: 1, updatedAt: 1),
       );
@@ -113,8 +110,7 @@ void main() {
 
   group('Album rating and review', () {
     test('should_shareOneRow_when_ratingAndReviewApplied', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       final key = albumKey('subsonic', 'al1');
       await AlbumRatingSyncAdapter(
         memory,
@@ -135,8 +131,7 @@ void main() {
     });
 
     test('should_keepEmptyRowButHideIt_when_scoreCleared', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       final id = MediaId.subsonic('al1');
       await store.setAlbumRating(id, 6, nowMs: 1);
       await store.setAlbumRating(id, null, nowMs: 2);
@@ -159,8 +154,7 @@ void main() {
 
   group('AlbumTitleSyncAdapter', () {
     test('should_restoreYoinsTitle_when_tombstoneApplied', () async {
-      final store = MemoryStore(kv, profileId: 'p');
-      addTearDown(store.dispose);
+      final store = memory('p');
       final id = MediaId.subsonic('al1');
       await store.setTitle(id, 'Summer', nowMs: 1);
       final adapter = AlbumTitleSyncAdapter(memory);

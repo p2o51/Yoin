@@ -338,9 +338,6 @@ class _PanePlaceholder extends StatelessWidget {
   }
 }
 
-/// Help and about: Tips (how many are read), Yoin and its version, and the
-/// open source licenses. On a wide window the rows that open a page show a
-/// chevron and the open one is marked.
 /// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage).
 /// HarmonyOS has Cloud sync of that group (no NeoDB, playlist backups or cache row yet).
 class _SyncStorageGroup extends StatelessWidget {
@@ -358,6 +355,9 @@ class _SyncStorageGroup extends StatelessWidget {
   );
 }
 
+/// Help and about: Tips (how many are read), Yoin and its version, and the
+/// open source licenses. On a wide window the rows that open a page show a
+/// chevron and the open one is marked.
 class _HelpAboutGroup extends ConsumerWidget {
   const _HelpAboutGroup({required this.open, required this.listDetail, required this.onOpen});
 

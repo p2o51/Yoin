@@ -98,11 +98,14 @@ class HomeEditController extends Notifier<HomeEditState> {
     YoinHaptics.confirm();
     final layouts = ref.read(homeLayoutProvider.notifier);
     final current = ref.read(homeLayoutProvider);
-    final undo = [...state.undo, current];
-    state = HomeEditState(
-      editing: state.editing,
-      undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
-    );
+    // Already the default: nothing to undo (as _apply), but a saved copy still goes.
+    if (!identical(current, HomeLayout.defaultLayout)) {
+      final undo = [...state.undo, current];
+      state = HomeEditState(
+        editing: state.editing,
+        undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
+      );
+    }
     // Restore default deletes the saved layout (Android clearLayout), so it syncs as "default".
     layouts.clear();
   }

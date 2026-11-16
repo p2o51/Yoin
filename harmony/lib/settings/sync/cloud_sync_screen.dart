@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -194,13 +195,13 @@ class _OffContent extends ConsumerWidget {
 }
 
 /// The package the OAuth client is registered for, for the "not available" case.
-class _BuildDetailsRow extends StatelessWidget {
+class _BuildDetailsRow extends ConsumerWidget {
   const _BuildDetailsRow({required this.packageName});
 
   final String packageName;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = CloudSyncStrings.of(context);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
@@ -236,6 +237,8 @@ class _BuildDetailsRow extends StatelessWidget {
               onPressed: () {
                 YoinHaptics.click();
                 Clipboard.setData(ClipboardData(text: s.clipBody(packageName, s.certUnknown)));
+                // Android's "Copied" snackbar.
+                ref.read(cloudSyncMessengerProvider)(s.copied);
               },
             ),
           ],
@@ -349,8 +352,8 @@ class _OnContent extends ConsumerWidget {
           SettingsGroup(
             title: s.sectionDevices,
             children: [
-              for (final d in [...sync.devices]..sort((a, b) => (b.isThisDevice ? 1 : 0) - (a.isThisDevice ? 1 : 0)))
-                _DeviceItem(key: ValueKey(d.deviceId), device: d, now: now),
+              // This device first, then the others by when they last synced (the controller's order).
+              for (final d in sync.devices) _DeviceItem(key: ValueKey(d.deviceId), device: d, now: now),
             ],
           ),
         ],
@@ -1012,7 +1015,7 @@ class _WhatSyncsItemState extends State<_WhatSyncsItem> with SingleTickerProvide
             onTap: _toggle,
             trailing: AnimatedBuilder(
               animation: _turn.animation,
-              builder: (context, child) => Transform.rotate(angle: _turn.value * 3.141592653589793, child: child),
+              builder: (context, child) => Transform.rotate(angle: _turn.value * math.pi, child: child),
               child: Icon(
                 YoinSymbols.chevronDown,
                 color: colors.onSurfaceVariant,
@@ -1126,7 +1129,11 @@ class _DestructiveItemState extends State<_DestructiveItem> with SingleTickerPro
       child: AnimatedBuilder(
         animation: _on.animation,
         builder: (context, _) {
-          final color = Color.lerp(colors.onSurface.withValues(alpha: 0.38), colors.error, _on.value.clamp(0.0, 1.0))!;
+          final color = Color.lerp(
+            colors.onSurface.withValues(alpha: SettingsMetrics.syncDisabledAlpha),
+            colors.error,
+            _on.value.clamp(0.0, 1.0),
+          )!;
           return ConstrainedBox(
             constraints: const BoxConstraints(minHeight: SettingsMetrics.rowMinHeight),
             child: Padding(

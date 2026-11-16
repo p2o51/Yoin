@@ -144,7 +144,8 @@ class GoogleOAuth implements GoogleSyncAuthorizer {
   @override
   Future<GoogleAuthResult> authorizeInteractively({String? loginHint}) async {
     if (!_config.isConfigured) return const GoogleAuthMisconfigured();
-    _waiting?.complete(null);
+    // A sign-in still waiting (or just answered, not yet picked up) gives way to this one.
+    cancelWaiting();
     final verifier = _randomUrlSafe(64);
     final challenge = base64Url.encode(sha256.convert(ascii.encode(verifier)).bytes).replaceAll('=', '');
     final state = _randomUrlSafe(24);

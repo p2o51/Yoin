@@ -29,7 +29,7 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | --- | --- |
 | Engine (merge / capture / apply / publish, valve, keep-both) | `lib/data/sync/engine/` — line-by-line port of `SyncEngine.kt` |
 | Replica store (Room `yoin-sync.db` on Android) | `lib/data/sync/sync_database.dart`: the same five tables in memory, saved as one gzip JSON (`yoin-sync.json.gz`) in the ability's `filesDir`, replaced atomically |
-| Adapters | `lib/data/sync/adapters/`: writes go through the live `MemoryStore` queue and the `LocalRatings` notifier, so what's on screen follows a sync and a local edit never overwrites one |
+| Adapters | `lib/data/sync/adapters/`: writes go through the account's one `MemoryStore` (`MemoryStore.shared`, the same instance the screens get from `memoryStoreProvider`) and the `LocalRatings` notifier, so what's on screen follows a sync and a local edit never overwrites one |
 | Bindings and fingerprints | `lib/data/sync/identity/` (fp:v1 byte-identical to Android: the same server gets the same `s-…` scope on both) |
 | Drive REST | `lib/data/sync/drive/drive_app_data_client.dart` (Dart `http`, no logging) |
 | Google sign-in | `lib/data/sync/auth/google_oauth.dart` |

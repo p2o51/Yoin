@@ -87,6 +87,22 @@ void main() {
       c.dispose();
     });
 
+    test('should_addNoUndoStep_when_restoringDefaultOnDefaultLayout', () async {
+      final h = await homeContainer();
+      final c = h.container;
+      c.listen(homeLayoutProvider, (_, _) {});
+      c.listen(homeEditProvider, (_, _) {});
+      await settle(() => false, rounds: 10);
+      final edit = c.read(homeEditProvider.notifier);
+      edit.enter();
+      edit.reset();
+      expect(c.read(homeEditProvider).undo, isEmpty);
+      edit.hide(HomeSection.jumpBackIn);
+      edit.reset();
+      expect(c.read(homeEditProvider).undo, hasLength(2));
+      c.dispose();
+    });
+
     test('should_foldAway_when_libraryComesToFront', () async {
       final h = await homeContainer();
       final c = h.container;

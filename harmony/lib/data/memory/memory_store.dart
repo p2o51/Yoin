@@ -375,19 +375,17 @@ final class MemorySyncRows {
 /// call order; reads after a write see it. [changes] fires after every
 /// write, so the Memories deck can refresh in place.
 final class MemoryStore {
-  MemoryStore(this._store, {required this.profileId}) {
-    _live[profileId] = this;
-  }
+  MemoryStore(this._store, {required this.profileId});
 
-  /// The store each account's screens use right now, so cloud sync writes
-  /// through the same queue and cache instead of under them.
-  static final Map<String, MemoryStore> _live = {};
+  /// One store per (key-value store, account), shared by the screens
+  /// ([memoryStoreProvider]) and cloud sync, so a sync writes through the same
+  /// queue and cache the screens read instead of under them. Never disposed:
+  /// it is only a cache and a queue, and a sync may reach it at any time.
+  static final _shared = Expando<Map<String, MemoryStore>>('MemoryStore.shared');
 
-  /// [profileId]'s live store, or a fresh one over [store] when none is open.
-  static MemoryStore forSync(KeyValueStore store, String profileId) =>
-      _live[profileId] ?? MemoryStore._detached(store, profileId);
-
-  MemoryStore._detached(this._store, this.profileId);
+  /// [profileId]'s rows on [store], the same instance every time.
+  static MemoryStore shared(KeyValueStore store, String profileId) =>
+      (_shared[store] ??= {})[profileId] ??= MemoryStore(store, profileId: profileId);
 
   final KeyValueStore _store;
   final String profileId;
@@ -579,11 +577,7 @@ final class MemoryStore {
   /// Cloud sync's view of the rows, copied (nothing here is edited).
   Future<MemorySyncRows> syncRead() async {
     await _tail;
-    return MemorySyncRows._(
-      Map.of(await _loadRatings()),
-      List.of(await _loadNotes()),
-      Map.of(await _loadTitles()),
-    );
+    return MemorySyncRows._(Map.of(await _loadRatings()), List.of(await _loadNotes()), Map.of(await _loadTitles()));
   }
 
   /// Runs [edit] on the rows in the write queue (no other write in between),
@@ -635,10 +629,7 @@ final class MemoryStore {
   static String _titlesJson(Map<MediaId, MemoryTitleRow> rows) =>
       jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
 
-  void dispose() {
-    if (identical(_live[profileId], this)) _live.remove(profileId);
-    _changes.close();
-  }
+  void dispose() => _changes.close();
 
   // ---- internals ----
 

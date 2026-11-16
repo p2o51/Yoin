@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
+import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/data/sync/cloud_sync_providers.dart';
 import 'package:yoin/home/home_section.dart';
 import 'package:yoin/platform/storage/observed_store.dart';
@@ -28,12 +30,14 @@ void main() {
     );
   });
 
-  ProviderContainer container() {
+  ProviderContainer container({Set<Capability>? capabilities}) {
     final c = ProviderContainer(
       overrides: [
         keyValueStoreProvider.overrideWithValue(values),
         profileRepositoryProvider.overrideWithValue(repo),
-        activeSourceProvider.overrideWith((ref) async => PlaybackFakeSource()),
+        activeSourceProvider.overrideWith(
+          (ref) async => capabilities == null ? PlaybackFakeSource() : PlaybackFakeSource(capabilities: capabilities),
+        ),
       ],
     );
     addTearDown(c.dispose);
@@ -58,6 +62,49 @@ void main() {
     });
     expect(c.read(localRatingsProvider)[song]?.rating, 9);
     expect((await LocalRatingStore(values).read(profile.id))[song]?.rating, 9);
+  });
+
+  test('should_keepSyncedRatingOnDisk_when_ratingWrittenWhileSyncEdits', () async {
+    // No provider push afterwards, whose own save would hide a lost write.
+    final c = container(capabilities: const {});
+    c.listen(localRatingsProvider, (_, _) {});
+    await c.read(activeSourceProvider.future);
+    await pumpEventQueue();
+    final ratings = c.read(localRatingsProvider.notifier);
+    final synced = MediaId.subsonic('s1');
+    final mine = MediaId.subsonic('s2');
+    // The sync step is queued first; the user's rating lands on screen before it runs.
+    final edit = ratings.syncEdit(profile.id, (rows) {
+      rows[synced] = LocalRating(
+        profileId: profile.id,
+        songId: 's1',
+        provider: 'subsonic',
+        rating: 8,
+        serverRating: 4,
+        updatedAt: 1,
+      );
+    });
+    final write = ratings.setRating(mine, 6);
+    await edit;
+    await write;
+    await pumpEventQueue();
+    final stored = await LocalRatingStore(values).read(profile.id);
+    expect(stored[synced]?.rating, 8);
+    expect(stored[mine]?.rating, 6);
+    expect(c.read(localRatingsProvider)[synced]?.rating, 8);
+  });
+
+  test('should_shareOneStore_when_screensAndSyncReachSameAccount', () async {
+    final c = container();
+    final screens = await c.read(memoryStoreProvider.future);
+    final sync = MemoryStore.shared(values, profile.id);
+    expect(identical(screens, sync), isTrue);
+    // A row the screens cached comes back changed after a sync edit, with no reload.
+    final album = MediaId.subsonic('al1');
+    await screens!.setTitle(album, 'Mine', nowMs: 1);
+    expect((await screens.titleOf(album))?.title, 'Mine');
+    await sync.syncEdit((rows) => rows.titles.remove(album));
+    expect(await screens.titleOf(album), isNull);
   });
 
   test('should_deleteSavedLayoutAndStampEdits_when_resetOrEdited', () async {

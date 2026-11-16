@@ -74,9 +74,8 @@ final memoryStoreProvider = FutureProvider<MemoryStore?>((ref) async {
   await ref.watch(activeSourceProvider.future);
   final profile = await ref.watch(profileRepositoryProvider).activeProfile();
   if (profile == null) return null;
-  final store = MemoryStore(ref.watch(keyValueStoreProvider), profileId: profile.id);
-  ref.onDispose(store.dispose);
-  return store;
+  // Shared with cloud sync (MemoryStore.shared), so its writes and the screens' go through one queue.
+  return MemoryStore.shared(ref.watch(keyValueStoreProvider), profile.id);
 });
 
 /// Heart / star states toggled this session, over every surface that shows

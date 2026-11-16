@@ -101,8 +101,10 @@ void main() {
 
     test('should_matchPubspecVersion_when_shown', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      final version = RegExp(r'^version:\s*([^+\s]+)', multiLine: true).firstMatch(pubspec)!.group(1);
-      expect(yoinVersionName, version);
+      final version = RegExp(r'^version:\s*([^+\s]+)(?:\+(\d+))?', multiLine: true).firstMatch(pubspec)!;
+      expect(yoinVersionName, version.group(1));
+      // Cloud sync writes the build number into every file it uploads.
+      expect(yoinVersionCode, int.parse(version.group(2) ?? '1'));
     });
 
     testWidgets('should_openLicenseText_when_componentTapped', (tester) async {

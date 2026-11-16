@@ -81,7 +81,7 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
         DriveAppDataClient(http: client, tokens: tokens, userAgent: 'Yoin/$yoinVersionName (gzip)'),
     adapters: (db) => yoinSyncAdapters(
       db: db,
-      memory: (profileId) => MemoryStore.forSync(store, profileId),
+      memory: (profileId) => MemoryStore.shared(store, profileId),
       ratings: ratings,
       profiles: profiles,
       store: store,

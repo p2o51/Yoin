@@ -95,6 +95,7 @@ class CloudSyncManager implements CloudSyncController {
   StreamSubscription<void>? _observer;
   Timer? _debounce;
   Future<void>? _launchedCycle;
+  bool _disposed = false;
 
   // LAST_ERROR codes
   static const _codeReauth = 'reauth';
@@ -124,7 +125,7 @@ class CloudSyncManager implements CloudSyncController {
     unawaited(
       body().catchError((Object error) {
         debugPrint('YoinSync: job failed (${error.runtimeType})');
-        _state.value = _state.value.copyWith(phase: SyncErrorPhase(error.toString()));
+        _setState(_state.value.copyWith(phase: SyncErrorPhase(error.toString())));
       }),
     );
   }
@@ -444,13 +445,6 @@ class CloudSyncManager implements CloudSyncController {
     await _refreshState();
   });
 
-  /// A music account was added or changed: bind it and sync (Android's profiles observer).
-  void onAccountsChanged() => _launch(() async {
-    if (!_initialized || !_isEnabled()) return;
-    await _runLocalCapture();
-    if (_engine().hasPendingChanges() || _lastBindings?.newlyBound.isNotEmpty == true) await _runCycle(force: true);
-  });
-
   void _accountAction(Future<Object?> Function() action) => _launch(() async {
     await ensureInitialized();
     await _lock.run(() async => action());
@@ -465,7 +459,7 @@ class CloudSyncManager implements CloudSyncController {
     await _lock.run(() async {
       if (!_isEnabled()) return;
       _lastCycleStartedAt = _clock();
-      _state.value = _state.value.copyWith(phase: const SyncSyncing());
+      _setState(_state.value.copyWith(phase: const SyncSyncing()));
       String? outcome;
       try {
         outcome = await _cycle();
@@ -809,21 +803,28 @@ class CloudSyncManager implements CloudSyncController {
     ]..sort((a, b) => (b.lastSyncAt ?? 0).compareTo(a.lastSyncAt ?? 0));
     final bindings = _lastBindings;
     final permission = _db.meta(SyncMetaKeys.googlePermissionId);
-    _state.value = CloudSyncState(
-      phase: phase,
-      account: permission == null
-          ? null
-          : GoogleAccountUi(
-              email: _db.meta(SyncMetaKeys.googleEmail),
-              displayName: _db.meta(SyncMetaKeys.googleDisplayName),
-            ),
-      lastSyncAt: thisDevice.lastSyncAt,
-      pendingChanges: enabled && _db.pendingCount() > 0,
-      accounts: bindings?.rows ?? const [],
-      cloudOnlyAccounts: bindings?.cloudOnly ?? const [],
-      devices: enabled || peers.isNotEmpty ? [thisDevice, ...peers] : const [],
-      lastSummaryCount: int.tryParse(_db.meta(SyncMetaKeys.lastSummary) ?? ''),
+    _setState(
+      CloudSyncState(
+        phase: phase,
+        account: permission == null
+            ? null
+            : GoogleAccountUi(
+                email: _db.meta(SyncMetaKeys.googleEmail),
+                displayName: _db.meta(SyncMetaKeys.googleDisplayName),
+              ),
+        lastSyncAt: thisDevice.lastSyncAt,
+        pendingChanges: enabled && _db.pendingCount() > 0,
+        accounts: bindings?.rows ?? const [],
+        cloudOnlyAccounts: bindings?.cloudOnly ?? const [],
+        devices: enabled || peers.isNotEmpty ? [thisDevice, ...peers] : const [],
+        lastSummaryCount: int.tryParse(_db.meta(SyncMetaKeys.lastSummary) ?? ''),
+      ),
     );
+  }
+
+  /// A job still running when the app's container goes away has no one to tell.
+  void _setState(CloudSyncState next) {
+    if (!_disposed) _state.value = next;
   }
 
   CloudSyncPhase _offPhase(String? lastError) {
@@ -944,6 +945,7 @@ class CloudSyncManager implements CloudSyncController {
   }
 
   void dispose() {
+    _disposed = true;
     _stopObservers();
     _db.close();
     _state.dispose();

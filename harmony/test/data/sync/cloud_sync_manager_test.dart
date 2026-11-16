@@ -75,7 +75,7 @@ class Phone {
       transportFor: (_) => FakeDriveTransport(drive),
       adapters: (db) => yoinSyncAdapters(
         db: db,
-        memory: (id) => MemoryStore.forSync(kv, id),
+        memory: (id) => MemoryStore.shared(kv, id),
         ratings: StoreTrackRatingAccess(LocalRatingStore(kv)),
         profiles: repo,
         store: kv,
@@ -88,7 +88,7 @@ class Phone {
     );
   }
 
-  MemoryStore get memory => MemoryStore.forSync(kv, profile.id);
+  MemoryStore get memory => MemoryStore.shared(kv, profile.id);
 
   Future<void> turnOn() async {
     expect(await sync.turnOn(), isA<TurnOnStarted>());
