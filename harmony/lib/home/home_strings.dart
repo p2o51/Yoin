@@ -146,8 +146,15 @@ class HomeStrings {
   String get editMoreRows => _zh ? '增加行数' : 'More rows'; // home_edit_more_rows
   String get editFewerRows => _zh ? '减少行数' : 'Fewer rows'; // home_edit_fewer_rows
   String get editHide => _zh ? '隐藏' : 'Hide'; // home_edit_hide
+  String get jbiHideThreeDays => _zh ? '3 天内不显示' : 'Hide for 3 days'; // home_jbi_hide_three_days
+  String get jbiHideWeek => _zh ? '一周内不显示' : 'Hide for a week'; // home_jbi_hide_week
   String sectionIndexCd(int index, int count) =>
       _zh ? '第 $index 个分区，共 $count 个' : 'Section $index of $count'; // home_cd_section_index
+  String sectionIndexRowsCd(int index, int count, String rows) =>
+      _zh ? '第 $index 个分区，共 $count 个，$rows' : 'Section $index of $count, $rows'; // home_cd_section_index_rows
+
+  /// home_edit_rows (plural).
+  String rowsLabel(int rows) => _zh ? '$rows 行' : (rows == 1 ? '$rows row' : '$rows rows');
 
   String get activitiesEmptyTitle => _zh ? '暂无动态' : 'No activity yet'; // home_activities_empty_title
 

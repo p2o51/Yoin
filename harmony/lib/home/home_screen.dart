@@ -15,12 +15,16 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive/loading_indicator.dart';
+import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
 import 'home_edit.dart';
 import 'home_feed_density.dart';
+import 'home_jbi_hidden.dart';
 import 'home_header.dart';
 import 'home_memory_signals.dart';
 import 'home_metrics.dart';
+import 'home_rows_handle.dart';
+import 'home_rows_resize.dart';
 import 'home_section.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
@@ -131,6 +135,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   /// The app going to the background folds edit mode away.
   AppLifecycleListener? _lifecycle;
 
+  /// While Jump Back In's "not now" menu is up: the route it stands over (Home's).
+  ModalRoute<Object?>? _hideMenuBase;
+
+  /// Edit mode's row resize (Activities, Jump Back In): the ⌟ handles' engine.
+  late final HomeRowsEngine _rows = HomeRowsEngine(
+    vsync: this,
+    editing: () => mounted && ref.read(homeEditProvider).editing,
+    carrying: () => _dragging != null,
+    currentPreset: (section) => ref.read(homeLayoutProvider).rowsOf(section),
+    commit: (section, preset) => ref.read(homeEditProvider.notifier).setRows(section, preset),
+    reduced: () => _reduced,
+  )..autoScroll = _RowsAutoScroll(this);
+
   GlobalKey _keyFor(HomeSection s) => _itemKeys.putIfAbsent(s, GlobalKey.new);
   GlobalKey _bodyKeyFor(HomeSection s) => _bodyKeys.putIfAbsent(s, GlobalKey.new);
   LayerLink _linkFor(HomeSection s) => _links.putIfAbsent(s, LayerLink.new);
@@ -151,6 +168,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _feedRise;
     _frameBlend;
     _edit;
+    _rows;
     (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
     _lifecycle = AppLifecycleListener(onHide: () {
       if (mounted) ref.read(homeEditProvider.notifier).exit();
@@ -177,6 +195,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       s.dispose();
     }
     _autoScroll.dispose();
+    _rows.dispose();
     _lift.dispose();
     _paletteGate.dispose();
     super.dispose();
@@ -267,6 +286,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final signals = ref.watch(homeMemorySignalsProvider);
     final editing = ref.watch(homeEditProvider).editing;
     ref.listen(homeEditProvider.select((e) => e.editing), (_, on) => _onEditing(on));
+    // A changed preset (a step, Undo, Reset) springs its section to the new stop.
+    ref.listen(homeLayoutProvider, (previous, next) {
+      if (previous != null) _rows.onLayoutChange(previous, next);
+    });
     final colors = Theme.of(context).colorScheme;
     final density = _density ?? HomeFeedDensity.of(YoinWindowInfo.of(context));
     final padding = MediaQuery.viewPaddingOf(context);
@@ -326,15 +349,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           );
           // Long-press anywhere below the header enters; a tap on the page's
           // blank space (not a plate) leaves.
-          return GestureDetector(
+          return RawGestureDetector(
             behavior: HitTestBehavior.translucent,
-            onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
-            // The right click / two-finger tap is the long-press on a PC.
-            onSecondaryTapUp: content?.hasAccount ?? false
-                ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
-                : null,
-            onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
-            child: list,
+            // The ⌟'s strip below its section's box (the plate's outset) is
+            // the feed's to hit-test: a finger landing there still grabs it.
+            gestures: {
+              HomeRowsGrabRecognizer: GestureRecognizerFactoryWithHandlers<HomeRowsGrabRecognizer>(
+                () => HomeRowsGrabRecognizer(debugOwner: this),
+                (r) => r
+                  ..onDown = ((position, t) => _rows.grabAt(position, t))
+                  ..onMove = ((y, t) => _rows.dragTo(y, t))
+                  ..onUp = ((t) => _rows.release(timeMs: t))
+                  ..onCancel = () => _rows.release(cancelled: true),
+              ),
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
+              // The right click / two-finger tap is the long-press on a PC.
+              onSecondaryTapUp: content?.hasAccount ?? false
+                  ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
+                  : null,
+              onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
+              child: HomeRowsScope(engine: _rows, child: list),
+            ),
           );
         },
       ),
@@ -409,7 +447,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final visible = layout.visibleV1Sections;
     // The signals are the same account's, or none (a switch in flight).
     final mine = signals.scope == content.scopeKey;
-    final jbi = mine ? withJbiSignals(content.grid, signals.wideCards) : content.grid;
+    // Cards the user put away for a while ("not now") stay off the shelf.
+    final hidden = ref.watch(jbiHiddenProvider).keysAt(content.scopeKey, ref.read(homeClockProvider)().millisecondsSinceEpoch);
+    final jbi = jbiShelfCards(content.grid, mine ? signals : null, hidden);
+    final editing = ref.read(homeEditProvider).editing;
     final added = {for (final a in content.recentlyAddedAlbums) a.id};
     final rediscover = mine
         ? [
@@ -423,8 +464,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     );
     for (final section in visible) {
       final (Widget? body, int beat) = switch (section) {
-        HomeSection.activities => (padded(ActivitiesSection(content: content, frame: frame)), 0),
-        HomeSection.jumpBackIn => (jbi.isEmpty ? null : padded(JumpBackInSection(cards: jbi, frame: frame)), 1),
+        HomeSection.activities => (
+          padded(ActivitiesSection(content: content, frame: frame, preset: layout.rowsOf(HomeSection.activities))),
+          0,
+        ),
+        HomeSection.jumpBackIn => (
+          jbi.isEmpty
+              ? null
+              : padded(JbiHideScope(
+                  // Edit mode's "not now": a tap on a card opens its menu
+                  // (owner 2026-10-13). Always in the tree, so entering and
+                  // leaving keep the shelf's state.
+                  onTap: editing ? (cardContext, card) => _openJbiHideMenu(content.scopeKey, cardContext, card) : null,
+                  child: JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn)),
+                )),
+          1,
+        ),
         HomeSection.recentlyAdded => (
           content.recentlyAddedTracks.isEmpty && content.recentlyAddedAlbums.isEmpty
               ? null
@@ -464,7 +519,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       if (body == null && !editingNow) continue;
       if (body == null) {
         final i = visible.indexOf(section);
-        out.add(_editItem(section, frame, spacing, e, i, visible, padded(HomeEditPlaceholder(section: section))));
+        out.add(_editItem(section, frame, spacing, e, i, visible, padded(HomeEditPlaceholder(section: section)), resizable: false));
         continue;
       }
       // A section that lands after the feed is up grows in; the first paint does not.
@@ -478,7 +533,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               scaleFrom: beat == 0 ? HomeRevealMetrics.heroScaleFrom : 1,
               child: body,
             );
-      out.add(_editItem(section, frame, spacing, e, visible.indexOf(section), visible, SectionAppear(animate: animate, child: revealed)));
+      // Rows (D1): a section with presets, showing its cards (not Activities' empty card).
+      final resizable = section.supportsRows && !(section == HomeSection.activities && content.activityEntries.isEmpty);
+      out.add(_editItem(
+        section,
+        frame,
+        spacing,
+        e,
+        visible.indexOf(section),
+        visible,
+        SectionAppear(animate: animate, child: revealed),
+        resizable: resizable,
+        childTaps: section == HomeSection.jumpBackIn,
+      ));
     }
     if (!_sectionsSeeded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _sectionsSeeded = true);
@@ -488,19 +555,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
   /// One feed item: its gap above, the edit plate (inert at rest) and the
   /// drag's displacement.
-  Widget _editItem(HomeSection section, HomeFeedFrame frame, double spacing, double e, int index, List<HomeSection> visible, Widget child) {
+  Widget _editItem(
+    HomeSection section,
+    HomeFeedFrame frame,
+    double spacing,
+    double e,
+    int index,
+    List<HomeSection> visible,
+    Widget child, {
+    required bool resizable,
+    bool childTaps = false,
+  }) {
     final edit = ref.read(homeEditProvider.notifier);
     final shift = _shiftOf(section);
     final lifted = _lifted == section;
+    final track = resizable ? _rows.track(section) : null;
     // The section itself, under its own key: lifted, it moves (state and the
     // drag in progress with it) from the list slot to the overlay and back.
     final body = KeyedSubtree(
       key: _bodyKeyFor(section),
       child: AnimatedBuilder(
-        animation: lifted ? _lift.animation : const AlwaysStoppedAnimation(0.0),
+        animation: Listenable.merge([
+          lifted ? _lift.animation : const AlwaysStoppedAnimation(0.0),
+          ?track?.structure,
+        ]),
         child: child,
         builder: (context, child) => HomeEditPlate(
           progress: e,
+          childTaps: childTaps,
+          rowCount: track != null && track.stopCount > 1 && track.restStop < track.rowCounts.length
+              ? track.rowCounts[track.restStop]
+              : null,
+          onMoreRows: track != null && track.stopCount > 1 && _rows.canStep(section, 1) ? () => _rows.step(section, 1) : null,
+          onFewerRows: track != null && track.stopCount > 1 && _rows.canStep(section, -1) ? () => _rows.step(section, -1) : null,
+          resizeHandle: track != null && track.stopCount > 1
+              ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
+              : null,
           lift: lifted ? _lift.value.clamp(0.0, 1.0) : 0,
           section: section,
           start: frame.start,
@@ -543,6 +633,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               ),
       ),
     );
+  }
+
+  /// Edit mode's "not now" menu over a tapped Jump Back In card: hide it for
+  /// three days or a week (owner 2026-10-13). It closes on a pick, a tap
+  /// elsewhere, or edit mode ending.
+  Future<void> _openJbiHideMenu(String scope, BuildContext cardContext, HomeWidgetCard card) async {
+    if (!ref.read(homeEditProvider).editing || _hideMenuBase != null) return;
+    if (_dragging != null || _rows.dragging || jbiHideKey(card) == null) return;
+    YoinHaptics.click();
+    final strings = HomeStrings.of(context);
+    _hideMenuBase = ModalRoute.of(context);
+    final JbiHideSpan? span;
+    try {
+      span = await showYoinDropdownMenu<JbiHideSpan>(
+        context: context,
+        anchor: globalRectOf(cardContext),
+        items: [
+          YoinMenuItem(value: JbiHideSpan.threeDays, label: strings.jbiHideThreeDays),
+          YoinMenuItem(value: JbiHideSpan.oneWeek, label: strings.jbiHideWeek),
+        ],
+      );
+    } finally {
+      _hideMenuBase = null;
+    }
+    if (span == null || !mounted || !ref.read(homeEditProvider).editing) return;
+    final now = ref.read(homeClockProvider)().millisecondsSinceEpoch;
+    if (ref.read(jbiHiddenProvider.notifier).hide(scope, card, span, nowMs: now)) YoinHaptics.confirm();
   }
 
   /// The lifted section over the page: on its slot, offset by the finger (or
@@ -610,6 +727,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     } else {
       _editBack.detach();
       _cancelDrag();
+      _rows.onExit();
+      // The "not now" menu folds away with edit mode (out of the listener's frame).
+      final base = _hideMenuBase;
+      if (base != null) {
+        Future.microtask(() {
+          // Only what stands over Home's own route (the menu) is popped.
+          if (mounted && identical(_hideMenuBase, base) && base.isActive && !base.isCurrent) {
+            Navigator.of(context).popUntil((route) => route == base);
+          }
+        });
+      }
     }
     if (_reduced) {
       _edit.snapTo(on ? 1 : 0);
@@ -626,6 +754,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   }
 
   void _startDrag(HomeSection section, List<HomeSection> order, double pointerY) {
+    // A held ⌟ has the page; a section drag puts every resize at rest.
+    if (_rows.dragging) return;
+    _rows.snapAll();
     final tops = List<double>.filled(order.length, 0);
     final heights = List<double>.filled(order.length, 0);
     // The dragged section is under the finger, so it is built.
@@ -811,6 +942,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     }
     setState(() => _dragging = null);
     _lift.animateTo(0);
+  }
+}
+
+/// The feed under a held ⌟ (HomeRowsAutoScroll): scrolls while the finger
+/// is within [HomeEditMetrics.autoScrollEdge] of the status bar or the bar,
+/// eased in to [HomeEditMetrics.autoScrollMax].
+class _RowsAutoScroll implements HomeRowsAutoScroll {
+  _RowsAutoScroll(this._home);
+  final _HomeScreenState _home;
+
+  @override
+  double speed(double fingerGlobalY) {
+    final home = _home;
+    if (!home.mounted) return 0;
+    final box = home._listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize || !home._scroll.hasClients) return 0;
+    final topEdge = box.localToGlobal(Offset.zero).dy + MediaQuery.viewPaddingOf(home.context).top;
+    final bottomEdge = box.localToGlobal(Offset(0, box.size.height)).dy - home._feedBottomInset;
+    const edge = HomeEditMetrics.autoScrollEdge;
+    if (fingerGlobalY < topEdge + edge) {
+      return -HomeEditMetrics.autoScrollMax * homeRowsEdgeRamp((topEdge + edge - fingerGlobalY) / edge);
+    }
+    if (fingerGlobalY > bottomEdge - edge) {
+      return HomeEditMetrics.autoScrollMax * homeRowsEdgeRamp((fingerGlobalY - (bottomEdge - edge)) / edge);
+    }
+    return 0;
+  }
+
+  @override
+  double scrollBy(double px) {
+    final scroll = _home._scroll;
+    if (!scroll.hasClients) return 0;
+    final position = scroll.position;
+    final to = (position.pixels + px).clamp(position.minScrollExtent, position.maxScrollExtent);
+    final moved = to - position.pixels;
+    if (moved != 0) position.jumpTo(to);
+    return moved;
   }
 }
 

@@ -55,4 +55,75 @@ void main() {
     final back = HomeLayout.fromJson(HomeLayout.defaultLayout.toJson());
     expect(back.sections, HomeLayout.defaultLayout.sections);
   });
+
+  group('row presets', () {
+    test('should_writeRowsAndDropTheDefault_when_settingPresets', () {
+      final xl = withSectionRows(HomeLayout.defaultLayout, HomeSection.jumpBackIn, HomeRowPreset.xl);
+      expect(xl.rowsOf(HomeSection.jumpBackIn), HomeRowPreset.xl);
+      expect(xl.sections.firstWhere((p) => p.id == 'jump_back_in').toJson()['config'], {'rows': 'xl'});
+      expect(xl.isDefault, isFalse);
+      final back = withSectionRows(xl, HomeSection.jumpBackIn, HomeRowPreset.l);
+      expect(back.sections.firstWhere((p) => p.id == 'jump_back_in').toJson().containsKey('config'), isFalse);
+      expect(back.isDefault, isTrue);
+    });
+
+    test('should_returnTheSameLayout_when_nothingChanges', () {
+      final layout = HomeLayout.defaultLayout;
+      expect(identical(withSectionRows(layout, HomeSection.activities, HomeRowPreset.l), layout), isTrue);
+      expect(identical(withSectionRows(layout, HomeSection.recentlyAdded, HomeRowPreset.s), layout), isTrue);
+      expect(identical(withSectionEnabled(layout, HomeSection.activities, true), layout), isTrue);
+      expect(HomeSection.lyricHighlight.takesPresets, isTrue);
+      expect(HomeSection.recentlyAdded.takesPresets, isFalse);
+    });
+
+    test('should_keepOtherSettingsVerbatim_when_rowsChange', () {
+      final layout = HomeLayout.fromJson({
+        'version': 1,
+        'sections': [
+          {
+            'id': 'activities',
+            'enabled': true,
+            'config': {
+              'rows': 'zz',
+              'density': 3,
+              'future': {
+                'a': [1, 2],
+              },
+            },
+          },
+        ],
+      });
+      // An unreadable preset reads as L and rides along until it changes.
+      expect(layout.rowsOf(HomeSection.activities), HomeRowPreset.l);
+      expect(identical(withSectionRows(layout, HomeSection.activities, HomeRowPreset.l), layout), isTrue);
+      final m = withSectionRows(layout, HomeSection.activities, HomeRowPreset.m);
+      expect(m.sections.first.config, {
+        'rows': 'm',
+        'density': 3,
+        'future': {
+          'a': [1, 2],
+        },
+      });
+      final round = HomeLayout.fromJson(m.toJson());
+      expect(round.sections.first, m.sections.first);
+    });
+
+    test('should_keepUnknownIds_when_resetting', () {
+      final layout = HomeLayout.reconcile(const [
+        HomeSectionPref(id: 'future_thing', enabled: true),
+        HomeSectionPref(id: 'activities', enabled: false, config: {'rows': 's'}),
+      ]);
+      final reset = resetLayout(layout);
+      expect(reset.rowsOf(HomeSection.activities), HomeRowPreset.l);
+      expect(reset.visibleV1Sections, HomeLayout.defaultLayout.visibleV1Sections);
+      expect(reset.sections.last.id, 'future_thing');
+      expect(identical(resetLayout(HomeLayout.defaultLayout), HomeLayout.defaultLayout), isTrue);
+    });
+
+    test('should_readKnownPresetIds_when_parsing', () {
+      expect(HomeRowPreset.fromId('xl'), HomeRowPreset.xl);
+      expect(HomeRowPreset.fromId('xxl'), isNull);
+      expect(HomeRowPreset.byId(null), HomeRowPreset.l);
+    });
+  });
 }

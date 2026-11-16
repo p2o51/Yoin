@@ -8,8 +8,12 @@ import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
 import 'home_header.dart';
+import 'home_jbi_hidden.dart';
 import 'home_jbi_template.dart';
 import 'home_metrics.dart';
+import 'home_row_presets.dart';
+import 'home_rows_resize.dart';
+import 'home_section.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
 import 'home_ui_state.dart';
@@ -25,59 +29,69 @@ import 'widgets/spring_height.dart';
 /// staggered by a seeded template (home_jbi_template.dart), covers 100–128
 /// following the live column, a signal card standing (1×2) or lying (2×1);
 /// a shelf too short for even one templated row falls back to the packed
-/// grid. A short last row keeps its column width.
+/// grid. A short last row keeps its column width. Those are the L row
+/// preset; S / M / XL trim or grow them (home_row_presets.dart), and under
+/// Home's [HomeRowsScope] edit mode's ⌟ resizes the shelf card by card.
 class JumpBackInSection extends StatelessWidget {
-  const JumpBackInSection({super.key, required this.cards, required this.frame});
+  const JumpBackInSection({super.key, required this.cards, required this.frame, this.preset = HomeRowPreset.defaultPreset});
 
   /// Signal cards first, then covers in ranking order ([withJbiSignals]).
   final List<HomeWidgetCard> cards;
   final HomeFeedFrame frame;
+  final HomeRowPreset preset;
 
   @override
   Widget build(BuildContext context) {
     final geometry = jbiGeometry(frame);
+    // The L template; the other presets grow or trim it (jbiRowLadder).
     final layout = geometry.templated
         ? jbiLayout(cards, columns: geometry.columns, rows: geometry.rows, seed: jbiLayoutSeed(cards))
         : null;
-    final Widget grid;
-    if (layout != null) {
-      grid = _JbiLaneGrid(
-        layout: layout,
-        children: [
-          for (final cell in layout.cells)
-            cell.piece.kind.isSignal
-                ? JbiSignalCard(
-                    key: ValueKey(cell.card.stableId),
-                    card: cell.card,
-                    coverSide: geometry.coverSide,
-                    tall: cell.piece.kind == JbiPieceKind.tallSignal,
-                  )
-                : JbiCoverCell(key: ValueKey(cell.card.stableId), card: cell.card, coverSide: geometry.coverSide),
-        ],
-      );
-    } else {
-      final compacts = cards.where((c) => !c.expanded).length;
-      final sparse = geometry.templated ? jbiSparseSignalLimit(compacts, geometry.columns) : 1 << 30;
-      final shelf = trimToPhoneShelf(cards, cells: geometry.cells, maxSignals: math.min(jbiSignalLimit(geometry.rows, geometry.cells), sparse));
-      final rows = packWidgetRows(shelf, geometry.columns);
-      grid = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var r = 0; r < rows.length; r++) ...[
-            if (r > 0) const SizedBox(height: HomeTokens.jbiRowGap),
-            _PackedRow(row: rows[r], columns: geometry.columns, coverSide: geometry.coverSide),
-          ],
-        ],
-      );
-    }
+    final ladder = jbiRowLadder(geometry, cards, layout);
+    final track = HomeRowsScope.maybeOf(context)?.track(HomeSection.jumpBackIn);
+    final grid = HomeRowsBody<JbiPresetLayout>(
+      track: track,
+      ladder: ladder,
+      ladderKey: (geometry.columns, geometry.rows, geometry.templated, geometry.landscape, cards.map((c) => c.stableId).join('|')),
+      preset: preset,
+      builder: (context, stop) => switch (stop.payload) {
+        JbiTemplatePreset(:final layout) => _JbiLaneGrid(
+            layout: layout,
+            children: [
+              for (final cell in layout.cells)
+                HomeRowsCard(
+                  key: ValueKey(cell.card.stableId),
+                  cardKey: cell.card.stableId,
+                  kind: cell.piece.kind,
+                  child: cell.piece.kind.isSignal
+                      ? JbiSignalCard(card: cell.card, coverSide: geometry.coverSide, tall: cell.piece.kind == JbiPieceKind.tallSignal)
+                      : JbiCoverCell(card: cell.card, coverSide: geometry.coverSide),
+                ),
+            ],
+          ),
+        JbiPackedPreset(:final rows) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var r = 0; r < rows.length; r++) ...[
+                if (r > 0) const SizedBox(height: HomeTokens.jbiRowGap),
+                _PackedRow(row: rows[r], columns: geometry.columns, coverSide: geometry.coverSide),
+              ],
+            ],
+          ),
+      },
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         HomeSectionTitle(HomeStrings.of(context).sectionJumpBackIn),
         const SizedBox(height: HomeSectionMetrics.jbiSpacing),
-        // A new grid (the width class moving, a re-seat) swaps in place — a
-        // crossfade ghosted the page (2026-11-12) — and the height springs.
-        SpringHeight(heightKey: (geometry.columns, geometry.rows, layout?.template.rows, cards.where((c) => c.expanded).length), child: grid),
+        // A new grid (the width class moving, a re-seat, a card put away for
+        // a while) swaps in place — a crossfade ghosted the page (2026-11-12)
+        // — and the height springs.
+        SpringHeight(
+          heightKey: (geometry.columns, geometry.rows, layout?.template.rows, cards.where((c) => c.expanded).length, cards.length),
+          child: grid,
+        ),
       ],
     );
   }
@@ -101,9 +115,13 @@ class _PackedRow extends StatelessWidget {
         Expanded(
           key: ValueKey(card.stableId),
           flex: card.expanded ? 2 : 1,
-          child: card.expanded
-              ? JbiSignalCard(card: card, coverSide: coverSide)
-              : JbiCoverCell(card: card, coverSide: coverSide),
+          child: HomeRowsCard(
+            cardKey: card.stableId,
+            kind: card.expanded ? JbiPieceKind.wideSignal : JbiPieceKind.cover,
+            child: card.expanded
+                ? JbiSignalCard(card: card, coverSide: coverSide)
+                : JbiCoverCell(card: card, coverSide: coverSide),
+          ),
         ),
       for (var i = units; i < columns; i++) const Expanded(child: SizedBox.shrink()),
     ];
@@ -223,6 +241,16 @@ class _RenderJbiLaneGrid extends RenderBox
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => defaultHitTestChildren(result, position: position);
 }
 
+/// A card's tap: its "not now" menu while Home is being edited, else what it opens.
+void _tapCard(BuildContext context, WidgetRef ref, HomeWidgetCard card) {
+  final hide = JbiHideScope.tapOf(context);
+  if (hide != null) {
+    hide(context, card);
+    return;
+  }
+  openHomeTarget(context, ref, card.target);
+}
+
 /// WidgetCoverBlock: the backdrop cover (left-aligned), 5 below it the title
 /// (16 / 22 SemiBold, version tag) and the subtitle (hidden when blank). The
 /// whole cell is the tap target.
@@ -234,7 +262,7 @@ class JbiCoverCell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => ElasticPress(
-        onTap: () => openHomeTarget(context, ref, card.target),
+        onTap: () => _tapCard(context, ref, card),
         child: _CoverBlock(card: card, coverSide: coverSide),
       );
 }
@@ -285,7 +313,7 @@ class JbiSignalCard extends ConsumerWidget {
     final block = SizedBox(width: coverSide, child: _CoverBlock(card: card, coverSide: coverSide));
     final copy = _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines);
     return ElasticPress(
-      onTap: () => openHomeTarget(context, ref, card.target),
+      onTap: () => _tapCard(context, ref, card),
       child: tall
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
