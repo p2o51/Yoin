@@ -231,6 +231,13 @@ final class FakeSpotifyApp {
     var commandsSilent = false
     /// Where the song is, as App Remote reports it (a seek that lands moves it).
     var positionMs = 1000
+    /// Spotify's own (user) queue: App Remote's enqueue adds to it, a play(uri) leaves it as it is (device
+    /// 11-16), Next plays its head, and a song's end goes on to its head.
+    var userQueue: [String] = []
+    /// Every song App Remote was asked to queue, in order.
+    var enqueues: [String] = []
+    /// Next fails while set.
+    var refuseSkips = false
     private var stateReadyAt = Date.distantPast
 
     var stateReady: Bool { Date() >= stateReadyAt }
@@ -244,6 +251,24 @@ final class FakeSpotifyApp {
 
     func publish() {
         WebStub.set(webEmpty || !running ? nil : playing, relinkedTo: relinkTo, paused: paused)
+    }
+
+    /// The song plays out: Spotify goes on to its queue's head from the start, or stops at the end.
+    func endSong() {
+        if userQueue.isEmpty {
+            positionMs = 200_000
+            paused = true
+        } else {
+            positionMs = 0
+            playing = userQueue.removeFirst()
+        }
+        links.last?.pushNow()
+    }
+
+    /// App Remote reports the song at [ms] (a state it pushes as it plays).
+    func report(at ms: Int) {
+        positionMs = ms
+        links.last?.pushNow()
     }
 
     /// Spotify is swiped away (or crashes): it stops, me/player has nothing, and App Remote drops.
@@ -394,9 +419,23 @@ final class FakeLink: AppRemoteLink {
     }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
         app.commands.append(forward ? "next" : "previous")
-        answer(done) { [self] in if !app.commandsSilent { push() } }
+        // Spotify's "try again later" (it says nothing of the connection).
+        if app.refuseSkips { return later(1) { done(NSError(domain: SPTAppRemoteErrorDomain, code: -3000)) } }
+        answer(done) { [self] in
+            guard !app.commandsSilent else { return }
+            if forward, !app.userQueue.isEmpty {
+                app.positionMs = 0
+                app.playing = app.userQueue.removeFirst()
+            }
+            push()
+        }
     }
-    func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { answer(done) }
+    func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) {
+        answer(done) { [self] in
+            app.enqueues.append(uri)
+            app.userQueue.append(uri)
+        }
+    }
     func setShuffle(_ on: Bool) {}
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) {}
 }

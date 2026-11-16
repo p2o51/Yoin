@@ -347,7 +347,9 @@ final class SpotifyRemote {
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { request("enqueue", { $0.enqueue(uri, $1) }, done) }
     /// A failed seek marks the connection as any failed request does (a tapped lyric line went nowhere).
     func seek(toMs ms: Int) { request("seek", { $0.seek(toMs: ms, $1) }, nil) }
-    func skip(forward: Bool) { request(forward ? "next" : "previous", { $0.skip(forward: forward, $1) }, nil) }
+    func skip(forward: Bool, _ done: ((Error?) -> Void)? = nil) {
+        request(forward ? "next" : "previous", { $0.skip(forward: forward, $1) }, done)
+    }
     func setShuffle(_ on: Bool) { link?.setShuffle(on) }
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) { link?.setRepeat(mode) }
 
@@ -484,7 +486,9 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
         player.seek(toPosition: ms, callback: answer(done))
     }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
-        forward ? remote.playerAPI?.skip(toNext: answer(done)) : remote.playerAPI?.skip(toPrevious: answer(done))
+        // No player: said so (a start waiting on the skip's answer would wait for ever).
+        guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
+        forward ? player.skip(toNext: answer(done)) : player.skip(toPrevious: answer(done))
     }
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) {
         guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
