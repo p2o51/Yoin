@@ -16,7 +16,7 @@
 /// | Ctrl+→ / Ctrl+← | next / previous |
 /// | Ctrl+Alt+S | shuffle on / off |
 /// | Ctrl+D | heart / unheart the playing song (a service that keeps favorites) |
-/// | Ctrl+Shift+P | open / close Now Playing |
+/// | Ctrl+Shift+P | open / close Now Playing (over the shell, Memories and Home edit mode close first) |
 /// | Ctrl+L | Now Playing panel ⇄ full window (opens it first) |
 /// | Ctrl+F | Now Playing focus (opens it first; where the cover can focus) |
 /// | Ctrl+K | Library search |
@@ -271,13 +271,26 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
     }
   }
 
+  /// Opens Now Playing as the shell's own way in does (Android
+  /// openNowPlayingFromShell): over the shell, Memories closes and Home
+  /// leaves edit mode first (the bar's pill isn't there in either), so
+  /// closing the player lands on the feed. Over a pushed page they wait
+  /// under it.
+  void _openNowPlaying() {
+    if (!(widget.navigator.currentState?.canPop() ?? false)) {
+      _closeMemories();
+      ref.read(homeEditProvider.notifier).exit();
+    }
+    widget.openNowPlaying();
+  }
+
   /// Opens Now Playing if needed, then runs [then] once it is up.
   void _withNowPlaying(VoidCallback then) {
     if (_np.expanded) {
       then();
       return;
     }
-    widget.openNowPlaying();
+    _openNowPlaying();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _np.expanded) then();
     });
@@ -346,7 +359,7 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
         when: () => _hasTrack && _canLike,
       ),
       ToggleNowPlayingIntent: _KeyAction<ToggleNowPlayingIntent>(
-        (_) => _np.expanded ? _np.close() : widget.openNowPlaying(),
+        (_) => _np.expanded ? _np.close() : _openNowPlaying(),
         when: () => _np.expanded || _hasTrack,
       ),
       ToggleFullWindowIntent: _KeyAction<ToggleFullWindowIntent>(

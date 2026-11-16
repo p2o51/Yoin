@@ -12,6 +12,7 @@ import 'package:yoin/memories/memories_reveal_scope.dart';
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/playback/playback_context.dart';
 import 'package:yoin/shell/app_chrome.dart';
+import 'package:yoin/shell/chrome_back.dart';
 import 'package:yoin/shell/desktop_shortcuts.dart';
 import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/shell/yoin_section.dart';
@@ -319,8 +320,46 @@ void main() {
       return null;
     });
     addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    // A shell owner registered at the root but not holding back (as the
+    // shell's are between surfaces): a system back here passes on and sends
+    // the app to the background.
+    final idle = ChromeBackEntry(() {}, owns: () => false, priority: ChromeBackPriority.memories);
+    addTearDown(idle.dispose);
+    idle.attach(appNavigatorKey.currentState!);
     await keys(tester, [LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.bracketLeft);
     expect(calls, isNot(contains('SystemNavigator.pop')));
+    // The control: Esc takes the system back's path, which does leave.
+    await keys(tester, [], LogicalKeyboardKey.escape);
+    expect(calls, contains('SystemNavigator.pop'));
+  });
+
+  testWidgets('should_closeMemoriesAndLeaveEditMode_when_ctrlShiftPOpensNowPlayingOverTheShell', (tester) async {
+    await pump(
+      tester,
+      playingState(nowPlayingTracks(2), context: _album),
+      extra: [homeEditProvider.overrideWith(_EditingHome.new)],
+    );
+    final memories = reveal(tester);
+    memories.open();
+    await tester.pumpAndSettle();
+    await keys(tester, [LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.shiftLeft], LogicalKeyboardKey.keyP);
+    expect(_player, findsOneWidget);
+    expect(memories.ownsBack, isFalse);
+    expect(container(tester).read(homeEditProvider).editing, isFalse);
+  });
+
+  testWidgets('should_keepMemoriesUnderThePage_when_ctrlShiftPOpensNowPlayingOverAPushedPage', (tester) async {
+    await pump(tester, playingState(nowPlayingTracks(2), context: _album));
+    final memories = reveal(tester);
+    memories.open();
+    await tester.pumpAndSettle();
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => const Scaffold(body: Center(child: Text('pushed')))),
+    );
+    await tester.pumpAndSettle();
+    await keys(tester, [LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.shiftLeft], LogicalKeyboardKey.keyP);
+    expect(_player, findsOneWidget);
+    expect(memories.ownsBack, isTrue);
   });
 
   testWidgets('should_leaveHeartToTheWindow_when_serviceKeepsNoFavorites', (tester) async {
