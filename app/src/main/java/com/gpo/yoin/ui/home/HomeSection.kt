@@ -240,12 +240,18 @@ data class HomeSectionState(
      * an unchosen preset as the section's own default unit count ([homeSectionUnits]).
      */
     val rowsSet: Boolean = false,
+    /**
+     * Two columns' unit count for a section whose row preset already means something else (「歌词一句」:
+     * its preset is its card count). Stored as `"units"`; null = its default.
+     */
+    val units: Int? = null,
 ) {
     /** The settings bag to persist: [extras] plus `rows` when chosen (or not the default), `span` when half; null when empty. */
     fun config(): JsonObject? {
         val bag = LinkedHashMap(extras.orEmpty())
         if (rowsSet || rows != HomeRowPreset.Default) bag[RowsKey] = JsonPrimitive(rows.key)
         if (half) bag[SpanKey] = JsonPrimitive(SpanHalf)
+        units?.let { bag[UnitsKey] = JsonPrimitive(it) }
         return bag.takeIf { it.isNotEmpty() }?.let(::JsonObject)
     }
 
@@ -253,6 +259,7 @@ data class HomeSectionState(
         internal const val RowsKey = "rows"
         internal const val SpanKey = "span"
         internal const val SpanHalf = "half"
+        internal const val UnitsKey = "units"
 
         /**
          * [pref] as a state: a readable `rows` becomes [rows], `"span":"half"` becomes [half],
@@ -262,8 +269,9 @@ data class HomeSectionState(
             val config = pref.config
             val rows = (config?.get(RowsKey) as? JsonPrimitive)?.contentOrNull?.let(HomeRowPreset::fromKey)
             val half = (config?.get(SpanKey) as? JsonPrimitive)?.contentOrNull == SpanHalf
+            val units = (config?.get(UnitsKey) as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
             val extras = config?.filterKeys { key ->
-                !(key == RowsKey && rows != null) && !(key == SpanKey && half)
+                !(key == RowsKey && rows != null) && !(key == SpanKey && half) && !(key == UnitsKey && units != null)
             }
             return HomeSectionState(
                 section = section,
@@ -272,6 +280,7 @@ data class HomeSectionState(
                 extras = extras?.takeIf { it.isNotEmpty() }?.let(::JsonObject),
                 half = half,
                 rowsSet = rows != null,
+                units = units,
             )
         }
     }
@@ -461,11 +470,12 @@ data class HomeLayout(
         val range = homeRowUnitRange(section, partner)
         val preset = homeUnitsPreset(units.coerceIn(range))
         val row = setOfNotNull(section, partner)
-        if (sections.none { it.section in row && (it.rows != preset || !it.rowsSet) }) return this
+        val count = preset.units
+        fun HomeSectionState.withCount(): HomeSectionState =
+            if (this.section.unitsOwnKey) copy(units = count) else copy(rows = preset, rowsSet = true)
+        if (sections.none { it.section in row && it.withCount() != it }) return this
         return copy(
-            sections = sections.map { state ->
-                if (state.section in row) state.copy(rows = preset, rowsSet = true) else state
-            },
+            sections = sections.map { state -> if (state.section in row) state.withCount() else state },
         )
     }
 

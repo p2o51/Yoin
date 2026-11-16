@@ -118,6 +118,10 @@ internal val HomeSection.unitRange: IntRange
         -> 1..2
     }
 
+/** The section keeps its unit count apart from its row preset, which means something else on a phone. */
+internal val HomeSection.unitsOwnKey: Boolean
+    get() = this == HomeSection.LyricHighlight
+
 /** The count a section with nothing stored takes: 2 for the two big default rows' sections, 1 for the rest. */
 internal val HomeSection.defaultUnits: Int
     get() = when (this) {
@@ -158,7 +162,11 @@ internal fun IntRange.intersectUnits(other: IntRange): IntRange {
  * its default when it never chose one ([HomeSectionState.rowsSet]), held in its range.
  */
 internal fun homeSectionUnits(state: HomeSectionState): Int {
-    val stored = if (state.rowsSet) state.rows.units else state.section.defaultUnits
+    val stored = when {
+        state.section.unitsOwnKey -> state.units ?: state.section.defaultUnits
+        state.rowsSet -> state.rows.units
+        else -> state.section.defaultUnits
+    }
     return stored.coerceIn(state.section.unitRange)
 }
 
@@ -511,15 +519,49 @@ internal fun HomeGridCells(
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val spec = com.gpo.yoin.ui.theme.YoinMotion.spatialSpring<androidx.compose.ui.unit.IntOffset>()
+    val fadeOut = com.gpo.yoin.ui.theme.YoinMotion.effectsSpring<Float>()
     val reduced = com.gpo.yoin.ui.experience.LocalMotionProfile.current ==
         com.gpo.yoin.ui.experience.MotionProfile.AdaptiveReduced
     // Each cell's place, by key: where it sits now and where it is going. Not state: read in placement.
     val places = androidx.compose.runtime.remember { HashMap<Any, HomeGridPlace>() }
+    // What each key last drew (its cell and the content lambda of that composition, which still holds
+    // the data it was drawn from), so a cell that leaves can fade out as itself.
+    val lastSeen = androidx.compose.runtime.remember { LinkedHashMap<Any, HomeGridDrawn>() }
+    val leaving = androidx.compose.runtime.remember { LinkedHashMap<Any, HomeGridLeaving>() }
+    var leavingVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    leavingVersion // read: a finished fade recomposes the leaving cell away
+    val currentKeys = cells.map(key)
+    val currentSet = currentKeys.toHashSet()
+    if (!reduced) {
+        lastSeen.forEach { (k, drawn) ->
+            if (k !in currentSet && k !in leaving) {
+                val leave = HomeGridLeaving(drawn)
+                leaving[k] = leave
+                scope.launch {
+                    leave.alpha.animateTo(0f, fadeOut)
+                    if (leaving[k] === leave) {
+                        leaving.remove(k)
+                        places.remove(k)
+                        leavingVersion++
+                    }
+                }
+            }
+        }
+    }
+    currentSet.forEach { leaving.remove(it) }
+    lastSeen.clear()
+    cells.forEachIndexed { i, cell -> lastSeen[currentKeys[i]] = HomeGridDrawn(cell, content) }
+    val leavingNow = leaving.entries.toList()
     androidx.compose.ui.layout.Layout(
         content = {
-            cells.forEach { cell ->
-                androidx.compose.runtime.key(key(cell)) {
+            cells.forEachIndexed { i, cell ->
+                androidx.compose.runtime.key(currentKeys[i]) {
                     HomeGridFadeIn(reduced) { content(cell) }
+                }
+            }
+            leavingNow.forEach { (k, leave) ->
+                androidx.compose.runtime.key(k) {
+                    Box(Modifier.graphicsLayer { alpha = leave.alpha.value }) { leave.drawn.content(leave.drawn.cell) }
                 }
             }
         },
@@ -529,24 +571,24 @@ internal fun HomeGridCells(
         val gapPx = gap.roundToPx()
         val unit = rowHeight.roundToPx()
         val rowGapPx = rowGap.roundToPx()
+        val all = cells.mapIndexed { i, cell -> Triple(cell, currentKeys[i], i == cells.lastIndex) } +
+            leavingNow.map { (k, leave) -> Triple(leave.drawn.cell, k, false) }
         val placed = measurables.mapIndexed { i, measurable ->
-            val cell = cells[i]
-            val span = if (stretchLast && i == cells.lastIndex) columns - cell.column else cell.span
-            val (x, w) = homeGridCellX(cell.column, span, columns, width, gapPx)
+            val (cell, k, last) = all[i]
+            val span = if (stretchLast && last) columns - cell.column else cell.span
+            val (x, w) = homeGridCellX(cell.column, span.coerceAtMost(columns - cell.column).coerceAtLeast(1), columns, width, gapPx)
             Triple(
                 measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, unit)),
                 androidx.compose.ui.unit.IntOffset(x, cell.row * (unit + rowGapPx)),
-                key(cell),
+                k,
             )
         }
-        val live = placed.mapTo(HashSet()) { it.third }
-        places.keys.retainAll(live)
         val rows = (cells.maxOfOrNull { it.row } ?: -1) + 1
         val height = if (rows <= 0) 0 else rows * unit + (rows - 1) * rowGapPx
         layout(width, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
             placed.forEach { (placeable, target, k) ->
                 val place = places.getOrPut(k) { HomeGridPlace(target) }
-                if (place.target != target) {
+                if (k in currentSet && place.target != target) {
                     place.target = target
                     if (reduced) {
                         scope.launch { place.offset.snapTo(target) }
@@ -558,6 +600,14 @@ internal fun HomeGridCells(
             }
         }
     }
+}
+
+/** A key's cell and the content lambda it was last drawn with. */
+private class HomeGridDrawn(val cell: HomeGridCell, val content: @Composable (HomeGridCell) -> Unit)
+
+/** A cell fading out where it last was. */
+private class HomeGridLeaving(val drawn: HomeGridDrawn) {
+    val alpha = Animatable(1f)
 }
 
 /** Where a grid cell is and is going. */

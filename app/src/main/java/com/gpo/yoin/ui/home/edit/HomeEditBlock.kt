@@ -93,6 +93,10 @@ import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
+import com.gpo.yoin.ui.home.lyricCards
+import com.gpo.yoin.ui.home.HomeRowPreset
 import com.gpo.yoin.ui.home.LocalHomeGridHeight
 import com.gpo.yoin.ui.home.homeGridBox
 import com.gpo.yoin.ui.home.HomeSectionTitle
@@ -367,13 +371,14 @@ internal fun HomeEditBlock(
         )
         // The ⌟: rows (vertical) where the section takes presets; in two columns every section's
         // also drags sideways to turn half or full width (HomeSpanResize.kt). Lyric Cards keeps its dots.
-        val spanHandle = deps.span != null && controller.twoColumn && section != HomeSection.LyricHighlight
+        // Two columns: 「歌词一句」's ⌟ is the unit count like every section's; its card count moves to a menu.
+        val spanHandle = deps.span != null && controller.twoColumn
         if (!placeholder && !wholeBlockWiggle && ((rowsTrack != null && rowsEngine != null) || spanHandle)) {
             HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
         }
         // 「歌词一句」 takes its card count from its own dots, not the row resize.
         if (section == HomeSection.LyricHighlight && !placeholder && !wholeBlockWiggle) {
-            HomeLyricCountHandleSlot(deps, itemSpacing)
+            if (controller.twoColumn) HomeLyricCountMenu(deps) else HomeLyricCountHandleSlot(deps, itemSpacing)
         }
     }
 }
@@ -983,3 +988,34 @@ private fun HomeEditBlockEditPreview() = PreviewBlock(progress = 1f, editing = t
 @Preview(name = "Block · placeholder", showBackground = true, widthDp = 360)
 @Composable
 private fun HomeEditBlockPlaceholderPreview() = PreviewBlock(progress = 1f, editing = true, placeholder = true)
+
+/**
+ * Two columns: 「歌词一句」's card count (2–4) as a menu. Editing, a tap on one of its cards opens it at the
+ * block's top end (the phone keeps its dots handle).
+ */
+@Composable
+private fun BoxScope.HomeLyricCountMenu(deps: HomeEditDeps) {
+    val motion = deps.motion
+    val controller = deps.controller
+    val open = motion.cardTap?.section == HomeSection.LyricHighlight && controller.isEditing
+    Box(Modifier.align(Alignment.TopEnd)) {
+        YoinDropdownMenu(expanded = open, onDismissRequest = motion::clearCardTap) {
+            val current = controller.draft?.rowsOf(HomeSection.LyricHighlight)?.lyricCards
+            listOf(HomeRowPreset.S, HomeRowPreset.M, HomeRowPreset.L).forEach { preset ->
+                val count = preset.lyricCards
+                YoinDropdownMenuItem(
+                    text = androidx.compose.ui.res.pluralStringResource(R.plurals.home_edit_lyric_cards, count, count),
+                    trailingIcon = if (count == current) {
+                        { androidx.compose.material3.Icon(com.gpo.yoin.symbols.YoinSymbols.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        motion.clearCardTap()
+                        controller.setLyricCount(preset)
+                    },
+                )
+            }
+        }
+    }
+}

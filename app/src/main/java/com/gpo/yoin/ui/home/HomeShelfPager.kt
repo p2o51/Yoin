@@ -308,6 +308,8 @@ internal fun HomeShelf(
     perPage: Int? = null,
     leadPage: Boolean = false,
     fullGap: Dp = 14.dp,
+    // A full row pages too (whole pages, the tide edge) instead of scrolling freely: 「歌词一句」 on the grid.
+    pagedFull: Boolean = false,
     verticalAlignment: Alignment.Vertical = Alignment.Top,
     state: LazyListState = rememberLazyListState(),
     content: LazyListScope.(pageWidth: Dp?) -> Unit,
@@ -317,7 +319,7 @@ internal fun HomeShelf(
     // Two columns (HomeGridUnits.kt): the shared 40dp title row, the cards right under it.
     val grid = LocalHomeGridHeight.current
     val titleGap = if (grid != null) 0.dp else 12.dp
-    if (!column.half) {
+    if (!column.half && !pagedFull) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(titleGap)) {
             if (grid != null) HomeGridTitleRow(title = title) else HomeSectionTitle(text = title)
             val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
