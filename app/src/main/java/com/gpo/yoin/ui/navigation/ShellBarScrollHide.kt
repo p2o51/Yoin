@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.navigation
 
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -40,7 +39,7 @@ class ShellBarScrollHide internal constructor(
     private val distancePx: Float,
 ) {
     /** The theme's spatial spring, refreshed from composition (motion role can change). */
-    internal var settleSpec: FiniteAnimationSpec<Float>? = null
+    internal lateinit var settleSpec: FiniteAnimationSpec<Float>
 
     var fraction by mutableFloatStateOf(0f)
         private set
@@ -92,7 +91,7 @@ class ShellBarScrollHide internal constructor(
             animate(
                 initialValue = fraction,
                 targetValue = target,
-                animationSpec = settleSpec ?: spring(),
+                animationSpec = settleSpec,
             ) { value, _ -> fraction = value.coerceIn(0f, 1f) }
         }
     }
