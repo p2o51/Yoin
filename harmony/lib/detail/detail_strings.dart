@@ -89,10 +89,10 @@ class DetailStrings {
   String menuPlayNextCount(int n) =>
       zh ? '接下来将播放 $n 首' : (n == 1 ? '$n song will play next' : '$n songs will play next');
 
-  // The album hero's score emblem.
-  String get emblemUnrated => zh ? '未评分' : 'Unrated'; // mem_emblem_unrated
-  String get emblemCdUnrated => zh ? '未评分' : 'Not rated'; // mem_cd_emblem_unrated
+  // The album hero's score emblem and comment.
   String get albumCdRate => zh ? '评分与评论' : 'Rate and comment'; // detail_album_cd_rate
+  String get albumCdEditComment => zh ? '编辑评论' : 'Edit comment'; // detail_album_cd_edit_comment
+  String get albumCdWriteComment => zh ? '写评论' : 'Write a comment'; // detail_album_cd_write_comment
 
   // The album's Last Play and rated coverage; the artist's Most Played.
   String get albumLastPlay => zh ? '上次播放' : 'Last Play'; // detail_album_last_play

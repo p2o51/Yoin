@@ -622,6 +622,41 @@ final class MemoryStore {
     await _saveNotes(notes);
   });
 
+  /// Names [trackId]'s notes that came without their song's name (synced
+  /// from another device, imported): [title], and [artist] where none is
+  /// kept. A note that has a title keeps it; the notes' edit times stay
+  /// (Android SongNoteDao.fillMissingSong). Nothing to fill: no write, no
+  /// change event.
+  Future<void> fillMissingSong(MediaId trackId, {required String title, String artist = ''}) {
+    final name = title.trim();
+    if (name.isEmpty) return Future.value();
+    final done = _tail.then((_) async {
+      final notes = await _loadNotes();
+      var changed = false;
+      for (var i = 0; i < notes.length; i++) {
+        final n = notes[i];
+        if (n.trackId != trackId || n.title.trim().isNotEmpty) continue;
+        notes[i] = SongNote(
+          id: n.id,
+          trackId: n.trackId,
+          albumId: n.albumId,
+          content: n.content,
+          createdAt: n.createdAt,
+          updatedAt: n.updatedAt,
+          title: name,
+          artist: n.artist.trim().isEmpty ? artist.trim() : n.artist,
+          positionMs: n.positionMs,
+        );
+        changed = true;
+      }
+      if (!changed) return;
+      await _saveNotes(notes);
+      _emit(MemoryStoreChange.songNotes);
+    });
+    _tail = done.catchError((Object _) {});
+    return done;
+  }
+
   Future<void> deleteSongNote(String id) => _write(MemoryStoreChange.songNotes, () async {
     final notes = await _loadNotes();
     notes.removeWhere((n) => n.id == id);

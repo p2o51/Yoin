@@ -21,11 +21,14 @@ import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
+import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
 import '../detail/detail_cache.dart';
 import '../memories/copy/memory_copy.dart';
 import '../memories/home_memory_pill.dart';
+import '../memories/track_album_linker.dart';
 import '../playback/local_ratings.dart';
+import 'home_album_memory_mark.dart';
 import 'home_selection.dart';
 import 'home_ui_state.dart';
 import 'home_view_model.dart';
@@ -50,6 +53,7 @@ final class HomeMemorySignals {
     this.memoryCards = const [],
     this.noteCards = const [],
     this.rediscover = const [],
+    this.albumMarks = const {},
     this.resolved = false,
   });
 
@@ -62,6 +66,10 @@ final class HomeMemorySignals {
   /// Noted-track 1×2s, the newest first.
   final List<HomeWidgetCard> noteCards;
   final List<HomeRediscoverItem> rediscover;
+
+  /// Every album of the build the user kept something on, and the mark its
+  /// plain cover wears (home_album_memory_mark.dart).
+  final Map<MediaId, HomeAlbumMemoryMark> albumMarks;
   final bool resolved;
 
   /// The wide cards in rank order: the memory, the note, then a memory, a note…
@@ -227,6 +235,7 @@ String? memoryCardRawAlbumId(HomeWidgetCard card) {
 /// Memory write (plays included: they move Rediscover) and track rating.
 class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
   StreamSubscription<MemoryStoreChange>? _changes;
+  StreamSubscription<void>? _linkChanges;
   int _generation = 0;
   Timer? _debounce;
 
@@ -239,10 +248,21 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
     });
     _changes?.cancel();
     _changes = store?.changes.listen((_) => _schedule(source?.provider, store));
+    // A song's album learned: its notes and scores move to that album (marks, Rediscover).
+    _linkChanges?.cancel();
+    _linkChanges = store == null
+        ? null
+        : TrackAlbumLinkStore.shared(
+            ref.read(keyValueStoreProvider),
+            store.profileId,
+          ).changes.listen((_) => _schedule(source?.provider, store));
+    // Home is where the app opens: the song → album linker starts here.
+    ref.read(trackAlbumLinkerProvider);
     // Cloud sync brought Yoin's AI titles from another device.
     ref.listen(memoryCopySyncRevisionProvider, (_, _) => _schedule(source?.provider, store));
     ref.onDispose(() {
       _changes?.cancel();
+      _linkChanges?.cancel();
       _debounce?.cancel();
     });
     scheduleMicrotask(() => _load(source?.provider, store));
@@ -273,11 +293,21 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
       final titles = await store.titles();
       final kv = ref.read(keyValueStoreProvider);
       final trackRatings = {...await LocalRatingStore(kv).read(store.profileId), ...ref.read(localRatingsProvider)};
-      final notedAlbums = {for (final n in notes) if (!n.isBlank && n.albumId != null) n.albumId!};
+      final trackAlbums = await loadTrackAlbums(store, TrackAlbumLinkStore.shared(kv, store.profileId));
+      // The albums written on through their songs: noted, or scored (their covers' marks).
+      final writtenAlbums = {
+        for (final n in notes)
+          if (!n.isBlank) ?(n.albumId ?? trackAlbums[n.trackId]),
+        for (final r in trackRatings.values)
+          if (r.rating != null) ?trackAlbums[r.trackId],
+      };
       final plays = [
         for (final p in await store.albumPlays())
-          // Written on (the memory cards), or away long enough to come back (Rediscover).
-          if (ratings.containsKey(p.albumId) || notedAlbums.contains(p.albumId) || now - p.lastPlayedAt >= rediscoverAwayMs) p,
+          // Written on (the memory cards, the marks), or away long enough to come back (Rediscover).
+          if (ratings.containsKey(p.albumId) ||
+              writtenAlbums.contains(p.albumId) ||
+              now - p.lastPlayedAt >= rediscoverAwayMs)
+            p,
       ];
       final inputs = AlbumMemoryInputs(
         profileId: store.profileId,
@@ -286,8 +316,14 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
         songNotes: notes,
         albumPlays: plays,
         trackRatings: trackRatings,
+        trackAlbums: trackAlbums,
       );
-      final pool = await buildAlbumMemoryCandidates(inputs, loadAlbum: ref.read(detailCacheProvider).album, includeIneligible: true);
+      final pool = await buildAlbumMemoryCandidates(
+        inputs,
+        loadAlbum: ref.read(detailCacheProvider).album,
+        includeIneligible: true,
+        withTrackSignals: true,
+      );
       if (!ref.mounted || generation != _generation) return;
       final eligible = pool.where((c) => c.isMemoryEligible).toList();
       final latest = pickLatestMemory(eligible);
@@ -315,6 +351,7 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
         memoryCards: memoryCards,
         noteCards: noteCards,
         rediscover: buildRediscover(pool, nowMs: now, excludeRawAlbumIds: exclude),
+        albumMarks: homeAlbumMemoryMarks(pool),
         resolved: true,
       );
     } catch (e) {

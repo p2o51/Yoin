@@ -78,6 +78,10 @@ class OtherProfileSource {
 
   Future<Map<MediaId, LocalRating>> ratings() => _ratings();
 
+  /// That account's single-song lookup (what places a scored song on its
+  /// album, track_album_links.dart); null without a source or a lookup.
+  MusicTrackLookup? get trackLookup => _source?.trackLookup;
+
   /// [ref] as a URL that needs no source (a Subsonic cover id becomes this
   /// account's own cover URL at [size]); null when it can't be resolved.
   CoverRef? coverFor(CoverRef? ref, {int size = 600}) {

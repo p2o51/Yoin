@@ -25,6 +25,9 @@ const int memoryNoteCountGate = 2;
 /// Albums scanned for one build (Android MAX_CANDIDATE_SCAN_SIZE).
 const int memoryMaxCandidateScan = 48;
 
+/// Rediscover's track-signal albums past the scan (Android MAX_TRACK_SIGNAL_SEEDS).
+const int memoryMaxTrackSignalSeeds = 16;
+
 /// The track-count half of the Memory rule. [trackCount] is the album's own
 /// count (the larger of the loaded track list and songCount); null when the
 /// detail could not be loaded, which leaves the album to the other gates.
@@ -121,6 +124,7 @@ final class AlbumMemoryInputs {
     this.albumPlays = const [],
     this.activity = const [],
     this.trackRatings = const {},
+    this.trackAlbums = const {},
   });
 
   final String profileId;
@@ -134,6 +138,14 @@ final class AlbumMemoryInputs {
   /// Newest first.
   final List<ActivityEvent> activity;
   final Map<MediaId, LocalRating> trackRatings;
+
+  /// The album each known song belongs to (a lookup's link, a play in Yoin;
+  /// track_album_links.dart): what places a note or a score that carries no
+  /// album.
+  final Map<MediaId, MediaId> trackAlbums;
+
+  /// The album [note] is on: the one it was written on, else its song's.
+  MediaId? albumOfNote(SongNote note) => note.albumId ?? trackAlbums[note.trackId];
 }
 
 typedef AlbumLoader = Future<Album?> Function(MediaId albumId);
@@ -148,12 +160,20 @@ typedef AlbumLoader = Future<Album?> Function(MediaId albumId);
 ///
 /// HarmonyOS also seeds from albums with song notes: its play history only
 /// starts with Memories, so an album noted before its first recorded play
-/// would otherwise never be scanned.
+/// would otherwise never be scanned. A note's album is the one it was written
+/// on, else its song's ([AlbumMemoryInputs.trackAlbums]).
+///
+/// [withTrackSignals] (Rediscover, with [includeIneligible]) adds Android's
+/// track-signal albums: albums whose songs carry a note or a score, placed
+/// through [AlbumMemoryInputs.trackAlbums], that the scan above did not reach
+/// — strongest first, at most [memoryMaxTrackSignalSeeds], and never
+/// Memory-eligible.
 Future<List<AlbumMemoryCandidate>> buildAlbumMemoryCandidates(
   AlbumMemoryInputs inputs, {
   required AlbumLoader loadAlbum,
   int limit = memoryMaxCandidateScan,
   bool includeIneligible = false,
+  bool withTrackSignals = false,
   Iterable<MediaId> alsoScan = const [],
   int maxConcurrent = 4,
 }) async {
@@ -176,7 +196,7 @@ Future<List<AlbumMemoryCandidate>> buildAlbumMemoryCandidates(
 
   final notesByAlbum = <String, int>{};
   for (final note in inputs.songNotes) {
-    final album = note.albumId;
+    final album = inputs.albumOfNote(note);
     if (note.isBlank || album == null || album.provider != provider) continue;
     notesByAlbum[album.rawId] = (notesByAlbum[album.rawId] ?? 0) + 1;
   }
@@ -230,8 +250,73 @@ Future<List<AlbumMemoryCandidate>> buildAlbumMemoryCandidates(
   await Future.wait([for (var w = 0; w < maxConcurrent; w++) worker()]);
   final sorted = built.whereType<AlbumMemoryCandidate>().toList();
   _stableSort(sorted, compareAlbumMemoryCandidates);
-  if (includeIneligible) return sorted;
-  return sorted.where((c) => c.isMemoryEligible).take(limit).toList();
+  if (!includeIneligible) return sorted.where((c) => c.isMemoryEligible).take(limit).toList();
+  if (!withTrackSignals) return sorted;
+  final extras = trackSignalAlbums(inputs, exclude: {for (final s in scanned) s.rawId});
+  if (extras.isEmpty) return sorted;
+  final extraSeeds = [
+    for (final id in extras)
+      () {
+        final s = _Seed(id.rawId, inMemoryScan: false);
+        final plays = _playsFor(inputs, id);
+        if (plays != null) {
+          s
+            ..plays = plays
+            ..albumName = _nonBlank(plays.albumName)
+            ..artistName = _nonBlank(plays.artistName)
+            ..coverKey = plays.coverArtKey
+            ..firstPlayedAt = plays.firstPlayedAt
+            ..lastPlayedAt = plays.lastPlayedAt;
+        }
+        return s;
+      }(),
+  ];
+  final builtExtras = List<AlbumMemoryCandidate?>.filled(extraSeeds.length, null);
+  next = 0;
+  Future<void> extraWorker() async {
+    while (next < extraSeeds.length) {
+      final i = next++;
+      builtExtras[i] = await _buildCandidate(extraSeeds[i], inputs, loadAlbum);
+    }
+  }
+
+  await Future.wait([for (var w = 0; w < maxConcurrent; w++) extraWorker()]);
+  final extraSorted = builtExtras.whereType<AlbumMemoryCandidate>().toList();
+  _stableSort(extraSorted, compareAlbumMemoryCandidates);
+  return [...sorted, ...extraSorted];
+}
+
+/// Rediscover's extra albums ([buildAlbumMemoryCandidates] includeIneligible,
+/// Android buildTrackSignalCandidates): the albums of [inputs]'s noted songs
+/// (one signal per non-blank note) and scored songs (one per scored song),
+/// placed through the note's own album or [AlbumMemoryInputs.trackAlbums],
+/// not in [exclude] (raw ids). Most signals first, then the newest write; at
+/// most [limit].
+List<MediaId> trackSignalAlbums(
+  AlbumMemoryInputs inputs, {
+  Set<String> exclude = const {},
+  int limit = memoryMaxTrackSignalSeeds,
+}) {
+  final provider = inputs.provider;
+  final signals = <MediaId, ({int count, int last})>{};
+  void add(MediaId? album, int at) {
+    if (album == null || album.provider != provider || exclude.contains(album.rawId)) return;
+    final was = signals[album];
+    signals[album] = (count: (was?.count ?? 0) + 1, last: was == null || at > was.last ? at : was.last);
+  }
+
+  for (final note in inputs.songNotes) {
+    if (!note.isBlank) add(inputs.albumOfNote(note), note.updatedAt);
+  }
+  for (final rating in inputs.trackRatings.values) {
+    if (rating.rating != null) add(inputs.trackAlbums[rating.trackId], rating.updatedAt);
+  }
+  final ordered = signals.entries.toList();
+  _stableSort(ordered, (a, b) {
+    final c = b.value.count.compareTo(a.value.count);
+    return c != 0 ? c : b.value.last.compareTo(a.value.last);
+  });
+  return [for (final e in ordered.take(limit)) e.key];
 }
 
 Future<AlbumMemoryCandidate?> _buildCandidate(_Seed seed, AlbumMemoryInputs inputs, AlbumLoader loadAlbum) async {
@@ -261,7 +346,7 @@ Future<AlbumMemoryCandidate?> _buildCandidate(_Seed seed, AlbumMemoryInputs inpu
   final trackIds = {for (final t in tracks) t.id};
   final notes = [
     for (final n in inputs.songNotes)
-      if (!n.isBlank && (trackIds.contains(n.trackId) || n.albumId == albumId)) n,
+      if (!n.isBlank && (trackIds.contains(n.trackId) || inputs.albumOfNote(n) == albumId)) n,
   ];
   final lastWrittenAt = [
     if (ratingRow != null && !ratingRow.isEmpty) ratingRow.updatedAt,
@@ -289,7 +374,7 @@ Future<AlbumMemoryCandidate?> _buildCandidate(_Seed seed, AlbumMemoryInputs inpu
     firstPlayedAt: seed.firstPlayedAt,
     lastPlayedAt: seed.lastPlayedAt,
     lastWrittenAt: lastWrittenAt,
-    isMemoryEligible: passesWritingGate && meetsMemoryTrackCount(albumTrackCount),
+    isMemoryEligible: seed.inMemoryScan && passesWritingGate && meetsMemoryTrackCount(albumTrackCount),
     year: album?.year,
     coverArt: album?.coverArt ?? CoverRef.fromStorageKey(seed.coverKey),
     album: album,
@@ -305,8 +390,11 @@ AlbumPlays? _playsFor(AlbumMemoryInputs inputs, MediaId albumId) {
 }
 
 final class _Seed {
-  _Seed(this.rawId);
+  _Seed(this.rawId, {this.inMemoryScan = true});
   final String rawId;
+
+  /// False for a track-signal album: built for Rediscover, never a Memory.
+  final bool inMemoryScan;
   String? albumName;
   String? artistName;
   String? coverKey;

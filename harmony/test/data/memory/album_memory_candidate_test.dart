@@ -199,4 +199,70 @@ void main() {
     expect(pool, hasLength(20));
     expect(peak, lessThanOrEqualTo(4));
   });
+
+  test('should_placeNotesThroughTheirSongs_when_notesCarryNoAlbum', () async {
+    SongNote loose(String id, String track) =>
+        SongNote(id: id, trackId: MediaId.subsonic(track), content: 'loose $id', createdAt: 1, updatedAt: 1);
+    final pool = await buildAlbumMemoryCandidates(
+      AlbumMemoryInputs(
+        profileId: 'p1',
+        provider: MediaId.providerSubsonic,
+        songNotes: [loose('n1', 'elsewhere-1'), loose('n2', 'elsewhere-2')],
+        // A synced note's songs, linked to album b by a lookup.
+        trackAlbums: {
+          MediaId.subsonic('elsewhere-1'): MediaId.subsonic('b'),
+          MediaId.subsonic('elsewhere-2'): MediaId.subsonic('b'),
+        },
+      ),
+      loadAlbum: load,
+    );
+    expect(pool.single.albumId, MediaId.subsonic('b'));
+    expect(pool.single.noteCount, 2);
+    expect(pool.single.isMemoryEligible, isTrue);
+  });
+
+  test('should_addScoredAlbumsForRediscoverOnly_when_trackSignalsAsked', () async {
+    final inputs = AlbumMemoryInputs(
+      profileId: 'p1',
+      provider: MediaId.providerSubsonic,
+      // Scores pulled from the server: every track of a, never played here.
+      trackRatings: {for (var i = 1; i <= 5; i++) MediaId.subsonic('a-t$i'): _rating('a-t$i', 8, at: i)},
+      trackAlbums: {for (var i = 1; i <= 5; i++) MediaId.subsonic('a-t$i'): MediaId.subsonic('a')},
+    );
+    expect(await buildAlbumMemoryCandidates(inputs, loadAlbum: load, includeIneligible: true), isEmpty);
+    final pool = await buildAlbumMemoryCandidates(
+      inputs,
+      loadAlbum: load,
+      includeIneligible: true,
+      withTrackSignals: true,
+    );
+    final a = pool.single;
+    expect(a.albumId, MediaId.subsonic('a'));
+    expect(a.averageSongRating, 8);
+    expect(a.ratingCoverage, 1);
+    // Outside the Memory scan: never a Memory (Android inMemoryScan = false).
+    expect(a.isMemoryEligible, isFalse);
+    expect(await buildAlbumMemoryCandidates(inputs, loadAlbum: load), isEmpty);
+  });
+
+  test('should_rankTrackSignalAlbums_when_signalsDiffer', () {
+    final inputs = AlbumMemoryInputs(
+      profileId: 'p1',
+      provider: MediaId.providerSubsonic,
+      songNotes: [_note('n1', 'x', 'c', at: 9)],
+      trackRatings: {
+        MediaId.subsonic('b-t1'): _rating('b-t1', 7, at: 1),
+        MediaId.subsonic('b-t2'): _rating('b-t2', 7, at: 2),
+        MediaId.subsonic('d-t1'): _rating('d-t1', null, at: 3),
+      },
+      trackAlbums: {
+        MediaId.subsonic('b-t1'): MediaId.subsonic('b'),
+        MediaId.subsonic('b-t2'): MediaId.subsonic('b'),
+        MediaId.subsonic('d-t1'): MediaId.subsonic('d'),
+      },
+    );
+    // Two scores beat one note; a cleared score is no signal; a scanned album is left out.
+    expect(trackSignalAlbums(inputs), [MediaId.subsonic('b'), MediaId.subsonic('c')]);
+    expect(trackSignalAlbums(inputs, exclude: {'b'}), [MediaId.subsonic('c')]);
+  });
 }

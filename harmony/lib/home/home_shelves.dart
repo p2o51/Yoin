@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/model/model.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_album_memory_mark.dart';
 import 'home_edit.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
@@ -213,6 +214,7 @@ class AlbumShelfCard extends ConsumerWidget {
       card: card,
       caption: card.subtitle,
       onTap: () => openHomeTarget(context, ref, card.target),
+      markAlbum: shelfMarkAlbum(album),
     );
   }
 }
@@ -235,11 +237,14 @@ class PlaylistShelfCard extends ConsumerWidget {
 }
 
 class _ShelfCard extends StatelessWidget {
-  const _ShelfCard({required this.card, required this.caption, required this.onTap});
+  const _ShelfCard({required this.card, required this.caption, required this.onTap, this.markAlbum});
 
   final HomeWidgetCard card;
   final String caption;
   final VoidCallback onTap;
+
+  /// An album card's memory mark (home_album_memory_mark.dart); null = a bare cover.
+  final MediaId? markAlbum;
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +260,12 @@ class _ShelfCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              BackdropCover(cover: card.cover, kind: card.kind, size: HomeTokens.recentlyAddedAlbumCover),
+              BackdropCover(
+                cover: card.cover,
+                kind: card.kind,
+                size: HomeTokens.recentlyAddedAlbumCover,
+                markAlbum: markAlbum,
+              ),
               const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
               VersionTitle(
                 title: card.title,
