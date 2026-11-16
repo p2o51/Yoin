@@ -2211,9 +2211,8 @@ abstract final class ContinueOnCardTokens {
   static const double outerVertical = 24;
   static const double maxWidth = 420;
 
-  /// YoinShapeTokens.ExtraLarge; shadowElevation 6.
+  /// YoinShapeTokens.ExtraLarge. Flat: no shadow (Android main 2026-11-13), the inverse surface sets it apart.
   static const double corner = 28;
-  static const double elevation = 6;
   static const double padding = 16;
 
   /// Between the song row and the actions.

@@ -220,17 +220,19 @@ class SettingsItem extends StatelessWidget {
                     fontSize: theme.textTheme.titleMedium!.fontSize ?? 16,
                     child: Text(title, style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface)),
                   ),
+                  // Summaries wrap in full (Android main 2026-11-15): no mid-page truncation, and on a
+                  // narrow phone two lines cut the longer ones short.
                   if (summary != null) ...[
                     const SizedBox(height: SettingsMetrics.rowTextGap),
                     SeamFade(
                       fontSize: secondary.fontSize ?? 14,
-                      child: Text(summary!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      child: Text(summary!, style: secondary),
                     ),
                   ],
                   if (summaryDetail != null)
                     SeamFade(
                       fontSize: secondary.fontSize ?? 14,
-                      child: Text(summaryDetail!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      child: Text(summaryDetail!, style: secondary),
                     ),
                   if (summaryContent != null) ...[
                     const SizedBox(height: SettingsMetrics.rowTextGap),

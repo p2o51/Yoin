@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_color_utilities/material_color_utilities.dart' show Contrast, Hct;
 import 'package:yoin/continueon/continue_on_card.dart';
 import 'package:yoin/continueon/continue_on_controller.dart';
 import 'package:yoin/platform/continueon/continue_on_host.dart';
+import 'package:yoin/theme/color_scheme.dart';
+import 'package:yoin/theme/theme.dart' show yoinSeed;
+import 'package:yoin/ui/adaptive/edge_split.dart';
+import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 import 'package:yoin/ui/component/yoin_loading_indicator.dart';
 
 /// The Continue On card (Android ContinueOnCard.kt): what it says in each
@@ -145,6 +150,74 @@ void main() {
     expect(formatContinueOnPosition(5000), '0:05');
     expect(formatContinueOnPosition(3723000), '1:02:03');
     expect(formatContinueOnPosition(-1), '0:00');
+  });
+
+  // Android FlatFloaterContrastTest: no shadow, so the colours alone set the card apart.
+  test('should_standOutFromThePage_when_theCardHasNoShadow', () {
+    const seeds = [
+      yoinSeed,
+      Color(0xFFD32F2F),
+      Color(0xFFFFEB3B),
+      Color(0xFF00BCD4),
+      Color(0xFF43A047),
+      Color(0xFF8D8A90),
+    ];
+    double ratio(Color a, Color b) =>
+        Contrast.ratioOfTones(Hct.fromInt(a.toARGB32()).tone, Hct.fromInt(b.toARGB32()).tone);
+    for (final seed in seeds) {
+      for (final brightness in Brightness.values) {
+        final page = yoinExpressiveScheme(seed, brightness);
+        final card = continueOnCardScheme(page);
+        final where = '$seed $brightness';
+        expect(ratio(card.surface, page.surface), greaterThanOrEqualTo(3.0), reason: 'card on page, $where');
+        expect(
+          ratio(card.surface, page.surfaceContainerHigh),
+          greaterThanOrEqualTo(3.0),
+          reason: 'card on container, $where',
+        );
+        expect(ratio(card.onSurface, card.surface), greaterThanOrEqualTo(4.5), reason: 'title, $where');
+        expect(ratio(card.onSurfaceVariant, card.surface), greaterThanOrEqualTo(4.5), reason: 'quiet line, $where');
+        expect(ratio(card.primary, card.surface), greaterThanOrEqualTo(4.5), reason: 'accent, $where');
+        expect(ratio(card.onPrimary, card.primary), greaterThanOrEqualTo(4.5), reason: 'button text, $where');
+      }
+    }
+  });
+
+  testWidgets('should_drawFlatOnTheInverseSurface_when_shown', (tester) async {
+    await show(tester, sample());
+    final page = Theme.of(tester.element(find.byType(ContinueOnCard))).colorScheme;
+    final surface = tester.widget<Material>(
+      find.ancestor(of: find.text('Weightless'), matching: find.byType(Material)).first,
+    );
+    expect(surface.color, page.inverseSurface);
+    expect(surface.elevation, 0);
+    final title = tester.widget<Text>(find.text('Weightless'));
+    expect(title.style!.color, page.surface);
+  });
+
+  testWidgets('should_sitAboveTheBar_when_theHostShowsTheCard', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        continueOnHostProvider.overrideWithValue(const NoContinueOnHost()),
+        continueOnAccountsProvider.overrideWithValue(_NoAccounts()),
+      ],
+    );
+    addTearDown(container.dispose);
+    // A portrait phone: the floating bar's reserve, navigation inset included.
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: YoinWindowScope(info: const YoinWindowInfo(400, 800), child: app(const ContinueOnCardHost())),
+      ),
+    );
+    final padding = tester.widget<Padding>(
+      find.descendant(of: find.byType(ContinueOnCardHost), matching: find.byType(Padding)).first,
+    );
+    expect(
+      padding.padding,
+      resolveShellChromeInsets(window: const YoinWindowInfo(400, 800), viewPadding: EdgeInsets.zero),
+    );
+    expect((padding.padding as EdgeInsets).bottom, greaterThan(0));
   });
 }
 
