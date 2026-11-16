@@ -16,12 +16,13 @@ import '../landing/landing_mascot.dart';
 import '../memories/ledger/memory_grid_lift.dart';
 import '../memories/ledger/memory_grid_view.dart';
 import '../memories/ledger/memory_ledger_strings.dart';
+import '../memories/memories_aurora.dart';
 import '../memories/memories_strings.dart';
 import '../memories/memories_ui_state.dart' show MemoryOtherProfile;
 import '../memories/memory_card_face.dart' show MemoryPillButton;
 import '../memories/memory_other_profile_line.dart';
 import '../memories/other_profiles.dart' show AccountSwitchNoticeSheet, AccountSwitchPurpose;
-import '../memories/palette/memory_palette.dart' show MemoryPaletteTones;
+import '../memories/palette/memory_palette.dart' show MemoryPalette, MemoryPaletteSamples, MemoryPaletteTones;
 import '../settings/account_identity.dart';
 import '../settings/settings_colors.dart';
 import '../settings/settings_components.dart' show SettingsBar, SettingsHeadline;
@@ -360,9 +361,9 @@ class _DemoMemoryCard extends StatelessWidget {
   }
 }
 
-/// Memories as the phone shows it: the top bar, then the card ⇄ diary by
-/// [diary] (0 card, 1 diary): the cover flies into the bar's leading slot and
-/// the diary's lines rise behind the title.
+/// Memories as the phone shows it: the deck's aurora, the top bar, then the
+/// card ⇄ diary by [diary] (0 card, 1 diary): the cover flies into the bar's
+/// leading slot and the diary's lines rise behind the title.
 class _DemoMemories extends StatelessWidget {
   const _DemoMemories({
     required this.album,
@@ -372,10 +373,15 @@ class _DemoMemories extends StatelessWidget {
     this.targets = true,
     this.onGoAlbum,
     this.goTarget,
+    this.aurora = true,
   });
 
   /// False for a second deck page on the same screen (a target names one part).
   final bool targets;
+
+  /// The page paints the deck's ground and aurora under itself; false where
+  /// one aurora runs under several pages (the page is then see-through).
+  final bool aurora;
 
   final DemoAlbum album;
   final double diary;
@@ -400,8 +406,8 @@ class _DemoMemories extends StatelessWidget {
     final coverTop =
         (TipSceneTokens.barHeight + TipSceneTokens.titleGap) * (1 - p) +
         (TipSceneTokens.barHeight - TipSceneTokens.barCover) / 2 * p;
-    return ColoredBox(
-      color: colors.surfaceContainer,
+    return _DemoDeckGround(
+      palettes: aurora ? (owner == null ? _ownAurora : _otherAurora) : null,
       child: Stack(
         children: [
           // The bar: "Memories", the album sliding in beside its cover once the diary is open.
@@ -489,6 +495,62 @@ class _DemoMemories extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The deck's palettes in the phone (Android's demo: M1 for this account's
+/// memory, M3 for another account's).
+const _ownAurora = [MemoryPaletteSamples.m1];
+const _otherAurora = [MemoryPaletteSamples.m3];
+
+/// The two cards of the all-accounts deck, in order.
+const _deckAurora = [MemoryPaletteSamples.m1, MemoryPaletteSamples.m3];
+
+/// Under a demo Memories page: the deck's ground and aurora in [palettes],
+/// or nothing (see-through) when null.
+class _DemoDeckGround extends StatelessWidget {
+  const _DemoDeckGround({required this.palettes, required this.child});
+
+  final List<MemoryPalette>? palettes;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final palettes = this.palettes;
+    if (palettes == null) return child;
+    return Stack(
+      children: [
+        Positioned.fill(child: _DemoAurora(palettes: palettes)),
+        child,
+      ],
+    );
+  }
+}
+
+/// The Memories deck's ground in the phone: the real aurora
+/// ([MemoriesAurora]) over the surface, as Android's demo wears
+/// memoriesAuroraBackground. [position] is the pager's page across
+/// [palettes] (still at the first when null).
+class _DemoAurora extends StatelessWidget {
+  const _DemoAurora({required this.palettes, this.position});
+
+  final List<MemoryPalette> palettes;
+  final SpringValue? position;
+
+  static double _first() => 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final position = this.position;
+    return MemoriesAurora(
+      palettes: palettes,
+      position: position == null ? _first : () => position.value,
+      repaint: position?.animation ?? kAlwaysCompleteAnimation,
+      visible: true,
+      dark: theme.brightness == Brightness.dark,
+      ground: theme.colorScheme.surface,
     );
   }
 }
@@ -647,9 +709,13 @@ class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
           builder: (context, _) => ClipRect(
             child: Stack(
               children: [
+                // One aurora under the deck, turned and re-tinted by the swipe as the pager does it.
+                Positioned.fill(
+                  child: _DemoAurora(palettes: _deckAurora, position: _shift),
+                ),
                 FractionalTranslation(
                   translation: Offset(-_shift.value, 0),
-                  child: _DemoMemories(album: demoAlbums[0], diary: 0, onDiary: () {}),
+                  child: _DemoMemories(album: demoAlbums[0], diary: 0, onDiary: () {}, aurora: false),
                 ),
                 FractionalTranslation(
                   translation: Offset(1 - _shift.value, 0),
@@ -659,6 +725,7 @@ class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
                     onDiary: () {},
                     owner: owner,
                     targets: false,
+                    aurora: false,
                     onGoAlbum: () => put(() => _notice = true),
                     goTarget: 'otherGoAlbum',
                   ),

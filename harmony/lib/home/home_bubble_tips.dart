@@ -24,7 +24,7 @@ enum HomeBubbleTip {
   spatialAudio(YoinSymbols.headphones, (2026, 11, 17)),
   lyricsTools(YoinSymbols.lyrics, (2026, 11, 16)),
   lyricsSelect(YoinSymbols.check, (2026, 11, 16)),
-  memoriesDiary(YoinSymbols.article, (2026, 11, 16)),
+  memoriesDiary(YoinSymbols.article, (2026, 11, 17)),
   cloudSync(YoinSymbols.cloud, (2026, 11, 17)),
   welcomeGuide(YoinSymbols.refresh, (2026, 11, 16)),
   keyboardShortcuts(YoinSymbols.keyboard, (2026, 11, 13)),
@@ -43,7 +43,7 @@ enum HomeBubbleTip {
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
   downloads(YoinSymbols.download, (2026, 11, 4)),
   editHome(YoinSymbols.dragHandle, (2026, 10, 17)),
-  pullForMemories(YoinSymbols.memory, (2026, 10, 17)),
+  pullForMemories(YoinSymbols.memory, (2026, 11, 17)),
   coverMenu(YoinSymbols.album, (2026, 11, 16)),
   songMenu(YoinSymbols.queue, (2026, 11, 16)),
   playModes(YoinSymbols.shuffle, (2026, 10, 21)),
@@ -136,7 +136,7 @@ enum HomeBubbleTip {
           ? '展开歌词后点 ✓，点选最多 15 行可复制、分享为图片卡片，或以 LRC 格式修改词句与时间轴并应用；没有歌词时点同一按钮可添加歌词'
           : 'In expanded Lyrics, tap ✓ and tap up to 15 lines to copy them, share them as an image card, or edit lines '
                 'and timing as LRC; when there are no lyrics, the same button adds them',
-    // Carbon 2026-11-16.
+    // Carbon 2026-11-16 (the demo's deck wears the real aurora since 11-17).
     memoriesDiary =>
       zh
           ? '在首页下拉打开 Memories，点卡片上的「日记」展开日记；往下拖顶栏或在日记顶部下拉回到卡片，在卡片上往上滑回到首页'
@@ -231,7 +231,7 @@ enum HomeBubbleTip {
                 'active account › Storage › Downloads',
     // home_tip_edit_home
     editHome => zh ? '长按首页，重新排版' : 'Long-press Home to rearrange sections',
-    // home_tip_pull_memories
+    // home_tip_pull_memories (the demo's deck wears the real aurora since 11-17).
     pullForMemories => zh ? '首页往下拉，打开 Memories' : 'Pull down on Home to open Memories',
     // home_tip_cover_menu
     coverMenu =>

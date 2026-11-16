@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/memories/ledger/memory_grid_view.dart';
+import 'package:yoin/memories/memories_aurora.dart';
+import 'package:yoin/memories/palette/memory_palette.dart' show MemoryPaletteSamples;
 import 'package:yoin/memories/other_profiles.dart' show AccountSwitchNoticeSheet;
 import 'package:yoin/nowplaying/now_playing_screen.dart' show TabletopExpandLyricsKey;
 import 'package:yoin/playback/spatial_audio.dart' show SpatialAudioMode;
@@ -82,6 +84,13 @@ void main() {
     test('should_bringAllMemoriesBackUnread_when_itWasReadBeforeTheLift', () {
       // Read on 11-16, before the grid flew into the bar: the tip shows something new now.
       expect(decodeReadTips(['memoryLedger@2026-11-12', 'aiServices@2026-11-16']), {HomeBubbleTip.aiServices});
+    });
+
+    test('should_bringMemoriesTipsBackUnread_when_readBeforeTheDeckAurora', () {
+      // Read before 11-17: the Memories demos now stand on the deck's real aurora.
+      expect(decodeReadTips(['pullForMemories@2026-10-17', 'memoriesDiary@2026-11-16', 'lyricsTools@2026-11-16']), {
+        HomeBubbleTip.lyricsTools,
+      });
     });
 
     test('should_writeBothLanguages_when_anyTipIsShown', () {
@@ -328,6 +337,29 @@ void main() {
       // Its answer stays in the phone: the sheet goes, the tip page stays.
       expect(await playUntil(tester, () => notice.evaluate().isEmpty), isTrue);
       expect(find.byType(TipIllustration), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    for (final tip in [HomeBubbleTip.pullForMemories, HomeBubbleTip.memoriesDiary]) {
+      testWidgets('should_standOnTheDeckAurora_when_the${tip.name}DemoShowsMemories', (tester) async {
+        await pumpDemo(tester, tip);
+        final aurora = find.byType(MemoriesAurora);
+        expect(aurora, findsOneWidget);
+        expect(tester.widget<MemoriesAurora>(aurora).palettes, [MemoryPaletteSamples.m1]);
+        await leave(tester);
+      });
+    }
+
+    testWidgets('should_turnOneAuroraWithTheSwipe_when_theAllAccountsDemoDealsTheNextCard', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.memoriesAllAccounts);
+      // One field under both pages, read at the deck's position as the real pager does.
+      final aurora = find.byType(MemoriesAurora);
+      expect(aurora, findsOneWidget);
+      expect(tester.widget<MemoriesAurora>(aurora).palettes, [MemoryPaletteSamples.m1, MemoryPaletteSamples.m3]);
+      double position() => tester.widget<MemoriesAurora>(aurora).position();
+      expect(position(), 0);
+      expect(await playUntil(tester, () => position() > 0.99), isTrue);
       expect(tester.takeException(), isNull);
       await leave(tester);
     });
