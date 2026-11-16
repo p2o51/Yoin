@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +35,7 @@ void main() {
   final golden = _golden();
   final shapes = golden['shapes'] as Map<String, dynamic>;
   final morphs = golden['morphs'] as Map<String, dynamic>;
+  final loadingMorphs = golden['loadingMorphs'] as Map<String, dynamic>;
 
   group('MaterialShapes', () {
     test('should_listEveryComposeShape_when_enumerated', () {
@@ -83,8 +86,47 @@ void main() {
         final morph = Morph(MaterialShapes.all[a]!, MaterialShapes.all[b]!);
         expect(morph.cubicCount, g['pairs']);
         _expectAllClose(_flat(morph.asCubics(.5)), g['half'] as List, 'half');
+        // A spring overshooting past 1 extrapolates the same pairs.
+        _expectAllClose(_flat(morph.asCubics(1.08)), g['overshoot'] as List, 'overshoot');
       });
     }
+
+    for (final key in loadingMorphs.keys) {
+      test('should_matchCompose_when_loadingIndicatorMorphs_$key', () {
+        final g = loadingMorphs[key] as Map<String, dynamic>;
+        final [a, b] = key.split('>');
+        final morph = Morph(MaterialShapes.all[a]!.normalized(), MaterialShapes.all[b]!.normalized());
+        expect(morph.cubicCount, g['pairs']);
+        _expectAllClose(_flat(morph.asCubics(.5)), g['half'] as List, 'half');
+      });
+    }
+
+    test('should_keepBothWholeOutlines_when_morphingAnyPair', () {
+      // At 0 and 1 a morph must trace its whole start and end outline: a cut
+      // that lands a rounding error past a cubic's end once dropped that cubic
+      // (Clover4Leaf > Gem, Ghostish > Arch). Measured at 1000× so the path
+      // metrics' flattening is far below the 1e-3 checked here; a lost cubic
+      // costs percents. This also holds for the Clover4Leaf pairs left out of
+      // the goldens: its corners sit on its symmetry axes, so against Arch,
+      // Oval, Sunny or Cookie9Sided two corners are equally near and Kotlin
+      // breaks the tie by its Float rounding, which a double port cannot
+      // reproduce bit for bit (the pairing may take the mirror corner).
+      double length(Path unit) => unit
+          .transform(Float64List.fromList([1000, 0, 0, 0, 0, 1000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]))
+          .computeMetrics()
+          .fold(0.0, (sum, m) => sum + m.length);
+      final all = MaterialShapes.all;
+      for (final a in all.keys) {
+        final own = length(all[a]!.toPath());
+        for (final b in all.keys) {
+          if (a == b) continue;
+          final morph = Morph(all[a]!, all[b]!);
+          expect(length(morph.toPath(0)), closeTo(own, own * 1e-3), reason: '$a > $b at 0');
+          final other = length(all[b]!.toPath());
+          expect(length(morph.toPath(1)), closeTo(other, other * 1e-3), reason: '$a > $b at 1');
+        }
+      }
+    });
 
     test('should_equalEndpoints_when_progressIsZeroOrOne', () {
       for (final target in [MaterialShapes.triangle, MaterialShapes.cookie9Sided]) {
@@ -192,6 +234,30 @@ void main() {
       );
     });
 
+    test('should_strokeInsideTheBox_when_borderHasASide', () {
+      // Compose's Modifier.border keeps the whole stroke inside the shape;
+      // centring it on the edge would spill half of it past the box.
+      const rect = Rect.fromLTWH(0, 0, 148, 148);
+      const side = BorderSide(width: 2);
+      for (final border in <ShapeBorder>[
+        PolygonBorder(MaterialShapes.cookie12Sided, side: side),
+        MorphBorder(Morph(MaterialShapes.circle, MaterialShapes.cookie12Sided), .4, side: side),
+      ]) {
+        final recorder = PictureRecorder();
+        final canvas = _PathCanvas(Canvas(recorder));
+        border.paint(canvas, rect);
+        recorder.endRecording().dispose();
+        // The stroke runs along the outline of the box inset by half its width.
+        final bounds = canvas.paths.single.getBounds();
+        final inset = border.getOuterPath(rect.deflate(side.width / 2)).getBounds();
+        expect(bounds.left, closeTo(inset.left, 1e-6));
+        expect(bounds.top, closeTo(inset.top, 1e-6));
+        expect(bounds.right, closeTo(inset.right, 1e-6));
+        expect(bounds.bottom, closeTo(inset.bottom, 1e-6));
+        expect(bounds.width, lessThan(border.getOuterPath(rect).getBounds().width - side.width / 2));
+      }
+    });
+
     test('should_putFirstPointAtAngle_when_startAngleGiven', () {
       // material3 turns the path about (0, 0) so that its first point sits at
       // startAngle around the (turned) centre.
@@ -206,6 +272,23 @@ void main() {
       expect(math.atan2(fromCenter.dy, fromCenter.dx) * 180 / math.pi, closeTo(90, 1e-6));
     });
   });
+}
+
+/// Records the paths drawn through it.
+class _PathCanvas implements Canvas {
+  _PathCanvas(this._canvas);
+
+  final Canvas _canvas;
+  final List<Path> paths = [];
+
+  @override
+  void drawPath(Path path, Paint paint) {
+    paths.add(path);
+    _canvas.drawPath(path, paint);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 double _distanceToPath(Path path, Offset p) {

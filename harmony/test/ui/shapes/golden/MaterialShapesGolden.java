@@ -37,10 +37,29 @@ public class MaterialShapesGolden {
     }
     out.setLength(out.length() - 1);
     out.append("},\"morphs\":{");
-    String[][] pairs = {{"Bun","Triangle"},{"Circle","Triangle"},{"Ghostish","Triangle"},{"Circle","Cookie9Sided"},{"Cookie6Sided","Clover4Leaf"},{"Pentagon","Cookie9Sided"},{"Oval","Cookie6Sided"}};
+    // Every morph Yoin draws (Home press, landing, restore sheet, tips, the
+    // avatar slots), less the pairs whose corner matching is a Float tie (see
+    // material_shapes_test.dart), plus the two that once lost a cubic at the
+    // cut (Clover4Leaf>Gem, Ghostish>Arch).
+    String[][] pairs = {{"Bun","Triangle"},{"Circle","Triangle"},{"Ghostish","Triangle"},{"Circle","Cookie9Sided"},{"Cookie6Sided","Clover4Leaf"},{"Pentagon","Cookie9Sided"},{"Oval","Cookie6Sided"},
+        {"Circle","SoftBurst"},{"Sunny","Cookie6Sided"},{"Cookie6Sided","Gem"},{"Gem","Pentagon"},
+        {"Clover4Leaf","Gem"},{"Ghostish","Arch"},{"Gem","Arch"},{"Arch","Slanted"},{"Slanted","Ghostish"},{"Ghostish","Sunny"},{"Sunny","Oval"},{"Oval","Cookie6Sided"},{"Arch","Gem"}};
+    Set<String> seen = new HashSet<>();
     for (String[] pr : pairs) {
+      if (!seen.add(pr[0] + ">" + pr[1])) continue;
       Morph mo = new Morph(polys.get(pr[0]), polys.get(pr[1]));
       out.append("\"").append(pr[0]).append(">").append(pr[1]).append("\":{\"pairs\":").append(mo.getMorphMatch().size())
+         .append(",\"half\":").append(pts(mo.asCubics(0.5f)))
+         .append(",\"overshoot\":").append(pts(mo.asCubics(1.08f))).append("},");
+    }
+    out.setLength(out.length() - 1);
+    // LoadingIndicator's morphSequence normalizes each shape again.
+    String[] li = {"SoftBurst","Cookie9Sided","Pentagon","Pill","Sunny","Cookie4Sided","Oval"};
+    out.append("},\"loadingMorphs\":{");
+    for (int i = 0; i < li.length; i++) {
+      String x = li[i], y = li[(i + 1) % li.length];
+      Morph mo = new Morph(polys.get(x).normalized(), polys.get(y).normalized());
+      out.append("\"").append(x).append(">").append(y).append("\":{\"pairs\":").append(mo.getMorphMatch().size())
          .append(",\"half\":").append(pts(mo.asCubics(0.5f))).append("},");
     }
     out.setLength(out.length() - 1);

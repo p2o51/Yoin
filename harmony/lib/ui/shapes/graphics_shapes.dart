@@ -55,7 +55,11 @@ const double relaxedDistanceEpsilon = 5e-3;
 
 double _interpolate(double start, double stop, double fraction) => (1 - fraction) * start + fraction * stop;
 
-double _positiveModulo(double num, double mod) => (num % mod + mod) % mod;
+/// Utils.positiveModulo, with Kotlin's truncating `%` ([double.remainder]):
+/// Dart's own `%` is already non-negative, and adding [mod] to its result
+/// rounds a tiny negative [num] to exactly 0 where Kotlin gets just under
+/// [mod] (a cut a hair past a cubic's end then drops that cubic).
+double _positiveModulo(double num, double mod) => (num.remainder(mod) + mod) % mod;
 
 double _square(double x) => x * x;
 

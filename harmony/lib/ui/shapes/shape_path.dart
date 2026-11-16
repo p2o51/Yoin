@@ -116,10 +116,13 @@ class PolygonBorder extends OutlinedBorder {
   Path getInnerPath(Rect rect, {TextDirection? textDirection}) =>
       polygonOutline(_unitPath, rect.deflate(side.strokeInset));
 
+  /// The stroke follows the outline moved by [BorderSide.strokeAlign]
+  /// (inside by default, as Compose's `Modifier.border` keeps it), not
+  /// centred on the edge with half of it spilling out.
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     if (side.style == BorderStyle.none) return;
-    canvas.drawPath(getOuterPath(rect), side.toPaint());
+    canvas.drawPath(getOuterPath(rect.inflate(side.strokeOffset / 2)), side.toPaint());
   }
 
   @override
@@ -157,10 +160,11 @@ class MorphBorder extends OutlinedBorder {
   Path getInnerPath(Rect rect, {TextDirection? textDirection}) =>
       morphOutline(morph, progress, rect.deflate(side.strokeInset));
 
+  /// Strokes like [PolygonBorder.paint]: inside the outline by default.
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     if (side.style == BorderStyle.none) return;
-    canvas.drawPath(getOuterPath(rect), side.toPaint());
+    canvas.drawPath(getOuterPath(rect.inflate(side.strokeOffset / 2)), side.toPaint());
   }
 
   @override

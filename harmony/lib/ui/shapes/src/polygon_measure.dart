@@ -108,6 +108,18 @@ final class _MeasuredPolygon {
 
   int get length => cubics.length;
 
+  /// `positiveModulo(cubics[i].endOutlineProgress - cuttingPoint, 1f)`, with
+  /// the wrap taken from the index: the cubics before [targetIndex] end at or
+  /// before the cut, so they move up by one. Folding with `% 1` instead turns
+  /// the one ending a rounding error short of the cut into 0 rather than ~1,
+  /// and the polygon then drops that whole cubic and keeps the empty sliver
+  /// after it (Ghostish → Arch lost Arch's top-left edge that way; Kotlin's
+  /// Float rounding happens to dodge it for the shapes Yoin uses).
+  double _shiftedEnd(int i, int targetIndex, double cuttingPoint) {
+    final shifted = cubics[i].endOutlineProgress - cuttingPoint;
+    return i < targetIndex ? shifted + 1 : shifted;
+  }
+
   /// Starts the outline at [cuttingPoint] instead of 0.
   _MeasuredPolygon cutAndShift(double cuttingPoint) {
     assert(cuttingPoint >= 0 && cuttingPoint <= 1, 'Cutting point is expected to be between 0 and 1');
@@ -129,7 +141,7 @@ final class _MeasuredPolygon {
         else if (index == cubics.length + 1)
           1
         else
-          _positiveModulo(cubics[(targetIndex + index - 1) % cubics.length].endOutlineProgress - cuttingPoint, 1),
+          _shiftedEnd((targetIndex + index - 1) % cubics.length, targetIndex, cuttingPoint),
     ];
     final newFeatures = [
       for (final f in features) _ProgressableFeature(_positiveModulo(f.progress - cuttingPoint, 1), f.feature),
