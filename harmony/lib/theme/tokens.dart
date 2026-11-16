@@ -371,6 +371,23 @@ abstract final class NowPlayingTokens {
   static const double topBarDeviceNameMax = 96;
 }
 
+/// The 16:9 one-line lyric row's once-a-day unfold hint (NowPlayingScreen.kt
+/// OneLineLyricRow / UnfoldHintSymbol, NowPlayingPresentation.kt).
+abstract final class LyricIdleHintTokens {
+  /// A line held at least this long counts as "stopped" (intro, break, a long note).
+  static const int delayMs = 8000;
+
+  /// How long the hint (and its moving symbol) stays before the lyric returns.
+  static const int showMs = 1800;
+
+  /// The symbol's box (Yoin Symbols' 24 grid).
+  static const double symbol = 24;
+
+  /// The two chevrons press this far toward the centre line, then spring this far outward and settle.
+  static const double press = 1.8;
+  static const double bounce = 2.6;
+}
+
 /// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
 /// NoteFullscreenPane.kt, compact/NoteCompactPane.kt).
 abstract final class NowPlayingNoteTokens {
@@ -969,6 +986,39 @@ abstract final class MemoriesTokens {
 
   /// The award starts once the reveal is this open (q ≤ this).
   static const double awardRevealGate = 0.15;
+}
+
+/// The Memories deck's aurora (MemoriesAuroraBackground.kt): three radial
+/// blooms in the cards' palettes, turned by the pager's position.
+abstract final class MemoriesAuroraTokens {
+  /// A bloom's core alpha cap: dark (screen-blended) / light (over).
+  static const double alphaDark = 0.26;
+  static const double alphaLight = 0.2;
+
+  /// One memory turns the orbit a little under a fifth; the breath follows at its own pace.
+  static const double driftPerPage = 0.18;
+  static const double breathPerPage = 1.9;
+
+  /// The blooms' anchors, as fractions of the deck (x, y): base, accent, their mix.
+  static const List<(double, double)> anchors = [(0.24, 0.22), (0.78, 0.44), (0.34, 0.80)];
+
+  /// Each bloom's orbit: this share of the width / height around its anchor.
+  static const double orbitX = 0.20;
+  static const double orbitY = 0.16;
+
+  /// The vertical orbit runs this much faster than the horizontal one.
+  static const double orbitYRate = 1.3;
+
+  /// Radius: half the longest side, give or take the wobble, smaller for each deeper bloom.
+  static const double radius = 0.5;
+  static const double radiusWobble = 0.12;
+  static const double depthStep = 0.18;
+
+  /// Below this presence nothing is drawn.
+  static const double minPresence = 0.01;
+
+  /// The deck counts as gone once Memories is this far retreated (q).
+  static const double hiddenReveal = 0.999;
 }
 
 /// Library root, Compact (LibraryScreen.kt, LibraryFilterRow.kt, ExpressiveComponents.kt, SongListItem.kt; iOS LibraryView, SearchView).
@@ -1890,6 +1940,52 @@ abstract final class SeamTokens {
 
   /// The lip's front is sampled this often (dp) when cut as a path.
   static const double cookieStep = 1;
+
+  // ── The bottom field around the floating bar (dissolve-final §1.2) ──
+  /// Where the approach starts: this far above the bar's top edge.
+  static const double fieldStart = 20;
+
+  /// The rest of the approach is hidden behind the bar's top edge.
+  static const double fieldHidden = 28;
+
+  /// A fling lifts the start this much further.
+  static const double fieldStretch = 20;
+
+  /// The pure field's coverage (k0 = √(coverage × 0.866 / π) ≈ 0.332 cells); the approach starts at this radius.
+  static const double fieldCoverage = 0.40;
+  static const double fieldApproachRadius = 0.62;
+
+  /// The pure field thins to this share of k0 at the screen's bottom edge.
+  static const double fieldThinning = 0.9;
+  static const double fieldFront = 3;
+  static const double fieldFrontNear = 10;
+  static const double fieldFlowScale = 24;
+
+  /// 退色: how far the dots ease toward the page colour at the bar's top and at the screen's edge.
+  static const double fieldFadeAtBar = 0.16;
+  static const double fieldFadeAtEdge = 0.32;
+  static const double fieldFadeOvershoot = 20;
+
+  /// 按亮度让位: similar dots vanish 1.5 from the bar and are whole again 7 further out.
+  static const double yieldReach = 7;
+  static const double yieldInset = 1.5;
+  static const double yieldFullDelta = 6;
+  static const double yieldNoneDelta = 18;
+
+  /// Items whose bottom is within this of the window's bottom edge watch the field.
+  static const double fieldWatch = 240;
+
+  /// The content can still scroll this far when the approach starts to shrink (RevealDistance).
+  static const double fieldRestDistance = 40;
+
+  /// Dots smaller than this (px) are left out of a mask.
+  static const double minDotRadius = 0.3;
+
+  /// A print near the bar re-reads its own lightness at most this often (ms).
+  static const int yieldProbeIntervalMs = 500;
+
+  /// The lightness probe renders this many pixels per lattice cell.
+  static const double yieldProbePixelsPerCell = 2;
 }
 
 /// Settings › Appearance › Scroll edge and its live previews (ScrollEdgePage.kt,

@@ -16,6 +16,7 @@ import '../ui/component/expressive/expressive_surface_button.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/desktop_input.dart';
+import '../ui/component/seam/seam_field.dart' show SeamBarSource;
 import 'bar_edit_pose.dart';
 import 'bar_geometry.dart';
 import 'detail_chrome.dart';
@@ -685,7 +686,8 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               horizontal: BarTokens.horizontalMargin,
               vertical: BarTokens.portraitVerticalMargin,
             ),
-      child: bar,
+      // The opaque surface is the window's bar for the seams' bottom field (seamBarSource).
+      child: SeamBarSource(cornerRadius: BarTokens.corner, color: colors.surfaceContainerHigh, child: bar),
     );
   }
 }

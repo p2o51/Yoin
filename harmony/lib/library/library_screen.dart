@@ -228,6 +228,8 @@ class _Content extends ConsumerWidget {
           // instead of being cut at the views' top edge, in the user's style.
           child: ChromeSeam(
             background: SeamBackground([colors.surfaceContainer, colors.surface, colors.surfaceContainerLow]),
+            // Artwork near the bar opens into the bottom field, in every tab.
+            field: true,
             child: YoinPullToRefresh(
               refreshing: state.isRefreshing,
               onRefresh: vm.refresh,

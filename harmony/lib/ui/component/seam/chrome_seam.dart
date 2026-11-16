@@ -12,7 +12,8 @@
 /// Text fades over its last max(10dp, 0.75 × its size) in every style
 /// ([SeamFade]). Mark graphics with [SeamDissolve] and text with [SeamFade];
 /// both are no-ops outside a seam, so shared components carry them anywhere.
-/// The bottom halftone field around the bar is not ported.
+/// With [ChromeSeam.field] the same viewport also takes the bottom halftone
+/// field around the window's bar ([SeamFieldViewport]), in every style.
 library;
 
 import 'dart:math' as math;
@@ -24,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../home/home_metrics.dart' show HomeSeamMetrics;
 import '../../../home/widgets/seam.dart';
+import 'seam_field.dart';
 import 'seam_halftone.dart';
 import 'seam_style.dart';
 
@@ -183,6 +185,7 @@ class ChromeSeam extends ConsumerStatefulWidget {
     this.style,
     this.flow,
     this.fullReveal = false,
+    this.field = false,
   });
 
   final SeamBackground background;
@@ -191,6 +194,10 @@ class ChromeSeam extends ConsumerStatefulWidget {
   final SeamTopStyle? style;
   final SeamFlow? flow;
   final bool fullReveal;
+
+  /// The viewport also takes the bottom field around the window's bar
+  /// (Android passes remainingPx: Home, Library, the detail pages).
+  final bool field;
 
   /// Moves the scrollable under the nearest chrome seam without it counting
   /// as a scroll (LibraryFastScroller.kt: "a jump is no scroll, so the seam
@@ -215,6 +222,18 @@ class _ChromeSeamState extends ConsumerState<ChromeSeam> with SingleTickerProvid
   late final SeamFlow _ownFlow = SeamFlow(vsync: this);
   late final ChromeSeamController _seam = ChromeSeamController(widget.flow ?? _ownFlow);
   BuildContext? _source;
+
+  /// How far the followed scrollable can still scroll toward its end (the field's approach shrinks over the last 40).
+  double _remaining = double.infinity;
+
+  double _remainingNow() {
+    final controller = widget.controller;
+    if (controller != null && controller.hasClients) {
+      final position = controller.positions.last;
+      if (position.hasContentDimensions) return math.max(0, position.maxScrollExtent - position.pixels);
+    }
+    return _remaining;
+  }
 
   @override
   void initState() {
@@ -258,6 +277,7 @@ class _ChromeSeamState extends ConsumerState<ChromeSeam> with SingleTickerProvid
       _ => (null, null, -1),
     };
     if (metrics == null || depth != 0 || metrics.axis != Axis.vertical) return false;
+    if (metrics.hasContentDimensions) _remaining = math.max(0, metrics.maxScrollExtent - metrics.pixels);
     // Another scrollable took over (a Library tab, a restored offset): its
     // offset is the new reference, not a scroll.
     if (!identical(context, _source)) {
@@ -294,7 +314,17 @@ class _ChromeSeamState extends ConsumerState<ChromeSeam> with SingleTickerProvid
             flow: _seam.flow,
             lineY: 0,
             line: () => _seam.textLine,
-            child: CustomPaint(foregroundPainter: ChromeTidePainter(_seam), child: widget.child),
+            child: CustomPaint(
+              foregroundPainter: ChromeTidePainter(_seam),
+              child: widget.field
+                  ? SeamFieldViewport(
+                      flow: _seam.flow,
+                      background: widget.background,
+                      remaining: _remainingNow,
+                      child: widget.child,
+                    )
+                  : widget.child,
+            ),
           ),
         ),
       ),

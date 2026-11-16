@@ -57,6 +57,7 @@ import 'memory_card_face.dart';
 import 'memory_diary.dart';
 import 'emblem/groove_tilt.dart';
 import 'memory_emblem_slot.dart';
+import 'memories_aurora.dart';
 import 'memory_palettes.dart';
 import 'memory_spread.dart';
 import 'memory_title_editor.dart';
@@ -150,6 +151,11 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   late final MemoryPalettes _palettes = MemoryPalettes(vsync: this);
   late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
   final MemoryTitleEditor _titles = MemoryTitleEditor();
+
+  /// The deck is (partly) on screen: the aurora paints (Android auroraVisible, q < 0.999).
+  late final ValueNotifier<bool> _auroraVisible = ValueNotifier(
+    widget.reveal.fraction < MemoriesAuroraTokens.hiddenReveal,
+  );
   late final MemoryTitleEditing _titleEditing = MemoryTitleEditing(
     editor: _titles,
     onSave: (memory, title) => ref.read(memoriesViewModelProvider.notifier).saveTitle(memory, title),
@@ -198,6 +204,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     _p.dispose();
     _titles.removeListener(_onTitles);
     _titles.dispose();
+    _auroraVisible.dispose();
     _pages?.dispose();
     for (final s in _scrolls.values) {
       s.dispose();
@@ -234,7 +241,11 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     }
   }
 
-  void _onReveal() => _awards.revealChanged(widget.reveal.fraction, settling: widget.reveal.isSettling);
+  void _onReveal() {
+    _awards.revealChanged(widget.reveal.fraction, settling: widget.reveal.isSettling);
+    // Flips once per opening / closing, not per frame.
+    _auroraVisible.value = widget.reveal.fraction < MemoriesAuroraTokens.hiddenReveal;
+  }
 
   // The diary's text returns to its top, unseen, once the card is back: the deck does it (frozen collapse).
   void _onDiary() => _awards.diaryChanged(_p.fraction);
@@ -495,7 +506,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
               children: [
                 if (memories.isNotEmpty)
                   Positioned.fill(
-                    child: _Wash(memories: memories, pages: _pages!, dark: dark),
+                    child: _DeckAurora(memories: memories, pages: _pages!, dark: dark, visible: _auroraVisible),
                   ),
                 switch (state) {
                   MemoriesContent() => _heldOverKeyboard(
@@ -677,60 +688,34 @@ extension on PageController {
   }
 }
 
-/// The page's ground: the album's tint over the surface, following the
-/// deck's position (the palette moves with the finger, so it never snaps).
-class _Wash extends StatelessWidget {
-  const _Wash({required this.memories, required this.pages, required this.dark});
+/// The deck's ground: the surface, with the aurora in the cards' palettes
+/// over it, turned and re-tinted by the deck's position (DeckAurora).
+class _DeckAurora extends StatelessWidget {
+  const _DeckAurora({required this.memories, required this.pages, required this.dark, required this.visible});
 
   final List<MemoryEntry> memories;
   final PageController pages;
   final bool dark;
+  final ValueListenable<bool> visible;
+
+  double _position() => pages.hasClients && pages.position.haveDimensions
+      ? (pages.page ?? pages.initialPage.toDouble())
+      : pages.initialPage.toDouble();
 
   @override
   Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
-    return AnimatedBuilder(
-      animation: pages,
-      builder: (context, _) {
-        final page = pages.hasClients && pages.position.haveDimensions
-            ? (pages.page ?? 0)
-            : pages.initialPage.toDouble();
-        final i = page.floor().clamp(0, memories.length - 1);
-        final j = (i + 1).clamp(0, memories.length - 1);
-        final t = (page - i).clamp(0.0, 1.0);
-        return _PaletteTints(a: memories[i], b: memories[j], t: t, dark: dark, surface: surface);
-      },
-    );
-  }
-}
-
-class _PaletteTints extends StatelessWidget {
-  const _PaletteTints({required this.a, required this.b, required this.t, required this.dark, required this.surface});
-
-  final MemoryEntry a;
-  final MemoryEntry b;
-  final double t;
-  final bool dark;
-  final Color surface;
-
-  @override
-  Widget build(BuildContext context) {
-    final ta = memoryTonesFor(context, a, dark);
-    final tb = memoryTonesFor(context, b, dark);
-    final tint = Color.lerp(ta.tint, tb.tint, t)!;
-    final glow = Color.lerp(ta.ink, tb.ink, t)!;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color.alphaBlend(glow.withValues(alpha: dark ? 0.16 : 0.10), surface),
-            Color.alphaBlend(tint, surface),
-            surface,
-          ],
-          stops: const [0, 0.45, 1],
-        ),
+    // Rebuilt when a cover's palette lands (MemoryPaletteScope); the pager only repaints it.
+    final palettes = [for (final m in memories) memoryPaletteFor(context, m)];
+    final ground = Theme.of(context).colorScheme.surface;
+    return ValueListenableBuilder<bool>(
+      valueListenable: visible,
+      builder: (context, shown, _) => MemoriesAurora(
+        palettes: palettes,
+        position: _position,
+        repaint: pages,
+        visible: shown,
+        dark: dark,
+        ground: ground,
       ),
     );
   }

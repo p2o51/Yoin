@@ -30,7 +30,7 @@ class ServiceRowIcon extends StatelessWidget {
       dimension: SettingsMetrics.rowIconBox,
       child: DecoratedBox(
         decoration: BoxDecoration(color: tone.iconContainer, shape: BoxShape.circle),
-        child: Icon(serviceOf(provider).glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
+        child: ServiceGlyphIcon(serviceOf(provider).glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
       ),
     );
   }

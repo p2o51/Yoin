@@ -138,7 +138,7 @@ class LandingServiceMark extends StatelessWidget {
       child: SizedBox.square(
         dimension: size,
         child: Center(
-          child: Icon(identity.glyph, size: glyph, color: tone.onAccent),
+          child: ServiceGlyphIcon(identity.glyph, size: glyph, color: tone.onAccent),
         ),
       ),
     );
@@ -267,7 +267,7 @@ class _ServiceTileState extends State<ServiceTile> with TickerProviderStateMixin
                           dimension: LandingTokens.tileAvatar,
                           child: Transform.rotate(
                             angle: -m * LandingTokens.tileMorphTurn * math.pi / 180,
-                            child: Icon(
+                            child: ServiceGlyphIcon(
                               identity.glyph,
                               size: LandingTokens.tileGlyph,
                               color: Color.lerp(tone.iconContent, tone.onAccent, c),

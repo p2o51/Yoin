@@ -112,7 +112,7 @@ class ServiceChoiceRow extends StatelessWidget {
             decoration: BoxDecoration(color: tone.iconContainer, shape: BoxShape.circle),
             child: SizedBox.square(
               dimension: SettingsMetrics.choiceIconBox,
-              child: Icon(identity.glyph, size: SettingsMetrics.choiceIcon, color: tone.iconContent),
+              child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.choiceIcon, color: tone.iconContent),
             ),
           ),
           Expanded(

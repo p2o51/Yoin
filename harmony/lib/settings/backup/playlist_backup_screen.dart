@@ -19,6 +19,7 @@ import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_dialog.dart';
 import '../../ui/component/yoin_dropdown_menu.dart';
 import '../../ui/component/yoin_loading_indicator.dart';
+import '../account_identity.dart' show ServiceGlyphIcon;
 import '../material_shapes.dart';
 import '../settings_colors.dart';
 import '../settings_components.dart';
@@ -329,7 +330,7 @@ class _StatusCard extends StatelessWidget {
                     width: PlaylistBackupMetrics.cardMark,
                     height: PlaylistBackupMetrics.cardMark,
                     decoration: ShapeDecoration(color: tone.accent, shape: PolygonBorder(cookie9Sided)),
-                    child: Icon(service.glyph, color: tone.onAccent, size: PlaylistBackupMetrics.cardGlyph),
+                    child: ServiceGlyphIcon(service.glyph, color: tone.onAccent, size: PlaylistBackupMetrics.cardGlyph),
                   ),
                   const SizedBox(width: PlaylistBackupMetrics.cardMarkGap),
                   Expanded(

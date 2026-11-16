@@ -14,6 +14,8 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive/loading_indicator.dart';
+import '../ui/component/seam/chrome_seam.dart' show SeamBackground;
+import '../ui/component/seam/seam_field.dart' show SeamFieldViewport;
 import '../ui/component/user_message.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
@@ -271,6 +273,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     });
   }
 
+  /// How far the feed can still scroll toward its end (the bottom field's approach shrinks over the last 40).
+  double _remainingScroll() {
+    if (!_scroll.hasClients) return double.infinity;
+    final position = _scroll.positions.last;
+    if (!position.hasContentDimensions) return double.infinity;
+    return (position.maxScrollExtent - position.pixels).clamp(0.0, double.infinity);
+  }
+
   bool _onScrollNotification(ScrollNotification n) {
     if (n.depth != 0) return false;
     if (n is ScrollStartNotification) {
@@ -424,14 +434,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 child: SeamScope(
                   flow: _flow,
                   lineY: padding.top + HomeSeamMetrics.tideRest,
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_feedAlpha.animation, _feedRise.animation]),
-                    child: feed,
-                    builder: (context, child) => IgnorePointer(
-                      ignoring: state is! HomeContent,
-                      child: Opacity(
-                        opacity: _feedAlpha.value.clamp(0.0, 1.0),
-                        child: Transform.translate(offset: Offset(0, _feedRise.value * HomeFeedMetrics.entranceRise), child: child),
+                  // Artwork near the bar opens into the bottom field (seamDissolveViewport remainingPx).
+                  child: SeamFieldViewport(
+                    flow: _flow,
+                    background: SeamBackground([colors.surfaceContainer, colors.surface, colors.surfaceContainerLow]),
+                    remaining: _remainingScroll,
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_feedAlpha.animation, _feedRise.animation]),
+                      child: feed,
+                      builder: (context, child) => IgnorePointer(
+                        ignoring: state is! HomeContent,
+                        child: Opacity(
+                          opacity: _feedAlpha.value.clamp(0.0, 1.0),
+                          child: Transform.translate(
+                            offset: Offset(0, _feedRise.value * HomeFeedMetrics.entranceRise),
+                            child: child,
+                          ),
+                        ),
                       ),
                     ),
                   ),

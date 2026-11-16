@@ -192,7 +192,7 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
                 decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(cookie9Sided)),
                 child: SizedBox.square(
                   dimension: SettingsMetrics.heroMark,
-                  child: Icon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),
+                  child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),
                 ),
               ),
             ),
