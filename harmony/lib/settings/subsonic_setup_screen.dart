@@ -22,8 +22,8 @@ import 'stream_quality_screen.dart';
 import 'subsonic_setup_view_model.dart';
 
 /// Opens the page of the Subsonic account [profileId] (Manage).
-Future<void> openSubsonicManage(BuildContext context, String profileId) =>
-    Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => SubsonicSetupScreen(profileId: profileId)));
+Future<void> openSubsonicManage(BuildContext context, String profileId) => Navigator.of(context)
+    .push(YoinPushRoute<void>(builder: (_) => SubsonicSetupScreen(profileId: profileId)));
 
 /// A Subsonic server's page (Android ServiceSetupScreen, Subsonic).
 ///
@@ -172,11 +172,7 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
             managing ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
           ),
         ),
-        body: SafeArea(
-          top: false,
-          bottom: false,
-          child: SettingsSeam(controller: _scroll, child: list),
-        ),
+        body: SafeArea(top: false, bottom: false, child: SettingsSeam(controller: _scroll, child: list)),
       ),
     );
   }
@@ -266,9 +262,8 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
             header: true,
             child: Text(
               account?.title ?? strings.introSubsonicName,
-              style: (account != null ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!).copyWith(
-                color: theme.colorScheme.onSurface,
-              ),
+              style: (account != null ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
+                  .copyWith(color: theme.colorScheme.onSurface),
             ),
           ),
           const SizedBox(height: SettingsMetrics.heroTextGap),
@@ -343,14 +338,14 @@ class _RequirementsGroup extends StatelessWidget {
 // ── Connect ──────────────────────────────────────────────────────────
 
 String _errorText(SettingsStrings strings, SetupError error) => switch (error) {
-  SetupError.addressRequired => strings.addressRequired,
-  SetupError.checkAddress => strings.checkAddress,
-  SetupError.usernameRequired => strings.usernameRequired,
-  SetupError.passwordRequired => strings.passwordRequired,
-  SetupError.serverError => strings.serverError,
-  SetupError.unreachable => strings.unreachable,
-  SetupError.saveFailed => strings.saveFailed,
-};
+      SetupError.addressRequired => strings.addressRequired,
+      SetupError.checkAddress => strings.checkAddress,
+      SetupError.usernameRequired => strings.usernameRequired,
+      SetupError.passwordRequired => strings.passwordRequired,
+      SetupError.serverError => strings.serverError,
+      SetupError.unreachable => strings.unreachable,
+      SetupError.saveFailed => strings.saveFailed,
+    };
 
 class _ConnectGroup extends ConsumerWidget {
   const _ConnectGroup({
@@ -545,23 +540,23 @@ class _StatusLine extends StatelessWidget {
     final child = switch (status) {
       SetupIdle() => const SizedBox.shrink(),
       SetupTesting() || SetupSaving() => Row(
-        children: [
-          const YoinLoadingIndicator(size: SettingsMetrics.statusIndicator),
-          const SizedBox(width: SettingsMetrics.statusIndicatorGap),
-          Expanded(
-            child: Text(
-              status is SetupTesting ? strings.reaching : strings.connecting,
-              style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
+          children: [
+            const YoinLoadingIndicator(size: SettingsMetrics.statusIndicator),
+            const SizedBox(width: SettingsMetrics.statusIndicatorGap),
+            Expanded(
+              child: Text(
+                status is SetupTesting ? strings.reaching : strings.connecting,
+                style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       SetupReachable() => _StatusRow(icon: YoinSymbols.check, text: strings.reachable, color: colors.primary),
       SetupFailed(:final error, :final serverMessage) => _StatusRow(
-        icon: YoinSymbols.error,
-        text: serverMessage ?? _errorText(strings, error),
-        color: colors.error,
-      ),
+          icon: YoinSymbols.error,
+          text: serverMessage ?? _errorText(strings, error),
+          color: colors.error,
+        ),
     };
     return SpringCrossFade(childKey: status.runtimeType, fit: StackFit.loose, child: child);
   }
@@ -576,12 +571,10 @@ class _StatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, size: SettingsMetrics.statusIcon, color: color),
-      const SizedBox(width: SettingsMetrics.statusIconGap),
-      Expanded(
-        child: Text(text, style: Theme.of(context).textTheme.bodyMedium!.copyWith(color: color)),
-      ),
-    ],
-  );
+        children: [
+          Icon(icon, size: SettingsMetrics.statusIcon, color: color),
+          const SizedBox(width: SettingsMetrics.statusIconGap),
+          Expanded(child: Text(text, style: Theme.of(context).textTheme.bodyMedium!.copyWith(color: color))),
+        ],
+      );
 }

@@ -21,12 +21,15 @@ class YoinLoadingIndicator extends StatefulWidget {
 
 class _YoinLoadingIndicatorState extends State<YoinLoadingIndicator> with SingleTickerProviderStateMixin {
   // A loop, not a transition: the indicator spins for as long as it shows.
-  late final AnimationController _loop = AnimationController(vsync: this, duration: const Duration(milliseconds: 4550))
-    ..repeat();
+  // Made on first use (never under reduced motion): disposing must not create
+  // it, since a ticker can't be made once the element is deactivated.
+  AnimationController? _loopOrNull;
+  AnimationController get _loop =>
+      _loopOrNull ??= AnimationController(vsync: this, duration: const Duration(milliseconds: 4550))..repeat();
 
   @override
   void dispose() {
-    _loop.dispose();
+    _loopOrNull?.dispose();
     super.dispose();
   }
 

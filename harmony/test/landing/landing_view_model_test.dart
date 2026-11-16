@@ -149,6 +149,22 @@ void main() {
     expect(await store.read(key), isNull);
   });
 
+  test('should_keepTheEdit_when_theStoredLayoutArrivesAfterIt', () async {
+    final c = container();
+    final account = await addAccount(c, 'ann');
+    final key = HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, account.id);
+    final saved = withSectionEnabled(HomeLayout.defaultLayout, HomeSection.memoryGrid, false);
+    await store.write(key, jsonEncode(saved.toJson()));
+
+    c.listen(landingViewModelProvider(rerun), (_, _) {});
+    // Edited before the stored layout has been read.
+    c.read(landingViewModelProvider(rerun).notifier).setSectionEnabled(HomeSection.rediscover, false);
+    await settle();
+    final sections = c.read(landingViewModelProvider(rerun)).layout.sections;
+    expect(sections.firstWhere((p) => p.id == HomeSection.rediscover.id).enabled, isFalse);
+    expect(sections.firstWhere((p) => p.id == HomeSection.memoryGrid.id).enabled, isTrue);
+  });
+
   test('should_listOnlySectionsThisBuildDraws_when_homeStepShown', () {
     final shown = landingShownSections(HomeLayout.defaultLayout);
     expect(shown.map((p) => p.section), isNot(contains(HomeSection.otherProfiles)));

@@ -24,7 +24,8 @@ import 'landing_strings.dart';
 // service). Only the faces differ: the floating window's tighter layout, and
 // the mascot reacting (LandingConnect.kt).
 
-/// What the mascot does about a connect step.
+/// What the mascot does about a connect step. [connected] comes from the
+/// landing itself, which follows the setup view models for as long as it shows.
 abstract interface class LandingReactions {
   void refused();
   void connected(LandingService service);
@@ -300,9 +301,8 @@ class _SubsonicConnectSceneState extends ConsumerState<SubsonicConnectScene> wit
     );
     if (!mounted) return;
     final state = ref.read(subsonicSetupViewModelProvider);
-    if (state.connected) {
-      widget.reactions.connected(LandingService.subsonic);
-    } else if (state.status is SetupFailed || state.addressError != null) {
+    // A connection is the landing's to celebrate (it hears it even after a step away).
+    if (!state.connected && (state.status is SetupFailed || state.addressError != null)) {
       widget.reactions.refused();
       _shake.play();
     }
@@ -399,9 +399,9 @@ class _AppleConnectSceneState extends ConsumerState<AppleConnectScene> with Tick
     final forms = widget.forms;
     final endpoint = forms.appleOwnService.value ? forms.appleOwnUrl.text.trim() : yoinAppleMusicTokenServiceUrl;
     if (!endpoint.startsWith('https://')) {
+      // As Android: the mascot says no; the form itself stays still.
       setState(() => _attempted = false);
       widget.reactions.refused();
-      _shake.play();
       return;
     }
     setState(() => _attempted = true);
@@ -410,7 +410,6 @@ class _AppleConnectSceneState extends ConsumerState<AppleConnectScene> with Tick
     final state = ref.read(appleMusicSetupViewModelProvider);
     if (state.connected) {
       setState(() => _attempted = false);
-      widget.reactions.connected(LandingService.appleMusic);
     } else if (state.status is AppleSetupFailed || state.endpointError != null) {
       widget.reactions.refused();
       _shake.play();

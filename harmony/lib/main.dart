@@ -33,12 +33,11 @@ void main() {
       overrides: [
         ...platformOverrides(platform),
         musicSourceFactoryProvider.overrideWith(
-          (ref) =>
-              (credentials) => switch (credentials) {
-                // Settings › Streaming quality decides each song's stream.
-                SubsonicCredentials() => SubsonicMusicSource(credentials, streamPlanner: subsonicStreamPlanner(ref)),
-                AppleMusicCredentials() => AppleMusicSource(credentials),
-              },
+          (ref) => (credentials) => switch (credentials) {
+            // Settings › Streaming quality decides each song's stream.
+            SubsonicCredentials() => SubsonicMusicSource(credentials, streamPlanner: subsonicStreamPlanner(ref)),
+            AppleMusicCredentials() => AppleMusicSource(credentials),
+          },
         ),
       ],
       child: YoinApp(windowCaption: platform.windowCaption),
@@ -81,9 +80,7 @@ class YoinApp extends ConsumerWidget {
           host: windowCaption,
           child: YoinSystemBars(
             // The first-run landing covers the whole chrome (bar and player included).
-            child: YoinWindowScope.measured(
-              child: LandingHost(child: AppChrome(child: child!)),
-            ),
+            child: YoinWindowScope.measured(child: LandingHost(child: AppChrome(child: child!))),
           ),
         ),
       ),

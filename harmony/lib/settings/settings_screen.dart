@@ -39,10 +39,7 @@ export 'settings_pane.dart';
 /// Opens Settings (PushPage). The Home avatar, Home's and Library's error
 /// "Settings" and Library's settings button all come here.
 Future<void> openSettings(BuildContext context) => Navigator.of(context).push(
-  YoinPushRoute<void>(
-    settings: const RouteSettings(name: settingsRouteName),
-    builder: (_) => const SettingsScreen(),
-  ),
+  YoinPushRoute<void>(settings: const RouteSettings(name: settingsRouteName), builder: (_) => const SettingsScreen()),
 );
 
 /// Settings' route name (Ctrl+, doesn't stack a second Settings on the first).
@@ -180,13 +177,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: switch (state) {
             SettingsLoading() => const Center(child: YoinLoadingIndicator()),
             SettingsContent() => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _AccountsSection(state: state, onOpen: _open),
-                const SizedBox(height: SettingsMetrics.sectionGap),
-                _HelpAboutGroup(open: pane, listDetail: wide, onOpen: _open),
-              ],
-            ),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _AccountsSection(state: state, onOpen: _open),
+                  const SizedBox(height: SettingsMetrics.sectionGap),
+                  _HelpAboutGroup(open: pane, listDetail: wide, onOpen: _open),
+                ],
+              ),
           },
         ),
       ],
@@ -236,19 +233,11 @@ class _ListDetail extends StatelessWidget {
     final pane = this.pane;
     final page = switch (pane) {
       null => const _PanePlaceholder(),
-      AccountPane(:final profileId) => SubsonicSetupScreen(
-        key: ValueKey(profileId),
-        profileId: profileId,
-        inPane: true,
-        onDone: onDone,
-      ),
+      AccountPane(:final profileId) =>
+        SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
-      StreamQualityPane(:final profileId) => StreamQualityScreen(
-        key: ValueKey(('quality', profileId)),
-        profileId: profileId,
-        inPane: true,
-      ),
+      StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
     };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -342,7 +331,7 @@ class _PanePlaceholder extends StatelessWidget {
   }
 }
 
-/// Help and about: the Welcome guide, Tips (how many are read), Yoin and its version, and the
+/// Help and about: Tips (how many are read), the Welcome guide, Yoin and its version, and the
 /// open source licenses. On a wide window the rows that open a page show a
 /// chevron and the open one is marked.
 class _HelpAboutGroup extends ConsumerWidget {
@@ -361,21 +350,25 @@ class _HelpAboutGroup extends ConsumerWidget {
         : null;
     return SettingsGroup(
       title: strings.sectionHelpAbout,
-      selected: {if (open is TipsPane) 1, if (open is LicensesPane) 3},
+      selected: {
+        if (open is TipsPane) 0,
+        if (open is LicensesPane) 3,
+      },
       children: [
-        // Run the first-run landing again (accounts kept). Android's summary
-        // names the scroll-edge step, which HarmonyOS doesn't have: no summary.
-        SettingsItem(
-          icon: YoinSymbols.refresh,
-          title: LandingStrings.of(context).welcomeGuide,
-          onTap: () => openWelcomeGuide(context, ref),
-        ),
         SettingsItem(
           icon: YoinSymbols.sparkle,
           title: strings.aboutTips,
           summary: tipsReadSummary(strings, read),
           trailing: chevron,
           onTap: () => onOpen(const TipsPane()),
+        ),
+        // Runs the first-run landing again, accounts kept (after Tips, as on
+        // Android). Android's summary names the scroll-edge step, which
+        // HarmonyOS doesn't have: no summary until the owner's copy has one.
+        SettingsItem(
+          icon: YoinSymbols.refresh,
+          title: LandingStrings.of(context).welcomeGuide,
+          onTap: () => openWelcomeGuide(context, ref),
         ),
         // No website or privacy links on Harmony yet (nothing opens a browser): just the version.
         SettingsItem(icon: YoinSymbols.info, title: strings.aboutName, summary: strings.aboutVersion(yoinVersionName)),
@@ -430,10 +423,7 @@ class _EmptyAccountsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              strings.accountsEmptyTitle,
-              style: theme.textTheme.titleLarge!.copyWith(color: colors.onPrimaryContainer),
-            ),
+            Text(strings.accountsEmptyTitle, style: theme.textTheme.titleLarge!.copyWith(color: colors.onPrimaryContainer)),
             const SizedBox(height: SettingsMetrics.emptyGap),
             Builder(
               builder: (anchorContext) => FilledButton.icon(
@@ -651,11 +641,7 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
                               child: Builder(
                                 builder: (anchorContext) => IconButton(
                                   tooltip: strings.cdAccountOptionsCard(card.title),
-                                  icon: Icon(
-                                    YoinSymbols.moreVertical,
-                                    size: SettingsMetrics.cardMenuIcon,
-                                    color: secondary,
-                                  ),
+                                  icon: Icon(YoinSymbols.moreVertical, size: SettingsMetrics.cardMenuIcon, color: secondary),
                                   onPressed: () => _options(anchorContext),
                                 ),
                               ),
@@ -717,20 +703,20 @@ class _AddAccountTile extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: Builder(
           builder: (anchorContext) => InkWell(
-            onTap: () => openAddAccount(anchorContext),
-            child: Semantics(
-              button: true,
-              label: strings.accountsAdd,
-              excludeSemantics: true,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(YoinSymbols.add, size: SettingsMetrics.addTileIcon, color: colors.primary),
-                  const SizedBox(height: SettingsMetrics.addTileGap),
-                  Text(strings.accountsAddShort, style: theme.textTheme.labelLarge!.copyWith(color: colors.primary)),
-                ],
-              ),
+          onTap: () => openAddAccount(anchorContext),
+          child: Semantics(
+            button: true,
+            label: strings.accountsAdd,
+            excludeSemantics: true,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(YoinSymbols.add, size: SettingsMetrics.addTileIcon, color: colors.primary),
+                const SizedBox(height: SettingsMetrics.addTileGap),
+                Text(strings.accountsAddShort, style: theme.textTheme.labelLarge!.copyWith(color: colors.primary)),
+              ],
             ),
+          ),
           ),
         ),
       ),

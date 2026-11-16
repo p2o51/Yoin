@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
@@ -19,6 +20,9 @@ import '../support/fake_music_source.dart';
 void main() {
   late InMemoryStore store;
   late ProviderContainer container;
+
+  final shellFocus = FocusNode(debugLabel: 'shell');
+  tearDownAll(shellFocus.dispose);
 
   Future<void> pumpApp(WidgetTester tester, {Size size = const Size(400, 860), bool reduced = true}) async {
     tester.view.physicalSize = size;
@@ -41,7 +45,11 @@ void main() {
             data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
             child: YoinWindowScope.measured(child: LandingHost(child: child!)),
           ),
-          home: const Scaffold(body: Center(child: Text('shell'))),
+          home: Scaffold(
+            body: Center(
+              child: Focus(focusNode: shellFocus, child: const Text('shell')),
+            ),
+          ),
         ),
       ),
     );
@@ -237,5 +245,48 @@ void main() {
     expect(container.read(landingRerunProvider), 1);
     expect(find.byType(SettingsScreen), findsNothing);
     expect(find.text('Get started'), findsOneWidget);
+  });
+
+  testWidgets('should_keepTheShellOutOfFocus_when_theLandingShows', (tester) async {
+    await pumpApp(tester);
+    await settle(tester);
+    expect(find.text('Get started'), findsOneWidget);
+    // The shell's shortcuts (play, Settings, search) can't hear the keyboard under the landing.
+    expect(shellFocus.canRequestFocus, isFalse);
+
+    await tester.tap(find.text('Get started'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apple Music'));
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open Yoin'));
+    await settle(tester);
+    expect(find.text('Open Yoin'), findsNothing);
+    expect(shellFocus.canRequestFocus, isTrue);
+  });
+
+  testWidgets('should_stepBack_when_escapePressed', (tester) async {
+    await pumpApp(tester);
+    await settle(tester);
+    await tester.tap(find.text('Get started'));
+    await tester.pumpAndSettle();
+    expect(find.text('What do you listen with?'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text("Hi, I'm Yoin."), findsOneWidget);
+  });
+
+  testWidgets('should_notRemember_when_theAccountListCannotBeRead', (tester) async {
+    store.values[ProfileRepository.profilesKey] = 'not json';
+    await pumpApp(tester);
+    await settle(tester);
+    expect(find.text('Get started'), findsNothing);
+    expect(find.text('shell'), findsOneWidget);
+    expect(store.values[KeyValueLandingStore.key], isNull);
   });
 }

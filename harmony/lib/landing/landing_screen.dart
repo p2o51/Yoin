@@ -2,11 +2,15 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../nowplaying/haptics.dart';
+import '../settings/apple_music_setup_view_model.dart';
 import '../settings/settings_view_model.dart';
+import '../settings/subsonic_setup_view_model.dart';
 import '../shell/chrome_back.dart';
+import '../shell/desktop_shortcuts.dart' show isTypingIntoTextField;
 import '../shell/shell_state.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import 'landing_bubble.dart';
@@ -64,6 +68,10 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
   LandingMascotState? _mascot;
   bool _reduced = false;
 
+  /// The keyboard's anchor while the landing shows (the shell is out of focus
+  /// beneath it): Esc steps back like system back.
+  final FocusNode _keys = FocusNode(debugLabel: 'Landing', skipTraversal: true);
+
   /// The mascot's slow breath while it waits, and the backdrop's drift.
   late final AnimationController _breath = AnimationController(
     vsync: this,
@@ -97,6 +105,24 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
     _motion.reveal.snapTo(widget.fadeIn ? 0 : 1);
     _motion.addListener(_syncBreath);
     _motion.handoff.animation.addListener(_syncBreath);
+    FocusManager.instance.addListener(_holdKeys);
+  }
+
+  /// No primary focus = no key events: hold it on the landing until a field takes it.
+  void _holdKeys() {
+    if (!mounted) return;
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary == null || primary == FocusManager.instance.rootScope) _keys.requestFocus();
+  }
+
+  void _onEscape() {
+    if (isTypingIntoTextField()) {
+      // Out of the field first, as everywhere else.
+      FocusManager.instance.primaryFocus?.unfocus();
+      _keys.requestFocus();
+      return;
+    }
+    if (_wantsBack) _onBack();
   }
 
   @override
@@ -201,6 +227,8 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
 
   @override
   void dispose() {
+    FocusManager.instance.removeListener(_holdKeys);
+    _keys.dispose();
     _back.dispose();
     _motion.removeListener(_syncBreath);
     _motion.handoff.animation.removeListener(_syncBreath);
@@ -306,8 +334,26 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
   @override
   Widget build(BuildContext context) {
     ref.listen(_provider, _onState);
+    // The connect steps' view models live as long as the landing (Android
+    // keeps them in its own store): stepping away mid-connect neither drops
+    // the save nor misses the account it adds, and the mascot cheers for it
+    // whichever step is showing.
+    ref.listen(subsonicSetupViewModelProvider, (prev, next) {
+      if (next.connected && !(prev?.connected ?? false)) connected(LandingService.subsonic);
+    });
+    ref.listen(appleMusicSetupViewModelProvider, (prev, next) {
+      if (next.connected && !(prev?.connected ?? false)) connected(LandingService.appleMusic);
+    });
     // The landing's own overlay: its text fields need one for their handles and toolbar.
-    return Overlay(initialEntries: [_entry]);
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false): _onEscape},
+      child: Focus(
+        focusNode: _keys,
+        autofocus: true,
+        includeSemantics: false,
+        child: Overlay(initialEntries: [_entry]),
+      ),
+    );
   }
 
   Widget _buildLanding(BuildContext context) => Consumer(

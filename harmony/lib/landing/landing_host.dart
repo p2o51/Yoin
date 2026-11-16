@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../settings/settings_view_model.dart';
+import '../app/providers.dart';
 import 'landing_models.dart';
 import 'landing_screen.dart';
 import 'landing_store.dart';
@@ -64,7 +64,6 @@ class _LandingHostState extends ConsumerState<LandingHost> {
   int _serial = 0;
   int _handledRerun = 0;
   Timer? _timeout;
-  bool _checking = false;
 
   @override
   void initState() {
@@ -98,14 +97,18 @@ class _LandingHostState extends ConsumerState<LandingHost> {
       _settle(show: false);
       return;
     }
-    _checking = true;
-    _checkAccounts(ref.read(settingsViewModelProvider));
-  }
-
-  void _checkAccounts(SettingsUiState accounts) {
-    if (!_checking || _phase != _Phase.deciding || accounts is! SettingsContent) return;
-    _checking = false;
-    if (accounts.accounts.isEmpty) {
+    // Only the stored list: the Settings view model (it reads every account's
+    // credentials) is not built at launch for this.
+    bool hasAccount;
+    try {
+      hasAccount = (await ref.read(profileRepositoryProvider).profiles()).isNotEmpty;
+    } catch (_) {
+      // Unreadable: no landing over an install that may have accounts, and nothing remembered — the next launch asks again.
+      if (mounted && _phase == _Phase.deciding) _settle(show: false);
+      return;
+    }
+    if (!mounted || _phase != _Phase.deciding) return;
+    if (!hasAccount) {
       _settle(show: true);
     } else {
       // An existing install: it never sees the landing, even after deleting every account.
@@ -133,7 +136,6 @@ class _LandingHostState extends ConsumerState<LandingHost> {
   void _rerun() {
     setState(() {
       _timeout?.cancel();
-      _checking = false;
       _phase = _Phase.showing;
       _fadeIn = true;
       _holdShell = false;
@@ -156,7 +158,6 @@ class _LandingHostState extends ConsumerState<LandingHost> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(settingsViewModelProvider, (_, next) => _checkAccounts(next));
     ref.listen(landingRerunProvider, (_, next) {
       if (next > _handledRerun) {
         _handledRerun = next;
@@ -169,11 +170,17 @@ class _LandingHostState extends ConsumerState<LandingHost> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        ExcludeSemantics(
+        // Nothing beneath the landing is reachable: not by touch (the stage
+        // takes every touch), not by accessibility, and not by the keyboard —
+        // the shell's shortcuts (play, Settings, search) stay out of focus.
+        ExcludeFocus(
           excluding: showing,
-          child: Offstage(
-            offstage: hold,
-            child: TickerMode(enabled: !hold, child: widget.child),
+          child: ExcludeSemantics(
+            excluding: showing,
+            child: Offstage(
+              offstage: hold,
+              child: TickerMode(enabled: !hold, child: widget.child),
+            ),
           ),
         ),
         if (_phase == _Phase.deciding && !_timedOut)

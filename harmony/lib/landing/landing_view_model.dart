@@ -83,6 +83,9 @@ class LandingViewModel extends Notifier<LandingUiState> {
   String? _activeId;
   bool _finishStarted = false;
 
+  /// The Home step was edited: a late read of the stored layout must not undo it.
+  bool _layoutEdited = false;
+
   @override
   LandingUiState build() {
     ref.listen(settingsViewModelProvider, (_, next) => _onAccounts(next));
@@ -127,7 +130,7 @@ class LandingViewModel extends Notifier<LandingUiState> {
     } catch (_) {
       stored = null;
     }
-    if (!ref.mounted || stored == null) return;
+    if (!ref.mounted || stored == null || _layoutEdited) return;
     state = state.copyWith(layout: HomeLayout.reconcile(stored.sections));
   }
 
@@ -156,14 +159,17 @@ class LandingViewModel extends Notifier<LandingUiState> {
     state = state.copyWith(connected: {...state.connected, service});
   }
 
-  void setSectionEnabled(HomeSection section, bool enabled) =>
-      state = state.copyWith(layout: withSectionEnabled(state.layout, section, enabled));
+  void setSectionEnabled(HomeSection section, bool enabled) {
+    _layoutEdited = true;
+    state = state.copyWith(layout: withSectionEnabled(state.layout, section, enabled));
+  }
 
   /// Reorders the full list, hidden sections included (the landing shows the ones this build draws).
   void moveSection(int from, int to) {
     final list = [...state.layout.sections];
     if (from < 0 || to < 0 || from >= list.length || to >= list.length || from == to) return;
     list.insert(to, list.removeAt(from));
+    _layoutEdited = true;
     state = state.copyWith(layout: HomeLayout(list));
   }
 

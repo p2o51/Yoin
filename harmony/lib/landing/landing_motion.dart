@@ -121,9 +121,12 @@ class LandingMotion extends ChangeNotifier {
     if (target == to && settled) return;
     final showing = (settled || t.value >= 0.5) ? to : from;
     final generation = ++_generation;
-    t.snapTo(0);
+    // The new pair first: snapping t notifies, and the bubble must read the
+    // step on screen (not the old pair's [from]) or an interrupted move
+    // flashes and re-pops the line it left.
     from = showing;
     to = target;
+    t.snapTo(0);
     _bubbleStep = _bubbleFor();
     notifyListeners();
     await t.animateTo(1, spring);
