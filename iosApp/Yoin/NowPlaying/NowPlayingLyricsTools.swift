@@ -186,6 +186,12 @@ struct ExpandedLyricsList: View {
             }
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 4) {
+                        if let track = headerTrack {
+                            header(track).id(Self.headerRow)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: {
+                                    offset.rows[Self.headerRow] = $0
+                                }
+                        }
                         ForEach(lines.indices, id: \.self) { i in
                             row(i).id(i)
                                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { offset.rows[i] = $0 }
@@ -241,7 +247,7 @@ struct ExpandedLyricsList: View {
     private func seat(animated: Bool, halt: Bool = false) {
         offset.seating?.cancel()
         offset.seating = nil
-        guard follow, active >= 0, active < lines.count else { return }
+        guard follow, active >= firstSeat, active < lines.count else { return }
         let target = active
         guard animated else {
             if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
@@ -266,7 +272,7 @@ struct ExpandedLyricsList: View {
     /// hold still, then glide the line to the seat the new window gives
     /// (Android seatSettleSpec: the Standard default spatial spring).
     private func reseatWhenSettled() {
-        guard follow, active >= 0, active < lines.count else { return }
+        guard follow, active >= firstSeat, active < lines.count else { return }
         offset.seating?.cancel()
         offset.seating = Task { @MainActor in
             try? await Task.sleep(for: Self.seatSettle)
@@ -312,6 +318,46 @@ struct ExpandedLyricsList: View {
             : min(max(bandTop + (bandBottom - bandTop) * share - row.height / 2, bandTop), bandBottom - row.height)
         let maxY = max(0, offset.contentHeight - offset.viewport)
         return min(max(row.minY - rowTop, 0), maxY)
+    }
+
+    /// The title row's id: before the first line, as its index (-1) says (audit 11-15 #62, Android
+    /// LyricsFullscreenPane's header).
+    static let headerRow = -1
+
+    /// The song a timed list opens with a title row for (Android: the song and artist, lit before the
+    /// first line, a tap goes back to 0:00); nil for unsynced lyrics.
+    private var headerTrack: PlayableTrack? { synced ? model.player.currentTrack : nil }
+
+    /// The first row the list seats: the title row before the first line, when there is one.
+    private var firstSeat: Int { headerTrack != nil ? Self.headerRow : 0 }
+
+    /// Title over artist: lit while nothing is sung yet, never picked in Select, and a tap (outside Select)
+    /// goes back to the start and follows again.
+    private func header(_ track: PlayableTrack) -> some View {
+        let lit = !selecting && active == Self.headerRow
+        let ink = lit ? scheme.primary : scheme.onSurfaceVariant
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(track.title)
+                .font(lit ? YoinFont.rounded(24, semibold: true) : .gsf(24, .medium))
+                .tracking(0)
+                .foregroundStyle(ink)
+            if !track.artist.isEmpty {
+                Text(track.artist)
+                    .font(.gsf(16, lit ? .medium : .regular))
+                    .tracking(0)
+                    .foregroundStyle(ink.opacity(lit ? 0.82 : 0.7))
+            }
+        }
+        .scaleEffect(lit ? 1 : 0.96, anchor: .leading)
+        .opacity(lit ? 1 : selecting ? 0.42 : 0.62)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Self.rowInset)
+        .padding(.vertical, 6)
+        .contentShape(.rect)
+        .onTapGesture { if !selecting { onTap(Self.headerRow) } }
+        .animation(Yoin.effects, value: lit)
+        .animation(Yoin.spatial, value: lit)
+        .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder

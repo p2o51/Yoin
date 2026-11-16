@@ -19,13 +19,23 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
         if case .http(404, let m) = self { (m ?? "").localizedCaseInsensitiveContains("active device") } else { false }
     }
 
+    /// A wait as the message says it: seconds under two minutes, else minutes, else hours (rounded up).
+    static func waitText(_ seconds: Int) -> String {
+        let f = DateComponentsFormatter()
+        f.unitsStyle = .short
+        f.maximumUnitCount = 1
+        f.allowedUnits = seconds < 120 ? [.second] : seconds < 2 * 3600 ? [.minute] : [.hour]
+        let rounded = seconds < 120 ? max(1, seconds) : seconds < 2 * 3600 ? (seconds + 59) / 60 * 60 : (seconds + 3599) / 3600 * 3600
+        return f.string(from: TimeInterval(rounded)) ?? "\(seconds)s"
+    }
+
     var errorDescription: String? {
         switch self {
-        case .unauthorized: "Spotify sign-in expired"
-        case .rateLimited(let s): "Spotify is rate limiting requests; try again in \(s)s"
-        case .http(let status, let message): message ?? "Spotify request failed (\(status))"
-        case .decoding(let path): "Unreadable answer from Spotify (\(path))"
-        case .badRequest: "Bad request"
+        case .unauthorized: String(localized: "Spotify sign-in expired")
+        case .rateLimited(let s): String(localized: "Spotify is busy. Try again in \(Self.waitText(s))")
+        case .http(let status, let message): message ?? String(localized: "Spotify request failed (\(status))")
+        case .decoding(let path): String(localized: "Unreadable answer from Spotify (\(path))")
+        case .badRequest: String(localized: "Bad request")
         }
     }
 }
@@ -38,11 +48,26 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 /// 429: waits `Retry-After` seconds (default 5, at most [maxRetryWait]) and
 /// asks again up to [maxRetries] times; a longer wait, or one that keeps
 /// coming, throws `.rateLimited` so the screen can say so instead of hanging.
+/// The wait is the account's ([gate], one per client): a request that comes
+/// while it runs waits it out when short, else fails at once with the time left.
+/// Reads go out at most three at a time; player calls skip the line, wait out at most one short 429,
+/// and fail at once while a long limit lasts.
 final class SpotifyWebAPI: Sendable {
     static let liveBase = URL(string: "https://api.spotify.com/v1")!
     /// The live API, or the QA fake (`-spotifyFake`, DEBUG builds only).
     static var defaultBase: URL { SpotifyFake.base ?? liveBase }
     static let defaultRetryAfter = 5
+
+    /// Spotify's own connection (audit 11-15 #74, Android's 15 s connect/read timeouts): a request on a
+    /// weak signal gives up after 15 s instead of URLSession's default 60, and doesn't sit waiting for the
+    /// network to come back. Shared with SpotifyAuth's token and `me` reads.
+    static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForResource = 60
+        cfg.waitsForConnectivity = false
+        return URLSession(configuration: cfg)
+    }()
 
     private let token: @Sendable () async throws -> String
     private let session: URLSession
@@ -52,10 +77,12 @@ final class SpotifyWebAPI: Sendable {
     private let sleep: @Sendable (Int) async throws -> Void
     /// Refreshes the token after a 401 (the request is then tried once more); nil: the 401 is thrown.
     private let refresh: (@Sendable () async throws -> Void)?
+    let gate: SpotifyRateGate
 
     init(token: @escaping @Sendable () async throws -> String,
          refresh: (@Sendable () async throws -> Void)? = nil,
-         session: URLSession = .shared,
+         gate: SpotifyRateGate = SpotifyRateGate(),
+         session: URLSession = SpotifyWebAPI.session,
          base: URL = SpotifyWebAPI.defaultBase,
          maxRetries: Int = 2,
          maxRetryWait: Int = 15,
@@ -67,6 +94,7 @@ final class SpotifyWebAPI: Sendable {
         self.maxRetryWait = maxRetryWait
         self.sleep = sleep
         self.refresh = refresh
+        self.gate = gate
     }
 
     static let decoder: JSONDecoder = {
@@ -101,8 +129,33 @@ final class SpotifyWebAPI: Sendable {
         let url = try url(path, query)
         var attempt = 0
         var refreshed = false
+        // Player calls keep their own timing (a skip mustn't queue behind a library read). Recently played
+        // is a library read that only lives under me/player.
+        let player = Self.isPlayerPath(path)
+        let gated = !player
+        // audit 11-15 #67: a player call waits out at most one short 429 (a pause that sat through two
+        // 15 s waits answered half a minute late), and none during a long limit.
+        let retries = player ? min(maxRetries, 1) : maxRetries
+        let retryWait = player ? min(maxRetryWait, Self.playerRetryWait) : maxRetryWait
+        // This request just waited out its own 429: the backoff it set is over for it.
+        var waited = false
         while true {
             if let still, await !still() { throw SpotifyCommandDropped() }
+            if gated, !waited {
+                let left = await gate.remaining()
+                if left > 0 {
+                    guard left <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: left) }
+                    try await sleep(left)
+                    waited = true
+                    continue
+                }
+            } else if player, !waited {
+                // A long limit (minutes to hours): the 4 s poll, the watch and a command fail here at once
+                // instead of going out and lengthening it (audit 11-15 #67, Android's gate refuses all).
+                let left = await gate.remaining()
+                if left > maxRetryWait { throw SpotifyAPIError.rateLimited(retryAfter: left) }
+            }
+            waited = false
             var req = URLRequest(url: url)
             req.httpMethod = method
             let bearer = try await token()
@@ -114,7 +167,15 @@ final class SpotifyWebAPI: Sendable {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             let t0 = Date()
-            let (data, response) = try await session.data(for: req)
+            if gated { await gate.acquire() }
+            let data: Data, response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+                if gated { await gate.release() }
+            } catch {
+                if gated { await gate.release() }
+                throw error
+            }
             guard let http = response as? HTTPURLResponse else { throw SpotifyAPIError.badRequest }
             if path.hasPrefix("me/player") {
                 PlayTrace.log("API \(method) \(url.path)?\(url.query ?? "") → \(http.statusCode) in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s retry-after=\(http.value(forHTTPHeaderField: "Retry-After") ?? "-")\(http.statusCode >= 300 ? " " + (Self.errorMessage(data) ?? "") : "")")
@@ -128,13 +189,23 @@ final class SpotifyWebAPI: Sendable {
                 try await refresh()
             case 429:
                 let wait = max(1, Int(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Self.defaultRetryAfter)
-                guard attempt < maxRetries, wait <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: wait) }
+                await gate.recordBackoff(wait)
+                guard attempt < retries, wait <= retryWait else { throw SpotifyAPIError.rateLimited(retryAfter: wait) }
                 attempt += 1
                 try await sleep(wait)
+                waited = true
             case let status:
                 throw SpotifyAPIError.http(status: status, message: Self.errorMessage(data))
             }
         }
+    }
+
+    /// The longest 429 wait a player call sits through before failing (once).
+    static let playerRetryWait = 5
+
+    /// A player call (state, queue, devices, commands): outside the read slots, its own retry rule.
+    static func isPlayerPath(_ path: String) -> Bool {
+        path.hasPrefix("me/player") && !path.hasPrefix("me/player/recently-played")
     }
 
     func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], as: T.Type = T.self) async throws -> T {

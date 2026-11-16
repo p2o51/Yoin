@@ -119,4 +119,76 @@ final class FavoritesStoreTests: XCTestCase {
         hearts.reset()
         XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s9"))
     }
+
+    func test_should_followAFreshRead_when_theSongWasLikedOrUnlikedElsewhere() {
+        // Spotify's recheck: a later answer replaces the first, and an earlier tap here gives way to it.
+        let hearts = FavoritesStore()
+        XCTAssertFalse(hearts.isKnown(provider: "spotify", songId: "sp"))
+        hearts.refresh(true, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"))
+        hearts.write(provider: "spotify", songId: "sp", target: false, was: true, send: nil)
+        hearts.refresh(true, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"), "liked again in the Spotify app")
+    }
+
+    func test_should_dropARead_when_aTapCameAfterItBegan() {
+        let hearts = FavoritesStore()
+        let token = hearts.readToken(provider: "spotify", songId: "sp")
+        hearts.write(provider: "spotify", songId: "sp", target: true, was: false, send: nil)
+        hearts.refresh(false, provider: "spotify", songId: "sp", token: token)
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"))
+    }
+
+    func test_should_recheckTheHeart_onlyOnANewSong_orAfterTheInterval() {
+        var p = SpotifyHeartRefresh.Policy()
+        XCTAssertTrue(p.shouldCheck("a", now: 0))
+        XCTAssertFalse(p.shouldCheck("a", now: 10))
+        XCTAssertTrue(p.shouldCheck("a", now: 10, force: true), "back in front")
+        XCTAssertTrue(p.shouldCheck("b", now: 11))
+        XCTAssertFalse(p.shouldCheck("b", now: 11 + SpotifyHeartRefresh.recheckSec - 1))
+        XCTAssertTrue(p.shouldCheck("b", now: 11 + SpotifyHeartRefresh.recheckSec))
+        XCTAssertFalse(p.shouldCheck(nil, now: 100))
+    }
+
+    /// Audit 11-15 #19: a recheck is newer than the copy a page was built with (an album page kept hours).
+    func test_should_showTheRecheck_overAPagesCopy_when_spotifyAnswered() {
+        let hearts = FavoritesStore()
+        XCTAssertFalse(hearts.isFavorite(provider: "spotify", songId: "sp", known: false))
+        hearts.refresh(true, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp", known: false))
+        hearts.refresh(false, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertFalse(hearts.isFavorite(provider: "spotify", songId: "sp", known: true))
+    }
+
+    /// Audit 11-15 #19: once the source took the tap it no longer pins the heart.
+    func test_should_dropTheTap_when_theWriteWentThrough() async {
+        let hearts = FavoritesStore()
+        var sent = 0
+        func send() async throws { sent += 1 }
+        hearts.write(provider: "spotify", songId: "w1", target: true, was: false, send: send)
+        let key = FavoritesStore.key(provider: "spotify", songId: "w1")
+        await until { hearts.chosen[key] == nil }
+        XCTAssertEqual(sent, 1)
+        XCTAssertNil(hearts.chosen[key], "the tap gives way once the source holds it")
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "w1", known: false), "the source's answer outranks an old copy")
+    }
+
+    /// A tap that failed still rolls back, and a newer tap waiting keeps the heart as tapped.
+    func test_should_keepTheTap_when_aNewerOneWaits() async {
+        let hearts = FavoritesStore()
+        var release: [CheckedContinuation<Void, Error>] = []
+        func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
+        hearts.write(provider: "spotify", songId: "w2", target: true, was: false, send: send)
+        await until { release.count == 1 }
+        guard release.count == 1 else { return XCTFail("the first write never went out") }
+        hearts.write(provider: "spotify", songId: "w2", target: false, was: true, send: send)
+        release[0].resume()
+        await until { release.count == 2 }
+        guard release.count == 2 else { return XCTFail("the newer write never went out") }
+        XCTAssertFalse(hearts.isFavorite(provider: "spotify", songId: "w2"), "the newer tap still shows while it goes out")
+        release[1].resume()
+        let key = FavoritesStore.key(provider: "spotify", songId: "w2")
+        await until { hearts.chosen[key] == nil }
+        XCTAssertFalse(hearts.isFavorite(provider: "spotify", songId: "w2", known: true))
+    }
 }

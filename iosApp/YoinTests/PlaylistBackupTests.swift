@@ -359,6 +359,28 @@ final class PlaylistBackupTests: XCTestCase {
         XCTAssertTrue(resolutions[0].decision is MatchDecisionNotFound)
     }
 
+    func test_should_pauseWithTheSongsLeft_when_theTargetIsRateLimited() async {
+        let creep = MatchTrack(id: "subsonic:t1", title: "Creep", artist: "Radiohead", album: nil,
+                               durationSec: KotlinInt(int: 238), isrc: nil)
+        let target = StubDestination(results: ["Creep Radiohead": [creep]])
+        target.searchError = (after: 1, error: SpotifyAPIError.rateLimited(retryAfter: 600))
+        let other = MatchTrack(id: "spotify:s2", title: "Lucky", artist: "Radiohead", album: nil,
+                               durationSec: nil, isrc: nil)
+        let third = MatchTrack(id: "spotify:s3", title: "Airbag", artist: "Radiohead", album: nil,
+                               durationSec: nil, isrc: nil)
+        let source = MatchTrack(id: "spotify:s1", title: "Creep", artist: "Radiohead", album: nil,
+                                durationSec: KotlinInt(int: 239), isrc: nil)
+        do {
+            _ = try await PlaylistRestore.resolve([source, other, third], on: target)
+            XCTFail("expected the restore to pause")
+        } catch let e as RestoreInterrupted {
+            // The first song matched; the second's search hit the limit: it and the third are left.
+            XCTAssertEqual(e.left, 2)
+        } catch {
+            XCTFail("\(error)")
+        }
+    }
+
     func test_should_createThenAddInBatchesAndKeepWhatLanded_when_writing() async {
         let ids = (0..<250).map { "subsonic:s\($0)" }
         let ok = StubDestination(results: [:])
@@ -636,6 +658,8 @@ private final class StubDestination: RestoreDestination {
     var results: [String: [MatchTrack]]
     var searches: [String] = []
     var searchFails = false
+    /// Thrown by searches from this one on (by count; nil: none).
+    var searchError: (after: Int, error: Error)?
     var searchDelay: Duration?
     var failCreate = false
     /// Made, then its first songs refused (Spotify's create-then-add).
@@ -653,6 +677,7 @@ private final class StubDestination: RestoreDestination {
         searches.append(query)
         if let searchDelay { try await Task.sleep(for: searchDelay) }
         if searchFails { throw URLError(.timedOut) }
+        if let searchError, searches.count > searchError.after { throw searchError.error }
         return results[query] ?? []
     }
 

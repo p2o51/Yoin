@@ -42,7 +42,7 @@ protocol AppRemoteLink: AnyObject {
     func playContext(_ uri: String, index: Int, _ done: @escaping (Error?) -> Void)
     func resume(_ done: @escaping (Error?) -> Void)
     func pause(_ done: @escaping (Error?) -> Void)
-    func seek(toMs ms: Int)
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void)
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void)
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void)
     func setShuffle(_ on: Bool)
@@ -135,12 +135,13 @@ final class SpotifyRemote {
         if r.isConnected, broken {
             PlayTrace.log("SR reconnect #\(connectionNumber): broken")
             close(r)
-            try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
-            guard r === link else { return false }
+            guard await closed(r) else { return false }
         }
-        if r.isConnected { return true }
+        // A broken connection still reading as connected isn't one (audit 11-15 #6: past the old fixed
+        // 600 ms gap an SDK still closing it read as connected).
+        if r.isConnected { return !broken }
         if let token, let t = try? await token() { r.accessToken = t }
-        if r.isConnected { return true }
+        if r.isConnected { return !broken }
         return await withCheckedContinuation { cont in
             connectWaiters.append(cont)
             guard connectWaiters.count == 1 else { return }
@@ -166,6 +167,20 @@ final class SpotifyRemote {
     nonisolated static let connectTimeoutSec: Double = 3
     /// The close lands before the next connect, else the SDK reads the old connection as still up.
     nonisolated static let reconnectGapMs = 600
+    /// How long a close is waited for past that gap before the reconnect gives up on it (audit 11-15 #6).
+    nonisolated static let closeWaitCapMs = 2000
+
+    /// Waits for [r]'s close to land: the gap, then until the SDK no longer reads it as connected (up to
+    /// [closeWaitCapMs]). False when [r] was replaced meanwhile or never closed.
+    private func closed(_ r: AppRemoteLink) async -> Bool {
+        try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
+        var waited = 0
+        while r.isConnected, r === link, waited < Self.closeWaitCapMs {
+            try? await Task.sleep(for: .milliseconds(100))
+            waited += 100
+        }
+        return r === link && !r.isConnected
+    }
     /// Fresh connections opened on their own (a failed subscription) before the caller decides.
     nonisolated static let maxHeals = 2
 
@@ -210,9 +225,9 @@ final class SpotifyRemote {
         healTask = Task { [weak self] in
             guard let self else { return false }
             self.close(r)
-            try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
+            let gone = await self.closed(r)
             self.healTask = nil
-            guard r === self.link else { return false }
+            guard gone else { return false }
             return await self.connect(timeout: Self.connectTimeoutSec)
         }
     }
@@ -227,6 +242,9 @@ final class SpotifyRemote {
     /// connected); it is closed cleanly instead and reconnected on return. Spotify keeps playing.
     func dropForBackground() {
         guard let link, link.isConnected else { return }
+        // Yoin's own close: not Spotify going away (audit 11-15 #27: read as that, it stopped the clock
+        // and showed the position App Remote last reported).
+        closing = true
         link.disconnect()
     }
 
@@ -239,7 +257,12 @@ final class SpotifyRemote {
         }
         guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
         r.authorizeAndPlay(uri) { [weak self] opened in
-            if !opened { self?.onFailure?(SpotifyFailureCopy.appMissing) }
+            guard !opened else { return }
+            // Installed but refused (a tester's 11-15 log said "Install the Spotify app" while Spotify was
+            // playing on that very iPhone): only a missing app is called missing.
+            let installed = SpotifyApp.isInstalled
+            PlayTrace.log("SR wake not opened installed=\(installed)")
+            self?.onFailure?(installed ? SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word) : SpotifyFailureCopy.appMissing)
         }
     }
 
@@ -257,8 +280,7 @@ final class SpotifyRemote {
                 PlayTrace.log("SR reconnect #\(connectionNumber): broken (handback)")
                 close(r)
                 Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
-                    guard let self, r === self.link, !r.isConnected else { return }
+                    guard let self, await self.closed(r) else { return }
                     self.connectionNumber += 1
                     PlayTrace.log("SR connecting #\(self.connectionNumber) (handback)")
                     r.connect()
@@ -323,8 +345,11 @@ final class SpotifyRemote {
     func resume(_ done: ((Error?) -> Void)? = nil) { request("resume", { $0.resume($1) }, done) }
     func pause(_ done: ((Error?) -> Void)? = nil) { request("pause", { $0.pause($1) }, done) }
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { request("enqueue", { $0.enqueue(uri, $1) }, done) }
-    func seek(toMs ms: Int) { link?.seek(toMs: ms) }
-    func skip(forward: Bool) { request(forward ? "next" : "previous", { $0.skip(forward: forward, $1) }, nil) }
+    /// A failed seek marks the connection as any failed request does (a tapped lyric line went nowhere).
+    func seek(toMs ms: Int) { request("seek", { $0.seek(toMs: ms, $1) }, nil) }
+    func skip(forward: Bool, _ done: ((Error?) -> Void)? = nil) {
+        request(forward ? "next" : "previous", { $0.skip(forward: forward, $1) }, done)
+    }
     func setShuffle(_ on: Bool) { link?.setShuffle(on) }
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) { link?.setRepeat(mode) }
 
@@ -456,9 +481,14 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
 
     func resume(_ done: @escaping (Error?) -> Void) { remote.playerAPI?.resume(answer(done)) }
     func pause(_ done: @escaping (Error?) -> Void) { remote.playerAPI?.pause(answer(done)) }
-    func seek(toMs ms: Int) { remote.playerAPI?.seek(toPosition: ms, callback: nil) }
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void) {
+        guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
+        player.seek(toPosition: ms, callback: answer(done))
+    }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
-        forward ? remote.playerAPI?.skip(toNext: answer(done)) : remote.playerAPI?.skip(toPrevious: answer(done))
+        // No player: said so (a start waiting on the skip's answer would wait for ever).
+        guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
+        forward ? player.skip(toNext: answer(done)) : player.skip(toPrevious: answer(done))
     }
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) {
         guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
@@ -485,7 +515,20 @@ extension SDKAppRemoteLink: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegat
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
-        MainActor.assumeIsolated { onConnectFailed?(error?.localizedDescription ?? "-") }
+        // The whole error, underlying ones too: "Connection attempt failed." alone said nothing of why
+        // (a tester's 11-15 log, every connect failing in 10 ms while Spotify played here).
+        let text = error.map { Self.describe($0 as NSError) } ?? "-"
+        MainActor.assumeIsolated { onConnectFailed?(text) }
+    }
+
+    nonisolated static func describe(_ e: NSError) -> String {
+        var parts = ["\(e.localizedDescription) [\(e.domain) \(e.code)]"]
+        var next = e.userInfo[NSUnderlyingErrorKey] as? NSError
+        while let u = next, parts.count < 4 {
+            parts.append("← \(u.localizedDescription) [\(u.domain) \(u.code)]")
+            next = u.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return parts.joined(separator: " ")
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {

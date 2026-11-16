@@ -136,6 +136,51 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         XCTAssertLessThanOrEqual(app.wakes, 2, "never a loop of trips to Spotify")
     }
 
+    /// A tester's 0.6.0 build (2026-11-15): a tapped lyric line didn't seek until Spotify was opened and
+    /// left. A seek no state answers gets a fresh connection and goes again on it.
+    func test_should_reconnectAndSeekAgain_when_noStateAnswersASeek() async throws {
+        engine.play(queue: [song(a)])
+        try await waitUntil(8, "for A") { self.app.statesSent > 0 && self.engine.failure == nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let made = app.connectionsMade
+        app.seekSilent = true
+        engine.seek(to: 42)
+        try await waitUntil(SpotifyAudioOutput.seekEchoSec + 4, "for the seek again") { self.app.seeks.count >= 2 }
+        XCTAssertEqual(app.seeks.count, 2)
+        XCTAssertEqual(app.seeks.first, 42_000)
+        // Sent again where the song is by now (it played on meanwhile), not back at 42 s.
+        XCTAssertTrue((42_000...49_000).contains(app.seeks[1]), "second seek at \(app.seeks[1])")
+        XCTAssertGreaterThan(app.connectionsMade, made, "a fresh connection carries the second seek")
+        XCTAssertEqual(app.wakes, 1, "Spotify isn't woken for it")
+    }
+
+    func test_should_keepTheConnection_when_aStateAnswersTheSeek() async throws {
+        engine.play(queue: [song(a)])
+        try await waitUntil(8, "for A") { self.app.statesSent > 0 && self.engine.failure == nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let made = app.connectionsMade
+        engine.seek(to: 42)
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.seekEchoSec + 0.8))
+        XCTAssertEqual(app.seeks, [42_000])
+        XCTAssertEqual(app.connectionsMade, made)
+    }
+
+    func test_should_readTheConnectionAsSilent_only_whenMeplayerDisagreesAfterAQuietSpell() {
+        let a = uri(self.a), b = uri(self.b)
+        // Spotify moved on to B and App Remote said nothing for 12 s: silent.
+        XCTAssertTrue(SpotifyAudioOutput.remoteWentSilent(webURI: b, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 12))
+        // Spotify stopped at the song's end while Yoin's clock runs on: silent.
+        XCTAssertTrue(SpotifyAudioOutput.remoteWentSilent(webURI: a, webPlaying: false, shownURI: a, playing: true, sinceRemoteSec: 30))
+        // A state just came (me/player trails it): not yet.
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: b, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 1))
+        // They agree: a song plays on with no state, as it does between changes.
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: a, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 120))
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: nil, webPlaying: false, shownURI: a, playing: true, sinceRemoteSec: 120))
+        XCTAssertTrue(SpotifyAudioOutput.overran(timeSec: 203, durationSec: 200))
+        XCTAssertFalse(SpotifyAudioOutput.overran(timeSec: 201, durationSec: 200))
+        XCTAssertFalse(SpotifyAudioOutput.overran(timeSec: 500, durationSec: 0))
+    }
+
     func test_should_markTheConnectionBroken_only_onRequestFailedOrTerminated() {
         let failed = NSError(domain: SPTAppRemoteErrorDomain, code: SPTAppRemoteErrorCode.requestFailedError.rawValue)
         let terminated = NSError(domain: SPTAppRemoteErrorDomain, code: SPTAppRemoteErrorCode.connectionTerminatedError.rawValue)
@@ -166,11 +211,33 @@ final class FakeSpotifyApp {
     var relinkTo: String? { didSet { publish() } }
     var webEmpty = false { didSet { publish() } }
     var nextConnectionBad = false
+    /// Seeks App Remote was sent, and whether the connection answers them with no state (it took them nowhere).
+    var seeks: [Int] = []
+    var seekSilent = false
     var plays: [String] = []
     var lastPlayAt = Date.distantPast
     var wakes = 0
     var connectionsMade = 0
     var statesSent = 0
+    /// The links App Remote has opened (Spotify can drop them from its side).
+    var links: [FakeLink] = []
+    /// Spotify paused here (App Remote and me/player both say so).
+    var paused = false { didSet { publish() } }
+    /// Connects fail while set (the app is up but App Remote can't reach it).
+    var refuseConnects = false
+    /// Commands App Remote was sent, by name, in order.
+    var commands: [String] = []
+    /// Pause, resume and skip go nowhere (no state, nothing changes) while set.
+    var commandsSilent = false
+    /// Where the song is, as App Remote reports it (a seek that lands moves it).
+    var positionMs = 1000
+    /// Spotify's own (user) queue: App Remote's enqueue adds to it, a play(uri) leaves it as it is (device
+    /// 11-16), Next plays its head, and a song's end goes on to its head.
+    var userQueue: [String] = []
+    /// Every song App Remote was asked to queue, in order.
+    var enqueues: [String] = []
+    /// Next fails while set.
+    var refuseSkips = false
     private var stateReadyAt = Date.distantPast
 
     var stateReady: Bool { Date() >= stateReadyAt }
@@ -183,7 +250,32 @@ final class FakeSpotifyApp {
     }
 
     func publish() {
-        WebStub.set(webEmpty || !running ? nil : playing, relinkedTo: relinkTo)
+        WebStub.set(webEmpty || !running ? nil : playing, relinkedTo: relinkTo, paused: paused)
+    }
+
+    /// The song plays out: Spotify goes on to its queue's head from the start, or stops at the end.
+    func endSong() {
+        if userQueue.isEmpty {
+            positionMs = 200_000
+            paused = true
+        } else {
+            positionMs = 0
+            playing = userQueue.removeFirst()
+        }
+        links.last?.pushNow()
+    }
+
+    /// App Remote reports the song at [ms] (a state it pushes as it plays).
+    func report(at ms: Int) {
+        positionMs = ms
+        links.last?.pushNow()
+    }
+
+    /// Spotify is swiped away (or crashes): it stops, me/player has nothing, and App Remote drops.
+    func quit() {
+        running = false
+        playing = nil
+        links.forEach { $0.droppedBySpotify() }
     }
 }
 
@@ -198,7 +290,20 @@ final class FakeLink: AppRemoteLink {
     var onDisconnected: ((String) -> Void)?
     var onPlayerState: ((RemotePlayerState) -> Void)?
 
-    init(app: FakeSpotifyApp) { self.app = app }
+    init(app: FakeSpotifyApp) {
+        self.app = app
+        app.links.append(self)
+    }
+
+    /// Spotify ends the connection from its side.
+    func droppedBySpotify() {
+        guard isConnected else { return }
+        isConnected = false
+        later(5) { [self] in onDisconnected?("Connection terminated.") }
+    }
+
+    /// A state now (what App Remote pushes on a change).
+    func pushNow() { push() }
 
     nonisolated static let requestFailed = NSError(domain: SPTAppRemoteErrorDomain,
                                                    code: SPTAppRemoteErrorCode.requestFailedError.rawValue,
@@ -216,7 +321,7 @@ final class FakeLink: AppRemoteLink {
         let bad = app.allConnectionsBad || app.nextConnectionBad
         app.nextConnectionBad = false
         later(10) { [self] in
-            guard app.running else { return onConnectFailed?("Connection attempt failed.") ?? () }
+            guard app.running, !app.refuseConnects else { return onConnectFailed?("Connection attempt failed.") ?? () }
             self.bad = bad
             isConnected = true
             onEstablished?()
@@ -241,8 +346,8 @@ final class FakeLink: AppRemoteLink {
     func handback(_ url: URL) -> (token: String?, error: String?) { ("t", nil) }
 
     private var state: RemotePlayerState {
-        RemotePlayerState(uri: app.appRemoteSilent || !app.stateReady ? "" : (app.playing ?? ""), isPaused: false,
-                          positionMs: 1000, durationMs: 200_000)
+        RemotePlayerState(uri: app.appRemoteSilent || !app.stateReady ? "" : (app.playing ?? ""), isPaused: app.paused,
+                          positionMs: app.positionMs, durationMs: 200_000)
     }
 
     private func push() {
@@ -281,30 +386,82 @@ final class FakeLink: AppRemoteLink {
         app.lastPlayAt = Date()
         answer(done) { [self] in
             app.plays.append(uri)
+            app.positionMs = 1000
             app.playing = uri
             push()
         }
     }
 
     func playContext(_ uri: String, index: Int, _ done: @escaping (Error?) -> Void) { answer(done) }
-    func resume(_ done: @escaping (Error?) -> Void) { answer(done) }
-    func pause(_ done: @escaping (Error?) -> Void) { answer(done) }
-    func seek(toMs ms: Int) {}
-    func skip(forward: Bool, _ done: @escaping (Error?) -> Void) { answer(done) }
-    func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { answer(done) }
+    func resume(_ done: @escaping (Error?) -> Void) {
+        app.commands.append("resume")
+        answer(done) { [self] in
+            guard !app.commandsSilent else { return }
+            app.paused = false
+            push()
+        }
+    }
+    func pause(_ done: @escaping (Error?) -> Void) {
+        app.commands.append("pause")
+        answer(done) { [self] in
+            guard !app.commandsSilent else { return }
+            app.paused = true
+            push()
+        }
+    }
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void) {
+        app.seeks.append(ms)
+        answer(done) { [self] in
+            guard !app.seekSilent else { return }
+            app.positionMs = ms
+            push()
+        }
+    }
+    func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
+        app.commands.append(forward ? "next" : "previous")
+        // Spotify's "try again later" (it says nothing of the connection).
+        if app.refuseSkips { return later(1) { done(NSError(domain: SPTAppRemoteErrorDomain, code: -3000)) } }
+        answer(done) { [self] in
+            guard !app.commandsSilent else { return }
+            if forward, !app.userQueue.isEmpty {
+                app.positionMs = 0
+                app.playing = app.userQueue.removeFirst()
+            }
+            push()
+        }
+    }
+    func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) {
+        answer(done) { [self] in
+            app.enqueues.append(uri)
+            app.userQueue.append(uri)
+        }
+    }
     func setShuffle(_ on: Bool) {}
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) {}
 }
 
 /// me/player from the fake app's state: this iPhone playing it, or 204.
-private final class WebStub: URLProtocol {
+final class WebStub: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var playing: String?
     nonisolated(unsafe) private static var relinked: String?
+    nonisolated(unsafe) private static var paused = false
+    nonisolated(unsafe) private static var requests: [String] = []
+    nonisolated(unsafe) private static var queries: [String] = []
+    /// me/player names a speaker ("Kitchen", id k1) instead of this iPhone.
+    nonisolated(unsafe) static var onSpeaker = false
     nonisolated(unsafe) private static var readTimes: [Date] = []
 
-    static func reset() { lock.withLock { playing = nil; relinked = nil; readTimes = [] } }
-    static func set(_ uri: String?, relinkedTo: String?) { lock.withLock { playing = uri; relinked = relinkedTo } }
+    static func reset() {
+        lock.withLock { playing = nil; relinked = nil; paused = false; readTimes = []; requests = []; queries = []; onSpeaker = false }
+    }
+    /// The query of every request but the me/player reads, in order.
+    static var commandQueries: [String] { lock.withLock { queries } }
+    static func set(_ uri: String?, relinkedTo: String?, paused: Bool = false) {
+        lock.withLock { playing = uri; relinked = relinkedTo; self.paused = paused }
+    }
+    /// Every request but the me/player reads, as "METHOD path".
+    static var commands: [String] { lock.withLock { requests } }
     static var reads: Int { lock.withLock { readTimes.count } }
     static func readsAfterLastPlay(_ at: Date) -> Int { lock.withLock { readTimes.filter { $0 > at }.count } }
 
@@ -314,16 +471,24 @@ private final class WebStub: URLProtocol {
     override func startLoading() {
         let url = request.url!
         var status = 204, body = ""
+        if !(request.httpMethod == "GET" && url.path.hasSuffix("/me/player")) {
+            Self.lock.withLock {
+                Self.requests.append("\(request.httpMethod ?? "GET") \(url.path)")
+                Self.queries.append(url.query ?? "")
+            }
+        }
         if request.httpMethod == "GET", url.path.hasSuffix("/me/player") {
-            let (uri, copy) = Self.lock.withLock {
+            let (uri, copy, paused) = Self.lock.withLock {
                 Self.readTimes.append(Date())
-                return (Self.playing, Self.relinked)
+                return (Self.playing, Self.relinked, Self.paused)
             }
             if let uri {
                 let item = copy.map { #"{"uri":"\#($0)","linked_from":{"uri":"\#(uri)"},"duration_ms":200000,"name":"S"}"# }
                     ?? #"{"uri":"\#(uri)","duration_ms":200000,"name":"S"}"#
                 status = 200
-                body = #"{"device":{"id":"ip","name":"iPhone","type":"Smartphone"},"is_playing":true,"progress_ms":2729,"shuffle_state":false,"repeat_state":"off","item":\#(item)}"#
+                let device = Self.onSpeaker ? #"{"id":"k1","name":"Kitchen","type":"Speaker"}"#
+                    : #"{"id":"ip","name":"iPhone","type":"Smartphone"}"#
+                body = #"{"device":\#(device),"is_playing":\#(!paused),"progress_ms":2729,"shuffle_state":false,"repeat_state":"off","item":\#(item)}"#
             }
         }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",

@@ -689,6 +689,8 @@ struct LibraryView: View {
             } else if filter == .songs {
                 EmptyPanel(text: String(localized: "No songs found"), scheme: scheme)
             }
+        } else if entries.isEmpty && model.activeNeedsReconnect {
+            ReconnectPanel(scheme: scheme)
         }
         // Keyed by song and occurrence (a song listed twice is two rows), so
         // arrivals, removals (a heart taken off) and pages move, not cut.
@@ -781,8 +783,18 @@ struct LibraryView: View {
         }
     }
 
-    /// Android EmptyState, per view (strings_library.xml).
+    /// Android EmptyState, per view (strings_library.xml). An account whose sign-in is gone has nothing to
+    /// list: it asks to be reconnected instead of saying the library is empty.
+    @ViewBuilder
     private var emptyPanel: some View {
+        if !model.store.isReal && model.activeNeedsReconnect {
+            ReconnectPanel(scheme: scheme)
+        } else {
+            viewEmptyPanel
+        }
+    }
+
+    private var viewEmptyPanel: some View {
         let text = switch filter {
         case nil: String(localized: "Your library is empty")
         case .albums?: String(localized: "No albums found")
@@ -792,6 +804,53 @@ struct LibraryView: View {
         case .favorites?: String(localized: "No favorites yet")
         }
         return EmptyPanel(text: text, scheme: scheme)
+    }
+}
+
+/// The account in use can't be read (its sign-in is gone, or Spotify revoked it): Library and Search say so
+/// and offer Reconnect, as the account card does: one more try in place, then the account's own page.
+struct ReconnectPanel: View {
+    @Environment(AppModel.self) private var model
+    var scheme: CoverScheme
+    @State private var reconnecting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(model.profiles.active?.service == .spotify ? String(localized: "Reconnect Spotify")
+                : String(localized: "Sign in again"))
+                .yoinRole(Tokens.type.bodyLarge)
+                .foregroundStyle(scheme.onSurfaceVariant)
+            Button {
+                guard !reconnecting, let id = model.profiles.activeId else { return }
+                reconnecting = true
+                Task {
+                    _ = await model.profiles.retryActive()
+                    reconnecting = false
+                    guard model.profiles.activeId == id, model.activeNeedsReconnect else { return }
+                    model.openSettings(.account(id))
+                }
+            } label: {
+                Text("Reconnect")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .opacity(reconnecting ? 0 : 1)
+                    .overlay { if reconnecting { ProgressView().controlSize(.small).tint(scheme.onSecondaryContainer) } }
+                    .foregroundStyle(scheme.onSecondaryContainer)
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 40)
+                    .background(scheme.secondaryContainer, in: .capsule)
+                    .contentShape(.capsule)
+            }
+            .disabled(reconnecting)
+            .buttonStyle(PressScale())
+        }
+        .padding(.horizontal, Tokens.library.EMPTY_STATE_PADDING_H.cg)
+        .padding(.vertical, Tokens.library.EMPTY_STATE_PADDING_V.cg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(scheme.surfaceContainerHighest.opacity(Tokens.library.EMPTY_STATE_ALPHA),
+                    in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 48)
+        .transition(.opacity.animation(Yoin.effects))
     }
 }
 

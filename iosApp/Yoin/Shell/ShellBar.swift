@@ -140,6 +140,8 @@ struct ShellBar: View {
                     if !model.isIdle { pill.frame(width: PadDockMetrics.playerWidth) }
                 } else if model.isDetail, let album = model.detailAlbum {
                     playSplit(album)
+                        .disabled(model.detailPlayUnavailable)
+                        .opacity(model.detailPlayUnavailable ? 0.38 : 1)
                 } else {
                     navButton(.home)
                 }
@@ -358,7 +360,10 @@ struct ShellBar: View {
 
             Menu {
                 Button("Shuffle play") { playDetail(shuffle: true) }
-                Button("Play next") { enqueueDetail(next: true) }
+                // Spotify plays its own song: only its queue takes songs, at the end (audit 11-15 #20).
+                if model.player.externalTrack == nil {
+                    Button("Play next") { enqueueDetail(next: true) }
+                }
                 Button("Add to queue") { enqueueDetail(next: false) }
                 // Android: needs playlist writes (Subsonic; not Apple Music).
                 if PlaylistActions.shared.canAddToPlaylist(model.store) {

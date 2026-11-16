@@ -170,17 +170,10 @@ extension AppModel {
         let track = album.tracks.first { $0.id.rawId == c.songId }
             ?? Track(id: MediaId(provider: c.provider, rawId: c.songId), number: 1, title: c.title,
                      durationSec: Int(c.durationMs / 1000), rating: nil)
-        play([PlaylistEntry(album: album, track: track)])
-        guard let ms = c.startMs, ms > 0 else { return }
-        let player = player
-        Task { @MainActor in
-            // The song loads first; then the seek lands on the line (a little before it, so it's heard whole).
-            for _ in 0..<40 {
-                try? await Task.sleep(for: .milliseconds(150))
-                if player.currentTrack?.id == c.songId, !player.isBuffering { break }
-            }
-            guard player.currentTrack?.id == c.songId else { return }
-            player.seek(to: max(0, Double(ms) / 1000 - 0.3))
-        }
+        // The song starts at the line (a little before it, so it's heard whole). Waiting for the load to
+        // finish buffering and seeking then played up to 6 s of a Spotify song's intro first: Spotify never
+        // says it stopped buffering (audit 11-15 #43).
+        let at = c.startMs.map { max(0, Double($0) / 1000 - 0.3) } ?? 0
+        play([PlaylistEntry(album: album, track: track)], startSec: at)
     }
 }

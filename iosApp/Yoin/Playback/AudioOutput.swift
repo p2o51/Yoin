@@ -26,11 +26,27 @@ protocol AudioOutput: AnyObject {
     /// Shuffle or repeat changed in the engine (an output whose player keeps its own modes, Spotify
     /// playing an album or playlist as itself, follows them).
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode)
+    /// Said right before each load: why it happens. Spotify only opens the Spotify app for the
+    /// listener's (audit 11-15 #8), and keeps a speaker it plays on for all but a new queue (#21).
+    func nextLoad(_ kind: OutputLoadKind)
+}
+
+/// Why the engine loads a song.
+enum OutputLoadKind: Equatable, Sendable {
+    /// A queue started from a page (play(queue:)).
+    case newQueue
+    /// The listener moved within the queue: Next, Previous, a row, Retry, Play after the end.
+    case listener
+    /// The engine moved on by itself: a song's end, a skip after an error.
+    case auto
+
+    var byListener: Bool { self != .auto }
 }
 
 extension AudioOutput {
     func skipExternal(forward: Bool) {}
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {}
+    func nextLoad(_ kind: OutputLoadKind) {}
 }
 
 /// Callbacks from an [AudioOutput], all on the main actor.

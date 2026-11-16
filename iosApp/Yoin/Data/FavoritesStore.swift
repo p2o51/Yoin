@@ -29,16 +29,45 @@ final class FavoritesStore {
 
     static func key(provider: String, songId: String) -> String { LocalRatings.key(provider: provider, songId: songId) }
 
-    /// The user's own tap, else [known] (what the caller's copy of the song
-    /// says), else what the source reported, else off.
+    /// The user's own tap, else a fresh answer (a recheck or a write the source took, newer than any
+    /// page's copy), else [known] (what the caller's copy of the song says), else what the source
+    /// reported, else off.
     func isFavorite(provider: String, songId: String, known: Bool? = nil) -> Bool {
         let k = Self.key(provider: provider, songId: songId)
-        return chosen[k] ?? known ?? reported[k] ?? false
+        return chosen[k] ?? (fresh.contains(k) ? reported[k] : nil) ?? known ?? reported[k] ?? false
     }
 
     /// Whether anything is known about the song beyond the caller's copy.
     func hasReport(provider: String, songId: String) -> Bool {
         reported[Self.key(provider: provider, songId: songId)] != nil
+    }
+
+    /// Whether anything at all is known of the song's heart: a tap here, the caller's copy or a report.
+    func isKnown(provider: String, songId: String, known: Bool? = nil) -> Bool {
+        let k = Self.key(provider: provider, songId: songId)
+        return chosen[k] != nil || known != nil || reported[k] != nil
+    }
+
+    /// What a fresh read of the source is checked against when it answers ([refresh]).
+    struct ReadToken: Equatable {
+        fileprivate var generation: Int
+        fileprivate var writes: Int
+    }
+
+    func readToken(provider: String, songId: String) -> ReadToken {
+        ReadToken(generation: generation, writes: writes[Self.key(provider: provider, songId: songId)] ?? 0)
+    }
+
+    /// A fresh read of the source (Spotify's recheck, Android SpotifySavedStateRefresher): it replaces what
+    /// was reported and an earlier tap here gives way to it (the song may have been liked or unliked in
+    /// the Spotify app since). Dropped when a tap came after the read began, or one is still going out.
+    func refresh(_ starred: Bool, provider: String, songId: String, token: ReadToken) {
+        let k = Self.key(provider: provider, songId: songId)
+        guard token == readToken(provider: provider, songId: songId), pending[k] == nil, !sending.contains(k) else { return }
+        if reported[k] != starred { reported[k] = starred }
+        fresh.insert(k)
+        confirmed[k] = starred
+        if chosen[k] != nil { chosen[k] = nil }
     }
 
     /// The source's answer; the first one stands unless [overwrite].
@@ -97,6 +126,7 @@ final class FavoritesStore {
         let k = Self.key(provider: provider, songId: songId)
         let gen = generation
         if confirmed[k] == nil { confirmed[k] = was }
+        writes[k, default: 0] += 1
         chosen[k] = target
         onWrite?(provider, songId)
         guard let send else { return }
@@ -113,6 +143,10 @@ final class FavoritesStore {
                     guard gen == generation else { return }
                     confirmed[k] = want
                     reported[k] = want
+                    fresh.insert(k)
+                    // The source holds the tap now: it no longer pins the heart, so a later recheck (a
+                    // like undone in the Spotify app) shows (audit 11-15 #19). A newer tap still waiting keeps it.
+                    if pending[k] == nil, chosen[k] == want { chosen[k] = nil }
                 } catch {
                     log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
                     guard gen == generation else { return }
@@ -131,6 +165,11 @@ final class FavoritesStore {
     @ObservationIgnored private var pending: [String: (Bool, @MainActor () async throws -> Void)] = [:]
     /// Songs with a write loop running.
     @ObservationIgnored private var sending: Set<String> = []
+    /// Per song, how many taps it has had (a read begun before the last one is stale).
+    @ObservationIgnored private var writes: [String: Int] = [:]
+    /// Songs whose [reported] value is a fresh answer (a recheck, a write the source took): it outranks
+    /// the copy a page was built with, which may be hours old (audit 11-15 #19).
+    private var fresh: Set<String> = []
 
     /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
     func reset() {
@@ -140,5 +179,7 @@ final class FavoritesStore {
         confirmed = [:]
         pending = [:]
         sending = []
+        writes = [:]
+        fresh = []
     }
 }

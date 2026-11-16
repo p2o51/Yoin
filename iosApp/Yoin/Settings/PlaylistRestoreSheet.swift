@@ -442,6 +442,13 @@ struct PlaylistRestoreSheet: View {
                 .foregroundStyle(s.onSurface)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
+            if let note = model.outcomeNote {
+                // Stopped part-way (a rate limit, a lost sign-in) or fewer songs went in than asked.
+                Text(note)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(s.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+            }
             HStack(spacing: 10) {
                 countTile(Int(record.added), "Added", s.primaryContainer, s.onPrimaryContainer)
                 countTile(Int(record.skipped), "Skipped", s.surfaceContainerHigh, s.onSurface)
@@ -479,6 +486,11 @@ struct PlaylistRestoreSheet: View {
     private func failure(_ t: RestoreTarget) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             title(String(localized: "Couldn't reach \(t.label)"))
+            if let note = model.outcomeNote {
+                Text(note)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(s.onSurfaceVariant)
+            }
             HStack {
                 Spacer()
                 Button("Done") { model.sheetClosed() }

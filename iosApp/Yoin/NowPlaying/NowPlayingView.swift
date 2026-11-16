@@ -427,6 +427,10 @@ struct NowPlayingView: View, Equatable {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
+        // Spotify's own song: where Spotify plays it from, read once per song (audit 11-15 #35).
+        .task(id: model.player.externalTrack.map(NowPlayingData.key)) {
+            SpotifyPlayingFrom.shared.observe(model.player.externalTrack, model: model)
+        }
         // The next song's lyrics, once this one has settled (a skip cancels it).
         .task(id: model.player.upNextTrack.map(NowPlayingData.key)) {
             guard let next = model.player.upNextTrack else { return }
@@ -983,8 +987,17 @@ struct NowPlayingView: View, Equatable {
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                 .glowAnchor(.rating, glow)
                 .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
+                // A podcast episode is no song: nothing to rate.
+                .opacity(isEpisode ? 0 : 1)
+                .allowsHitTesting(!isEpisode)
+                .animation(Yoin.effects, value: isEpisode)
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
+                // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
+                // and still, not an empty heart that would save it.
                 heart
+                    .opacity(isEpisode ? 0 : heartKnown ? 1 : 0.38)
+                    .allowsHitTesting(!isEpisode && heartKnown)
+                    .animation(Yoin.effects, value: isEpisode || !heartKnown)
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
             // World: pressing the rating lifts the heart with it; their glass
@@ -1065,6 +1078,11 @@ struct NowPlayingView: View, Equatable {
         withAnimation(Yoin.spatial) { ratingHeld = false }
         touch("rating", false)
     }
+
+    /// Spotify plays a podcast episode.
+    private var isEpisode: Bool { engineTrack.map(SpotifyEpisodes.isEpisode) ?? false }
+
+    private var heartKnown: Bool { engineTrack.map(data.isHeartKnown) ?? true }
 
     private var isFavorite: Bool {
         guard let t = engineTrack else { return demo?.favorite ?? favorite }
@@ -1390,11 +1408,11 @@ struct NowPlayingView: View, Equatable {
             }
             return
         }
-        // Tap a timed line: seek there and follow again.
+        // Tap a timed line: seek there and follow again (the title row, -1: back to the start; #62).
         guard synced, i < times.count, engineTrack != nil else { return }
         lyricsFollow = true
         lyricsRecenterTick += 1
-        model.player.seek(to: Double(times[i]) / 1000)
+        model.player.seek(to: i < 0 ? 0 : Double(times[i]) / 1000)
         glow.lineTapped()
     }
 
@@ -2070,15 +2088,16 @@ struct NowPlayingView: View, Equatable {
                                    outsideTouches: demo.splitTouches, haptics: false, size: control)
                         .demoTarget("mode")
                 } else {
-                PlayModeButton(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode,
+                // Spotify's own song: Spotify's own modes, turned in Spotify (the parked queue's stay as they are).
+                PlayModeButton(shuffle: model.player.shownShuffle, repeatMode: model.player.shownRepeatMode,
                                scheme: scheme, brand: brand,
-                               onCycle: { modeTouchedAt = Date(); model.player.cyclePlayMode() },
-                               onShuffle: { modeTouchedAt = Date(); model.player.setShuffle($0) },
-                               onRepeat: { modeTouchedAt = Date(); model.player.setRepeat($0) },
+                               onCycle: { modeTouchedAt = Date(); model.player.cycleShownPlayMode() },
+                               onShuffle: { modeTouchedAt = Date(); model.player.setShownShuffle($0) },
+                               onRepeat: { modeTouchedAt = Date(); model.player.setShownRepeat($0) },
                                onPress: { touch(String(localized: "Play mode"), $0) }, size: control)
                     .glowAnchor(.mode, glow)
                     // The key's one soft glow (Android playModeGlowKind), for a turn made here.
-                    .onChange(of: PlayModeKey(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode)) { old, new in
+                    .onChange(of: PlayModeKey(shuffle: model.player.shownShuffle, repeatMode: model.player.shownRepeatMode)) { old, new in
                         guard Date().timeIntervalSince(modeTouchedAt) < 2,
                               let kind = PlayModeKey.glowKind(from: old, to: new) else { return }
                         glow.glow(kind, from: .mode)
@@ -2144,6 +2163,9 @@ struct NowPlayingView: View, Equatable {
                             actedScrub: demo?.scrub,
                             onScrubbing: { touch("progress", $0) },
                             onScrubMove: { glowScrub($0) }) { fraction in
+                // A length not known yet (a Spotify song before its first state) is the bar's 1 s stand-in:
+                // the seek would land at 0-1 s (audit 11-15 #61).
+                guard model.player.currentTrack == nil || model.player.progress.durationSec > 0 else { return }
                 model.player.seek(to: fraction * duration)
                 glowSeekReleased(fraction)
             }
@@ -2386,7 +2408,16 @@ struct NowPlayingView: View, Equatable {
         if !model.store.isReal {
             return (String(localized: "PLAYING FROM ALBUM"), playback.album.title, String(localized: "Go to album"), albumRoute(playback))
         }
-        guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
+        if let own = model.player.externalTrack {
+            // Spotify's own song: where Spotify plays it from, not the parked queue's page (audit 11-15 #35).
+            guard let from = SpotifyPlayingFrom.shared.label(for: own) else { return (nil, String(localized: "NOW PLAYING"), "", nil) }
+            let route: (() -> Void)? = from.route.map { route in { [model] in
+                Self.leaveForRoute(model)
+                model.open(route)
+            } }
+            return (from.kind, from.name, from.hint, route)
+        }
+        guard let from = model.playingFrom, !from.title.isEmpty else {
             return (nil, String(localized: "NOW PLAYING"), "", nil)
         }
         let hint = switch from {
@@ -2412,10 +2443,33 @@ struct NowPlayingView: View, Equatable {
     /// The song's artist, when it can be resolved to a page.
     private func artistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
-        guard demo == nil, !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
+        guard demo == nil, !album.artist.isEmpty else { return nil }
+        guard album.artistId != nil || album.id.provider == "mock" else { return spotifyArtistRoute(p) }
         return { [model] in
             Self.leaveForRoute(model)
             model.openArtist(album.artist, id: album.artistId)
+        }
+    }
+
+    /// A Spotify song whose artist Yoin holds no id for (one played from the Spotify app, or from Home or
+    /// Search before its album page was opened): the tap reads the song from Spotify once and opens its
+    /// first artist (audit 11-15 #36; Android maps App Remote's artist URI).
+    private func spotifyArtistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
+        guard p.track.id.provider == SpotifyMapping.provider, let spotify = model.store.spotify,
+              !(model.player.currentTrack.map(SpotifyEpisodes.isEpisode) ?? false) else { return nil }
+        let songId = p.track.id.rawId
+        let fallbackName = p.album.artist
+        return { [model] in
+            Task {
+                let entry = try? await spotify.track(songId)
+                let credit = entry?.track.credits.first { !($0.id ?? "").isEmpty }
+                guard let id = credit?.id ?? entry?.album.artistId, !id.isEmpty else {
+                    PlaylistActions.shared.show(String(localized: "Couldn't open the artist"))
+                    return
+                }
+                Self.leaveForRoute(model)
+                model.openArtist(credit?.name ?? entry?.album.artist ?? fallbackName, id: id)
+            }
         }
     }
 

@@ -8,6 +8,24 @@ struct RestoreCreatedEmpty: Error {
     let playlistId: String
 }
 
+/// Matching stopped because the destination can't answer for now (Spotify's rate limit, or its sign-in
+/// gone): [left] songs weren't looked at. Their songs aren't "not found"; the restore is paused.
+struct RestoreInterrupted: Error, Equatable {
+    let message: String
+    let left: Int
+
+    /// Errors that stop matching: every later search would fail the same way.
+    static func stops(_ error: Error) -> Bool {
+        guard let e = error as? SpotifyAPIError else { return false }
+        switch e {
+        case .rateLimited, .unauthorized: return true
+        default: return false
+        }
+    }
+
+    static func message(for error: Error) -> String { SpotifySource.message(for: error) }
+}
+
 /// Where a restore writes (Android MusicSource's `library().search` and
 /// `writeActions().createPlaylistWithTracks`): one account's search and a new
 /// playlist. Ids are `provider:rawId`. Each destination is one account, chosen
@@ -26,7 +44,8 @@ protocol RestoreDestination: AnyObject {
     /// every account), so a backup from it goes back without matching; nil for none.
     var ownProvider: String? { get }
     /// Songs by ISRC (Android `tracksByIsrc`); a code not found is left out. Empty where the service can't.
-    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]]
+    /// Throws only what `RestoreInterrupted.stops`.
+    func tracksByIsrc(_ isrcs: [String]) async throws -> [String: [MatchTrack]]
 }
 
 extension RestoreDestination {
@@ -60,17 +79,24 @@ enum PlaylistRestore {
     /// + PlaylistTransfer.resolve): a track of the target's own provider (a Spotify backup into Spotify) by
     /// its id; else by ISRC where the target looks one up, then a title + artist search scored by
     /// TrackMatcher, then the title alone when that found nothing. A search that fails leaves its track
-    /// unmatched rather than failing the restore; cancellation still cancels.
+    /// unmatched rather than failing the restore; cancellation still cancels. A rate limit or a lost sign-in
+    /// stops it with `RestoreInterrupted` (the songs left aren't "not found").
     static func resolve(
         _ tracks: [MatchTrack],
         on target: RestoreDestination,
         onResolved: (TrackResolution, Int) -> Void = { _, _ in }
     ) async throws -> [TrackResolution] {
         var searches: [String: [MatchTrack]] = [:]
+        var at = 0
         func search(_ q: String) async throws -> [MatchTrack] {
             if let hit = searches[q] { return hit }
             let found: [MatchTrack]
-            do { found = try await target.search(q) } catch { found = [] }
+            do { found = try await target.search(q) } catch {
+                if RestoreInterrupted.stops(error) {
+                    throw RestoreInterrupted(message: RestoreInterrupted.message(for: error), left: tracks.count - at)
+                }
+                found = []
+            }
             try Task.checkCancellation()
             searches[q] = found
             return found
@@ -82,10 +108,14 @@ enum PlaylistRestore {
             own != nil && PlaylistSnapshots.shared.providerOf(id: track.id) == own
         }
         let isrcs = tracks.filter { !isOwn($0) }.compactMap(\.isrc)
-        let byIsrc = isrcs.isEmpty ? [:] : await target.tracksByIsrc(isrcs)
+        let byIsrc: [String: [MatchTrack]]
+        do { byIsrc = isrcs.isEmpty ? [:] : try await target.tracksByIsrc(isrcs) } catch {
+            throw RestoreInterrupted(message: RestoreInterrupted.message(for: error), left: tracks.count)
+        }
         try Task.checkCancellation()
         for (i, track) in tracks.enumerated() {
             try Task.checkCancellation()
+            at = i
             var decision: any MatchDecision = MatchDecisionNotFound.shared
             if isOwn(track) {
                 decision = MatchDecisionMatched(track: track, method: .sourceid)
@@ -219,8 +249,30 @@ final class PlaylistRestoreModel {
         case review(RestoreTarget, rows: [ReviewRow])
         case writing(RestoreTarget, rows: [ReviewRow])
         case done(RestoreTarget, record: PlaylistRestoreRecord)
-        /// Matching couldn't reach the target.
+        /// Matching couldn't reach the target (`interruption` says why when it stopped part-way).
         case failed(RestoreTarget)
+    }
+
+    /// Why matching stopped and how many songs it didn't get to (Spotify's rate limit, a lost sign-in);
+    /// nil when it failed otherwise. Set with `.failed`.
+    private(set) var interruption: RestoreInterrupted?
+    /// The write added fewer songs than were checked (a later batch failed): "Added N of M".
+    var shortfall: (added: Int, requested: Int)? {
+        guard case .done = phase, let last = lastWrite, last.created, last.added < last.requested else { return nil }
+        return (Int(last.added), Int(last.requested))
+    }
+
+    /// What the last write came to, for [shortfall] and [outcomeNote].
+    @ObservationIgnored private var lastWrite: PlaylistWrite?
+
+    /// A line for the outcome or the failure: the reason matching paused with the songs left, or the
+    /// songs the write got in of those asked; nil when there is nothing to add.
+    var outcomeNote: String? {
+        if case .failed = phase, let i = interruption {
+            return String(localized: "\(i.message). Paused with \(i.left) songs left.")
+        }
+        if let s = shortfall { return String(localized: "Added \(s.added) of \(s.requested) songs") }
+        return nil
     }
 
     /// The review's search for one song on the target.
@@ -271,6 +323,7 @@ final class PlaylistRestoreModel {
         switch phase {
         case .idle, .done, .failed:
             versionSince = since
+            interruption = nil
             phase = .choosing
         default: break
         }
@@ -289,6 +342,8 @@ final class PlaylistRestoreModel {
     func restore(to target: RestoreTarget) {
         guard target.available, let backup, job == nil, let dest = destination(target) else { return }
         release()
+        interruption = nil
+        lastWrite = nil
         chosen = (target, dest)
         let tracks = backup.content.tracks.map { PlaylistSnapshots.shared.toMatchTrack(track: $0) }
         let total = tracks.count
@@ -320,6 +375,7 @@ final class PlaylistRestoreModel {
             } catch {
                 progress?.clear()
                 guard let self, !Task.isCancelled else { return }
+                self.interruption = error as? RestoreInterrupted
                 withAnimation(Yoin.spatial) { self.phase = .failed(target) }
                 self.release()
             }
@@ -365,6 +421,7 @@ final class PlaylistRestoreModel {
         progress?.writing(playlist: name, target: target, count: ids.count)
         Task { [weak self] in
             let write = await PlaylistRestore.write(name: name, description: description, trackIds: ids, to: dest)
+            self?.lastWrite = write
             let record = RestoreReview.shared.restoreRecord(targetProvider: target.provider, targetLabel: target.label,
                                                             rows: rows, write: write, now: now())
             store.recordRestore(id, record)

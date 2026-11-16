@@ -33,4 +33,23 @@ final class PlaylistWriteAccessTests: XCTestCase {
         XCTAssertEqual(back.canWrite, false)
         XCTAssertEqual(back.ownedByMe, true)
     }
+
+    func test_should_keep_unreadable_tracks_and_the_song_count_when_cached() throws {
+        let codec = DetailCacheCodec.appleMusic
+        var p = playlist(owner: "someone", canWrite: nil)
+        p.tracksUnavailable = true
+        p.songCount = 42
+        let back = codec.playlist(codec.dto(p))
+        XCTAssertTrue(back.tracksUnavailable)
+        XCTAssertEqual(back.songCount, 42)
+        // A page stored before the fields existed still reads.
+        var old = codec.dto(playlist(owner: "me", canWrite: nil))
+        old.tracksUnavailable = nil
+        old.songCount = nil
+        let json = try JSONEncoder().encode(old)
+        let stripped = try JSONSerialization.jsonObject(with: json) as! [String: Any]
+        XCTAssertNil(stripped["tracksUnavailable"])
+        let decoded = try JSONDecoder().decode(DetailCacheDTO.Playlist.self, from: json)
+        XCTAssertFalse(codec.playlist(decoded).tracksUnavailable)
+    }
 }

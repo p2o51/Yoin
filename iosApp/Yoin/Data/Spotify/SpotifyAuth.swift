@@ -83,9 +83,9 @@ enum SpotifyAuthError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .noClientId: "Add your Spotify Client ID in Settings first"
-        case .cancelled: "Sign-in cancelled"
-        case .revoked: "Spotify signed you out. Sign in again"
+        case .noClientId: String(localized: "Add your Spotify Client ID in Settings first")
+        case .cancelled: String(localized: "Sign-in cancelled")
+        case .revoked: String(localized: "Spotify signed you out. Sign in again")
         case .failed(let m): m
         }
     }
@@ -188,13 +188,20 @@ enum SpotifyAuth {
         var avatar: String? { images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url }
     }
 
+    /// Why `me` refused the new sign-in. 403: a Development Mode app answers only the accounts listed
+    /// under its User Management (Android SpotifyOAuthActivity's hint).
+    nonisolated static func meFailure(_ status: Int) -> String {
+        status == 403
+            ? String(localized: "This Spotify account isn't on the app's user list. Add it under User Management on developer.spotify.com, then sign in again.")
+            : String(localized: "Spotify couldn't read your account (\(status))")
+    }
+
     nonisolated static func fetchMe(_ accessToken: String) async throws -> Me {
         var r = URLRequest(url: URL(string: "https://api.spotify.com/v1/me")!)
         r.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: r)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw SpotifyAuthError.failed(String(localized: "Spotify couldn't read your account (\((response as? HTTPURLResponse)?.statusCode ?? 0))"))
-        }
+        let (data, response) = try await SpotifyWebAPI.session.data(for: r)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw SpotifyAuthError.failed(meFailure(status)) }
         return try JSONDecoder().decode(Me.self, from: data)
     }
 
@@ -216,12 +223,12 @@ enum SpotifyAuth {
         var c = URLComponents()
         c.queryItems = form.map { URLQueryItem(name: $0.key, value: $0.value) }
         r.httpBody = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
-        let (data, response) = try await URLSession.shared.data(for: r)
+        let (data, response) = try await SpotifyWebAPI.session.data(for: r)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
             let e = try? JSONDecoder().decode(TokenError.self, from: data)
             if e?.error == "invalid_grant" { throw SpotifyAuthError.revoked }
-            throw SpotifyAuthError.failed(e?.error_description ?? e?.error ?? "Spotify sign-in failed (\(status))")
+            throw SpotifyAuthError.failed(e?.error_description ?? e?.error ?? String(localized: "Spotify sign-in failed (\(status))"))
         }
         return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
@@ -234,7 +241,7 @@ enum SpotifyAuth {
                 if let e = error as? ASWebAuthenticationSessionError, e.code == .canceledLogin {
                     cont.resume(throwing: SpotifyAuthError.cancelled)
                 } else {
-                    cont.resume(throwing: SpotifyAuthError.failed(error?.localizedDescription ?? "Sign-in failed"))
+                    cont.resume(throwing: SpotifyAuthError.failed(error?.localizedDescription ?? String(localized: "Sign-in failed")))
                 }
             }
             session.presentationContextProvider = AuthAnchor.shared
