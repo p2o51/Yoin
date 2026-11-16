@@ -121,14 +121,14 @@ Data: getStarred() once per load (Subsonic getStarred2). Keep starred TRACKS and
 
 RECENTLY PLAYED: source.library.getAlbumList(recent, size 20) (Subsonic getAlbumList2 type=recent = the server's own per-user play history; this needs plays to be scrobbled by the app - see risks), distinct by id, then minus every album already shown by the Activities bento (raw ids of the ALBUM entries among the first 20 selected activities, homeActivityAlbumCards); re-derive whenever Activities change. Hidden when empty. Layout = same album card as Recently Added (82dp Bun cover, name, artist) on a titled LazyRow, section Column spacing 12dp, shelf full-bleed with page-margin contentPadding, item spacing 14dp, top aligned, NO edge fade at any size (since 2026-11-14, Android 059b0aa0a: the shelf bleeds to the screen edge and the edge cuts it, like Recently Added). YOUR PLAYLISTS: getPlaylists() (the load's single shared read), distinct by id, first 20 in the server's order. Card = width 82dp: Ghostish backdrop artwork 82dp, 6dp gap, name bodySmall Medium 1 line, then 'N songs' labelSmall onSurfaceVariant (only when songCount>0). Same shelf chrome (no fade). Hidden when empty. Playlist renames made in the app must update the Activities rows, Jump Back In cards and this shelf (rename map keyed profile|id) - at minimum re-read on next load in v1. Taps: album -> album detail; playlist -> playlist detail.
 
-**Motion:** Edge fade alpha springs on the default EFFECTS spring (1, 1600) as the scroll position makes an edge scrollable or not. Press 0.97 as above.
+**Motion:** No edge fade (removed 2026-11-14; the shelf is a plain horizontal scroll cut by the screen edge). Press 0.97 as above.
 
 **Strings (key | en | zh):**
 - home_section_recently_played | Recently Played | 最近播放
 - home_section_your_playlists | Your Playlists | 你的播放列表
 - home_playlist_songs | %1$d song / %1$d songs | %1$d 首
 
-**Android:** ui/home/HomeEditorialContent.kt (AlbumShelfSection L2985, YourPlaylistsSection L2833, YourPlaylistCard L3032, notShownIn in HomeViewModel L1526, homeActivityAlbumCards L3166); ui/home/HomeViewModel.kt (spliceRecentlyPlayed L1299, splicePlaylists L1292, HOME_RECENTLY_PLAYED_LIMIT 20, HOME_PLAYLIST_LIMIT 20, withPlaylistName L2869); ui/component/PressFeedback.kt (horizontalEdgeFadeOnScroll L222: stops 0,.104,.352,.648,.896,1 smoothstep, DstIn mask)
+**Android:** ui/home/HomeEditorialContent.kt (AlbumShelfSection L2985, YourPlaylistsSection L2833, YourPlaylistCard L3032, notShownIn in HomeViewModel L1526, homeActivityAlbumCards L3166); ui/home/HomeViewModel.kt (spliceRecentlyPlayed L1299, splicePlaylists L1292, HOME_RECENTLY_PLAYED_LIMIT 20, HOME_PLAYLIST_LIMIT 20, withPlaylistName L2869)
 
 ### 11. 11. Backdrop cover component (entity shapes, artwork inset, palette colours)
 

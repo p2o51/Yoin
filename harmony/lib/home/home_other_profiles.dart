@@ -24,6 +24,7 @@ import '../memories/other_profiles.dart';
 import '../playback/playback_controller.dart';
 import '../settings/account_identity.dart';
 import '../theme/tokens.dart';
+import 'home_edit.dart';
 import 'home_selection.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
@@ -285,13 +286,18 @@ class OtherProfilesSection extends StatelessWidget {
         child: HomeSectionTitle(HomeStrings.of(context).sectionOtherProfiles),
       ),
       const SizedBox(height: HomeSectionMetrics.shelfSpacing),
-      HomeShelf(
-        height: shelfCardHeight(context),
-        padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
-        itemCount: items.length,
-        itemBuilder: (context, i) => Align(
-          alignment: Alignment.topCenter,
-          child: OtherProfileCard(key: ValueKey(items[i].stableId), item: items[i]),
+      // Edit mode: the bleeding shelf is cut back to its plate (homeEditShelfClip).
+      HomeEditShelfClip(
+        escapeStart: frame.start,
+        escapeEnd: frame.end,
+        child: HomeShelf(
+          height: shelfCardHeight(context),
+          padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
+          itemCount: items.length,
+          itemBuilder: (context, i) => Align(
+            alignment: Alignment.topCenter,
+            child: OtherProfileCard(key: ValueKey(items[i].stableId), item: items[i]),
+          ),
         ),
       ),
     ],

@@ -11,6 +11,7 @@ import 'package:yoin/data/model/model.dart';
 import 'package:yoin/home/home_album_memory_mark.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_memory_signals.dart';
+import 'package:yoin/home/home_metrics.dart';
 import 'package:yoin/home/home_screen.dart';
 import 'package:yoin/home/home_selection.dart';
 import 'package:yoin/home/home_ui_state.dart';
@@ -19,6 +20,7 @@ import 'package:yoin/home/jump_back_in.dart';
 import 'package:yoin/memories/memories_ui_state.dart';
 import 'package:yoin/home/rediscover_section.dart';
 import 'package:yoin/home/rediscover_selection.dart';
+import 'package:yoin/home/widgets/home_artwork.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/theme/theme.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
@@ -286,6 +288,16 @@ void main() {
     testWidgets('should_seatSignalsOnTheTemplate_when_tablet', (tester) async {
       final container = await memoryHome(tester, const Size(1280, 800));
       expect(find.byType(JbiSignalCard), findsNWidgets(2));
+      // Every card lies (2×1, owner 2026-11-14): the cover beside its copy, the
+      // title under the cover — wider than tall, never a standing 1×2.
+      for (var i = 0; i < 2; i++) {
+        final card = find.byType(JbiSignalCard).at(i);
+        final rect = tester.getRect(card);
+        expect(rect.width, greaterThan(rect.height));
+        final cover = tester.getRect(find.descendant(of: card, matching: find.byType(BackdropCover)));
+        expect(cover.top, rect.top);
+        expect(rect.right - cover.right, greaterThan(HomeJbiMetrics.signalCopyGap));
+      }
       expect(tester.takeException(), isNull);
       await done(tester, container);
     });
