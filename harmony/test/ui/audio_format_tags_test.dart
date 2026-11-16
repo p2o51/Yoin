@@ -22,4 +22,33 @@ void main() {
     expect(audioFormatTags(null), isEmpty);
     expect(audioFormatTags(const AudioFormat(bitRateKbps: 320)), isEmpty);
   });
+
+  test('should_showDolbyAtmosAlone_when_eac3Joc', () {
+    expect(audioFormatTags(const AudioFormat(contentType: 'audio/eac3-joc', channels: 6, bitRateKbps: 768)), [
+      'Dolby Atmos',
+    ]);
+    expect(const AudioFormat(contentType: 'audio/eac3-joc').isDolbyAtmos, isTrue);
+  });
+
+  test('should_nameDolbyCodecs_when_plainAc3OrEac3', () {
+    expect(audioFormatTags(const AudioFormat(contentType: 'audio/eac3', channels: 6, bitRateKbps: 640)), [
+      'E-AC-3 640',
+      '5.1',
+    ]);
+    expect(codecLabel('ac3'), 'AC-3');
+    expect(codecLabel('ac4'), 'AC-4');
+  });
+
+  test('should_tellAlacFromAac_when_m4aHasADepth', () {
+    expect(audioFormatTags(const AudioFormat(suffix: 'm4a', bitDepth: 24, sampleRateHz: 96000)), ['ALAC 24/96']);
+    expect(audioFormatTags(const AudioFormat(suffix: 'm4a', bitRateKbps: 256)), ['AAC 256']);
+  });
+
+  test('should_readTheContentType_when_suffixMissing', () {
+    expect(audioFormatTags(const AudioFormat(contentType: 'audio/flac', bitDepth: 16, sampleRateHz: 44100)), [
+      'FLAC 16/44.1',
+    ]);
+    expect(audioFormatTags(const AudioFormat(suffix: 'ogg', bitRateKbps: 160)), ['Vorbis 160']);
+    expect(audioFormatTags(const AudioFormat(suffix: 'wv', sampleRateHz: 48000)), ['WavPack 48']);
+  });
 }

@@ -7,17 +7,17 @@ import '../../data/model/model.dart';
 /// "MP3 320", "5.1". Codec names and numbers read the same in every
 /// language, so the tags are not translated.
 
-const _lossless = {'flac', 'alac', 'wav', 'aiff', 'ape', 'wavpack', 'wv', 'dsd', 'dsf', 'dff'};
-
-/// "flac" → "FLAC", "opus" → "Opus".
+/// "flac" → "FLAC", "opus" → "Opus". E-AC-3 JOC is "Dolby Atmos", in words
+/// only: the logo needs a licence, and the trademark reads in English in
+/// every language.
 String codecLabel(String codec) => switch (codec.toLowerCase()) {
   'opus' => 'Opus',
-  'vorbis' || 'ogg' => 'Vorbis',
-  'wavpack' || 'wv' => 'WavPack',
+  'vorbis' => 'Vorbis',
+  'wavpack' => 'WavPack',
   'ac3' => 'AC-3',
   'eac3' => 'E-AC-3',
   'ac4' => 'AC-4',
-  'm4a' || 'mp4' => 'AAC',
+  AudioFormat.codecEac3Joc => 'Dolby Atmos',
   final other => other.toUpperCase(),
 };
 
@@ -39,12 +39,14 @@ String khzLabel(int hz) {
   return tenths % 10 == 0 ? '${tenths ~/ 10}' : '${tenths ~/ 10}.${tenths % 10}';
 }
 
-/// Lossless as depth/kHz ("FLAC 24/96"), lossy as its bit rate ("MP3 320").
+/// Lossless as depth/kHz ("FLAC 24/96"), lossy as its bit rate ("MP3 320"),
+/// Dolby Atmos alone.
 String? codecTag(AudioFormat format) {
-  final codec = format.suffix;
+  final codec = format.codec;
   if (codec == null || codec.isEmpty) return null;
   final label = codecLabel(codec);
-  if (_lossless.contains(codec.toLowerCase())) {
+  if (format.isDolbyAtmos) return label;
+  if (format.isLossless) {
     final khz = format.sampleRateHz == null ? null : khzLabel(format.sampleRateHz!);
     if (format.bitDepth != null && khz != null) return '$label ${format.bitDepth}/$khz';
     if (khz != null) return '$label $khz';
@@ -53,10 +55,12 @@ String? codecTag(AudioFormat format) {
   return format.bitRateKbps == null ? label : '$label ${format.bitRateKbps}';
 }
 
-/// Every tag of [format], codec first: ["FLAC 16/44.1", "5.1"].
+/// Every tag of [format], codec first: ["FLAC 16/44.1", "5.1"]; Dolby Atmos
+/// alone (its channel count is the base layer's, not the content's layout).
 List<String> audioFormatTags(AudioFormat? format) {
   if (format == null) return const [];
-  return [?codecTag(format), ?channelLayoutLabel(format.channels)];
+  final layout = format.isDolbyAtmos ? null : channelLayoutLabel(format.channels);
+  return [?codecTag(format), ?layout];
 }
 
 /// The tags as small tonal chips (6 radius, labelSmall, tabular figures).

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../theme/tokens.dart';
+import '../../ui/component/meta_line.dart' show VersionTitleRow;
 import '../home_metrics.dart';
 import 'seam.dart';
 
@@ -235,12 +236,12 @@ class VersionTitle extends StatelessWidget {
           : Text(name, style: style, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false),
     );
     if (v == null || v.isEmpty) return text;
-    return Row(
-      children: [
-        Flexible(child: text),
-        const SizedBox(width: HomeVersionTagMetrics.gap),
-        AlbumVersionTag(v),
-      ],
+    return VersionTitleRow(
+      name: name,
+      nameStyle: style,
+      title: text,
+      tag: AlbumVersionTag(v),
+      gap: HomeVersionTagMetrics.gap,
     );
   }
 }

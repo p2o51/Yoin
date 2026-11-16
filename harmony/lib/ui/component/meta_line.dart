@@ -167,11 +167,96 @@ class AlbumVersionTag extends StatelessWidget {
   }
 }
 
-/// The album name with the server's " (version)" suffix stripped.
+/// The album name without the " (version)" a server appends to it
+/// (Navidrome's Subsonic.AppendAlbumVersion), for where the version is shown
+/// beside it as a tag; [name] itself unless it ends exactly so
+/// (albumNameWithoutVersion).
 String albumTitleWithoutVersion(String name, String? version) {
-  if (version == null || version.isEmpty) return name;
-  final suffix = ' ($version)';
-  return name.endsWith(suffix) ? name.substring(0, name.length - suffix.length) : name;
+  final v = version?.trim();
+  if (v == null || v.isEmpty) return name;
+  final suffix = ' ($v)';
+  if (!name.endsWith(suffix)) return name;
+  final stripped = name.substring(0, name.length - suffix.length).trimRight();
+  return stripped.isEmpty ? name : stripped;
+}
+
+/// [title] (a one-line name, drawn in [nameStyle]) with [tag] right after
+/// its last character (AlbumVersionTitle.kt). The name comes first: it keeps
+/// its whole width up to half the row, and a long version ("Deluxe Edition")
+/// on a narrow card takes at most what is left and is cut short itself, so
+/// the row never shows only the tag.
+class VersionTitleRow extends StatelessWidget {
+  const VersionTitleRow({
+    super.key,
+    required this.name,
+    required this.nameStyle,
+    required this.title,
+    required this.tag,
+    this.gap = AlbumVersionTagTokens.gap,
+  });
+
+  /// [name] as one ellipsized line in [nameStyle], then [version] (when
+  /// there is one) as an [AlbumVersionTag] after it.
+  static Widget orTitle({
+    Key? key,
+    required String name,
+    required TextStyle nameStyle,
+    String? version,
+    double gap = AlbumVersionTagTokens.gap,
+  }) {
+    final title = Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: nameStyle);
+    final v = version?.trim();
+    if (v == null || v.isEmpty) return KeyedSubtree(key: key, child: title);
+    return VersionTitleRow(key: key, name: name, nameStyle: nameStyle, title: title, tag: AlbumVersionTag(v), gap: gap);
+  }
+
+  /// The text [title] draws, measured with [nameStyle].
+  final String name;
+  final TextStyle nameStyle;
+  final Widget title;
+  final Widget tag;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final tagMax = constraints.hasBoundedWidth
+          ? versionTagMaxWidth(
+              rowWidth: constraints.maxWidth,
+              nameWidth: _measure(context),
+              gap: gap,
+            )
+          : double.infinity;
+      return Row(
+        children: [
+          Flexible(child: title),
+          SizedBox(width: gap),
+          ConstrainedBox(constraints: BoxConstraints(maxWidth: tagMax), child: tag),
+        ],
+      );
+    },
+  );
+
+  double _measure(BuildContext context) {
+    final painter = TextPainter(
+      text: TextSpan(text: name, style: DefaultTextStyle.of(context).style.merge(nameStyle)),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    // +1: the measured width is rounded down; a pixel less would ellipsize.
+    final width = painter.width.ceilToDouble() + 1;
+    painter.dispose();
+    return width;
+  }
+}
+
+/// How wide a version tag may be in a row [rowWidth] wide whose name needs
+/// [nameWidth]: what the name leaves, the name keeping at least half.
+double versionTagMaxWidth({required double rowWidth, required double nameWidth, required double gap}) {
+  final nameRoom = nameWidth < rowWidth / 2 ? nameWidth : rowWidth / 2;
+  final room = rowWidth - nameRoom - gap;
+  return room < 0 ? 0 : room;
 }
 
 /// m:ss (h:mm:ss past an hour).

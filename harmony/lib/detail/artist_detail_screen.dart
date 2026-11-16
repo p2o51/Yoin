@@ -564,18 +564,10 @@ class _ReleaseRow extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            albumTitleWithoutVersion(album.name, album.version),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium,
-                          ),
-                        ),
-                        if (album.version != null) ...[const SizedBox(width: 8), AlbumVersionTag(album.version!)],
-                      ],
+                    VersionTitleRow.orTitle(
+                      name: albumTitleWithoutVersion(album.name, album.version),
+                      nameStyle: theme.textTheme.titleMedium!,
+                      version: album.version,
                     ),
                     MetaLine(
                       groups: [

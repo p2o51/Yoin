@@ -359,6 +359,12 @@ abstract final class MetaLineTokens {
   static const double mutedAlpha = 0.6;
 }
 
+/// An album's version tag after its name (component/AlbumVersionTitle.kt).
+abstract final class AlbumVersionTagTokens {
+  /// Name → tag (TagGap).
+  static const double gap = 6;
+}
+
 /// Home's phone feed (HomeEditorialContent.kt, HomeRowPresets.kt, HomeWidgetGrid.kt, RediscoverSection.kt; iOS HomeView).
 abstract final class HomeTokens {
   /// The greeting / title keep this clear of the account button (HomeMemoryPill.kt).
