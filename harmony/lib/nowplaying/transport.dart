@@ -13,7 +13,10 @@ import 'nowplaying_strings.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 import '../playback/play_mode.dart';
+import 'action_glow.dart';
 import 'playhead_clock.dart';
+import 'transport_pulse.dart';
+import 'transport_signal.dart';
 import 'wave_progress_bar.dart';
 
 /// The pressed key of the PLAY | NEXT group (hoisted: the hero breathes with it).
@@ -88,8 +91,16 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
   late final SpringValue _playPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardDefaultSpatial);
   late final SpringValue _nextPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardDefaultSpatial);
 
+  /// PREVIOUS's outline, for its tap dots and the pulse's focal point.
+  final GlobalRectProbe _previousKey = GlobalRectProbe();
+
+  /// The play-mode key, for its action lights.
+  final GlobalRectProbe _playModeKey = GlobalRectProbe();
+  bool _observing = false;
+
   @override
   void dispose() {
+    _stopObserving();
     _playPress.dispose();
     _nextPress.dispose();
     super.dispose();
@@ -97,8 +108,52 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
 
   void _setPressed(TransportKey key) {
     widget.pressed.value = key;
+    // The background gathers light toward PLAY while it is held.
+    NowPlayingSignalScope.maybeOf(context)?.playHeld.value = key == TransportKey.play;
     _playPress.animateTo(key == TransportKey.play ? 1 : 0);
     _nextPress.animateTo(key == TransportKey.next ? 1 : 0);
+  }
+
+  /// PREVIOUS is stamped with the playhead it was tapped at; until the change
+  /// it caused commits, every tick reports the playhead back, so a PREVIOUS
+  /// the player answered with a restart is spent at once (observePlayhead).
+  void _onPrevious() {
+    final signal = NowPlayingSignalScope.maybeOf(context);
+    if (signal != null) {
+      final key = _previousKey.rect;
+      if (key != null) {
+        signal.recordTap(key.center, TransportTapKind.skipPrevious, positionMs: widget.clock.positionMs());
+      }
+      signal.recordTapDots(key, lean: -1);
+      _startObserving();
+    }
+    YoinHaptics.tick();
+    widget.onPrevious();
+  }
+
+  void _startObserving() {
+    if (_observing) return;
+    _observing = true;
+    widget.clock.addListener(_observe);
+  }
+
+  void _stopObserving() {
+    if (!_observing) return;
+    _observing = false;
+    widget.clock.removeListener(_observe);
+  }
+
+  void _observe() {
+    final signal = NowPlayingSignalScope.maybeOf(context);
+    final tap = signal?.lastTap;
+    if (signal == null ||
+        tap == null ||
+        tap.kind != TransportTapKind.skipPrevious ||
+        signal.nowMs - tap.uptimeMs > transportTapValidityMs) {
+      _stopObserving();
+      return;
+    }
+    signal.observePlayhead(widget.clock.positionMs());
   }
 
   /// What steps away at ease: fades out and takes no taps while hidden.
@@ -141,11 +196,15 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                     ),
                   ),
                   const Spacer(),
-                  PlayModeButton(
-                    mode: widget.playMode,
-                    onSetPlayMode: widget.onSetPlayMode,
-                    showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
-                    onShowedSplit: widget.onShowedPlayModeSplit,
+                  ReportBounds(
+                    probe: _playModeKey,
+                    child: PlayModeButton(
+                      mode: widget.playMode,
+                      onSetPlayMode: widget.onSetPlayMode,
+                      showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
+                      onShowedSplit: widget.onShowedPlayModeSplit,
+                      glowBounds: _playModeKey,
+                    ),
                   ),
                 ],
               ),
@@ -157,13 +216,13 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
             child: Row(
               children: [
                 _away(
-                  _RoundKey(
-                    icon: YoinSymbols.skipPreviousFilled,
-                    semantics: NowPlayingStrings.of(context).cdSkipPrevious,
-                    onTap: () {
-                      YoinHaptics.tick();
-                      widget.onPrevious();
-                    },
+                  ReportBounds(
+                    probe: _previousKey,
+                    child: _RoundKey(
+                      icon: YoinSymbols.skipPreviousFilled,
+                      semantics: NowPlayingStrings.of(context).cdSkipPrevious,
+                      onTap: _onPrevious,
+                    ),
                   ),
                 ),
                 const SizedBox(width: NowPlayingTokens.transportGap),
@@ -256,6 +315,10 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
   bool _held = false;
   bool _boxReady = false;
 
+  /// NEXT's outline (PLAY's lives on the signal: the gather converges on it).
+  final GlobalRectProbe _nextKey = GlobalRectProbe();
+  final GlobalRectProbe _playKeyLocal = GlobalRectProbe();
+
   @override
   void dispose() {
     _box.dispose();
@@ -280,6 +343,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
+    final signal = NowPlayingSignalScope.maybeOf(context);
     final playing = widget.isPlaying;
     final style = _wordStyle(context, playing);
     final word = playing ? strings.pauseWord : strings.playWord;
@@ -323,12 +387,17 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
               width: math.max(0.0, playW),
               color: colors.primary,
               semantics: playing ? strings.cdPause : strings.cdPlay,
+              probe: signal?.playKey ?? _playKeyLocal,
               onPressed: (down) {
                 _held = down;
                 widget.onPressed(down ? TransportKey.play : TransportKey.none);
                 setState(() {});
               },
               onTap: () {
+                // The burst radiates from the key that was tapped, for the change it caused.
+                final key = (signal?.playKey ?? _playKeyLocal).rect;
+                if (key != null) signal?.recordTap(key.center, TransportTapKind.playPause);
+                signal?.recordTapDots(key, lean: 0);
                 YoinHaptics.click();
                 widget.onPlayPause();
               },
@@ -371,8 +440,12 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
               width: math.max(0.0, nextW),
               color: colors.primary,
               semantics: strings.cdSkipNext,
+              probe: _nextKey,
               onPressed: (down) => widget.onPressed(down ? TransportKey.next : TransportKey.none),
               onTap: () {
+                final key = _nextKey.rect;
+                if (key != null) signal?.recordTap(key.center, TransportTapKind.skipNext);
+                signal?.recordTapDots(key, lean: 1);
                 YoinHaptics.tick();
                 widget.onNext();
               },
@@ -393,6 +466,7 @@ class _PressKey extends StatelessWidget {
     required this.width,
     required this.color,
     required this.semantics,
+    required this.probe,
     required this.onPressed,
     required this.onTap,
     required this.child,
@@ -401,6 +475,9 @@ class _PressKey extends StatelessWidget {
   final double width;
   final Color color;
   final String semantics;
+
+  /// Where the key sits, for its tap dots and the background's pulse.
+  final GlobalRectProbe probe;
   final ValueChanged<bool> onPressed;
   final VoidCallback onTap;
   final Widget child;
@@ -408,15 +485,18 @@ class _PressKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     width: width,
-    child: ExpressiveSurfaceButton(
-      shapes: const InteractionShapes.fixed(CornerRadii.full),
-      height: NowPlayingTokens.controlSize,
-      color: color,
-      contentColor: Theme.of(context).colorScheme.onPrimary,
-      semanticLabel: semantics,
-      onPressChanged: onPressed,
-      onTap: onTap,
-      child: child,
+    child: ReportBounds(
+      probe: probe,
+      child: ExpressiveSurfaceButton(
+        shapes: const InteractionShapes.fixed(CornerRadii.full),
+        height: NowPlayingTokens.controlSize,
+        color: color,
+        contentColor: Theme.of(context).colorScheme.onPrimary,
+        semanticLabel: semantics,
+        onPressChanged: onPressed,
+        onTap: onTap,
+        child: child,
+      ),
     ),
   );
 }
@@ -485,7 +565,11 @@ class PlayModeButton extends StatefulWidget {
     this.showSplitOnFullCycle = false,
     this.onShowedSplit,
     this.nowMs,
+    this.glowBounds,
   });
+
+  /// Where the key sits (reported by its host), for the action light a change fires.
+  final GlobalRectProbe? glowBounds;
 
   final PlayMode mode;
   final ValueChanged<PlayMode> onSetPlayMode;
@@ -506,6 +590,22 @@ class PlayModeButton extends StatefulWidget {
 
 class PlayModeButtonState extends State<PlayModeButton> with TickerProviderStateMixin {
   final PlayModeCycle _cycle = PlayModeCycle();
+
+  /// [half]: 0 the whole key, −1 the shuffle segment, +1 the repeat segment.
+  void _glowFor(PlayMode to, int half) {
+    final signal = NowPlayingSignalScope.maybeOf(context);
+    final kind = playModeGlowKind(widget.mode, to);
+    final b = widget.glowBounds?.rect;
+    if (signal == null || kind == null || b == null) return;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final anchor = half == 0
+        ? b
+        : ((half < 0) != rtl
+              ? Rect.fromLTRB(b.left, b.top, b.center.dx, b.bottom)
+              : Rect.fromLTRB(b.center.dx, b.top, b.right, b.bottom));
+    signal.glow(kind, anchor);
+  }
+
   bool _split = false;
   Timer? _hold;
 
@@ -581,6 +681,7 @@ class PlayModeButtonState extends State<PlayModeButton> with TickerProviderState
     YoinHaptics.tick();
     final from = widget.mode;
     final next = from.next();
+    _glowFor(next, 0);
     widget.onSetPlayMode(next);
     final now = widget.nowMs?.call() ?? _uptime.elapsedMilliseconds;
     final roundTheCycle = _cycle.onTap(from, next, now);
@@ -603,13 +704,17 @@ class PlayModeButtonState extends State<PlayModeButton> with TickerProviderState
   void _onShuffleTap() {
     YoinHaptics.tick();
     _holdOpen();
-    widget.onSetPlayMode(widget.mode.withShuffle(!widget.mode.shuffled));
+    final to = widget.mode.withShuffle(!widget.mode.shuffled);
+    _glowFor(to, -1);
+    widget.onSetPlayMode(to);
   }
 
   void _onRepeatTap() {
     YoinHaptics.tick();
     _holdOpen();
-    widget.onSetPlayMode(widget.mode.nextRepeat());
+    final to = widget.mode.nextRepeat();
+    _glowFor(to, 1);
+    widget.onSetPlayMode(to);
   }
 
   String _state(NowPlayingStrings s) => switch (widget.mode) {

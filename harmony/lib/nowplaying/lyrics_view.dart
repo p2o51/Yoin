@@ -7,13 +7,17 @@ import 'package:flutter/physics.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/yoin_window_info.dart';
 import 'haptics.dart';
+import 'lyric_halftone.dart';
 import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
+import 'overlay_controller.dart';
 import 'playhead_clock.dart';
+import 'transport_signal.dart';
 import 'up_next_timing.dart';
 
 /// Expanded list geometry (LyricsFullscreenPane.kt; not in tokens.dart yet).
@@ -466,7 +470,24 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     _reveal = reveal;
     _handingOver = handing;
     if (changed || initial) _applyOutro(snap: initial);
+    if (!initial) _publishHandover(timing != null && widget.upNext != null && pos >= _handoverStagedAt(timing));
     return changed;
+  }
+
+  int _handoverStagedAt(UpNextTiming timing) => timing.handoffAtMs - NowPlayingFocusTokens.upNextHandoffTickSlackMs;
+
+  /// Whether this list last told the background it staged the next song.
+  bool _publishedStaged = false;
+
+  /// The outro handed the next song over in place: that reveal IS the song
+  /// change, so the background stays quiet for it (TransportPulse.kt). Only
+  /// this list's own word: an unstaged list never clears another's.
+  void _publishHandover(bool staged) {
+    if (!staged && !_publishedStaged) return;
+    _publishedStaged = staged;
+    NowPlayingSignalScope.maybeOf(
+      context,
+    )?.publishLyricsHandover(widget.songKey, widget.upNext?.songKey, staged: staged);
   }
 
   void _applyOutro({bool snap = false}) {
@@ -499,6 +520,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final outroMoved = _evaluateOutro();
     if (next == _active && !outroMoved) return;
     final reseat = next != _active || handingBefore != _handingOver;
+    // Focus's edge band swells once per new line (EdgeDotBand.kt).
+    if (next != _active && next >= 0 && _focusMode) NowPlayingSignalScope.maybeOf(context)?.lyricLineChanged();
     setState(() => _active = next);
     if (reseat) WidgetsBinding.instance.addPostFrameCallback((_) => _seat(animate: true));
   }
@@ -643,6 +666,12 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         active: active && !selecting,
         distance: synced ? distance : 0,
         above: synced && focus >= 0 && index < focus,
+        // One of the next lines: in focus its dots stay full enough to read.
+        upcoming:
+            synced &&
+            _active >= 0 &&
+            index > _active &&
+            index - _active <= NowPlayingEffectTokens.lyricDotsReadableLines,
         linesAbove: widget.linesAbove,
         mode: widget.mode,
         synced: synced,
@@ -1029,6 +1058,7 @@ class _LyricLineView extends StatefulWidget {
     required this.mode,
     required this.synced,
     required this.stretch,
+    this.upcoming = false,
     this.linesAbove = NowPlayingFocusTokens.linesAbove,
     this.secondary,
     this.showSecondary = true,
@@ -1045,6 +1075,9 @@ class _LyricLineView extends StatefulWidget {
 
   /// Sung already (above the current line): focus fades these out.
   final bool above;
+
+  /// One of the next lines after the current one: focus's dots stay readable.
+  final bool upcoming;
   final int linesAbove;
   final LyricsListMode mode;
   final bool synced;
@@ -1103,6 +1136,62 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
 
   bool get _full => widget.mode == LyricsListMode.full;
 
+  /// Focus's halftone: this line's own dot radius (LyricHalftone.kt). The
+  /// current line develops dots → solid, a sung line breaks back; lines that
+  /// are current when they first show start solid.
+  late final AnimationController _dots = AnimationController.unbounded(
+    vsync: this,
+    value: widget.active ? NowPlayingEffectTokens.lyricDotsSolid : NowPlayingEffectTokens.lyricDotsRest,
+  );
+  double? _restDots;
+
+  /// The focus stage's progress (the overlay's), read in build only.
+  Animation<double>? _focusAnim;
+
+  double get _restDotsNow => lyricDotsRestFor(YoinWindowInfo.of(context), upcoming: widget.upcoming);
+
+  /// Develops the current line, breaks a sung one back, settles the rest.
+  void _syncDots({required bool becameActive}) {
+    final rest = _restDotsNow;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    if (widget.active) {
+      if (!becameActive) return;
+      if (reduced) {
+        _dots.value = NowPlayingEffectTokens.lyricDotsSolid;
+        return;
+      }
+      _dots.value = math.min(_dots.value, NowPlayingEffectTokens.lyricDotsDevelopFrom);
+      _dots.animateTo(
+        NowPlayingEffectTokens.lyricDotsSolid,
+        duration: const Duration(milliseconds: NowPlayingEffectTokens.lyricDotsDevelopMs),
+        curve: Curves.easeOutCubic,
+      );
+    } else if (_dots.value != rest) {
+      if (reduced) {
+        _dots.value = rest;
+        return;
+      }
+      _dots.animateTo(
+        rest,
+        duration: const Duration(milliseconds: NowPlayingEffectTokens.lyricDotsBreakMs),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _focusAnim = widget.mode == LyricsListMode.focus ? NowPlayingOverlayScope.read(context)?.focus.animation : null;
+    final rest = _restDotsNow;
+    if (_restDots == null) {
+      if (!widget.active) _dots.value = rest;
+    } else if (rest != _restDots) {
+      _syncDots(becameActive: false);
+    }
+    _restDots = rest;
+  }
+
   bool get _isPicked => _full && widget.selectMode && widget.role == LyricSelectionRole.picked;
 
   bool get _emphasized => widget.active || _isPicked;
@@ -1159,6 +1248,10 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
       _secondaryOpen.animateTo(widget.showSecondary ? 1 : 0);
       _secondaryAlpha.animateTo(widget.showSecondary ? 1 : 0);
     }
+    if (widget.active != oldWidget.active || widget.upcoming != oldWidget.upcoming) {
+      _restDots = _restDotsNow;
+      _syncDots(becameActive: widget.active && !oldWidget.active);
+    }
     if (widget.stretch != oldWidget.stretch) {
       _held.spring = widget.stretch > 0 ? YoinSprings.slowSpatial : YoinSprings.defaultSpatial;
       if (MediaQuery.disableAnimationsOf(context)) {
@@ -1171,6 +1264,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
 
   @override
   void dispose() {
+    _dots.dispose();
     _scale.dispose();
     _alpha.dispose();
     _on.dispose();
@@ -1200,8 +1294,10 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
         : (full ? base.merge(gsf(base.fontSize!, weight: 500, height: base.height)) : base);
     final secondary = full && (widget.secondary?.trim().isNotEmpty ?? false) ? widget.secondary : null;
     final secondaryBase = text.bodyLarge!;
+    final focusAnim = _focusAnim;
     final content = AnimatedBuilder(
       animation: Listenable.merge([
+        if (focusAnim != null) ...[_dots, focusAnim],
         _scale.animation,
         _alpha.animation,
         _on.animation,
@@ -1214,7 +1310,11 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
         final s = _scale.value;
         final lit = Color.lerp(colors.onSurfaceVariant, colors.primary, _on.value.clamp(0.0, 1.0))!;
         final color = Color.lerp(lit, colors.onPrimaryContainer, _picked.value.clamp(0.0, 1.0))!;
-        final line = Text(widget.text, style: style.copyWith(color: color));
+        final text = Text(widget.text, style: style.copyWith(color: color));
+        // Focus prints the line through its dots (inside the line's own scale, as Android's layer).
+        final line = focusAnim == null
+            ? text
+            : LyricHalftone(radius: lyricDotRadius(_dots.value, focusAnim.value), child: text);
         return Opacity(
           opacity: _alpha.value.clamp(0.0, 1.0),
           child: Transform(

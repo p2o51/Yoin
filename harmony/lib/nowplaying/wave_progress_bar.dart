@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 import 'haptics.dart';
 import 'nowplaying_strings.dart';
+import 'action_glow.dart';
 import 'playhead_clock.dart';
+import 'transport_signal.dart';
 
 /// WaveProgressBar.kt numbers and the M3 Expressive tokens it inherits
 /// (WaveBarTokens / M3E indicator tokens are not in tokens.dart yet).
@@ -279,6 +281,37 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
   double _raw = 0;
   double? _snapped;
 
+  /// The wave bar's lights (ActionGlow.kt WaveGlow): a held light follows a
+  /// scrub, a flash where the playhead lands on release.
+  final GlobalRectProbe _glowBounds = GlobalRectProbe();
+  NowPlayingTransportSignal? _signal;
+
+  /// The bar reads its fraction left to right in every layout direction.
+  Offset _glowPoint(Rect b, double fraction) => Offset(b.left + b.width * fraction.clamp(0.0, 1.0), b.center.dy);
+
+  void _glowScrub(double? fraction) {
+    final signal = _signal;
+    if (signal == null) return;
+    final b = _glowBounds.rect;
+    if (fraction == null || b == null) {
+      if (signal.glowHold.value?.kind == GlowHoldKind.scrub) signal.glowHold.value = null;
+      return;
+    }
+    signal.glowHold.value = GlowHold(kind: GlowHoldKind.scrub, pointRoot: _glowPoint(b, fraction), barRoot: b);
+  }
+
+  void _glowRelease(double fraction) {
+    final b = _glowBounds.rect;
+    if (b == null) return;
+    _signal?.glow(ActionGlowKind.seekRelease, Rect.fromCircle(center: _glowPoint(b, fraction), radius: 1));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _signal = NowPlayingSignalScope.maybeOf(context);
+  }
+
   List<double> get _anchors => noteAnchorFractions(widget.noteAnchorsMs, widget.durationMs ?? 0);
   double get _window => noteWindowFraction(widget.durationMs ?? 0);
 
@@ -288,6 +321,7 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
     final before = _raw;
     _raw = raw;
     _preview.value = magnetizeToNotes(raw, anchors, window);
+    _glowScrub(_preview.value);
     if (anchors.isEmpty) return;
     // A light tick the moment a note captures the thumb…
     double? captured;
@@ -315,6 +349,7 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
 
   @override
   void dispose() {
+    _glowScrub(null);
     _linger?.cancel();
     _amplitude.dispose();
     _preview.dispose();
@@ -328,12 +363,15 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
   void _press(double fraction) {
     _linger?.cancel();
     _preview.value = fraction;
+    _glowScrub(fraction);
   }
 
   void _release({required bool tap}) {
     final fraction = _preview.value;
+    _glowScrub(null);
     if (fraction != null && _canSeek) {
       tap ? YoinHaptics.lightTick() : YoinHaptics.tick();
+      _glowRelease(fraction);
       widget.onSeek(fraction);
     }
     _scheduleLinger();
@@ -363,7 +401,10 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
             // drag that wins next sets it again in the same event).
             onTapCancel: _canSeek
                 ? () {
-                    if (!_dragging) _preview.value = null;
+                    if (!_dragging) {
+                      _preview.value = null;
+                      _glowScrub(null);
+                    }
                   }
                 : null,
             onHorizontalDragStart: _canSeek
@@ -385,44 +426,48 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
                 ? () {
                     _dragging = false;
                     _preview.value = null;
+                    _glowScrub(null);
                   }
                 : null,
-            child: SizedBox(
-              height: WaveBarMetrics.touchHeight,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: WaveBarMetrics.indicatorHeight,
-                    child: RepaintBoundary(
-                      child: CustomPaint(
-                        painter: _WaveIndicatorPainter(
-                          clock: widget.clock,
-                          amplitude: _amplitude,
-                          preview: _preview,
-                          isPlaying: widget.isPlaying,
-                          visible: widget.visible,
-                          progressColor: colors.primary,
-                          trackColor: waveTrackColor(colors),
+            child: ReportBounds(
+              probe: _glowBounds,
+              child: SizedBox(
+                height: WaveBarMetrics.touchHeight,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: WaveBarMetrics.indicatorHeight,
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _WaveIndicatorPainter(
+                            clock: widget.clock,
+                            amplitude: _amplitude,
+                            preview: _preview,
+                            isPlaying: widget.isPlaying,
+                            visible: widget.visible,
+                            progressColor: colors.primary,
+                            trackColor: waveTrackColor(colors),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  ValueListenableBuilder<double?>(
-                    valueListenable: _preview,
-                    builder: (context, fraction, _) => fraction == null
-                        ? const SizedBox.shrink()
-                        : _PreviewBubble(
-                            fraction: fraction,
-                            width: width,
-                            durationMs: duration,
-                            onNote: _anchors.any((a) => (fraction - a).abs() <= _window),
-                          ),
-                  ),
-                ],
+                    ValueListenableBuilder<double?>(
+                      valueListenable: _preview,
+                      builder: (context, fraction, _) => fraction == null
+                          ? const SizedBox.shrink()
+                          : _PreviewBubble(
+                              fraction: fraction,
+                              width: width,
+                              durationMs: duration,
+                              onNote: _anchors.any((a) => (fraction - a).abs() <= _window),
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
