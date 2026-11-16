@@ -32,6 +32,8 @@ import '../shell/bar_edit_pose.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
+import '../theme/tokens.dart';
+import 'home_edit_hints.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
 import 'home_strings.dart';
@@ -42,9 +44,18 @@ const int homeEditUndoLimit = 20;
 
 @immutable
 final class HomeEditState {
-  const HomeEditState({this.editing = false, this.undo = const [], this.trayRequests = 0});
+  const HomeEditState({
+    this.editing = false,
+    this.undo = const [],
+    this.trayRequests = 0,
+    this.hints = const HomeEditSessionHints(),
+  });
 
   final bool editing;
+
+  /// The current (or last) session's hints: kept past Done so the tray's
+  /// "New" chips fade out with it; the next session replaces them.
+  final HomeEditSessionHints hints;
 
   /// Layouts before each step, oldest first.
   final List<HomeLayout> undo;
@@ -74,13 +85,15 @@ class HomeEditController extends Notifier<HomeEditState> {
   void enter() {
     if (state.editing) return;
     YoinHaptics.longPress();
-    state = const HomeEditState(editing: true);
+    // Snapshot the session's hints before recording it (the "New" chips are this session's).
+    final hints = ref.read(homeEditHintsProvider.notifier).startSession(ref.read(homeLayoutProvider));
+    state = HomeEditState(editing: true, hints: hints);
   }
 
   void exit() {
     carrying = false;
     if (!state.editing) return;
-    state = const HomeEditState();
+    state = HomeEditState(hints: state.hints);
   }
 
   /// The bar's Done: leaves with the confirm haptic.
@@ -100,7 +113,12 @@ class HomeEditController extends Notifier<HomeEditState> {
         undo();
       case BarEditLeftSlot.add:
         YoinHaptics.click();
-        state = HomeEditState(editing: true, undo: state.undo, trayRequests: state.trayRequests + 1);
+        state = HomeEditState(
+          editing: true,
+          undo: state.undo,
+          trayRequests: state.trayRequests + 1,
+          hints: state.hints,
+        );
       case BarEditLeftSlot.undoDisabled:
         break;
     }
@@ -115,6 +133,7 @@ class HomeEditController extends Notifier<HomeEditState> {
       editing: state.editing,
       undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
       trayRequests: state.trayRequests,
+      hints: state.hints,
     );
     layouts.set(next);
   }
@@ -165,6 +184,7 @@ class HomeEditController extends Notifier<HomeEditState> {
         editing: state.editing,
         undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
         trayRequests: state.trayRequests,
+        hints: state.hints,
       );
     }
     // Restore default deletes the saved layout (Android clearLayout), so it syncs as "default".
@@ -179,6 +199,7 @@ class HomeEditController extends Notifier<HomeEditState> {
       editing: state.editing,
       undo: state.undo.sublist(0, state.undo.length - 1),
       trayRequests: state.trayRequests,
+      hints: state.hints,
     );
     ref.read(homeLayoutProvider.notifier).set(previous);
   }
@@ -401,8 +422,10 @@ class HomeEditPlaceholder extends StatelessWidget {
   }
 }
 
-/// The feed's end while editing: the "Hidden" tray (a + per hidden section
-/// puts it back) and "Reset Home".
+/// The feed's end while editing (HomeEditTray.kt): "Hidden" (with an empty
+/// line when nothing is), one row per hidden section — the whole row and its
+/// + put it back where it was; a section that arrived since the last session
+/// carries "New" — then "Reset Home".
 class HomeEditTray extends ConsumerWidget {
   const HomeEditTray({super.key});
 
@@ -412,60 +435,197 @@ class HomeEditTray extends ConsumerWidget {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final hidden = hiddenSections(ref.watch(homeLayoutProvider));
+    final newBadges = ref.watch(homeEditProvider.select((s) => s.hints.newBadges));
+    final editing = ref.watch(homeEditProvider.select((s) => s.editing));
     final edit = ref.read(homeEditProvider.notifier);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(strings.editHidden, style: gsf(HomeSectionMetrics.titleSize, weight: 600).copyWith(color: colors.onSurface)),
-        const SizedBox(height: HomeEditMetrics.trayGap),
-        if (hidden.isEmpty)
-          Text(strings.editHiddenEmpty, style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant))
-        else
-          for (final section in hidden)
-            Padding(
-              key: ValueKey(section),
-              padding: const EdgeInsets.only(bottom: HomeEditMetrics.trayRowGap),
+    // Leaving, the tray fades out as it was; only input stops.
+    return IgnorePointer(
+      ignoring: !editing,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            strings.editHidden,
+            style: gsf(HomeSectionMetrics.titleSize, weight: 600).copyWith(color: colors.onSurface),
+          ),
+          const SizedBox(height: HomeEditMetrics.trayGap),
+          if (hidden.isEmpty)
+            Text(strings.editHiddenEmpty, style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant))
+          else
+            for (final section in hidden)
+              Padding(
+                key: ValueKey(section),
+                padding: const EdgeInsets.only(bottom: HomeEditMetrics.trayRowGap),
+                child: HomeEditTrayRow(
+                  section: section,
+                  newBadge: newBadges.contains(section),
+                  onShow: () => edit.show(section),
+                ),
+              ),
+          const SizedBox(height: HomeEditMetrics.trayGap),
+          Center(
+            child: TextButton(
+              onPressed: edit.reset,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, HomeEditMetrics.footerButtonHeight),
+                padding: const EdgeInsets.symmetric(horizontal: HomeEditMetrics.footerButtonPadding),
+              ),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(strings.sectionTitle(section), style: text.titleMedium!.copyWith(color: colors.onSurface)),
-                        Text(strings.sectionSupporting(section), style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
-                      ],
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: strings.showSectionCd(strings.sectionTitle(section)),
-                    onPressed: () => edit.show(section),
-                    icon: const Icon(YoinSymbols.add),
-                  ),
+                  const Icon(YoinSymbols.refresh, size: HomeEditMetrics.footerIconSize),
+                  const SizedBox(width: HomeEditMetrics.footerIconGap),
+                  Text(strings.editReset),
                 ],
               ),
             ),
-        const SizedBox(height: HomeEditMetrics.trayGap),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: TextButton(onPressed: edit.reset, child: Text(strings.editReset)),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// The feed's last line in normal mode: "Edit Home", always there.
+/// One hidden section in the tray: a panel row, its name (with "New" when it
+/// arrived since the last session) over its supporting line, and a tonal +.
+class HomeEditTrayRow extends StatelessWidget {
+  const HomeEditTrayRow({super.key, required this.section, required this.newBadge, required this.onShow});
+
+  final HomeSection section;
+  final bool newBadge;
+  final VoidCallback onShow;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = HomeStrings.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final title = strings.sectionTitle(section);
+    final shape = RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.panel));
+    final fontScale = math.max(1.0, MediaQuery.textScalerOf(context).scale(1));
+    // Painted, not clipped: the panel is a shape decoration and the ripple is bounded by it.
+    return Semantics(
+      button: true,
+      onTapHint: strings.showSectionAction(title),
+      child: Material(
+        color: colors.surfaceContainerHigh,
+        shape: shape,
+        child: InkWell(
+          customBorder: shape,
+          onTap: onShow,
+          child: SizedBox(
+            height: HomeEditMetrics.trayRowHeight * fontScale,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: HomeEditMetrics.trayRowPadding),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.titleMedium!.copyWith(color: colors.onSurface, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (newBadge) ...[
+                              const SizedBox(width: HomeEditMetrics.newChipGap),
+                              const HomeEditNewChip(),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          strings.sectionSupporting(section),
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.fade,
+                          style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: HomeEditMetrics.trayRowContentGap),
+                  SizedBox.square(
+                    dimension: HomeEditMetrics.showButtonSize,
+                    child: IconButton.filledTonal(
+                      padding: EdgeInsets.zero,
+                      tooltip: strings.showSectionCd(title),
+                      onPressed: onShow,
+                      icon: const Icon(YoinSymbols.add),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "New": a section that arrived since the last edit session (Q6a), on the
+/// tray row and on the footer's "Edit Home".
+class HomeEditNewChip extends StatelessWidget {
+  const HomeEditNewChip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: ShapeDecoration(color: colors.tertiaryContainer, shape: const StadiumBorder()),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HomeEditMetrics.newChipPaddingH,
+          vertical: HomeEditMetrics.newChipPaddingV,
+        ),
+        child: Text(
+          HomeStrings.of(context).editNew,
+          maxLines: 1,
+          softWrap: false,
+          style: Theme.of(context).textTheme.labelSmall!.copyWith(color: colors.onTertiaryContainer),
+        ),
+      ),
+    );
+  }
+}
+
+/// The feed's own way into edit mode, at its end (Q6b): a quiet "Edit Home",
+/// badged "New" while a new section waits in the tray.
 class HomeEditFooter extends ConsumerWidget {
   const HomeEditFooter({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Center(
-        child: TextButton.icon(
-          onPressed: ref.read(homeEditProvider.notifier).enter,
-          icon: const Icon(YoinSymbols.edit),
-          label: Text(HomeStrings.of(context).editTitle),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = Theme.of(context).colorScheme;
+    final newBadge = ref.watch(homeEditFooterNewProvider);
+    return Center(
+      child: TextButton(
+        onPressed: ref.read(homeEditProvider.notifier).enter,
+        style: TextButton.styleFrom(
+          foregroundColor: colors.onSurfaceVariant,
+          minimumSize: const Size(0, HomeEditMetrics.footerButtonHeight),
+          padding: const EdgeInsets.symmetric(horizontal: HomeEditMetrics.footerButtonPadding),
         ),
-      );
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(YoinSymbols.edit, size: HomeEditMetrics.footerIconSize),
+            const SizedBox(width: HomeEditMetrics.footerIconGap),
+            Text(HomeStrings.of(context).editTitle, style: Theme.of(context).textTheme.labelLarge),
+            if (newBadge) ...[const SizedBox(width: HomeEditMetrics.footerIconGap), const HomeEditNewChip()],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// "Home is empty": every section hidden, outside edit mode.
@@ -485,7 +645,10 @@ class HomeEmptyLayoutCard extends ConsumerWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.all(HomeEmptyCardMetrics.padding),
-          child: Text(strings.editAllHiddenTitle, style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurface)),
+          child: Text(
+            strings.editAllHiddenTitle,
+            style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurface),
+          ),
         ),
       ),
     );
