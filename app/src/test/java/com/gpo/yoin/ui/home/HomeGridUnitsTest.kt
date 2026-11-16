@@ -191,4 +191,36 @@ class HomeGridUnitsTest {
         drag.info = { null }
         assertFalse(drag.grab(a, 0f))
     }
+
+    @Test
+    fun should_sizeCoversFromTheUnit() {
+        assertEquals(106f, homeGridCoverDp(), 0f)
+        assertEquals(76f, homeGridCoverDp(unit = 120f), 0f)
+    }
+
+    @Test
+    fun should_countCoverColumnsFromWidth() {
+        // A half on the Pixel Tablet (598dp) seats 5; the full row (1216dp) 10; a narrow column at least 1.
+        assertEquals(5, homeGridColumns(598f))
+        assertEquals(10, homeGridColumns(1216f))
+        assertEquals(1, homeGridColumns(50f))
+        // The pager's geometry agrees with the formula at the grid's gap.
+        val geometry = shelfPageGeometry(pagePx = 598f, cardPx = 106f, minGapPx = 12f)
+        assertEquals(homeGridColumns(598f), geometry.perPage)
+        assertEquals(598f, geometry.perPage * 106f + (geometry.perPage - 1) * geometry.gapPx, .01f)
+    }
+
+    @Test
+    fun should_fillTheBoxExactly_withTrackRows() {
+        assertEquals(3, homeGridTrackRows(1))
+        assertEquals(6, homeGridTrackRows(2))
+        for (units in 1..2) {
+            val rows = homeGridTrackRows(units)
+            val row = homeGridTrackRowDp(units)
+            assertEquals(homeGridContentDp(units), rows * row + (rows - 1) * HomeGridTokens.TrackRowGap.value, .01f)
+        }
+        assertEquals(150f, homeGridContentDp(1), 0f)
+        assertEquals(314f, homeGridContentDp(2), 0f)
+    }
+
 }

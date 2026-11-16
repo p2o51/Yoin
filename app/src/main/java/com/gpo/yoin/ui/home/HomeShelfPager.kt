@@ -314,9 +314,12 @@ internal fun HomeShelf(
 ) {
     val column = LocalHomeColumn.current
     val editCardScope = LocalHomeEditCardScope.current
+    // Two columns (HomeGridUnits.kt): the shared 40dp title row, the cards right under it.
+    val grid = LocalHomeGridHeight.current
+    val titleGap = if (grid != null) 0.dp else 12.dp
     if (!column.half) {
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            HomeSectionTitle(text = title)
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(titleGap)) {
+            if (grid != null) HomeGridTitleRow(title = title) else HomeSectionTitle(text = title)
             val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
             LazyRow(
                 state = state,
@@ -334,15 +337,17 @@ internal fun HomeShelf(
     }
     val pager = remember(state) { HomeShelfPagerState(state) }
     val leadPages = if (leadPage) 1 else 0
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeShelfTitleRow(title = title, pager = pager, controls = scrollEnabled)
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(titleGap)) {
+        HomeShelfTitleRow(title = title, pager = pager, controls = scrollEnabled, grid = grid != null)
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val density = LocalDensity.current
             val pageWidth = maxWidth
             val card = if (perPage != null) homeShelfCardWidth(pageWidth, perPage) else cardWidth
-            val geometry = remember(pageWidth, card, density) {
+            // On the grid the columns are ⌊(W + 12) / (cover + 12)⌋ (homeGridColumns), the gaps stretched.
+            val minGap = if (grid != null) HomeGridTokens.ColumnGap else HomeShelfPagerTokens.MinGap
+            val geometry = remember(pageWidth, card, density, minGap) {
                 with(density) {
-                    shelfPageGeometry(pageWidth.toPx(), card.toPx(), HomeShelfPagerTokens.MinGap.toPx())
+                    shelfPageGeometry(pageWidth.toPx(), card.toPx(), minGap.toPx())
                 }
             }
             val pages = shelfPageCount(cardCount, geometry.perPage, leadPages)
@@ -442,11 +447,17 @@ private fun ShelfSpeedFollower(pager: HomeShelfPagerState) {
  * row's end. The buttons turn one page on the same spring as a swipe.
  */
 @Composable
-private fun HomeShelfTitleRow(title: String, pager: HomeShelfPagerState, controls: Boolean) {
+private fun HomeShelfTitleRow(title: String, pager: HomeShelfPagerState, controls: Boolean, grid: Boolean = false) {
     val scope = rememberCoroutineScope()
     val spec = YoinMotion.spatialSpring<Float>()
     val pages = pager.pageCount
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    // On the grid: the shared 40dp title row, the dots and ‹ › on its centre line.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (grid) Modifier.height(HomeGridTokens.TitleRow) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         HomeSectionTitle(text = title, modifier = Modifier.weight(1f))
         // Editing (no scrolling): the title row's end is the edit badges'.
         if (pages <= 1 || !controls) return@Row

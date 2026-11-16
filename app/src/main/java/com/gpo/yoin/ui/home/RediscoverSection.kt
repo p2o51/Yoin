@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -215,6 +216,59 @@ internal fun RediscoverSection(
             )
         }
         }
+    // Two columns (HomeGridUnits.kt): every card exactly one unit tall, a unit's row of them, two rows at
+    // 2 units; two cards a page in a half, the full row's free shelf otherwise.
+    val grid = LocalHomeGridHeight.current
+    if (grid != null) {
+        val half = LocalHomeColumn.current.half
+        val paged = remember(items, half, shown) { if (half) items.take(REDISCOVER_LIMIT) else shown }
+        val rows = homeShelfRows()
+        val fullWidth = rediscoverCardWidth(
+            frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2,
+            visibleCount,
+            itemCount = 2,
+            gap = RediscoverCardGap,
+        )
+        HomeShelf(
+            title = stringResource(HomeSection.Rediscover.titleRes),
+            frame = frame,
+            scrollEnabled = scrollEnabled,
+            cardWidth = fullWidth,
+            perPage = if (half) 2 else null,
+            cardCount = homeShelfColumnCount(paged.size),
+            fullGap = RediscoverCardGap,
+            modifier = modifier,
+        ) { pageWidth ->
+            val width = if (half) homeShelfCardWidth(pageWidth ?: 0.dp, 2) else fullWidth
+            homeShelfCards(paged, rows, HomeGridTokens.Unit, { it.shelfKey }) { index, item ->
+                val song = item.song
+                val cardModifier = Modifier
+                    .homeEditCard(index)
+                    .width(width)
+                    .height(HomeGridTokens.Unit)
+                if (song != null) {
+                    RediscoverSongCard(
+                        item = item,
+                        nowMillis = nowMillis,
+                        eyebrowReserve = songEyebrows,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onSongClick(song) },
+                        modifier = cardModifier,
+                    )
+                } else {
+                    RediscoverCard(
+                        item = item,
+                        nowMillis = nowMillis,
+                        eyebrowReserve = albumEyebrows,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onAlbumClick(item.albumId.toString(), null) },
+                        modifier = cardModifier,
+                    )
+                }
+            }
+        }
+        return
+    }
     if (LocalHomeColumn.current.half) {
         // Half a two-column row: two cards a page, every one of the selection paged (HomeShelf).
         val paged = remember(items) { items.take(REDISCOVER_LIMIT) }

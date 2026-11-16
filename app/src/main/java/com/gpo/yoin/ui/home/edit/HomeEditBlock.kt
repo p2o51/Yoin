@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -823,10 +824,14 @@ private fun BoxScope.HomeEditBadges(
 @Composable
 private fun HomeEditPlaceholder(section: HomeSection, modifier: Modifier = Modifier) {
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    // Two columns: the whole row's height (its partner's), so a pair's plates match.
+    val grid = LocalHomeGridHeight.current
     ExpressiveSectionPanel(
         modifier = modifier
             .fillMaxWidth()
-            .height(HomeEditTokens.PlaceholderHeight * fontScale)
+            .then(
+                if (grid != null) Modifier.fillMaxHeight() else Modifier.height(HomeEditTokens.PlaceholderHeight * fontScale),
+            )
             .seamDissolve(),
     ) {
         Column(

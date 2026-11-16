@@ -1456,7 +1456,7 @@ internal fun HomeEditorialContent(
                         val grid = if (twoColumn) {
                             remember(row, rowUnits, unitDrag, density) {
                                 val sections = row.sections()
-                                HomeGridHeight {
+                                HomeGridHeight(rowUnits) {
                                     unitDrag.liveHeightPx(sections)
                                         ?: density.homeGridHeightPx(rowUnits).roundToInt()
                                 }
@@ -2702,7 +2702,6 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // covers and the album shrink together to hold the height match). Still clearly
 // smaller than the album cover, matching the mock ratio.
 private val RecentlyAddedTrackCover = 52.dp
-private val RecentlyAddedAlbumCover = 82.dp
 
 // Between two stacked album cards: the track grid's row gap, so a stack of
 // two lands exactly on a four-row grid's height.
@@ -2733,11 +2732,21 @@ private fun RecentlyAddedSection(
     // (a column spring re-lays, never re-counts); two rows on a phone, four
     // (and albums stacked two high) on a foldable / tablet feed.
     val windowInfo = LocalYoinWindowInfo.current
-    val maxColumns = recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
-    val rows = recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    // Two columns (HomeGridUnits.kt): three track rows a unit, filling the box exactly; one column of
+    // tracks in a half, two in a full row; the albums one unit tall, stacked one a unit.
+    val grid = LocalHomeGridHeight.current
+    val gridUnits = grid?.units?.coerceIn(HomeSection.RecentlyAdded.unitRange)
+    val half = LocalHomeColumn.current.half
+    val maxColumns = if (gridUnits != null) {
+        if (half) 1 else 2
+    } else {
+        recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+    }
+    val rows = if (gridUnits != null) homeGridTrackRows(gridUnits) else recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    val rowHeight = gridUnits?.let { homeGridTrackRowDp(it).dp }
     val shownTracks = remember(tracks, maxColumns, rows) { tracks.take(maxColumns * rows) }
-    val gridColumns = recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
-    val albumStack = recentlyAddedAlbumStack(rows)
+    val gridColumns = if (gridUnits != null) maxColumns else recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    val albumStack = gridUnits ?: recentlyAddedAlbumStack(rows)
     val shownAlbums = remember(albums, maxColumns, albumStack) {
         albums.take(recentlyAddedAlbumLimit(maxColumns)).chunked(albumStack)
     }
@@ -2754,7 +2763,7 @@ private fun RecentlyAddedSection(
         title = stringResource(HomeSection.RecentlyAdded.titleRes),
         frame = frame,
         scrollEnabled = shelfScrollEnabled,
-        cardWidth = RecentlyAddedAlbumCover,
+        cardWidth = homeShelfCoverSize(),
         cardCount = shownAlbums.size,
         leadPage = shownTracks.isNotEmpty(),
         modifier = modifier,
@@ -2767,6 +2776,7 @@ private fun RecentlyAddedSection(
                     rows = rows,
                     onTrackClick = onTrackClick,
                     buildCoverArtUrl = buildCoverArtUrl,
+                    rowHeight = rowHeight,
                     // The grid's width follows the feed's content width,
                     // capped (HomeFeedDensity: recentlyAddedGridWidth) —
                     // read in the layout pass only, so a column spring
@@ -2792,8 +2802,11 @@ private fun RecentlyAddedSection(
             items = shownAlbums,
             key = { _, stack -> "recently-added-album:${stack.first().id}" },
         ) { stackIndex, stack ->
-            Column(verticalArrangement = Arrangement.spacedBy(RecentlyAddedAlbumStackGap)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(if (grid != null) HomeGridTokens.Gap else RecentlyAddedAlbumStackGap),
+            ) {
                 stack.forEachIndexed { inStack, album ->
+                    Box(if (grid != null) Modifier.height(HomeGridTokens.Unit) else Modifier) {
                     RecentlyAddedAlbumCard(
                         album = album,
                         extractBackdropColors = extractBackdropColors,
@@ -2804,6 +2817,7 @@ private fun RecentlyAddedSection(
                             maxColumns * rows + stackIndex * albumStack + inStack,
                         ),
                     )
+                    }
                 }
             }
         }
@@ -2819,17 +2833,21 @@ private fun RecentlyAddedTrackGrid(
     onTrackClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
+    // Two columns: every row exactly this tall (its cover too), [HomeGridTokens.TrackRowGap] apart.
+    rowHeight: Dp? = null,
 ) {
     Column(
         modifier = modifier,
         // Tight, even gap between the two rows — the covers (not the gap) carry
         // the height, so the pair reads as one block instead of two stranded
         // rows with a hollow middle.
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (rowHeight != null) HomeGridTokens.TrackRowGap else 14.dp),
     ) {
         tracks.take(columns * rows).chunked(columns).forEachIndexed { row, rowTracks ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (rowHeight != null) Modifier.height(rowHeight) else Modifier),
                 horizontalArrangement = Arrangement.spacedBy(RecentlyAddedTileGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -2838,6 +2856,7 @@ private fun RecentlyAddedTrackGrid(
                         track = track,
                         onClick = { onTrackClick(track) },
                         buildCoverArtUrl = buildCoverArtUrl,
+                        cover = rowHeight ?: RecentlyAddedTrackCover,
                         modifier = Modifier
                             .homeEditCard(row * columns + column)
                             .weight(1f),
@@ -2859,6 +2878,7 @@ private fun RecentlyAddedTrackTile(
     onClick: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
+    cover: Dp = RecentlyAddedTrackCover,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val coverArtUrl = recentlyAddedTrackCoverUrl(track, buildCoverArtUrl)
@@ -2877,7 +2897,7 @@ private fun RecentlyAddedTrackTile(
             model = coverArtUrl,
             contentDescription = track.title.orEmpty(),
             modifier = Modifier
-                .size(RecentlyAddedTrackCover)
+                .size(cover)
                 .seamDissolve(),
             shape = YoinArtworkShapes.Thumb,
             fallbackIcon = YoinSymbols.Album,
@@ -2929,7 +2949,7 @@ private fun RecentlyAddedAlbumCard(
     val coverArtUrl = resolveHomeCoverArtUrl(album.coverArt, buildCoverArtUrl)
     Column(
         modifier = modifier
-            .width(RecentlyAddedAlbumCover)
+            .width(homeShelfCoverSize())
             .noRippleClickable(
                 interactionSource = interactionSource,
                 enabled = homeEditInteractive(),
@@ -2943,7 +2963,7 @@ private fun RecentlyAddedAlbumCard(
             contentDescription = album.name,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.size(RecentlyAddedAlbumCover),
+            modifier = Modifier.size(homeShelfCoverSize()),
             memoryMark = memoryMark,
         )
         Spacer(modifier = Modifier.height(6.dp))
@@ -2993,18 +3013,18 @@ private fun YourPlaylistsSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val shelfRows = homeShelfRows()
+    val shelfCell = homeShelfCellHeight()
     HomeShelf(
         title = stringResource(HomeSection.YourPlaylists.titleRes),
         frame = frame,
         scrollEnabled = shelfScrollEnabled,
-        cardWidth = RecentlyAddedAlbumCover,
-        cardCount = playlists.size,
+        cardWidth = homeShelfCoverSize(),
+        cardCount = homeShelfColumnCount(playlists.size),
         modifier = modifier,
     ) {
-        itemsIndexed(
-            items = playlists,
-            key = { _, playlist -> "your-playlist:${playlist.id}" },
-        ) { index, playlist ->
+        // On the grid: a unit's row of covers, two rows at 2 units (HomeGridUnits.kt).
+        homeShelfCards(playlists, shelfRows, shelfCell, { "your-playlist:${it.id}" }) { index, playlist ->
             YourPlaylistCard(
                 playlist = playlist,
                 extractBackdropColors = extractBackdropColors,
@@ -3031,18 +3051,17 @@ private fun MadeForYouSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val shelfRows = homeShelfRows()
+    val shelfCell = homeShelfCellHeight()
     HomeShelf(
         title = stringResource(HomeSection.MadeForYou.titleRes),
         frame = frame,
         scrollEnabled = shelfScrollEnabled,
-        cardWidth = RecentlyAddedAlbumCover,
-        cardCount = playlists.size,
+        cardWidth = homeShelfCoverSize(),
+        cardCount = homeShelfColumnCount(playlists.size),
         modifier = modifier,
     ) {
-        itemsIndexed(
-            items = playlists,
-            key = { _, playlist -> "made-for-you:${playlist.rawId}" },
-        ) { index, playlist ->
+        homeShelfCards(playlists, shelfRows, shelfCell, { "made-for-you:${it.rawId}" }) { index, playlist ->
             MadeForYouCard(
                 playlist = playlist,
                 extractBackdropColors = extractBackdropColors,
@@ -3063,7 +3082,7 @@ private fun MadeForYouCard(
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
-            .width(RecentlyAddedAlbumCover)
+            .width(homeShelfCoverSize())
             .noRippleClickable(
                 interactionSource = interactionSource,
                 enabled = homeEditInteractive(),
@@ -3077,7 +3096,7 @@ private fun MadeForYouCard(
             contentDescription = playlist.title,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.size(RecentlyAddedAlbumCover),
+            modifier = Modifier.size(homeShelfCoverSize()),
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -3114,18 +3133,17 @@ private fun OtherProfilesSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    val shelfRows = homeShelfRows()
+    val shelfCell = homeShelfCellHeight()
     HomeShelf(
         title = stringResource(HomeSection.OtherProfiles.titleRes),
         frame = frame,
         scrollEnabled = shelfScrollEnabled,
-        cardWidth = RecentlyAddedAlbumCover,
-        cardCount = items.size,
+        cardWidth = homeShelfCoverSize(),
+        cardCount = homeShelfColumnCount(items.size),
         modifier = modifier,
     ) {
-        itemsIndexed(
-            items = items,
-            key = { _, item -> item.stableId },
-        ) { index, item ->
+        homeShelfCards(items, shelfRows, shelfCell, { it.stableId }) { index, item ->
             OtherProfileCard(
                 item = item,
                 extractBackdropColors = extractBackdropColors,
@@ -3146,7 +3164,7 @@ private fun OtherProfileCard(
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
-            .width(RecentlyAddedAlbumCover)
+            .width(homeShelfCoverSize())
             .noRippleClickable(
                 interactionSource = interactionSource,
                 enabled = homeEditInteractive(),
@@ -3160,7 +3178,7 @@ private fun OtherProfileCard(
             contentDescription = item.title,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.size(RecentlyAddedAlbumCover),
+            modifier = Modifier.size(homeShelfCoverSize()),
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -3211,18 +3229,17 @@ private fun AlbumShelfSection(
     memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
+    val shelfRows = homeShelfRows()
+    val shelfCell = homeShelfCellHeight()
     HomeShelf(
         title = title,
         frame = frame,
         scrollEnabled = shelfScrollEnabled,
-        cardWidth = RecentlyAddedAlbumCover,
-        cardCount = albums.size,
+        cardWidth = homeShelfCoverSize(),
+        cardCount = homeShelfColumnCount(albums.size),
         modifier = modifier,
     ) {
-        itemsIndexed(
-            items = albums,
-            key = { _, album -> "album-shelf:$title:${album.id}" },
-        ) { index, album ->
+        homeShelfCards(albums, shelfRows, shelfCell, { "album-shelf:$title:${it.id}" }) { index, album ->
             RecentlyAddedAlbumCard(
                 album = album,
                 extractBackdropColors = extractBackdropColors,
@@ -3247,7 +3264,7 @@ private fun YourPlaylistCard(
     val coverArtUrl = resolveHomeCoverArtUrl(playlist.coverArt, buildCoverArtUrl)
     Column(
         modifier = modifier
-            .width(RecentlyAddedAlbumCover)
+            .width(homeShelfCoverSize())
             .noRippleClickable(
                 interactionSource = interactionSource,
                 enabled = homeEditInteractive(),
@@ -3261,7 +3278,7 @@ private fun YourPlaylistCard(
             contentDescription = playlist.name,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.size(RecentlyAddedAlbumCover),
+            modifier = Modifier.size(homeShelfCoverSize()),
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(

@@ -2,16 +2,27 @@ package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -40,6 +51,38 @@ internal object HomeGridTokens {
 
     /** A unit drag can pull this far past the smallest or largest count (a rubber band past it). */
     val Overdrag = 24.dp
+
+    /** What a cover card's two caption lines (and the gap above them) take out of a unit: cover = U − 44. */
+    val CaptionBand = 44.dp
+
+    /** The narrowest gap between two cover cards in a row; a page's spare width widens it. */
+    val ColumnGap = 12.dp
+
+    /** Between two of Recently Added's track rows; the rows themselves fill the rest of the box. */
+    val TrackRowGap = 6.dp
+}
+
+/** A cover shelf's cover side at [unit] dp: U − 44 (106 at 150). */
+internal fun homeGridCoverDp(unit: Float = HomeGridTokens.Unit.value): Float =
+    (unit - HomeGridTokens.CaptionBand.value).coerceAtLeast(1f)
+
+/** Cover columns a [widthDp] page seats: ⌊(W + gap) / (cover + gap)⌋, at least 1. */
+internal fun homeGridColumns(
+    widthDp: Float,
+    coverDp: Float = homeGridCoverDp(),
+    gapDp: Float = HomeGridTokens.ColumnGap.value,
+): Int = kotlin.math.max(1, kotlin.math.floor((widthDp + gapDp) / (coverDp + gapDp)).toInt())
+
+/** The content height under the title row at [units] units, dp: n·U + (n − 1)·G. */
+internal fun homeGridContentDp(units: Int): Float = homeGridHeightDp(units) - HomeGridTokens.TitleRow.value
+
+/** Recently Added's track rows at [units] units: three a unit. */
+internal fun homeGridTrackRows(units: Int): Int = 3 * units.coerceAtLeast(1)
+
+/** One track row's height at [units] units, dp: the rows and their gaps fill the content box exactly. */
+internal fun homeGridTrackRowDp(units: Int, gapDp: Float = HomeGridTokens.TrackRowGap.value): Float {
+    val rows = homeGridTrackRows(units)
+    return (homeGridContentDp(units) - (rows - 1) * gapDp) / rows
 }
 
 /** A section's height in two columns at [units] units: T + n·U + (n − 1)·G, in dp. */
@@ -130,9 +173,12 @@ internal fun Density.homeUnitsNearest(heightPx: Float, range: IntRange): Int =
 
 // ── The box a section lives in ──────────────────────────────────────────────
 
-/** A two-column cell's height in px, read in the layout pass. Null: no grid (one column). */
+/**
+ * A two-column cell: its row's [units] (the content lays out for these) and
+ * its height in px, read in the layout pass (a unit drag's live height). Null: no grid (one column).
+ */
 @Stable
-internal class HomeGridHeight(val px: () -> Int)
+internal class HomeGridHeight(val units: Int, val px: () -> Int)
 
 internal val LocalHomeGridHeight = compositionLocalOf<HomeGridHeight?> { null }
 
@@ -278,3 +324,78 @@ internal class HomeUnitDrag(
 
 /** Where a section's row sits on the grid: its sections, current count and allowed range. */
 internal data class HomeUnitInfo(val row: Set<HomeSection>, val units: Int, val range: IntRange)
+
+// ── Shared pieces of a section on the grid ─────────────────────────────────
+
+/** The phone's (and one column's) shelf cover. */
+internal val HomeShelfCoverPhone = 82.dp
+
+/** The cover a shelf card shows: U − 44 on the grid, the phone's 82 elsewhere. */
+@Composable
+internal fun homeShelfCoverSize(): Dp =
+    if (LocalHomeGridHeight.current != null) homeGridCoverDp().dp else HomeShelfCoverPhone
+
+/**
+ * The 40dp title row every section has on the grid: the title on the row's
+ * centre line, then [trailing] (a shelf's page dots and ‹ ›) at its end.
+ */
+@Composable
+internal fun HomeGridTitleRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(HomeGridTokens.TitleRow),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HomeSectionTitle(text = title, modifier = Modifier.weight(1f))
+        trailing()
+    }
+}
+
+/**
+ * A shelf's cards on the grid: [rows] to a column (stacked [HomeGridTokens.Gap]
+ * apart, each exactly [cellHeight] tall), one list item per column. Off the
+ * grid ([cellHeight] null, one row) the cards are the items, as before.
+ */
+internal fun <T> LazyListScope.homeShelfCards(
+    items: List<T>,
+    rows: Int,
+    cellHeight: Dp?,
+    key: (T) -> Any,
+    card: @Composable (index: Int, item: T) -> Unit,
+) {
+    if (cellHeight == null && rows <= 1) {
+        items(count = items.size, key = { key(items[it]) }) { index -> card(index, items[index]) }
+        return
+    }
+    val perColumn = rows.coerceAtLeast(1)
+    val stacks = items.chunked(perColumn)
+    items(count = stacks.size, key = { key(stacks[it].first()) }) { stackIndex ->
+        Column(verticalArrangement = Arrangement.spacedBy(HomeGridTokens.Gap)) {
+            stacks[stackIndex].forEachIndexed { inStack, item ->
+                Box(if (cellHeight != null) Modifier.height(cellHeight) else Modifier) {
+                    card(stackIndex * perColumn + inStack, item)
+                }
+            }
+        }
+    }
+}
+
+/** A cover shelf's rows on the grid: its row's units (1 or 2); 1 off the grid. */
+@Composable
+internal fun homeShelfRows(): Int = LocalHomeGridHeight.current?.units?.coerceIn(1, 2) ?: 1
+
+/** A grid shelf card's height: exactly one unit; null off the grid (the card's own). */
+@Composable
+internal fun homeShelfCellHeight(): Dp? = if (LocalHomeGridHeight.current != null) HomeGridTokens.Unit else null
+
+/** How many list columns [cards] make on the grid ([homeShelfRows] to a column); [cards] off it. */
+@Composable
+internal fun homeShelfColumnCount(cards: Int): Int {
+    val rows = homeShelfRows()
+    return if (cards <= 0) 0 else (cards + rows - 1) / rows
+}

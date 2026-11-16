@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.foundation.layout.heightIn
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
@@ -127,18 +128,32 @@ internal fun HomeSectionTitle(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = GoogleSansFlex,
-            fontSize = 18.sp,
-        ),
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier
-            .homeEditSectionTitle()
-            .seamFade(),
-    )
+    val title = @Composable { m: Modifier ->
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = GoogleSansFlex,
+                fontSize = 18.sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = m
+                .homeEditSectionTitle()
+                .seamFade(),
+        )
+    }
+    // Two columns: every title sits on the centre line of the same 40dp row (HomeGridTokens.TitleRow),
+    // so the two halves of a row line up.
+    if (LocalHomeGridHeight.current != null) {
+        Box(
+            modifier = modifier.heightIn(min = HomeGridTokens.TitleRow),
+            contentAlignment = Alignment.CenterStart,
+        ) { title(Modifier) }
+    } else {
+        title(modifier)
+    }
 }
 
 /**
