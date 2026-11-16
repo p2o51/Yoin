@@ -52,13 +52,17 @@ class _NowPlayingLayerState extends ConsumerState<NowPlayingLayer> {
   void initState() {
     super.initState();
     widget.controller.handleInnerBack = _popSheet;
+    widget.controller.innerSheetOpen = _sheetOpen;
   }
 
   @override
   void dispose() {
     if (widget.controller.handleInnerBack == _popSheet) widget.controller.handleInnerBack = null;
+    if (widget.controller.innerSheetOpen == _sheetOpen) widget.controller.innerSheetOpen = null;
     super.dispose();
   }
+
+  bool _sheetOpen() => _navigator.currentState?.canPop() ?? false;
 
   /// The queue sheet is the innermost back level.
   bool _popSheet() {

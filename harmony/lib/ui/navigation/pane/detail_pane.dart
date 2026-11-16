@@ -69,6 +69,12 @@ class DetailPaneController extends ChangeNotifier {
 
   late final ChromeBackEntry _rootBack = ChromeBackEntry(close);
 
+  /// A page was shown in the column — opened as its root (also into a
+  /// column already open, where [hasEntries] does not flip) or pushed onto
+  /// it. The shell notes the column as the newest surface, so back leaves
+  /// that page before Memories or a side panel opened before the tap.
+  VoidCallback? onPageShown;
+
   /// The column is in the tree: open, or still leaving.
   bool get holdsColumn => _stack.isNotEmpty;
 
@@ -97,6 +103,7 @@ class DetailPaneController extends ChangeNotifier {
     }
     _animate(1);
     notifyListeners();
+    onPageShown?.call();
   }
 
   /// Pushes [builder] onto the column (from a page already in it).
@@ -107,6 +114,7 @@ class DetailPaneController extends ChangeNotifier {
     nav.push(YoinPushRoute<void>(builder: builder)).whenComplete(() {
       if (_stack.isNotEmpty && identical(_stack.last, builder)) _stack.removeLast();
     });
+    onPageShown?.call();
   }
 
   /// The root page's back: the column leaves; its pages stay until it has.

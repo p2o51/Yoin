@@ -12,6 +12,7 @@ import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'chrome_back.dart';
+import 'shell_back_order.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 
@@ -38,9 +39,13 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// bar's hide and system back all feed this one controller.
   late final MemoriesRevealController _memories = MemoriesRevealController(vsync: this);
   late final MemoriesRevealHandle _memoriesHandle = ref.read(memoriesRevealHandleProvider);
+
+  /// The window's back order: Memories, the column and the Now Playing side
+  /// panel close newest first (ShellBackResolver).
+  late final ShellBackLedger _backOrder = ref.read(shellBackLedgerProvider);
   late final ChromeBackEntry _memoriesBack = ChromeBackEntry(
     _memoriesHandle.back,
-    owns: () => _memories.ownsBack,
+    owns: () => _backOrder.owns(ShellBackOwner.memories),
     priority: ChromeBackPriority.memories,
   );
 
@@ -50,12 +55,12 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// The Wide window's detail column (adaptive-principles §3).
   late final DetailPaneController _pane = DetailPaneController(vsync: this);
 
-  /// Arbitrated below Now Playing and Memories (principle 8): with the
-  /// side panel or the player open, system back is theirs, whatever order
-  /// the entries were registered in.
+  /// Arbitrated by the back order (principle 8): beside a side panel or
+  /// Memories, system back is the column's only while it is the newest of
+  /// them, whatever order the entries were registered in.
   late final ChromeBackEntry _paneBack = ChromeBackEntry(
-    _onPaneBack,
-    owns: () => _pane.hasEntries,
+    _pane.handleBack,
+    owns: () => _backOrder.owns(ShellBackOwner.detailColumn),
     priority: ChromeBackPriority.detailColumn,
   );
 
@@ -67,17 +72,18 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     _memories.addListener(_syncMemoriesBack);
     DetailPaneController.active = _pane;
     _pane.addListener(_syncPaneBack);
-  }
-
-  /// System back reaches every pop entry on the shell's route: the column
-  /// takes it only when nothing above it (Now Playing, Memories) is open.
-  void _onPaneBack() {
-    if (NowPlayingOverlayScope.read(context)?.expanded ?? false) return;
-    if (_memories.ownsBack) return;
-    _pane.handleBack();
+    _backOrder.bindShell(
+      homeSelected: () => ref.read(shellSectionProvider) == YoinSection.home,
+      memoriesOpen: () => _memories.ownsBack,
+      detailColumnOpen: () => _pane.hasEntries,
+    );
+    // A page shown in the column — also into one already open — is the
+    // newest thing entered: back leaves it first.
+    _pane.onPageShown = _backOrder.columnPageShown;
   }
 
   void _syncPaneBack() {
+    _backOrder.syncShell();
     final navigator = appNavigatorKey.currentState;
     if (_pane.hasEntries && navigator != null) {
       _paneBack.attach(navigator);
@@ -90,6 +96,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   /// Back belongs to Memories exactly while it is open or opening.
   void _syncMemoriesBack() {
+    _backOrder.syncShell();
     final navigator = appNavigatorKey.currentState;
     if (_memories.ownsBack && navigator != null) {
       _memoriesBack.attach(navigator);
@@ -103,6 +110,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   @override
   void dispose() {
+    _backOrder.unbindShell();
+    _pane.onPageShown = null;
     _pane.removeListener(_syncPaneBack);
     _paneBack.dispose();
     _pane.dispose();
@@ -117,7 +126,11 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(shellSectionProvider, (_, section) => _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0));
+    ref.listen(shellSectionProvider, (_, section) {
+      _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0);
+      // Memories counts in the back order only over Home.
+      _backOrder.syncShell();
+    });
     // A page over the shell takes the bar back from Memories (and gives it back when it pops).
     final top = ModalRoute.isCurrentOf(context) ?? true;
     _pane.shellIsTop = top;

@@ -119,7 +119,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// quality from an account), back belongs to the pane: the page's back
   /// button (maybePop) and system back both return to [SettingsPane.parent]
   /// instead of leaving Settings. Shared infrastructure, no PopScope.
-  late final ChromeBackEntry _paneBack = ChromeBackEntry(() => scheduleMicrotask(_paneUp));
+  /// Arbitrated: a player opened over Settings answers first (its entry
+  /// shares this route), and one back never does both.
+  late final ChromeBackEntry _paneBack = ChromeBackEntry(
+    () => scheduleMicrotask(_paneUp),
+    owns: () => true,
+    priority: ChromeBackPriority.page,
+  );
 
   @override
   void initState() {
