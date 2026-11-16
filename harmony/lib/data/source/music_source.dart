@@ -34,6 +34,23 @@ enum Capability {
   /// their ReplayGain (OpenSubsonic `replayGain`), so the account's page
   /// offers Volume leveling. Apple Music levels the volume itself.
   replayGain,
+
+  /// The service's own catalogue can be searched besides the user's library
+  /// (Android CATALOG_SEARCH): Library's search offers the two scopes, and
+  /// [MusicLibraryCollection.searchLibrary] searches the library alone.
+  catalogSearch,
+
+  /// Search finds playlists too (Android SEARCH_PLAYLISTS; Subsonic's
+  /// search3 has none): the search offers a Playlists filter.
+  searchPlaylists,
+
+  /// A catalogue song can be added to the user's library (Android
+  /// LIBRARY_ADD; [MusicLibraryAdds]).
+  libraryAdd,
+
+  /// The library lists songs of its own (Android LIBRARY_SONGS;
+  /// [MusicLibraryCollection.librarySongs]): Library has a Songs tab of them.
+  librarySongs,
 }
 
 /// Thrown by a source when a call isn't supported by this provider.
@@ -173,6 +190,56 @@ extension MusicSourcePlaylists on MusicSource {
     if (!capabilities.contains(Capability.playlistAdd)) return null;
     return switch (writeActions) {
       final MusicPlaylistWrites w => w,
+      _ => null,
+    };
+  }
+}
+
+/// The user's library apart from the service's catalogue (Android
+/// MusicLibrary.searchLibrary / getLibrarySongs), for a service that has both:
+/// gated by [Capability.catalogSearch] and [Capability.librarySongs].
+abstract interface class MusicLibraryCollection {
+  /// Search the saved library only; [MusicLibrary.search] searches the catalogue.
+  Future<SearchResults> searchLibrary(String query);
+
+  /// The library's songs, [size] of them from [offset], in the service's order.
+  Future<List<Track>> librarySongs({int size = 100, int offset = 0});
+}
+
+/// A catalogue song's place in the user's library (Android LibraryMembership).
+enum LibraryMembership {
+  unknown,
+  notAdded,
+
+  /// The service took the addition but hasn't shown it in the library yet.
+  pending,
+  added,
+}
+
+/// Adding a song to the library (Android MusicWriteActions.addToLibrary),
+/// gated by [Capability.libraryAdd]. Not a favourite: a service whose
+/// favourites are its library (Spotify) uses those.
+abstract interface class MusicLibraryAdds {
+  /// Whether [trackId] is in the library now.
+  Future<LibraryMembership> libraryMembership(MediaId trackId);
+
+  /// Adds [trackId]. [LibraryMembership.added] only once membership has been
+  /// confirmed; [LibraryMembership.pending] when the service took it but
+  /// hasn't shown it yet.
+  Future<LibraryMembership> addToLibrary(MediaId trackId);
+}
+
+/// A source's library collection: null when it has none. Gate the UI on the capability too.
+extension MusicSourceLibraryCollection on MusicSource {
+  MusicLibraryCollection? get libraryCollection => switch (library) {
+    final MusicLibraryCollection c => c,
+    _ => null,
+  };
+
+  MusicLibraryAdds? get libraryAdds {
+    if (!capabilities.contains(Capability.libraryAdd)) return null;
+    return switch (writeActions) {
+      final MusicLibraryAdds a => a,
       _ => null,
     };
   }

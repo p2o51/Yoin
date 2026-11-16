@@ -13,6 +13,7 @@ library;
 
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../model/model.dart';
@@ -21,6 +22,8 @@ import '../source/music_source.dart';
 import 'apple_music_api.dart';
 import 'apple_music_developer_token.dart';
 import 'apple_music_mappers.dart';
+import 'apple_music_name_region.dart';
+import 'apple_music_name_resolver.dart';
 
 export '../profile/profile.dart' show AppleMusicCredentials;
 export 'apple_music_api.dart'
@@ -31,7 +34,16 @@ export 'apple_music_mappers.dart' show AppleMusicSongFacts;
 final class AppleMusicSource implements MusicSource {
   /// [client] carries both the token service and Apple's API; [dispose]
   /// closes it. [apiBaseUrl] is for tests (loopback allowed).
-  factory AppleMusicSource(AppleMusicCredentials credentials, {http.Client? client, Uri? apiBaseUrl}) {
+  ///
+  /// [nameRegion] is the account's [AppleMusicNameRegion] (Android
+  /// AppleMusicSource.nameRegion), read as each list is named; null keeps the
+  /// names Apple shows.
+  factory AppleMusicSource(
+    AppleMusicCredentials credentials, {
+    http.Client? client,
+    Uri? apiBaseUrl,
+    Future<AppleMusicNameRegion> Function()? nameRegion,
+  }) {
     final transport = client ?? http.Client();
     final tokens = AppleMusicDeveloperTokenProvider(credentials.endpoint, client: transport);
     final api = AppleMusicApi(
@@ -41,17 +53,22 @@ final class AppleMusicSource implements MusicSource {
       baseUrl: apiBaseUrl,
       onDeveloperTokenRejected: tokens.invalidate,
     );
-    return AppleMusicSource._(api);
+    return AppleMusicSource._(api, nameRegion);
   }
 
-  AppleMusicSource._(this._api) {
+  AppleMusicSource._(this._api, [this._nameRegion]) {
     _library = _AppleMusicLibrary(this);
     _playback = _AppleMusicPlayback(this);
     _metadata = _AppleMusicMetadata(this);
   }
 
   final AppleMusicApi _api;
+  final Future<AppleMusicNameRegion> Function()? _nameRegion;
   late final _AppleMusicLibrary _library;
+  late final _AppleMusicWriteActions _writeActions = _AppleMusicWriteActions(this);
+  late final AppleMusicNameResolver _names = AppleMusicNameResolver(
+    catalog: (segments, query) => _api.resourcePage(segments, personal: false, query: query),
+  );
   late final _AppleMusicPlayback _playback;
   late final _AppleMusicMetadata _metadata;
 
@@ -75,17 +92,26 @@ final class AppleMusicSource implements MusicSource {
   @override
   String get provider => MediaId.providerAppleMusic;
 
-  /// Android ServiceFeatureCatalog.appleMusic, as far as this interface goes
-  /// (SEARCH, PLAYLISTS_READ; library-add and playlist import aren't here yet).
+  /// Android ServiceFeatureCatalog.appleMusic: search of the catalogue and of
+  /// the library (with playlists), Add to library, the library's songs, its
+  /// playlists, and songs appended to its own (PLAYLIST_IMPORT).
   @override
-  Set<Capability> get capabilities => const {Capability.search, Capability.playlistsRead, Capability.playlistAdd};
+  Set<Capability> get capabilities => const {
+    Capability.search,
+    Capability.catalogSearch,
+    Capability.searchPlaylists,
+    Capability.libraryAdd,
+    Capability.librarySongs,
+    Capability.playlistsRead,
+    Capability.playlistAdd,
+  };
 
   @override
   MusicLibrary get library => _library;
   @override
   MusicMetadata get metadata => _metadata;
   @override
-  MusicWriteActions get writeActions => _AppleMusicWriteActions(_api);
+  MusicWriteActions get writeActions => _writeActions;
   @override
   MusicPlayback get playback => _playback;
 
@@ -119,6 +145,66 @@ final class AppleMusicSource implements MusicSource {
   }
 
   static final _digits = RegExp(r'^[0-9]+$');
+
+  /// How long Add to library waits before each look at the library (Android
+  /// 0, 500, 1000, 2000, 4000 ms). Tests shorten it.
+  @visibleForTesting
+  static List<Duration> libraryAddConfirmWaits = const [
+    Duration.zero,
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
+
+  // ------------------------------------------------------------------ names
+
+  /// The account's name region; the default when none is set or it can't be read.
+  Future<AppleMusicNameRegion> _region() async {
+    final read = _nameRegion;
+    if (read == null) return AppleMusicNameRegion.defaultRegion;
+    try {
+      return await read();
+    } catch (_) {
+      return AppleMusicNameRegion.defaultRegion;
+    }
+  }
+
+  /// The account's storefront for the names, or null while it can't be read (then every region is asked).
+  Future<String?> _storefrontOrNull() async {
+    try {
+      return await _storefrontId();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  ({String? catalogId, String? isrc}) _songKeys(Track track) {
+    final facts = _facts[track.id];
+    return (
+      catalogId: facts?.catalogId ?? (_digits.hasMatch(track.id.rawId) ? track.id.rawId : null),
+      isrc: facts?.isrc,
+    );
+  }
+
+  Future<List<Track>> _regionalTracks(List<Track> tracks) async {
+    final region = await _region();
+    if (region == AppleMusicNameRegion.off) return tracks;
+    return _names.tracks(region, await _storefrontOrNull(), tracks, keys: _songKeys);
+  }
+
+  Future<List<Album>> _regionalAlbums(List<Album> albums) async {
+    final region = await _region();
+    if (region == AppleMusicNameRegion.off) return albums;
+    return _names.albums(region, await _storefrontOrNull(), albums);
+  }
+
+  Future<Album?> _regionalAlbum(Album? album) async {
+    if (album == null) return null;
+    final region = await _region();
+    if (region == AppleMusicNameRegion.off) return album;
+    return _names.album(region, await _storefrontOrNull(), album, keys: _songKeys);
+  }
 
   // ------------------------------------------------------------------ plumbing
 
@@ -303,7 +389,7 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   genre: t.genre,
 );
 
-final class _AppleMusicLibrary implements MusicLibrary {
+final class _AppleMusicLibrary implements MusicLibrary, MusicLibraryCollection {
   _AppleMusicLibrary(this._s);
   final AppleMusicSource _s;
 
@@ -325,14 +411,16 @@ final class _AppleMusicLibrary implements MusicLibrary {
       case AlbumListType.starred:
         return const [];
       case AlbumListType.recent:
-        return (await _recentlyPlayedAlbums(skip + size)).skip(skip).take(size).toList();
+        return _s._regionalAlbums((await _recentlyPlayedAlbums(skip + size)).skip(skip).take(size).toList());
       case AlbumListType.newest:
-        return _mixedAlbums(const ['v1', 'me', 'library', 'recently-added'], _recentlyAddedQuery, skip, size);
+        return _s._regionalAlbums(
+          await _mixedAlbums(const ['v1', 'me', 'library', 'recently-added'], _recentlyAddedQuery, skip, size),
+        );
       case AlbumListType.frequent ||
           AlbumListType.random ||
           AlbumListType.alphabeticalByName ||
           AlbumListType.alphabeticalByArtist:
-        return _libraryAlbums(skip, size);
+        return _s._regionalAlbums(await _libraryAlbums(skip, size));
     }
   });
 
@@ -412,7 +500,9 @@ final class _AppleMusicLibrary implements MusicLibrary {
   /// (Android's Spotify-parity rule); an import, or a match the storefront no
   /// longer serves, keeps the library tracklist under the library id.
   @override
-  Future<Album?> getAlbum(MediaId id) => _s._nullIfNotFound(() async {
+  Future<Album?> getAlbum(MediaId id) async => _s._regionalAlbum(await _readAlbum(id));
+
+  Future<Album?> _readAlbum(MediaId id) => _s._nullIfNotFound(() async {
     _s._checkProvider(id);
     if (!isLibraryId(id)) return _catalogAlbum(id);
     final path = await _s._path('albums', id);
@@ -515,9 +605,9 @@ final class _AppleMusicLibrary implements MusicLibrary {
     final resource = resources(response).firstOrNull;
     final artist = resource == null ? null : artistFrom(resource);
     if (artist == null) return null;
-    final albums = [
+    final albums = await _s._regionalAlbums([
       for (final r in await _s._all([...path, 'albums'], query: _pageLimit)) ?albumFrom(r),
-    ];
+    ]);
     return ArtistDetail(
       id: artist.id,
       name: artist.name,
@@ -574,7 +664,7 @@ final class _AppleMusicLibrary implements MusicLibrary {
     if (playlist == null) return null;
     final query = isLibraryId(id) ? _libraryTracksQuery : const {'include': _songRelationships};
     final tracks = _s._remember(songsFrom(await _s._all([...path, 'tracks'], query: query)));
-    return playlistWithTracks(playlist, tracks);
+    return playlistWithTracks(playlist, await _s._regionalTracks(tracks));
   }
 
   /// Apple has no favourites through this API.
@@ -603,12 +693,113 @@ final class _AppleMusicLibrary implements MusicLibrary {
         final results = obj(response['results']);
         List<AppleMusicJson> of(String type) => resources(obj(results?[type]));
         return SearchResults(
-          tracks: _s._remember(songsFrom(of('songs'))).take(trackCount).toList(),
-          albums: [for (final r in of('albums')) ?albumFrom(r)].take(albumCount).toList(),
+          tracks: await _s._regionalTracks(_s._remember(songsFrom(of('songs'))).take(trackCount).toList()),
+          albums: await _s._regionalAlbums([for (final r in of('albums')) ?albumFrom(r)].take(albumCount).toList()),
           artists: [for (final r in of('artists')) ?artistFrom(r)].take(artistCount).toList(),
           playlists: [for (final r in of('playlists')) ?playlistFrom(r)],
         );
       });
+
+  /// The library alone (Android searchLibrary): `/v1/me/library/search`, at
+  /// most [_searchLimit] of each type. Library search takes no include, so
+  /// its songs' catalogue identities are read in one more request (at most
+  /// 25), which only adds what Apple answers. Two library songs (or albums)
+  /// can share one catalogue identity: rows are kept once by id.
+  @override
+  Future<SearchResults> searchLibrary(String query) => _s._guard(() async {
+    if (query.trim().isEmpty) return const SearchResults();
+    final response = await _s._page(
+      const ['v1', 'me', 'library', 'search'],
+      query: {
+        'term': query,
+        'types': 'library-songs,library-albums,library-artists,library-playlists',
+        'limit': '$_searchLimit',
+      },
+    );
+    final results = obj(response['results']);
+    List<AppleMusicJson> of(String type) => resources(obj(results?[type]));
+    final songs = await _withCatalog(of('library-songs'));
+    final tracks = <Track>[];
+    final seenTracks = <MediaId>{};
+    for (final t in _s._remember(songsFrom(songs))) {
+      if (seenTracks.add(t.id)) tracks.add(t);
+    }
+    final albums = <Album>[];
+    final seenAlbums = <MediaId>{};
+    for (final r in of('library-albums')) {
+      if (albumFrom(r) case final a? when seenAlbums.add(a.id)) albums.add(a);
+    }
+    return SearchResults(
+      tracks: await _s._regionalTracks(tracks),
+      albums: await _s._regionalAlbums(albums),
+      artists: [for (final r in of('library-artists')) ?artistFrom(r)],
+      playlists: [for (final r in of('library-playlists')) ?_s._listedPlaylist(r)],
+    );
+  });
+
+  /// [songs] with each one's catalogue song where Apple answers it
+  /// (`/v1/me/library/songs?ids=…&include=catalog`); a failed read keeps them as they are.
+  Future<List<AppleMusicJson>> _withCatalog(List<AppleMusicJson> songs) async {
+    bool answered(AppleMusicJson r) => obj(obj(r['relationships'])?['catalog'])?['data'] is List;
+    final ids = {
+      for (final r in songs)
+        if (text(r, 'type') == 'library-songs' && !answered(r)) ?text(r, 'id'),
+    };
+    if (ids.isEmpty) return songs;
+    final Map<String, Object?> checked;
+    try {
+      final response = await _s._page(
+        const ['v1', 'me', 'library', 'songs'],
+        query: {'ids': ids.join(','), 'include': 'catalog'},
+      );
+      checked = {
+        for (final r in resources(response))
+          if (text(r, 'type') == 'library-songs' && answered(r)) text(r, 'id')!: obj(r['relationships'])!['catalog'],
+      };
+    } on AppleMusicApiException {
+      return songs;
+    }
+    return [
+      for (final song in songs)
+        if (checked[text(song, 'id')] case final catalog?)
+          {
+            ...song,
+            'relationships': {...?obj(song['relationships']), 'catalog': catalog},
+          }
+        else
+          song,
+    ];
+  }
+
+  /// The library's songs, [size] from [offset] (Android getLibrarySongs), with
+  /// their catalogue songs, albums and artists; each once.
+  @override
+  Future<List<Track>> librarySongs({int size = 100, int offset = 0}) => _s._guard(() async {
+    if (size <= 0) return const [];
+    final tracks = <Track>[];
+    final seen = <MediaId>{};
+    final visited = <String>{};
+    String? next;
+    do {
+      final response = await _s._page(
+        const ['v1', 'me', 'library', 'songs'],
+        query: {
+          'include': 'catalog,albums,artists',
+          'limit': '${size < 100 ? size : 100}',
+          'offset': '${offset < 0 ? 0 : offset}',
+        },
+        next: next,
+      );
+      for (final t in _s._remember(songsFrom(resources(response)))) {
+        if (seen.add(t.id)) tracks.add(t);
+      }
+      next = text(response, 'next');
+      if (next != null && !visited.add(next)) {
+        throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Repeated pagination link');
+      }
+    } while (next != null && tracks.length < size);
+    return _s._regionalTracks(tracks.take(size).toList());
+  });
 }
 
 final class _AppleMusicMetadata implements MusicMetadata {
@@ -638,8 +829,10 @@ final class _AppleMusicMetadata implements MusicMetadata {
     if (_names.containsKey(catalogId)) return _names[catalogId];
     final shop = await _s._storefrontDetails();
     if (!shop.languages.contains(_english)) return null;
-    // An English storefront's names are English already.
-    if (shop.defaultLanguage?.startsWith('en') ?? false) return null;
+    // An English storefront's names are English already, unless the account's name region replaced them.
+    if ((shop.defaultLanguage?.startsWith('en') ?? false) && await _s._region() == AppleMusicNameRegion.off) {
+      return null;
+    }
     final page = await _s._api.resourcePage(
       ['v1', 'catalog', shop.id, 'songs', catalogId],
       personal: false,
@@ -659,9 +852,75 @@ final class _AppleMusicMetadata implements MusicMetadata {
   }
 }
 
-final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistWrites {
-  const _AppleMusicWriteActions(this._api);
-  final AppleMusicApi _api;
+final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistWrites, MusicLibraryAdds {
+  _AppleMusicWriteActions(this._s);
+  final AppleMusicSource _s;
+
+  AppleMusicApi get _api => _s._api;
+
+  /// Catalogue songs Apple took but hasn't shown in the library yet: a recheck never posts them again.
+  final Set<String> _pendingAdds = {};
+
+  /// One library write at a time (Android libraryMutationMutex).
+  Future<void> _tail = Future.value();
+
+  /// A library song is in the library; a catalogue song when Apple names its library song.
+  @override
+  Future<LibraryMembership> libraryMembership(MediaId trackId) => _s._guard(() async {
+    _s._checkProvider(trackId);
+    if (isLibraryId(trackId)) return LibraryMembership.added;
+    return _membership(_catalogSongId(trackId));
+  });
+
+  /// Adds a catalogue song (`POST /v1/me/library?ids[songs]=…`, 202), then
+  /// looks for it in the library a few times (0, 0.5, 1, 2, 4 s): added only
+  /// once Apple shows it, pending when it took the song but hasn't yet, or a
+  /// confirmation read fails after the write was taken.
+  @override
+  Future<LibraryMembership> addToLibrary(MediaId trackId) {
+    final run = _tail.then((_) => _add(trackId));
+    _tail = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  Future<LibraryMembership> _add(MediaId trackId) => _s._guard(() async {
+    _s._checkProvider(trackId);
+    if (isLibraryId(trackId)) return LibraryMembership.added;
+    final catalogId = _catalogSongId(trackId);
+    if (await _membership(catalogId) == LibraryMembership.added) return LibraryMembership.added;
+    // Rechecking an accepted addition must not send a second mutation.
+    if (!_pendingAdds.contains(catalogId)) {
+      await _api.addSongToLibrary(catalogId);
+      _pendingAdds.add(catalogId);
+    }
+    for (final wait in AppleMusicSource.libraryAddConfirmWaits) {
+      await Future<void>.delayed(wait);
+      final LibraryMembership now;
+      try {
+        now = await _membership(catalogId);
+      } on AppleMusicApiException {
+        // Apple accepted the write; a failed confirmation can't turn it into success.
+        return LibraryMembership.pending;
+      }
+      if (now == LibraryMembership.added) return LibraryMembership.added;
+    }
+    return LibraryMembership.pending;
+  });
+
+  Future<LibraryMembership> _membership(String catalogId) async {
+    if (await _api.librarySongId(await _s._storefrontId(), catalogId) != null) {
+      _pendingAdds.remove(catalogId);
+      return LibraryMembership.added;
+    }
+    return _pendingAdds.contains(catalogId) ? LibraryMembership.pending : LibraryMembership.notAdded;
+  }
+
+  static String _catalogSongId(MediaId trackId) {
+    if (!RegExp(r'^[0-9]+$').hasMatch(trackId.rawId)) {
+      throw ArgumentError.value(trackId, 'trackId', 'A catalog song ID is required');
+    }
+    return trackId.rawId;
+  }
 
   /// Library membership isn't a favourite, and unsupported writes never fake success (Android).
   @override

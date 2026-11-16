@@ -374,9 +374,13 @@ void main() {
   });
 
   group('capabilities and refusals', () {
-    test('should_declareSearchPlaylistsAndPlaylistAdd_when_asked', () {
+    test('should_declareAndroidsAppleCapabilities_when_asked', () {
       expect(_Server({}).source().capabilities, {
         Capability.search,
+        Capability.catalogSearch,
+        Capability.searchPlaylists,
+        Capability.libraryAdd,
+        Capability.librarySongs,
         Capability.playlistsRead,
         Capability.playlistAdd,
       });

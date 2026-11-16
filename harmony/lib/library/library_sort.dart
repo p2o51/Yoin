@@ -620,3 +620,20 @@ List<FastScrollSection> recentsSections(List<int?> lastSeenMs, {required int now
   }
   return sections;
 }
+
+/// [songs] by title the way Alphabetical sorts names (Android
+/// librarySongsByTitle): bucket, then the collation key, then the order they
+/// came in. [articles] are skipped at the start where the service skips them.
+List<Track> librarySongsByTitle(List<Track> songs, {List<String> articles = const []}) {
+  final keyed = [
+    for (final (i, t) in songs.indexed)
+      (track: t, key: collationKey(stripLeadingArticle(t.title ?? '', articles)), position: i),
+  ];
+  keyed.sort((a, b) {
+    final byBucket = _bucketOf(a.key).compareTo(_bucketOf(b.key));
+    if (byBucket != 0) return byBucket;
+    final byKey = a.key.compareTo(b.key);
+    return byKey != 0 ? byKey : a.position.compareTo(b.position);
+  });
+  return [for (final k in keyed) k.track];
+}

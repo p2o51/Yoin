@@ -34,6 +34,10 @@ final class ServiceIdentity {
   /// reads as the Subsonic blue.
   static const appleMusic = ServiceIdentity(name: 'Apple Music', glyph: YoinSymbols.musicNote, hue: SettingsHue.rose);
 
+  /// Files on this device (Android ProviderKind.LOCAL): not built yet; the
+  /// add-account sheet lists it as coming later.
+  static const local = ServiceIdentity(name: 'Local', glyph: YoinSymbols.folder, hue: SettingsHue.amber);
+
   /// The identity for a [MediaId] provider token; Subsonic for anything else.
   static ServiceIdentity forProvider(String provider) =>
       provider == MediaId.providerAppleMusic ? appleMusic : subsonic;

@@ -723,6 +723,16 @@ abstract final class LibraryTokens {
 
   /// SongListItem: padding (h / v), the Thumb cover, cover → text.
   static const double rowPaddingH = 16;
+
+  /// Add to library's spinner (TrackLibraryButton, 22).
+  static const double libraryAddProgress = 22;
+
+  /// The line under a song after Add to library starts under its title (Android 76).
+  static const double libraryAddFeedbackStart = 76;
+  static const double libraryAddFeedbackBottom = 10;
+
+  /// The hairline between the search scopes and the type chips (Android SearchFilterDividerHeight).
+  static const double searchScopeDividerHeight = 24;
   static const double rowPaddingV = 10;
   static const double rowThumb = 48;
   static const double rowGap = 12;

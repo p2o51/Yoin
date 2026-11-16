@@ -147,7 +147,7 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   bool _favoritesLoading = false;
   bool _artistsLoading = false;
 
-  NewestAlbumSongsPager? _pager;
+  LibrarySongsPager? _pager;
   Map<String, int> _lastSeen = const {};
   bool _shown = false;
   Timer? _recentsTimer;
@@ -201,7 +201,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       for (final tab in libraryChipOrder)
         if (switch (tab) {
           LibraryTab.playlists => caps.contains(Capability.playlistsRead),
-          LibraryTab.songs => subsonic, // songsFromNewestAlbums
+          // Subsonic: songsFromNewestAlbums; Apple Music: the library's own songs.
+          LibraryTab.songs => subsonic || caps.contains(Capability.librarySongs),
           LibraryTab.favorites => subsonic && caps.contains(Capability.favorites),
           _ => true,
         })
@@ -423,8 +424,15 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     }
   }
 
-  NewestAlbumSongsPager _newPager(MusicSource source) =>
-      NewestAlbumSongsPager(source.library, openAlbum: ref.read(detailCacheProvider).album);
+  /// The library's own songs where the service lists them (Apple Music), else
+  /// the newest albums' songs (Subsonic's songsFromNewestAlbums).
+  LibrarySongsPager _newPager(MusicSource source) {
+    final collection = source.libraryCollection;
+    if (source.capabilities.contains(Capability.librarySongs) && collection != null) {
+      return ServiceLibrarySongsPager(collection);
+    }
+    return NewestAlbumSongsPager(source.library, openAlbum: ref.read(detailCacheProvider).album);
+  }
 
   Future<bool> _loadFirstSongs() async {
     final source = _source;

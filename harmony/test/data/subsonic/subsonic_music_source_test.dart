@@ -579,7 +579,16 @@ void main() {
     });
 
     test('should_listMvpCapabilities_when_asked', () {
-      expect(_sourceFor({}).capabilities, Capability.values.toSet());
+      // Every capability but the catalogue / library-collection ones (Apple Music's).
+      expect(
+        _sourceFor({}).capabilities,
+        Capability.values.toSet().difference({
+          Capability.catalogSearch,
+          Capability.searchPlaylists,
+          Capability.libraryAdd,
+          Capability.librarySongs,
+        }),
+      );
       expect(_sourceFor({}).provider, 'subsonic');
     });
   });

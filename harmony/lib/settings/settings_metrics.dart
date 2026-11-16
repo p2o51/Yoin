@@ -3,6 +3,21 @@
 /// service/ServiceSetupScreen.kt). Kept beside the feature until they move
 /// into `lib/theme/tokens.dart` (that file is shared; this one is Settings').
 abstract final class SettingsMetrics {
+  // Add an account (AddAccountSheet / ServiceChoiceRow): the title on the
+  // 24dp line, each service a 12-inset card row, its tone circle 40.
+  static const double addSheetTitleSide = 24;
+  static const double addSheetTitleBottom = 12;
+  static const double addSheetBottom = 16;
+  static const double choiceRowInset = 12;
+  static const double choiceRowPadding = 12;
+  static const double choiceRowGap = 16;
+  static const double choiceIconBox = 40;
+  static const double choiceIcon = 24;
+  static const double choiceBadgeGap = 8;
+  static const double choiceBadgeH = 8;
+  static const double choiceBadgeV = 2;
+  static const double choiceDisabledAlpha = 0.5;
+
   // Page.
   static const double pageHorizontal = 16;
   static const double pageTop = 8;
