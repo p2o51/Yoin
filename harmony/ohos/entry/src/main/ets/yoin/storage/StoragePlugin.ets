@@ -19,7 +19,7 @@ const PREFS_NAME = 'yoin_prefs';
 /**
  * Serves `yoin/storage` for Dart's `ChannelKeyValueStore` / `ChannelSecretStore`: plain values in one Preferences
  * file, secrets (account credentials) in Asset Store Kit, which encrypts them with a device key and keeps them out
- * of backups. A null value deletes in both stores.
+ * of backups. A null value deletes in both stores. `filesDir` answers the app's sandbox files folder (offline downloads).
  */
 export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandler {
   private context: common.Context | null = null;
@@ -42,6 +42,16 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
+    if (call.method === 'filesDir') {
+      // The sandbox folder Dart keeps files in (offline downloads): removed with the app, never cleared as cache.
+      const context = this.context;
+      if (context === null) {
+        result.error('storage', 'storage plugin is not attached', null);
+      } else {
+        result.success(context.filesDir);
+      }
+      return;
+    }
     const key: Any = call.argument('key');
     if (typeof key !== 'string') {
       result.error('bad_args', `${call.method} needs a string key`, null);

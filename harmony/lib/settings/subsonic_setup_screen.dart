@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../offline/downloads_screen.dart';
+import '../offline/offline_strings.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../ui/component/expressive_text_field.dart';
@@ -152,6 +154,15 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
             title: strings.sectionPlayback,
             children: [StreamQualityRow(profileId: widget.profileId!)],
           ),
+          // Downloads lists and removes the account in use's songs, so its
+          // row shows only on that account's page (ProfileServiceSettings).
+          if (account?.isActive ?? false) ...[
+            const SizedBox(height: SettingsMetrics.sectionGap),
+            SettingsGroup(
+              title: OfflineStrings.of(context).sectionStorage,
+              children: [DownloadsRow(profileId: widget.profileId!)],
+            ),
+          ],
         ],
       ],
     );

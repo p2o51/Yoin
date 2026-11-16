@@ -9,6 +9,8 @@ export class QueueItem {
   uri: string = '';
   headers: Record<string, string> = {};
   headerCount: number = 0;
+  /** A downloaded copy (`file://`) played in place of [uri] while the file is there; [uri] streams otherwise. */
+  localUri: string | undefined = undefined;
   title: string = '';
   artist: string | undefined = undefined;
   album: string | undefined = undefined;
@@ -33,6 +35,7 @@ export class QueueItem {
     const item = new QueueItem();
     item.id = id;
     item.uri = uri;
+    item.localUri = readString(map, 'localUri');
     item.title = readString(map, 'title') ?? '';
     item.artist = readString(map, 'artist');
     item.album = readString(map, 'album');

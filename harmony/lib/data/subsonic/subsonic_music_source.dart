@@ -63,6 +63,7 @@ final class SubsonicMusicSource implements MusicSource {
     Capability.playReporting,
     Capability.playlistAdd,
     Capability.playlistsWrite,
+    Capability.offlineDownload,
   };
 
   @override
@@ -419,7 +420,7 @@ final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWri
   }
 }
 
-final class _SubsonicPlayback implements MusicPlayback {
+final class _SubsonicPlayback implements MusicPlayback, MusicDownloads {
   _SubsonicPlayback(this._api, this._planner);
   final SubsonicApi _api;
   final SubsonicStreamPlanner? _planner;
@@ -439,6 +440,15 @@ final class _SubsonicPlayback implements MusicPlayback {
     if (uri == null) throw const SourceNetworkException('Invalid server URL');
     return DirectStream(uri.toString());
   }
+
+  /// A signed `stream.view` URL for keeping the song (Android
+  /// OfflineDownloads.resolveDownload): the file, or a transcode at the
+  /// download quality. No length estimate: a download takes what comes.
+  @override
+  Uri? downloadUri(MediaId trackId, {int? maxBitRateKbps, String? format}) => _api.restUri('stream', [
+    ('id', _raw(trackId)),
+    if (maxBitRateKbps != null) ...[('maxBitRate', '$maxBitRateKbps'), if (format != null) ('format', format)],
+  ]);
 
   @override
   Future<void> reportNowPlaying(MediaId trackId) async {

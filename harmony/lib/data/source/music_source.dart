@@ -23,6 +23,10 @@ enum Capability {
 
   /// Rename, delete, remove songs and reorder ([MusicPlaylistWrites]); implies [playlistAdd].
   playlistsWrite,
+
+  /// Songs kept on the device for listening offline ([MusicDownloads]; Android
+  /// OFFLINE_DOWNLOAD). Subsonic only: Apple Music doesn't let an app store its songs.
+  offlineDownload,
 }
 
 /// Thrown by a source when a call isn't supported by this provider.
@@ -140,6 +144,27 @@ extension MusicSourcePlaylists on MusicSource {
     if (!capabilities.contains(Capability.playlistAdd)) return null;
     return switch (writeActions) {
       final MusicPlaylistWrites w => w,
+      _ => null,
+    };
+  }
+}
+
+/// Where a song is fetched from to keep it on the device (Android
+/// OfflineDownloads.resolveDownload), gated by [Capability.offlineDownload].
+/// The address is signed for the account now, so it is made as the download
+/// opens and never stored.
+abstract interface class MusicDownloads {
+  /// The song's file ([maxBitRateKbps] null), or a [format] transcode capped
+  /// at [maxBitRateKbps]; null when the address can't be made.
+  Uri? downloadUri(MediaId trackId, {int? maxBitRateKbps, String? format});
+}
+
+/// A source's downloads: null when it has none. Gate the UI on the capability too.
+extension MusicSourceDownloads on MusicSource {
+  MusicDownloads? get downloads {
+    if (!capabilities.contains(Capability.offlineDownload)) return null;
+    return switch (playback) {
+      final MusicDownloads d => d,
       _ => null,
     };
   }

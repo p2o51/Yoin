@@ -9,6 +9,7 @@ import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
+import '../offline/offline_providers.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
 import '../platform/window/window_controls.dart';
@@ -800,6 +801,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
       id: track.id.toString(),
       uri: handle.uri,
       headers: handle.headers,
+      // A downloaded song plays from its file, offline and at the quality it
+      // was kept at, whatever the network would stream (OfflineFirstDataSource);
+      // the stream above is what plays if the download is removed meanwhile.
+      localUri: offlinePlayableUri(ref, source, track.id),
       title: track.title ?? '',
       artist: track.artist,
       album: track.album,
@@ -819,6 +824,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         id: item.id,
         uri: item.uri,
         headers: item.headers,
+        localUri: item.localUri,
         title: item.title,
         artist: item.artist,
         album: item.album,
