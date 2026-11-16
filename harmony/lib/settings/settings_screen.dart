@@ -292,10 +292,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     // The account switch's blocking overlay covers the whole page, both panes too.
-    return Stack(
-      fit: StackFit.expand,
-      children: [page, const AccountSwitchOverlay()],
-    );
+    return Stack(fit: StackFit.expand, children: [page, const AccountSwitchOverlay()]);
   }
 }
 

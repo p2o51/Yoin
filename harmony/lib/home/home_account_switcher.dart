@@ -227,9 +227,11 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     final accounts = ref.watch(homeAccountsProvider).value ?? const <AccountCard>[];
     // A switch begun here shows its target from the tap on.
     final target = ref.watch(homeSwitchTargetProvider);
-    final active =
-        accounts.where((a) => a.id == target).firstOrNull ?? accounts.where((a) => a.isActive).firstOrNull;
-    final others = [for (final a in accounts) if (a.id != active?.id) a];
+    final active = accounts.where((a) => a.id == target).firstOrNull ?? accounts.where((a) => a.isActive).firstOrNull;
+    final others = [
+      for (final a in accounts)
+        if (a.id != active?.id) a,
+    ];
     // Android labels the button with the active card's title (the username,
     // else the profile's name); the header's title is only the fallback.
     final title = active?.title ?? widget.fallbackTitle;

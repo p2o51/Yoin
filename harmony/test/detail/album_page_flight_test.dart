@@ -86,8 +86,10 @@ Finder get _pageCover => find.descendant(
   matching: find.byWidgetPredicate((w) => w is MediaArtwork && w.fallbackIcon == YoinSymbols.album),
 );
 
-double _opacityAbove(WidgetTester tester, Finder f) =>
-    tester.widget<Opacity>(find.ancestor(of: f, matching: find.byType(Opacity)).first).opacity;
+/// The opacity [f] is drawn at: every [Opacity] above it (the first open's staged beat is one).
+double _opacityAbove(WidgetTester tester, Finder f) => tester
+    .widgetList<Opacity>(find.ancestor(of: f, matching: find.byType(Opacity)))
+    .fold(1.0, (alpha, o) => alpha * o.opacity);
 
 double _page(WidgetTester tester) => tester.widget<PageView>(find.byType(PageView)).controller!.page!;
 
