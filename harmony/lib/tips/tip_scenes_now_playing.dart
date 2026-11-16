@@ -36,7 +36,7 @@ import '../playback/play_mode.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/cover_art.dart';
-import '../ui/component/meta_line.dart' show formatTrackDuration;
+import '../ui/component/meta_line.dart' show MetaLine, MetaMuted, MetaPlain, formatTrackDuration;
 import '../ui/component/track_menu_sheet.dart';
 import 'demo_data.dart';
 import 'demo_phone.dart';
@@ -478,7 +478,12 @@ class _LyricsToolsDemoState extends State<LyricsToolsDemo> with DemoSceneState {
                           child: ListTile(
                             onTap: () => put(() => _searching = false),
                             title: Text(track.title ?? ''),
-                            subtitle: Text('${track.artist} · ${strings.lyricsProviderLabel(source)}'),
+                            // The artist, then the source quieter beside it: no dot between.
+                            subtitle: MetaLine(
+                              groups: [MetaPlain(track.artist ?? ''), MetaMuted(strings.lyricsProviderLabel(source))],
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              color: colors.onSurfaceVariant,
+                            ),
                           ),
                         ),
                     ],

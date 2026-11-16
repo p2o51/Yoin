@@ -229,11 +229,14 @@ class SettingsItem extends StatelessWidget {
                       child: Text(summary!, style: secondary),
                     ),
                   ],
-                  if (summaryDetail != null)
+                  // The second line sits as far below the first as every line (SettingsItem's spacedBy(2.dp)).
+                  if (summaryDetail != null) ...[
+                    const SizedBox(height: SettingsMetrics.rowTextGap),
                     SeamFade(
                       fontSize: secondary.fontSize ?? 14,
                       child: Text(summaryDetail!, style: secondary),
                     ),
+                  ],
                   if (summaryContent != null) ...[
                     const SizedBox(height: SettingsMetrics.rowTextGap),
                     SeamFade(fontSize: secondary.fontSize ?? 14, child: summaryContent!),

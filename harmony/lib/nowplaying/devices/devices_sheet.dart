@@ -13,6 +13,7 @@ import '../../data/model/model.dart';
 import '../../playback/playback_controller.dart';
 import '../../settings/settings_components.dart' show SpringReveal;
 import '../../theme/tokens.dart';
+import '../../ui/component/meta_line.dart';
 import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_pull_to_refresh.dart';
 import '../haptics.dart';
@@ -43,12 +44,14 @@ String deviceName(DevicesStrings strings, YoinDevice device) => switch (device.k
   DeviceKind.dlna => device.name,
 };
 
+/// A row's status line as words; a DLNA renderer's is its protocols as a
+/// [MetaLine] instead ([DevicesStrings.dlnaProtocols]), so null here.
 String? deviceStatus(DevicesStrings strings, YoinDevice device) => switch (device.status) {
   DeviceStatus.none => null,
   DeviceStatus.switchBack => strings.switchBack,
   DeviceStatus.casting => strings.casting,
   DeviceStatus.notCasting => strings.notCasting,
-  DeviceStatus.dlna => strings.dlnaUpnp,
+  DeviceStatus.dlna => null,
 };
 
 class DevicesSheet extends ConsumerStatefulWidget {
@@ -137,6 +140,12 @@ class DevicesSheetBody extends StatelessWidget {
                       state.isSubsonic ? strings.subtitleSubsonic : strings.subtitleOther,
                       style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
                     ),
+                    // Which devices, then where they must be: a second line, not a dot.
+                    if (state.isSubsonic)
+                      Text(
+                        strings.subtitleSubsonicNetwork,
+                        style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
+                      ),
                   ],
                 ),
               ),
@@ -263,7 +272,15 @@ class DeviceRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(deviceName(strings, device), style: text.bodyLarge!.copyWith(color: colors.onSurface)),
-                      if (status != null) Text(status, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
+                      if (device.status == DeviceStatus.dlna)
+                        // The two protocols a renderer speaks, set apart by space, not a dot.
+                        MetaLine(
+                          groups: [for (final name in strings.dlnaProtocols) MetaPlain(name)],
+                          style: text.bodySmall,
+                          color: colors.onSurfaceVariant,
+                        )
+                      else if (status != null)
+                        Text(status, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
                     ],
                   ),
                 ),

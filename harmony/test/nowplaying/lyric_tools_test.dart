@@ -298,7 +298,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('lyrics-select-copy')));
       await _settle(tester);
-      expect(copied, 'line 1\nline 2\n\n— Song 0 · Artist 0');
+      expect(copied, 'line 1\nline 2\n\n— Song 0\nArtist 0');
       expect(tools.selection.active, isFalse, reason: 'copy leaves select mode');
     });
 

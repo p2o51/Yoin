@@ -32,10 +32,7 @@ class OfflineStrings {
   // ── Settings › account › Storage › Downloads ────────────────────────
   String get sectionStorage => zh ? '存储' : 'Storage'; // settings_section_storage
   String get title => zh ? '下载' : 'Downloads'; // settings_downloads_title
-  String summaryEmpty(String quality) =>
-      zh ? '$quality · 还没有下载' : '$quality · nothing downloaded yet'; // settings_downloads_summary_empty
-  String summary(String quality, String size) =>
-      zh ? '$quality · 本机已存 $size' : '$quality · $size on this device'; // settings_downloads_summary
+  String summary(String size) => zh ? '本机已存 $size' : '$size on this device'; // settings_downloads_summary
   String get quality => zh ? '下载音质' : 'Download quality'; // settings_downloads_quality
   String get qualityOriginalDetail =>
       zh ? '服务器上的原文件' : 'The file as it is on your server'; // settings_downloads_quality_original_detail
@@ -57,7 +54,7 @@ class OfflineStrings {
   String get cancel => zh ? '取消' : 'Cancel'; // settings_downloads_cancel
   String get list => zh ? '已下载' : 'Downloaded'; // settings_downloads_list
   String get listEmpty => zh ? '还没有下载' : 'Nothing downloaded yet'; // settings_downloads_list_empty
-  String entrySongs(int n, String size) => zh ? '$n 首 · $size' : '$n songs · $size'; // settings_downloads_entry_songs
+  String unitSong(int n) => zh ? '首' : (n == 1 ? 'song' : 'songs'); // detail_unit_song
   String entryProgress(int done, int total) =>
       zh ? '正在下载 $done / $total' : 'Downloading $done of $total'; // settings_downloads_entry_progress
   String get entryFailed => zh ? '有些歌没下载成功' : "Some songs couldn't download"; // settings_downloads_entry_failed

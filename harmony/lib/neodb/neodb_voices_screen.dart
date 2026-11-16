@@ -782,12 +782,44 @@ class _VoiceCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: NeoDbTokens.bylineGap),
+                    // The name and, apart from it by space and tone, the instance: no glyph between them.
+                    // The name keeps its whole width first; the instance takes what is left (a Compose Row
+                    // with only the instance weighted), not half each.
                     Expanded(
-                      child: Text(
-                        voice.byline,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => Row(
+                          children: [
+                            ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                              child: Text(
+                                voice.author,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelSmall?.copyWith(
+                                  color: colors.onSurface,
+                                  fontWeight: FontWeight.w500,
+                                  fontVariations: [
+                                    for (final v in text.labelSmall?.fontVariations ?? const <FontVariation>[])
+                                      if (v.axis != 'wght') v,
+                                    const FontVariation.weight(500),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (voice.otherInstance case final host?)
+                              Flexible(
+                                child: Padding(
+                                  padding: const EdgeInsetsDirectional.only(start: NeoDbTokens.bylineInstanceGap),
+                                  child: Text(
+                                    host,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                     if (voice.reviewTitle != null) ...[

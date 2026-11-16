@@ -90,7 +90,10 @@ void main() {
       expect(find.text('Scroll edge'), findsOneWidget);
       expect(find.text('Tide line'), findsOneWidget, reason: 'the chosen style is the summary');
       expect(find.text('Screen corners'), findsOneWidget);
-      expect(find.text('Match screen · 28 dp'), findsOneWidget, reason: 'no display report: the stand-in');
+      // "Match screen", then the value beside it as a MetaLine group: no dot.
+      expect(find.text('Match screen'), findsOneWidget);
+      expect(find.text('28 dp'), findsOneWidget, reason: 'no display report: the stand-in');
+      expect(find.textContaining('·'), findsNothing);
       expect(find.text('Accounts, Home and scroll edge'), findsOneWidget, reason: "the welcome guide's summary");
     });
 
@@ -268,7 +271,8 @@ void main() {
       await tester.tap(find.text('Match screen'));
       await tester.runAsync(() => Future<void>.delayed(Duration.zero));
       await tester.pumpAndSettle();
-      expect(find.text('Match screen · 44 dp'), findsOneWidget);
+      expect(find.text('44 dp'), findsOneWidget);
+      expect(find.textContaining('·'), findsNothing);
       expect(store.values.containsKey(ScreenCornersPreference.key), isFalse);
     });
 

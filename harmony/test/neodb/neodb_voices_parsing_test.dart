@@ -101,7 +101,7 @@ void main() {
       expect(v.rating, 8);
       expect(v.reviewTitle, isNull);
       expect(v.author, 'Ann');
-      expect(v.byline, 'Ann');
+      expect(v.otherInstance, isNull, reason: 'neodb.social is the page\'s own instance');
       expect(v.folded, isFalse);
       expect(v.createdAtMillis, DateTime.utc(2026, 11, 9, 10).millisecondsSinceEpoch);
     });
@@ -124,7 +124,8 @@ void main() {
       expect(v.reviewTitle, 'A night drive');
       expect(v.text, 'Big Bold link');
       expect(v.url, 'https://neodb.social/review/2');
-      expect(v.byline, 'bob · mastodon.social');
+      expect(v.author, 'bob');
+      expect(v.otherInstance, 'mastodon.social');
       expect(v.isLong, isTrue);
     });
 

@@ -13,6 +13,7 @@ import '../settings/settings_page.dart';
 import '../settings/settings_pane.dart';
 import '../settings/settings_rows.dart';
 import '../settings/settings_strings.dart';
+import '../ui/component/meta_line.dart';
 import '../ui/component/yoin_dialog.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'offline_providers.dart';
@@ -24,9 +25,15 @@ String downloadQualityLabel(SettingsStrings strings, DownloadQuality quality) {
   return kbps == null ? strings.streamQualityOriginal : strings.streamQualityKbps(kbps);
 }
 
+/// The Downloads row's second line (downloadsSummaryDetail): what the
+/// downloads take on this device, or that nothing is downloaded yet.
+String downloadsSummaryDetail(OfflineStrings strings, int bytes) =>
+    bytes <= 0 ? strings.listEmpty : strings.summary(strings.bytes(bytes));
+
 /// The account page's Storage row (ProfileServiceSettings): the download
-/// quality and what the downloads take, opening Downloads. Only on the page
-/// of the account in use, which is the one whose downloads it lists.
+/// quality, and what the downloads take on a line of its own (no dot),
+/// opening Downloads. Only on the page of the account in use, which is the
+/// one whose downloads it lists.
 class DownloadsRow extends ConsumerWidget {
   const DownloadsRow({super.key, required this.profileId});
 
@@ -41,7 +48,8 @@ class DownloadsRow extends ConsumerWidget {
     return SettingsItem(
       icon: YoinSymbols.download,
       title: strings.title,
-      summary: bytes <= 0 ? strings.summaryEmpty(quality) : strings.summary(quality, strings.bytes(bytes)),
+      summary: quality,
+      summaryDetail: downloadsSummaryDetail(strings, bytes),
       onTap: () {
         // In the wide window's right pane, the page opens there; otherwise it is pushed.
         final openInPane = SettingsPaneScope.maybeOf(context);
@@ -216,10 +224,11 @@ class DownloadEntryRow extends ConsumerWidget {
       OfflineCollectionKind.playlist => YoinSymbols.playlist,
       OfflineCollectionKind.song => YoinSymbols.musicNote,
     };
+    // Progress or trouble in place of the count, on its own line: a narrow row keeps it whole.
     final status = switch (entry.status) {
       OfflineDownloading(:final done, :final total) => strings.entryProgress(done, total),
       OfflineFailed() => strings.entryFailed,
-      _ => strings.entrySongs(entry.total, strings.bytes(entry.bytes)),
+      _ => null,
     };
     final subtitle = collection.subtitle?.trim();
     final id = MediaId.tryParse(collection.id);
@@ -228,10 +237,33 @@ class DownloadEntryRow extends ConsumerWidget {
       (OfflineCollectionKind.playlist, final id?) => () => DetailRoutes.openPlaylist(context, id),
       _ => null,
     };
+    final theme = Theme.of(context);
+    final secondary = theme.textTheme.bodyMedium!.copyWith(color: theme.colorScheme.onSurfaceVariant);
     return SettingsItem(
       icon: icon,
       title: collection.title,
-      summary: [if (subtitle != null && subtitle.isNotEmpty) subtitle, status].join(' · '),
+      // The artist, then the count and size as a song row has them (MetaLine): no glyph between.
+      summaryContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (subtitle != null && subtitle.isNotEmpty) ...[
+            Text(subtitle, style: secondary, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: SettingsMetrics.rowTextGap),
+          ],
+          if (status != null)
+            Text(status, style: secondary, maxLines: 1, overflow: TextOverflow.ellipsis)
+          else
+            MetaLine(
+              groups: [
+                MetaStat('${entry.total}', strings.unitSong(entry.total)),
+                MetaStat(strings.bytes(entry.bytes), ''),
+              ],
+              style: secondary,
+              color: secondary.color,
+            ),
+        ],
+      ),
       onTap: open,
       trailing: IconButton(
         tooltip: strings.entryRemove,

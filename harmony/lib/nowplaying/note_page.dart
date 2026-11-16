@@ -169,7 +169,13 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
       anchor: globalRectOf(rowContext),
       semanticLabel: strings.noteActions,
       items: [
-        YoinMenuItem(value: _NoteAction.realign, label: strings.noteRealign, icon: YoinSymbols.musicNote),
+        // The moment it would move to, quieter at the item's end: no dot.
+        YoinMenuItem(
+          value: _NoteAction.realign,
+          label: strings.noteRealign,
+          icon: YoinSymbols.musicNote,
+          trailingText: formatNotePosition(now),
+        ),
         YoinMenuItem(value: _NoteAction.delete, label: strings.noteDelete, icon: YoinSymbols.delete),
       ],
     );

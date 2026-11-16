@@ -15,6 +15,7 @@ import 'package:yoin/offline/offline_providers.dart';
 import 'package:yoin/offline/offline_strings.dart';
 import 'package:yoin/offline/offline_toggle.dart';
 import 'package:yoin/shell/detail_chrome.dart';
+import 'package:yoin/ui/component/meta_line.dart';
 import 'package:yoin/ui/component/track_menu_sheet.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
@@ -254,8 +255,18 @@ void main() {
         ],
       );
       await pumpPage(tester);
-      expect(find.text('Mono · 1 songs · 2.0 KB'), findsOneWidget);
-      expect(find.text('me · Downloading 0 of 1'), findsOneWidget);
+      // The artist on one line, the count and size as a MetaLine below: no dots.
+      expect(find.text('Mono'), findsOneWidget);
+      final meta = find.byType(MetaLine);
+      expect(meta, findsOneWidget);
+      expect(find.descendant(of: meta, matching: find.text('1')), findsOneWidget);
+      expect(find.descendant(of: meta, matching: find.text('song')), findsOneWidget);
+      expect(find.descendant(of: meta, matching: find.text('2.0 KB')), findsOneWidget);
+      expect(tester.getTopLeft(find.text('1')).dy, greaterThan(tester.getTopLeft(find.text('Mono')).dy));
+      // Progress in place of the count, on its own line.
+      expect(find.text('me'), findsOneWidget);
+      expect(find.text('Downloading 0 of 1'), findsOneWidget);
+      expect(find.textContaining('·'), findsNothing);
       await tester.tap(find.byTooltip('Remove download').last);
       await tester.pumpAndSettle();
       expect(downloads.calls, ['remove ${_album.key}']);
@@ -297,7 +308,41 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Downloads'), findsOneWidget);
-      expect(find.text('320 kbps · 3.0 MB on this device'), findsOneWidget);
+      // The quality, then what the downloads take on a line of its own.
+      expect(find.text('320 kbps'), findsOneWidget);
+      expect(find.text('3.0 MB on this device'), findsOneWidget);
+      // 2dp below it, as every line of a settings row (SettingsItem's spacedBy(2.dp)).
+      expect(
+        tester.getTopLeft(find.text('3.0 MB on this device')).dy - tester.getBottomLeft(find.text('320 kbps')).dy,
+        closeTo(2, 0.01),
+      );
+    });
+
+    testWidgets('should_sayNothingIsDownloadedOnTheSecondLine_when_theAccountRowIsEmpty', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: overrides(),
+          child: const MaterialApp(
+            home: Material(child: DownloadsRow(profileId: 'p1')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('320 kbps'), findsOneWidget);
+      expect(find.text('Nothing downloaded yet'), findsOneWidget);
+      expect(find.textContaining('·'), findsNothing);
+    });
+
+    test('should_sayTheSizeOnThisDevice_when_inEitherLanguage', () {
+      const en = OfflineStrings.forLanguage(chinese: false);
+      const zh = OfflineStrings.forLanguage(chinese: true);
+      expect(downloadsSummaryDetail(en, 0), 'Nothing downloaded yet');
+      expect(downloadsSummaryDetail(zh, 0), '还没有下载');
+      expect(downloadsSummaryDetail(en, 1536), '1.5 KB on this device');
+      expect(downloadsSummaryDetail(zh, 1536), '本机已存 1.5 KB');
+      expect(en.unitSong(1), 'song');
+      expect(en.unitSong(2), 'songs');
+      expect(zh.unitSong(2), '首');
     });
   });
 

@@ -366,14 +366,26 @@ class _AboutReceiptState extends State<AboutReceipt> {
                       onTap: () => setState(() => _expanded = !_expanded),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.creditsTogglePadV),
-                        child: Text(
-                          _expanded
-                              ? strings.lyricCreditsLess
-                              : strings.lyricCreditsMore(
-                                  others.length,
+                        // "N more", then the first roles quieter beside it: space between, no glyph.
+                        child: Row(
+                          children: [
+                            Text(
+                              _expanded ? strings.lyricCreditsLess : strings.lyricCreditsMore(others.length),
+                              maxLines: 1,
+                              style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
+                            ),
+                            if (!_expanded) ...[
+                              const SizedBox(width: NowPlayingAboutTokens.creditsToggleGap),
+                              Flexible(
+                                child: Text(
                                   lyricCreditsMorePreview(others, strings.lyricCreditsNote),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
                                 ),
-                          style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),

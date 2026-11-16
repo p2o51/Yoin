@@ -45,7 +45,7 @@ class NowPlayingStrings {
   String get lyricsSelectTap => _zh ? '选择歌词行' : 'Select lines'; // np_lyrics_select_tap
   // np_lyrics_copied
   String lyricsCopied(int n) => _zh ? '已复制 $n 行' : (n == 1 ? 'Copied 1 line' : 'Copied $n lines');
-  String lyricsCredit(String title, String artist) => '$title · $artist'; // np_lyrics_credit
+  String lyricsCredit(String title, String artist) => '$title\n$artist'; // np_lyrics_credit
   String lyricsClipboardWithCredit(String body, String credit) =>
       '$body\n\n— $credit'; // np_lyrics_clipboard_with_credit
   String get lyricsClipLabel => _zh ? '歌词' : 'Lyrics'; // np_lyrics_clip_label
@@ -236,8 +236,7 @@ class NowPlayingStrings {
   String get aboutFile => _zh ? '文件' : 'File'; // np_about_file
 
   // The lyrics' other credits under the receipt (strings_component cmp_lyric_credits_*).
-  String lyricCreditsMore(int n, String roles) =>
-      _zh ? '更多 $n 项 · $roles' : '$n more · $roles'; // cmp_lyric_credits_more
+  String lyricCreditsMore(int n) => _zh ? '更多 $n 项' : '$n more'; // cmp_lyric_credits_more
   String get lyricCreditsLess => _zh ? '收起' : 'Show less'; // cmp_lyric_credits_less
   String get lyricCreditsNote => _zh ? '备注' : 'Note'; // cmp_lyric_credits_note
   String get spineQuality => _zh ? '音质' : 'Quality'; // np_spine_quality
