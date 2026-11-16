@@ -73,7 +73,9 @@ class ActivitiesSection extends StatelessWidget {
           child: HomeRowsBody<ActivityPresetLayout>(
             track: track,
             ladder: ladder,
-            ladderKey: (spec, hero?.stableId, candidates.map((e) => e.stableId).join('|')),
+            // What the ladder is built from (Android remembers it on the same): a new
+            // play reordering the entries keeps a resize in flight and its measures.
+            ladderKey: (spec, hero != null, candidates.length),
             preset: preset,
             builder: (context, stop) {
               final composition = stop.payload;

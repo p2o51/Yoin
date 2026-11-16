@@ -206,6 +206,9 @@ final class HomeContent extends HomeUiState {
   /// "Now" when [activities] was derived: time-ago labels are computed against it, not ticking.
   final int activitiesAtMs;
   final HeroFootnote? heroFootnote;
+
+  /// Jump Back In's covers in shelf order, the whole pool: Home leaves out
+  /// the hidden ones and caps it (jbiShelfCards).
   final List<HomeWidgetCard> grid;
   final List<Track> recentlyAddedTracks;
   final List<Album> recentlyAddedAlbums;

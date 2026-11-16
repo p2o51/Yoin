@@ -59,6 +59,32 @@ void main() {
       expect(withoutHiddenJbi(cards, const {'album:a2', 'song:t1'}).map((c) => c.stableId), [cards.first.stableId]);
     });
 
+    test('should_letTheNextCardIn_when_oneIsHidden', () {
+      HomeWidgetCard memory(String raw) => HomeWidgetCard(
+        stableId: '${memoryCardPrefix}subsonic:$raw',
+        kind: HomeCardKind.album,
+        title: raw,
+        subtitle: '',
+        target: const HomeOpenMemory(1),
+        signal: const JbiSignal(),
+      );
+      final covers = [for (var i = 0; i < 30; i++) albumCard(album('c$i'))];
+      final signals = HomeMemorySignals(scope: 's', memoryCards: [memory('m1'), memory('m2')]);
+      List<String> compacts(List<HomeWidgetCard> shelf) => [
+        for (final c in shelf)
+          if (!c.expanded) c.stableId,
+      ];
+      final all = jbiShelfCards(covers, signals, const {});
+      expect(all.first.stableId, '${memoryCardPrefix}subsonic:m1');
+      expect(compacts(all), [for (final c in covers.take(homeGridMaxCompacts)) c.stableId]);
+      // The memory and the first cover hidden: the next memory leads, the 29th cover steps up.
+      final shelf = jbiShelfCards(covers, signals, const {'album:m1', 'album:c0'});
+      expect(shelf.first.stableId, '${memoryCardPrefix}subsonic:m2');
+      expect(compacts(shelf), [for (final c in covers.skip(1).take(homeGridMaxCompacts)) c.stableId]);
+      // Another account's signals (a switch in flight): covers only.
+      expect(jbiShelfCards(covers, null, const {}).every((c) => !c.expanded), isTrue);
+    });
+
     test('should_expireAndScopePerAccount_when_timePasses', () {
       const day = Duration.millisecondsPerDay;
       final hidden = const JbiHidden()
@@ -94,6 +120,60 @@ void main() {
     setUp(() {
       HomeViewModel.clearProcessCache();
       HomeScreen.resetProcessState();
+    });
+
+    Future<ProviderContainer> pumpShelf(WidgetTester tester, InMemoryStore store) async {
+      tester.view.physicalSize = const Size(400, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final h = await homeContainer(
+        store: store,
+        source: HomeFakeSource(playlists: [playlist('p1')], recent: [album('r1')]),
+        log: MemoryActivityLog([albumEvent('a0', minutesAgo: 1)]),
+      );
+      final profiles = jsonDecode(store.values['profiles.v1']!) as List;
+      final id = (profiles.single as Map)['id'] as String;
+      store.values[HomeGridPoolStore.keyFor(id, MediaId.providerSubsonic)] = jsonEncode(
+        HomeGridPools(
+          cachedAtMs: homeTestNow.millisecondsSinceEpoch,
+          albums: [for (var i = 0; i < 6; i++) album('g$i')],
+        ).toJson(),
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: h.container,
+          child: MaterialApp(
+            theme: yoinTheme(Brightness.light),
+            builder: (context, child) => YoinWindowScope.measured(child: child!),
+            home: const Scaffold(body: HomeScreen()),
+          ),
+        ),
+      );
+      await frames(tester, 30);
+      return h.container;
+    }
+
+    testWidgets('should_keepTheShelfAndFoldTheMenu_when_editModeComesAndGoes', (tester) async {
+      final c = await pumpShelf(tester, InMemoryStore());
+      final shelf = tester.element(find.byType(JumpBackInSection));
+      final covers = find.byType(JbiCoverCell).evaluate().length;
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      // One structure in both modes: the shelf (and its state) stays.
+      expect(identical(tester.element(find.byType(JumpBackInSection)), shelf), isTrue);
+      await tester.tap(find.byType(JbiCoverCell).first);
+      await frames(tester, 20);
+      expect(find.text('Hide for 3 days'), findsOneWidget);
+      // Edit mode ending folds the menu away; nothing is hidden.
+      c.read(homeEditProvider.notifier).exit();
+      await frames(tester, 30);
+      expect(find.text('Hide for 3 days'), findsNothing);
+      expect(find.byType(JbiCoverCell), findsNWidgets(covers));
+      expect(identical(tester.element(find.byType(JumpBackInSection)), shelf), isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 1));
+      c.dispose();
     });
 
     testWidgets('should_hideACardForThreeDays_when_tappedWhileEditing', (tester) async {

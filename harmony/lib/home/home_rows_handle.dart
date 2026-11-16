@@ -45,14 +45,41 @@ class HomeRowsHandle extends StatefulWidget {
 
 class _HomeRowsHandleState extends State<HomeRowsHandle> {
   final FocusNode _focus = FocusNode(debugLabel: 'home-rows-handle');
+  final GlobalKey _box = GlobalKey(debugLabel: 'home-rows-handle-box');
+
+  @override
+  void initState() {
+    super.initState();
+    widget.engine.attachHandle(widget.section, _hit);
+  }
+
+  @override
+  void didUpdateWidget(HomeRowsHandle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.engine != widget.engine || oldWidget.section != widget.section) {
+      oldWidget.engine.detachHandle(oldWidget.section, _hit);
+      widget.engine.attachHandle(widget.section, _hit);
+    }
+  }
 
   @override
   void dispose() {
+    widget.engine.detachHandle(widget.section, _hit);
     _focus.dispose();
     super.dispose();
   }
 
   bool get _live => widget.progress > 0.5;
+
+  /// The touch box holds global [position]. Its bottom edge is the plate's,
+  /// past the section's own box, where the section can't hit-test it: Home
+  /// asks here for a finger landing there ([HomeRowsEngine.grabAt]).
+  bool _hit(Offset position) {
+    if (!mounted || !_live) return false;
+    final box = _box.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return false;
+    return (Offset.zero & box.size).contains(box.globalToLocal(position));
+  }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
@@ -88,16 +115,17 @@ class _HomeRowsHandleState extends State<HomeRowsHandle> {
                 key: homeRowsHandleKey(section),
                 behavior: HitTestBehavior.opaque,
                 gestures: {
-                  _EagerDragRecognizer: GestureRecognizerFactoryWithHandlers<_EagerDragRecognizer>(
-                    () => _EagerDragRecognizer(debugOwner: this),
+                  HomeRowsGrabRecognizer: GestureRecognizerFactoryWithHandlers<HomeRowsGrabRecognizer>(
+                    () => HomeRowsGrabRecognizer(debugOwner: this),
                     (r) => r
-                      ..onDown = ((y, t) => engine.grab(section, y, t))
+                      ..onDown = ((position, t) => engine.grab(section, position.dy, t))
                       ..onMove = ((y, t) => engine.dragTo(y, t))
                       ..onUp = ((t) => engine.release(timeMs: t))
                       ..onCancel = () => engine.release(cancelled: true),
                   ),
                 },
                 child: SizedBox.square(
+                  key: _box,
                   dimension: HomeRowsMetrics.handleTouch,
                   child: Padding(
                     padding: const EdgeInsetsDirectional.only(
@@ -203,12 +231,14 @@ class _GlyphPainter extends CustomPainter {
 
 /// A drag that wins the arena the moment the finger lands (when [onDown]
 /// takes it): the handle answers 1:1 from the first pixel, and the feed's
-/// scroll, the long-press entry and the page tap never see the finger.
-class _EagerDragRecognizer extends OneSequenceGestureRecognizer {
-  _EagerDragRecognizer({super.debugOwner});
+/// scroll, the long-press entry and the page tap never see the finger. The
+/// handle has one; Home has one over the feed for the handle's strip past
+/// its section's box ([HomeRowsEngine.grabAt]).
+class HomeRowsGrabRecognizer extends OneSequenceGestureRecognizer {
+  HomeRowsGrabRecognizer({super.debugOwner});
 
-  /// The finger landed at global y [y] (ms [t]); true takes it.
-  bool Function(double y, int t)? onDown;
+  /// The finger landed at global [position] (ms [t]); true takes it.
+  bool Function(Offset position, int t)? onDown;
   void Function(double y, int t)? onMove;
   void Function(int t)? onUp;
   VoidCallback? onCancel;
@@ -221,7 +251,7 @@ class _EagerDragRecognizer extends OneSequenceGestureRecognizer {
   @override
   void addAllowedPointer(PointerDownEvent event) {
     if (_pointer != null) return;
-    if (!(onDown?.call(event.position.dy, _ms(event.timeStamp)) ?? false)) return;
+    if (!(onDown?.call(event.position, _ms(event.timeStamp)) ?? false)) return;
     _pointer = event.pointer;
     _accepted = true;
     startTrackingPointer(event.pointer, event.transform);

@@ -164,7 +164,7 @@ class HomeViewModel extends Notifier<HomeUiState> {
       accountTitle: profile.displayName,
       activities: collapseToLatestUnique(events),
       activitiesAtMs: _nowMs,
-      grid: pools == null ? null : buildWidgetGrid(pools),
+      grid: pools == null ? null : buildWidgetGrid(pools, limit: null),
     );
     for (final change in _draft) {
       local = change(local);
@@ -249,7 +249,7 @@ class HomeViewModel extends Notifier<HomeUiState> {
       playlists: lists == null ? (old?.playlists ?? const []) : playlistPoolFrom(lists, rng),
     );
     unawaited(ref.read(homeGridPoolStoreProvider).write(profileId, source.provider, pools));
-    final grid = buildWidgetGrid(pools);
+    final grid = buildWidgetGrid(pools, limit: null);
     _splice(generation, (c) => c.copyWith(grid: grid));
   }
 

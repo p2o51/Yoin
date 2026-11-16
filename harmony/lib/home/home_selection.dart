@@ -344,8 +344,11 @@ HomeWidgetCard playlistCard(Playlist p) => HomeWidgetCard(
 CoverRef? trackCover(Track t) => t.coverArt ?? _subsonicAlbumFallback(t.albumId);
 
 /// buildWidgetGrid: primary = interleave(albums[0..3), tracks[0..2),
-/// playlists[0..3)), extras = the rest interleaved; artless last; ≤ 28.
-List<HomeWidgetCard> buildWidgetGrid(HomeGridPools pools) {
+/// playlists[0..3)), extras = the rest interleaved; artless last; ≤ [limit]
+/// (28). Home keeps the whole pool (`limit: null`) and caps the shelf after
+/// the cards hidden for a while are left out (jbiShelfCards), so a hidden
+/// cover makes room for the next one in line.
+List<HomeWidgetCard> buildWidgetGrid(HomeGridPools pools, {int? limit = homeGridMaxCompacts}) {
   final albums = [for (final a in stableSortedArtlessLast(pools.albums, (a) => a.coverArt ?? _subsonicAlbumFallback(a.id))) albumCard(a)];
   final tracks = [for (final t in stableSortedArtlessLast(pools.tracks, trackCover)) songCard(t)];
   final playlists = [for (final p in stableSortedArtlessLast(pools.playlists, (p) => p.coverArt)) playlistCard(p)];
@@ -353,7 +356,8 @@ List<HomeWidgetCard> buildWidgetGrid(HomeGridPools pools) {
   final extras = interleave([albums.skip(3).toList(), tracks.skip(2).toList(), playlists.skip(3).toList()]);
   final seen = <String>{};
   final cards = [for (final c in [...primary, ...extras]) if (seen.add(c.stableId)) c];
-  return stableSortedArtlessLast(cards, (c) => c.cover).take(homeGridMaxCompacts).toList();
+  final sorted = stableSortedArtlessLast(cards, (c) => c.cover);
+  return limit == null ? sorted : sorted.take(limit).toList();
 }
 
 List<T> distinctBy<T>(Iterable<T> items, Object Function(T) key) {
@@ -491,25 +495,28 @@ final class JbiGeometry {
   final double coverSide;
   final bool templated;
 
-  /// The landscape handset's shelf (its own row presets).
+  /// The landscape handset's six-across shelf (its own row presets: 1 / 1 / 2 / 3).
   final bool landscape;
   int get cells => columns * rows;
 }
 
-/// jbiGridSpec: landscape handset min(K, 6) × 2 at ≤ 100; N ≤ 2 the phone's
-/// 3 × 4 at ≤ 100; N ≥ 3 K templated lanes × [jbiTemplateRows], covers 100–128
-/// following the live column.
+/// jbiGridSpec: compact height min(K, 6) columns at ≤ 100 — the landscape
+/// handset's six across × 2 rows, a short window too narrow for six the
+/// phone's 4 rows (and the phone's row presets, jbiPresetRows); N ≤ 2 the
+/// phone's 3 × 4 at ≤ 100; N ≥ 3 K templated lanes × [jbiTemplateRows],
+/// covers 100–128 following the live column.
 JbiGeometry jbiGeometry(HomeFeedFrame frame) {
   double columnWidth(int k) => (frame.content - HomeTokens.jbiColumnGap * (k - 1)) / k;
   if (frame.landscape) {
     final k = math.min(frame.coverColumns, HomeJbiMetrics.landscapeMaxColumns);
     final w = columnWidth(k);
+    final sixAcross = k >= HomeJbiMetrics.landscapeMaxColumns;
     return JbiGeometry(
       columns: k,
-      rows: HomeJbiMetrics.landscapeRows,
+      rows: sixAcross ? HomeJbiMetrics.landscapeRows : HomeJbiMetrics.phoneRows,
       columnWidth: w,
       coverSide: math.min(w, HomeTokens.jbiCover),
-      landscape: true,
+      landscape: sixAcross,
     );
   }
   if (frame.units <= 2) {

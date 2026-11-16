@@ -560,6 +560,27 @@ class HomeRowsEngine {
   /// The feed under a held handle; Home sets it.
   HomeRowsAutoScroll? autoScroll;
 
+  final Map<HomeSection, bool Function(Offset globalPosition)> _handles = {};
+
+  /// [section]'s handle is on screen; [hit] says whether a global position is on it.
+  void attachHandle(HomeSection section, bool Function(Offset globalPosition) hit) => _handles[section] = hit;
+
+  void detachHandle(HomeSection section, bool Function(Offset globalPosition) hit) {
+    // Tear-offs of one method are equal, not necessarily identical.
+    if (_handles[section] == hit) _handles.remove(section);
+  }
+
+  /// A finger landed at global [position] on the feed: grabs the handle it is
+  /// on ([grab]), if any. The handle's touch box reaches past its section's
+  /// box (its bottom edge is the plate's), where only the feed sees the finger.
+  bool grabAt(Offset position, int timeMs) {
+    if (_drag != null) return false;
+    for (final entry in _handles.entries) {
+      if (entry.value(position)) return grab(entry.key, position.dy, timeMs);
+    }
+    return false;
+  }
+
   HomeRowsTrack? track(HomeSection section) => _tracks[section];
 
   /// Some block is between stops.

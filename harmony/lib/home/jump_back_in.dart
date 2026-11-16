@@ -243,9 +243,9 @@ class _RenderJbiLaneGrid extends RenderBox
 
 /// A card's tap: its "not now" menu while Home is being edited, else what it opens.
 void _tapCard(BuildContext context, WidgetRef ref, HomeWidgetCard card) {
-  final hide = JbiHideScope.maybeOf(context);
+  final hide = JbiHideScope.tapOf(context);
   if (hide != null) {
-    hide.onTap(context, card);
+    hide(context, card);
     return;
   }
   openHomeTarget(context, ref, card.target);

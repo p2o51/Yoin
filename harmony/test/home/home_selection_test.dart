@@ -5,6 +5,8 @@ import 'package:yoin/data/activity/activity.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/home/home_feed_density.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
+import 'package:yoin/home/home_row_presets.dart';
+import 'package:yoin/home/home_section.dart';
 import 'package:yoin/home/home_selection.dart';
 import 'package:yoin/home/home_strings.dart';
 import 'package:yoin/home/home_ui_state.dart';
@@ -314,6 +316,15 @@ void main() {
       expect(g.rows, 2);
       expect(g.columns, 6);
       expect(g.templated, isFalse);
+      expect(g.landscape, isTrue);
+    });
+
+    test('should_keepThePhoneShelfAndItsPresets_when_shortWindowTooNarrowForSix', () {
+      // Android jbiGridSpec / jbiPresetRows: fewer than six across is the phone's shelf.
+      final g = jbiGeometry(frameAt(480, height: 400));
+      expect(g.columns, inInclusiveRange(3, 5));
+      expect((g.rows, g.landscape, g.templated), (4, false, false));
+      expect([for (final p in HomeRowPreset.values) jbiPresetRows(g, p)], [2, 3, 4, 6]);
     });
 
     test('should_clampTrackGridWidth_when_phone', () {

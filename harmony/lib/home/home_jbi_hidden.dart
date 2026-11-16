@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import 'home_memory_signals.dart';
+import 'home_selection.dart';
 import 'home_ui_state.dart';
 
 /// How long a hidden Jump Back In card stays away.
@@ -57,6 +58,23 @@ List<HomeWidgetCard> withoutHiddenJbi(List<HomeWidgetCard> cards, Set<String> hi
     for (final c in cards)
       if (!hidden.contains(jbiHideKey(c))) c,
   ];
+}
+
+/// The shelf Jump Back In seats (HomeViewModel.repackWidgetGrid): the wide
+/// cards of [signals] (null: none, a switch in flight) then [covers] minus
+/// the albums and songs a wide card shows, capped at [homeGridMaxCompacts] —
+/// every hidden card left out first, so a hidden cover makes room for the
+/// next in line and a hidden memory or note 1×2 for the next one.
+List<HomeWidgetCard> jbiShelfCards(List<HomeWidgetCard> covers, HomeMemorySignals? signals, Set<String> hidden) {
+  final wide = signals == null
+      ? const <HomeWidgetCard>[]
+      : HomeMemorySignals(
+          memoryCards: withoutHiddenJbi(signals.memoryCards, hidden),
+          noteCards: withoutHiddenJbi(signals.noteCards, hidden),
+        ).wideCards;
+  final shelf = withJbiSignals(withoutHiddenJbi(covers, hidden), wide);
+  if (shelf.length <= wide.length + homeGridMaxCompacts) return shelf;
+  return shelf.take(wide.length + homeGridMaxCompacts).toList();
 }
 
 /// Every account's hidden cards: scope → hide key → until (epoch ms).
@@ -145,15 +163,19 @@ class JbiHiddenNotifier extends Notifier<JbiHidden> {
 
 final jbiHiddenProvider = NotifierProvider<JbiHiddenNotifier, JbiHidden>(JbiHiddenNotifier.new);
 
-/// While Home is being edited: a tap on a Jump Back In card opens its "not
-/// now" menu (at the card's global rect) instead of opening the card.
+/// While Home is being edited ([onTap] set): a tap on a Jump Back In card
+/// opens its "not now" menu (at the card's global rect) instead of opening
+/// the card. Always in the tree, so entering and leaving edit mode keep the
+/// shelf's state; read at tap time, so nothing below rebuilds when it changes.
 class JbiHideScope extends InheritedWidget {
   const JbiHideScope({super.key, required this.onTap, required super.child});
 
-  final void Function(BuildContext cardContext, HomeWidgetCard card) onTap;
+  final void Function(BuildContext cardContext, HomeWidgetCard card)? onTap;
 
-  static JbiHideScope? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<JbiHideScope>();
+  /// The "not now" tap in effect for [context], or null (not editing).
+  static void Function(BuildContext cardContext, HomeWidgetCard card)? tapOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<JbiHideScope>()?.onTap;
 
   @override
-  bool updateShouldNotify(JbiHideScope oldWidget) => oldWidget.onTap != onTap;
+  bool updateShouldNotify(JbiHideScope oldWidget) => false;
 }

@@ -135,6 +135,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   /// The app going to the background folds edit mode away.
   AppLifecycleListener? _lifecycle;
 
+  /// While Jump Back In's "not now" menu is up: the route it stands over (Home's).
+  ModalRoute<Object?>? _hideMenuBase;
+
   /// Edit mode's row resize (Activities, Jump Back In): the ⌟ handles' engine.
   late final HomeRowsEngine _rows = HomeRowsEngine(
     vsync: this,
@@ -346,15 +349,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           );
           // Long-press anywhere below the header enters; a tap on the page's
           // blank space (not a plate) leaves.
-          return GestureDetector(
+          return RawGestureDetector(
             behavior: HitTestBehavior.translucent,
-            onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
-            // The right click / two-finger tap is the long-press on a PC.
-            onSecondaryTapUp: content?.hasAccount ?? false
-                ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
-                : null,
-            onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
-            child: HomeRowsScope(engine: _rows, child: list),
+            // The ⌟'s strip below its section's box (the plate's outset) is
+            // the feed's to hit-test: a finger landing there still grabs it.
+            gestures: {
+              HomeRowsGrabRecognizer: GestureRecognizerFactoryWithHandlers<HomeRowsGrabRecognizer>(
+                () => HomeRowsGrabRecognizer(debugOwner: this),
+                (r) => r
+                  ..onDown = ((position, t) => _rows.grabAt(position, t))
+                  ..onMove = ((y, t) => _rows.dragTo(y, t))
+                  ..onUp = ((t) => _rows.release(timeMs: t))
+                  ..onCancel = () => _rows.release(cancelled: true),
+              ),
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
+              // The right click / two-finger tap is the long-press on a PC.
+              onSecondaryTapUp: content?.hasAccount ?? false
+                  ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
+                  : null,
+              onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
+              child: HomeRowsScope(engine: _rows, child: list),
+            ),
           );
         },
       ),
@@ -431,7 +449,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final mine = signals.scope == content.scopeKey;
     // Cards the user put away for a while ("not now") stay off the shelf.
     final hidden = ref.watch(jbiHiddenProvider).keysAt(content.scopeKey, ref.read(homeClockProvider)().millisecondsSinceEpoch);
-    final jbi = withoutHiddenJbi(mine ? withJbiSignals(content.grid, signals.wideCards) : content.grid, hidden);
+    final jbi = jbiShelfCards(content.grid, mine ? signals : null, hidden);
+    final editing = ref.read(homeEditProvider).editing;
     final added = {for (final a in content.recentlyAddedAlbums) a.id};
     final rediscover = mine
         ? [
@@ -452,10 +471,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         HomeSection.jumpBackIn => (
           jbi.isEmpty
               ? null
-              : padded(_jbiHideScope(
-                  content.scopeKey,
-                  editingNow,
-                  JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn)),
+              : padded(JbiHideScope(
+                  // Edit mode's "not now": a tap on a card opens its menu
+                  // (owner 2026-10-13). Always in the tree, so entering and
+                  // leaving keep the shelf's state.
+                  onTap: editing ? (cardContext, card) => _openJbiHideMenu(content.scopeKey, cardContext, card) : null,
+                  child: JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn)),
                 )),
           1,
         ),
@@ -614,28 +635,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     );
   }
 
-  /// Jump Back In under edit mode's "not now": a tap on a card opens a menu
-  /// over it — hide it for three days or a week (owner 2026-10-13).
-  Widget _jbiHideScope(String scope, bool editing, Widget child) {
-    if (!editing) return child;
-    return JbiHideScope(
-      onTap: (cardContext, card) => _openJbiHideMenu(scope, cardContext, card),
-      child: child,
-    );
-  }
-
+  /// Edit mode's "not now" menu over a tapped Jump Back In card: hide it for
+  /// three days or a week (owner 2026-10-13). It closes on a pick, a tap
+  /// elsewhere, or edit mode ending.
   Future<void> _openJbiHideMenu(String scope, BuildContext cardContext, HomeWidgetCard card) async {
+    if (!ref.read(homeEditProvider).editing || _hideMenuBase != null) return;
     if (_dragging != null || _rows.dragging || jbiHideKey(card) == null) return;
     YoinHaptics.click();
     final strings = HomeStrings.of(context);
-    final span = await showYoinDropdownMenu<JbiHideSpan>(
-      context: context,
-      anchor: globalRectOf(cardContext),
-      items: [
-        YoinMenuItem(value: JbiHideSpan.threeDays, label: strings.jbiHideThreeDays),
-        YoinMenuItem(value: JbiHideSpan.oneWeek, label: strings.jbiHideWeek),
-      ],
-    );
+    _hideMenuBase = ModalRoute.of(context);
+    final JbiHideSpan? span;
+    try {
+      span = await showYoinDropdownMenu<JbiHideSpan>(
+        context: context,
+        anchor: globalRectOf(cardContext),
+        items: [
+          YoinMenuItem(value: JbiHideSpan.threeDays, label: strings.jbiHideThreeDays),
+          YoinMenuItem(value: JbiHideSpan.oneWeek, label: strings.jbiHideWeek),
+        ],
+      );
+    } finally {
+      _hideMenuBase = null;
+    }
     if (span == null || !mounted || !ref.read(homeEditProvider).editing) return;
     final now = ref.read(homeClockProvider)().millisecondsSinceEpoch;
     if (ref.read(jbiHiddenProvider.notifier).hide(scope, card, span, nowMs: now)) YoinHaptics.confirm();
@@ -707,6 +728,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _editBack.detach();
       _cancelDrag();
       _rows.onExit();
+      // The "not now" menu folds away with edit mode (out of the listener's frame).
+      final base = _hideMenuBase;
+      if (base != null) {
+        Future.microtask(() {
+          // Only what stands over Home's own route (the menu) is popped.
+          if (mounted && identical(_hideMenuBase, base) && base.isActive && !base.isCurrent) {
+            Navigator.of(context).popUntil((route) => route == base);
+          }
+        });
+      }
     }
     if (_reduced) {
       _edit.snapTo(on ? 1 : 0);

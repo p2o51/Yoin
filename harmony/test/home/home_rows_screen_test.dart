@@ -128,6 +128,34 @@ void main() {
     await done(tester, c);
   });
 
+  testWidgets('should_grabTheHandle_when_fingerLandsOnItsStripBelowTheSection', (tester) async {
+    final h = await pumpHome(tester);
+    final c = h.container;
+    c.read(homeEditProvider.notifier).enter();
+    await frames(tester, 30);
+    final handle = tester.getRect(find.byKey(homeRowsHandleKey(HomeSection.jumpBackIn)));
+    final plate = tester.getRect(
+      find.byWidgetPredicate((w) => w is HomeEditPlate && w.section == HomeSection.jumpBackIn),
+    );
+    // The ⌟'s bottom stroke: inside the touch box, below the section's own box.
+    final at = Offset(handle.right - 18, handle.bottom - 4);
+    expect(at.dy, greaterThan(plate.bottom));
+    final gesture = await tester.startGesture(at);
+    await tester.pump(const Duration(milliseconds: 16));
+    for (var i = 0; i < 12; i++) {
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(milliseconds: 200));
+    await gesture.up();
+    await frames(tester, 40);
+    // Still editing (not a tap on the page), and the shelf took fewer rows.
+    expect(c.read(homeEditProvider).editing, isTrue);
+    expect(c.read(homeLayoutProvider).rowsOf(HomeSection.jumpBackIn).index, lessThan(HomeRowPreset.l.index));
+    expect(tester.takeException(), isNull);
+    await done(tester, c);
+  });
+
   testWidgets('should_stepOnePreset_when_readerAsksForMoreRows', (tester) async {
     final h = await pumpHome(tester);
     final c = h.container;
