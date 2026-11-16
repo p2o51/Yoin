@@ -146,8 +146,11 @@ abstract interface class MusicWriteActions {
 /// provider can't do throws [UnsupportedSourceOperation]; callers also check
 /// [Playlist.canWrite] (a followed playlist can't be changed).
 abstract interface class MusicPlaylistWrites {
-  /// A new playlist owned by the account, holding [tracks] in order.
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []});
+  /// A new playlist owned by the account, holding [tracks] in order, with
+  /// [description] where given (a restored backup's; Android createPlaylist's
+  /// description). A failure after the playlist was made throws
+  /// [PartialPlaylistCreate].
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description});
 
   /// Appends [tracks] to [playlistId], in order.
   Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks);

@@ -88,6 +88,49 @@ void main() {
     expect(q.containsKey('name'), isFalse);
   });
 
+  test('should_sendSongsInBatchesOfAHundred_when_creatingALongPlaylist', () async {
+    final server = _Server({
+      'createPlaylist': fx.ok('"playlist": {"id": "pl9", "name": "Long", "owner": "alice"}'),
+      'updatePlaylist': fx.ok(),
+    });
+    final ids = [for (var i = 0; i < 250; i++) _s('t$i')];
+    await server.writes().createPlaylist('Long', tracks: ids);
+    expect(server.last('createPlaylist').queryParametersAll['songId'], [for (var i = 0; i < 100; i++) 't$i']);
+    final appends = [
+      for (final u in server.requests)
+        if (u.pathSegments.last == 'updatePlaylist.view') u.queryParametersAll['songIdToAdd'],
+    ];
+    expect(appends, [
+      [for (var i = 100; i < 200; i++) 't$i'],
+      [for (var i = 200; i < 250; i++) 't$i'],
+    ]);
+  });
+
+  test('should_setTheCommentAfterTheSongs_when_creatingWithADescription', () async {
+    final server = _Server({
+      'createPlaylist': fx.ok('"playlist": {"id": "pl9", "name": "Road", "owner": "alice"}'),
+      'updatePlaylist': fx.ok(),
+    });
+    await server.writes().createPlaylist('Road', tracks: [_s('a')], description: ' Late drives ');
+    final q = server.last('updatePlaylist').queryParameters;
+    expect(q['playlistId'], 'pl9');
+    expect(q['comment'], 'Late drives');
+  });
+
+  test('should_throwPartialWithTheSongsSoFar_when_anAppendFails', () async {
+    final server = _Server({
+      'createPlaylist': fx.ok('"playlist": {"id": "pl9", "name": "Long", "owner": "alice"}'),
+      // No updatePlaylist route: the append answers 404.
+    });
+    final ids = [for (var i = 0; i < 150; i++) _s('t$i')];
+    await expectLater(
+      server.writes().createPlaylist('Long', tracks: ids),
+      throwsA(
+        isA<PartialPlaylistCreate>().having((p) => p.added, 'added', 100).having((p) => p.playlist.id, 'id', _s('pl9')),
+      ),
+    );
+  });
+
   test('should_refuseBlankName_when_creating', () async {
     final server = _Server({});
     await expectLater(server.writes().createPlaylist('  '), throwsArgumentError);

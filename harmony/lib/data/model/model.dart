@@ -136,6 +136,7 @@ final class Track {
     this.addedAt,
     this.audioFormat,
     this.replayGain,
+    this.creditedArtists = const [],
   });
 
   final MediaId id;
@@ -166,6 +167,11 @@ final class Track {
   /// The song's ReplayGain (Subsonic only); null when the server says nothing.
   final ReplayGain? replayGain;
 
+  /// Every credited artist where the service names them one by one and there
+  /// is more than the one in [artist] (OpenSubsonic `artists`; Android
+  /// Track.EXTRA_ARTISTS); empty otherwise. A playlist backup keeps them.
+  final List<String> creditedArtists;
+
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
   Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
         id: id,
@@ -186,6 +192,7 @@ final class Track {
         addedAt: addedAt,
         audioFormat: audioFormat,
         replayGain: replayGain,
+        creditedArtists: creditedArtists,
       );
 }
 

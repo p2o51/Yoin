@@ -126,7 +126,10 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       // The translation language (and the scroll edge style's own reader, once it exists) read again.
       if (kinds.contains(SyncKinds.setting)) ref.invalidate(aiSettingsProvider);
     },
-    localChanges: _localChanges(store is ObservedKeyValueStore ? store.writes.where(isSyncedKey) : null, backups),
+    localChanges: _localChanges(store is ObservedKeyValueStore ? store.writes.where(isSyncedKey) : null, [
+      backups.changes,
+      ?lyricsCache?.paidChanges,
+    ]),
   );
   ref.onDispose(() {
     manager.dispose();
@@ -135,13 +138,15 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
   return manager;
 });
 
-/// A synced key written, or a playlist backup changed (its own store, not the key-value one).
-Stream<void> _localChanges(Stream<String>? keys, PlaylistBackupStore backups) {
+/// A synced key written, or a change in a store of its own (playlist backups, paid lyric translations).
+Stream<void> _localChanges(Stream<String>? keys, List<Stream<void>> others) {
   final merged = StreamController<void>.broadcast();
   final subscriptions = <StreamSubscription<void>>[];
   merged.onListen = () {
     if (keys != null) subscriptions.add(keys.listen((_) => merged.add(null)));
-    subscriptions.add(backups.changes.listen((_) => merged.add(null)));
+    for (final other in others) {
+      subscriptions.add(other.listen((_) => merged.add(null)));
+    }
   };
   merged.onCancel = () async {
     for (final s in subscriptions) {

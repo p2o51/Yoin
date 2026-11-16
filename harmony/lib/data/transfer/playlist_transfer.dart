@@ -103,9 +103,15 @@ class PlaylistTransfer {
   }
 
   /// A playlist named [name] on [target] holding [trackIds] in order (a
-  /// restore writes what its review left checked). None: no empty playlist
-  /// left behind on the target, nothing made.
-  Future<PlaylistWrite> writeTracks(String name, List<MediaId> trackIds, MusicSource target) async {
+  /// restore writes what its review left checked), described by
+  /// [description] where given. None: no empty playlist left behind on the
+  /// target, nothing made.
+  Future<PlaylistWrite> writeTracks(
+    String name,
+    List<MediaId> trackIds,
+    MusicSource target, {
+    String? description,
+  }) async {
     if (trackIds.isEmpty) return const PlaylistWrite(created: null, added: 0, requested: 0);
     final writes = target.playlistWrites;
     if (writes == null) {
@@ -117,7 +123,7 @@ class PlaylistTransfer {
       );
     }
     try {
-      final playlist = await writes.createPlaylist(name, tracks: trackIds);
+      final playlist = await writes.createPlaylist(name, tracks: trackIds, description: description);
       return PlaylistWrite(created: playlist, added: trackIds.length, requested: trackIds.length);
     } on PartialPlaylistCreate catch (partial) {
       return PlaylistWrite(

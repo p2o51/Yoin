@@ -254,6 +254,38 @@ void main() {
           cachedAt: at,
         );
 
+    test('should_listOneTranslation_when_aSyncedCopyAndTheSongsOwnHoldTheSameLines', () async {
+      await translate(hash: 'h0');
+      // Synced in for lines the song doesn't show now: kept beside its slot.
+      await cache.insertPaidTranslationIfAbsent(
+        const PaidTranslation(
+          songKey: 'subsonic:t1',
+          sourceHash: 'h1',
+          targetLanguage: 'Japanese',
+          model: 'gemini-3.1-flash-lite',
+          translationsJson: '["一","二"]',
+          cachedAt: 90,
+        ),
+        cachedAt: 90,
+      );
+      // The song's lyrics became those lines and were translated here again.
+      await translate();
+      final rows = await LyricsTranslationSyncAdapter(cache).readAll(null);
+      expect(rows.map((r) => r.key).toSet().length, rows.length);
+      expect(rows, hasLength(2));
+      expect(rows.firstWhere((r) => r.key == key).rowTs, 100);
+    });
+
+    test('should_tellSync_when_aPaidTranslationIsStored', () async {
+      final fired = <void>[];
+      final subscription = cache.paidChanges.listen(fired.add);
+      await translate();
+      await translate(model: 'provider:qq');
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      expect(fired, hasLength(1));
+    });
+
     test('should_readOnlyPaidRows_when_providerTranslationsExist', () async {
       await translate();
       await translate(model: 'provider:qq');

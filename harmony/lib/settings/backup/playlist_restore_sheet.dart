@@ -400,14 +400,13 @@ class _MatchingProgressState extends State<_MatchingProgress> with SingleTickerP
                 style: theme.textTheme.displaySmall!.copyWith(color: colors.onSurface),
               ),
               const SizedBox(height: PlaylistBackupMetrics.matchingGap),
-              ClipRRect(
+              // Rounded by the indicator itself: a clip over the sheet leaves black corners on HarmonyOS.
+              LinearProgressIndicator(
+                value: p,
+                minHeight: PlaylistBackupMetrics.progressHeight,
                 borderRadius: BorderRadius.circular(PlaylistBackupMetrics.progressHeight),
-                child: LinearProgressIndicator(
-                  value: p,
-                  minHeight: PlaylistBackupMetrics.progressHeight,
-                  color: colors.primary,
-                  backgroundColor: colors.secondaryContainer,
-                ),
+                color: colors.primary,
+                backgroundColor: colors.secondaryContainer,
               ),
               const SizedBox(height: PlaylistBackupMetrics.matchingGap),
               Row(

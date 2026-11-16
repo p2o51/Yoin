@@ -412,6 +412,7 @@ class LyricsCacheStore {
     final paid = _paid;
     if (paid == null) return;
     await _store.write(paidIndexKey, jsonEncode({for (final e in paid.entries) e.key: e.value.toJson()}));
+    if (!_paidChanges.isClosed) _paidChanges.add(null);
   }
 
   Future<void> _indexPaid(String storageKey, String songKey, String language, String model, _Slot slot) =>
@@ -444,17 +445,29 @@ class LyricsCacheStore {
 
   // Paid translations for cloud sync (Android `lyrics_translation_cache`'s Gemini rows) -----------------
 
-  /// Every paid translation the index knows, with the text sync carries.
+  /// Every paid translation the index knows, with the text sync carries: one per song, lines, language
+  /// and model (the song's own slot over a copy kept beside it, as [getTranslation] reads them).
   Future<List<PaidTranslation>> paidTranslations() async {
     final paid = await _locked(() async => Map.of(await _loadPaid()));
-    final out = <PaidTranslation>[];
+    final byIdentity = <_PaidEntry, PaidTranslation>{};
+    final fromSlot = <_PaidEntry>{};
     for (final e in paid.entries) {
       final slot = await _readSlot(e.key);
       if (slot == null || slot.hash != e.value.sourceHash) continue;
-      out.add(e.value.translation(slot));
+      final own = e.key == translationKey(e.value.songKey, e.value.model, e.value.language);
+      if (byIdentity.containsKey(e.value) && !own) continue;
+      if (fromSlot.contains(e.value)) continue;
+      byIdentity[e.value] = e.value.translation(slot);
+      if (own) fromSlot.add(e.value);
     }
-    return out;
+    return byIdentity.values.toList();
   }
+
+  final _paidChanges = StreamController<void>.broadcast();
+
+  /// Fires when the paid index changed (a paid translation written, synced in or dropped): cloud sync
+  /// uploads it without waiting for the next foreground.
+  Stream<void> get paidChanges => _paidChanges.stream;
 
   /// The paid translation for exactly these lines, language and model; null when none is kept.
   Future<PaidTranslation?> paidTranslation({
@@ -535,7 +548,12 @@ class LyricsCacheStore {
         final side = paidSlotKey(key, previous.hash);
         await _store.write(
           side,
-          jsonEncode({'hash': previous.hash, 'lines': previous.lines, 'at': previous.cachedAt, 'tj': previous.translationsJson}),
+          jsonEncode({
+            'hash': previous.hash,
+            'lines': previous.lines,
+            'at': previous.cachedAt,
+            'tj': previous.translationsJson,
+          }),
         );
         await _indexPaid(side, songKey, targetLanguage, model, previous);
       }

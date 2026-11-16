@@ -96,7 +96,15 @@ Track? trackFromJson(SubsonicJson j) {
     addedAt: _text(j['created']),
     audioFormat: audioFormatFromJson(j),
     replayGain: replayGainFromJson(_obj(j['replayGain'])),
+    creditedArtists: _creditedArtists(j['artists']),
   );
+}
+
+/// OpenSubsonic names each artist; kept only when there is more than the one
+/// in `artist` (Android SubsonicMappers' EXTRA_ARTISTS).
+List<String> _creditedArtists(Object? artists) {
+  final names = [for (final a in _objs(artists)) ?_str(a['name'])?.trim()].where((name) => name.isNotEmpty).toList();
+  return names.length > 1 ? names : const [];
 }
 
 /// OpenSubsonic `replayGain` (gains in dB, peaks linear, every field

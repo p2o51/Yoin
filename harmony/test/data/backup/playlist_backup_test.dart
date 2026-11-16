@@ -24,6 +24,9 @@ Playlist _playlist(String id, List<Track> tracks, {String name = 'Night drive', 
       libraryAddedAt: created,
     );
 
+PlaylistBackupContent _described(PlaylistBackupContent c) =>
+    PlaylistBackupContent(description: 'late night', tracks: c.tracks, unexported: c.unexported);
+
 void main() {
   final t1 = song('t1', 'Entropy', 'Beach Bunny', durationSec: 221, album: 'Emotional Creature');
   final t2 = song('t2', 'Lemon', 'Kenshi Yonezu', durationSec: 255);
@@ -41,6 +44,14 @@ void main() {
       expect(content.tracks.first.sourceTrackId, 'subsonic:t1');
       expect(content.unexported.single.position, 1);
       expect(content.unexported.single.reasonKind, UnexportedReason.unavailable);
+    });
+
+    test('should_keepEveryCreditedArtist_when_theServiceNamesThem', () {
+      final duet = Track(id: MediaId.subsonic('t9'), title: 'Duet', artist: 'A & B', creditedArtists: const ['A', 'B']);
+      final content = PlaylistSnapshots.content(_playlist('p1', [duet, t1]));
+      // Android's creditedArtists: the named ones, else the one artist line.
+      expect(content.tracks.first.artists, ['A', 'B']);
+      expect(content.tracks.last.artists, ['Beach Bunny']);
     });
 
     test('should_writeAndroidsWireFormat_when_contentIsEncoded', () {
@@ -272,8 +283,10 @@ void main() {
         ReviewRow(position: 2, status: ReviewStatus.uncertain, candidates: [picked], chosen: 0, checked: false),
       ];
       const target = RestoreTarget(profileId: 'am', displayName: 'Apple Music', provider: MediaId.providerAppleMusic);
-      final outcome = await service().create(backup, target, rows);
+      final outcome = await service().create(backup.copyWith(content: _described(backup.content)), target, rows);
       expect(am.created.single.name, 'Night drive');
+      // The backup's description goes with the new playlist (Android createPlaylistWithTracks).
+      expect(am.descriptions.single, 'late night');
       expect(outcome.record.added, 1);
       expect(outcome.record.skipped, 1);
       expect(outcome.record.notFound, 1);

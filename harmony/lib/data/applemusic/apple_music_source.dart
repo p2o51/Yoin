@@ -585,8 +585,7 @@ final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes {
   @override
   Future<List<Track>> getRandomSongs({int size = 20}) async => const [];
 
-  /// Catalogue search: songs (with their albums and artists), albums, artists
-  /// and playlists, at most [_searchLimit] of each.
+  /// A song's ISRC as Apple gave it with the song (MusicTrackCodes).
   @override
   String? isrcOf(MediaId trackId) => _s._facts[trackId]?.isrc;
 
@@ -616,6 +615,8 @@ final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes {
   static final _isrcPattern = RegExp(r'^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$');
   static const _isrcBatch = 25;
 
+  /// Catalogue search: songs (with their albums and artists), albums, artists
+  /// and playlists, at most [_searchLimit] of each.
   @override
   Future<SearchResults> search(String query, {int trackCount = 20, int albumCount = 20, int artistCount = 20}) =>
       _s._guard(() async {
@@ -708,9 +709,9 @@ final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistW
   /// One create carrying the first [_batch] songs, then appends: a playlist Apple has only just made
   /// may not take an append yet, so a playlist of up to a batch never sends one.
   @override
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description}) async {
     final refs = [for (final t in tracks) trackRef(t)];
-    final resource = await _api.createLibraryPlaylist(name, refs.take(_batch).toList());
+    final resource = await _api.createLibraryPlaylist(name, refs.take(_batch).toList(), description: description);
     final created = playlistFrom(resource);
     if (created == null) {
       throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Apple Music returned no playlist');

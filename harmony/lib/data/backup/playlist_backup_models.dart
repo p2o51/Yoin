@@ -681,11 +681,14 @@ abstract final class PlaylistSnapshots {
           BackupUnexported(position: index, artist: track.artist, reason: UnexportedReason.unavailable.wireName),
         );
       } else {
+        // Every credited artist where the service names them (Android Track.creditedArtists), else the one.
         final artist = track.artist?.trim();
         tracks.add(
           BackupTrack(
             title: title,
-            artists: artist == null || artist.isEmpty ? const [] : [artist],
+            artists: track.creditedArtists.isNotEmpty
+                ? track.creditedArtists
+                : (artist == null || artist.isEmpty ? const [] : [artist]),
             album: _nonBlank(track.album?.trim()),
             durationSec: (track.durationSec ?? 0) > 0 ? track.durationSec : null,
             isrc: _nonBlank(isrcOf?.call(track.id)?.trim()),

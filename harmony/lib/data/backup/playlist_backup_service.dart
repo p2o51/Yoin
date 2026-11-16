@@ -298,7 +298,10 @@ class PlaylistBackupService {
     PlaylistWrite write;
     try {
       write =
-          await _profiles.withSource(target.profileId, (source) => _transfer.writeTracks(backup.name, ids, source)) ??
+          await _profiles.withSource(
+            target.profileId,
+            (source) => _transfer.writeTracks(backup.name, ids, source, description: backup.content.description),
+          ) ??
           PlaylistWrite(created: null, added: 0, requested: ids.length, failure: StateError('Profile unavailable'));
     } catch (failure) {
       write = PlaylistWrite(created: null, added: 0, requested: ids.length, failure: failure);

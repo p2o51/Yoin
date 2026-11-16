@@ -51,7 +51,14 @@ class PlaylistWrites {
 
   Future<Playlist> create(String name, {List<Track> tracks = const []}) async {
     final (source, writes) = await _writes();
-    final created = await writes.createPlaylist(name.trim(), tracks: _ids(source, tracks));
+    final Playlist created;
+    try {
+      created = await writes.createPlaylist(name.trim(), tracks: _ids(source, tracks));
+    } on PartialPlaylistCreate catch (partial) {
+      // Made, with the songs so far: the Library shows it, the caller still hears of the failure.
+      _changed(partial.playlist.id);
+      rethrow;
+    }
     _changed(created.id);
     return created;
   }

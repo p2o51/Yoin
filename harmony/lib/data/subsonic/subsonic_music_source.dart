@@ -2,6 +2,7 @@
 /// (Android data/source/subsonic/SubsonicMusicSource.kt).
 library;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import '../model/model.dart';
@@ -361,11 +362,48 @@ final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWri
 
   /// `createPlaylist?name=&songId=…` (1.14+ answers with the playlist). An
   /// older server answers with nothing: the newest playlist of that name is it.
+  /// The songs go [_playlistBatch] at a time (Android PLAYLIST_ADD_BATCH: a
+  /// restore of hundreds would make a request URL servers refuse): the first
+  /// batch with the create, the rest appended; a failed append after the
+  /// playlist was made throws [PartialPlaylistCreate]. A [description] becomes
+  /// the playlist's comment (Subsonic's create has none: updatePlaylist sets it).
   @override
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description}) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) throw ArgumentError.value(name, 'name', 'A playlist needs a name');
-    final body = await _api.call('createPlaylist', [('name', trimmed), for (final t in tracks) ('songId', _raw(t))]);
+    final ids = [for (final t in tracks) _raw(t)];
+    final first = ids.take(_playlistBatch).toList();
+    final body = await _api.call('createPlaylist', [('name', trimmed), for (final id in first) ('songId', id)]);
+    final created = await _createdPlaylist(body, trimmed);
+    var added = first.length;
+    try {
+      for (var i = _playlistBatch; i < ids.length; i += _playlistBatch) {
+        final batch = ids.skip(i).take(_playlistBatch).toList();
+        await _api.call('updatePlaylist', [
+          ('playlistId', _raw(created.id)),
+          for (final id in batch) ('songIdToAdd', id),
+        ]);
+        added += batch.length;
+      }
+    } catch (e) {
+      // The playlist is there with the songs so far: say so rather than lose it (a restore records it).
+      throw PartialPlaylistCreate(created, added, e);
+    }
+    final comment = description?.trim();
+    if (comment != null && comment.isNotEmpty) {
+      try {
+        await _api.call('updatePlaylist', [('playlistId', _raw(created.id)), ('comment', comment)]);
+      } catch (e) {
+        // Every song is in: a playlist without its description is still the whole restore.
+        debugPrint('createPlaylist: description not set (${e.runtimeType})');
+      }
+    }
+    return created;
+  }
+
+  static const _playlistBatch = 100;
+
+  Future<Playlist> _createdPlaylist(SubsonicJson body, String name) async {
     if (body['playlist'] case final Map<Object?, Object?> m) {
       if (playlistFromJson(m.cast(), currentUsername: _api.username) case final created?) return created;
     }
@@ -376,7 +414,7 @@ final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWri
         for (final p in raw)
           if (p is Map) ?playlistFromJson(p.cast(), currentUsername: _api.username),
     ];
-    final named = all.where((p) => p.name == trimmed && p.canWrite).toList();
+    final named = all.where((p) => p.name == name && p.canWrite).toList();
     if (named.isEmpty) throw const SourceServerException('The server made no playlist');
     return named.last;
   }

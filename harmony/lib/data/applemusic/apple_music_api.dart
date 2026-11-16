@@ -173,10 +173,15 @@ final class AppleMusicApi {
 
   /// A new library playlist named [name] holding [tracks] (`POST /v1/me/library/playlists`, 201):
   /// the created resource.
-  Future<AppleMusicJson> createLibraryPlaylist(String name, List<AppleMusicTrackRef> tracks) async {
+  Future<AppleMusicJson> createLibraryPlaylist(
+    String name,
+    List<AppleMusicTrackRef> tracks, {
+    String? description,
+  }) async {
     if (name.trim().isEmpty) throw ArgumentError.value(name, 'name', 'A playlist needs a name');
+    final about = description?.trim();
     final body = {
-      'attributes': {'name': name.trim()},
+      'attributes': {'name': name.trim(), if (about != null && about.isNotEmpty) 'description': about},
       if (tracks.isNotEmpty)
         'relationships': {
           'tracks': {'data': _trackData(tracks)},

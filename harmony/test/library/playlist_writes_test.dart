@@ -55,7 +55,7 @@ class PlaylistFakeSource extends FakeMusicSource implements MusicWriteActions, M
   bool acceptsTracks(Playlist playlist) => playlist.canWrite;
 
   @override
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description}) async {
     _call('create:$name:${tracks.map((t) => t.rawId).join(',')}');
     final p = Playlist(id: MediaId.subsonic('new'), name: name, canWrite: true);
     playlists[p.id] = p;

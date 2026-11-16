@@ -29,6 +29,9 @@ class FakeTransferSource extends FakeMusicSource implements MusicWriteActions, M
   final List<String> searches = [];
   final List<({String name, List<MediaId> tracks})> created = [];
 
+  /// Each create's description, in the order of [created].
+  final List<String?> descriptions = [];
+
   @override
   Set<Capability> get capabilities => const {Capability.search, Capability.playlistsRead, Capability.playlistAdd};
 
@@ -61,9 +64,10 @@ class FakeTransferSource extends FakeMusicSource implements MusicWriteActions, M
   }
 
   @override
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description}) async {
     if (createFailure != null) throw createFailure!;
     created.add((name: name, tracks: tracks));
+    descriptions.add(description);
     return Playlist(id: MediaId(provider, 'new-${created.length}'), name: name, songCount: tracks.length);
   }
 

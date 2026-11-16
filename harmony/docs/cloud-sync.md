@@ -41,7 +41,8 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | Settings › Sync and storage › Cloud sync | `lib/settings/sync/` |
 
 When it runs: when the app comes to the front (at most once a minute), about 8 s
-after a local change to a synced row (the observed key-value store), when the app
+after a local change to a synced row (the observed key-value store, a playlist
+backup, or a paid lyric translation in the lyrics cache), when the app
 leaves with changes waiting, and on Sync now. As on Android, no background job.
 
 ### Google sign-in without Play services
