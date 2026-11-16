@@ -35,11 +35,12 @@ final class SubsonicMusicSource implements MusicSource {
     String? salt,
     Duration timeout = SubsonicApi.defaultTimeout,
     SubsonicStreamPlanner? streamPlanner,
+    DateTime Function() now = DateTime.now,
   }) : _api = SubsonicApi(credentials: credentials, client: client ?? http.Client(), salt: salt, timeout: timeout) {
     _library = _SubsonicLibrary(_api, _kinds);
     _metadata = _SubsonicMetadata(_api, _library, _extensions);
     _writeActions = _SubsonicWriteActions(_api, _kinds);
-    _playback = _SubsonicPlayback(_api, streamPlanner, _extensions);
+    _playback = _SubsonicPlayback(_api, streamPlanner, _extensions, now);
   }
 
   final SubsonicApi _api;
@@ -514,10 +515,16 @@ final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWri
 }
 
 final class _SubsonicPlayback implements MusicPlayback, MusicDownloads, MusicPlaybackStateReports {
-  _SubsonicPlayback(this._api, this._planner, this._extensions);
+  _SubsonicPlayback(this._api, this._planner, this._extensions, this._now);
   final SubsonicApi _api;
   final SubsonicStreamPlanner? _planner;
   final _ServerExtensions _extensions;
+  final DateTime Function() _now;
+
+  /// Until when a seek in a transcode skips asking the server's extensions:
+  /// the last ask got no answer (Android SubsonicServerTraitsCache keeps
+  /// Plain for RETRY_AFTER_MS), so each seek doesn't wait [_traitsTimeout].
+  DateTime? _traitsRetryAfter;
 
   /// The transcode format whose bytes map onto time: a constant-bit-rate mp3
   /// (Android SubsonicServerTraits.FORMAT_MP3).
@@ -526,6 +533,9 @@ final class _SubsonicPlayback implements MusicPlayback, MusicDownloads, MusicPla
   /// How long a seek waits to learn whether the server takes `timeOffset`
   /// (Android SubsonicServerTraitsCache ASK_TIMEOUT_SECONDS).
   static const _traitsTimeout = Duration(seconds: 4);
+
+  /// Android SubsonicServerTraitsCache RETRY_AFTER_MS.
+  static const _traitsRetry = Duration(minutes: 5);
 
   /// A signed `stream.view` URL: the original file, or the transcode [_planner] asks for.
   ///
@@ -574,7 +584,16 @@ final class _SubsonicPlayback implements MusicPlayback, MusicDownloads, MusicPla
   /// The transcode starting [seconds] in; null when the server lacks `transcodeOffset`.
   Future<Uri?> _streamFrom(String rawId, SubsonicStreamPlan plan, int seconds) async {
     if (seconds <= 0) return null;
-    final names = await _extensions.names().timeout(_traitsTimeout);
+    if (_traitsRetryAfter case final until? when _now().isBefore(until)) return null;
+    final Set<String> names;
+    try {
+      names = await _extensions.names().timeout(_traitsTimeout);
+    } catch (_) {
+      // No answer: seek by byte for a while, then ask again.
+      _traitsRetryAfter = _now().add(_traitsRetry);
+      return null;
+    }
+    _traitsRetryAfter = null;
     if (!names.contains(_ServerExtensions.transcodeOffset)) return null;
     return _streamUri(rawId, plan, timeOffsetSeconds: seconds);
   }

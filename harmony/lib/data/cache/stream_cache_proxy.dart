@@ -274,7 +274,7 @@ class StreamCacheProxy {
         if (hit != null) {
           await _serveFile(request, hit.$1, hit.$2.contentType, range);
         } else {
-          await _passThrough(request, source, range);
+          await _passThrough(request, source, range, total: total);
         }
         return;
       }
@@ -300,7 +300,7 @@ class StreamCacheProxy {
             if (fetch.complete) break;
             if (fetch.failed) {
               // The fetch dropped: the rest comes from the server directly.
-              if (total != null) await _continueFromServer(body, source, pos, end ?? total - 1, total);
+              if (total != null) await _continueFromServer(body, source, pos, end ?? total - 1);
               break;
             }
             // Wakes for new bytes, the end, or the player hanging up (a skip, a seek elsewhere).
@@ -455,8 +455,8 @@ class StreamCacheProxy {
     }
   }
 
-  /// The rest of an answer already under way ([from]–[to] of [total]), from the server.
-  Future<void> _continueFromServer(_Body body, StreamCacheSource source, int from, int to, int total) async {
+  /// The rest of an answer already under way ([from]–[to]), from the server.
+  Future<void> _continueFromServer(_Body body, StreamCacheSource source, int from, int to) async {
     final timed = await _openFromTime(source, from);
     if (timed != null) {
       final (upstream, _) = timed;
@@ -503,15 +503,22 @@ class StreamCacheProxy {
     }
     final (first, last) = span;
     debugPrint('YoinStreamCache: seek by time ${seconds}s');
-    _head(
-      response,
-      range: true,
-      start: first,
-      end: last,
-      total: length,
-      contentType: upstream.headers.value(HttpHeaders.contentTypeHeader),
-    );
-    final body = await _Body.open(response);
+    final _Body body;
+    try {
+      _head(
+        response,
+        range: true,
+        start: first,
+        end: last,
+        total: length,
+        contentType: upstream.headers.value(HttpHeaders.contentTypeHeader),
+      );
+      body = await _Body.open(response);
+    } catch (_) {
+      // The player went away first: stop the server's transcode too.
+      _drain(upstream);
+      rethrow;
+    }
     try {
       // Stopping early (the span is sent, the player hung up) cancels the server's answer.
       await body.addStream(upstream.timeout(stallTimeout), limit: last - first + 1);

@@ -29,10 +29,11 @@ final class _Server {
 
   int asked(String endpoint) => endpoints.where((e) => e == endpoint).length;
 
-  SubsonicMusicSource source({SubsonicStreamPlanner? planner}) => SubsonicMusicSource(
+  SubsonicMusicSource source({SubsonicStreamPlanner? planner, DateTime Function()? now}) => SubsonicMusicSource(
     _creds,
     salt: 'salt',
     streamPlanner: planner,
+    now: now ?? DateTime.now,
     client: MockClient((request) async {
       requests.add(request.url);
       final route = routes[request.url.pathSegments.last.replaceAll('.view', '')];
@@ -99,6 +100,24 @@ void main() {
       final server = _Server({});
       final handle = await server.source(planner: _mp3At320).playback.handleFor(_song(kbps: 900)) as DirectStream;
       expect(await handle.timeSeek!.uriAt(95), isNull);
+    });
+
+    test('should_seekByByteForFiveMinutes_when_theExtensionsGotNoAnswer', () async {
+      final server = _Server({'getOpenSubsonicExtensions': () => http.ClientException('offline')});
+      var now = DateTime(2026, 11, 17, 12);
+      final handle =
+          await server.source(planner: _mp3At320, now: () => now).playback.handleFor(_song(kbps: 900)) as DirectStream;
+      await pumpEventQueue();
+      final askedAtQueue = server.asked('getOpenSubsonicExtensions');
+      expect(await handle.timeSeek!.uriAt(95), isNull);
+      expect(server.asked('getOpenSubsonicExtensions'), askedAtQueue + 1);
+      server.routes['getOpenSubsonicExtensions'] = _navidrome;
+      now = now.add(const Duration(minutes: 4));
+      // Within the window: no wait on a server that didn't answer.
+      expect(await handle.timeSeek!.uriAt(95), isNull);
+      expect(server.asked('getOpenSubsonicExtensions'), askedAtQueue + 1);
+      now = now.add(const Duration(minutes: 2));
+      expect((await handle.timeSeek!.uriAt(95))!.queryParameters['timeOffset'], '95');
     });
 
     test('should_giveNoTimeSeekAddress_when_atTheStart', () async {

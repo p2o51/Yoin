@@ -290,6 +290,7 @@ Tracker `update(snapshot?)`, called on every engine state:
 
 What goes to the server:
 - On `Started`: `scrobble?id=<raw>&submission=false` (now playing). Failure is dropped, never queued.
+- A server listing OpenSubsonic `playbackReport` gets `reportPlayback?mediaId&mediaType=song&positionMs&state&ignoreScrobble=true` instead: `starting` on Started, then `playing` / `paused` on each change and on a seek (position more than 3 s from where it should be), and `stopped` at the last position when the session closes. Live or nothing, in order (ported 2026-11-17).
 - On `Submit`: enqueue `PendingScrobble{profileId, songId, timeMs = startedAtMs (epoch ms)}`, then flush.
 
 Offline queue (`PendingScrobbles`):
@@ -309,7 +310,7 @@ Source API: Harmony `MusicPlayback` has only `submitPlay(id, DateTime)` and `rep
 
 Also on profile switch or `disconnect()`: `tracker.update(null)`.
 
-Why plain scrobble: Android also counts plays through plain scrobble when reportPlayback exists (`ignoreScrobble=true`), so a play counts once. v1 omits reportPlayback.
+Why plain scrobble: Android also counts plays through plain scrobble when reportPlayback exists (`ignoreScrobble=true`), so a play counts once. reportPlayback carries live state only.
 
 **Android:** player/scrobble/ScrobbleTracker.kt (ScrobbleRule, ScrobbleSnapshot, ScrobbleTracker.update, msUntilSubmit, SEEK_TOLERANCE_MS=3000); player/scrobble/ScrobbleReporter.kt; player/scrobble/PendingScrobbles.kt (MAX_PENDING=2000, BATCH_SIZE=50); player/scrobble/SourceScrobbleTarget.kt; player/PlaybackManager.kt (scrobbleSnapshotOf ~L1401, publishPlaybackState ~L1386, endScrobbleSession ~L403); data/source/subsonic/SubsonicMusicSource.kt (reportNowPlaying/submitPlays ~L266-285); AppContainer.kt (scrobbleReporter ~L546); YoinApplication.kt (flush on network ~L130)
 
@@ -522,8 +523,8 @@ Medium and Wide change only how it is presented:
 
 ## Deferred
 - Gapless / next-track preload: AVPlayer has no playlist, so it needs a second prepared AVPlayer and a handoff of focus and the session. Not required for the target; the plain reload gap is audible only on continuous albums. Do it in v1.1 (design: prepare next at ~10 s before the end, start on `completed`).
-- Stream transcoding / StreamQualityPolicy / AudioOutputKind (maxBitRate, mp3, timeOffset, estimateContentLength): needs a network-type API and an output-route API on HarmonyOS, and AVPlayer seek behaviour on length-less transcodes is unproven. v1 plays the original file. Settings UI for quality is deferred with it.
-- OpenSubsonic `playbackReport` / `reportPlayback` (starting/playing/paused/stopped): plain scrobble works on every server and counts plays once. Only matters for live now-playing state on servers that expose the extension.
+- Seeking in a transcode by time: ported (2026-11-17). A constant-bit-rate mp3 transcode of a file listed above the cap carries `DirectStream.timeSeek`; the stream cache proxy answers a range it can't serve from its whole-song fetch (a far seek, a refused or missing fetch, the rest after a dropped fetch) with `stream.view?…&timeOffset=<s>` from the second the byte falls in, as a 206 cut to the asked span, where the server lists OpenSubsonic `transcodeOffset` (Android SubsonicStreamResolver). An extensions ask that gets no answer makes seeks go by byte for 5 minutes. Not covered: the native engine's fallback to the server's own address (no proxy) still sends Range. Unverified on a device against Navidrome.
+- OpenSubsonic `playbackReport` / `reportPlayback`: ported (2026-11-17), see section 9.
 - Network-available callback to flush the scrobble queue: no network-callback plugin yet. v1 flushes on each submit, on app resume and on source change.
 - Disk media cache (SimpleCache): AVPlayer has no cache hook. Offline downloads landed as their own downloader (`OfflineDownloads`, Dart `dart:io` + `http`); they run while the app runs, with no background download task or progress notification yet.
 - ReplayGain / volume leveling: ported (2026-11-16). AVPlayer exposes no audio processor, so the gain Android multiplies in ReplayGainAudioProcessor is worked out in Dart (`lib/playback/replay_gain.dart`, same modes, +4 dB pre-amp and peak guard) and sent per queue entry as `EngineItem.gain`; the ArkTS engine sets it as that entry's AVPlayer volume before it plays (load, or the gapless swap: each AVPlayer holds one song, so it changes with the song), ducked on top, and `setGains` re-levels the queue at once when the setting changes. Difference: AVPlayer's volume stops at 1, so a gain above unity (a quiet song plus the pre-amp) plays at the file's own level instead of being raised.
