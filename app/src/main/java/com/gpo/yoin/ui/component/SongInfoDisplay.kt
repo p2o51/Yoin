@@ -78,7 +78,10 @@ fun SongInfoDisplay(
                 .weight(1f)
                 .fillMaxWidth(),
         )
-        if (aboutUiState !is AboutUiState.Ready) AboutStatus(aboutUiState, onRetry)
+        // Loading over content shows in the tab row (between About and Note), not under it.
+        if (aboutUiState is AboutUiState.ApiKeyMissing || aboutUiState is AboutUiState.Error) {
+            AboutStatus(aboutUiState, onRetry)
+        }
     }
 }
 

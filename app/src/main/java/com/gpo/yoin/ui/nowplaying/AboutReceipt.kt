@@ -499,3 +499,17 @@ internal fun AboutCarousel(
         }
     }
 }
+
+/**
+ * Whether About already has something to show before Gemini answers: the
+ * lyrics' credits or the server's facts. While Gemini loads over such a
+ * page, the wait shows as a small indicator in the tab row (between About
+ * and Note) instead of replacing or trailing the content (owner 2026-11-16).
+ */
+@androidx.compose.runtime.Composable
+internal fun rememberAboutHasSourceRows(credits: LyricCredits?, facts: SpineSourceFacts?): Boolean {
+    val resources = androidx.compose.ui.platform.LocalContext.current.resources
+    return androidx.compose.runtime.remember(credits, facts, resources) {
+        aboutReceiptRows(emptyList(), credits, facts, resourceAboutLabels(resources)).isNotEmpty()
+    }
+}

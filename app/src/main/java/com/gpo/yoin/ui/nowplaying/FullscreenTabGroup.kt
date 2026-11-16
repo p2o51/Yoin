@@ -12,6 +12,8 @@ internal fun FullscreenTabGroup(
     selected: NowPlayingDetailPage,
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
+    /** Gemini is loading About over content already shown: an indicator between About and Note. */
+    aboutBusy: Boolean = false,
 ) {
     YoinTabGroup(
         labels = listOf(
@@ -22,6 +24,8 @@ internal fun FullscreenTabGroup(
         selectedIndex = Pages.indexOf(selected),
         onSelect = { index -> onSelect(Pages[index]) },
         modifier = modifier,
+        busyAfterIndex = Pages.indexOf(NowPlayingDetailPage.About),
+        busy = aboutBusy,
     )
 }
 
