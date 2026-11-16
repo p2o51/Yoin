@@ -4,9 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
-import '../data/lyrics/lrc_parser.dart';
-import '../data/lyrics/lyrics_translation.dart';
-import '../data/lyrics/user_lyrics_store.dart';
+import '../data/lyrics/lyrics_cache.dart';
+import '../data/lyrics/lyrics_repository.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../platform/playback/playback_engine.dart';
@@ -159,22 +158,49 @@ final class NowPlayingContent extends NowPlayingUiState {
   );
 }
 
-/// What the Translate key did (Android translateLyrics' outcomes, NetEase only).
-enum LyricsTranslateOutcome {
-  /// The song already had translations: the layer was shown or hidden.
-  toggled,
+/// What the Translate key did (Android NowPlayingViewModel.translateLyrics'
+/// outcomes); the screen says it on the snackbar.
+sealed class LyricsTranslateOutcome {
+  const LyricsTranslateOutcome();
+}
 
-  /// NetEase's translation arrived and shows.
-  translated,
+/// The song already had translations: the layer was shown or hidden.
+final class LyricsTranslateToggled extends LyricsTranslateOutcome {
+  const LyricsTranslateToggled();
+}
 
-  /// The lines already read as Chinese (Android AlreadyTargetLanguage).
-  alreadyChinese,
+/// A translation arrived and shows ("Lyrics translated").
+final class LyricsTranslateDone extends LyricsTranslateOutcome {
+  const LyricsTranslateDone();
+}
 
-  /// NetEase has no translation that lines up with these lyrics, or the lookup failed.
-  failed,
+/// A later lyrics source has this song with a translation: offered with
+/// "Switch" ([NowPlayingViewModel.applyTranslationSwitch]).
+final class LyricsTranslateOffer extends LyricsTranslateOutcome {
+  const LyricsTranslateOffer(this.providerName);
+  final String providerName;
+}
 
-  /// Nothing to do (no lyrics, busy, the song moved on).
-  ignored,
+/// The lines already read as the target language ("Lyrics already appear to be …").
+final class LyricsTranslateAlreadyIn extends LyricsTranslateOutcome {
+  const LyricsTranslateAlreadyIn(this.language);
+  final String language;
+}
+
+/// No Gemini key (and nothing else could translate).
+final class LyricsTranslateKeyMissing extends LyricsTranslateOutcome {
+  const LyricsTranslateKeyMissing();
+}
+
+/// The lookup failed; [message] is the repository's (Android shows it raw, English).
+final class LyricsTranslateFailed extends LyricsTranslateOutcome {
+  const LyricsTranslateFailed(this.message);
+  final String message;
+}
+
+/// Nothing to do (no lyrics, busy, the song moved on).
+final class LyricsTranslateIgnored extends LyricsTranslateOutcome {
+  const LyricsTranslateIgnored();
 }
 
 /// Now Playing's view model (Android NowPlayingViewModel): projects the
@@ -200,8 +226,14 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   String? _translatingFor;
   String? _lastSongKey;
 
-  /// NetEase song ids of lyrics the user applied from NetEase (song key → id).
-  final Map<String, String> _netEaseIds = {};
+  /// Where each song's lyrics came from (song key → provider and its song
+  /// id): the Translate key asks that source for its own translation first.
+  final Map<String, ({String? name, String? id})> _lyricsSources = {};
+
+  /// The switch the snackbar offers ("Switch"), for the song it was found for.
+  ({String songKey, LyricsSwitchOffer offer})? _pendingSwitch;
+
+  LyricsRepository get _lyricsRepository => ref.read(lyricsRepositoryProvider);
 
   @override
   NowPlayingUiState build() {
@@ -274,7 +306,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
           ? null
           : UpNextLyrics(songKey: key, title: next.title ?? '', artist: next.artist ?? '', sheet: sheet);
     }
-    if (_prefetchFor != key && source != null && caps.contains(Capability.lyrics)) {
+    if (_prefetchFor != key && source != null) {
       _prefetchTimer?.cancel();
       _prefetchFor = key;
       _schedulePrefetch(next, source, key, attempt: 0, delay: ref.read(upNextPrefetchDelayProvider));
@@ -287,7 +319,9 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       if (!ref.mounted || _prefetchFor != key) return;
       LyricSheet? sheet;
       try {
-        sheet = lyricSheetOf(await source.metadata.getLyrics(next));
+        final loaded = await _lyricsRepository.getLoadedLyrics(next, source);
+        sheet = loaded?.sheet ?? LyricSheet.empty;
+        if (loaded != null) _lyricsSources[key] = (name: loaded.providerName, id: loaded.providerSongId);
       } catch (_) {
         if (!ref.mounted || _prefetchFor != key) return;
         if (attempt < NowPlayingFocusTokens.upNextPrefetchRetries) {
@@ -329,7 +363,10 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       ..remove(key)
       ..add(key);
     while (_lyricsOrder.length > 3) {
-      _lyricsCache.remove(_lyricsOrder.removeAt(0));
+      final gone = _lyricsOrder.removeAt(0);
+      _lyricsCache.remove(gone);
+      // Loaded again from the repository next time, with its source.
+      _lyricsSources.remove(gone);
     }
   }
 
@@ -337,137 +374,167 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     final key = track.id.toString();
     _lyricsFetchFor = key;
     final generation = ++_lyricsGeneration;
-    final userStore = ref.read(userLyricsStoreProvider);
-    if (!caps.contains(Capability.lyrics) && userStore == null) {
-      // Done synchronously would mutate state during build: finish next microtask.
-      scheduleMicrotask(() => _landLyrics(generation, key, LyricSheet.empty));
-      return;
-    }
     () async {
-      // The user's own pick first: it wins over the server's lyrics (Android's
-      // load order — the chosen lyrics_cache row, then the source).
+      // The repository's load order (Android getLoadedLyrics): the user's
+      // pick, the Subsonic server, a cached automatic row, the fallback chain.
+      LoadedLyrics? loaded;
       try {
-        final chosen = await userStore?.read(key);
-        if (chosen != null) {
-          final id = chosen.providerSongId;
-          if (chosen.provider == 'netease' && id != null) _netEaseIds[key] = id;
-          _landLyrics(generation, key, lyricSheetOf(LrcParser.parse(chosen.lrc)));
-          return;
-        }
+        loaded = await _lyricsRepository.getLoadedLyrics(track, source);
       } catch (e) {
-        debugPrint('user lyrics read failed: ${e.runtimeType}');
+        debugPrint('lyrics load failed: ${e.runtimeType}');
       }
-      if (!caps.contains(Capability.lyrics)) {
-        _landLyrics(generation, key, LyricSheet.empty);
-        return;
-      }
-      LyricSheet sheet;
-      try {
-        sheet = lyricSheetOf(await source.metadata.getLyrics(track));
-      } catch (_) {
-        sheet = LyricSheet.empty;
-      }
-      _landLyrics(generation, key, sheet);
+      if (loaded != null) _lyricsSources[key] = (name: loaded.providerName, id: loaded.providerSongId);
+      _landLyrics(generation, key, loaded?.sheet ?? LyricSheet.empty);
     }();
   }
 
   /// Applies lyrics the user chose for the playing song (Android
   /// YoinRepository.applyLyrics / applyLyricsSearchResult): typed or pasted
-  /// ([UserLyrics.manualProvider]) or a search result's. They are stored as
-  /// the user's pick for this song and shown at once; false when there is
-  /// nothing to apply or the song moved on.
-  Future<bool> applyLyrics(String rawLrc, {String provider = UserLyrics.manualProvider, String? providerSongId}) async {
+  /// ([LyricsCachePolicy.manualProvider]) or a search result's. They are kept
+  /// as the user's pick for this song (never expiring) and shown at once;
+  /// false when there is nothing to apply or the song moved on.
+  Future<bool> applyLyrics(
+    String rawLrc, {
+    String provider = LyricsCachePolicy.manualProvider,
+    String? providerSongId,
+  }) async {
     final current = state;
-    final trimmed = rawLrc.trim();
-    if (current is! NowPlayingContent || trimmed.isEmpty) return false;
+    if (current is! NowPlayingContent || rawLrc.trim().isEmpty) return false;
     final key = current.songKey;
-    final sheet = lyricSheetOf(LrcParser.parse(trimmed));
     // Whatever was still loading for this song is superseded.
     _lyricsGeneration++;
     _lyricsFetchFor = null;
+    final LoadedLyrics? applied;
     try {
-      await ref
-          .read(userLyricsStoreProvider)
-          ?.write(key, UserLyrics(lrc: trimmed, provider: provider, providerSongId: providerSongId));
+      applied = await _lyricsRepository.applyLyrics(
+        current.track,
+        rawLrc,
+        provider: provider,
+        providerSongId: providerSongId,
+      );
     } catch (e) {
-      debugPrint('user lyrics write failed: ${e.runtimeType}');
+      debugPrint('lyrics apply failed: ${e.runtimeType}');
       return false;
     }
-    if (!ref.mounted) return false;
-    if (provider == 'netease' && providerSongId != null) {
-      _netEaseIds[key] = providerSongId;
-    } else {
-      _netEaseIds.remove(key);
-    }
-    _cacheLyrics(key, sheet);
+    if (!ref.mounted || applied == null) return false;
+    _lyricsSources[key] = (name: applied.providerName, id: applied.providerSongId);
+    _cacheLyrics(key, applied.sheet);
     if (_showTranslationFor == key) _showTranslationFor = null;
+    if (_pendingSwitch?.songKey == key) _pendingSwitch = null;
     final now = state;
     if (now is! NowPlayingContent || now.songKey != key) return false;
-    state = _copy(now, lyrics: LyricsReady(sheet), showTranslation: false);
+    state = _copy(now, lyrics: LyricsReady(applied.sheet), showTranslation: false);
     return true;
   }
 
-  /// The Translate key (Android NowPlayingViewModel.translateLyrics), with
-  /// NetEase's own translations as the only source for now: a song that
-  /// already has them shows / hides the layer; otherwise NetEase is asked —
-  /// by the NetEase id when the lyrics shown came from NetEase, else by
-  /// title + artist — its translation is put onto these lines by timestamp,
-  /// kept for the song, and shown.
+  /// The Translate key (Android NowPlayingViewModel.translateLyrics): a song
+  /// that already has translations shows / hides the layer; otherwise the
+  /// repository looks — the lyrics' own source, a later source to switch to
+  /// (offered, not applied), then Gemini — and a translation that arrives is
+  /// shown under the lines.
   Future<LyricsTranslateOutcome> translateLyrics() async {
     final current = state;
     if (current is! NowPlayingContent || current.lyrics is! LyricsReady || _translatingFor != null) {
-      return LyricsTranslateOutcome.ignored;
+      return const LyricsTranslateIgnored();
     }
     final key = current.songKey;
     final sheet = (current.lyrics as LyricsReady).sheet;
-    if (sheet.isEmpty) return LyricsTranslateOutcome.ignored;
+    if (sheet.isEmpty) return const LyricsTranslateIgnored();
     if (sheet.rows.any((r) => r.translation?.trim().isNotEmpty ?? false)) {
       _showTranslationFor = _showTranslationFor == key ? null : key;
       state = _copy(current, showTranslation: _showTranslationFor == key);
-      return LyricsTranslateOutcome.toggled;
+      return const LyricsTranslateToggled();
     }
-    final texts = [for (final r in sheet.rows) r.text];
-    if (lyricsAppearMostlyChinese(texts)) return LyricsTranslateOutcome.alreadyChinese;
 
     _translatingFor = key;
     state = _copy(current, translating: true);
-    Map<int, String> translations = const {};
+    final source = _lyricsSources[key];
+    LyricsTranslationResult result;
     try {
-      final store = ref.read(lyricsTranslationStoreProvider);
-      translations = await store?.read(key, texts) ?? const {};
-      if (translations.isEmpty) {
-        translations = await ref
-            .read(netEaseTranslatorProvider)
-            .translate(
-              lines: [for (final r in sheet.rows) (startMs: r.startMs, text: r.text)],
-              title: current.track.title ?? '',
-              artist: current.track.artist ?? '',
-              durationMs: current.durationMs,
-              providerSongId: _netEaseIds[key],
-            );
-        if (translations.isNotEmpty) await store?.write(key, texts, translations);
-      }
+      result = await _lyricsRepository.translateLyrics(
+        track: current.track,
+        sheet: sheet,
+        currentProviderName: source?.name,
+        currentProviderSongId: source?.id,
+      );
     } catch (e) {
       debugPrint('translate failed: ${e.runtimeType}');
-      translations = const {};
+      result = const LyricsTranslationFailed('Failed to translate lyrics');
     }
-    if (!ref.mounted) return LyricsTranslateOutcome.ignored;
+    if (!ref.mounted) return const LyricsTranslateIgnored();
     if (_translatingFor == key) _translatingFor = null;
     final now = state;
-    if (now is! NowPlayingContent || now.songKey != key) return LyricsTranslateOutcome.ignored;
+    if (now is! NowPlayingContent || now.songKey != key) return const LyricsTranslateIgnored();
     final nowSheet = now.lyrics is LyricsReady ? (now.lyrics as LyricsReady).sheet : null;
-    if (translations.isEmpty || nowSheet != sheet) {
+    if (nowSheet != sheet) {
+      // Other lyrics landed meanwhile: what came back was for the old ones.
       state = _copy(now, translating: false);
-      return translations.isEmpty ? LyricsTranslateOutcome.failed : LyricsTranslateOutcome.ignored;
+      return const LyricsTranslateIgnored();
     }
+    switch (result) {
+      case LyricsTranslated(:final translations, sheet: final fetched, :final providerName, :final providerSongId):
+        final base = fetched ?? sheet;
+        if (translations.isEmpty) {
+          state = _copy(now, translating: false);
+          return const LyricsTranslateFailed('Failed to translate lyrics');
+        }
+        if (providerName != null) _lyricsSources[key] = (name: providerName, id: providerSongId ?? source?.id);
+        _showTranslated(now, base, translations);
+        return const LyricsTranslateDone();
+      case LyricsSwitchAvailable(:final offer):
+        _pendingSwitch = (songKey: key, offer: offer);
+        state = _copy(now, translating: false);
+        return LyricsTranslateOffer(offer.providerName);
+      case LyricsAlreadyTargetLanguage(:final targetLanguage):
+        state = _copy(now, translating: false);
+        return LyricsTranslateAlreadyIn(targetLanguage);
+      case LyricsApiKeyMissing():
+        state = _copy(now, translating: false);
+        return const LyricsTranslateKeyMissing();
+      case LyricsTranslationFailed(:final message):
+        state = _copy(now, translating: false);
+        return LyricsTranslateFailed(message);
+    }
+  }
+
+  /// "Switch" on the offer (applyLyricsTranslationSwitchOffer): the offered
+  /// source's lyrics and translation replace the shown ones and are kept as
+  /// the user's pick. The provider name when it was applied, else null.
+  Future<String?> applyTranslationSwitch() async {
+    final pending = _pendingSwitch;
+    final current = state;
+    if (pending == null || current is! NowPlayingContent || current.songKey != pending.songKey) return null;
+    if (_translatingFor != null) return null;
+    final key = current.songKey;
+    _translatingFor = key;
+    state = _copy(current, translating: true);
+    try {
+      await _lyricsRepository.applySwitch(current.track, pending.offer);
+    } catch (e) {
+      debugPrint('switch failed: ${e.runtimeType}');
+    }
+    if (!ref.mounted) return null;
+    if (_translatingFor == key) _translatingFor = null;
+    _pendingSwitch = null;
+    final now = state;
+    if (now is! NowPlayingContent || now.songKey != key) return null;
+    // The whole set changes: whatever was loading for this song is superseded.
+    _lyricsGeneration++;
+    _lyricsFetchFor = null;
+    _lyricsSources[key] = (name: pending.offer.providerName, id: pending.offer.providerSongId);
+    _showTranslated(now, pending.offer.sheet, pending.offer.translations);
+    return pending.offer.providerName;
+  }
+
+  void _showTranslated(NowPlayingContent now, LyricSheet base, Map<int, String> translations) {
+    final key = now.songKey;
     final translated = LyricSheet([
-      for (var i = 0; i < sheet.rows.length; i++)
-        LyricRow(sheet.rows[i].text, startMs: sheet.rows[i].startMs, translation: translations[i]),
+      for (var i = 0; i < base.rows.length; i++)
+        LyricRow(base.rows[i].text, startMs: base.rows[i].startMs, translation: translations[i]),
     ]);
     _cacheLyrics(key, translated);
     _showTranslationFor = key;
     state = _copy(now, lyrics: LyricsReady(translated), translating: false, showTranslation: true);
-    return LyricsTranslateOutcome.translated;
   }
 
   void _landLyrics(int generation, String key, LyricSheet sheet) {

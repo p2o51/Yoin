@@ -47,11 +47,13 @@ final class AppleMusicSource implements MusicSource {
   AppleMusicSource._(this._api) {
     _library = _AppleMusicLibrary(this);
     _playback = _AppleMusicPlayback(this);
+    _metadata = _AppleMusicMetadata(this);
   }
 
   final AppleMusicApi _api;
   late final _AppleMusicLibrary _library;
   late final _AppleMusicPlayback _playback;
+  late final _AppleMusicMetadata _metadata;
 
   Future<AppleMusicStorefront>? _storefront;
 
@@ -81,7 +83,7 @@ final class AppleMusicSource implements MusicSource {
   @override
   MusicLibrary get library => _library;
   @override
-  MusicMetadata get metadata => const _AppleMusicMetadata();
+  MusicMetadata get metadata => _metadata;
   @override
   MusicWriteActions get writeActions => _AppleMusicWriteActions(_api);
   @override
@@ -610,11 +612,51 @@ final class _AppleMusicLibrary implements MusicLibrary {
 }
 
 final class _AppleMusicMetadata implements MusicMetadata {
-  const _AppleMusicMetadata();
+  _AppleMusicMetadata(this._s);
+  final AppleMusicSource _s;
+
+  /// Catalog id → its English names (null: the same as shown, or none); misses are kept too.
+  final _names = <String, TrackNames?>{};
+  static const _namesMemory = 256;
+  static const _english = 'en-US';
 
   /// Apple serves no lyrics to third-party apps (Android returns none).
   @override
   Future<Lyrics?> getLyrics(Track track) async => null;
+
+  /// A storefront whose own language isn't English names songs in it (on
+  /// Japan's, Kim Petras is キム・ペトラス). Its catalog answers in English when
+  /// asked with `l=en-US` (one of the languages it lists), which is what lyrics
+  /// sources index for songs released in English (Android
+  /// AppleMusicSource.alternateNames; HarmonyOS has no name-region setting).
+  /// Catalog songs only.
+  @override
+  Future<TrackNames?> alternateNames(Track track) async {
+    if (track.id.provider != MediaId.providerAppleMusic) return null;
+    final catalogId = track.id.rawId;
+    if (catalogId.isEmpty || !RegExp(r'^[0-9]+$').hasMatch(catalogId)) return null;
+    if (_names.containsKey(catalogId)) return _names[catalogId];
+    final shop = await _s._storefrontDetails();
+    if (!shop.languages.contains(_english)) return null;
+    // An English storefront's names are English already.
+    if (shop.defaultLanguage?.startsWith('en') ?? false) return null;
+    final page = await _s._api.resourcePage(
+      ['v1', 'catalog', shop.id, 'songs', catalogId],
+      personal: false,
+      query: const {'l': _english},
+    );
+    final data = page['data'];
+    final first = data is List && data.isNotEmpty ? data.first : null;
+    final attrs = first is Map ? first['attributes'] : null;
+    final title = attrs is Map && attrs['name'] is String ? (attrs['name'] as String).trim() : '';
+    final artist = attrs is Map && attrs['artistName'] is String ? (attrs['artistName'] as String).trim() : '';
+    final names = title.isNotEmpty && artist.isNotEmpty ? TrackNames(title: title, artist: artist) : null;
+    _names[catalogId] = names;
+    while (_names.length > _namesMemory) {
+      _names.remove(_names.keys.first);
+    }
+    return names;
+  }
 }
 
 final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistWrites {

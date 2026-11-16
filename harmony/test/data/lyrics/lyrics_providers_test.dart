@@ -8,9 +8,7 @@ import 'package:yoin/data/lyrics/lrclib_provider.dart';
 import 'package:yoin/data/lyrics/lyric_provider.dart';
 import 'package:yoin/data/lyrics/lyrics_search.dart';
 import 'package:yoin/data/lyrics/netease_provider.dart';
-import 'package:yoin/data/lyrics/user_lyrics_store.dart';
 import 'package:yoin/data/model/model.dart';
-import 'package:yoin/platform/storage/stores.dart';
 
 http.Response _json(Object body, {int status = 200}) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status, headers: {'content-type': 'application/json'});
@@ -156,16 +154,6 @@ void main() {
       expect(await search.fetch('qq', '1'), isNull);
     });
   });
-
-  test('should_roundTripUserLyrics_when_stored', () async {
-    final store = UserLyricsStore(InMemoryStore());
-    expect(await store.read('subsonic:1'), isNull);
-    await store.write('subsonic:1', const UserLyrics(lrc: '[00:01.00]x', provider: 'lrclib', providerSongId: '9'));
-    final back = await store.read('subsonic:1');
-    expect(back?.lrc, '[00:01.00]x');
-    expect(back?.provider, 'lrclib');
-    expect(back?.providerSongId, '9');
-  });
 }
 
 class _FakeProvider extends LyricProvider {
@@ -186,6 +174,9 @@ class _FakeProvider extends LyricProvider {
     lastLimit = limit;
     return matches;
   }
+
+  @override
+  Future<SongMatch?> search(String title, String artist, {int? durationMs}) async => matches.firstOrNull;
 
   @override
   Future<String?> fetchLyric(String songId) async => lyric;

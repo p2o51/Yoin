@@ -10,6 +10,8 @@ import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
+import 'package:yoin/home/home_metrics.dart' show HomeSeamMetrics;
+import 'package:yoin/home/widgets/seam.dart' show SeamFade;
 import 'package:yoin/detail/detail_page.dart' show DetailBackButton;
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/license_packages.dart';
@@ -143,6 +145,9 @@ void main() {
   group('licenses pane', () {
     testWidgets('should_clipPageToPanelCorners_when_licensesInPane', (tester) async {
       await pump(tester, const Size(1280, 900));
+      // Features and Sync and storage push Help and about below the fold.
+      await tester.ensureVisible(find.text('Open source licenses'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Open source licenses'));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
@@ -209,10 +214,10 @@ void main() {
       expect(SettingsSeam.reveal(400), 1);
     });
 
-    testWidgets('should_maskContentUnderBar_when_accountPageScrolled', (tester) async {
+    testWidgets('should_drawTideAndFadeText_when_accountPageScrolled', (tester) async {
       await tester.runAsync(() => ProfileRepository(store, store)
           .add(provider: MediaId.providerSubsonic, displayName: 'ann @ home.test', credentials: _home));
-      await pump(tester, const Size(400, 800));
+      await pump(tester, const Size(400, 420));
       await tester.tap(find.text('ann'));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
@@ -228,11 +233,28 @@ void main() {
       }
 
       expect(find.descendant(of: page, matching: find.byType(SettingsSeam)), findsOneWidget);
+      final tide = find.descendant(
+        of: page,
+        matching: find.byWidgetPredicate((w) => w is CustomPaint && w.foregroundPainter is SettingsTidePainter),
+      );
+      final painter = tester.widget<CustomPaint>(tide).foregroundPainter! as SettingsTidePainter;
+      void paintTide(Canvas canvas) => painter.paint(canvas, const Size(400, 600));
+      expect(painter.flow.reveal, 0);
       expect(masks(), isEmpty, reason: 'nothing masked at rest');
-      final list = find.descendant(of: page, matching: find.byType(ListView));
-      await tester.drag(list, const Offset(0, -200));
+      expect(paintTide, isNot(paints..path()), reason: 'no tide at rest');
+
+      // Scroll so a text sits just under the water line: it fades (seamFade), and the tide is drawn.
+      final seamTop = tester.getTopLeft(find.descendant(of: page, matching: find.byType(SettingsSeam))).dy;
+      final position = tester.state<ScrollableState>(find.descendant(of: page, matching: find.byType(Scrollable)).first).position;
+      final reach = [
+        for (final e in find.descendant(of: page, matching: find.byType(SeamFade)).evaluate())
+          tester.getTopLeft(find.byWidget(e.widget)).dy - seamTop - settingsTideTextSeam(1) - 1,
+      ].firstWhere((d) => d > HomeSeamMetrics.revealDistance && d <= position.maxScrollExtent);
+      position.jumpTo(reach);
       await tester.pumpAndSettle();
-      expect(masks(), isNotEmpty, reason: 'scrolled content dissolves under the bar');
+      expect(painter.flow.reveal, greaterThan(0));
+      expect(paintTide, paints..path()..path(), reason: 'two waves, the back one half clear');
+      expect(masks(), isNotEmpty, reason: 'text under the line fades in the item');
       expect(tester.takeException(), isNull);
     });
   });

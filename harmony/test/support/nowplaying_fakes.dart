@@ -114,6 +114,12 @@ class NowPlayingFakeSource extends FakeMusicSource implements MusicMetadata {
   @override
   MusicMetadata get metadata => this;
 
+  /// Names the fallback may retry under, by raw id.
+  final Map<String, TrackNames> alternate = {};
+
+  @override
+  Future<TrackNames?> alternateNames(Track track) async => alternate[track.id.rawId];
+
   @override
   Future<Lyrics?> getLyrics(Track track) async {
     lyricRequests.add(track.id.rawId);

@@ -1,10 +1,14 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../detail/detail_page.dart';
+import '../home/home_metrics.dart' show HomeSeamMetrics;
+import '../home/widgets/seam.dart';
 import '../theme/motion.dart';
 import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
+import 'settings_colors.dart';
 import 'settings_metrics.dart';
 
 // Shared building blocks for Settings and its service setup page
@@ -43,7 +47,10 @@ class SettingsGroupLabel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.labelInset),
       child: Semantics(
         header: true,
-        child: Text(title, style: theme.textTheme.labelLarge!.copyWith(color: theme.colorScheme.primary)),
+        child: SeamFade(
+          fontSize: theme.textTheme.labelLarge!.fontSize ?? 14,
+          child: Text(title, style: theme.textTheme.labelLarge!.copyWith(color: theme.colorScheme.primary)),
+        ),
       ),
     );
   }
@@ -72,9 +79,10 @@ class SettingsHeadline extends StatelessWidget {
           children: [
             Semantics(
               header: true,
-              child: Text(
-                title,
-                style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
+              // Display type fades over 0.75 × its size, so it fades instead of looking sliced.
+              child: SeamFade(
+                fontSize: theme.textTheme.displaySmall!.fontSize ?? 36,
+                child: Text(title, style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface)),
               ),
             ),
             ?lead,
@@ -86,83 +94,170 @@ class SettingsHeadline extends StatelessWidget {
 }
 
 /// The seam under Settings' bar (Android seamDissolveViewport(top =
-/// SeamTop.Chrome)): content scrolled up toward the bar dissolves into the
-/// page over a band below it instead of being cut off under the back button.
-/// At rest (no scroll) nothing is masked; the band grows in over the first
-/// [SettingsMetrics.seamRevealDistance] of scroll. Repaints from [controller].
-class SettingsSeam extends StatelessWidget {
+/// SeamTop.Chrome) in its default tide-line style; memory "Seam dissolve"):
+/// scrolled content goes under a two-wave water line just below the bar —
+/// the back wave half clear — instead of being cut straight under the back
+/// button, and text below the line fades out over max(10dp, 0.75 × its size)
+/// on the 1 − (1 − t)² curve ([SeamFade] on the rows' text: the mask lives
+/// in the item). At rest nothing is cut; the line comes down from above the
+/// edge over the first [HomeSeamMetrics.revealDistance] of scroll. The
+/// waves' phase follows the scroll and its afterglow, their height the
+/// scroll speed (one [SeamFlow], as Home's status-bar tide); at rest the line
+/// holds still.
+///
+/// Android cuts the content with the waves as a mask; Settings' page is one
+/// flat colour (the Scaffold's), so the waves are painted in it over the
+/// content — the same pixels, without a layer that would have to hold the
+/// scrolling list.
+class SettingsSeam extends StatefulWidget {
   const SettingsSeam({super.key, required this.controller, required this.child});
 
   final ScrollController controller;
   final Widget child;
 
-  /// 0 at rest .. 1 once scrolled [SettingsMetrics.seamRevealDistance].
-  static double reveal(double offset) => (offset / SettingsMetrics.seamRevealDistance).clamp(0.0, 1.0);
+  /// 0 at rest .. 1 once scrolled the reveal distance.
+  static double reveal(double offset) => seamReveal(offset);
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
-    child: child,
-    // Always the same tree (the mask only skips its layer at rest): swapping
-    // a ShaderMask in would remount the scroll view and lose its position.
-    builder: (context, child) {
-      // A push transition can briefly attach the page twice: read the last.
-      final r = controller.hasClients ? reveal(controller.positions.last.pixels) : 0.0;
-      return _SeamMask(band: SettingsMetrics.seamBand * r, child: child);
-    },
-  );
+  State<SettingsSeam> createState() => _SettingsSeamState();
 }
 
-class _SeamMask extends SingleChildRenderObjectWidget {
-  const _SeamMask({required this.band, super.child});
-
-  final double band;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) => _RenderSeamMask(band);
+class _SettingsSeamState extends State<SettingsSeam> with SingleTickerProviderStateMixin {
+  late final SeamFlow _flow = SeamFlow(vsync: this);
+  final _box = GlobalKey();
+  double _top = 0;
 
   @override
-  void updateRenderObject(BuildContext context, _RenderSeamMask renderObject) => renderObject.band = band;
-}
-
-/// Masks the top [band] of its child from clear to whole; paints plainly
-/// (no layer) while the band is empty.
-class _RenderSeamMask extends RenderProxyBox {
-  _RenderSeamMask(this._band);
-
-  double _band;
-  set band(double value) {
-    if (value == _band) return;
-    _band = value;
-    markNeedsPaint();
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
   }
 
   @override
-  bool get alwaysNeedsCompositing => child != null && _band > 0;
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    final child = this.child;
-    if (child == null) return;
-    if (_band <= 0) {
-      layer = null;
-      context.paintChild(child, offset);
-      return;
+  void didUpdateWidget(SettingsSeam oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onScroll);
+      widget.controller.addListener(_onScroll);
     }
-    final bounds = Offset.zero & size;
-    final shader = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      stops: [0, (_band / size.height.clamp(1.0, double.infinity)).clamp(0.0, 1.0)],
-      colors: const [Color(0x00000000), Color(0xFF000000)],
-    ).createShader(bounds);
-    final mask = (layer as ShaderMaskLayer?) ?? ShaderMaskLayer();
-    mask
-      ..shader = shader
-      ..maskRect = offset & size
-      ..blendMode = BlendMode.dstIn;
-    layer = context.pushLayer(mask, (ctx, o) => ctx.paintChild(child, o), offset) as ShaderMaskLayer?;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _flow.reduced = MediaQuery.disableAnimationsOf(context);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    _flow.dispose();
+    super.dispose();
+  }
+
+  // A push transition can briefly attach the page twice: read the last.
+  void _onScroll() {
+    if (widget.controller.hasClients) _flow.onScroll(widget.controller.positions.last.pixels);
+  }
+
+  /// Where the viewport starts on screen, for the text under the line ([SeamScope.lineY]).
+  void _measure() {
+    final box = _box.currentContext?.findRenderObject();
+    if (!mounted || box is! RenderBox || !box.hasSize) return;
+    final top = box.localToGlobal(Offset.zero).dy;
+    if ((top - _top).abs() >= 0.5) setState(() => _top = top);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = Scaffold.maybeOf(context)?.widget.backgroundColor ?? settingsPageColor(Theme.of(context).colorScheme);
+    return SeamScope(
+      flow: _flow,
+      // Text fades below the line's rest: a crest under the edge (tideTextSeamPx at full reveal).
+      lineY: _top + settingsTideTextSeam(1),
+      child: CustomPaint(
+        key: _box,
+        foregroundPainter: SettingsTidePainter(flow: _flow, color: page),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// The front line's rest under fixed chrome: a crest below the edge, so no
+/// crest is cut straight by it (SeamViewportNode's restPx with inset 0).
+double settingsTideRest(double amplitude) => HomeSeamMetrics.tideRest + amplitude * (1 + HomeSeamMetrics.tideHarmonic);
+
+/// How far the back wave reaches below the front line's base (tideDepthPx).
+double settingsTideDepth(double amplitude) =>
+    HomeSeamMetrics.tideBackDrop + amplitude * HomeSeamMetrics.tideBackAmplitude * (1 + HomeSeamMetrics.tideHarmonic);
+
+/// The front line's base at [reveal]: its rest once revealed, high enough above the edge before
+/// that not even the back wave reaches in (reveal 0 = nothing covered; the first pixel adds none).
+double settingsTideBase(double reveal, double amplitude) {
+  final hidden = math.max(HomeSeamMetrics.tideHidden, settingsTideDepth(amplitude) + 1);
+  return settingsTideRest(amplitude) * reveal - hidden * (1 - reveal);
+}
+
+/// Where text starts to fade, below the viewport's top (tideTextSeamPx): never above it.
+double settingsTideTextSeam(double reveal) => math.max(0, settingsTideBase(reveal, HomeSeamMetrics.tideAmplitude));
+
+/// The chrome tide over the scrolling page: two waves of the page colour
+/// from above the viewport down to the line, the back one at
+/// [HomeSeamMetrics.tideBackAlpha]. Kept inside the viewport (the bar's
+/// title sits right above it). Nothing at rest.
+class SettingsTidePainter extends CustomPainter {
+  SettingsTidePainter({required this.flow, required this.color}) : super(repaint: flow);
+
+  final SeamFlow flow;
+  final Color color;
+  final Path _wave = Path();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final reveal = flow.reveal;
+    if (reveal <= 0) return;
+    final amplitude =
+        HomeSeamMetrics.tideAmplitude + HomeSeamMetrics.tideAmplitudeStretched * (flow.reduced ? 0 : flow.stretch);
+    final base = settingsTideBase(reveal, amplitude);
+    if (base + settingsTideDepth(amplitude) <= 0) return;
+    final phase = flow.reduced ? 0.0 : (flow.travelPx + flow.lagPx) / HomeSeamMetrics.tidePhaseTravel;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    _setWave(
+      size.width,
+      base + HomeSeamMetrics.tideBackDrop,
+      amplitude * HomeSeamMetrics.tideBackAmplitude,
+      HomeSeamMetrics.tideBackWavelength,
+      0.37 - phase * 0.7,
+    );
+    canvas.drawPath(_wave, Paint()..color = color.withValues(alpha: color.a * HomeSeamMetrics.tideBackAlpha));
+    _setWave(size.width, base, amplitude, HomeSeamMetrics.tideFrontWavelength, phase);
+    canvas.drawPath(_wave, Paint()..color = color);
+    canvas.restore();
+  }
+
+  /// Closes [_wave] from above the top edge down to the wave line.
+  void _setWave(double width, double base, double amplitude, double wavelength, double phase) {
+    const margin = HomeSeamMetrics.tideMargin;
+    _wave
+      ..reset()
+      ..moveTo(-margin, -margin);
+    var x = -margin;
+    while (true) {
+      _wave.lineTo(x, tideWaveY(x: x, base: base, amplitude: amplitude, wavelength: wavelength, phase: phase));
+      if (x >= width + margin) break;
+      x = math.min(x + HomeSeamMetrics.tideStep, width + margin);
+    }
+    _wave
+      ..lineTo(width + margin, -margin)
+      ..close();
+  }
+
+  @override
+  bool shouldRepaint(SettingsTidePainter old) => old.flow != flow || old.color != color;
 }
 
 /// Settings' bar: transparent, Pixel's back (the arrow on a tonal circle, its

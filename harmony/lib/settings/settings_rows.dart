@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../home/widgets/seam.dart' show SeamFade;
 import '../theme/motion.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
@@ -153,6 +154,7 @@ class SettingsItem extends StatelessWidget {
     this.leading,
     this.summary,
     this.summaryDetail,
+    this.summaryContent,
     this.onTap,
     this.trailing,
     this.semanticsRadio = false,
@@ -165,6 +167,9 @@ class SettingsItem extends StatelessWidget {
   final Widget? leading;
   final String? summary;
   final String? summaryDetail;
+
+  /// A summary that isn't plain text (the AI row's service and tier, a MetaLine).
+  final Widget? summaryContent;
   final VoidCallback? onTap;
   final Widget? trailing;
 
@@ -192,13 +197,27 @@ class SettingsItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(title, style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface)),
+                  // Text fades into Settings' tide line (seamFade); the row's surface goes under it.
+                  SeamFade(
+                    fontSize: theme.textTheme.titleMedium!.fontSize ?? 16,
+                    child: Text(title, style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface)),
+                  ),
                   if (summary != null) ...[
                     const SizedBox(height: SettingsMetrics.rowTextGap),
-                    Text(summary!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    SeamFade(
+                      fontSize: secondary.fontSize ?? 14,
+                      child: Text(summary!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                   if (summaryDetail != null)
-                    Text(summaryDetail!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    SeamFade(
+                      fontSize: secondary.fontSize ?? 14,
+                      child: Text(summaryDetail!, style: secondary, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
+                  if (summaryContent != null) ...[
+                    const SizedBox(height: SettingsMetrics.rowTextGap),
+                    SeamFade(fontSize: secondary.fontSize ?? 14, child: summaryContent!),
+                  ],
                 ],
               ),
             ),

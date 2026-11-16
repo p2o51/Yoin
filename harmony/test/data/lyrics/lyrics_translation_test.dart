@@ -4,20 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:yoin/data/lyrics/lrc_parser.dart';
-import 'package:yoin/data/lyrics/lyric_provider.dart';
 import 'package:yoin/data/lyrics/lyrics_translation.dart';
 import 'package:yoin/data/lyrics/netease_provider.dart';
-import 'package:yoin/platform/storage/stores.dart';
 
 http.Response _json(Object body) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), 200, headers: {'content-type': 'application/json'});
-
-NetEaseCandidate _cand(String id, String title, List<String> artists, {int? durationMs}) => NetEaseCandidate(
-  match: SongMatch(songId: id, title: title, artist: artists.isEmpty ? '' : artists.first),
-  title: title,
-  artists: artists,
-  durationMs: durationMs,
-);
 
 void main() {
   group('buildProviderTranslations', () {
@@ -85,46 +76,6 @@ void main() {
     });
   });
 
-  group('pickNetEaseCandidate', () {
-    test('should_pickTitleAndArtist_when_coverListedFirst', () {
-      final c = [
-        _cand('1', 'Viva La Vida', ['Someone Else']),
-        _cand('2', 'Viva La Vida', ['Coldplay']),
-      ];
-      expect(pickNetEaseCandidate(c, 'Viva La Vida', 'Coldplay', null), 1);
-    });
-
-    test('should_preferOriginalAndLength_when_versionsShare', () {
-      final c = [
-        _cand('1', 'Yellow (Live)', ['Coldplay'], durationMs: 300000),
-        _cand('2', 'Yellow', ['Coldplay'], durationMs: 200000),
-        _cand('3', 'Yellow', ['Coldplay'], durationMs: 266000),
-      ];
-      expect(pickNetEaseCandidate(c, 'Yellow', 'Coldplay', 266500), 2);
-    });
-
-    test('should_returnNull_when_titleDiffers', () {
-      expect(
-        pickNetEaseCandidate(
-          [
-            _cand('1', 'Clocks', ['Coldplay']),
-          ],
-          'Yellow',
-          'Coldplay',
-          null,
-        ),
-        isNull,
-      );
-    });
-
-    test('should_matchOneOfSeveralArtists_when_credited', () {
-      final c = [
-        _cand('1', 'Unholy', ['Sam Smith', 'Kim Petras']),
-      ];
-      expect(pickNetEaseCandidate(c, 'Unholy', 'Sam Smith & Kim Petras', null), 0);
-    });
-  });
-
   test('should_detectChineseLyrics_when_mostlyHan', () {
     expect(lyricsAppearMostlyChinese(['大千世界曾由我主宰', '巨浪也曾因我之命澎湃']), isTrue);
     expect(lyricsAppearMostlyChinese(['I used to rule the world', 'Seas would rise']), isFalse);
@@ -186,12 +137,5 @@ void main() {
       expect(map, {0: '大千世界曾由我主宰'});
       expect(asked, ['/lyric/new']);
     });
-  });
-
-  test('should_keepTranslationOnlyForSameLines_when_stored', () async {
-    final store = LyricsTranslationStore(InMemoryStore());
-    await store.write('s', ['a', 'b'], {1: '乙'});
-    expect(await store.read('s', ['a', 'b']), {1: '乙'});
-    expect(await store.read('s', ['a', 'c']), isNull, reason: 'new lyrics never pick up an old translation');
   });
 }

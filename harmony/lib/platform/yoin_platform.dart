@@ -30,6 +30,7 @@ final class YoinPlatform {
   const YoinPlatform({
     required this.host,
     required this.keyValueStore,
+    required this.cacheStore,
     required this.secretStore,
     required this.playbackEngine,
     required this.appleMusicAuth,
@@ -47,6 +48,11 @@ final class YoinPlatform {
 
   /// Plain settings and app data (OHOS Preferences; Windows a JSON file).
   final KeyValueStore keyValueStore;
+
+  /// Re-fetchable caches (lyrics and their translations, ~10 MiB) apart from
+  /// the settings, so neither store's writes rewrite the other (OHOS a second
+  /// Preferences file; Windows `cache.json`).
+  final KeyValueStore cacheStore;
 
   /// Account credentials (OHOS Asset Store Kit; Windows DPAPI later).
   final SecretStore secretStore;
@@ -86,6 +92,7 @@ final class YoinPlatform {
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
     keyValueStore: const ChannelKeyValueStore(),
+    cacheStore: const ChannelKeyValueStore(file: ChannelKeyValueStore.cacheFile),
     secretStore: const ChannelSecretStore(),
     playbackEngine: ChannelPlaybackEngine(),
     appleMusicAuth: const ChannelAppleMusicAuth(),
@@ -105,6 +112,7 @@ final class YoinPlatform {
   static YoinPlatform _desktop(Directory folder) => YoinPlatform(
     host: YoinHost.windows,
     keyValueStore: FileKeyValueStore(folder),
+    cacheStore: FileKeyValueStore(folder, fileName: 'cache.json'),
     secretStore: SessionSecretStore(),
     playbackEngine: const UnsupportedPlaybackEngine(),
     appleMusicAuth: const UnsupportedAppleMusicAuth(),

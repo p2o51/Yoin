@@ -94,13 +94,14 @@ final class LyricToolsActions {
     hasLyrics: false,
     hasSyncedLyrics: false,
     busy: false,
-    onSearch: _noop,
+    onSearch: _noopFrom,
     onEdit: _noop,
     onCopy: _noop,
     onShare: _noop,
   );
 
   static void _noop() {}
+  static void _noopFrom(Rect? from) {}
 
   final bool hasLyrics;
   final bool hasSyncedLyrics;
@@ -108,11 +109,13 @@ final class LyricToolsActions {
   /// A lyrics action (search apply, editor apply) is running: the keys wait.
   final bool busy;
 
-  /// NetEase's translation is being fetched: the Translate key stays lit (taps wait).
+  /// A translation is being looked up: the Translate key stays lit (taps wait).
   final bool translating;
-  final VoidCallback onSearch;
 
-  /// Translate: NetEase's own translation, or show / hide the layer once it's there.
+  /// Search, with the key's global rect: the search surface grows out of it.
+  final void Function(Rect? from) onSearch;
+
+  /// Translate: a translation looked up (the lyrics' source, a switch, Gemini), or the layer shown / hidden.
   final VoidCallback onTranslate;
 
   /// The LRC editor (the ✓ with no lines yet, and select mode's Edit).
@@ -335,8 +338,8 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
 }
 
 /// The lyric tools (LyricsActionBar): Search, Translate, ✓ Select,
-/// Recenter. Translate uses NetEase's own translations (owner 2026-11-15);
-/// it stays lit while its translation runs and ignores taps until it ends.
+/// Recenter. Translate stays lit while its translation runs and ignores
+/// taps until it ends.
 class LyricsActionBar extends StatelessWidget {
   const LyricsActionBar({
     super.key,
@@ -358,7 +361,9 @@ class LyricsActionBar extends StatelessWidget {
   final VoidCallback? onTranslate;
   final bool canSelect;
   final bool canRecenter;
-  final VoidCallback onSearch;
+
+  /// Search, with the key's global rect (the surface grows out of the key).
+  final void Function(Rect? from) onSearch;
   final VoidCallback onSelect;
   final VoidCallback onRecenter;
   final double iconSize;
@@ -374,7 +379,8 @@ class LyricsActionBar extends StatelessWidget {
           icon: YoinSymbols.search,
           label: strings.cdSearchLyrics,
           enabled: !busy,
-          onTap: onSearch,
+          onTap: () => onSearch(null),
+          onTapFrom: onSearch,
         ),
         LyricsKey(
           key: const ValueKey('lyrics-tool-translate'),
@@ -473,6 +479,7 @@ class LyricsKey {
     required this.label,
     required this.enabled,
     required this.onTap,
+    this.onTapFrom,
     this.emphasized = false,
   });
 
@@ -481,6 +488,9 @@ class LyricsKey {
   final String label;
   final bool enabled;
   final VoidCallback onTap;
+
+  /// Instead of [onTap] when set: the tap with the key's global rect (a surface that grows out of it).
+  final void Function(Rect from)? onTapFrom;
 
   /// The key that leaves a mode reads stronger than the actions beside it.
   final bool emphasized;
@@ -588,9 +598,21 @@ class _LyricsKeyButton extends StatelessWidget {
         color: container,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(size * LyricToolsMetrics.cornerShare)),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: spec.enabled ? spec.onTap : null,
-          child: Center(child: Icon(spec.icon, color: content, size: 24)),
+        child: Builder(
+          builder: (context) => InkWell(
+            onTap: !spec.enabled
+                ? null
+                : () {
+                    final from = spec.onTapFrom;
+                    final box = context.findRenderObject();
+                    if (from != null && box is RenderBox && box.hasSize) {
+                      from(box.localToGlobal(Offset.zero) & box.size);
+                    } else {
+                      spec.onTap();
+                    }
+                  },
+            child: Center(child: Icon(spec.icon, color: content, size: 24)),
+          ),
         ),
       ),
     );

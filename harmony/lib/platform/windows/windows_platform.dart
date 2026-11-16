@@ -39,11 +39,12 @@ Directory desktopAppDataDirectory({Map<String, String>? environment, bool? windo
   return Directory(join(Directory.systemTemp.path, 'yoin'));
 }
 
-/// [KeyValueStore] in one JSON file (`prefs.json`): read once, then every
-/// write goes through a queue that replaces the file atomically (temp file +
-/// rename), so a crash mid-write never leaves half a file.
+/// [KeyValueStore] in one JSON file ([fileName], `prefs.json` by default):
+/// read once, then every write goes through a queue that replaces the file
+/// atomically (temp file + rename), so a crash mid-write never leaves half a file.
 final class FileKeyValueStore implements KeyValueStore {
-  FileKeyValueStore(Directory directory) : _file = File('${directory.path}${Platform.pathSeparator}prefs.json');
+  FileKeyValueStore(Directory directory, {String fileName = 'prefs.json'})
+    : _file = File('${directory.path}${Platform.pathSeparator}$fileName');
 
   final File _file;
   Map<String, String>? _values;
@@ -132,8 +133,12 @@ final class UnsupportedPlaybackEngine implements QueuePlaybackEngine {
   Stream<EngineEvent> get events => const Stream.empty();
 
   @override
-  Future<void> setQueue(List<EngineItem> items, {int startIndex = 0, int startPositionMs = 0, bool playWhenReady = true}) async =>
-      _unsupported();
+  Future<void> setQueue(
+    List<EngineItem> items, {
+    int startIndex = 0,
+    int startPositionMs = 0,
+    bool playWhenReady = true,
+  }) async => _unsupported();
 
   @override
   Future<void> startQueue(

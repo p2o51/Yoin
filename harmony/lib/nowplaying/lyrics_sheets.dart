@@ -1,13 +1,18 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/lyrics/lrc_parser.dart';
 import '../data/lyrics/lyric_provider.dart';
 import '../data/lyrics/lyrics_search.dart';
-import '../data/lyrics/user_lyrics_store.dart';
+import '../data/lyrics/lyrics_cache.dart';
+import '../data/lyrics/lyrics_repository.dart';
 import '../theme/motion.dart';
 import '../ui/component/yoin_dialog.dart';
+import 'lyric_tools.dart' show LyricToolsMetrics;
 import 'lyrics_logic.dart';
 import 'nowplaying_strings.dart';
 
@@ -24,32 +29,144 @@ String lyricsSearchSeed(String? title, String? artist) =>
 /// One provider's rows in the search surface.
 @immutable
 final class _Section {
-  const _Section(this.providerName, this.matches, {this.loading = false});
+  const _Section(this.providerName, this.matches, {this.loading = false, this.error});
 
   final String providerName;
   final List<SongMatch> matches;
   final bool loading;
+
+  /// The provider couldn't answer (shown in the error colour, LyricsProviderStatusRow error).
+  final String? error;
 }
 
-/// Opens the lyrics search over the player (Android LyricsSearchSheet, the
-/// full-screen search surface): seeded with "title artist" and searched at
-/// once, every provider in its own section; a result applies its lyrics
-/// through [onApply] (false keeps the surface open with the error).
+/// Opens the lyrics search over the player (Android LyricsSearchSheet on
+/// ExpandedFullScreenSearchBar): it grows out of the Search key at [from]
+/// (global; null = rises in place) into the full surface, seeded with
+/// "title artist" and searched at once, every provider in its own section. A
+/// result applies its lyrics through [onApply] (false keeps the surface open
+/// with the error). Its own route: the back arrow, a picked result and the
+/// system back all pop it, and it shrinks back into the key on the same spring.
 Future<void> showLyricsSearch(
   BuildContext navigatorContext, {
+  Rect? from,
   required String initialQuery,
   required Future<bool> Function(LyricsSearchHit hit) onApply,
-}) => Navigator.of(navigatorContext).push(
-  PageRouteBuilder<void>(
-    opaque: false,
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-    pageBuilder: (_, _, _) => LyricsSearchSurface(initialQuery: initialQuery, onApply: onApply),
-  ),
-);
+}) {
+  final navigator = Navigator.of(navigatorContext);
+  // The key's rect in the navigator's own space (the player may be a side panel).
+  final box = navigator.context.findRenderObject();
+  final local = from != null && box is RenderBox && box.hasSize
+      ? Rect.fromPoints(box.globalToLocal(from.topLeft), box.globalToLocal(from.bottomRight))
+      : null;
+  return navigator.push(
+    LyricsSearchRoute(
+      from: local,
+      builder: (_) => LyricsSearchSurface(initialQuery: initialQuery, onApply: onApply),
+    ),
+  );
+}
 
-/// The full-screen search surface; it rises in on the default spatial spring
-/// and fades on the effects spring, and leaves the same way.
+/// The search surface's route: one progress (the route's, on the standard
+/// spatial spring both ways) morphs the container from the key's rect and
+/// corner to the whole navigator, its colour from the key's to the search
+/// surface's, the content fading in over its last 80 %. Rounded edges are
+/// painted, never clipped (HarmonyOS draws black wedges under clipped
+/// corners); the content is clipped to the growing rect only.
+class LyricsSearchRoute extends PageRoute<void> {
+  LyricsSearchRoute({required this.from, required this.builder});
+
+  /// The key's rect in the navigator's space; null rises in place.
+  final Rect? from;
+  final WidgetBuilder builder;
+
+  @override
+  bool get opaque => false;
+  @override
+  bool get maintainState => true;
+  @override
+  Color? get barrierColor => null;
+  @override
+  String? get barrierLabel => null;
+
+  /// Unused while [createSimulation] drives the controller; kept positive for the framework's checks.
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 400);
+
+  @override
+  Simulation? createSimulation({required bool forward}) => SpringSimulation(
+    YoinSprings.standardDefaultSpatial,
+    controller?.value ?? (forward ? 0 : 1),
+    forward ? 1 : 0,
+    controller?.velocity ?? 0,
+    tolerance: const Tolerance(distance: 0.001, velocity: 0.01),
+  );
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) =>
+      Semantics(scopesRoute: true, explicitChildNodes: true, child: builder(context));
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final colors = Theme.of(context).colorScheme;
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final key = from;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final full = Offset.zero & constraints.biggest;
+        // No key to grow from: a sliver of the surface at its top, as Android's bar rises.
+        final start = key ?? Rect.fromLTWH(full.left, full.top + full.height / 12, full.width, full.height * 11 / 12);
+        final startCorner = key == null ? 0.0 : key.shortestSide * LyricToolsMetrics.cornerShare;
+        return AnimatedBuilder(
+          animation: animation,
+          child: child,
+          builder: (context, child) {
+            final t = reduce ? (animation.value > 0 ? 1.0 : 0.0) : animation.value;
+            final rect = Rect.lerp(start, full, t)!;
+            final radius = lerpDouble(startCorner, 0, t.clamp(0.0, 1.0))!;
+            final fill = Color.lerp(
+              key == null ? colors.surfaceContainerHigh : colors.primaryContainer,
+              colors.surfaceContainerHigh,
+              t.clamp(0.0, 1.0),
+            )!;
+            final content = reduce ? animation.value.clamp(0.0, 1.0) : ((t - 0.2) / 0.8).clamp(0.0, 1.0);
+            return Stack(
+              children: [
+                Positioned.fromRect(
+                  rect: rect,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(radius)),
+                    child: ClipRect(
+                      child: Opacity(
+                        opacity: content,
+                        child: OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: full.width,
+                          maxWidth: full.width,
+                          minHeight: full.height,
+                          maxHeight: full.height,
+                          // The content stays put on the screen; only the window onto it grows.
+                          child: Transform.translate(offset: full.topLeft - rect.topLeft, child: child),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// The full-screen search surface: the field (back arrow, query, clear /
+/// progress) and the providers' sections. Its route draws the container.
 class LyricsSearchSurface extends ConsumerStatefulWidget {
   const LyricsSearchSurface({super.key, required this.initialQuery, required this.onApply});
 
@@ -60,10 +177,8 @@ class LyricsSearchSurface extends ConsumerStatefulWidget {
   ConsumerState<LyricsSearchSurface> createState() => _LyricsSearchSurfaceState();
 }
 
-class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with TickerProviderStateMixin {
+class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> {
   late final TextEditingController _field = TextEditingController(text: widget.initialQuery);
-  late final SpringValue _rise = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
-  late final SpringValue _fade = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
   List<_Section> _sections = const [];
   bool _loading = false;
   String? _error;
@@ -75,24 +190,12 @@ class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with 
   void initState() {
     super.initState();
     _field.addListener(() => setState(() {}));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _rise.snapTo(1);
-        _fade.snapTo(1);
-      } else {
-        _rise.animateTo(1);
-        _fade.animateTo(1);
-      }
-    });
     _search(widget.initialQuery);
   }
 
   @override
   void dispose() {
     _field.dispose();
-    _rise.dispose();
-    _fade.dispose();
     super.dispose();
   }
 
@@ -119,7 +222,7 @@ class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with 
       if (!mounted || generation != _generation) return;
       setState(() {
         _loading = false;
-        _sections = [for (final s in sections) _Section(s.providerName, s.matches)];
+        _sections = [for (final s in sections) _Section(s.providerName, s.matches, error: s.errorMessage)];
       });
     } catch (_) {
       if (!mounted || generation != _generation) return;
@@ -151,24 +254,11 @@ class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with 
     }
   }
 
+  /// The back arrow and an applied result: the route pops and shrinks back into the key.
   void _close() {
     if (_leaving) return;
     _leaving = true;
-    final nav = Navigator.of(context);
-    if (MediaQuery.disableAnimationsOf(context)) {
-      nav.pop();
-      return;
-    }
-    _rise.animateTo(0);
-    _fade.animateTo(0);
-    void done(AnimationStatus status) {
-      if (_fade.value <= 0.02 && mounted && nav.canPop()) {
-        _fade.animation.removeStatusListener(done);
-        nav.pop();
-      }
-    }
-
-    _fade.animation.addStatusListener(done);
+    Navigator.of(context).maybePop();
   }
 
   @override
@@ -237,7 +327,9 @@ class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with 
             style: text.labelMedium!.copyWith(color: colors.primary, fontWeight: FontWeight.w600),
           ),
         ),
-        if (_sections[i].loading)
+        if (_sections[i].error != null)
+          _StatusRow(text: _sections[i].error!, error: true)
+        else if (_sections[i].loading)
           _StatusRow(text: strings.lyricsSearching, loading: true)
         else if (_sections[i].matches.isEmpty)
           _StatusRow(text: strings.lyricsNoResults)
@@ -253,36 +345,27 @@ class _LyricsSearchSurfaceState extends ConsumerState<LyricsSearchSurface> with 
         if (i != _sections.length - 1) Container(height: 1, color: colors.outlineVariant.withValues(alpha: 0.4)),
       ],
     ];
-    return AnimatedBuilder(
-      animation: Listenable.merge([_rise.animation, _fade.animation]),
-      builder: (context, child) => Opacity(
-        opacity: _fade.value.clamp(0.0, 1.0),
-        child: Transform.translate(
-          offset: Offset(0, (1 - _rise.value) * MediaQuery.sizeOf(context).height / 12),
-          child: child,
-        ),
-      ),
-      child: Material(
-        color: colors.surfaceContainerHigh,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            field,
-            Expanded(
-              child: ListView(padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + padding.bottom), children: items),
-            ),
-          ],
-        ),
+    return Material(
+      type: MaterialType.transparency,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          field,
+          Expanded(
+            child: ListView(padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + padding.bottom), children: items),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _StatusRow extends StatelessWidget {
-  const _StatusRow({required this.text, this.loading = false});
+  const _StatusRow({required this.text, this.loading = false, this.error = false});
 
   final String text;
   final bool loading;
+  final bool error;
 
   @override
   Widget build(BuildContext context) {
@@ -296,7 +379,12 @@ class _StatusRow extends StatelessWidget {
             const SizedBox(width: 10),
           ],
           Flexible(
-            child: Text(text, style: Theme.of(context).textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant)),
+            child: Text(
+              text,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium!.copyWith(color: error ? colors.error : colors.onSurfaceVariant),
+            ),
           ),
         ],
       ),
@@ -425,6 +513,6 @@ class _LyricsEditorDialogState extends State<LyricsEditorDialog> {
   }
 }
 
-/// [UserLyrics] provider ids → the snackbar after an apply.
+/// Applied lyrics' provider ids → the snackbar after an apply.
 String lyricsAppliedMessage(NowPlayingStrings strings, String provider) =>
-    provider == UserLyrics.manualProvider ? strings.msgLyricsApplied : strings.msgLyricsAppliedFrom(provider);
+    provider == LyricsCachePolicy.manualProvider ? strings.msgLyricsApplied : strings.msgLyricsAppliedFrom(provider);

@@ -1,14 +1,11 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app/providers.dart';
-import '../../platform/storage/stores.dart';
 import '../model/model.dart';
 import 'lrc_parser.dart';
+import 'lyric_provider.dart';
 import 'netease_provider.dart';
 
 /// One of our lyric lines as translation sees it: its start (null = untimed) and text.
@@ -134,56 +131,6 @@ Map<int, String> alignTranslations(
   return out;
 }
 
-/// The NetEase search hit that is this song (a small cut of Android's
-/// LyricCandidateMatcher): the title must match (case, punctuation and a
-/// trailing bracket note aside), the artist must when it can be compared, the
-/// original beats a noted version (Live, Remix …), and a length within 3 s
-/// beats one that isn't. Null when nothing can be trusted.
-int? pickNetEaseCandidate(List<NetEaseCandidate> candidates, String title, String artist, int? durationMs) {
-  final wanted = _textKey(title);
-  final wantedCore = _textKey(_stripNotes(title));
-  if (wantedCore.isEmpty) return null;
-  final wantedArtists = artist
-      .split(RegExp(r'\s*(?:[,&/;、]|\sfeat\.?\s|\sft\.\s)\s*', caseSensitive: false))
-      .map(_textKey)
-      .where((a) => a.isNotEmpty)
-      .toSet();
-  int? best;
-  var bestScore = -1;
-  for (var i = 0; i < candidates.length; i++) {
-    final c = candidates[i];
-    final offered = c.title;
-    if (offered == null) continue;
-    final full = _textKey(offered);
-    final core = _textKey(_stripNotes(offered));
-    final titleFit = full == wanted ? 2 : (core == wantedCore ? 1 : 0);
-    if (titleFit == 0) continue;
-    final performers = c.artists.map(_textKey).where((a) => a.isNotEmpty).toSet();
-    final artistKnown = wantedArtists.isNotEmpty && performers.isNotEmpty;
-    final artistFit = artistKnown && performers.any(wantedArtists.contains);
-    if (artistKnown && !artistFit) continue;
-    final lengthFit = durationMs != null && c.durationMs != null && (c.durationMs! - durationMs).abs() <= 3000;
-    final score = titleFit * 4 + (artistFit ? 2 : 0) + (lengthFit ? 1 : 0);
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
-    }
-  }
-  return best;
-}
-
-String _stripNotes(String title) {
-  var t = title.trim();
-  while (true) {
-    final next = t
-        .replaceFirst(RegExp(r'\s*[\(\[（【][^\)\]）】]*[\)\]）】]\s*$'), '')
-        .replaceFirst(RegExp(r'\s+-\s+[^-]+$'), '')
-        .trim();
-    if (next == t || next.isEmpty) return t;
-    t = next;
-  }
-}
-
 /// Mostly Chinese already (Android appearsMostlyChinese): NetEase's
 /// translation would add nothing.
 bool lyricsAppearMostlyChinese(Iterable<String> lines) {
@@ -208,46 +155,11 @@ bool lyricsAppearMostlyChinese(Iterable<String> lines) {
   return ratio >= 0.72 || (han >= 20 && ratio >= 0.60);
 }
 
-/// Translations kept per song (Android lyrics_translation_cache, model
-/// `provider:netease`): keyed by the song and a hash of its lines, so new
-/// lyrics never pick up an old translation.
-class LyricsTranslationStore {
-  LyricsTranslationStore(this._store);
-
-  final KeyValueStore _store;
-
-  static String keyFor(String songKey) => 'yoin.lyrics.translation.netease.$songKey';
-
-  static String sourceHash(List<String> lines) => sha1.convert(utf8.encode(lines.join('\n'))).toString();
-
-  Future<Map<int, String>?> read(String songKey, List<String> lines) async {
-    final raw = await _store.read(keyFor(songKey));
-    if (raw == null) return null;
-    try {
-      final json = jsonDecode(raw);
-      if (json is! Map || json['hash'] != sourceHash(lines) || json['lines'] is! List) return null;
-      final list = json['lines'] as List;
-      return {
-        for (var i = 0; i < list.length; i++)
-          if (list[i] is String && (list[i] as String).isNotEmpty) i: list[i] as String,
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> write(String songKey, List<String> lines, Map<int, String> translations) => _store.write(
-    keyFor(songKey),
-    jsonEncode({
-      'hash': sourceHash(lines),
-      'lines': [for (var i = 0; i < lines.length; i++) translations[i] ?? ''],
-    }),
-  );
-}
-
-/// NetEase's own translation for a song's lines (owner 2026-11-15: "网易云的先用着").
-/// [providerSongId] is used directly when the lyrics shown came from NetEase;
-/// otherwise NetEase is searched for title + artist.
+/// NetEase's own translation put onto a song's lines by timestamp (owner
+/// 2026-11-15: "网易云的先用着"): HarmonyOS's stopgap when no Gemini key is set
+/// and the lyrics' own source has no translation. [providerSongId] is used
+/// directly when the lyrics shown came from NetEase; otherwise NetEase's
+/// automatic match ([LyricCandidateMatcher]) finds the song.
 class NetEaseTranslator {
   NetEaseTranslator({NetEaseLyricsProvider? provider}) : _provider = provider ?? NetEaseLyricsProvider();
 
@@ -263,10 +175,9 @@ class NetEaseTranslator {
   }) async {
     var songId = providerSongId;
     if (songId == null) {
-      final candidates = await _provider.searchCandidates(title, artist);
-      final picked = pickNetEaseCandidate(candidates, title, artist, durationMs);
-      if (picked == null) return const {};
-      songId = candidates[picked].match.songId;
+      final match = await _provider.search(title, artist, durationMs: durationMs);
+      if (match == null) return const {};
+      songId = match.songId;
     }
     final payload = await _provider.fetchLyricWithTranslation(songId);
     final translated = payload?.translatedLyric;
@@ -283,12 +194,3 @@ class NetEaseTranslator {
 }
 
 final netEaseTranslatorProvider = Provider<NetEaseTranslator>((ref) => NetEaseTranslator());
-
-/// The kept translations; tests without a key-value store get none.
-final lyricsTranslationStoreProvider = Provider<LyricsTranslationStore?>((ref) {
-  try {
-    return LyricsTranslationStore(ref.watch(keyValueStoreProvider));
-  } catch (_) {
-    return null;
-  }
-});

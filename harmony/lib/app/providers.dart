@@ -19,6 +19,10 @@ final keyValueStoreProvider = Provider<KeyValueStore>(
   (ref) => throw UnimplementedError('Override keyValueStoreProvider in main() or the test.'),
 );
 
+/// Re-fetchable caches (the lyrics cache): apart from the settings on a real
+/// platform (`YoinPlatform.cacheStore`); tests share [keyValueStoreProvider].
+final cacheStoreProvider = Provider<KeyValueStore>((ref) => ref.watch(keyValueStoreProvider));
+
 final secretStoreProvider = Provider<SecretStore>(
   (ref) => throw UnimplementedError('Override secretStoreProvider in main() or the test.'),
 );

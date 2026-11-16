@@ -15,16 +15,19 @@ import { util } from '@kit.ArkTS';
 
 const CHANNEL = 'yoin/storage';
 const PREFS_NAME = 'yoin_prefs';
+/** Re-fetchable caches (lyrics and their translations, ~10 MiB): their own file, so a settings write never
+ *  flushes them and a cache write never flushes the settings. */
+const CACHE_PREFS_NAME = 'yoin_cache';
 
 /**
- * Serves `yoin/storage` for Dart's `ChannelKeyValueStore` / `ChannelSecretStore`: plain values in one Preferences
- * file, secrets (account credentials) in Asset Store Kit, which encrypts them with a device key and keeps them out
+ * Serves `yoin/storage` for Dart's `ChannelKeyValueStore` / `ChannelSecretStore`: plain values in a Preferences
+ * file (`yoin_prefs`, or `yoin_cache` when the call's `file` names it), secrets (account credentials) in Asset Store Kit, which encrypts them with a device key and keeps them out
  * of backups. A null value deletes in both stores. `filesDir` answers the app's sandbox files folder (offline downloads).
  */
 export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandler {
   private context: common.Context | null = null;
   private channel: MethodChannel | null = null;
-  private prefs: Promise<preferences.Preferences> | null = null;
+  private prefs: Map<string, Promise<preferences.Preferences>> = new Map();
 
   getUniqueClassName(): string {
     return 'YoinStoragePlugin';
@@ -59,13 +62,15 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
     }
     const value: Any = call.argument('value');
     const text: string | null = typeof value === 'string' ? value as string : null;
+    const file: Any = call.argument('file');
+    const prefsName: string = file === CACHE_PREFS_NAME ? CACHE_PREFS_NAME : PREFS_NAME;
     let op: Promise<string | null>;
     switch (call.method) {
       case 'kvRead':
-        op = this.kvRead(key as string);
+        op = this.kvRead(prefsName, key as string);
         break;
       case 'kvWrite':
-        op = this.kvWrite(key as string, text);
+        op = this.kvWrite(prefsName, key as string, text);
         break;
       case 'secretRead':
         op = this.secretRead(key as string);
@@ -84,19 +89,22 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
 
   // ---- Preferences ----
 
-  private getPrefs(): Promise<preferences.Preferences> {
-    if (this.prefs === null) {
-      const context = this.context;
-      if (context === null) {
-        return Promise.reject(new Error('storage plugin is not attached'));
-      }
-      this.prefs = preferences.getPreferences(context, PREFS_NAME);
+  private getPrefs(name: string): Promise<preferences.Preferences> {
+    const open = this.prefs.get(name);
+    if (open !== undefined) {
+      return open;
     }
-    return this.prefs;
+    const context = this.context;
+    if (context === null) {
+      return Promise.reject(new Error('storage plugin is not attached'));
+    }
+    const opened = preferences.getPreferences(context, name);
+    this.prefs.set(name, opened);
+    return opened;
   }
 
-  private async kvRead(key: string): Promise<string | null> {
-    const prefs = await this.getPrefs();
+  private async kvRead(name: string, key: string): Promise<string | null> {
+    const prefs = await this.getPrefs(name);
     if (!prefs.hasSync(key)) {
       return null;
     }
@@ -104,8 +112,8 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
     return typeof v === 'string' ? v as string : null;
   }
 
-  private async kvWrite(key: string, value: string | null): Promise<string | null> {
-    const prefs = await this.getPrefs();
+  private async kvWrite(name: string, key: string, value: string | null): Promise<string | null> {
+    const prefs = await this.getPrefs(name);
     if (value === null) {
       prefs.deleteSync(key);
     } else {

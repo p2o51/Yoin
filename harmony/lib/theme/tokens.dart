@@ -48,6 +48,9 @@ abstract final class BarTokens {
   static const double centeredBottomMargin = 24;
   static const double centeredBottomMarginWide = 28;
 
+  /// Floating bar → the content above it (FloatingBarContentGap): part of the centred bar's reserve.
+  static const double floatingContentGap = 12;
+
   /// CenteredBar: horizontal margin inside a narrow pane (bar = pane − 40, max 600).
   static const double centeredHorizontalMargin = 20;
 

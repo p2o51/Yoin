@@ -273,7 +273,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       busy: _lyricsBusy || (content?.translating ?? false),
       translating: content?.translating ?? false,
       onTranslate: _translateLyrics,
-      onSearch: () => _openLyricsSearch(content),
+      onSearch: (from) => _openLyricsSearch(content, from),
       onEdit: () => _openLyricsEditor(sheet),
       onCopy: () => _copyLyrics(content, sheet),
       onShare: () => _shareLyrics(content, sheet),
@@ -289,20 +289,36 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     );
   }
 
-  /// Translate (Android onTranslateClick): NetEase's translation, or the
-  /// layer shown / hidden; the outcome speaks in the snackbar as Android's does.
+  /// Translate (Android onTranslateClick): the layer shown / hidden, or a
+  /// translation looked up; the outcome speaks in the snackbar as Android's
+  /// does. A later source's translation is offered with "Switch" (a Long
+  /// snackbar, NowPlayingAccessories' lyricsTranslationSwitchOffers).
   Future<void> _translateLyrics() async {
     final strings = NowPlayingStrings.of(context);
-    final outcome = await ref.read(nowPlayingViewModelProvider.notifier).translateLyrics();
+    final vm = ref.read(nowPlayingViewModelProvider.notifier);
+    final playback = ref.read(playbackControllerProvider.notifier);
+    final outcome = await vm.translateLyrics();
     if (!mounted) return;
     switch (outcome) {
-      case LyricsTranslateOutcome.translated:
+      case LyricsTranslateDone():
         _say(strings.msgLyricsTranslated);
-      case LyricsTranslateOutcome.alreadyChinese:
-        _say(strings.msgAlreadyChinese);
-      case LyricsTranslateOutcome.failed:
-        _say(strings.msgTranslateFailed);
-      case LyricsTranslateOutcome.toggled || LyricsTranslateOutcome.ignored:
+      case LyricsTranslateOffer(:final providerName):
+        playback.showMessage(
+          strings.msgTranslationAvailable(providerName),
+          actionLabel: strings.msgSwitch,
+          long: true,
+          onAction: () async {
+            final applied = await vm.applyTranslationSwitch();
+            if (applied != null) playback.showMessage(strings.msgLyricsTranslatedFrom(applied));
+          },
+        );
+      case LyricsTranslateAlreadyIn(:final language):
+        _say(strings.msgAlreadyLanguage(language));
+      case LyricsTranslateKeyMissing():
+        _say(strings.msgApiKeyMissing);
+      case LyricsTranslateFailed(:final message):
+        _say(message);
+      case LyricsTranslateToggled() || LyricsTranslateIgnored():
         break;
     }
   }
@@ -319,7 +335,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     }
   }
 
-  void _openLyricsSearch(NowPlayingContent? content) {
+  void _openLyricsSearch(NowPlayingContent? content, Rect? from) {
     if (content == null) return;
     final strings = NowPlayingStrings.of(context);
     final query = lyricsSearchSeed(content.track.title, content.track.artist);
@@ -329,6 +345,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     }
     showLyricsSearch(
       context,
+      from: from,
       initialQuery: query,
       onApply: (hit) async {
         var applied = false;

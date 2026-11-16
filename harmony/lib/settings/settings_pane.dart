@@ -73,6 +73,15 @@ final class CloudSyncPane extends SettingsPane {
   int get hashCode => 6;
 }
 
+/// Settings › AI features (the Gemini key, tier and answer language).
+final class AiPane extends SettingsPane {
+  const AiPane();
+  @override
+  bool operator ==(Object other) => other is AiPane;
+  @override
+  int get hashCode => 7;
+}
+
 final class TipsPane extends SettingsPane {
   const TipsPane();
   @override

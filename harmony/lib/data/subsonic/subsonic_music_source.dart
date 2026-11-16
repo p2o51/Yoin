@@ -335,6 +335,10 @@ final class _SubsonicMetadata implements MusicMetadata {
       return lyricsFromPlain((body['lyrics'] as Map?)?.cast());
     });
   }
+
+  /// Subsonic shows the names the files carry: there are no others.
+  @override
+  Future<TrackNames?> alternateNames(Track track) async => null;
 }
 
 final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWrites {
