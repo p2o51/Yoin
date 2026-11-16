@@ -53,7 +53,7 @@ void main() {
   late Future<http.Response> Function(http.Request request) respond;
   final made = <OfflineDownloads>[];
 
-  OfflineDownloads make() {
+  OfflineDownloads make({int maxRetries = 5}) {
     final d = OfflineDownloads(
       files: DirectoryAppFilesHost(root),
       account: () async => account,
@@ -64,6 +64,7 @@ void main() {
         return respond(request);
       }),
       retryDelay: const Duration(milliseconds: 20),
+      maxRetries: maxRetries,
     );
     made.add(d);
     return d;
@@ -222,6 +223,28 @@ void main() {
     respond = (request) async => http.Response.bytes([1, 2, 3], 200, headers: {'content-type': 'audio/mpeg'});
     expect(await d.download([_track('s1')], _album), 1);
     await until(() => allDone(d));
+  });
+
+  test('should_tryAgain_when_theConnectionDrops', () async {
+    var calls = 0;
+    respond = (request) async {
+      if (++calls == 1) throw http.ClientException('connection reset');
+      return http.Response.bytes([1, 2, 3], 200, headers: {'content-type': 'audio/mpeg'});
+    };
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('s1')], _album);
+    await until(() => allDone(d));
+    expect(calls, 2);
+  });
+
+  test('should_giveUp_when_itKeepsDropping', () async {
+    respond = (request) async => throw http.ClientException('connection reset');
+    final d = make(maxRetries: 2)..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('s1')], _album);
+    await until(() => d.state.songs.single.state == OfflineSongState.failed);
+    expect(requests, hasLength(3));
   });
 
   test('should_stopAndDeleteIt_when_removedWhileDownloading', () async {

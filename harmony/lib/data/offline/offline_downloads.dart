@@ -94,6 +94,7 @@ class OfflineDownloads extends ChangeNotifier {
     KeyValueStore? Function()? settingsValues,
     http.Client? client,
     this.maxParallel = 2,
+    this.maxRetries = 5,
     this.retryDelay = const Duration(seconds: 5),
     this.connectTimeout = const Duration(seconds: 30),
     this.idleTimeout = const Duration(seconds: 30),
@@ -117,6 +118,9 @@ class OfflineDownloads extends ChangeNotifier {
   /// Songs downloading at once (Android maxParallelDownloads).
   final int maxParallel;
 
+  /// Times a dropped download starts again before it counts as failed (Media3 minRetryCount).
+  final int maxRetries;
+
   /// How long a download waiting for the network (or Wi‑Fi) waits before it looks again.
   final Duration retryDelay;
   final Duration connectTimeout;
@@ -138,6 +142,11 @@ class OfflineDownloads extends ChangeNotifier {
   bool _disposed = false;
   int _seq = 0;
   final _jobs = <String, _Job>{};
+
+  /// Transient failures per song so far (a dropped connection, the app
+  /// frozen in the background) and when it may try again.
+  final _attempts = <String, int>{};
+  final _notBefore = <String, DateTime>{};
   Timer? _retry;
   bool _pumping = false;
   bool _pumpAgain = false;
@@ -224,7 +233,11 @@ class OfflineDownloads extends ChangeNotifier {
       final existing = byKey[key];
       if (existing != null) {
         var next = existing.withCollection(collection);
-        if (existing.state == OfflineSongState.failed) next = next.copyWith(state: OfflineSongState.queued, bytes: 0);
+        if (existing.state == OfflineSongState.failed) {
+          next = next.copyWith(state: OfflineSongState.queued, bytes: 0);
+          _attempts.remove(key);
+          _notBefore.remove(key);
+        }
         byKey[key] = next;
       } else {
         byKey[key] = OfflineSong(
@@ -416,7 +429,8 @@ class OfflineDownloads extends ChangeNotifier {
         if (s.state != OfflineSongState.waiting) changes[s.key] = s.copyWith(state: OfflineSongState.waiting);
         continue;
       }
-      if (!networkOk) {
+      final notBefore = _notBefore[s.key];
+      if (!networkOk || (notBefore != null && _now().isBefore(notBefore))) {
         waitsForNetwork = true;
         if (s.state != OfflineSongState.waiting) changes[s.key] = s.copyWith(state: OfflineSongState.waiting);
         continue;
@@ -496,17 +510,27 @@ class OfflineDownloads extends ChangeNotifier {
       }
       if (bytes == 0) throw const _DownloadRefused('empty');
       await part.rename(target.path);
+      _attempts.remove(key);
+      _notBefore.remove(key);
       _finish(key, (s) => s.copyWith(state: OfflineSongState.done, bytes: bytes, totalBytes: bytes));
     } catch (e) {
       await job.sink?.close().catchError((_) {});
       await _delete(part);
       if (job.cancelled || _disposed) return;
-      // Lost the network on the way: it waits for the next one. Anything else failed.
-      final lostNetwork =
+      // The connection went (no network, the app frozen in the background):
+      // it tries again, as Media3 retries a download, until it has failed
+      // [maxRetries] times. The server saying no fails it at once.
+      final transient =
           e is! _DownloadRefused && (e is SocketException || e is TimeoutException || e is http.ClientException);
-      final waits = lostNetwork && await _safeBearer() == NetworkBearer.none;
-      debugPrint('YoinOffline: download ${waits ? 'waits' : 'failed'}: $e');
-      _finish(key, (s) => s.copyWith(state: waits ? OfflineSongState.waiting : OfflineSongState.failed, bytes: 0));
+      final offline = transient && await _safeBearer() == NetworkBearer.none;
+      final tries = transient && !offline ? (_attempts[key] ?? 0) + 1 : 0;
+      final retries = offline || (transient && tries <= maxRetries);
+      if (transient && !offline) {
+        _attempts[key] = tries;
+        _notBefore[key] = _now().add(retryDelay);
+      }
+      debugPrint('YoinOffline: download ${retries ? 'waits' : 'failed'}: $e');
+      _finish(key, (s) => s.copyWith(state: retries ? OfflineSongState.waiting : OfflineSongState.failed, bytes: 0));
     } finally {
       if (identical(_jobs[key], job)) _jobs.remove(key);
       _pump();
@@ -548,6 +572,8 @@ class OfflineDownloads extends ChangeNotifier {
 
   Future<void> _discard(OfflineSong song) async {
     _jobs.remove(song.key)?.cancel();
+    _attempts.remove(song.key);
+    _notBefore.remove(song.key);
     final dir = _dir;
     final name = song.fileName;
     if (dir == null || name == null) return;
