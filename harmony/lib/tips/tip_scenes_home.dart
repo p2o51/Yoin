@@ -12,9 +12,15 @@ import '../data/memory/memory_ledger.dart';
 import '../data/model/model.dart';
 import '../detail/detail_page.dart' show DetailBackButton;
 import '../data/highlight/lyric_highlight.dart' show LyricHighlightBucket;
+import '../home/home_edit.dart' show HomeEditPlate;
+import '../home/home_feed_density.dart' show FeedFrameClass, HomeFeedDensity;
+import '../home/home_lyric_count_handle.dart';
+import '../home/home_metrics.dart' show HomeEditMetrics;
+import '../home/home_section.dart' show HomeSection;
+import '../home/home_selection.dart' show homeFeedFrame;
 import '../home/home_strings.dart';
 import '../home/lyric_highlight_section.dart';
-import '../home/lyric_highlight_view_model.dart' show HomeLyricHighlight;
+import '../home/lyric_highlight_view_model.dart' show HomeLyricHighlight, lyricCardsFor;
 import '../landing/landing_mascot.dart';
 import '../memories/ledger/memory_grid_lift.dart';
 import '../memories/ledger/memory_grid_view.dart';
@@ -924,8 +930,11 @@ class _AccountQuickSwitchDemoState extends State<AccountQuickSwitchDemo> with De
 
 /// Lyric Cards (Android TipHomeScenes LyricHighlightDemo): the real Home
 /// shelf under the header. The finger swipes on to the next song's line and
-/// back, then taps a card to play from it. The lines are made up for the demo
-/// (Android's); every card is "Your pick", the only kind HarmonyOS keeps.
+/// back, then taps a card to play from it. Then, as the tip says, Edit Home:
+/// held, the section stands on its plate; the real count handle at its
+/// corner, pulled down, opens its dots, and sliding back up one step takes a
+/// card away; Done leaves. The lines are made up for the demo (Android's);
+/// every card is "Your pick", the only kind HarmonyOS keeps.
 class LyricHighlightDemo extends StatefulWidget {
   const LyricHighlightDemo({super.key, required this.playing});
   final bool playing;
@@ -934,8 +943,29 @@ class LyricHighlightDemo extends StatefulWidget {
   State<LyricHighlightDemo> createState() => _LyricHighlightDemoState();
 }
 
-class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneState {
+class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneState, TickerProviderStateMixin {
   final ScrollController _shelf = ScrollController();
+  bool _editing = false;
+  int _count = _restCount;
+
+  /// The cards the section starts each run with.
+  static const _restCount = 3;
+
+  /// The real handle's engine, saving into [_count]; quiet, since nobody's finger is on the phone.
+  late final HomeLyricCountEngine _handle = HomeLyricCountEngine(
+    vsync: this,
+    editing: () => _editing,
+    blocked: () => false,
+    saved: () => _count,
+    commit: (preset) {
+      final next = lyricCardsFor(preset);
+      if (next == _count) return false;
+      put(() => _count = next);
+      return true;
+    },
+    reduced: () => mounted && MediaQuery.disableAnimationsOf(context),
+    feedback: const _QuietCountFeedback(),
+  );
 
   static final List<HomeLyricHighlight> _cards = [
     for (final (i, text) in _demoLyricLines.indexed)
@@ -954,7 +984,15 @@ class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneS
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Made now: a lazy field first read in dispose() would ask a dead element for a ticker.
+    _handle;
+  }
+
+  @override
   void dispose() {
+    _handle.dispose();
     _shelf.dispose();
     super.dispose();
   }
@@ -963,15 +1001,21 @@ class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneS
   double _offsetOf(int page) {
     if (!_shelf.hasClients) return 0;
     final p = _shelf.position;
-    final pitch = lyricCardWidth(p.viewportDimension, single: false) + HomeLyricCardTokens.gap;
+    final content = homeFeedFrame(p.viewportDimension, _demoFeedDensity).content;
+    final pitch = lyricCardWidth(content, single: false) + HomeLyricCardTokens.gap;
     return (page * pitch).clamp(p.minScrollExtent, p.maxScrollExtent);
   }
 
   Future<void> _script(DemoFinger f) async {
+    if (_handle.held) _handle.release(cancelled: true);
+    put(() {
+      _editing = false;
+      _count = _restCount;
+    });
     if (_shelf.hasClients) _shelf.jumpTo(0);
     await f.wait(900);
     var page = 0;
-    for (final target in const [1, 2, 1]) {
+    for (final target in const [1, 0]) {
       await f.moveTo('lyric', fx: 0.8, fy: 0.6);
       await f.wait(200);
       final from = _offsetOf(page);
@@ -993,38 +1037,120 @@ class _LyricHighlightDemoState extends State<LyricHighlightDemo> with DemoSceneS
     await f.wait(250);
     await f.tap();
     await f.wait(900);
-    await f.lift();
+    // Edit Home: a hold on the section.
+    await f.moveTo('lyric', fx: 0.6, fy: 0.4);
+    await f.hold(() => put(() => _editing = true));
     await f.wait(600);
+    // The corner handle: down past the dots' opening pull (the count holds there)…
+    await f.moveTo('count', fx: 0.35, fy: 0.35);
+    await f.wait(250);
+    const down = HomeLyricCardTokens.countReveal + TipSceneTokens.lyricCountSlack;
+    final low = f.at('count', fx: 0.35, fy: 0.35, dy: down);
+    _handle.grab(0);
+    try {
+      await f.drag(low.dx, low.dy, 520, onProgress: (p) => _handle.dragTo(down * p), release: false);
+      await f.wait(500);
+      // …then up one step: a card fewer.
+      const up = HomeLyricCardTokens.countStep + TipSceneTokens.lyricCountSlack;
+      final high = Offset(low.dx, f.at('count', fx: 0.35, fy: 0.35, dy: down - up).dy);
+      await f.drag(high.dx, high.dy, 480, onProgress: (p) => _handle.dragTo(down - up * p), release: false);
+      await f.wait(400);
+      _handle.release();
+    } finally {
+      // Stopped mid-pull (the user took the phone): the dots close and the count stays.
+      if (_handle.held) _handle.release(cancelled: true);
+    }
+    await f.release();
+    await f.wait(700);
+    // Done is the bar's right half in the edit pose (BarEditPose).
+    await f.moveTo('bar', fx: 0.75);
+    await f.tap(() => put(() => _editing = false));
+    await f.lift();
+    await f.wait(1000);
   }
 
   @override
   Widget build(BuildContext context) => DemoPhone(
     playing: widget.playing,
     script: _script,
-    child: ColoredBox(
-      color: Theme.of(context).colorScheme.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _DemoHomeHeader(avatar: _avatar(context, 0)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
-            child: DemoTarget(
-              'lyric',
-              child: LyricHighlightSection(
-                cards: _cards,
-                count: 3,
-                frame: null,
-                controller: _shelf,
-                scrollEnabled: false,
-                onPlay: (_) {},
+    child: GestureDetector(
+      onLongPress: () => put(() => _editing = true),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _DemoHomeHeader(avatar: _avatar(context, 0)),
+                const SizedBox(height: HomeEditMetrics.plateOutsetV),
+                DemoSpring(
+                  target: _editing ? 1 : 0,
+                  builder: (context, e) => HomeEditPlate(
+                    progress: e,
+                    section: HomeSection.lyricHighlight,
+                    start: TipSceneTokens.pagePaddingH,
+                    end: TipSceneTokens.pagePaddingH,
+                    onHide: () {},
+                    resizeHandle: DemoTarget(
+                      'count',
+                      child: HomeLyricCountHandle(engine: _handle, progress: e),
+                    ),
+                    // Full-bleed in the page's frame, as on Home: editing cuts the shelf back to its plate.
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => DemoTarget(
+                        'lyric',
+                        child: LyricHighlightSection(
+                          cards: _cards,
+                          count: _count,
+                          frame: homeFeedFrame(constraints.maxWidth, _demoFeedDensity),
+                          controller: _shelf,
+                          scrollEnabled: false,
+                          onPlay: (_) {},
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // The real bar: editing, its destinations become [Undo] [Done].
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: TipSceneTokens.barBottom,
+              child: DemoTarget(
+                'bar',
+                child: YoinBottomBar(
+                  selected: YoinSection.home,
+                  onSelect: (_) {},
+                  editPose: BarEditPose(
+                    editing: _editing,
+                    leftSlot: _count == _restCount ? BarEditLeftSlot.undoDisabled : BarEditLeftSlot.undo,
+                    onLeftSlot: () => put(() => _count = _restCount),
+                    onDone: () => put(() => _editing = false),
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
+}
+
+/// The phone's feed: a handset's, 16 margins (the Lyric Cards shelf reads only the frame's edges).
+const _demoFeedDensity = HomeFeedDensity(frameClass: FeedFrameClass.capped, units: 1, coverColumns: 3);
+
+/// The demo's handle plays no haptics: the finger on the phone is the demo's.
+final class _QuietCountFeedback implements HomeLyricCountFeedback {
+  const _QuietCountFeedback();
+  @override
+  void segmentTick() {}
+  @override
+  void confirm() {}
 }
 
 /// The demo's made-up lines (Android DemoLyricLines).

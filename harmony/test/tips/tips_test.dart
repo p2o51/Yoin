@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
+import 'package:yoin/home/home_lyric_count_handle.dart' show HomeLyricCountPicker;
+import 'package:yoin/home/lyric_highlight_section.dart' show LyricHighlightSection;
 import 'package:yoin/memories/ledger/memory_grid_view.dart';
 import 'package:yoin/memories/memories_aurora.dart';
 import 'package:yoin/memories/palette/memory_palette.dart' show MemoryPaletteSamples;
@@ -261,6 +263,18 @@ void main() {
       await pumpDemo(tester, HomeBubbleTip.continueOn);
       expect(await playUntil(tester, () => find.text('Continue here').evaluate().isNotEmpty), isTrue);
       expect(find.text('From HUAWEI Mate 70'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_takeACardAway_when_theLyricCardsDemoPullsTheCountHandle', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.lyricHighlight);
+      LyricHighlightSection section() => tester.widget(find.byType(LyricHighlightSection));
+      expect(section().count, 3);
+      // Edit Home: the real handle's dots open under the pull…
+      expect(await playUntil(tester, () => find.byType(HomeLyricCountPicker).evaluate().isNotEmpty), isTrue);
+      // …and the slide back up leaves two cards.
+      expect(await playUntil(tester, () => section().count == 2, limit: const Duration(seconds: 16)), isTrue);
       expect(tester.takeException(), isNull);
       await leave(tester);
     });

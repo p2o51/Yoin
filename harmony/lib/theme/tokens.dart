@@ -1833,6 +1833,10 @@ abstract final class TipSceneTokens {
   static const double searchRowInset = 4;
   static const double searchEnterScale = 0.94;
 
+  /// Lyric Cards' count handle in the phone: the pull goes this far past the dots' opening, and
+  /// the slide back up this far past one step (HomeLyricCardTokens.countReveal / countStep).
+  static const double lyricCountSlack = 8;
+
   /// The lyric scenes start the demo song here (ms): the second line is being sung.
   static const int lyricsStartMs = 5000;
 
