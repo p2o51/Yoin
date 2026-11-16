@@ -621,7 +621,7 @@ class _ServiceRow extends StatelessWidget {
                   decoration: ShapeDecoration(color: tone.iconContainer, shape: const CircleBorder()),
                   child: SizedBox.square(
                     dimension: SettingsMetrics.rowIconBox,
-                    child: Icon(identity.glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
+                    child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
                   ),
                 ),
                 const SizedBox(width: SettingsMetrics.rowIconGap),

@@ -7,6 +7,7 @@ import '../data/model/media_id.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'material_shapes.dart';
+import 'service_marks.dart';
 import 'settings_colors.dart';
 import 'settings_metrics.dart';
 
@@ -15,28 +16,83 @@ import 'settings_metrics.dart';
 // the line under the account; the avatar's shape and letter say which
 // account, so two logins on one service never look alike.
 
+/// What a service's face shows: a Yoin Symbol, or its redrawn brand mark
+/// (ServiceMarks.kt — artwork, so it lives in the app).
+@immutable
+sealed class ServiceGlyph {
+  const ServiceGlyph();
+}
+
+/// A Yoin Symbol.
+final class SymbolGlyph extends ServiceGlyph {
+  const SymbolGlyph(this.icon);
+
+  final IconData icon;
+
+  @override
+  bool operator ==(Object other) => other is SymbolGlyph && other.icon == icon;
+
+  @override
+  int get hashCode => icon.hashCode;
+}
+
+/// A redrawn service mark ([ServiceMark]).
+final class MarkGlyph extends ServiceGlyph {
+  const MarkGlyph(this.mark);
+
+  final ServiceMark mark;
+
+  @override
+  bool operator ==(Object other) => other is MarkGlyph && other.mark == mark;
+
+  @override
+  int get hashCode => mark.hashCode;
+}
+
+/// A [ServiceGlyph] drawn the way an [Icon] is: [size] square, in [color]
+/// (the ambient [IconTheme]'s when not given).
+class ServiceGlyphIcon extends StatelessWidget {
+  const ServiceGlyphIcon(this.glyph, {super.key, this.size, this.color});
+
+  final ServiceGlyph glyph;
+  final double? size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => switch (glyph) {
+    SymbolGlyph(:final icon) => Icon(icon, size: size, color: color),
+    MarkGlyph(:final mark) => ServiceMarkIcon(mark, size: size, color: color),
+  };
+}
+
 /// A service's face in Settings: its name, its mark and its hue.
 @immutable
 final class ServiceIdentity {
   const ServiceIdentity({required this.name, required this.glyph, required this.hue});
 
   final String name;
-  final IconData glyph;
+  final ServiceGlyph glyph;
   final SettingsHue hue;
 
   /// Subsonic: Android draws it with the Cloud symbol (Spotify and Apple Music
   /// have redrawn marks in ServiceMarks.kt; Subsonic has none there).
-  static const subsonic = ServiceIdentity(name: 'Subsonic', glyph: YoinSymbols.cloud, hue: SettingsHue.blue);
+  static const subsonic = ServiceIdentity(
+    name: 'Subsonic',
+    glyph: SymbolGlyph(YoinSymbols.cloud),
+    hue: SettingsHue.blue,
+  );
 
-  /// Apple Music. Android has a redrawn brand mark in ServiceMarks.kt; that
-  /// artwork isn't ported to HarmonyOS yet, so a Yoin music symbol stands in
-  /// (brand marks are artwork, not symbols — AGENTS.md). Rose hue, so it never
-  /// reads as the Subsonic blue.
-  static const appleMusic = ServiceIdentity(name: 'Apple Music', glyph: YoinSymbols.musicNote, hue: SettingsHue.rose);
+  /// Apple Music: Android's redrawn mark (two eighth notes under a heavy
+  /// slanted beam, [ServiceMark.appleMusic]) in the rose hue.
+  static const appleMusic = ServiceIdentity(
+    name: 'Apple Music',
+    glyph: MarkGlyph(ServiceMark.appleMusic),
+    hue: SettingsHue.rose,
+  );
 
   /// Files on this device (Android ProviderKind.LOCAL): not built yet; the
   /// add-account sheet lists it as coming later.
-  static const local = ServiceIdentity(name: 'Local', glyph: YoinSymbols.folder, hue: SettingsHue.amber);
+  static const local = ServiceIdentity(name: 'Local', glyph: SymbolGlyph(YoinSymbols.folder), hue: SettingsHue.amber);
 
   /// The identity for a [MediaId] provider token; Subsonic for anything else.
   static ServiceIdentity forProvider(String provider) =>
@@ -234,7 +290,7 @@ class _AccountAvatarState extends State<AccountAvatar> with SingleTickerProvider
                     // With a badge, the mark leans toward top-start so the badge never bites it.
                     child: Transform.translate(
                       offset: Offset(rtl ? -lean : lean, lean),
-                      child: Icon(
+                      child: ServiceGlyphIcon(
                         widget.identity.glyph,
                         size: size * SettingsMetrics.avatarGlyphFraction,
                         color: tone.onAccent,
@@ -301,7 +357,7 @@ class AccountMark extends StatelessWidget {
         child: SizedBox.square(
           dimension: size,
           child: Center(
-            child: Icon(identity.glyph, size: size * SettingsMetrics.markGlyphFraction, color: tone.onAccent),
+            child: ServiceGlyphIcon(identity.glyph, size: size * SettingsMetrics.markGlyphFraction, color: tone.onAccent),
           ),
         ),
       ),
