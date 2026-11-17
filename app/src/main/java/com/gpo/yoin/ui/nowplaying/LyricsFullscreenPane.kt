@@ -483,11 +483,14 @@ private fun LyricsFullscreenList(
             .collectLatest { geometry ->
                 // The first report seats at once; later ones wait to settle.
                 if (!seatFraction.isNaN()) delay(LyricsSeatSettleMs)
-                seatFraction = lyricsScreenSeatFraction(
-                    windowTopPx = geometry.topPx,
-                    windowPx = geometry.heightPx,
-                    screenPx = geometry.screenPx,
-                    fadePx = edgeFadePx,
+                seatFraction = lyricsSettledSeat(
+                    current = seatFraction,
+                    next = lyricsScreenSeatFraction(
+                        windowTopPx = geometry.topPx,
+                        windowPx = geometry.heightPx,
+                        screenPx = geometry.screenPx,
+                        fadePx = edgeFadePx,
+                    ),
                 )
             }
     }
@@ -557,11 +560,15 @@ private fun LyricsFullscreenList(
                     else -> {
                         val geometry = windowGeometry
                         if (!handOver && geometry != LyricsWindowGeometry.Unknown) {
+                            // Unstepped: a 2% step is ~30px on a tall
+                            // window, which made the line zigzag as the
+                            // window grew frame by frame.
                             liveSeat = lyricsScreenSeatFraction(
                                 windowTopPx = geometry.topPx,
                                 windowPx = geometry.heightPx,
                                 screenPx = geometry.screenPx,
                                 fadePx = edgeFadePx,
+                                stepped = false,
                             )
                         }
                         seatNow()

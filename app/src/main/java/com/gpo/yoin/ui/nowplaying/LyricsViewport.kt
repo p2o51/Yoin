@@ -158,14 +158,27 @@ internal fun lyricsScreenSeatFraction(
     windowPx: Int,
     screenPx: Int,
     fadePx: Int,
+    stepped: Boolean = true,
 ): Float {
     val fade = lyricsEdgeFadePx(windowPx, fadePx)
     val band = windowPx - fade * 2
     if (band <= 0 || screenPx <= 0) return LyricsFocusFraction
     val raw = (screenPx * LyricsScreenSeat - windowTopPx - fade) / band
     val held = raw.coerceIn(LyricsSeatMinFraction, LyricsFocusFraction)
-    return (held * 50f).roundToInt() / 50f
+    return if (stepped) (held * 50f).roundToInt() / 50f else held
 }
+
+/**
+ * The settled seat a newly read window moves to: [next] only when it is more
+ * than a step from [current], so a window that ends a few pixels off its
+ * predicted place (the expand's estimate, a tool row tucking away) does not
+ * glide the line by a 2% step for nothing.
+ */
+internal fun lyricsSettledSeat(current: Float, next: Float): Float =
+    if (current.isNaN() || kotlin.math.abs(next - current) > LyricsSeatHysteresis) next else current
+
+/** Seat changes at or below this share of the band are not worth a glide. */
+internal const val LyricsSeatHysteresis = 0.025f
 
 /**
  * Apply to a wrapper around the list, so the changing measure policy does not
