@@ -85,14 +85,14 @@ sealed class CardAction {
   }
 }
 
-/// Open an album / playlist page.
+/// Open an album / playlist / artist page.
 final class CardOpen extends CardAction {
   const CardOpen(this.entity, this.id);
   final String entity;
   final String id;
 }
 
-/// Play an album / playlist from its first track.
+/// Play an album / playlist from its first track (an artist opens its page).
 final class CardPlay extends CardAction {
   const CardPlay(this.entity, this.id);
   final String entity;
@@ -121,6 +121,12 @@ abstract interface class CardsHost {
 
   /// Starts delivering card taps to [handler] (including one that cold-started the app).
   Future<void> listen(void Function(CardAction action) handler);
+
+  /// A card's play could not start: shows the [entity]'s page for [id] (Android
+  /// WidgetPlayActivity's fallback). The play came in with Yoin behind other apps
+  /// (the card's `call`), so the host brings Yoin to the front and hands the
+  /// page back as a [CardOpen]; with Yoin already in front it is a [CardOpen] at once.
+  Future<void> openDetail(String entity, String id);
 }
 
 const _cardsChannel = MethodChannel('yoin/cards');
@@ -157,6 +163,10 @@ final class ChannelCardsHost implements CardsHost {
     });
     await _channel.invokeMethod<void>('ready');
   }
+
+  @override
+  Future<void> openDetail(String entity, String id) =>
+      _channel.invokeMethod<void>('openDetail', {'entity': entity, 'id': id});
 }
 
 /// Hosts without service cards (Windows has no home-screen cards): nothing is
@@ -173,6 +183,9 @@ final class NoCardsHost implements CardsHost {
 
   @override
   Future<void> listen(void Function(CardAction action) handler) async {}
+
+  @override
+  Future<void> openDetail(String entity, String id) async {}
 }
 
 /// The platform's card host (main.dart overrides it with the platform bundle's).
