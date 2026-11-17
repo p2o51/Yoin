@@ -22,6 +22,10 @@ import '../detail/detail_play.dart';
 import '../detail/detail_routes.dart';
 import '../memories/memories_reveal_scope.dart';
 import '../platform/cards/cards_channel.dart';
+import '../platform/playback/playback_engine.dart' show PlaybackPhase;
+import '../playback/now_playing_state.dart';
+import '../playback/playback_context.dart';
+import '../playback/playback_controller.dart';
 import '../shell/shell_state.dart';
 import '../theme/color_scheme.dart';
 import '../theme/theme.dart';
@@ -54,6 +58,76 @@ List<ActivityEvent> selectPlayEvents(List<ActivityEvent> events, {int limit = pl
   }
   return out;
 }
+
+/// How long a card's play waits for the account (Android WidgetPlayActivity SOURCE_TIMEOUT_MS).
+const cardPlaySourceTimeout = Duration(seconds: 8);
+
+/// How long it then waits for the song to really play (Android PLAY_TIMEOUT_MS).
+const cardPlayStartTimeout = Duration(seconds: 6);
+
+/// Waits up to [timeout] for a playback state that passes [test]; null when none came.
+typedef PlaybackStateWait = Future<NowPlayingState?> Function(bool Function(NowPlayingState state) test, Duration timeout);
+
+/// The card's play key (Android WidgetPlayActivity.startPlayback): plays the
+/// album or playlist [id] from its first song and says whether that really
+/// started. False when there is no account (or it is another service's), the
+/// page can't be read or has no songs, the play fails, or nothing of it plays
+/// within [startTimeout]; the caller then opens the page. Artists have no queue
+/// to resume: always false (their page opens).
+Future<bool> startCardPlay({
+  required String entity,
+  required MediaId id,
+  required Future<MusicSource?> Function() activeSource,
+  required Future<void> Function(List<Track> tracks, PlaybackContext context) play,
+  required PlaybackStateWait awaitState,
+  Duration sourceTimeout = cardPlaySourceTimeout,
+  Duration startTimeout = cardPlayStartTimeout,
+}) async {
+  final isPlaylist = entity == ActivityEntityType.playlist.name;
+  if (!isPlaylist && entity != ActivityEntityType.album.name) return false;
+  MusicSource? source;
+  try {
+    source = await activeSource().timeout(sourceTimeout);
+  } catch (_) {
+    source = null;
+  }
+  if (source == null || source.provider != id.provider) return false;
+  final List<Track> tracks;
+  final PlaybackContext context;
+  try {
+    if (isPlaylist) {
+      final playlist = await source.library.getPlaylist(id);
+      if (playlist == null) return false;
+      tracks = playlist.tracks;
+      context = playlistPlaybackContext(playlist, playlist.coverArt);
+    } else {
+      final album = await source.library.getAlbum(id);
+      if (album == null) return false;
+      tracks = album.tracks;
+      context = albumPlaybackContext(album);
+    }
+  } catch (e) {
+    debugPrint('cards: play read failed: ${e.runtimeType}');
+    return false;
+  }
+  if (tracks.isEmpty) return false;
+  await play(tracks, context);
+  // Only states of this album / playlist count: something already playing (or
+  // an old error) must not end the wait before the request lands.
+  final outcome = await awaitState(
+    (state) => _sameEntity(state.context, context) && (state.isPlaying || state.phase == PlaybackPhase.error),
+    startTimeout,
+  );
+  return outcome != null && outcome.phase != PlaybackPhase.error;
+}
+
+/// Whether [a] and [b] play the same album / playlist (the read's own id: a
+/// service may resolve the card's id to another one, Apple Music library → catalogue).
+bool _sameEntity(PlaybackContext a, PlaybackContext b) => switch ((a, b)) {
+  (AlbumPlaybackContext(albumId: final x), AlbumPlaybackContext(albumId: final y)) => x == y,
+  (PlaylistPlaybackContext(playlistId: final x), PlaylistPlaybackContext(playlistId: final y)) => x == y,
+  _ => false,
+};
 
 /// Keeps the Play card in step with the active account's listening.
 final class PlayCardPublisher {
@@ -179,25 +253,58 @@ final class PlayCardPublisher {
         if (mediaId == null || context == null || !context.mounted) return;
         if (entity == ActivityEntityType.playlist.name) {
           DetailRoutes.openPlaylist(context, mediaId);
+        } else if (entity == ActivityEntityType.artist.name) {
+          DetailRoutes.openArtist(context, mediaId);
         } else {
           DetailRoutes.openAlbum(context, mediaId);
         }
       case CardPlay(:final entity, :final id):
-        final mediaId = MediaId.tryParse(id);
-        if (mediaId == null) return;
-        final source = await _ref.read(activeSourceProvider.future);
-        if (source == null || source.provider != mediaId.provider) return;
-        final player = DetailPlayer.ref(_ref);
-        if (entity == ActivityEntityType.playlist.name) {
-          final playlist = await source.library.getPlaylist(mediaId);
-          if (playlist == null) return;
-          await playFromDetail(player, playlist.tracks, context: playlistPlaybackContext(playlist, playlist.coverArt));
-        } else {
-          final album = await source.library.getAlbum(mediaId);
-          if (album == null) return;
-          await playFromDetail(player, album.tracks, context: albumPlaybackContext(album));
-        }
+        await _play(entity, id);
     }
+  }
+
+  /// The latest card play: only it may fall back to its page (an earlier one a
+  /// newer tap replaced simply stops waiting).
+  int _playGeneration = 0;
+
+  /// The play key (the card's `call`, Yoin left behind other apps): starts the
+  /// album / playlist and, when it can't (Android WidgetPlayActivity), shows its page.
+  Future<void> _play(String entity, String id) async {
+    final mediaId = MediaId.tryParse(id);
+    if (mediaId == null) return;
+    final generation = ++_playGeneration;
+    var started = false;
+    try {
+      started = await startCardPlay(
+        entity: entity,
+        id: mediaId,
+        activeSource: () => _ref.read(activeSourceProvider.future),
+        play: (tracks, context) => playFromDetail(DetailPlayer.ref(_ref), tracks, context: context),
+        awaitState: _awaitPlayback,
+      );
+    } catch (e) {
+      debugPrint('cards: play failed: ${e.runtimeType}');
+    }
+    if (started || generation != _playGeneration) return;
+    try {
+      await _host.openDetail(entity, id);
+    } catch (e) {
+      debugPrint('cards: opening the page failed: $e');
+    }
+  }
+
+  Future<NowPlayingState?> _awaitPlayback(bool Function(NowPlayingState state) test, Duration timeout) {
+    final done = Completer<NowPlayingState?>();
+    final subscription = _ref.container.listen<NowPlayingState>(playbackControllerProvider, (_, next) {
+      if (!done.isCompleted && test(next)) done.complete(next);
+    }, fireImmediately: true);
+    final timer = Timer(timeout, () {
+      if (!done.isCompleted) done.complete(null);
+    });
+    return done.future.whenComplete(() {
+      timer.cancel();
+      subscription.close();
+    });
   }
 
   /// Memories on [sessionId] (the Home pill's way in): back to the shell

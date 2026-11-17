@@ -10,7 +10,7 @@ import { YOIN_ACTION_KEY, YOIN_ACTION_OPEN_NOW_PLAYING } from '../yoin/playback/
 import YoinStoragePlugin from '../yoin/storage/StoragePlugin';
 import YoinI18nPlugin from '../yoin/i18n/I18nPlugin';
 import YoinAppleMusicAuthPlugin from '../yoin/applemusic/AppleMusicAuthPlugin';
-import YoinCardsPlugin, { CardsHost } from '../yoin/cards/CardsPlugin';
+import YoinCardsPlugin, { CARD_PLAY_METHOD, CardsHost } from '../yoin/cards/CardsPlugin';
 import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
 import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import YoinSharePlugin from '../yoin/share/SharePlugin';
@@ -24,6 +24,7 @@ import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/Continu
 import YoinPosturePlugin, { YoinPostureHost } from '../yoin/posture/PosturePlugin';
 import YoinMotionPlugin from '../yoin/motion/MotionPlugin';
 import { window } from '@kit.ArkUI';
+import { rpc } from '@kit.IPCKit';
 
 export default class EntryAbility extends FlutterAbility {
   configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -101,6 +102,13 @@ export default class EntryAbility extends FlutterAbility {
     super.onForeground()
     // Offered or not, as Dart last said (the system may reset a mission's continue state).
     ContinueOnHost.applyState()
+    // A card play's fallback page opens in place from here on (and one waiting for the front opens now).
+    CardsHost.setForeground(true)
+  }
+
+  onBackground(): void {
+    super.onBackground()
+    CardsHost.setForeground(false)
   }
 
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */
@@ -110,6 +118,13 @@ export default class EntryAbility extends FlutterAbility {
     ContinueOnHost.deliverFrom(want, launchParam)
     applyQaFlags(want)
     CardsHost.deliverFrom(want)
+    // The Play card's play key (postCardAction 'call'): started for it, this ability stays in the background with
+    // no window; Dart runs all the same (FlutterAbility starts it in onCreate) and plays.
+    try {
+      this.callee.on(CARD_PLAY_METHOD, (data: rpc.MessageSequence) => CardsHost.deliverCall(data))
+    } catch (e) {
+      hilog.warn(0x5901, 'YoinAbility', 'card callee failed: %{public}s', JSON.stringify(e))
+    }
     // A playlist restore's notification: its backup's page.
     TransferTaps.deliverFrom(want)
     if (wantsNowPlaying(want)) {
@@ -130,6 +145,11 @@ export default class EntryAbility extends FlutterAbility {
   }
 
   onDestroy() {
+    try {
+      this.callee.off(CARD_PLAY_METHOD)
+    } catch (e) {
+      hilog.warn(0x5901, 'YoinAbility', 'card callee off failed: %{public}s', JSON.stringify(e))
+    }
     super.onDestroy()
     // Playback is process-level: it carries on while the user wants sound, else it is torn down here.
     YoinPlaybackHost.onAbilityDestroy(this.context)

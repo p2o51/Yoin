@@ -51,11 +51,16 @@ struct PlayCard {
     });
   }
 
+  /**
+   * Plays from the home screen without bringing Yoin forward (Android WidgetPlayActivity): a 'call' starts
+   * EntryAbility in the background if needed (CardsPlugin CARD_PLAY_METHOD). If the play can't start, the app
+   * comes forward on the album / playlist page.
+   */
   private play(item: CardItem): void {
     postCardAction(this, {
-      action: 'router',
+      action: 'call',
       abilityName: 'EntryAbility',
-      params: { 'yoinCard': 'play', 'entity': item.entity, 'id': item.id }
+      params: { 'method': 'yoinCardPlay', 'entity': item.entity, 'id': item.id }
     });
   }
 
