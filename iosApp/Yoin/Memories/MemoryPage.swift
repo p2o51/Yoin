@@ -101,6 +101,50 @@ final class MemoriesDeckModel {
     }
 }
 
+/// Isolated pager position so 120Hz horizontal swipes and springs only update
+/// `MemoriesAurora`, lightweight page offset modifiers, `MemoriesAwardDriver`,
+/// and active `MemoriesTopBar` subviews without rebuilding `MemoriesView.body`.
+@MainActor
+@Observable
+final class MemoriesPagerModel {
+    var position: CGFloat = 0 { didSet { refresh() } }
+    private(set) var currentIndex: Int = 0
+    private(set) var visibleStart: Int = 0
+    private(set) var visibleEnd: Int = -1
+    @ObservationIgnored private var count: Int = 0
+
+    var visibleRange: [Int] {
+        guard count > 0, visibleStart <= visibleEnd else { return [] }
+        return Array(visibleStart...visibleEnd)
+    }
+
+    func updateCount(_ newCount: Int) {
+        count = newCount
+        refresh()
+    }
+
+    func snap(to newPosition: CGFloat, count newCount: Int) {
+        count = newCount
+        position = newPosition
+        refresh()
+    }
+
+    private func refresh() {
+        guard count > 0 else {
+            if currentIndex != 0 { currentIndex = 0 }
+            if visibleStart != 0 { visibleStart = 0 }
+            if visibleEnd != -1 { visibleEnd = -1 }
+            return
+        }
+        let idx = min(max(Int(position.rounded()), 0), count - 1)
+        if idx != currentIndex { currentIndex = idx }
+        let lo = max(0, Int(position.rounded(.down)) - 1)
+        let hi = min(count - 1, Int(position.rounded(.up)) + 1)
+        if lo != visibleStart { visibleStart = lo }
+        if hi != visibleEnd { visibleEnd = hi }
+    }
+}
+
 /// One page's anchors (page pt, at rest) and its diary scroll.
 @MainActor
 @Observable
@@ -112,13 +156,17 @@ final class MemoryPageMorph {
     var cardTitle: CGRect = .zero
     var cardTitleFont: CGFloat = 26
     /// The diary title at scroll 0 (nil: fallback A, the album name flies to the bar).
-    var diaryTitle: CGRect?
+    var diaryTitle: CGRect? { didSet { refreshScrolledPastHeader() } }
     var diaryTitleFont: CGFloat = 22
     var dem: CGRect = .zero
     /// The top of the diary's first line at scroll 0 (the blocks' lag reads it).
-    var diaryTop: CGFloat = 0
-    /// The diary's scroll (0 = top).
-    var scrollY: CGFloat = 0
+    var diaryTop: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    /// The diary's scroll (0 = top). Ignored by Observation so 120Hz diary scrolling
+    /// only notifies `MemoriesTopBar` and morph layers when `scrolledPastHeader` flips.
+    @ObservationIgnored var scrollY: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    @ObservationIgnored private var headerBarHeight: CGFloat = MemoriesLayoutTokens.barHeight
+    /// Whether the diary title has scrolled past the top bar.
+    private(set) var scrolledPastHeader = false
     /// A frozen collapse keeps its timing until p reaches 0 or 1.
     var frozenHold = false
 
@@ -126,9 +174,22 @@ final class MemoryPageMorph {
     var barCover: CGPoint = .zero
     var barTitle: CGRect = .zero
 
+    func updateBarHeight(_ barHeight: CGFloat) {
+        guard barHeight != headerBarHeight else { return }
+        headerBarHeight = barHeight
+        refreshScrolledPastHeader()
+    }
+
+    private func refreshScrolledPastHeader() {
+        let top = diaryTitle?.minY ?? diaryTop
+        let past = scrollY > 0 && scrollY >= top - headerBarHeight
+        if past != scrolledPastHeader { scrolledPastHeader = past }
+    }
+
     /// The diary title has scrolled under the bar (Android `so ≥ thr`).
     func frozen(barHeight: CGFloat) -> Bool {
         if frozenHold { return true }
+        if barHeight == headerBarHeight { return scrolledPastHeader }
         let top = diaryTitle?.minY ?? diaryTop
         return scrollY > 0 && scrollY >= top - barHeight
     }
@@ -208,7 +269,7 @@ struct MemoryCardFace: View {
     static func titleFont(_ kind: MemoryCard.TitleKind) -> CGFloat { kind == .album ? 24 : 26 }
 
     var body: some View {
-        let tones = MemoryTones(palette: card.album.palette, dark: dark)
+        let tones = MemoryTones.cached(for: card, dark: dark)
         VStack(spacing: 0) {
             Color.clear.frame(height: barHeight + metrics.air1)
             exhibit(tones)

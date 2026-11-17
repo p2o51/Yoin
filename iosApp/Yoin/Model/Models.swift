@@ -19,6 +19,8 @@ struct CoverPalette: Hashable, Sendable {
     private var a0: Color
     private var b0: Color
     private var c0: Color
+    private var a0Argb: Int
+    private var b0Argb: Int
     /// The server's cover image, when there is one.
     var cover: CoverRef?
 
@@ -26,6 +28,8 @@ struct CoverPalette: Hashable, Sendable {
         a0 = a
         b0 = b
         c0 = c
+        a0Argb = CoverScheme.argb(of: a)
+        b0Argb = CoverScheme.argb(of: b)
         self.cover = cover
     }
 
@@ -33,6 +37,8 @@ struct CoverPalette: Hashable, Sendable {
     var a: Color { derived?.a ?? a0 }
     var b: Color { derived?.b ?? b0 }
     var c: Color { derived?.c ?? c0 }
+    var seedArgb: Int { derived?.seedArgb ?? a0Argb }
+    var bArgb: Int { derived?.bArgb ?? b0Argb }
 
     /// Accent used for tinted glass and primary actions.
     var tint: Color { a }

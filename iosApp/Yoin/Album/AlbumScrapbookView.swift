@@ -31,6 +31,10 @@ struct AlbumScrapbookView: View {
     var pageWidth: CGFloat = 402
     /// The hero cover is flying here: this page's cover waits hidden until it lands.
     var coverInFlight = false
+    /// When `motion` is provided, cover-flight visibility tracks `motion.coverInFlight` directly.
+    var coverFlies = false
+    /// Isolated pager motion state so 120Hz drags don't rebuild the scrapbook body.
+    var motion: AlbumDetailMotionState? = nil
     /// Opens the album's rate + review sheet (the review clipping, the blank pen).
     var onEditReview: (() -> Void)? = nil
     /// The cover's resting rect in `space` and its tilt (the flight's target).
@@ -146,9 +150,9 @@ struct AlbumScrapbookView: View {
     /// The Bun's inputs from the local stores (AlbumBun: what page 1 reads too).
     private var bun: AlbumBun { AlbumBun.of(album, memories: memories) }
     /// The track's score: this device's (or a synced) rating; Android never shows the server's here.
-    private func score(_ t: Track) -> Double? {
-        guard let i = album.tracks.firstIndex(where: { $0.id == t.id }) else { return nil }
-        return bun.trackScores[i]
+    private func score(_ t: Track, in scores: [Double?]) -> Double? {
+        guard let i = album.tracks.firstIndex(where: { $0.id == t.id }), scores.indices.contains(i) else { return nil }
+        return scores[i]
     }
     private func playCount(_ t: Track) -> Int { isMock ? t.number * 3 + 5 : (t.playCount ?? 0) }
     /// The album's own score: the synced album rating (Android album_ratings).
@@ -156,16 +160,22 @@ struct AlbumScrapbookView: View {
     private var averageScore: Double? { bun.average }
 
     var body: some View {
+        let currentBun = bun
+        let trackScores = currentBun.trackScores
+        let bestTrackId = bestTrack(in: trackScores)?.id
+        let builtBlocks = blocks(trackScores: trackScores, bestTrackId: bestTrackId)
+        let emblemKey = "\(currentBun.score)|\(currentBun.kind)|\(currentBun.rated)"
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.detail.SCRAPBOOK_PIECE_GAP.cg) {
-                opening
-                ForEach(Array(blocks.enumerated()), id: \.offset) { i, b in
-                    block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2))
+                opening(bun: currentBun)
+                ForEach(Array(builtBlocks.enumerated()), id: \.offset) { i, b in
+                    block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2),
+                          trackScores: trackScores, bestTrackId: bestTrackId)
                 }
                 // Android: the receipt only once the album has played here.
                 if plays.map({ $0.playCount > 0 }) ?? true {
-                    receipt
+                    receipt(trackScores: trackScores)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -181,9 +191,9 @@ struct AlbumScrapbookView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         .safeAreaBar(edge: .top) { Self.edgeBar(height: topInset) }
         .defaultScrollAnchor(LaunchConfig.screen == "album-scrapbook-bottom" ? .bottom : .top)
-        .onChange(of: awardKey, initial: true) { _, _ in
+        .onChange(of: emblemKey, initial: true) { _, _ in
             // Built from the emblem's own inputs; rebuilt (at rest once stamped) when they change.
-            let a = ScoreEmblemAward(score: emblemScore, kind: emblemKind, rated: emblemRated,
+            let a = ScoreEmblemAward(score: currentBun.score, kind: currentBun.kind, rated: currentBun.rated,
                                      size: Tokens.detail.SCRAPBOOK_BADGE.cg, haptics: false)
             if !stamped { a.setPending(true) }
             award = a
@@ -269,8 +279,10 @@ struct AlbumScrapbookView: View {
 
     // MARK: Opening cluster
 
-    private var opening: some View {
-        let kind = emblemKind
+    private func opening(bun currentBun: AlbumBun) -> some View {
+        let kind = currentBun.kind
+        let emblemScore = currentBun.score
+        let emblemRated = currentBun.rated
         let cover = Tokens.detail.SCRAPBOOK_COVER.cg
         let badge = Tokens.detail.SCRAPBOOK_BADGE.cg
         let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
@@ -293,7 +305,8 @@ struct AlbumScrapbookView: View {
                                 .frame(width: cover, height: cover)
                                 .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
                                 // Hidden until the hero's cover has landed: one cover on screen, never two.
-                                .opacity(coverInFlight ? 0 : 1)
+                                .modifier(ScrapCoverFlightOpacity(motion: motion, coverFlies: coverFlies,
+                                                                  fallbackInFlight: coverInFlight))
                                 .modifier(layer(tilt("cover", Tilt.cover), depth: 0.25))
                         }
                         .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
@@ -485,7 +498,7 @@ struct AlbumScrapbookView: View {
 
     /// Tracks with notes or the best score get a cluster; runs of score-only
     /// tracks become contact sheets of two; untouched tracks are skipped.
-    private var blocks: [Block] {
+    private func blocks(trackScores: [Double?], bestTrackId: MediaId?) -> [Block] {
         var out: [Block] = []
         var run: [Track] = []
         func flush() {
@@ -495,9 +508,9 @@ struct AlbumScrapbookView: View {
         }
         for t in album.tracks {
             let a = about(t)
-            if notes(t) != nil || t.id == bestTrack?.id || a.needsCluster {
+            if notes(t) != nil || t.id == bestTrackId || a.needsCluster {
                 flush(); out.append(.cluster(t))
-            } else if score(t) != nil || a.touches {
+            } else if score(t, in: trackScores) != nil || a.touches {
                 run.append(t)
             }
         }
@@ -505,18 +518,22 @@ struct AlbumScrapbookView: View {
         return out
     }
 
-    private var bestTrack: Track? {
-        album.tracks.filter { (score($0) ?? 0) >= 9 }.max { (score($0) ?? 0) < (score($1) ?? 0) }
+    private func bestTrack(in trackScores: [Double?]) -> Track? {
+        album.tracks.enumerated().compactMap { i, t -> (Track, Double)? in
+            guard trackScores.indices.contains(i), let s = trackScores[i], s >= 9 else { return nil }
+            return (t, s)
+        }.max { $0.1 < $1.1 }?.0
     }
 
     private var mirrorSeed: Int { ScrapbookTilt.shared.startsMirrored(seed: album.id.rawId) ? 1 : 0 }
 
     @ViewBuilder
-    private func block(_ b: Block, mirrored: Bool) -> some View {
+    private func block(_ b: Block, mirrored: Bool, trackScores: [Double?], bestTrackId: MediaId?) -> some View {
         switch b {
         case .cluster(let t):
             VStack(alignment: mirrored ? .trailing : .leading, spacing: -Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg) {
-                ticket(t, width: min(280, max(200, 0.66 * 368)), mini: false)
+                ticket(t, width: min(280, max(200, 0.66 * 368)), mini: false,
+                       trackScores: trackScores, bestTrackId: bestTrackId)
                     .zIndex(0)
                 if let ns = notes(t) {
                     notesClipping(t, ns)
@@ -548,23 +565,24 @@ struct AlbumScrapbookView: View {
         case .sheet(let ts):
             if ts.count == 2 {
                 HStack(alignment: .top, spacing: 14) {
-                    ticket(ts[0], width: nil, mini: true)
-                    ticket(ts[1], width: nil, mini: true).padding(.top, 12)
+                    ticket(ts[0], width: nil, mini: true, trackScores: trackScores, bestTrackId: bestTrackId)
+                    ticket(ts[1], width: nil, mini: true, trackScores: trackScores, bestTrackId: bestTrackId).padding(.top, 12)
                 }
                 .padding(.top, 6)
             } else {
-                ticket(ts[0], width: min(220, max(168, 0.52 * 368)), mini: true)
+                ticket(ts[0], width: min(220, max(168, 0.52 * 368)), mini: true,
+                       trackScores: trackScores, bestTrackId: bestTrackId)
                     .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
                     .padding(.top, 6)
             }
         }
     }
 
-    private func ticket(_ t: Track, width: CGFloat?, mini: Bool) -> some View {
-        let best = t.id == bestTrack?.id
+    private func ticket(_ t: Track, width: CGFloat?, mini: Bool, trackScores: [Double?], bestTrackId: MediaId?) -> some View {
+        let best = t.id == bestTrackId
         let fill = best ? s.primary : s.surfaceContainerHigh
         let ink = best ? s.onPrimary : s.onSurface
-        let scoreText = score(t).map { String(format: "%.1f", $0) } ?? ""
+        let scoreText = score(t, in: trackScores).map { String(format: "%.1f", $0) } ?? ""
         return HStack(spacing: 0) {
             Text(String(format: "%02d", t.number))
                 .font(.gsf(mini ? 16 : 18, .medium)).monospacedDigit()
@@ -798,7 +816,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Receipt
 
-    private var receipt: some View {
+    private func receipt(trackScores: [Double?]) -> some View {
         var rows: [(String, String)] = [("Plays in Yoin", "42"), ("Days since first play", "18"),
                                         ("Last played", "Yesterday")]
         if let plays {
@@ -820,7 +838,8 @@ struct AlbumScrapbookView: View {
                                                                      album: album.title))
                     .filter { $0.kind == SongAboutStore.Kind.ask }.count
             }
-            rows += [("Rated", "\(album.tracks.filter { score($0) != nil }.count) / \(album.tracks.count)"),
+            let ratedTracksCount = trackScores.reduce(0) { $0 + ($1 != nil ? 1 : 0) }
+            rows += [("Rated", "\(ratedTracksCount) / \(album.tracks.count)"),
                      ("Notes", "\(noteCount)"), ("Asked", "\(asked)")]
         }
         return VStack(alignment: .leading, spacing: 0) {
@@ -868,7 +887,19 @@ struct AlbumScrapbookView: View {
     private func sign(_ x: Double) -> Double { x < 0 ? -1 : 1 }
 
     private func layer(_ tilt: Double, depth: CGFloat) -> ScrapLayer {
-        ScrapLayer(tilt: tilt, depth: depth, offset: pageOffset, width: pageWidth)
+        ScrapLayer(tilt: tilt, depth: depth, motion: motion, fallbackOffset: pageOffset, width: pageWidth)
+    }
+}
+
+/// Cover-flight opacity isolated to its own modifier so 120Hz pager drags don't rebuild `AlbumScrapbookView`.
+private struct ScrapCoverFlightOpacity: ViewModifier {
+    var motion: AlbumDetailMotionState?
+    var coverFlies: Bool
+    var fallbackInFlight: Bool
+
+    func body(content: Content) -> some View {
+        let hidden = motion.map { coverFlies && $0.coverInFlight } ?? fallbackInFlight
+        content.opacity(hidden ? 0 : 1)
     }
 }
 
@@ -880,10 +911,12 @@ private struct ScrapLayer: ViewModifier {
     static var leanDegrees: Double { Tokens.detail.SCRAPBOOK_LEAN_DEGREES }
     var tilt: Double
     var depth: CGFloat
-    var offset: CGFloat
+    var motion: AlbumDetailMotionState?
+    var fallbackOffset: CGFloat
     var width: CGFloat
 
     func body(content: Content) -> some View {
+        let offset = motion.map { 1 - $0.pageFrac } ?? fallbackOffset
         let lean = tilt == 0 ? 0 : (tilt < 0 ? -1 : 1) * Self.leanDegrees * Double(offset)
         content
             .rotationEffect(.degrees(tilt + lean))
@@ -968,20 +1001,57 @@ struct ReceiptShape: Shape {
 /// 16 pt tiles with a 1.2 pt dot at the centre.
 struct DotPaper: View {
     var color: Color
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
-        let pitch = Tokens.detail.SCRAPBOOK_DOT_SPACING.cg, dot = Tokens.detail.SCRAPBOOK_DOT_RADIUS.cg
-        Canvas { gc, size in
-            var y: CGFloat = pitch / 2
-            while y < size.height {
-                var x: CGFloat = pitch / 2
-                while x < size.width + pitch {
-                    gc.fill(Path(ellipseIn: CGRect(x: x - dot, y: y - dot, width: 2 * dot, height: 2 * dot)), with: .color(color))
-                    x += pitch
-                }
-                y += pitch
-            }
+        let tile = Self.tileImage(color: color, scale: displayScale)
+        Rectangle()
+            .fill(ImagePaint(image: Image(uiImage: tile)))
+            .padding(.horizontal, -16)
+    }
+
+    private struct TileKey: Hashable {
+        var r: UInt8
+        var g: UInt8
+        var b: UInt8
+        var a: UInt8
+        var scale: Int
+        var pitch: Int
+        var dot: Int
+    }
+
+    @MainActor private static var tileCache: [TileKey: UIImage] = [:]
+    @MainActor private static var tileOrder: [TileKey] = []
+
+    @MainActor
+    private static func tileImage(color: Color, scale: CGFloat) -> UIImage {
+        let pitch = Tokens.detail.SCRAPBOOK_DOT_SPACING.cg
+        let dot = Tokens.detail.SCRAPBOOK_DOT_RADIUS.cg
+        let uiColor = UIColor(color)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        func q(_ v: CGFloat) -> UInt8 { UInt8(min(255, max(0, (v * 255).rounded()))) }
+        let s = max(1, scale)
+        let key = TileKey(r: q(r), g: q(g), b: q(b), a: q(a),
+                          scale: Int((s * 10).rounded()),
+                          pitch: Int((pitch * 10).rounded()),
+                          dot: Int((dot * 10).rounded()))
+        if let hit = tileCache[key] { return hit }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = s
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: pitch, height: pitch), format: format).image { ctx in
+            uiColor.setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: pitch / 2 - dot, y: pitch / 2 - dot,
+                                                 width: dot * 2, height: dot * 2))
         }
-        .padding(.horizontal, -16)
+        tileOrder.append(key)
+        if tileOrder.count > 32 {
+            let evicted = tileOrder.removeFirst()
+            tileCache.removeValue(forKey: evicted)
+        }
+        tileCache[key] = image
+        return image
     }
 }
 

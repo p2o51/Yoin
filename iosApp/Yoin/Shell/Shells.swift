@@ -242,11 +242,10 @@ struct WorldRecede: ViewModifier {
             // the sheet's rise (SheetRise: its own presentation, dismissal and
             // drag). A separate spring here ran out of step with the sheet and
             // landed in one frame.
-            let rise = SheetRise.shared.progress
             let underNP = layer == .shell && model.np.mounted
             let depth: CGFloat = switch layer {
-            case .shell: underNP ? min(max(model.np.progress, 0), 1) : rise
-            case .nowPlaying: model.npExpanded ? rise : 0
+            case .shell: underNP ? min(max(model.np.progress, 0), 1) : SheetRise.shared.progress
+            case .nowPlaying: model.npExpanded ? SheetRise.shared.progress : 0
             }
             // Unanimated only for the recede itself: a whole-layer
             // `.transaction { $0.animation = nil }` also cut every animation
@@ -292,6 +291,9 @@ private struct SheetRiseReporter: UIViewRepresentable {
 /// is on it: UIKit moves the frame itself under a drag, which would read as
 /// "at rest" all the way down.
 final class SheetRiseView: UIView {
+    private static let activeFrameRate = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+    private static let idleFrameRate = CAFrameRateRange(minimum: 10, maximum: 15, preferred: 15)
+
     private var link: CADisplayLink?
     private var rest: CGFloat?
     private weak var sheet: UIView?
@@ -302,6 +304,8 @@ final class SheetRiseView: UIView {
     /// frame.
     private var armed = false
     private var attachedAt: CFTimeInterval = 0
+    private var settledSince: CFTimeInterval?
+    private var isIdleFrameRate = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -315,9 +319,11 @@ final class SheetRiseView: UIView {
         super.didMoveToWindow()
         link?.invalidate()
         link = nil
+        settledSince = nil
+        isIdleFrameRate = false
         if window != nil {
             let l = CADisplayLink(target: self, selector: #selector(tick))
-            l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            l.preferredFrameRateRange = Self.activeFrameRate
             l.add(to: .main, forMode: .common)
             link = l
             armed = false
@@ -357,23 +363,49 @@ final class SheetRiseView: UIView {
 
     @objc private func tick() {
         guard let window, let sheet = findSheet() else { return }
+        let nowTime = CACurrentMediaTime()
+        let isDismissing = controller?.isBeingDismissed == true
+        let isDragged = dragged(sheet)
         let model = sheet.convert(sheet.bounds, to: window).minY
         let wl = window.layer.presentation() ?? window.layer
         let pl = sheet.layer.presentation() ?? sheet.layer
         let now = pl.convert(pl.bounds, to: wl).minY
+        var detentChanged = false
         // Only when the frame moved for a detent change: not under a drag,
         // and not as it leaves (UIKit sets the frame off screen at once).
-        if let r = rest, abs(model - r) > 0.5, controller?.isBeingDismissed != true,
-           model < window.bounds.height - 1, !dragged(sheet) { rest = model }
+        if let r = rest, abs(model - r) > 0.5, !isDismissing,
+           model < window.bounds.height - 1, !isDragged {
+            rest = model
+            detentChanged = true
+        }
         if rest == nil { rest = model }
         let bottom = window.bounds.height
         guard let rest, bottom - rest > 1 else { return }
         let p = min(max((bottom - now) / (bottom - rest), 0), 1)
         if !armed {
-            guard p < 0.98 || CACurrentMediaTime() - attachedAt > 0.3 else { return }
+            guard p < 0.98 || nowTime - attachedAt > 0.3 else { return }
             armed = true
         }
         SheetRise.shared.report(ObjectIdentifier(self), p)
+
+        // Drop display-link polling to 10-15 Hz once settled at rest so an idle
+        // sheet does not pin ProMotion at 120 Hz; restore 120 Hz immediately on motion.
+        if armed && p >= 0.999 && !isDragged && !isDismissing && !detentChanged {
+            if let since = settledSince {
+                if !isIdleFrameRate && nowTime - since > 0.25 {
+                    link?.preferredFrameRateRange = Self.idleFrameRate
+                    isIdleFrameRate = true
+                }
+            } else {
+                settledSince = nowTime
+            }
+        } else {
+            settledSince = nil
+            if isIdleFrameRate {
+                link?.preferredFrameRateRange = Self.activeFrameRate
+                isIdleFrameRate = false
+            }
+        }
     }
 }
 

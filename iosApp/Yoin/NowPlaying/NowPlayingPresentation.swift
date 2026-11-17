@@ -312,7 +312,7 @@ struct NowPlayingMorph: View {
             let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
             ZStack(alignment: .topLeading) {
-                surface(shape: shape, rect: rect, q: q)
+                surface(shape: shape, rect: rect, screen: screen, q: q)
 
                 // The pill's own content (artist, progress wash) rides the
                 // shape's top edge and fades as the page takes over.
@@ -357,10 +357,15 @@ struct NowPlayingMorph: View {
 
     /// One glass shape the whole way: the pill's glass at 0, the page's
     /// (glass over the neighbouring albums' colors) at 1.
-    private func surface(shape: RoundedRectangle, rect: CGRect, q: CGFloat) -> some View {
+    private func surface(shape: RoundedRectangle, rect: CGRect, screen: CGRect, q: CGFloat) -> some View {
         ZStack {
-            // Its blurs overflow their frame: sized and clipped to the shape.
+            // Laid out at fixed `screen.size` and scaled down during the morph so
+            // NowPlayingAmbient never re-layouts on every 8.3ms frame.
             NowPlayingAmbient(scheme: scheme)
+                .equatable()
+                .frame(width: screen.width, height: screen.height)
+                .scaleEffect(x: max(0.001, rect.width / max(screen.width, 1)),
+                             y: max(0.001, rect.height / max(screen.height, 1)))
                 .frame(width: rect.width, height: rect.height)
                 .clipShape(shape)
                 // World: the folded pill already carries it (pillAmbient).
@@ -636,12 +641,22 @@ enum NowPlayingNeighbours {
 /// Now Playing's ambient colors under its glass: this album's primary in the
 /// middle, the previous album's at the top edge, the next album's at the
 /// bottom (NowPlayingNeighbours). Mock / no queue: the stand-in albums.
-struct NowPlayingAmbient: View {
+struct NowPlayingAmbient: View, Equatable {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var scheme: CoverScheme
     private var lab: GlassLab { GlassLab.shared }
     @State private var keyHint = false
+
+    nonisolated static func == (a: NowPlayingAmbient, b: NowPlayingAmbient) -> Bool {
+        a.scheme.primary == b.scheme.primary
+            && a.scheme.secondary == b.scheme.secondary
+            && a.scheme.tertiary == b.scheme.tertiary
+            && a.scheme.background == b.scheme.background
+            && a.scheme.primaryContainer == b.scheme.primaryContainer
+            && a.scheme.secondaryContainer == b.scheme.secondaryContainer
+            && a.scheme.tertiaryContainer == b.scheme.tertiaryContainer
+    }
 
     /// The playing song's About, as SongAboutLoader files it.
     private var aboutKey: SongAboutStore.Entry.SongKey? {
@@ -684,40 +699,107 @@ struct NowPlayingAmbient: View {
             ? lab.extra("darkAmbientStrength") : lab.extra("ambientStrength")
         let neighbours = dark && lab.extra("darkNeighbourStrength") > 0
             ? lab.extra("darkNeighbourStrength") : lab.extra("neighbourStrength")
-        let aura = Circle().fill(scheme.primary.opacity(strength))
-            .frame(width: 360).blur(radius: lab.extra("ambientBlur"))
+        let auraBlur = max(CGFloat(lab.extra("ambientBlur")), 0)
+        let auraEnd: CGFloat = 180 + auraBlur * 2.4
+        let topEnd: CGFloat = 150 + 50 * 2.4
+        let bottomEnd: CGFloat = 160 + 50 * 2.4
         let onTop = lab.extra("auraOnTop") > 0.5
-        ZStack {
-            scheme.background
-            if !onTop { aura }
-            VStack {
-                Ellipse().fill(edge.top.opacity(neighbours))
-                    .frame(height: 300).offset(y: -90).blur(radius: 50)
-                Spacer()
-                Ellipse().fill(edge.bottom.opacity(neighbours))
-                    .frame(height: 320).offset(y: 110).blur(radius: 50)
+        scheme.background
+            .overlay {
+                if !onTop, strength > 0.001 {
+                    auraCircle(strength: strength, blur: auraBlur, endRadius: auraEnd)
+                }
+            }
+            .overlay(alignment: .top) {
+                if neighbours > 0.001 {
+                    Rectangle()
+                        .fill(EllipticalGradient(
+                            stops: Self.diskGlowStops(color: edge.top, opacity: neighbours, diskRadius: 150, blur: 50),
+                            center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5
+                        ))
+                        .frame(height: topEnd * 2)
+                        .padding(.horizontal, -120)
+                        .offset(y: 60 - topEnd)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if neighbours > 0.001 {
+                    Rectangle()
+                        .fill(EllipticalGradient(
+                            stops: Self.diskGlowStops(color: edge.bottom, opacity: neighbours, diskRadius: 160, blur: 50),
+                            center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5
+                        ))
+                        .frame(height: bottomEnd * 2)
+                        .padding(.horizontal, -120)
+                        .offset(y: bottomEnd - 50)
+                }
             }
             // World: the room's own cover leads; neighbours only frame it.
-            if onTop { aura }
-            // Gemini thinking (an Ask question, or About's own first fetch),
-            // and the soft pink nudge when About needs a key that isn't set.
-            GeminiWash(active: geminiThinking, primary: scheme.primary, secondary: scheme.secondary,
-                       tertiary: scheme.tertiary)
-            GeminiWash(active: keyHint, primary: scheme.primary, secondary: scheme.secondary,
-                       tertiary: scheme.tertiary, fixedHue: 345, strength: 0.55)
+            .overlay {
+                if onTop, strength > 0.001 {
+                    auraCircle(strength: strength, blur: auraBlur, endRadius: auraEnd)
+                }
+            }
+            .overlay {
+                // Gemini thinking (an Ask question, or About's own first fetch),
+                // and the soft pink nudge when About needs a key that isn't set.
+                GeminiWash(active: geminiThinking, primary: scheme.primary, secondary: scheme.secondary,
+                           tertiary: scheme.tertiary)
+                GeminiWash(active: keyHint, primary: scheme.primary, secondary: scheme.secondary,
+                           tertiary: scheme.tertiary, fixedHue: 345, strength: 0.55)
+            }
+            .clipped()
+            .task(id: geminiKeyMissing) {
+                guard geminiKeyMissing, GeminiKeyHint.claim() else { return }
+                keyHint = true
+                try? await Task.sleep(for: .seconds(GeminiKeyHint.holdSeconds))
+                keyHint = false
+            }
+            // A new song, a reordered / shuffled queue or another repeat mode
+            // re-colours the edges on the effects spring, never a snap: keyed on
+            // the neighbours themselves, not the queue's length (a shuffle keeps
+            // the current item and the count but changes who stands beside it).
+            .animation(Yoin.effects, value: model.player.currentItem?.id)
+            .animation(Yoin.effects, value: neighbourKey)
+    }
+
+    private func auraCircle(strength: Double, blur: CGFloat, endRadius: CGFloat) -> some View {
+        Circle()
+            .fill(RadialGradient(
+                stops: Self.diskGlowStops(color: scheme.primary, opacity: strength, diskRadius: 180, blur: blur),
+                center: .center, startRadius: 0, endRadius: endRadius
+            ))
+            .frame(width: endRadius * 2, height: endRadius * 2)
+    }
+
+    /// Multi-stop radial falloff approximating a 2D Gaussian-blurred disk of `diskRadius`
+    /// with blur `blur`, avoiding offscreen Gaussian blur render target allocations.
+    nonisolated static func diskGlowStops(color: Color, opacity: Double, diskRadius: CGFloat, blur: CGFloat) -> [Gradient.Stop] {
+        guard opacity > 0.001, diskRadius > 0 else {
+            return [.init(color: color.opacity(0), location: 0), .init(color: color.opacity(0), location: 1)]
         }
-        .task(id: geminiKeyMissing) {
-            guard geminiKeyMissing, GeminiKeyHint.claim() else { return }
-            keyHint = true
-            try? await Task.sleep(for: .seconds(GeminiKeyHint.holdSeconds))
-            keyHint = false
+        guard blur >= 1 else {
+            return [
+                .init(color: color.opacity(opacity), location: 0),
+                .init(color: color.opacity(opacity), location: 0.99),
+                .init(color: color.opacity(0), location: 1),
+            ]
         }
-        // A new song, a reordered / shuffled queue or another repeat mode
-        // re-colours the edges on the effects spring, never a snap: keyed on
-        // the neighbours themselves, not the queue's length (a shuffle keeps
-        // the current item and the count but changes who stands beside it).
-        .animation(Yoin.effects, value: model.player.currentItem?.id)
-        .animation(Yoin.effects, value: neighbourKey)
+        let endR = diskRadius + blur * 2.4
+        let sigma = Double(blur)
+        let r0 = Double(diskRadius)
+        let root2Sigma = sigma * 1.4142135623730951
+        let center2D = 1.0 - exp(-(r0 * r0) / (2.0 * sigma * sigma))
+        let norm0 = max(erf(r0 / root2Sigma), 0.001)
+        let locations: [Double] = [0.0, 0.2, 0.4, 0.55, 0.7, 0.85]
+        var stops = locations.map { loc -> Gradient.Stop in
+            let r = loc * Double(endR)
+            let g1d = 0.5 * (erf((r0 - r) / root2Sigma) + erf((r0 + r) / root2Sigma))
+            let a = min(max(opacity * (g1d / norm0) * center2D, 0), 1)
+            return .init(color: color.opacity(a), location: loc)
+        }
+        stops.append(.init(color: color.opacity(0), location: 1))
+        return stops
     }
 
     /// Who stands at each edge: the neighbouring queue items' identities and

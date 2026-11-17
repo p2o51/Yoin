@@ -32,7 +32,7 @@ struct MemoriesSpreadPage: View {
     private static let rightInset: CGFloat = 40
 
     var body: some View {
-        let tones = MemoryTones(palette: card.album.palette, dark: dark)
+        let tones = MemoryTones.cached(for: card, dark: dark)
         HStack(alignment: .top, spacing: 0) {
             left(tones)
                 .frame(width: layout.leftPage)

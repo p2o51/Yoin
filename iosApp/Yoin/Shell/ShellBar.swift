@@ -308,12 +308,7 @@ struct ShellBar: View {
         .background {
             // World (R5): the folded room's ambient already breathes in the pill.
             if lab.extra("pillAmbient") > 0, !model.isIdle {
-                // Sized by the pill (the ambient's own blobs are page-sized).
-                Color.clear
-                    .overlay { NowPlayingAmbient(scheme: scheme) }
-                    .clipShape(.capsule)
-                    .opacity(lab.extra("pillAmbient"))
-                    .allowsHitTesting(false)
+                PillAmbientWash(scheme: scheme, dark: colorScheme == .dark, opacity: lab.extra("pillAmbient"))
             }
         }
         .glassEffectID("np", in: glassNS)
@@ -479,6 +474,42 @@ struct ShellNavFace: View {
             }
         }
         .contentShape(.capsule)
+    }
+}
+
+/// Lightweight gradient wash for the mini-player pill (`pillAmbient`),
+/// preserving the folded room's cover palette without mounting large live blurs.
+private struct PillAmbientWash: View {
+    var scheme: CoverScheme
+    var dark: Bool
+    var opacity: Double
+
+    var body: some View {
+        ZStack {
+            scheme.background
+            LinearGradient(
+                colors: [
+                    scheme.secondaryContainer.opacity(0.65),
+                    scheme.primary.opacity(dark ? 0.55 : 0.42),
+                    scheme.tertiaryContainer.opacity(0.65),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [
+                    scheme.primary.opacity(dark ? 0.48 : 0.36),
+                    .clear,
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: 140
+            )
+        }
+        .clipShape(.capsule)
+        .opacity(opacity)
+        .animation(Yoin.effects, value: scheme.primary)
+        .allowsHitTesting(false)
     }
 }
 

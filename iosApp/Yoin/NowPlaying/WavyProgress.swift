@@ -101,38 +101,55 @@ public struct WavyActiveShape: Shape {
         let head = min(max(progress * width, cap), width - cap)
         guard head > tail + 0.01 else { return Path() }
         let a = max(0, amplitude) * metrics.amplitude
+        let midY = rect.midY
 
-        if a < 0.0005 {
+        if a < 0.0005 || metrics.wavelength <= 0.01 {
             // Flat: M3 draws a plain line and does not shift it.
             var line = Path()
-            line.move(to: CGPoint(x: tail, y: rect.midY))
-            line.addLine(to: CGPoint(x: head, y: rect.midY))
+            line.move(to: CGPoint(x: tail, y: midY))
+            line.addLine(to: CGPoint(x: head, y: midY))
             return line
         }
 
-        // Exactly M3's construction: a full-amplitude wave of quadratic half-waves, a couple of
-        // wavelengths longer than the bar so it can slide, cut by arc length, then flattened.
+        // Direct quadratic half-wave construction over [tail, head] using exact
+        // quadratic Bezier blossom subdivision at clipped endpoints, avoiding
+        // full-width Path construction, boundingRect, and trimmedPath splitting.
         let lambda = metrics.wavelength
         let half = lambda / 2
-        let full = Path { p in
-            p.move(to: .zero)
-            var anchorX = half
-            var controlX = half / 2
-            var controlY = metrics.height - metrics.stroke
-            let limit = width + lambda * 2
-            while anchorX <= limit {
-                p.addQuadCurve(to: CGPoint(x: anchorX, y: 0), control: CGPoint(x: controlX, y: controlY))
-                anchorX += half
-                controlX += half
-                controlY = -controlY
+        let normPhase = phase - floor(phase)
+        let shift = normPhase * lambda
+        let maxControlY = (metrics.height - metrics.stroke) * a
+        let kStart = Int(floor((tail + shift) / half))
+        let kEnd = Int(floor((head + shift - 1e-6) / half))
+
+        var p = Path()
+        var started = false
+        for k in kStart...max(kStart, kEnd) {
+            let x0 = CGFloat(k) * half - shift
+            let ampY = k.isMultiple(of: 2) ? maxControlY : -maxControlY
+            let t0 = k == kStart ? max(0, (tail - x0) / half) : 0
+            let t1 = k == kEnd ? min(1, (head - x0) / half) : 1
+            guard t1 > t0 else { continue }
+            if t0 <= 0 && t1 >= 1 {
+                if !started {
+                    p.move(to: CGPoint(x: x0, y: midY))
+                    started = true
+                }
+                p.addQuadCurve(to: CGPoint(x: x0 + half, y: midY),
+                               control: CGPoint(x: x0 + half * 0.5, y: midY + ampY))
+            } else {
+                let p0 = CGPoint(x: x0 + t0 * half, y: midY + 2 * t0 * (1 - t0) * ampY)
+                let p1 = CGPoint(x: x0 + (t0 + t1) * 0.5 * half,
+                                 y: midY + (t0 * (1 - t1) + t1 * (1 - t0)) * ampY)
+                let p2 = CGPoint(x: x0 + t1 * half, y: midY + 2 * t1 * (1 - t1) * ampY)
+                if !started {
+                    p.move(to: p0)
+                    started = true
+                }
+                p.addQuadCurve(to: p2, control: p1)
             }
         }
-        let extent = max(full.boundingRect.maxX, 1)
-        let shift = phase.truncatingRemainder(dividingBy: 1) * lambda
-        let piece = full.trimmedPath(from: (tail + shift) / extent, to: (head + shift) / extent)
-        // x − shift slides the wave (crests travel toward the start, as on Android);
-        // y × a flattens it around the centre line.
-        return piece.applying(CGAffineTransform(a: 1, b: 0, c: 0, d: a, tx: -shift, ty: rect.midY))
+        return p
     }
 }
 
@@ -248,7 +265,7 @@ public struct WavyProgressBar: View {
         self.onScrubMove = onScrubMove
         self.live = live
         self.actedScrub = actedScrub.map { min(max($0, 0), 1) }
-        self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
+        self.noteAnchors = noteAnchors.isEmpty ? [] : noteAnchors.map { min(max($0, 0), 1) }
         self.noteInk = noteInk
         self.progress = progress
         self.buffered = buffered
@@ -282,7 +299,7 @@ public struct WavyProgressBar: View {
             ZStack(alignment: .topLeading) {
                 Color.clear
                 // The bar: the TimelineView only ticks while the wave travels (zero cost when paused).
-                TimelineView(.animation(paused: !waveMoves)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !waveMoves)) { context in
                     bar(phase: phase(at: context.date))
                 }
                 .frame(width: width, height: metrics.height)

@@ -1,3 +1,4 @@
+import os
 import UIKit
 import SwiftUI
 
@@ -9,8 +10,9 @@ struct CookieShape: Shape {
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let radius = min(rect.width, rect.height) / 2
+        guard radius > 0 else { return Path() }
         var path = Path()
-        let steps = 360
+        let steps = max(64, min(180, Int(radius * 2.5)))
         for i in 0...steps {
             let t = Double(i) / Double(steps) * 2 * .pi
             let r = radius * (1 - depth / 2 + depth / 2 * CGFloat(cos(Double(lobes) * t)))
@@ -74,14 +76,41 @@ extension Album {
 }
 
 /// Android ExpressiveBackdropPalette: base and accent tones from the cover.
-struct BackdropColors {
+struct BackdropColors: Sendable {
     var base: Color
     var accent: Color
 
+    private struct CacheKey: Hashable, Sendable {
+        let seedArgb: Int
+        let bArgb: Int
+    }
+
+    private static let cache = OSAllocatedUnfairLock<[CacheKey: BackdropColors]>(initialState: [:])
+
     init(_ palette: CoverPalette) {
-        func hsl(_ c: Color) -> (CGFloat, CGFloat, CGFloat) {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+        let key = CacheKey(seedArgb: palette.seedArgb, bArgb: palette.bArgb)
+        if let hit = Self.cache.withLock({ $0[key] }) {
+            self = hit
+            return
+        }
+        let built = Self.compute(seedArgb: key.seedArgb, bArgb: key.bArgb)
+        Self.cache.withLock {
+            if $0.count >= 1024 { $0.removeAll(keepingCapacity: true) }
+            $0[key] = built
+        }
+        self = built
+    }
+
+    private init(base: Color, accent: Color) {
+        self.base = base
+        self.accent = accent
+    }
+
+    private static func compute(seedArgb: Int, bArgb: Int) -> BackdropColors {
+        func hsl(_ argb: Int) -> (CGFloat, CGFloat, CGFloat) {
+            let r = CGFloat((argb >> 16) & 0xFF) / 255
+            let g = CGFloat((argb >> 8) & 0xFF) / 255
+            let b = CGFloat(argb & 0xFF) / 255
             let mx = max(r, g, b), mn = min(r, g, b), l = (mx + mn) / 2
             guard mx != mn else { return (0, 0, l) }
             let d = mx - mn
@@ -94,12 +123,13 @@ struct BackdropColors {
             let v = l + s * min(l, 1 - l)
             return Color(hue: h, saturation: v == 0 ? 0 : 2 * (1 - l / v), brightness: v)
         }
-        let (h, s, l) = hsl(palette.a)
+        let (h, s, l) = hsl(seedArgb)
         // base: S × 0.82 ∈ [0.18, 0.78], L × 0.72 + 0.12 ∈ [0.24, 0.62]
-        base = color(h, min(0.78, max(0.18, s * 0.82)), min(0.62, max(0.24, l * 0.72 + 0.12)))
+        let base = color(h, min(0.78, max(0.18, s * 0.82)), min(0.62, max(0.24, l * 0.72 + 0.12)))
         // accent: a lighter swatch near the seed hue, S × 1.08 ∈ [0.24, 0.92], L + 0.14 ∈ [0.36, 0.82]
-        let (ah, as_, al) = hsl(palette.b)
-        accent = color(ah, min(0.92, max(0.24, as_ * 1.08)), min(0.82, max(0.36, al + 0.14)))
+        let (ah, as_, al) = hsl(bArgb)
+        let accent = color(ah, min(0.92, max(0.24, as_ * 1.08)), min(0.82, max(0.36, al + 0.14)))
+        return BackdropColors(base: base, accent: accent)
     }
 }
 
@@ -130,6 +160,16 @@ struct EntityBackdrop: View {
                         .strokeBorder(stroke.opacity(0.08), lineWidth: 0.5)
                 }
             }
-            .shadow(color: palette.a.opacity(0.22), radius: 8, y: 6)
+            .background {
+                if entity == .artist {
+                    Circle()
+                        .fill(Yoin.surface)
+                        .shadow(color: palette.a.opacity(0.22), radius: 8, y: 6)
+                } else {
+                    RoundedRectangle(cornerRadius: r, style: .continuous)
+                        .fill(Yoin.surface)
+                        .shadow(color: palette.a.opacity(0.22), radius: 8, y: 6)
+                }
+            }
     }
 }

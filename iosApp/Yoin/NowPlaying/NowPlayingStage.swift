@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 import YoinShared
+import os
 
 /// Android `NowPlayingStageMode`: how Now Playing reshapes in place.
 /// - compact: the resting player.
@@ -65,8 +66,8 @@ enum NowPlayingExpanded {
 /// one-line lyric. The content minimums are Android's at font scale 1, from
 /// YoinTokens. `focus` is the shared Immersive pose, nil where the cover
 /// can't grow by max(40 pt, 12 %) (then the cover is a plain image).
-struct NowPlayingBudget {
-    struct Pose: Equatable {
+struct NowPlayingBudget: Sendable {
+    struct Pose: Equatable, Sendable {
         var topBar: CGFloat
         var cover: CGFloat
         var coverGap: CGFloat
@@ -125,6 +126,25 @@ struct NowPlayingBudget {
         )
     }()
 
+    private struct CacheKey: Hashable, Sendable {
+        var width: Float
+        var height: Float
+        var forceShort: Bool
+        var shortHeight: Double
+        var enlargedColumn: Float?
+        var enlargedRating: Float?
+        var enlargedControl: Float?
+    }
+
+    private struct CachedValue: Sendable {
+        var rest: Pose
+        var focus: Pose?
+        var inlineHero: Bool
+        var stageWidth: CGFloat
+    }
+
+    private static let cache = OSAllocatedUnfairLock<[CacheKey: CachedValue]>(initialState: [:])
+
     /// `height` = the column's height: from below the status bar to
     /// max(home indicator, 16) above the bottom.
     /// `enlarged`: iPad Full in a Medium window (Android NowPlayingEnlargedSpec).
@@ -136,6 +156,22 @@ struct NowPlayingBudget {
         let override = UserDefaults.standard.double(forKey: "npShortHeight")
         if override > 0 { short = override }
         #endif
+        let key = CacheKey(
+            width: Float(width),
+            height: Float(height),
+            forceShort: forceShort,
+            shortHeight: forceShort ? short : 0,
+            enlargedColumn: enlarged?.columnWidth,
+            enlargedRating: enlarged?.ratingColumn,
+            enlargedControl: enlarged?.controlSize
+        )
+        if let hit = Self.cache.withLock({ $0[key] }) {
+            inlineHero = hit.inlineHero
+            stageWidth = hit.stageWidth
+            rest = hit.rest
+            focus = hit.focus
+            return
+        }
         let resolved = forceShort ? min(height, short) : height
         let budget = NowPlayingBudgetKt.resolveStageColumnBudget(
             width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: enlarged, previous: nil)
@@ -143,6 +179,11 @@ struct NowPlayingBudget {
         stageWidth = CGFloat(budget.stageWidth)
         rest = Self.pose(budget.rest, height: height)
         focus = budget.focus.map { Self.pose($0, height: height) }
+        let value = CachedValue(rest: rest, focus: focus, inlineHero: inlineHero, stageWidth: stageWidth)
+        Self.cache.withLock {
+            if $0.count >= 16 { $0.removeAll(keepingCapacity: true) }
+            $0[key] = value
+        }
     }
 
     private static func pose(_ r: StageColumnPose, height: CGFloat) -> Pose {
@@ -239,22 +280,39 @@ struct NowPlayingFocusField: View {
     var on: Bool
 
     var body: some View {
-        ZStack {
-            Circle().fill(scheme.primaryContainer)
-                .frame(width: size * 1.3, height: size * 1.3)
-                .offset(x: -size * 0.08, y: size * 0.1)
-                .blur(radius: 70)
-            Circle().fill(scheme.tertiaryContainer.opacity(0.6))
-                .frame(width: size * 0.8, height: size * 0.8)
-                .offset(x: size * 0.42, y: size * 0.55)
-                .blur(radius: 60)
-        }
-        .frame(width: size, height: size)
-        .opacity(on ? 0.8 : 0)
-        .scaleEffect(on ? 1 : 0.85)
-        .animation(Yoin.effects, value: on)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        let r1 = size * 0.65
+        let end1 = r1 + 70 * 2.4
+        let r2 = size * 0.4
+        let end2 = r2 + 60 * 2.4
+        Color.clear
+            .frame(width: size, height: size)
+            .overlay {
+                if size > 0 {
+                    Circle()
+                        .fill(RadialGradient(
+                            stops: NowPlayingAmbient.diskGlowStops(
+                                color: scheme.primaryContainer, opacity: 1, diskRadius: r1, blur: 70
+                            ),
+                            center: .center, startRadius: 0, endRadius: end1
+                        ))
+                        .frame(width: end1 * 2, height: end1 * 2)
+                        .offset(x: -size * 0.08, y: size * 0.1)
+                    Circle()
+                        .fill(RadialGradient(
+                            stops: NowPlayingAmbient.diskGlowStops(
+                                color: scheme.tertiaryContainer, opacity: 0.6, diskRadius: r2, blur: 60
+                            ),
+                            center: .center, startRadius: 0, endRadius: end2
+                        ))
+                        .frame(width: end2 * 2, height: end2 * 2)
+                        .offset(x: size * 0.42, y: size * 0.55)
+                }
+            }
+            .opacity(on ? 0.8 : 0)
+            .scaleEffect(on ? 1 : 0.85)
+            .animation(Yoin.effects, value: on)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

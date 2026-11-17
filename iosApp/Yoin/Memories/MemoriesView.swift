@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Memories, the shell-owned upward overlay (AGENTS.md ShellOverlayUp),
 /// ported from Android ui/memories (MemoriesScreen, showcase/*).
@@ -22,8 +23,10 @@ struct MemoriesView: View {
 
     @State private var deck: MemoriesDeckModel
     @State private var cards: [MemoryCard] = []
-    /// The deck's continuous page (0 = first card).
-    @State private var position: CGFloat = 0
+    @State private var cardPalettes: [CoverPalette] = []
+    @State private var cardIds: [String] = []
+    /// Isolated continuous page state (0 = first card) so 120Hz swipes don't rebuild `MemoriesView.body`.
+    @State private var pagerModel = MemoriesPagerModel()
     @State private var axis: MemoriesDragAxis?
     @State private var route: MemoriesVerticalRoute?
     @State private var pagerAxis: MemoriesDragAxis?
@@ -58,7 +61,7 @@ struct MemoriesView: View {
         GeometryReader { geo in
             let w = geo.size.width
             ZStack(alignment: .top) {
-                MemoriesAurora(palettes: cards.map(\.album.palette), position: position, dark: dark)
+                MemoriesAurora(palettes: cardPalettes, pager: pagerModel, dark: dark)
                     .background(scheme.background)
                     .ignoresSafeArea()
                 if cards.isEmpty {
@@ -71,12 +74,12 @@ struct MemoriesView: View {
                         page(i, size: geo.size)
                             .frame(width: w)
                             // Neighbours slide past at the deck's pace; only ±1 is drawn.
-                            .offset(x: (CGFloat(i) - position) * w + deckShift)
+                            .modifier(MemoriesPageOffsetModifier(pager: pagerModel, index: i, width: w, deckShift: deckShift))
                             .opacity(deckAlpha)
                             .accessibilityHidden(i != currentIndex)
                     }
                 }
-                MemoriesTopBar(cards: cards, position: position, deck: deck, layout: layout, scheme: scheme, dark: dark,
+                MemoriesTopBar(cards: cards, pager: pagerModel, deck: deck, layout: layout, scheme: scheme, dark: dark,
                                width: w, onHome: home, onDot: { turn(to: $0, velocity: 0) })
                     .gesture(pageGesture(zone: .bar))
             }
@@ -88,8 +91,8 @@ struct MemoriesView: View {
             // The page's own drag: the card body (and the bar band). In the
             // diary the text's scroll has the body; in a spread its left page.
             .gesture(pageGesture(zone: nil), including: layout.twoState && !deck.diary.isDiaryLevel ? .all : .subviews)
-            .background(MemoriesAwardDriver(deck: deck, presentation: presentation, keys: cards.map(\.id),
-                                            position: position, spread: layout.isSpread))
+            .background(MemoriesAwardDriver(deck: deck, presentation: presentation, keys: cardIds,
+                                            pager: pagerModel, spread: layout.isSpread))
             // The container's width (adaptive principle 1) and the window's
             // height, system bars included: Memories always runs the window's
             // full height, and the safe area settles late while the page rides
@@ -109,10 +112,10 @@ struct MemoriesView: View {
             if builtFor == presentation.openCount { refreshInPlace() } else { rebuild() }
             #if DEBUG
             MemoriesScript.swipe = { _ in
-                let start = position
+                let start = pagerModel.position
                 Task { @MainActor in
-                    await MemoriesScript.finger(0.3) { position = start + $0 * 0.4 }
-                    turn(to: MemoryDeck.settlePage(position: position, velocity: 1.5, count: cards.count), velocity: 1.5)
+                    await MemoriesScript.finger(0.3) { pagerModel.position = start + $0 * 0.4 }
+                    turn(to: MemoryDeck.settlePage(position: pagerModel.position, velocity: 1.5, count: cards.count), velocity: 1.5)
                 }
             }
             MemoriesScript.deck = deck
@@ -154,14 +157,14 @@ struct MemoriesView: View {
         // read-only takes no write meant for the account before), ahead of the rows read again above.
         .onChange(of: model.profiles.activeId) { _, active in
             deck.editor.end()
-            withAnimation(Yoin.spatial) { cards = cards.map { $0.stamped(active: active) } }
+            withAnimation(Yoin.spatial) { setCards(cards.map { $0.stamped(active: active) }) }
         }
         // Titles and narration for the cards not yet tried in this language (MemoryGeneration: once per
         // album and language, never again on the next open); each answer lands on its card in place.
         .task(id: [String(presentation.openCount), String(dealt), GeminiSettings.shared.targetLanguage,
                    GeminiSettings.shared.hasKey ? "key" : ""]) {
             let open = presentation.openCount
-            await model.generateMemoryText(in: { cards.map(\.id) }) {
+            await model.generateMemoryText(in: { cardIds }) {
                 guard open == presentation.openCount else { return }
                 withAnimation(Yoin.effects) { refreshInPlace() }
             }
@@ -190,7 +193,7 @@ struct MemoriesView: View {
         }
     }
 
-    private var currentIndex: Int { min(max(Int(position.rounded()), 0), max(cards.count - 1, 0)) }
+    private var currentIndex: Int { pagerModel.currentIndex }
 
     static var windowHeight: CGFloat {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -205,10 +208,13 @@ struct MemoriesView: View {
         return (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.keyWindow?.safeAreaInsets.bottom ?? 0
     }
 
-    private var visibleIndices: [Int] {
-        guard !cards.isEmpty else { return [] }
-        let lo = max(0, Int(position.rounded(.down)) - 1), hi = min(cards.count - 1, Int(position.rounded(.up)) + 1)
-        return lo <= hi ? Array(lo...hi) : []
+    private var visibleIndices: [Int] { pagerModel.visibleRange }
+
+    private func setCards(_ next: [MemoryCard]) {
+        cards = next
+        cardPalettes = next.map(\.album.palette)
+        cardIds = next.map(\.id)
+        pagerModel.updateCount(next.count)
     }
 
     // MARK: The deck
@@ -234,14 +240,15 @@ struct MemoriesView: View {
     private func rebuild() {
         builtFor = presentation.openCount
         let inputs = model.memoryDeckInputs()
-        cards = model.voicedMemoryCards(MemoryDeck.deck(inputs, focus: presentation.focusAlbumId), inputs)
+        let next = model.voicedMemoryCards(MemoryDeck.deck(inputs, focus: presentation.focusAlbumId), inputs)
+        setCards(next)
         pager.stop()
-        position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
+        pagerModel.snap(to: CGFloat(MemoryDeck.startIndex(next, focus: presentation.focusAlbumId)), count: next.count)
         deck.diary.snap(to: 0)
         deck.editor.end()
-        deck.router.cardPresent = !cards.isEmpty
+        deck.router.cardPresent = !next.isEmpty
         deck.router.isSpread = layout.isSpread
-        deck.rebuild(cards, seal: seal(for: layout))
+        deck.rebuild(next, seal: seal(for: layout))
     }
 
     /// Every card again from the stores, in place (the deck's order holds
@@ -255,7 +262,7 @@ struct MemoriesView: View {
         next += MemoryDeck.deck(inputs, focus: nil).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
         next = model.voicedMemoryCards(next, inputs)
         guard next != cards else { return }
-        cards = next
+        setCards(next)
         for c in next { deck.refresh(c) }
     }
 
@@ -263,7 +270,7 @@ struct MemoriesView: View {
     /// on its first card, backward on its last; it slides in from the pulled edge with a tick.
     private func advanceDeck(forward: Bool) {
         let inputs = model.memoryDeckInputs()
-        let next = model.voicedMemoryCards(MemoryDeck.next(inputs, excluding: Set(cards.map(\.id))), inputs)
+        let next = model.voicedMemoryCards(MemoryDeck.next(inputs, excluding: Set(cardIds)), inputs)
         guard !next.isEmpty else {
             return turn(to: forward ? cards.count - 1 : 0, velocity: 0)
         }
@@ -271,8 +278,9 @@ struct MemoriesView: View {
         pager.stop()
         deck.diary.snap(to: 0)
         deck.editor.end()
-        cards = next
-        position = forward ? 0 : CGFloat(next.count - 1)
+        setCards(next)
+        let start = forward ? 0 : CGFloat(next.count - 1)
+        pagerModel.snap(to: start, count: next.count)
         deck.router.cardPresent = true
         deck.rebuild(next, seal: seal(for: layout))
         dealt += 1
@@ -284,7 +292,7 @@ struct MemoriesView: View {
             withAnimation(Yoin.spatial) { deckShift = 0 }
             withAnimation(Yoin.effects) { deckAlpha = 1 }
         }
-        deck.awards.onPagerSettled(next[Int(position)].id)
+        deck.awards.onPagerSettled(next[Int(start)].id)
     }
 
     /// One card again after a write, in place (the deck's order holds while it is open).
@@ -293,13 +301,15 @@ struct MemoriesView: View {
         let inputs = model.memoryDeckInputs()
         let fresh = model.voicedMemoryCards([MemoryDeck.card(card.memory, inputs.source(for: card) ?? inputs)], inputs)[0]
         cards[i] = fresh
+        cardPalettes[i] = fresh.album.palette
+        cardIds[i] = fresh.id
         deck.refresh(fresh)
     }
 
     private func turn(to page: Int, velocity: CGFloat) {
         let key = cards.indices.contains(page) ? cards[page].id : nil
-        pager.run(from: position, to: CGFloat(page), velocity: velocity, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { v in
-            position = v
+        pager.run(from: pagerModel.position, to: CGFloat(page), velocity: velocity, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { v in
+            pagerModel.position = v
         } completion: { [deck] in
             deck.awards.onPagerSettled(key)
         }
@@ -420,7 +430,7 @@ struct MemoriesView: View {
 
     private func beginPaging() {
         deck.router.beginHorizontal()
-        dragStartPosition = position
+        dragStartPosition = pagerModel.position
         pager.stop()
     }
 
@@ -428,7 +438,7 @@ struct MemoriesView: View {
     private func page(_ v: DragGesture.Value) {
         let raw = dragStartPosition - v.translation.width / max(size.width, 1)
         let last = CGFloat(max(cards.count - 1, 0))
-        position = raw < 0 ? -rubber(-raw) : raw > last ? last + rubber(raw - last) : raw
+        pagerModel.position = raw < 0 ? -rubber(-raw) : raw > last ? last + rubber(raw - last) : raw
     }
 
     private func settlePaging(_ v: DragGesture.Value) {
@@ -445,11 +455,22 @@ struct MemoriesView: View {
                 return advanceDeck(forward: false)
             }
         }
-        turn(to: MemoryDeck.settlePage(position: position, velocity: velocity, count: cards.count), velocity: velocity)
+        turn(to: MemoryDeck.settlePage(position: pagerModel.position, velocity: velocity, count: cards.count), velocity: velocity)
     }
 
     private func rubber(_ over: CGFloat) -> CGFloat {
         MemoriesBackTokens.diaryRubberBand * (1 - 1 / (1 + over / MemoriesBackTokens.diaryRubberBand))
+    }
+}
+
+private struct MemoriesPageOffsetModifier: ViewModifier {
+    var pager: MemoriesPagerModel
+    var index: Int
+    var width: CGFloat
+    var deckShift: CGFloat
+
+    func body(content: Content) -> some View {
+        content.offset(x: (CGFloat(index) - pager.position) * width + deckShift)
     }
 }
 
@@ -460,17 +481,18 @@ private struct MemoriesAwardDriver: View {
     var deck: MemoriesDeckModel
     var presentation: MemoriesPresentation
     var keys: [String]
-    var position: CGFloat
+    var pager: MemoriesPagerModel
     var spread: Bool
     @State private var pending: Task<Void, Never>?
 
     var body: some View {
         let diary = deck.diary
-        let i = min(max(Int(position.rounded()), 0), max(keys.count - 1, 0))
+        let pos = pager.position
+        let i = min(max(Int(pos.rounded()), 0), max(keys.count - 1, 0))
         let inputs = MemoriesAwardInputs(
             cardKey: keys.indices.contains(i) ? keys[i] : nil,
             fingerDown: deck.awards.fingerDown,
-            nearCard: MemoriesAwardInputs.near(position: position, card: i),
+            nearCard: MemoriesAwardInputs.near(position: pos, card: i),
             revealIn: MemoriesAwardInputs.revealIn(presentation.fraction),
             cardState: spread || MemoriesAwardInputs.cardState(diary.fraction),
             diaryState: !spread && MemoriesAwardInputs.diaryState(diary.fraction, settling: diary.isSettling))
@@ -492,13 +514,60 @@ private struct MemoriesAwardDriver: View {
 
 /// One album's card tones (Android `MemoryPalette.fromBackdrop(...).tones(dark)`):
 /// a direct sRGB lerp of the backdrop base, held in the ink lightness window.
-struct MemoryTones {
+struct MemoryTones: Sendable {
     var ink: Color
     var button: Color
     var onButton: Color
     var dot: Color
 
+    private struct PaletteCacheKey: Hashable, Sendable {
+        var palette: CoverPalette
+        var derived: CoverArtwork.Colors?
+        var dark: Bool
+    }
+
+    private struct CardCacheKey: Hashable {
+        var cardId: String
+        var dark: Bool
+    }
+
+    private struct CardCacheEntry {
+        var palette: CoverPalette
+        var derived: CoverArtwork.Colors?
+        var tones: MemoryTones
+    }
+
+    private static let paletteCache = OSAllocatedUnfairLock<[PaletteCacheKey: MemoryTones]>(initialState: [:])
+    @MainActor private static var cardCache: [CardCacheKey: CardCacheEntry] = [:]
+    @MainActor private static var cardCacheOrder: [CardCacheKey] = []
+
+    @MainActor
+    static func cached(for card: MemoryCard, dark: Bool) -> MemoryTones {
+        let palette = card.album.palette
+        let derived = palette.cover.flatMap { CoverArtwork.shared.colors($0) }
+        let key = CardCacheKey(cardId: card.id, dark: dark)
+        if let hit = cardCache[key], hit.palette == palette, hit.derived == derived {
+            return hit.tones
+        }
+        let built = MemoryTones(palette: palette, dark: dark)
+        if cardCache[key] == nil {
+            cardCacheOrder.append(key)
+            if cardCacheOrder.count > 64 {
+                let evicted = cardCacheOrder.removeFirst()
+                cardCache.removeValue(forKey: evicted)
+            }
+        }
+        cardCache[key] = CardCacheEntry(palette: palette, derived: derived, tones: built)
+        return built
+    }
+
     init(palette: CoverPalette, dark: Bool) {
+        let derived = palette.cover.flatMap { CoverArtwork.shared.colors($0) }
+        let key = PaletteCacheKey(palette: palette, derived: derived, dark: dark)
+        if let hit = Self.paletteCache.withLock({ $0[key] }) {
+            self = hit
+            return
+        }
         let base = Self.hold(UIColor(BackdropColors(palette).base), min: 0.22, max: 0.46)
         let deep = Self.mix(base, .black, 0.55), soft = Self.mix(base, .white, 0.8)
         if dark {
@@ -506,6 +575,11 @@ struct MemoryTones {
             ink = Color(lift); button = Color(lift); onButton = Color(deep); dot = Color(lift)
         } else {
             ink = Color(base); button = Color(base); onButton = .white; dot = Color(base)
+        }
+        let built = self
+        Self.paletteCache.withLock { all in
+            if all.count >= 128 { all.removeAll(keepingCapacity: true) }
+            all[key] = built
         }
     }
 
@@ -538,13 +612,29 @@ struct MemoryTones {
 /// demo Memories draws it too.)
 struct MemoriesAurora: View {
     var palettes: [CoverPalette]
+    var pager: MemoriesPagerModel?
     var position: CGFloat
     var dark: Bool
 
+    init(palettes: [CoverPalette], position: CGFloat, dark: Bool) {
+        self.palettes = palettes
+        self.pager = nil
+        self.position = position
+        self.dark = dark
+    }
+
+    init(palettes: [CoverPalette], pager: MemoriesPagerModel?, dark: Bool) {
+        self.palettes = palettes
+        self.pager = pager
+        self.position = 0
+        self.dark = dark
+    }
+
     var body: some View {
+        let pos = pager?.position ?? position
         Canvas { gc, size in
             guard !palettes.isEmpty, size.width > 0 else { return }
-            let at = min(max(position, 0), CGFloat(palettes.count - 1))
+            let at = min(max(pos, 0), CGFloat(palettes.count - 1))
             let from = Int(at.rounded(.down)), to = min(from + 1, palettes.count - 1)
             let f = at - CGFloat(from)
             let a = BackdropColors(palettes[from]), b = BackdropColors(palettes[to])
@@ -552,8 +642,8 @@ struct MemoriesAurora: View {
             let blooms = [base, accent, base.mix(with: accent, by: 0.5)]
             let w = size.width, h = size.height, maxDim = max(w, h)
             let cap: CGFloat = dark ? 0.26 : 0.2
-            let flow = position * 0.18
-            let breath: CGFloat = 0.5 + 0.5 * CGFloat(sin(Double(position) * 1.9))
+            let flow = pos * 0.18
+            let breath: CGFloat = 0.5 + 0.5 * CGFloat(sin(Double(pos) * 1.9))
             let anchors = [CGPoint(x: w * 0.24, y: h * 0.22), CGPoint(x: w * 0.78, y: h * 0.44), CGPoint(x: w * 0.34, y: h * 0.80)]
             if dark { gc.blendMode = .screen }
             for i in 0..<3 {
