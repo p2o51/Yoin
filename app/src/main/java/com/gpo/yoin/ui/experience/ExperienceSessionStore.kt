@@ -178,6 +178,14 @@ class ExperienceSessionStore {
         private set
 
     /**
+     * Whether the Home feed's scroll has taken the shell bar out right now: a
+     * detail page launched then lets its own bar rise into place instead of
+     * appearing where no bar stood.
+     */
+    @Volatile
+    var shellBarScrolledAway: Boolean = false
+
+    /**
      * The shell arms a forward detail hand-off: the bar wears detail chrome and
      * the content recedes once the detail's slide starts. Returns the hand-off's
      * generation (stamped on the detail's intent by `launchDetailFromShell`).

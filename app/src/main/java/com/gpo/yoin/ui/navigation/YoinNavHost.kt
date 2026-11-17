@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -67,6 +68,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -665,6 +667,29 @@ private fun YoinShell(
         if (paneStack.size > 1) paneStack.removeLastOrNull() else closePane()
     }
     val homeEditing = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Edit
+    // Scrolling the Home feed down takes the bottom bar out; up brings it back.
+    // Only the plain feed under a bottom-bar form: the edge capsules stay, and
+    // edit mode, Memories, Now Playing and the detail column all keep the bar.
+    val barScrollHide = rememberShellBarScrollHide()
+    // A page opened over the shell (a detail page above all) hands its bar
+    // back to this one when it leaves, predictive back included, so the bar
+    // has to be there under it. The page's own bar rises into place on open
+    // (DETAIL_EXTRA_BAR_RISES); this one comes back unseen once the page
+    // covers the window, or rises on return if the page left before that.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { barScrollHide.showUnseen() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { barScrollHide.show() }
+    LaunchedEffect(barScrollHide) {
+        snapshotFlow { barScrollHide.fraction >= 0.5f }
+            .collect { experienceSessionStore.shellBarScrolledAway = it }
+    }
+    val barScrollHideEnabled = selectedSection == YoinSection.HOME &&
+        homeSurface == HomeSurface.Feed &&
+        !showNowPlaying &&
+        !paneHasEntries &&
+        chromeForm != ShellChromeForm.EdgeSplit
+    LaunchedEffect(barScrollHide, barScrollHideEnabled) {
+        barScrollHide.enabled = barScrollHideEnabled
+    }
     // The shell bar's [Undo|Add] [Done] pose: it reads P and the left slot
     // from the controller and acts only through its two clicks.
     val barEditPose = remember(homeEdit) {
@@ -1284,6 +1309,7 @@ private fun YoinShell(
                                     .fillMaxSize()
                                     // Behind Memories: 0.94 / 0.5 → 1 / 1 as it retreats (q, layer only).
                                     .then(rememberMemoriesHomeBehind(memoriesReveal))
+                                    .nestedScroll(barScrollHide.connection)
                                     .then(edgeContentPadding),
                             )
 
@@ -1712,7 +1738,10 @@ private fun YoinShell(
                             // With the detail column open the one bar carries
                             // the column page's Play split; Memories then covers
                             // only the shell column and must not take the bar.
-                            val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f) *
+                            // The Home feed's scroll-hide rides the same pose.
+                            val memoriesHide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f)
+                            val scrollHide = if (formIsEdge) 0f else barScrollHide.fraction
+                            val hide = (1f - (1f - memoriesHide) * (1f - scrollHide)) *
                                 (1f - paneState.openFraction.value).coerceIn(0f, 1f)
                             alpha = (1f - hide * 1.4f).coerceAtLeast(0f)
                             if (formIsEdge) {

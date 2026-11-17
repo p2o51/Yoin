@@ -117,14 +117,14 @@ enum class HomeSection(
         appendEnabled = true,
     ),
 
-    // Owner 2026-11-15 (「为你推荐」): the playlists Spotify makes for the
-    // account — daylist, Discover Weekly, Release Radar, On Repeat, Daily
-    // Mixes — read from the Spotify app (HomeMadeForYou.kt). Spotify accounts
-    // only, hidden elsewhere, so on by default and for customized layouts too.
+    // Owner 2026-11-15 (「为你推荐」): the playlists the service makes for the
+    // account — Spotify's daylist, Discover Weekly, Daily Mixes…, Apple Music's
+    // personal mixes (HomeMadeForYou.kt). Hidden for services that have none,
+    // so on by default and for customized layouts too.
     MadeForYou(
         id = "made_for_you",
         title = "Made For You",
-        supportingText = "daylist, Discover Weekly, Daily Mixes and more from Spotify",
+        supportingText = "Playlists Spotify and Apple Music make for you",
         defaultEnabled = true,
         appendEnabled = true,
     ),

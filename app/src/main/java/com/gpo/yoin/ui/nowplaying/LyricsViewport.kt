@@ -69,15 +69,18 @@ internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(
     target: Int,
     fadePx: Int,
     focusFraction: Float = LyricsFocusFraction,
+    endItem: Int = -1,
+    endTailPx: Int = 0,
 ): Int {
     val viewport = viewportSize.height
     val fade = lyricsEdgeFadePx(viewport, fadePx)
-    val rowPx = visibleItemsInfo.firstOrNull { it.index == target }?.size
+    val targetInfo = visibleItemsInfo.firstOrNull { it.index == target }
+    val rowPx = targetInfo?.size
         ?: visibleItemsInfo.filter { it.key is Int }.takeIf { it.isNotEmpty() }?.let { rows ->
             rows.sumOf { it.size } / rows.size
         }
         ?: 0
-    return lyricsFocusScrollOffsetPx(
+    val seated = lyricsFocusScrollOffsetPx(
         viewportPx = viewport,
         contentPaddingTopPx = -viewportStartOffset,
         rowPx = rowPx,
@@ -85,7 +88,35 @@ internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(
         fadeBottomPx = fade,
         focusFraction = focusFraction,
     )
+    // Once the song's last line is on screen there is nothing left to scroll
+    // in from below: the list stops where its natural end would, and the sung
+    // line walks on down the screen instead of holding the raised seat over
+    // an empty bottom (owner 2026-11-16).
+    val end = visibleItemsInfo.firstOrNull { it.index == endItem }
+    if (targetInfo == null || end == null || target > endItem) return seated
+    return minOf(
+        seated,
+        lyricsEndClampScrollOffsetPx(
+            viewportPx = viewport,
+            contentPaddingTopPx = -viewportStartOffset,
+            targetToEndBottomPx = end.offset + end.size - targetInfo.offset,
+            endTailPx = endTailPx,
+        ),
+    )
 }
+
+/**
+ * The largest `scrollOffset` for the focus row that still leaves the song's
+ * last row ending [endTailPx] above the window's bottom — where the list rests
+ * when nothing follows it. [targetToEndBottomPx]: the focus row's top → the
+ * last row's bottom.
+ */
+internal fun lyricsEndClampScrollOffsetPx(
+    viewportPx: Int,
+    contentPaddingTopPx: Int,
+    targetToEndBottomPx: Int,
+    endTailPx: Int,
+): Int = contentPaddingTopPx - (viewportPx - endTailPx - targetToEndBottomPx)
 
 /**
  * How far item [target] still has to scroll (px, + = forward) to sit on its
@@ -95,10 +126,12 @@ internal fun LazyListLayoutInfo.lyricsFocusSeatRemainderPx(
     target: Int,
     fadePx: Int,
     focusFraction: Float = LyricsFocusFraction,
+    endItem: Int = -1,
+    endTailPx: Int = 0,
 ): Int? {
     val row = visibleItemsInfo.firstOrNull { it.index == target } ?: return null
     // A scroll offset of s leaves the row's offset at -s.
-    return lyricsFocusScrollOffsetPx(target, fadePx, focusFraction) + row.offset
+    return lyricsFocusScrollOffsetPx(target, fadePx, focusFraction, endItem, endTailPx) + row.offset
 }
 
 /**

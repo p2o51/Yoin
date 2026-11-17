@@ -459,6 +459,14 @@ private fun LyricsFullscreenList(
     // frame kept for the reveal is current and nothing glides once it is seen.
     val windowCovered = LocalWindowCovered.current
     val edgeFadePx = with(LocalDensity.current) { LyricsEdgeFade.roundToPx() }
+    // Where this song's lines end, and how far above the window's bottom its
+    // last row rests when nothing follows (bottom padding + gap + tail) — the
+    // staged up-next block below must not let the sung line hold its raised
+    // seat over an empty screen at the end of the song.
+    val songEndItem = headerOffset + lyrics.lastIndex
+    val songEndTailPx = with(LocalDensity.current) {
+        (LyricsListBottomPadding + LyricsItemSpacing + LyricsListTail).roundToPx()
+    }
     val seatSettleSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     // The seat is set by the SCREEN, not by this window: the row's centre at
     // LyricsScreenSeat of the window's height (owner 2026-11-08), whichever
@@ -494,7 +502,7 @@ private fun LyricsFullscreenList(
         // at rest), not to the focus seat.
         val handOver = target == upNextHeaderIndex
         val offsetPx = {
-            if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx, seat)
+            if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx, seat, songEndItem, songEndTailPx)
         }
 
         // scrollToItem remeasures the list at once, so a row first laid out by
@@ -527,7 +535,7 @@ private fun LyricsFullscreenList(
                         val rest = if (handOver) {
                             null
                         } else {
-                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, seat)
+                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, seat, songEndItem, songEndTailPx)
                         }
                         if (rest != null && rest != 0 &&
                             (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
@@ -589,7 +597,7 @@ private fun LyricsFullscreenList(
                         pinnedOffset = if (focus == upNextHeaderIndex) {
                             0
                         } else {
-                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx, seat)
+                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx, seat, songEndItem, songEndTailPx)
                         }
                     }
                     listState.requestScrollToItem(focus, pinnedOffset)
@@ -655,7 +663,7 @@ private fun LyricsFullscreenList(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(LyricsItemSpacing),
-                    contentPadding = PaddingValues(top = 48.dp, bottom = 48.dp, end = endOverflow),
+                    contentPadding = PaddingValues(top = 48.dp, bottom = LyricsListBottomPadding, end = endOverflow),
                 ) {
                     val currentBlock: () -> Float = { currentBlockAlpha }
                     if (hasHeader) {
@@ -1099,6 +1107,9 @@ private val LyricsItemSpacing = 4.dp
 
 /** Closing space under the last row, so the last line can leave the bottom fade. */
 private val LyricsListTail = 96.dp
+
+/** The list's bottom content padding. */
+private val LyricsListBottomPadding = 48.dp
 
 /**
  * Closing space under the up-next block (pure geometry, px).
