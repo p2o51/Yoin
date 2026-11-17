@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderProxySliver;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../memories/ledger/memory_ledger_home_card.dart';
 import '../memories/ledger/memory_ledger_view_model.dart';
+import '../data/model/model.dart';
 import '../memories/memories_pull.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/bar_scroll_hide.dart';
@@ -22,7 +26,10 @@ import '../ui/component/seam/seam_field.dart' show SeamFieldViewport;
 import '../ui/component/user_message.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
+import 'home_carry.dart';
+import 'home_carry_stack.dart';
 import 'home_edit.dart';
+import 'home_edit_gestures.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_jbi_hidden.dart';
@@ -46,6 +53,7 @@ import 'lyric_highlight_section.dart';
 import 'lyric_highlight_view_model.dart';
 import 'rediscover_section.dart';
 import 'widgets/cover_palette.dart';
+import 'widgets/home_artwork.dart' show HomeCoverRequest;
 import 'widgets/home_motion.dart';
 import 'widgets/seam.dart';
 
@@ -121,28 +129,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   );
   final GlobalKey _headerKey = GlobalKey();
   final Map<HomeSection, GlobalKey> _itemKeys = {};
-  final Map<HomeSection, SpringValue> _shift = {};
 
-  // A section being dragged to a new place (edit mode). The feed is lazy:
-  // sections off screen are not built, so their places are estimated from
-  // the built ones and refined as they scroll in. Tops are in the feed's
-  // content space (global y + scroll offset), so auto-scroll keeps them valid.
-  HomeSection? _dragging;
-  double _dragDy = 0;
-  List<HomeSection> _dragOrder = const [];
-  List<double> _dragTops = const [];
-  List<double> _dragHeights = const [];
-  int _dragTarget = 0;
-
-  /// The section painted in the overlay (dragged, or landing after a drop).
+  /// The section painted in the overlay, above its neighbours: lifted (the
+  /// lift's scale and shadow), until the lift has fallen back.
   HomeSection? _lifted;
   Size _liftSize = Size.zero;
 
-  /// 0 → 1: the lift's scale and shadow (fast spatial up, default spatial down).
-  late final SpringValue _lift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.fastSpatial);
-
   /// Edit mode's wiggle: one clock for the page, read by every card in paint.
   late final HomeEditWiggle _wiggle = HomeEditWiggle(vsync: this);
+
+  /// The edit controller this page defers exits through while it carries.
+  late final HomeEditController _editController = ref.read(homeEditProvider.notifier);
+
+  /// Pick up and carry (HomeEditGestures, HomeCarryEngine): the springs, the
+  /// normal-mode press charge, the lift and the strip carry.
+  HomeCarrySpecs _carrySpecs = HomeCarrySpecs(reduced: false);
+  late final HomeEditPressState _press = HomeEditPressState(this);
+  late final HomeCarryEngine _carry = HomeCarryEngine(
+    vsync: this,
+    specs: () => _carrySpecs,
+    wiggle: _wiggle,
+    commitOrder: (order) => ref.read(homeEditProvider.notifier).commitOrder(order),
+    finishDeferredExit: ({required done}) {
+      if (mounted) ref.read(homeEditProvider.notifier).finishExit(done: done);
+    },
+  )..host = _FeedCarryHost(this);
+
+  /// The entry plate growing from the long-press's square (port sheet §2.3).
+  PlateFrom? _plateFrom;
+
+  /// How many strip labels are built ahead of a carry (StripWarmth), and the warm-up in flight.
+  final ValueNotifier<int> _stripWarm = ValueNotifier(0);
+  StripWarmth? _warmth;
+  int _warmGeneration = 0;
+
+  /// The page stack every edit position is measured in (the feed sits at its origin).
+  final GlobalKey _pageKey = GlobalKey();
+  final GlobalKey _trayKey = GlobalKey();
+  final Map<HomeSection, GlobalKey> _hideKeys = {};
+  final Map<HomeSection, GlobalKey> _handleKeys = {};
+
+  /// The ⌟ (or the Lyric Cards count) took the press being dispatched: the edit gestures leave it.
+  bool _handleGrabbed = false;
+
+  /// A block is lifted or carried (the row resizes were put at rest as it began).
+  bool _carryHolding = false;
+
+  /// The feed's frame and section spacing last laid out (the carry reads them between frames).
+  HomeFeedFrame? _frame;
+  double _spacing = 0;
+  double? _pageHeight;
+  double? _carryWidth;
+
+  /// When the feed last scrolled (a blank tap this soon after only stops the fling).
+  final Stopwatch _clock = Stopwatch()..start();
+  int _lastScrollMs = -100000;
 
   /// The bar's Add scrolls the "Hidden" tray into view on this spring.
   late final SpringValue _trayScroll = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
@@ -150,12 +191,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   final Map<HomeSection, GlobalKey> _bodyKeys = {};
   final Map<HomeSection, LayerLink> _links = {};
   final Map<HomeSection, OverlayPortalController> _portals = {};
-
-  /// The finger's global y while a section is dragged (drives auto-scroll).
-  double? _dragPointerY;
   final GlobalKey _listKey = GlobalKey();
-  late final Ticker _autoScroll = createTicker(_onAutoScrollTick);
-  Duration? _autoScrollLast;
 
   /// The feed's bottom padding (the bar's room): auto-scroll's lower edge sits above it.
   double _feedBottomInset = 0;
@@ -170,7 +206,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   late final HomeRowsEngine _rows = HomeRowsEngine(
     vsync: this,
     editing: () => mounted && ref.read(homeEditProvider).editing,
-    carrying: () => _dragging != null,
+    carrying: () => _carry.isCarrying || _carry.liftSection != null,
     currentPreset: (section) => ref.read(homeLayoutProvider).rowsOf(section),
     commit: (section, preset) => ref.read(homeEditProvider.notifier).setRows(section, preset),
     reduced: () => _reduced,
@@ -180,7 +216,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   late final HomeLyricCountEngine _lyricCount = HomeLyricCountEngine(
     vsync: this,
     editing: () => mounted && ref.read(homeEditProvider).editing,
-    blocked: () => _dragging != null || _rows.dragging,
+    blocked: () => _carry.isCarrying || _carry.liftSection != null || _rows.dragging,
     saved: () => lyricCardsFor(ref.read(homeLayoutProvider).rowsOf(HomeSection.lyricHighlight)),
     commit: (preset) => ref.read(homeEditProvider.notifier).setRows(HomeSection.lyricHighlight, preset),
     reduced: () => _reduced,
@@ -190,11 +226,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   GlobalKey _bodyKeyFor(HomeSection s) => _bodyKeys.putIfAbsent(s, GlobalKey.new);
   LayerLink _linkFor(HomeSection s) => _links.putIfAbsent(s, LayerLink.new);
   OverlayPortalController _portalFor(HomeSection s) => _portals.putIfAbsent(s, OverlayPortalController.new);
-  SpringValue _shiftOf(HomeSection s) => _shift.putIfAbsent(s, () {
-    final v = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
-    (v.animation as AnimationController).addStatusListener((_) => _maybeLower());
-    return v;
-  });
 
   @override
   void initState() {
@@ -209,9 +240,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _rows;
     _lyricCount;
     _wiggle;
+    _press;
+    _carry.addListener(_onCarry);
+    _edit.animation.addListener(_onEditProgress);
+    (_edit.animation as AnimationController).addStatusListener((_) => _syncStripWarmth());
+    _editController.deferExit = _deferExit;
     _backOrder.bindHomeEdit(() => ref.read(homeEditProvider).editing);
     _trayScroll.animation.addListener(_onTrayScroll);
-    (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
     _lifecycle = AppLifecycleListener(
       onHide: () {
         if (mounted) ref.read(homeEditProvider.notifier).exit();
@@ -219,7 +254,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       // Each return to Home (after a while) brings other lyric cards, and reads Made For You again.
       onShow: _homeShown,
     );
-    _scroll.addListener(() => _flow.onScroll(_scroll.position.pixels));
+    _scroll.addListener(() {
+      // The anchor's scroll under the strips is no scroll the seams follow.
+      if (_carry.fold.value > 0) {
+        _flow.jumpTo(_scroll.position.pixels);
+      } else {
+        _flow.onScroll(_scroll.position.pixels);
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onState(ref.read(homeViewModelProvider));
       _homeShown();
@@ -249,13 +291,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _editBack.dispose();
     _wiggle.dispose();
     _trayScroll.dispose();
-    for (final s in _shift.values) {
-      s.dispose();
-    }
-    _autoScroll.dispose();
+    if (_editController.deferExit == _deferExit) _editController.deferExit = null;
+    _carry.removeListener(_onCarry);
+    _carry.dispose();
+    _press.dispose();
+    _stripWarm.dispose();
     _rows.dispose();
     _lyricCount.dispose();
-    _lift.dispose();
     _paletteGate.dispose();
     super.dispose();
   }
@@ -326,9 +368,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   }
 
   bool _onScrollNotification(ScrollNotification n) {
-    // Scrolling the feed down takes the bar out, up brings it back (ShellBarScrollHide).
-    _barScrollHide.onScrollNotification(n, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
+    // Scrolling the feed down takes the bar out, up brings it back (ShellBarScrollHide) — not the
+    // carry's anchor under the strips.
+    if (_carry.fold.value <= 0) {
+      _barScrollHide.onScrollNotification(n, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
+    }
     if (n.depth != 0) return false;
+    if (n is ScrollUpdateNotification) _lastScrollMs = _clock.elapsedMilliseconds;
     if (n is ScrollStartNotification) {
       _scrolling = true;
       _paletteGate.value = false;
@@ -349,6 +395,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   Widget build(BuildContext context) {
     _reduced = MediaQuery.disableAnimationsOf(context);
     _flow.reduced = _reduced;
+    if (_carrySpecs.reduced != _reduced) _carrySpecs = HomeCarrySpecs(reduced: _reduced);
     ref.listen(homeViewModelProvider, (_, next) => _onState(next));
     final state = ref.watch(homeViewModelProvider);
     final layout = ref.watch(homeLayoutProvider);
@@ -371,6 +418,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         builder: (context, constraints) {
           // Margins and widths follow the LIVE width; N and the cover columns the resting one.
           final width = constraints.maxWidth;
+          // A resize mid-carry invalidates the strips: let go where it is.
+          if (_carry.isCarrying && _carryWidth != null && _carryWidth != width) {
+            scheduleMicrotask(() {
+              if (mounted) _carry.release(cancelled: true, uptimeMs: _clock.elapsedMilliseconds);
+            });
+          }
+          _carryWidth = width;
           final target = feedFrameInsets(width, density.frameClass);
           final from = _blendFrom;
           final blend = _frameBlend.value;
@@ -381,13 +435,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           _feedBottomInset = bottom;
           final e = _edit.value;
           final spacing = frame.itemSpacing + (HomeEditMetrics.editItemSpacing - frame.itemSpacing) * homeEditSmoothstep(e);
+          _frame = frame;
+          _spacing = spacing;
+          _pageHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : null;
           final list = CustomScrollView(
             key: _listKey,
             controller: _scroll,
-            // While a section is lifted every section stays laid out: the lifted
-            // one never leaves the tree under auto-scroll, and the others are
-            // measured instead of guessed from the next frame on.
-            cacheExtent: _dragging == null ? null : HomeEditMetrics.dragCacheExtent,
+            // While a block is lifted or carried every section stays laid out:
+            // each strip flies from its own plate, and the drop lands on a
+            // measured place.
+            cacheExtent: _carry.liftSection == null && !_carry.isCarrying ? null : HomeEditMetrics.dragCacheExtent,
             slivers: [
               SliverPadding(
                 padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
@@ -402,23 +459,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 ),
               ),
               if (content != null)
-                SliverList.list(
-                  children: _sections(content, layout, frame, signals, e: e, spacing: spacing),
+                _FoldGate(
+                  fold: _carry.fold,
+                  sliver: SliverList.list(
+                    children: _sections(content, layout, frame, signals, e: e, spacing: spacing),
+                  ),
                 ),
               if (content != null && content.hasAccount)
-                SliverPadding(
-                  padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end, top: spacing),
-                  sliver: SliverToBoxAdapter(
-                    child: e > 0.001
-                        ? Opacity(opacity: e.clamp(0.0, 1.0), child: const HomeEditTray())
-                        : (layout.visibleV1Sections.isEmpty ? const HomeEmptyLayoutCard() : const HomeEditFooter()),
+                _FoldGate(
+                  fold: _carry.fold,
+                  sliver: SliverPadding(
+                    padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end, top: spacing),
+                    sliver: SliverToBoxAdapter(
+                      child: KeyedSubtree(
+                        key: _trayKey,
+                        child: e > 0.001
+                            ? Opacity(opacity: e.clamp(0.0, 1.0), child: const HomeEditTray())
+                            : (layout.visibleV1Sections.isEmpty ? const HomeEmptyLayoutCard() : const HomeEditFooter()),
+                      ),
+                    ),
                   ),
                 ),
               SliverToBoxAdapter(child: SizedBox(height: bottom)),
             ],
           );
-          // Long-press anywhere below the header enters; a tap on the page's
-          // blank space (not a plate) leaves.
+          // The edit gestures (HomeEditGestures): a long-press below the header
+          // enters with that block lifted, a body hold or a handle drag lifts,
+          // a lift carries, a tap on the page's blank space leaves.
           return RawGestureDetector(
             behavior: HitTestBehavior.translucent,
             // The ⌟'s strip below its section's box (the plate's outset) is
@@ -428,7 +495,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 () => HomeRowsGrabRecognizer(debugOwner: this),
                 (r) => r
                   // The Lyric Cards count handle reaches past its section's box the same way.
-                  ..onDown = ((position, t) => _rows.grabAt(position, t) || _lyricCount.grabAt(position))
+                  ..onDown = ((position, t) =>
+                      _handleGrabbed = _rows.grabAt(position, t) || _lyricCount.grabAt(position))
                   ..onMove = ((y, t) {
                     _rows.dragTo(y, t);
                     _lyricCount.dragTo(y);
@@ -442,25 +510,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                     _lyricCount.release(cancelled: true);
                   },
               ),
+              HomeEditGestureRecognizer: GestureRecognizerFactoryWithHandlers<HomeEditGestureRecognizer>(
+                () => HomeEditGestureRecognizer(debugOwner: this),
+                (r) => r
+                  ..hitTest = (content?.hasAccount ?? false) ? _editHitTest : ((_) => const HomeEditHitExcluded())
+                  ..toPage = _toPage
+                  ..editing = (() => mounted && ref.read(homeEditProvider).editing)
+                  ..carryBusy = (() => _carry.isBusy)
+                  ..flingInProgress = _flingInProgress
+                  ..run = _runEditActions
+                  ..slop = MediaQuery.gestureSettingsOf(context).touchSlop ?? kTouchSlop,
+              ),
             },
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
-              // The right click / two-finger tap is the long-press on a PC.
-              onSecondaryTapUp: content?.hasAccount ?? false
-                  ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
-                  : null,
-              onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
-              // Every press while editing brings the sway back; a finger down holds the idle rule.
-              child: Listener(
-                onPointerDown: (_) {
-                  // A finger takes the page from the bar's Add scroll.
-                  _trayScrolling = false;
-                  _wiggle.pointerDown = true;
-                  if (ref.read(homeEditProvider).editing) _wiggle.touch();
-                },
-                onPointerUp: (_) => _wiggle.pointerDown = false,
-                onPointerCancel: (_) => _wiggle.pointerDown = false,
+            child: Listener(
+              // A finger takes the page from the bar's Add scroll.
+              onPointerDown: (_) => _trayScrolling = false,
+              child: CustomPaint(
+                // The feed fading under the folding strips (feedFoldWashOver).
+                foregroundPainter: _FoldWashPainter(
+                  fold: _carry.fold,
+                  colors: homePageGround(colors),
+                  headerBottom: _headerBottomInList,
+                ),
                 child: HomeRowsScope(engine: _rows, child: list),
               ),
             ),
@@ -478,6 +549,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         ),
       ),
       child: Stack(
+        key: _pageKey,
         fit: StackFit.expand,
         children: [
           // Back from a page pushed over Home, or from Library (Android: Home started again).
@@ -516,6 +588,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               ),
             ),
           ),
+          // The strips fold over the feed, inside the tide (port sheet §0.2 item 10).
+          if (content != null && content.hasAccount)
+            Positioned.fill(
+              child: HomeCarryStack(
+                engine: _carry,
+                covers: (section) => _stripCovers(content, section),
+                sections: layout.visibleV1Sections,
+                warmCount: _stripWarm,
+              ),
+            ),
           Positioned.fill(
             child: IgnorePointer(
               child: RepaintBoundary(
@@ -702,8 +784,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     return out;
   }
 
-  /// One feed item: its gap above, the edit plate (inert at rest) and the
-  /// drag's displacement.
+  /// One feed item: its gap above and the edit plate (inert at rest). The
+  /// press charge shrinks it about the finger; lifted, it paints above its
+  /// neighbours.
   Widget _editItem(
     HomeSection section,
     HomeFeedFrame frame,
@@ -717,60 +800,81 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     Widget? handle,
   }) {
     final edit = ref.read(homeEditProvider.notifier);
-    final shift = _shiftOf(section);
     final lifted = _lifted == section;
     final track = resizable ? _rows.track(section) : null;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final contentLeft = rtl ? frame.end : frame.start;
     // The section itself, under its own key: lifted, it moves (state and the
-    // drag in progress with it) from the list slot to the overlay and back.
+    // press in progress with it) from the list slot to the overlay and back.
     final body = KeyedSubtree(
       key: _bodyKeyFor(section),
       child: AnimatedBuilder(
         animation: Listenable.merge([
-          lifted ? _lift.animation : const AlwaysStoppedAnimation(0.0),
+          _press.charge.listenable,
+          if (lifted) _carry.lift.listenable,
+          if (lifted) _carry.liftTint.listenable,
           ?track?.structure,
         ]),
         child: child,
-        builder: (context, child) => HomeEditPlate(
-          progress: e,
-          childTaps: childTaps,
-          rowCount: track != null && track.stopCount > 1 && track.restStop < track.rowCounts.length
-              ? track.rowCounts[track.restStop]
-              : null,
-          onMoreRows: track != null && track.stopCount > 1 && _rows.canStep(section, 1) ? () => _rows.step(section, 1) : null,
-          onFewerRows: track != null && track.stopCount > 1 && _rows.canStep(section, -1) ? () => _rows.step(section, -1) : null,
-          resizeHandle: track != null && track.stopCount > 1
-              ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
-              : handle,
-          lift: lifted ? _lift.value.clamp(0.0, 1.0) : 0,
-          onPlateTap: () {
-            _wiggle.touch();
-            _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
-          },
-          section: section,
-          start: frame.start,
-          end: frame.end,
-          index: index,
-          count: visible.length,
-          onHide: () => edit.hide(section),
-          onMoveUp: index > 0 ? () => edit.move(section, index - 1) : null,
-          onMoveDown: index < visible.length - 1 ? () => edit.move(section, index + 1) : null,
-          dragHandle: visible.length > 1
-              ? _DragHandle(
-                  label: HomeStrings.of(context).reorderSectionCd(HomeStrings.of(context).sectionTitle(section)),
-                  onStart: (y) => _startDrag(section, visible, y),
-                  onUpdate: _updateDrag,
-                  onEnd: _endDrag,
-                )
-              : null,
-          child: HomeEditWiggleScope(
-            wiggle: _wiggle,
+        builder: (context, child) {
+          final plate = HomeEditPlate(
+            progress: e,
+            childTaps: childTaps,
+            rowCount: track != null && track.stopCount > 1 && track.restStop < track.rowCounts.length
+                ? track.rowCounts[track.restStop]
+                : null,
+            onMoreRows: track != null && track.stopCount > 1 && _rows.canStep(section, 1)
+                ? () => _rows.step(section, 1)
+                : null,
+            onFewerRows: track != null && track.stopCount > 1 && _rows.canStep(section, -1)
+                ? () => _rows.step(section, -1)
+                : null,
+            resizeHandle: track != null && track.stopCount > 1
+                ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
+                : handle,
+            lift: lifted ? _carry.lift.value.clamp(0.0, 1.0) : 0,
+            liftTint: lifted ? _carry.liftTint.value.clamp(0.0, 1.0) : 0,
+            grow: _plateGrow(section, e),
+            hideKey: _hideKeys.putIfAbsent(section, GlobalKey.new),
+            // An edit-mode tap on a block (HomeEditGestures BlockTap): it kicks.
+            onPlateTap: () {
+              _wiggle.touch();
+              _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
+            },
             section: section,
-            // A lifted section stills as it rises.
-            liftGain: () => _lifted == section ? 1 - _lift.value.clamp(0.0, 1.0) : 1,
-            safeArea: _wiggleSafeArea,
-            child: child!,
-          ),
-        ),
+            start: frame.start,
+            end: frame.end,
+            index: index,
+            count: visible.length,
+            onHide: () => edit.hide(section),
+            onMoveUp: index > 0 ? () => edit.move(section, index - 1) : null,
+            onMoveDown: index < visible.length - 1 ? () => edit.move(section, index + 1) : null,
+            dragHandle: visible.length > 1
+                ? _DragHandle(
+                    key: _handleKeys.putIfAbsent(section, GlobalKey.new),
+                    label: HomeStrings.of(context).reorderSectionCd(HomeStrings.of(context).sectionTitle(section)),
+                  )
+                : null,
+            child: HomeEditWiggleScope(
+              wiggle: _wiggle,
+              section: section,
+              // A lifted section stills as it rises.
+              liftGain: () => _carry.liftSection == section ? 1 - _carry.lift.value.clamp(0.0, 1.0) : 1,
+              safeArea: _wiggleSafeArea,
+              child: child!,
+            ),
+          );
+          // The press charge: the block shrinks about the finger (no charge under reduced motion).
+          // Always a Transform (identity at rest), so a charge starting keeps the section's state.
+          final charge = _press.section == section ? _press.charge.value : 0.0;
+          final origin = Offset(contentLeft + _press.origin.dx, _press.origin.dy);
+          return Transform(
+            transform: charge > HomeCarryTokens.chargeFloor
+                ? _scaleAbout(chargeScale(charge), origin)
+                : Matrix4.identity(),
+            child: plate,
+          );
+        },
       ),
     );
     return Padding(
@@ -781,27 +885,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       // pinned to its slot, which keeps its place and height in the feed.
       child: OverlayPortal(
         controller: _portalFor(section),
-        overlayChildBuilder: (context) => lifted ? _liftedLayer(section, body) : const SizedBox.shrink(),
+        overlayChildBuilder: (context) => lifted ? _liftedLayer(section, body, contentLeft) : const SizedBox.shrink(),
         child: lifted
             ? CompositedTransformTarget(
                 link: _linkFor(section),
                 child: SizedBox(width: _liftSize.width, height: _liftSize.height),
               )
-            : AnimatedBuilder(
-                animation: shift.animation,
-                builder: (context, child) => Transform.translate(offset: Offset(0, shift.value), child: child),
-                child: body,
-              ),
+            : body,
       ),
     );
   }
+
+  /// The plate's frame while it is not simply at rest (Android plateFrame):
+  /// the entry plate growing from R_press, else the press charge's pre-show.
+  HomeEditPlateGrow? _plateGrow(HomeSection section, double e) {
+    final from = _plateFrom;
+    final editing = ref.read(homeEditProvider).editing;
+    final ripple = homeEditSmoothstep(_wiggle.ripple(section));
+    if (from != null && from.section == section && !(editing && ripple >= HomeCarryTokens.plateGrown)) {
+      return HomeEditPlateGrow(from.rect, ripple, latchedPlateAlpha(from.latch, e));
+    }
+    if (from == null && _press.section == section) {
+      final charge = _press.charge.value;
+      final alpha = charge > HomeCarryTokens.chargeFloor ? chargePlateAlpha(charge) : 0.0;
+      if (alpha > e) return HomeEditPlateGrow.press(_press.origin, charge, alpha);
+    }
+    return null;
+  }
+
+  static Matrix4 _scaleAbout(double scale, Offset pivot) => Matrix4.identity()
+    ..translateByDouble(pivot.dx, pivot.dy, 0, 1)
+    ..scaleByDouble(scale, scale, 1, 1)
+    ..translateByDouble(-pivot.dx, -pivot.dy, 0, 1);
 
   /// Edit mode's "not now" menu over a tapped Jump Back In card: hide it for
   /// three days or a week (owner 2026-10-13). It closes on a pick, a tap
   /// elsewhere, or edit mode ending.
   Future<void> _openJbiHideMenu(String scope, BuildContext cardContext, HomeWidgetCard card) async {
     if (!ref.read(homeEditProvider).editing || _hideMenuBase != null) return;
-    if (_dragging != null || _rows.dragging || jbiHideKey(card) == null) return;
+    if (_carry.isCarrying || _carry.liftSection != null || _rows.dragging || jbiHideKey(card) == null) return;
     YoinHaptics.click();
     _wiggle.touch();
     _wiggle.impulseCard(HomeSection.jumpBackIn, card.stableId, HomeWiggleMetrics.kickTap);
@@ -825,61 +947,125 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (ref.read(jbiHiddenProvider.notifier).hide(scope, card, span, nowMs: now)) YoinHaptics.confirm();
   }
 
-  /// The lifted section over the page: on its slot, offset by the finger (or
-  /// the landing spring), grown by the lift.
-  Widget _liftedLayer(HomeSection section, Widget body) => Align(
+  /// The lifted section over the page: on its slot, grown by the lift about
+  /// the finger, fading with the feed as the strips fold in.
+  Widget _liftedLayer(HomeSection section, Widget body, double contentLeft) => Align(
     alignment: Alignment.topLeft,
     child: CompositedTransformFollower(
       link: _linkFor(section),
       showWhenUnlinked: false,
       child: AnimatedBuilder(
-        animation: Listenable.merge([_shiftOf(section).animation, _lift.animation]),
+        animation: Listenable.merge([_carry.lift.listenable, _carry.fold.listenable]),
         // Its size from the list, tight: the overlay is bounded, and a section given room grows into it.
         child: SizedBox.fromSize(size: _liftSize, child: body),
-        builder: (context, child) => Transform.translate(
-          offset: Offset(0, _dragging == section ? _dragDy : _shiftOf(section).value),
-          child: Transform.scale(scale: 1 + (HomeEditMetrics.dragLiftScale - 1) * _lift.value, child: child),
-        ),
+        // One structure throughout, so the section keeps its state under the strips.
+        builder: (context, child) {
+          final origin = Offset(contentLeft + _carry.liftOrigin.dx, _carry.liftOrigin.dy);
+          return Opacity(
+            opacity: feedFoldAlpha(_carry.fold.value).clamp(0.0, 1.0),
+            child: Transform(transform: _scaleAbout(liftScale(_carry.lift.value), origin), child: child),
+          );
+        },
       ),
     ),
   );
 
-  /// Lifts [section] into the overlay at [size] (its body's measured size).
-  void _raise(HomeSection section, Size size) {
+  /// Lifts [section] into the overlay at its body's measured size.
+  void _raise(HomeSection section) {
+    final body = _bodyKeys[section]?.currentContext?.findRenderObject() as RenderBox?;
+    if (body == null || !body.hasSize) return;
     final previous = _lifted;
     if (previous != null && previous != section) _portalFor(previous).hide();
-    _lifted = section;
-    _liftSize = size;
+    _liftSize = body.size;
     _portalFor(section).show();
-    if (_reduced) {
-      _lift.snapTo(1);
-    } else {
-      _lift.spring = YoinSprings.fastSpatial;
-      _lift.animateTo(1);
-    }
-  }
-
-  /// Once the landing spring and the lift have both settled, the section goes back into its slot.
-  void _maybeLower() {
-    final section = _lifted;
-    if (section == null || _dragging != null || !mounted) return;
-    final shiftMoving = (_shiftOf(section).animation as AnimationController).isAnimating;
-    final liftMoving = (_lift.animation as AnimationController).isAnimating;
-    if (shiftMoving || liftMoving) return;
-    _lowerNow();
+    setState(() => _lifted = section);
   }
 
   void _lowerNow() {
     final section = _lifted;
     if (section == null) return;
-    // Cleared first: the snap below reports a status that lands back in _maybeLower.
     if (mounted) {
       setState(() => _lifted = null);
     } else {
       _lifted = null;
     }
     _portalFor(section).hide();
-    _lift.snapTo(0);
+  }
+
+  /// The engine lifted or let go a block, or a carry started, changed phase or ended.
+  void _onCarry() {
+    if (!mounted) return;
+    _editController.carrying = _carry.isCarrying;
+    // A carry folds every block into a strip: any row resize lands at rest first.
+    final holding = _carry.isCarrying || _carry.liftSection != null;
+    if (holding && !_carryHolding) _rows.snapAll();
+    _carryHolding = holding;
+    final section = _carry.liftSection;
+    if (section != _lifted) {
+      if (section == null) {
+        _lowerNow();
+      } else {
+        _raise(section);
+      }
+    }
+    // The feed's cache extent follows the lift.
+    setState(() {});
+  }
+
+  /// Mid-carry, an exit waits for the drop (HomeEditLayer.deferExit).
+  bool _deferExit({required bool done}) {
+    if (!_carry.isCarrying) return false;
+    _carry.deferExit(done: done);
+    return true;
+  }
+
+  /// P moved: the entry plate drops its latch past P ≥ .6, and goes once grown or once P is back at rest.
+  void _onEditProgress() {
+    final from = _plateFrom;
+    if (from == null) return;
+    final p = _edit.value;
+    final editing = ref.read(homeEditProvider).editing;
+    final grown = editing && homeEditSmoothstep(_wiggle.ripple(from.section)) >= HomeCarryTokens.plateGrown;
+    if (grown || (!editing && p <= HomeCarryTokens.progressRest)) {
+      _plateFrom = null;
+    } else if (p >= HomeCarryTokens.latchClearP && from.latch != 0) {
+      _plateFrom = from.withLatch(0);
+    }
+  }
+
+  /// The strip labels build once entering has settled, ahead of any carry,
+  /// one label a frame, and go once an exit has (HomeCarryStack's warmCount).
+  void _syncStripWarmth() {
+    if (!mounted) return;
+    final warmth = stripWarmth(
+      editing: ref.read(homeEditProvider).editing,
+      moving: (_edit.animation as AnimationController).isAnimating,
+    );
+    if (warmth == _warmth) return;
+    _warmth = warmth;
+    final generation = ++_warmGeneration;
+    switch (warmth) {
+      case StripWarmth.warm:
+        // Past the entry's own frames first.
+        _warmStep(generation, HomeCarryTokens.stripWarmFrames);
+      case StripWarmth.keep:
+        break;
+      case StripWarmth.cold:
+        _stripWarm.value = 0;
+    }
+  }
+
+  void _warmStep(int generation, int wait) {
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      if (!mounted || generation != _warmGeneration) return;
+      if (wait > 0) {
+        _warmStep(generation, wait - 1);
+        return;
+      }
+      if (_stripWarm.value >= HomeSection.values.length) return;
+      _stripWarm.value++;
+      _warmStep(generation, 0);
+    });
   }
 
   void _onEditing(bool on) {
@@ -889,7 +1075,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       if (navigator != null) _editBack.attach(navigator);
     } else {
       _editBack.detach();
-      _cancelDrag();
+      if (_carry.isCarrying) {
+        // Edit mode went at once (another account): every carry value at rest, nothing written.
+        _carry
+          ..abortNow(commit: false)
+          ..onSnapExit(_press);
+      } else {
+        // A block still lifted drops where it is with no kick, and the press lets go.
+        _carry.onExit(_press);
+      }
+      // The entry plate retreats with P instead of holding its latch.
+      _plateFrom = _plateFrom?.withLatch(0);
+      _wiggle.held = null;
       _rows.onExit();
       // The "not now" menu folds away with edit mode (out of the listener's frame).
       final base = _hideMenuBase;
@@ -907,26 +1104,284 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     } else {
       _edit.animateTo(on ? 1 : 0);
     }
+    _syncStripWarmth();
   }
 
-  void _maybeEnterEdit(LongPressStartDetails details) {
-    final header = _headerKey.currentContext?.findRenderObject() as RenderBox?;
-    // The header (the account avatar's hold, Memories' bubble) is not ours.
-    if (header != null && header.hasSize && details.globalPosition.dy < header.localToGlobal(Offset(0, header.size.height)).dy) return;
-    // The ripple (and its entry kicks) spreads from the section the finger landed on.
-    _wiggle.origin = _sectionAt(details.globalPosition.dy);
-    ref.read(homeEditProvider.notifier).enter();
+  // ── The edit gestures (HomeEditGestures.kt) ────────────────────────────
+
+  /// Global → the page stack's px (where the feed, the strips and every band live).
+  Offset _toPage(Offset global) {
+    final page = _pageKey.currentContext?.findRenderObject() as RenderBox?;
+    return page == null || !page.attached ? global : page.globalToLocal(global);
   }
 
-  /// The feed section whose box holds the global [y], if one is built there.
-  HomeSection? _sectionAt(double y) {
-    for (final entry in _itemKeys.entries) {
-      final box = entry.value.currentContext?.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached || !box.hasSize) continue;
-      final top = box.localToGlobal(Offset.zero).dy;
-      if (y >= top && y <= top + box.size.height) return entry.key;
+  /// [key]'s box in page px, if laid out.
+  Rect? _pageRectOf(GlobalKey? key) {
+    final box = key?.currentContext?.findRenderObject() as RenderBox?;
+    final page = _pageKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || page == null || !box.attached || !box.hasSize || !page.attached) return null;
+    final topLeft = page.globalToLocal(box.localToGlobal(Offset.zero));
+    return topLeft & box.size;
+  }
+
+  /// [section]'s block (top, bottom) in page px, its gap above left out; null when it isn't laid out.
+  (double, double)? _bandOf(HomeSection section) {
+    final item = _pageRectOf(_itemKeys[section]);
+    if (item == null) return null;
+    return (item.top + _spacing, item.bottom);
+  }
+
+  /// The plate's reach past the content: (horizontal, vertical) at the current P.
+  Size _plateOutset() {
+    final frame = _frame;
+    if (frame == null) return Size.zero;
+    return Size(
+      math.min(homeEditPlateOutset(frame.start), homeEditPlateOutset(frame.end)),
+      HomeEditMetrics.plateOutsetV * _edit.value.clamp(0.0, 1.0),
+    );
+  }
+
+  /// The feed's content x-range in page px (the frame's live margins).
+  (double, double) _contentBounds() {
+    final frame = _frame;
+    if (frame == null) return (0, 0);
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final left = rtl ? frame.end : frame.start;
+    return (left, left + frame.content);
+  }
+
+  /// Resolves a press (spec §2.1.2): exclusions first (the header, the hide
+  /// buttons, a ⌟ that took it, the tray and the footer), then a drag
+  /// handle, then the section bands, else blank.
+  HomeEditHit _editHitTest(Offset p) {
+    final grabbed = _handleGrabbed;
+    _handleGrabbed = false;
+    if (grabbed) return const HomeEditHitExcluded();
+    final header = _pageRectOf(_headerKey);
+    if (header != null && p.dy < header.bottom) return const HomeEditHitExcluded();
+    if (_pageRectOf(_trayKey)?.contains(p) ?? false) return const HomeEditHitExcluded();
+    final editing = ref.read(homeEditProvider).editing;
+    if (editing && _hideKeys.values.any((k) => _pageRectOf(k)?.contains(p) ?? false)) {
+      return const HomeEditHitExcluded();
     }
-    return null;
+    final order = ref.read(homeLayoutProvider).visibleV1Sections;
+    final bands = <SectionBand>[
+      for (final section in order)
+        if (_bandOf(section) case (final top, final bottom))
+          SectionBand(section, top, bottom, bleeds: homeEditBleedingSections.contains(section)),
+    ];
+    HomeSection? handle;
+    if (editing) {
+      for (final entry in _handleKeys.entries) {
+        if (_pageRectOf(entry.value)?.contains(p) ?? false) handle = entry.key;
+      }
+    }
+    final (left, right) = _contentBounds();
+    return resolveHomeEditHit(
+      position: p,
+      bands: bands,
+      contentLeft: left,
+      contentRight: right,
+      outset: _plateOutset(),
+      editing: editing,
+      handle: handle,
+    );
+  }
+
+  /// A fling is running, or the feed scrolled a moment ago: a blank tap only stops it.
+  bool _flingInProgress() {
+    if (_scroll.hasClients && _scroll.position.isScrollingNotifier.value) return true;
+    return _clock.elapsedMilliseconds - _lastScrollMs < HomeCarryTokens.flingStopMs;
+  }
+
+  /// Applies the machine's actions, in order (HomeEditGestureExecutor).
+  /// Actions that only make sense in edit mode are dropped once it has ended.
+  void _runEditActions(List<HomeEditGestureAction> actions, HomeEditGestureMachine machine) {
+    if (!mounted) return;
+    for (final action in actions) {
+      if (action.editOnly && !ref.read(homeEditProvider).editing) continue;
+      switch (action) {
+        case HomeEditStartCharge(:final section, :final local):
+          _press.start(section, local, _carrySpecs);
+        case HomeEditReleaseCharge():
+          _press.release(_carrySpecs);
+        case HomeEditLongPressHaptic():
+          YoinHaptics.longPress();
+        case HomeEditDragStartHaptic():
+          YoinHaptics.dragStart();
+        case HomeEditEnter(:final origin, :final lifted):
+          // The ripple (and its entry kicks) spreads from the section the finger landed on.
+          _wiggle
+            ..origin = origin
+            ..held = lifted ? origin : null;
+          ref.read(homeEditProvider.notifier).enter(haptic: false);
+        case HomeEditLatchPlate(:final section, :final local, :final size):
+          // Read now, before the release that follows starts moving it.
+          final charge = _press.charge.value;
+          _plateFrom = _carrySpecs.reduced
+              ? null
+              : PlateFrom(section, pressRect(local, size, charge), charge.clamp(0.0, 1.0));
+        case HomeEditLift(:final section, :final local):
+          _carry.liftBlock(section, local);
+        case HomeEditDropLift(:final kick):
+          _carry.dropLift(kick);
+        case HomeEditOpenPlaceholders():
+          // Harmony holds no placeholder back above a lifted block.
+          break;
+        case HomeEditStartCarry(:final y, :final t):
+          _carry.start(y, t);
+        case HomeEditCarryMove(:final y, :final t):
+          _carry.move(y, t);
+        case HomeEditCarryRelease(:final cancelled, :final t):
+          _carry.release(cancelled: cancelled, uptimeMs: t);
+        case HomeEditTryRegrab(:final position, :final t):
+          if (_carry.tryRegrab(position, t)) _runEditActions(machine.handle(const HomeEditRegrabbed()), machine);
+        case HomeEditBlockTap(:final section, :final local):
+          // A press the gestures kept (a drag handle) kicks its block here; a
+          // tap on the plate itself goes to the plate (and a Jump Back In card
+          // to its "not now").
+          if (local == null) {
+            _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
+          }
+        case HomeEditExitBlank():
+          ref.read(homeEditProvider.notifier).exit();
+        case HomeEditTouch():
+          _wiggle.touch();
+        case HomeEditPointerDown(:final down):
+          _wiggle.pointerDown = down;
+        case HomeEditAbandon() || HomeEditConsumeRest() || HomeEditConsumeOther():
+          break;
+      }
+    }
+  }
+
+  /// The header's bottom in the list's px, 0 once it has scrolled away.
+  double _headerBottomInList() {
+    final header = _pageRectOf(_headerKey);
+    final list = _pageRectOf(_listKey);
+    if (header == null || list == null) return 0;
+    return math.max(0, header.bottom - list.top);
+  }
+
+  /// The band between the status tide and the bar (HomeEditSafeArea), page px.
+  (double, double) _carrySafeArea() {
+    final media = MediaQuery.of(context);
+    // The feed fills the page: its height as last laid out (read in build too, so never from a render box).
+    final height = _pageHeight ?? media.size.height;
+    return (
+      media.viewPadding.top + HomeSeamMetrics.tideRest + HomeCarryTokens.safeGap,
+      height - _feedBottomInset - HomeCarryTokens.safeGap,
+    );
+  }
+
+  /// [section]'s plate in page px (the content out by the plate's reach), if laid out.
+  Rect? _plateRectOf(HomeSection section) {
+    final band = _bandOf(section);
+    if (band == null) return null;
+    final (left, right) = _contentBounds();
+    final outset = _plateOutset();
+    return Rect.fromLTRB(left - outset.width, band.$1 - outset.height, right + outset.width, band.$2 + outset.height);
+  }
+
+  /// One jump puts the dropped plate's top on its slot (port sheet §4.9),
+  /// unless the header still shows below the status band; then this waits
+  /// for that layout. The new order is laid out first.
+  Future<void> _anchorDropped(HomeSection dropped, List<HomeSection> order, double slotTop) async {
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.hasClients) return;
+    final statusBand = _carrySafeArea().$1 - HomeCarryTokens.safeGap;
+    final header = _pageRectOf(_headerKey);
+    // The header still shows below the status band (critique 34): the scroll stays.
+    if (header != null && header.bottom > statusBand) return;
+    final plate = _plateRectOf(dropped);
+    if (plate == null) return;
+    final position = _scroll.position;
+    // The clamp keeps the header out: the first section's top at the list's top at most.
+    var minPixels = position.minScrollExtent;
+    for (final section in order) {
+      final band = _bandOf(section);
+      if (band == null) continue;
+      minPixels = position.pixels + band.$1 - (_pageRectOf(_listKey)?.top ?? 0);
+      break;
+    }
+    final max = position.maxScrollExtent;
+    final double target = (position.pixels + plate.top - slotTop).clamp(math.min(minPixels, max), max);
+    if ((target - position.pixels).abs() < 0.5) return;
+    position.jumpTo(target);
+    await SchedulerBinding.instance.endOfFrame;
+  }
+
+  /// The strip covers of [section]: its own artwork, in its entity shape (HomeEditorialContent homeStripCovers).
+  List<StripCover> _stripCovers(HomeContent content, HomeSection section) {
+    const count = HomeCarryTokens.stripCoverCount;
+    switch (section) {
+      case HomeSection.activities:
+        final entries = content.activityEntries;
+        final hero = selectHeroIndex(entries);
+        return [
+          if (hero >= 0) entries[hero],
+          for (var i = 0; i < entries.length; i++)
+            if (i != hero) entries[i],
+        ].take(count).map((e) => StripCover(e.cover, e.kind)).toList();
+      case HomeSection.jumpBackIn:
+        final signals = ref.read(homeMemorySignalsProvider);
+        final mine = signals.scope == content.scopeKey;
+        final hidden = ref
+            .read(jbiHiddenProvider)
+            .keysAt(content.scopeKey, ref.read(homeClockProvider)().millisecondsSinceEpoch);
+        final cards = jbiShelfCards(content.grid, mine ? signals : null, hidden);
+        // A memory's card leads.
+        final memory = cards.where((c) => c.target is HomeOpenMemory).firstOrNull;
+        return [
+          ?memory,
+          for (final card in cards)
+            if (!identical(card, memory)) card,
+        ].take(count).map((card) => StripCover(card.cover, card.kind, requestSize: HomeCoverRequest.jbi)).toList();
+      case HomeSection.recentlyAdded:
+        return content.recentlyAddedAlbums.isNotEmpty
+            ? [for (final a in content.recentlyAddedAlbums.take(count)) StripCover(a.coverArt, HomeCardKind.album)]
+            : [for (final t in content.recentlyAddedTracks.take(count)) StripCover(t.coverArt, null)];
+      case HomeSection.rediscover:
+        final signals = ref.read(homeMemorySignalsProvider);
+        if (signals.scope != content.scopeKey) return const [];
+        final added = {for (final a in content.recentlyAddedAlbums) a.id};
+        return [
+          for (final r in signals.rediscover.where((r) => !added.contains(r.albumId)).take(count))
+            StripCover(r.cover, HomeCardKind.album),
+        ];
+      case HomeSection.recentlyPlayed:
+        return [for (final a in content.recentlyPlayed.take(count)) StripCover(a.coverArt, HomeCardKind.album)];
+      case HomeSection.yourPlaylists:
+        return [for (final p in content.playlists.take(count)) StripCover(p.coverArt, HomeCardKind.playlist)];
+      case HomeSection.otherProfiles:
+        final items = ref.read(otherProfileItemsProvider).value ?? const <OtherProfileItem>[];
+        return [
+          for (final item in items.take(count))
+            StripCover(
+              item.cover,
+              item.kind == OtherProfileItemKind.playlist ? HomeCardKind.playlist : HomeCardKind.album,
+            ),
+        ];
+      case HomeSection.lyricHighlight:
+        return [
+          for (final card in ref.read(lyricHighlightCardsProvider).take(count))
+            StripCover(card.cover, HomeCardKind.song),
+        ];
+      case HomeSection.memoryGrid:
+        // The albums the latest memories are about, newest first.
+        final ledger = ref.read(memoryLedgerProvider).value;
+        final seen = <CoverRef>{};
+        final out = <StripCover>[];
+        for (final entry in ledger?.entries ?? const []) {
+          final cover = entry.album?.cover;
+          if (cover == null || !seen.add(cover)) continue;
+          out.add(StripCover(cover, HomeCardKind.album));
+          if (out.length == count) break;
+        }
+        return out;
+      case HomeSection.madeForYou:
+        return [for (final p in ref.read(madeForYouProvider).take(count)) StripCover(p.cover, HomeCardKind.playlist)];
+    }
   }
 
   /// The band the wiggle lives in: clear of the status bar and of the bar, by [HomeWiggleMetrics.safeGap].
@@ -964,228 +1419,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if ((_trayScroll.value - position.maxScrollExtent).abs() < 0.5) _trayScrolling = false;
   }
 
-  void _startDrag(HomeSection section, List<HomeSection> order, double pointerY) {
-    // A held ⌟ has the page; a section drag puts every resize at rest.
-    if (_rows.dragging) return;
-    _rows.snapAll();
-    final tops = List<double>.filled(order.length, 0);
-    final heights = List<double>.filled(order.length, 0);
-    // The dragged section is under the finger, so it is built.
-    if (!_measure(order, tops, heights, require: order.indexOf(section))) return;
-    final body = _bodyKeys[section]?.currentContext?.findRenderObject() as RenderBox?;
-    if (body == null || !body.hasSize) return;
-    // Picking a section up (Android HomeEditGestures DragStartHaptic).
-    YoinHaptics.dragStart();
-    ref.read(homeEditProvider.notifier).carrying = true;
-    _raise(section, body.size);
-    // Carried: the others sway at the drag envelope; the lifted one stills.
-    _wiggle
-      ..held = section
-      ..carrying = true
-      ..stopKicks(section);
-    setState(() {
-      _dragging = section;
-      _dragDy = 0;
-      _dragOrder = order;
-      _dragTops = tops;
-      _dragHeights = heights;
-      _dragTarget = order.indexOf(section);
-      _dragPointerY = pointerY;
-    });
-  }
-
-  /// Fills [tops] (content space) and [heights] for [order]: built sections
-  /// measured, the rest stacked on from their nearest built neighbour at the
-  /// built ones' mean height. False when [require] is not built.
-  bool _measure(List<HomeSection> order, List<double> tops, List<double> heights, {required int require}) {
-    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-    final built = List<bool>.filled(order.length, false);
-    var sum = 0.0;
-    var n = 0;
-    for (var i = 0; i < order.length; i++) {
-      final box = _itemKeys[order[i]]?.currentContext?.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached || !box.hasSize) continue;
-      tops[i] = box.localToGlobal(Offset.zero).dy + offset;
-      heights[i] = box.size.height;
-      built[i] = true;
-      sum += heights[i];
-      n++;
-    }
-    if (require < 0 || !built[require]) return false;
-    final estimate = sum / n;
-    final first = built.indexOf(true);
-    final last = built.lastIndexOf(true);
-    for (var i = first - 1; i >= 0; i--) {
-      heights[i] = estimate;
-      tops[i] = tops[i + 1] - estimate;
-    }
-    for (var i = last + 1; i < order.length; i++) {
-      heights[i] = estimate;
-      tops[i] = tops[i - 1] + heights[i - 1];
-    }
-    return true;
-  }
-
-  void _updateDrag(double dy, double pointerY) {
-    if (_dragging == null) return;
-    _dragPointerY = pointerY;
-    _dragBy(dy);
-    if (_autoScrollSpeed() != 0 && !_autoScroll.isActive) {
-      _autoScrollLast = null;
-      _autoScroll.start();
-    }
-  }
-
-  /// Moves the lifted section by [dy] (content space) and re-targets the others.
-  void _dragBy(double dy) {
-    final section = _dragging;
-    if (section == null) return;
-    final a = _dragOrder.indexOf(section);
-    // Sections scrolled into view since the lift replace their estimates.
-    final tops = List<double>.of(_dragTops);
-    final heights = List<double>.of(_dragHeights);
-    if (_measure(_dragOrder, tops, heights, require: a)) {
-      _dragTops = tops;
-      _dragHeights = heights;
-    }
-    final h = _dragHeights[a];
-    final center = _dragTops[a] + _dragDy + dy + h / 2;
-    var target = a;
-    for (var i = 0; i < _dragOrder.length; i++) {
-      if (i == a) continue;
-      final mid = _dragTops[i] + _dragHeights[i] / 2;
-      double to = 0;
-      if (i < a && center < mid) {
-        to = h;
-        target--;
-      } else if (i > a && center > mid) {
-        to = -h;
-        target++;
-      }
-      _shiftOf(_dragOrder[i]).animateTo(to);
-    }
-    if (target != _dragTarget) YoinHaptics.segmentTick();
-    setState(() {
-      _dragDy += dy;
-      _dragTarget = target;
-    });
-  }
-
-  /// dp/s the feed scrolls at for the finger's place: 0 away from the edges,
-  /// ramping to [HomeEditMetrics.autoScrollMax] at them (negative = up).
-  double _autoScrollSpeed() {
-    final y = _dragPointerY;
-    final box = _listKey.currentContext?.findRenderObject() as RenderBox?;
-    if (y == null || box == null || !box.hasSize || !_scroll.hasClients) return 0;
-    final topEdge = box.localToGlobal(Offset.zero).dy + MediaQuery.viewPaddingOf(context).top;
-    final bottomEdge = box.localToGlobal(Offset(0, box.size.height)).dy - _feedBottomInset;
-    const edge = HomeEditMetrics.autoScrollEdge;
-    final position = _scroll.position;
-    if (y < topEdge + edge && position.pixels > position.minScrollExtent) {
-      return -HomeEditMetrics.autoScrollMax * ((topEdge + edge - y) / edge).clamp(0.0, 1.0);
-    }
-    if (y > bottomEdge - edge && position.pixels < position.maxScrollExtent) {
-      return HomeEditMetrics.autoScrollMax * ((y - (bottomEdge - edge)) / edge).clamp(0.0, 1.0);
-    }
-    return 0;
-  }
-
-  void _onAutoScrollTick(Duration elapsed) {
-    final last = _autoScrollLast;
-    _autoScrollLast = elapsed;
-    final speed = _dragging == null ? 0.0 : _autoScrollSpeed();
-    if (speed == 0) {
-      _autoScroll.stop();
-      return;
-    }
-    if (last == null) return;
-    final dt = (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond;
-    final position = _scroll.position;
-    final to = (position.pixels + speed * dt).clamp(position.minScrollExtent, position.maxScrollExtent);
-    final moved = to - position.pixels;
-    if (moved == 0) return;
-    position.jumpTo(to);
-    // The lifted section rides the finger, not the content.
-    _dragBy(moved);
-  }
-
-  void _endDrag() {
-    final section = _dragging;
-    if (section == null) return;
-    _releaseCarry();
-    _stopAutoScroll();
-    final a = _dragOrder.indexOf(section);
-    final b = _dragTarget;
-    var moved = 0.0;
-    if (b > a) {
-      for (var i = a + 1; i <= b; i++) {
-        moved += _dragHeights[i];
-      }
-    } else {
-      for (var i = b; i < a; i++) {
-        moved -= _dragHeights[i];
-      }
-    }
-    for (final s in _dragOrder) {
-      _shiftOf(s).snapTo(0);
-    }
-    // It lands from where the finger left it, on the spatial spring.
-    final residual = _dragDy - moved;
-    final shift = _shiftOf(section)..snapTo(residual);
-    if (_reduced) {
-      shift.snapTo(0);
-    } else {
-      shift.animateTo(0);
-    }
-    setState(() => _dragging = null);
-    if (_reduced) {
-      _lift.snapTo(0);
-    } else {
-      _lift.spring = YoinSprings.defaultSpatial;
-      _lift.animateTo(0);
-    }
-    _wiggle
-      ..carrying = false
-      ..held = null
-      ..touch();
-    if (b == a) {
-      // Dropped where it was lifted.
-      _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
-    } else {
-      // The carried block lands with a kick; every block whose place changed nods.
-      _wiggle.impulse(section, HomeWiggleMetrics.kickDrop);
-      final lo = a < b ? a + 1 : b, hi = a < b ? b : a - 1;
-      for (var i = lo; i <= hi; i++) {
-        _wiggle.impulse(_dragOrder[i], HomeWiggleMetrics.kickNeighbour);
-      }
-    }
-    if (b != a) ref.read(homeEditProvider.notifier).move(section, b);
-    _maybeLower();
-  }
-
-  void _stopAutoScroll() {
-    _dragPointerY = null;
-    if (_autoScroll.isActive) _autoScroll.stop();
-  }
-
-  /// The carry is over: the bar's left slot answers again.
-  void _releaseCarry() {
-    if (mounted) ref.read(homeEditProvider.notifier).carrying = false;
-  }
-
-  void _cancelDrag() {
-    if (_dragging == null) return;
-    _releaseCarry();
-    _stopAutoScroll();
-    for (final s in _dragOrder) {
-      _shiftOf(s).animateTo(0);
-    }
-    setState(() => _dragging = null);
-    _lift.animateTo(0);
-    _wiggle
-      ..carrying = false
-      ..held = null;
-  }
 }
 
 /// The feed under a held ⌟ (HomeRowsAutoScroll): scrolls while the finger
@@ -1225,14 +1458,12 @@ class _RowsAutoScroll implements HomeRowsAutoScroll {
   }
 }
 
-/// A section's drag handle: hold and drag to move the section.
+/// A section's drag handle: the edit gestures find it by its key (a press
+/// on it lifts and carries at the first slop).
 class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.label, required this.onStart, required this.onUpdate, required this.onEnd});
+  const _DragHandle({super.key, required this.label});
 
   final String label;
-  final ValueChanged<double> onStart;
-  final void Function(double dy, double pointerY) onUpdate;
-  final VoidCallback onEnd;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -1240,18 +1471,144 @@ class _DragHandle extends StatelessWidget {
     container: true,
     label: label,
     excludeSemantics: true,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: (d) => onStart(d.globalPosition.dy),
-      onVerticalDragUpdate: (d) => onUpdate(d.delta.dy, d.globalPosition.dy),
-      onVerticalDragEnd: (_) => onEnd(),
-      onVerticalDragCancel: onEnd,
-      child: SizedBox.square(
-        dimension: HomeHeaderMetrics.touchBox,
-        child: Icon(YoinSymbols.dragHandle, color: Theme.of(context).colorScheme.onSurfaceVariant),
-      ),
+    child: SizedBox.square(
+      dimension: HomeHeaderMetrics.touchBox,
+      child: Icon(YoinSymbols.dragHandle, color: Theme.of(context).colorScheme.onSurfaceVariant),
     ),
   );
+}
+
+/// The feed host the carry measures (Android LazyListCarryHost).
+class _FeedCarryHost implements CarryHost {
+  _FeedCarryHost(this._home);
+
+  final _HomeScreenState _home;
+
+  @override
+  List<HomeSection> displayedOrder() => _home.ref.read(homeLayoutProvider).visibleV1Sections;
+
+  @override
+  Rect? plateRect(HomeSection section) => _home._plateRectOf(section);
+
+  @override
+  bool isAbove(HomeSection section) {
+    final order = displayedOrder();
+    final safe = safeArea();
+    final visible = [
+      for (final s in order)
+        if (_home._bandOf(s) case (final top, final bottom) when bottom > safe.$1 && top < safe.$2) s,
+    ];
+    return carryIsAbove(section, order, visible, pastHeader: _home._headerBottomInList() <= 0);
+  }
+
+  @override
+  (double, double) safeArea() => _home._carrySafeArea();
+
+  @override
+  double contentLeft() => _home._contentBounds().$1;
+
+  @override
+  double contentWidth() {
+    final (left, right) = _home._contentBounds();
+    return right - left;
+  }
+
+  @override
+  Future<void> anchorAndAwaitLayout(HomeSection dropped, List<HomeSection> order, double slotTop) =>
+      _home.mounted ? _home._anchorDropped(dropped, order, slotTop) : Future.value();
+}
+
+/// The feed's sections (or tray) under the fold: drawn, or skipped once the wash covers them (feedFoldShown).
+class _FoldGate extends StatelessWidget {
+  const _FoldGate({required this.fold, required this.sliver});
+
+  final CarrySpring fold;
+  final Widget sliver;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: _FoldShown(fold),
+    builder: (context, shown, child) => _SliverPaintGate(shown: shown, sliver: child!),
+    child: sliver,
+  );
+}
+
+/// Whether the fold leaves the feed showing, as a listenable that only changes when that flips.
+class _FoldShown extends ValueNotifier<bool> {
+  _FoldShown(this._fold) : super(feedFoldShown(_fold.value) > 0);
+
+  final CarrySpring _fold;
+
+  void _sync() => value = feedFoldShown(_fold.value) > 0;
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (!hasListeners) _fold.listenable.addListener(_sync);
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) _fold.listenable.removeListener(_sync);
+  }
+}
+
+/// A sliver painted only while [shown]; layout and hit testing as ever.
+class _SliverPaintGate extends SingleChildRenderObjectWidget {
+  const _SliverPaintGate({required this.shown, required Widget sliver}) : super(child: sliver);
+
+  final bool shown;
+
+  @override
+  _RenderSliverPaintGate createRenderObject(BuildContext context) => _RenderSliverPaintGate(shown);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderSliverPaintGate render) => render.shown = shown;
+}
+
+class _RenderSliverPaintGate extends RenderProxySliver {
+  _RenderSliverPaintGate(this._shown);
+
+  bool _shown;
+  set shown(bool value) {
+    if (_shown == value) return;
+    _shown = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_shown) super.paint(context, offset);
+  }
+}
+
+/// The page's own ground washed over the sections and tray, from the header's
+/// bottom down, while the strips fold in (feedFoldWashOver): the header never
+/// fades. Drawn only mid-fade.
+class _FoldWashPainter extends CustomPainter {
+  _FoldWashPainter({required this.fold, required this.colors, required this.headerBottom})
+    : super(repaint: fold.listenable);
+
+  final CarrySpring fold;
+  final List<Color> colors;
+  final double Function() headerBottom;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final wash = feedFoldWash(fold.value);
+    if (wash <= 0 || wash >= 1) return;
+    final top = headerBottom().clamp(0.0, size.height);
+    final shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [for (final c in colors) c.withValues(alpha: c.a * wash)],
+    ).createShader(Offset.zero & size);
+    canvas.drawRect(Rect.fromLTRB(0, top, size.width, size.height), Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(_FoldWashPainter old) => old.fold != fold || !listEquals(old.colors, colors);
 }
 
 /// Home's YoinLoadingIndicator: nothing for 180 ms, then the M3 Expressive

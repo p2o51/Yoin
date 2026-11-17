@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/home/home_carry_stack.dart';
 import 'package:yoin/home/home_edit.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_screen.dart';
@@ -344,54 +345,88 @@ void main() {
       await done(tester, c);
     });
 
-    testWidgets('should_autoScrollAndMoveToTheEnd_when_heldAtTheBottomEdge', (tester) async {
+    testWidgets('should_moveToTheEnd_when_carriedPastTheLastStrip', (tester) async {
+      // Short window: the strips fold the whole order onto the screen, no scrolling needed.
       final c = await pumpHome(tester, size: const Size(400, 640));
       c.read(homeEditProvider.notifier).enter();
       await frames(tester, 30);
       final before = c.read(homeLayoutProvider).visibleV1Sections;
       final handle = find.byIcon(YoinSymbols.dragHandle).first;
-      final gesture = await tester.startGesture(tester.getCenter(handle));
+      final start = tester.getCenter(handle);
+      final gesture = await tester.startGesture(start);
       await gesture.moveBy(const Offset(0, 30));
-      await tester.pump(const Duration(milliseconds: 16));
-      // Down to the feed's bottom edge, then hold there while the feed scrolls.
+      await frames(tester, 10);
+      // Every section is a strip now, its title on it.
+      for (final title in ['Your Playlists', 'Made For You']) {
+        expect(find.descendant(of: find.byType(HomeCarryStack), matching: find.text(title)), findsOneWidget);
+      }
+      final scrolled = tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels;
+      // Down past the last strip.
       final bottom = tester.getBottomLeft(find.byType(CustomScrollView)).dy;
-      await gesture.moveTo(Offset(tester.getCenter(handle).dx, bottom - 100));
-      await tester.pump(const Duration(milliseconds: 16));
-      for (var i = 0; i < 300; i++) {
-        await gesture.moveBy(Offset(0, i.isEven ? 1 : -1));
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      final scrolled = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
-      expect(scrolled.pixels, greaterThan(0));
-      // Then down past the last section.
-      await gesture.moveTo(Offset(tester.getCenter(handle).dx, bottom - 5));
-      for (var i = 0; i < 120; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
+      await gesture.moveTo(Offset(start.dx, bottom - 5));
+      await frames(tester, 5);
+      expect(tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels, scrolled);
       await gesture.up();
-      await frames(tester, 30);
+      await frames(tester, 60);
       final after = c.read(homeLayoutProvider).visibleV1Sections;
       expect(after.last, HomeSection.activities, reason: 'was $before');
+      expect(c.read(homeEditProvider).undo, hasLength(1));
       expect(tester.takeException(), isNull);
       await done(tester, c);
     });
 
-    testWidgets('should_paintAndHitTestTheLiftedSectionAboveItsNeighbour_when_dragged', (tester) async {
+    testWidgets('should_enterWithTheBlockLiftedAndCarryIt_when_aSectionIsLongPressedAndMoved', (tester) async {
+      final haptics = RecordingHapticsHost();
+      YoinHaptics.host = haptics;
+      addTearDown(() => YoinHaptics.host = const NoHapticsHost());
+      final c = await pumpHome(tester);
+      List<HomeSection> order() => c.read(homeLayoutProvider).visibleV1Sections;
+      expect(order().indexOf(HomeSection.jumpBackIn), 1);
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(JumpBackInSection)));
+      // T/2 charges, T enters with the block lifted.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.read(homeEditProvider).editing, isFalse);
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(c.read(homeEditProvider).editing, isTrue);
+      expect(haptics.performed, contains(YoinHaptic.longPress));
+      await frames(tester, 5);
+      // The same finger carries it: down two strips.
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.descendant(of: find.byType(HomeCarryStack), matching: find.text('Jump Back In')), findsOneWidget);
+      expect(haptics.performed, contains(YoinHaptic.segmentTick));
+      await gesture.up();
+      await frames(tester, 60);
+      expect(order().indexOf(HomeSection.jumpBackIn), greaterThan(1));
+      expect(haptics.performed, contains(YoinHaptic.confirm));
+      // Still editing after the drop.
+      expect(c.read(homeEditProvider).editing, isTrue);
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_stayInNormalMode_when_tappedOrScrolledBeforeT', (tester) async {
+      final c = await pumpHome(tester);
+      await tester.tap(find.text('Recently Played'));
+      await frames(tester, 10);
+      expect(c.read(homeEditProvider).editing, isFalse);
+      // A drag scrolls instead of entering.
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(JumpBackInSection)));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.up();
+      await frames(tester, 10);
+      expect(c.read(homeEditProvider).editing, isFalse);
+      await done(tester, c);
+    });
+
+    testWidgets('should_liftAfterTheBodyHoldAndPaintAboveItsNeighbour_when_editing', (tester) async {
       final c = await pumpHome(tester);
       c.read(homeEditProvider.notifier).enter();
       await frames(tester, 30);
       Finder plate(HomeSection s) => find.byWidgetPredicate((w) => w is HomeEditPlate && w.section == s);
-      Set<RenderObject> subtree(Finder f) {
-        final out = <RenderObject>{};
-        void visit(RenderObject r) {
-          out.add(r);
-          r.visitChildren(visit);
-        }
-
-        visit(tester.renderObject(f));
-        return out;
-      }
-
       // Painted by the feed's viewport, or over it (an overlay entry)?
       bool inFeed(HomeSection s) {
         for (RenderObject? r = tester.renderObject(plate(s)); r != null; r = r.parent) {
@@ -400,32 +435,62 @@ void main() {
         return false;
       }
 
-      final next = tester.getRect(plate(HomeSection.jumpBackIn));
       final restSize = tester.getSize(plate(HomeSection.activities));
-      final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
-      await gesture.moveBy(const Offset(0, 30));
-      await tester.pump(const Duration(milliseconds: 16));
-      // Down until Activities' plate lies over Jump Back In's top.
-      final from = tester.getRect(plate(HomeSection.activities));
-      await gesture.moveBy(Offset(0, next.top - from.top + 20));
-      await frames(tester, 10);
-      // Painted in the overlay, after (over) the whole feed.
+      final gesture = await tester.startGesture(tester.getCenter(plate(HomeSection.activities)));
+      // Before max(150 ms, T/2) nothing lifts.
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(inFeed(HomeSection.activities), isTrue);
+      await tester.pump(const Duration(milliseconds: 200));
+      await frames(tester, 3);
+      // Lifted: painted in the overlay, over the whole feed, at the list's size.
       expect(inFeed(HomeSection.activities), isFalse);
-      // The overlay is bounded: the lifted section keeps the list's size, not the overlay's room.
       expect(tester.getSize(plate(HomeSection.activities)), restSize);
       expect(inFeed(HomeSection.jumpBackIn), isTrue);
-      final lifted = subtree(plate(HomeSection.activities));
-      final below = subtree(plate(HomeSection.jumpBackIn));
-      final over = tester.getRect(plate(HomeSection.activities)).intersect(tester.getRect(plate(HomeSection.jumpBackIn)));
-      expect(over.isEmpty, isFalse);
-      final result = HitTestResult();
-      tester.binding.hitTestInView(result, over.center, tester.view.viewId);
-      final first = result.path.map((e) => e.target).firstWhere((t) => lifted.contains(t) || below.contains(t));
-      expect(lifted.contains(first), isTrue);
+      // Let go without moving: it drops where it was, nothing written.
       await gesture.up();
       await frames(tester, 40);
-      // Landed, it is back in the feed.
       expect(inFeed(HomeSection.activities), isTrue);
+      expect(c.read(homeEditProvider).undo, isEmpty);
+      expect(c.read(homeEditProvider).editing, isTrue);
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_leave_when_blankIsTapped_andStay_when_aPlateIsTapped', (tester) async {
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      Finder plate(HomeSection s) => find.byWidgetPredicate((w) => w is HomeEditPlate && w.section == s);
+      await tester.tap(plate(HomeSection.activities));
+      await frames(tester, 10);
+      expect(c.read(homeEditProvider).editing, isTrue);
+      // The page margin beside a padded section, past its plate, is blank.
+      final activities = tester.getRect(plate(HomeSection.activities));
+      await tester.tapAt(Offset(1, activities.center.dy));
+      await frames(tester, 10);
+      expect(c.read(homeEditProvider).editing, isFalse);
+      await done(tester, c);
+    });
+
+    testWidgets('should_waitForTheDrop_when_doneArrivesMidCarry', (tester) async {
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
+      for (var i = 0; i < 8; i++) {
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final edit = c.read(homeEditProvider.notifier);
+      expect(edit.carrying, isTrue);
+      edit.done();
+      // The carry lets go and settles first.
+      expect(c.read(homeEditProvider).editing, isTrue);
+      await frames(tester, 60);
+      expect(c.read(homeEditProvider).editing, isFalse);
+      expect(c.read(homeLayoutProvider).visibleV1Sections.first, isNot(HomeSection.activities));
+      await gesture.up();
+      await frames(tester, 10);
       expect(tester.takeException(), isNull);
       await done(tester, c);
     });

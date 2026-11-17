@@ -2481,3 +2481,127 @@ abstract final class ArtworkTokens {
   /// The type icon a missing or failed cover shows.
   static const double fallbackIcon = 24;
 }
+
+/// Home edit mode's pick up and carry (Android ui/home/edit HomeEditTokens.kt
+/// §2.2–2.4, §4: the press charge, the lift and the strip carry), number for
+/// number. dp; times ms.
+abstract final class HomeCarryTokens {
+  // Press, charge and lift (§2.2–2.4).
+  /// Side of the press square R_press, centred on the finger.
+  static const double pressBox = 96;
+
+  /// R_press grows by this × charge.
+  static const double pressOutset = 4;
+
+  /// The pressed block shrinks by this × charge, about the press point.
+  static const double chargeScale = 0.012;
+
+  /// Plate pre-show alpha at full charge.
+  static const double chargePlateAlpha = 0.4;
+
+  /// The lifted block grows by this × lift; a carried strip too.
+  static const double liftScale = 0.02;
+  static const double liftShadow = 6;
+
+  /// Once P passes this the entry plate drops its charge latch.
+  static const double latchClearP = 0.6;
+
+  /// Edit-mode body hold before a lift: max(this, long-press timeout / 2).
+  static const int bodyHoldMinMs = 150;
+
+  /// The entry plate stops growing from R_press once its ripple's smoothstep reaches this.
+  static const double plateGrown = 0.9999;
+
+  /// A charge below this draws nothing (no scale, no pre-show).
+  static const double chargeFloor = 0.0005;
+
+  /// P at or below this is at rest: an entry plate still latched goes.
+  static const double progressRest = 0.001;
+
+  // Strips (§4).
+  static const double stripGap = 8;
+  static const double stripMinH = 48;
+  static const double stripMaxH = 64;
+  static const double stripMaxW = 560;
+
+  /// Cover edge = strip height − this, clamped to [stripCoverMin]..[stripCoverMax].
+  static const double stripCoverInset = 24;
+  static const double stripCoverMin = 24;
+  static const double stripCoverMax = 36;
+
+  /// Each cover after the first overlaps the previous by this × its edge.
+  static const double stripCoverOverlap = 0.3;
+
+  /// A strip shows at most this many of its section's covers.
+  static const int stripCoverCount = 3;
+  static const double stripPadding = 16;
+  static const double stripContentGap = 12;
+  static const double stripHandleSize = 24;
+
+  /// Strip plate corners (HomeEditTokens.PlateRadius), at most half the strip.
+  static const double plateRadius = 20;
+
+  /// Fold where strip plates finish fading in (and the feed out).
+  static const double foldPlateEnd = 0.45;
+
+  /// Fold where strip labels start fading in.
+  static const double foldLabelStart = 0.55;
+
+  /// Fold where the hole and the cover tint start.
+  static const double foldHoleStart = 0.3;
+
+  /// Fold where the carried strip's shadow starts.
+  static const double foldShadowStart = 0.6;
+
+  /// How far a strip's colour leans toward its first cover.
+  static const double stripTint = 0.3;
+
+  /// Below this cover weight a strip keeps its plate colour.
+  static const double stripTintVisible = 0.0005;
+
+  /// The hole's secondaryContainer fill alpha.
+  static const double holeAlpha = 0.35;
+
+  /// Off-screen sections start as an invisible strip at this scale.
+  static const double offscreenStripScale = 0.96;
+
+  /// Rubber band past the first and last slot: the displayed overscroll tends to [rubberD].
+  static const double rubberD = 56;
+  static const double rubberK = 0.55;
+
+  /// unrubber never inverts past this fraction of [rubberD].
+  static const double unrubberMaxRatio = 0.98;
+
+  /// Overscroll past which the threshold haptic plays.
+  static const double overHaptic = 2;
+
+  /// Release speed (dp/s) that projects the drop one more slot.
+  static const double flingV = 1600;
+
+  /// Release speeds clamp to this (dp/s).
+  static const double maxV = 8000;
+  static const int velocityWindowMs = 100;
+
+  /// A finger resting this long before lifting releases at 0.
+  static const int velocityStaleMs = 60;
+  static const int velocityMinDtMs = 4;
+
+  /// Re-grab hit zone around a settling strip.
+  static const double regrabSlop = 8;
+
+  /// Gap between the safe area and the status tide or the bar.
+  static const double safeGap = 8;
+
+  /// Frames between edit mode settling and the strips building: the entry's last work goes first.
+  static const int stripWarmFrames = 3;
+
+  /// A blank tap this soon after a scroll only stops the fling.
+  static const int flingStopMs = 120;
+
+  // Spring thresholds (§1.3): each sits on its own spring.
+  static const double unitThreshold = 0.002;
+  static const double foldThreshold = 0.001;
+  static const double holePxThreshold = 0.3;
+  static const double settlePxThreshold = 0.4;
+  static const double neighbourPxThreshold = 0.3;
+}

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
@@ -260,6 +261,21 @@ HomeLayout withSectionMoved(HomeLayout layout, List<HomeSection> visible, HomeSe
   final order = [...visible]
     ..removeAt(from)
     ..insert(to, section);
+  final prefById = {for (final p in layout.sections) p.id: p};
+  final ids = {for (final s in visible) s.id};
+  var next = 0;
+  return HomeLayout([
+    for (final p in layout.sections) ids.contains(p.id) ? prefById[order[next++].id]! : p,
+  ], newSections: layout.newSections);
+}
+
+/// [layout] with the [visible] sections refilled in [order] (a permutation
+/// of them); every other section keeps its slot. [layout] itself when
+/// [order] is not a permutation of [visible] or changes nothing.
+HomeLayout withSectionsOrdered(HomeLayout layout, List<HomeSection> visible, List<HomeSection> order) {
+  if (order.length != visible.length || !order.toSet().containsAll(visible) || listEquals(order, visible)) {
+    return layout;
+  }
   final prefById = {for (final p in layout.sections) p.id: p};
   final ids = {for (final s in visible) s.id};
   var next = 0;
