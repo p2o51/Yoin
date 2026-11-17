@@ -501,7 +501,8 @@ private fun LyricsFullscreenList(
                 val fade = lyricsEdgeFadePx(info.viewportSize.height, edgeFadePx)
                 val band = info.viewportSize.height - fade * 2
                 val actual = if (row != null && band > 0 && autoScrollEnabled && !seatFraction.isNaN()) {
-                    (row.offset + row.size / 2f - fade) / band
+                    // Item offsets start below the list's top content padding.
+                    (row.offset - info.viewportStartOffset + row.size / 2f - fade) / band
                 } else {
                     null
                 }
@@ -587,7 +588,8 @@ private fun LyricsFullscreenList(
                         val row = info.visibleItemsInfo.firstOrNull { it.index == target }
                         val fade = lyricsEdgeFadePx(info.viewportSize.height, edgeFadePx)
                         val rowStillClear = row != null &&
-                            row.offset >= fade && row.offset + row.size <= info.viewportSize.height - fade
+                            row.offset - info.viewportStartOffset >= fade &&
+                            row.offset - info.viewportStartOffset + row.size <= info.viewportSize.height - fade
                         if (!firstAnchor && !handOver && rowStillClear && kotlin.math.abs(geometry.topPx - seatTop) < 1f) {
                             // Same top: the list kept the row's place on its own.
                             return@collect
