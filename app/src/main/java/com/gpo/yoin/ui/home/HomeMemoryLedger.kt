@@ -79,6 +79,9 @@ internal fun MemoryLedgerSection(
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 24.sp,
                     ),
+                    // The card is a plain background, not a Surface: without a colour of its own the figure
+                    // falls back to black and all but vanishes on a dark theme.
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(

@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -193,6 +194,7 @@ private fun IdleOrErrorLayout(
     Row(
         modifier = modifier
             .fillMaxSize()
+            .pointerPressPreview(interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

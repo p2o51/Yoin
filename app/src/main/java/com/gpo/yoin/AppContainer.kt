@@ -59,7 +59,9 @@ import com.gpo.yoin.player.scrobble.ScrobbleReporter
 import com.gpo.yoin.player.scrobble.SourceScrobbleTarget
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
+import com.gpo.yoin.ui.common.AppNotices
 import com.gpo.yoin.ui.library.LibraryOpenStore
+import com.gpo.yoin.ui.library.PlaylistDeletions
 import com.gpo.yoin.ui.library.LibrarySortStore
 import com.gpo.yoin.ui.library.SharedPrefsLibraryOpenStore
 import com.gpo.yoin.ui.library.SharedPrefsLibrarySortStore
@@ -232,6 +234,23 @@ class AppContainer(private val context: Context) {
 
     fun notifyPlaylistMutation() {
         _playlistMutationRevision.value += 1
+    }
+
+    /**
+     * One-line notices that outlive their page (ui/common/AppNotices.kt): the
+     * window in front shows each, once, on its own snackbar (ShowAppNotices).
+     */
+    val appNotices: AppNotices = AppNotices()
+
+    /** Playlist deletions that outlive the page they start on (PlaylistDeletions). */
+    val playlistDeletions: PlaylistDeletions by lazy {
+        PlaylistDeletions(
+            scope = applicationScope,
+            currentProfileId = repository::currentProfileId,
+            deleterForCurrentAccount = repository::playlistDeleterForCurrentAccount,
+            notices = appNotices,
+            onDeleted = ::notifyPlaylistMutation,
+        )
     }
 
     /**
@@ -442,6 +461,8 @@ class AppContainer(private val context: Context) {
                 libraryOpenStore.clear(profileId)
                 librarySortStore.clear(profileId)
                 appleMusicNameRegionStore.remove(profileId)
+                // Ratings it still owed its server can't be sent now (I10).
+                database.localRatingDao().clearPendingForProfile(profileId)
             },
         ).also { manager ->
             applicationScope.launch {
@@ -449,6 +470,8 @@ class AppContainer(private val context: Context) {
                     // One-shot carry-forward: pre-3D inline credentialsJson
                     // blobs → encrypted file store + marker rows.
                     manager.runStartupMigrations()
+                    // Accounts deleted before the delete cleared them still owe ratings (I10).
+                    runCatching { database.localRatingDao().clearPendingForDeletedProfiles() }
                     runCatching {
                         manager.migrateAppleMusicValidation(
                             com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore(context)

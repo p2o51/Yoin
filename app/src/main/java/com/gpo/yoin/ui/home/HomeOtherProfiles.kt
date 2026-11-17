@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -369,10 +370,10 @@ internal fun AccountSwitchNoticeSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.home_other_profiles_switch_cancel))
                 }
-                Button(onClick = onConfirm) {
+                Button(onClick = onConfirm, modifier = Modifier.handPointer()) {
                     Text(confirm)
                 }
             }

@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.lerp
  * rating, the tabs and the pills give way; the title stays as it rests and
  * the lyrics keep three clean lines, or two where three would cost the
  * cover its equal margins, printed larger and with the current line pinned
- * to the top (owner 2026-11-04). A short window (one resting lyric line)
+ * to the top (owner 2026-11-04). On the enlarged column the equal margin
+ * only sizes the cover; the gap over it and the one under the title are
+ * evened out, so the stage never hangs low (owner 2026-11-14). A short window (one resting lyric line)
  * keeps its resting order and sizes: the cover keeps its size, centred, the
  * transport folds to one row and the freed height opens the lyrics, which
  * line up with the cover and run on in dots under the transport (owner
@@ -346,10 +348,17 @@ fun resolveStageColumnBudget(
             val hr = hero.at(squeeze.lower)
             val bottom = focusBottom.at(squeeze.lower)
             val lyric = (height - top - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
+            // Owner 2026-11-14 (「平板上…有点太靠下了」;「等边留白规则…很多情况下都没有
+            // 办法实现」): on the enlarged column (tablets, the Fold's inner screen)
+            // the equal side/top margin still picks the cover's size, but the stage
+            // no longer hangs from it: the gap over the cover and the one under the
+            // title are evened out, so the cover and the lyrics keep their sizes and
+            // the whole stage moves up. Phones keep the equal margins, which fit there.
+            val lift = if (enlarged != null) ((top - bottom) / 2f).coerceAtLeast(0.dp) else 0.dp
             return StageColumnPose(
-                topBar = top, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
+                topBar = top - lift, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
                 lyricSlot = lyric, lyricFrame = LyricFrame.List,
-                controls = ctl, hero = hr, accessory = bottom,
+                controls = ctl, hero = hr, accessory = bottom + lift,
                 lower = squeeze.lower, upper = squeeze.upper,
             )
         }

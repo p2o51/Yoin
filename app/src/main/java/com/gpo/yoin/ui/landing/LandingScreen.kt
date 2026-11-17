@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -616,8 +617,8 @@ private fun SpotoolfyDropDialog(onConnect: () -> Unit, onDrop: () -> Unit, onDis
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.landing_spotoolfy_finish_title)) },
         text = { Text(stringResource(R.string.landing_spotoolfy_finish_body)) },
-        confirmButton = { TextButton(onClick = onConnect) { Text(stringResource(R.string.landing_spotoolfy_finish_connect)) } },
-        dismissButton = { TextButton(onClick = onDrop) { Text(stringResource(R.string.landing_spotoolfy_finish_drop)) } },
+        confirmButton = { TextButton(onClick = onConnect, modifier = Modifier.handPointer()) { Text(stringResource(R.string.landing_spotoolfy_finish_connect)) } },
+        dismissButton = { TextButton(onClick = onDrop, modifier = Modifier.handPointer()) { Text(stringResource(R.string.landing_spotoolfy_finish_drop)) } },
     )
 }
 

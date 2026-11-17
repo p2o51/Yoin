@@ -325,6 +325,8 @@ class AlbumDetailActivity : ComponentActivity() {
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,
                     container = app.container,
+                    // This window's one snackbar: it shows the app's notices too.
+                    showAppNotices = true,
                 )
                 }
             }

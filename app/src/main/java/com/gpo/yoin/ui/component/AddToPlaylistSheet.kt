@@ -195,6 +195,7 @@ private fun CreateNewRow(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .handPointer()
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -231,6 +232,7 @@ private fun PlaylistRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .handPointer()
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -304,10 +306,11 @@ private fun CreatePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty(),
+                modifier = Modifier.handPointer(enabled = name.trim().isNotEmpty()),
             ) { Text(stringResource(R.string.cmp_playlist_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cmp_playlist_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.cmp_playlist_cancel)) }
         },
     )
 }

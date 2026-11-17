@@ -53,7 +53,7 @@
     <string name="np_cd_remove_favorite">Remove from favorites</string>
     <string name="np_lyric_loading">Loading lyrics</string>
     <string name="np_lyrics_none">No lyrics available</string>
-    <string name="np_lyric_up_next">Up next · %1$s</string>
+    <string name="np_lyric_up_next">Up next</string>
 
     <string name="np_from_album">PLAYING FROM ALBUM</string>
     <string name="np_from_playlist">PLAYING FROM PLAYLIST</string>
@@ -140,7 +140,7 @@
         <item quantity="one">Copied 1 line</item>
         <item quantity="other">Copied %1$d lines</item>
     </plurals>
-    <string name="np_lyrics_credit">%1$s · %2$s</string>
+    <string name="np_lyrics_credit">%1$s\n%2$s</string>
     <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
 
     <string name="np_share_title">Share lyrics</string>
@@ -171,7 +171,7 @@
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <string name="np_cd_note_actions">Note actions</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
-    <string name="np_note_realign">Align to now · %1$s</string>
+    <string name="np_note_realign">Align to now</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <string name="np_note_delete">Delete</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
@@ -229,7 +229,8 @@
     <string name="np_device_switch_back_cast">Switch back to this device</string>
     <string name="np_device_connected_cast">Casting</string>
     <string name="np_device_use_cast_pill">Not casting</string>
-    <string name="np_device_spotify_remembered">Recently used · may need waking in Spotify</string>
+    <string name="np_device_spotify_remembered">Recently used</string>
+    <string name="np_device_spotify_remembered_detail">May need waking in Spotify</string>
     <string name="np_device_spotify_only">Switch through Spotify</string>
     <string name="np_msg_spotify_device_asleep">That speaker is asleep. Pick it once in Spotify (More devices), then Yoin can control it.</string>
     <string name="np_msg_spotify_open_failed">Couldn\'t open Spotify.</string>

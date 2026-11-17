@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,7 +48,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -265,13 +265,13 @@ internal fun SettingsItem(
                 if (summaryContent != null) {
                     summaryContent()
                 } else {
+                    // Summaries wrap in full: no mid-page truncation (docs/design.md), and on a narrow phone
+                    // in English two lines cut the Labs descriptions short.
                     if (summary != null) {
                         Text(
                             text = summary,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     if (summaryDetail != null) {
@@ -279,8 +279,6 @@ internal fun SettingsItem(
                             text = summaryDetail,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -296,7 +294,7 @@ internal fun SettingsItem(
     }
     if (onClick != null) {
         Surface(
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth().handPointer(),
             onClick = {
                 haptics.performClick()
                 onClick()
@@ -425,7 +423,7 @@ internal fun SecretTextField(
                         haptics.performTick()
                         visible = !visible
                     },
-                    modifier = Modifier.requiredSize(44.dp),
+                    modifier = Modifier.requiredSize(44.dp).handPointer(),
                 ) {
                     Icon(
                         imageVector = if (visible) YoinSymbols.VisibilityOff else YoinSymbols.Visibility,

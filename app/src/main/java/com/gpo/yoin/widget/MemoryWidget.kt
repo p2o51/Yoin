@@ -161,17 +161,9 @@ private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palett
     val badgeDp = (110 * u).dp
     val title = item.generatedTitle ?: item.albumName
     val score = item.score
-    val badge = bitmaps.of("badge:${item.sessionId}:${badgeDp.value}") { WidgetArt.cookieBadge(
-        sizePx = bitmaps.px(badgeDp.value),
-        fill = palette.accent,
-        ink = palette.deep,
-        center = score?.widgetScoreText() ?: (lastHeard ?: "").uppercase(Locale.getDefault()).replace(' ', '\n').take(24),
-        centerSizePx = (if (score != null) 30f else 12f) * u * bitmaps.scale,
-        ring = listOfNotNull(if (score != null) lastHeard else null, title)
-            .joinToString(separator = "  •  ", postfix = "  •  ")
-            .uppercase(Locale.getDefault()),
-        ringSizePx = 8f * u * bitmaps.scale,
-    ) }
+    val badge = bitmaps.of("badge:${item.sessionId}:${badgeDp.value}") {
+        memoryAnchorBadge(bitmaps.px(badgeDp.value), u * bitmaps.scale, palette, score, lastHeard, title)
+    }
     Box(
         modifier = GlanceModifier.fillMaxSize().clickable(actionStartActivity(WidgetIntents.openMemory(context, item.sessionId))),
         contentAlignment = Alignment.Center,
@@ -194,6 +186,29 @@ private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palett
         }
     }
 }
+
+/**
+ * The anchor's Cookie12 badge: the score in the middle (unrated: the time since), the time and the title running
+ * round it. [unitPx] is one of the anchor's 184 units in px. The Tips demo draws its Memory widget with it too.
+ */
+internal fun memoryAnchorBadge(
+    sizePx: Int,
+    unitPx: Float,
+    palette: WidgetPalette,
+    score: Float?,
+    lastHeard: String?,
+    title: String,
+): Bitmap = WidgetArt.cookieBadge(
+    sizePx = sizePx,
+    fill = palette.accent,
+    ink = palette.deep,
+    center = score?.widgetScoreText() ?: (lastHeard ?: "").uppercase(Locale.getDefault()).replace(' ', '\n').take(24),
+    centerSizePx = (if (score != null) 30f else 12f) * unitPx,
+    ring = listOfNotNull(if (score != null) lastHeard else null, title)
+        .joinToString(separator = "  •  ", postfix = "  •  ")
+        .uppercase(Locale.getDefault()),
+    ringSizePx = 8f * unitPx,
+)
 
 /** Wide: memories on a time axis, newest first; two straight rows when tall (both left → right). */
 @Composable

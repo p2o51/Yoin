@@ -41,7 +41,8 @@
 
     <string name="cmp_devices_title">设备</string>
     <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
-    <string name="cmp_devices_subtitle_subsonic">此设备、Chromecast 与 DLNA · 同一 Wi-Fi</string>
+    <string name="cmp_devices_subtitle_subsonic">此设备、Chromecast 与 DLNA</string>
+    <string name="cmp_devices_subtitle_subsonic_network">同一 Wi-Fi</string>
     <string name="cmp_devices_subtitle_other">播放设备</string>
     <string name="cmp_devices_cd_refresh">刷新设备</string>
     <string name="cmp_devices_this_device">此设备</string>
@@ -142,7 +143,7 @@
         <item>当时反响如何？</item>
     </string-array>
     <!-- About 里的制作名单（歌词源写在歌词里的制作信息） -->
-    <string name="cmp_lyric_credits_more">更多 %1$d 项 · %2$s</string>
+    <string name="cmp_lyric_credits_more">更多 %1$d 项</string>
     <string name="cmp_lyric_credits_less">收起</string>
     <string name="cmp_lyric_credits_note">备注</string>
 </resources>

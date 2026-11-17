@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -101,7 +102,7 @@ internal fun LandingPill(
             ) {
                 FilledTonalIconButton(
                     onClick = onBack,
-                    modifier = Modifier.size(buttonHeight),
+                    modifier = Modifier.size(buttonHeight).handPointer(),
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceBright,
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -168,10 +169,11 @@ private fun PrimaryButton(
         shapes = ButtonDefaults.shapes(),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
         contentPadding = PaddingValues(horizontal = 22.dp),
-        modifier = Modifier
+        modifier = (Modifier
             .height(height)
             .animateContentSize(YoinMotion.defaultSpatialSpec())
-            .then(if (fill) Modifier.fillMaxWidth() else Modifier),
+            .then(if (fill) Modifier.fillMaxWidth() else Modifier))
+            .handPointer(),
     ) {
         AnimatedContent(
             targetState = primary.label,

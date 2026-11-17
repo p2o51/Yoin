@@ -137,6 +137,8 @@ class LyricsFocusSeatLayoutTest {
             windowPx = h.toInt(),
             screenPx = h.toInt(),
             fadePx = LyricsEdgeFade.value.toInt(),
+            // The settled seat is exact now (no 2% steps).
+            stepped = false,
         )
         // The seat holds the whole row (the text block plus its 6dp pads) inside the band.
         val half = (bottom - top).value / 2f + RowPadV

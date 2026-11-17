@@ -27,6 +27,29 @@ class AiSettingsTest {
     }
 
     @Test
+    fun should_useQwensOneModel_whicheverTierWasChosen() {
+        val qwen = AiProviderPrefs(provider = AiProvider.Qwen, tier = AiTier.Best, qwenKey = "sk")
+
+        assertEquals(listOf(AiTier.Good), AiProvider.Qwen.tiers)
+        assertEquals(AiTier.Good, qwen.activeTier)
+        assertEquals("qwen-flash", AiSettings(qwen, "").modelId)
+        assertEquals("qwen-flash", AiSettings(qwen.copy(tier = AiTier.Good), "").modelId)
+        assertEquals(1, AiSettings(qwen, "").searchQueries)
+    }
+
+    @Test
+    fun should_keepTheChosenTier_when_theServiceHasOnlyOne() {
+        val qwen = AiProviderPrefs(provider = AiProvider.Qwen, tier = AiTier.Best)
+
+        // Back on a service with two tiers, the choice is still there.
+        val gemini = qwen.copy(provider = AiProvider.Gemini)
+        assertEquals(AiTier.Best, gemini.activeTier)
+        assertEquals(AiSettings.GEMINI_BEST, AiSettings(gemini, "k").modelId)
+        // Custom has no tiers; the stored one is simply unused.
+        assertEquals(AiTier.Best, qwen.copy(provider = AiProvider.Custom).activeTier)
+    }
+
+    @Test
     fun should_needEndpointAndModel_for_custom() {
         val bare = AiProviderPrefs(provider = AiProvider.Custom, customKey = "sk")
         assertFalse(AiSettings(bare, "").isReady)

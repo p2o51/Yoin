@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.sheetScrollEdge
 import androidx.compose.foundation.lazy.rememberLazyListState
 import android.content.res.Resources
@@ -119,7 +120,7 @@ internal fun LyricsSearchSheet(
             onSearch = { onSearch(it) },
             placeholder = { Text(stringResource(R.string.np_lyrics_search_placeholder)) },
             leadingIcon = {
-                IconButton(onClick = { scope.launch { searchBarState.animateToCollapsed() } }) {
+                IconButton(onClick = { scope.launch { searchBarState.animateToCollapsed() } }, modifier = Modifier.handPointer()) {
                     Icon(
                         imageVector = YoinSymbols.Back,
                         contentDescription = stringResource(R.string.np_cd_close_lyrics_search),
@@ -133,7 +134,7 @@ internal fun LyricsSearchSheet(
                         strokeWidth = 2.dp,
                     )
                 } else if (textFieldState.text.isNotEmpty()) {
-                    IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
+                    IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }, modifier = Modifier.handPointer()) {
                         Icon(
                             imageVector = YoinSymbols.Close,
                             contentDescription = stringResource(R.string.np_cd_clear),
@@ -378,6 +379,7 @@ private fun LyricsSearchResultRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer(enabled = enabled)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -438,12 +440,13 @@ internal fun LyricsApplyDialog(
             TextButton(
                 enabled = draft.isNotBlank(),
                 onClick = { onApply(draft) },
+                modifier = Modifier.handPointer(enabled = draft.isNotBlank()),
             ) {
                 Text(stringResource(R.string.np_lyrics_apply))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) {
                 Text(stringResource(R.string.np_lyrics_cancel))
             }
         },

@@ -24,6 +24,37 @@ class AiClientTest {
     private val server = MockWebServer()
     private val client = AiClient(OkHttpClient(), json)
 
+    /**
+     * The search services' addresses are fixed: this client sends every request to [server]
+     * instead, keeping its path and query, so their calls and answers can be checked.
+     */
+    private val redirected = AiClient(
+        OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            val local = server.url("/")
+            val url = original.url.newBuilder().scheme(local.scheme).host(local.host).port(local.port).build()
+            chain.proceed(original.newBuilder().url(url).header("X-Original-Host", original.url.host).build())
+        }.build(),
+        json,
+    )
+
+    private fun searchWith(service: AiSearchService, key: String = "s-key", query: String = "Lemon credits") =
+        runBlocking {
+            redirected.search(
+                AiSettings(
+                    AiProviderPrefs(
+                        provider = AiProvider.Custom,
+                        customKey = "sk",
+                        customBaseUrl = "https://x/v1",
+                        customModel = "m",
+                        searchService = service,
+                    ).withSearchKey(service, key),
+                    "",
+                ),
+                query,
+            )
+        }
+
     @Before
     fun setup() = server.start()
 
@@ -165,5 +196,144 @@ class AiClientTest {
         assertEquals("exa-key", AiSettings(both, "").searchApiKey)
         assertEquals("ds-key", AiSettings(both.copy(searchService = AiSearchService.DeepSeek), "").searchApiKey)
         assertEquals("", AiSettings(both.copy(searchService = AiSearchService.Tavily), "").searchApiKey)
+    }
+
+    @Test
+    fun should_readDoubaosWebResults_when_itAnswers() {
+        val longPage = "x".repeat(AiClient.MAX_PAGE_CHARS + 500)
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ResponseMetadata":{"RequestId":"r1"},"Result":{"ResultCount":3,"WebResults":[""" +
+                    """{"Title":"Lemon","Url":"https://a","Content":"$longPage","Summary":"s","SiteName":"A"},""" +
+                    """{"Title":"Lemon 2","Url":"https://b","Content":"","Summary":"summary only"},""" +
+                    """{"Title":"Empty","Url":"https://c","Content":"","Summary":""}]}}""",
+            ),
+        )
+
+        val hits = searchWith(AiSearchService.Doubao, key = "db-key", query = "q".repeat(150))
+
+        assertEquals(listOf("https://a", "https://b"), hits.map { it.url })
+        assertEquals(AiClient.MAX_PAGE_CHARS, hits[0].text.length)
+        assertEquals("summary only", hits[1].text)
+        val request = server.takeRequest()
+        assertEquals("open.feedcoopapi.com", request.getHeader("X-Original-Host"))
+        assertEquals("/search_api/web_search", request.path)
+        assertEquals("Bearer db-key", request.getHeader("Authorization"))
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals(100, body.getValue("Query").jsonPrimitive.content.length)
+        assertEquals("web", body.getValue("SearchType").jsonPrimitive.content)
+        assertEquals(AiClient.SEARCH_RESULTS, body.getValue("Count").jsonPrimitive.int)
+        assertTrue(body.getValue("Filter").jsonObject.getValue("NeedContent").jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun should_surfaceDoubaosMessageAndCode_when_itRefuses() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ResponseMetadata":{"RequestId":"r2","Error":{"CodeN":10400,""" +
+                    """"Code":"InvalidApiKey","Message":"api key is invalid"}},"Result":null}""",
+            ),
+        )
+
+        try {
+            searchWith(AiSearchService.Doubao)
+            fail("a refused search must not come back as no pages")
+        } catch (error: GeminiException) {
+            assertTrue(error.message.orEmpty().contains("api key is invalid"))
+            assertTrue(error.message.orEmpty().contains("InvalidApiKey"))
+        }
+    }
+
+    @Test
+    fun should_surfaceDoubaosMessage_when_itRefusesWithAnHttpError() {
+        server.enqueue(
+            MockResponse().setResponseCode(401).setBody(
+                """{"ResponseMetadata":{"Error":{"CodeN":10401,"Code":"Unauthorized","Message":"no access"}}}""",
+            ),
+        )
+
+        try {
+            searchWith(AiSearchService.Doubao)
+            fail("expected the 401 to surface")
+        } catch (error: GeminiException) {
+            assertEquals(401, error.httpCode)
+            assertTrue(error.message.orEmpty().contains("no access (Unauthorized)"))
+        }
+    }
+
+    @Test
+    fun should_readBravesLlmContext_when_thePlanHasIt() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"grounding":{"generic":[""" +
+                    """{"url":"https://a","title":"Lemon","snippets":["Lyrics by Kenshi Yonezu","Produced by him"]},""" +
+                    """{"url":"https://b","title":"No text","snippets":[]}]},"sources":{}}""",
+            ),
+        )
+
+        val hits = searchWith(AiSearchService.Brave, key = "br-key", query = "Lemon credits")
+
+        assertEquals(listOf(AiClient.SearchHit("Lemon", "https://a", "Lyrics by Kenshi Yonezu\nProduced by him")), hits)
+        val request = server.takeRequest()
+        assertEquals("api.search.brave.com", request.getHeader("X-Original-Host"))
+        assertEquals("GET", request.method)
+        assertEquals("br-key", request.getHeader("X-Subscription-Token"))
+        val url = request.requestUrl!!
+        assertEquals("/res/v1/llm/context", url.encodedPath)
+        assertEquals("Lemon credits", url.queryParameter("q"))
+        assertEquals(AiClient.SEARCH_RESULTS.toString(), url.queryParameter("count"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun should_fallBackToBravesWebSearch_when_theLlmContextIsNotOnThePlan() {
+        server.enqueue(
+            MockResponse().setResponseCode(422)
+                .setBody("""{"type":"ErrorResponse","error":{"code":"OPTION_NOT_IN_PLAN","detail":"not in plan","status":422}}"""),
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{"type":"search","web":{"results":[""" +
+                    """{"title":"Lemon","url":"https://a","description":"A 2018 single.","extra_snippets":["Written by Yonezu."]},""" +
+                    """{"title":"Bare","url":"https://b","description":""}]}}""",
+            ),
+        )
+
+        val hits = searchWith(AiSearchService.Brave)
+
+        assertEquals(listOf(AiClient.SearchHit("Lemon", "https://a", "A 2018 single.\nWritten by Yonezu.")), hits)
+        assertEquals("/res/v1/llm/context", server.takeRequest().requestUrl!!.encodedPath)
+        val web = server.takeRequest().requestUrl!!
+        assertEquals("/res/v1/web/search", web.encodedPath)
+        assertEquals("true", web.queryParameter("extra_snippets"))
+        assertEquals(AiClient.SEARCH_RESULTS.toString(), web.queryParameter("count"))
+    }
+
+    @Test
+    fun should_notFallBack_when_braveRejectsTheKey() {
+        server.enqueue(
+            MockResponse().setResponseCode(401)
+                .setBody("""{"type":"ErrorResponse","error":{"code":"SUBSCRIPTION_TOKEN_INVALID","detail":"bad token"}}"""),
+        )
+
+        try {
+            searchWith(AiSearchService.Brave)
+            fail("expected the 401 to surface")
+        } catch (error: GeminiException) {
+            assertEquals(401, error.httpCode)
+            assertTrue(error.message.orEmpty().contains("bad token"))
+        }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun should_keepEachNewSearchServicesKeyToItself() {
+        val prefs = AiProviderPrefs(provider = AiProvider.Custom, searchService = AiSearchService.Brave)
+            .withSearchKey(AiSearchService.Brave, "br")
+            .withSearchKey(AiSearchService.Doubao, "db")
+
+        assertEquals("br", AiSettings(prefs, "").searchApiKey)
+        assertEquals("db", AiSettings(prefs.copy(searchService = AiSearchService.Doubao), "").searchApiKey)
+        assertEquals("", AiSettings(prefs.copy(searchService = AiSearchService.Tavily), "").searchApiKey)
     }
 }

@@ -41,6 +41,9 @@
     <string name="settings_about_privacy_open_failed">Couldn\'t open the privacy policy</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_feedback_open_failed">Couldn\'t open the feedback form</string>
+    <string name="settings_about_export_log">Export log</string>
+    <string name="settings_about_export_log_summary">Playback diagnostics</string>
+    <string name="settings_about_export_log_failed">Couldn\'t export the log</string>
     <string name="settings_section_accounts">Accounts</string>
     <string name="settings_accounts_count">%1$d of %2$d</string>
     <string name="settings_accounts_add">Add account</string>
@@ -72,7 +75,6 @@
     <string name="settings_gemini_title">AI features</string>
     <string name="settings_gemini_title_page">AI features</string>
     <string name="settings_gemini_summary_empty">Song info, Ask Gemini, translation and Memory titles</string>
-    <string name="settings_gemini_answer_in">Answer in %1$s</string>
 
     <string name="settings_neodb_title" translatable="false">NeoDB</string>
     <string name="settings_neodb_title_page" translatable="false">NeoDB</string>

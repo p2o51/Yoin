@@ -165,7 +165,7 @@ internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Se
  * Plain-text form for the clipboard: one lyric per line, each followed by its
  * translation when the translation layer is showing, a blank line before each
  * of [passageStarts] (a skipped stretch of the song), then — after a blank
- * line — the credit "— Title · Artist" when the song has a title.
+ * line — the credit "— Title", the artist on the next line, when the song has a title.
  */
 internal fun lyricsClipboardText(
     lines: List<LyricLine>,
@@ -188,7 +188,7 @@ internal fun lyricsClipboardText(
     }
 }
 
-/** "Title · Artist" (or just the title); null without a title. */
+/** The title, then the artist on a line of its own (or just the title); null without a title. */
 internal fun lyricsCredit(
     songTitle: String?,
     artist: String?,
@@ -200,7 +200,7 @@ internal fun lyricsCredit(
     return if (by.isEmpty()) {
         title
     } else if (resources == null) {
-        "$title · $by" // i18n-allow: LyricsSelectionTest asserts this English
+        "$title\n$by" // i18n-allow: LyricsSelectionTest asserts this English
     } else {
         resources.getString(R.string.np_lyrics_credit, title, by)
     }

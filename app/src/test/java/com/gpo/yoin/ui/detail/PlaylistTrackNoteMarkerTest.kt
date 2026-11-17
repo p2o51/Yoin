@@ -114,7 +114,7 @@ class PlaylistTrackNoteMarkerTest {
                 album = "Album",
                 duration = 200,
                 coverArtUrl = null,
-                position = index
+                rowKey = "row-$index"
             )
         }
     )

@@ -191,7 +191,7 @@ class LyricsSelectionTest {
             artist = "Gracie Abrams",
         )
 
-        assertEquals("one\n一\ntwo\n\n— That's So True · Gracie Abrams", text)
+        assertEquals("one\n一\ntwo\n\n— That's So True\nGracie Abrams", text)
     }
 
     @Test

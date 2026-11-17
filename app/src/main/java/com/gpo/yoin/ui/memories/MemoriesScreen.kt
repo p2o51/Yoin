@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
@@ -469,7 +470,7 @@ private fun MemoriesErrorState(
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        TextButton(onClick = onRetry) {
+        TextButton(onClick = onRetry, modifier = Modifier.handPointer()) {
             Text(stringResource(R.string.mem_retry))
         }
     }

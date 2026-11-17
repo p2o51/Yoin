@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.memories.ledger
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.text.format.DateFormat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
@@ -56,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -137,8 +138,8 @@ private const val GridItemIndex = 2
 private val BarHeight = 64.dp
 
 /**
- * The page. [onOpenAlbum] opens an album of the account in use; another account's albums don't open (that
- * would switch accounts: a later step).
+ * The page. [onOpenAlbum] opens an album, of any account: another account's album switches there first
+ * ([MemoryLedgerActivity], after the one-off switch notice).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,7 +225,7 @@ internal fun MemoryLedgerScreen(
                         albumColors = albumColors,
                         // The real grid steps aside the moment its copies take off, so no square shows twice.
                         gridAlpha = { if (liftProgress(screen[0], barBottomPx) > 0.001f) 0f else 1f },
-                        onOpenAlbum = { album -> if (album.profileId == state.activeProfileId) onOpenAlbum(album) },
+                        onOpenAlbum = onOpenAlbum,
                         gridModifier = gridModifier,
                         headlineModifier = Modifier.onGloballyPositioned {
                             headlineTop.floatValue = it.positionInWindow().y
@@ -581,6 +582,7 @@ private fun <T> LedgerMenuButton(
                 .height(36.dp)
                 .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .handPointer()
                 .clickable(role = Role.DropdownList) { expanded = true }
                 .padding(start = 10.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -631,42 +633,19 @@ private fun sortLabel(sort: MemoryLedgerSort): String = stringResource(
     },
 )
 
-/** A small drawn mark per view (Yoin Symbols has none): a spine with stops, four tiles, three lines. */
+/** The view switches' marks: a spine with stops, staggered cards, bulleted rows. */
 @Composable
 private fun ViewGlyph(view: MemoryLedgerView, tint: Color) {
-    Canvas(Modifier.size(18.dp)) {
-        val s = size.width
-        val stroke = 1.8.dp.toPx()
-        when (view) {
-            MemoryLedgerView.Timeline -> {
-                drawLine(tint, Offset(s * 0.25f, s * 0.1f), Offset(s * 0.25f, s * 0.9f), stroke)
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.3f))
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.72f))
-                drawLine(tint, Offset(s * 0.48f, s * 0.3f), Offset(s * 0.92f, s * 0.3f), stroke)
-                drawLine(tint, Offset(s * 0.48f, s * 0.72f), Offset(s * 0.78f, s * 0.72f), stroke)
-            }
-            MemoryLedgerView.Cards -> {
-                val gap = s * 0.12f
-                val w = (s - gap) / 2f
-                val r = CornerRadius(s * 0.1f)
-                drawRoundRect(tint, Offset(0f, 0f), Size(w, s * 0.55f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(w + gap, 0f), Size(w, s * 0.35f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(0f, s * 0.55f + gap), Size(w, s * 0.45f - gap), r, style = Stroke(stroke))
-                drawRoundRect(
-                    tint,
-                    Offset(w + gap, s * 0.35f + gap),
-                    Size(w, s * 0.65f - gap),
-                    r,
-                    style = Stroke(stroke),
-                )
-            }
-            MemoryLedgerView.List -> {
-                listOf(0.22f, 0.5f, 0.78f).forEach { y ->
-                    drawLine(tint, Offset(s * 0.08f, s * y), Offset(s * 0.92f, s * y), stroke)
-                }
-            }
-        }
-    }
+    Icon(
+        imageVector = when (view) {
+            MemoryLedgerView.Timeline -> YoinSymbols.ViewTimeline
+            MemoryLedgerView.Cards -> YoinSymbols.ViewCards
+            MemoryLedgerView.List -> YoinSymbols.ViewList
+        },
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(18.dp),
+    )
 }
 
 private fun cellLabel(cell: MemoryGridCell, scale: MemoryGridScale): String {
@@ -817,7 +796,8 @@ private fun TimelineAlbumCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = if (masonry) 12.dp else 16.dp)
-            .noRippleClickable(interaction, enabled = item.album.profileId == state.activeProfileId) {
+            .pointerPressPreview(interaction)
+            .noRippleClickable(interaction) {
                 onOpen(item.album)
             },
     ) {
@@ -930,7 +910,7 @@ private fun FromLine(profileId: String, state: MemoryLedgerState) {
 /** Cards, two a row: an album (its cover whole, its title, its score). */
 @Composable
 private fun AlbumGridCard(item: MemoryLedgerItem.Album, state: MemoryLedgerState, onOpen: (MemoryLedgerAlbum) -> Unit) {
-    GridCard(enabled = item.album.profileId == state.activeProfileId, onClick = { onOpen(item.album) }) {
+    GridCard(enabled = true, onClick = { onOpen(item.album) }) {
         LedgerCover(item.album, state, Modifier.fillMaxWidth(), corner = 12.dp)
         Spacer(Modifier.height(6.dp))
         item.title?.let {
@@ -967,7 +947,7 @@ private fun AlbumGridCard(item: MemoryLedgerItem.Album, state: MemoryLedgerState
 @Composable
 private fun SongGridCard(item: MemoryLedgerItem.Song, state: MemoryLedgerState, onOpen: (MemoryLedgerAlbum) -> Unit) {
     val album = item.album
-    GridCard(enabled = album != null && album.profileId == state.activeProfileId, onClick = { album?.let(onOpen) }) {
+    GridCard(enabled = album != null, onClick = { album?.let(onOpen) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LedgerCover(album, state, Modifier.size(44.dp), corner = 8.dp)
             Column(Modifier.weight(1f)) {
@@ -1011,6 +991,7 @@ private fun GridCard(enabled: Boolean, onClick: () -> Unit, content: @Composable
             .seamDissolve()
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = enabled)
             .noRippleClickable(interaction, enabled = enabled, onClick = onClick)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1046,7 +1027,8 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .noRippleClickable(interaction, enabled = album != null && album.profileId == state.activeProfileId) {
+            .pointerPressPreview(interaction, enabled = album != null)
+            .noRippleClickable(interaction, enabled = album != null) {
                 album?.let(onOpen)
             }
             .padding(vertical = if (isAlbum) 10.dp else 6.dp),
@@ -1109,7 +1091,7 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
 @Composable
 private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick: () -> Unit) {
     val album = entry.album
-    val opens = album != null && entry.profileId == state.activeProfileId
+    val opens = album != null
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
@@ -1118,6 +1100,7 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
             .seamDissolve()
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = opens)
             .noRippleClickable(interaction, enabled = opens, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

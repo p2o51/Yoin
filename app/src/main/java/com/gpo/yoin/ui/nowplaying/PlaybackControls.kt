@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -266,7 +267,7 @@ internal fun PlaybackControls(
                             val bounds = it.boundsInRoot()
                             prevCenter = bounds.center
                             keyBounds[KeyPrevious] = bounds
-                        },
+                        }.handPointer(),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.secondary,
                         contentColor = MaterialTheme.colorScheme.onSecondary,
@@ -304,7 +305,7 @@ internal fun PlaybackControls(
                                 playCenter = bounds.center
                                 keyBounds[KeyPlay] = bounds
                                 transportSignal?.gatherAnchorRoot = playCenter
-                            },
+                            }.handPointer(),
                         shape = MaterialTheme.shapes.extraLarge,
                         interactionSource = playInteractionSource,
                         contentPadding = PaddingValues(horizontal = playHorizontalPadding),
@@ -370,7 +371,7 @@ internal fun PlaybackControls(
                                 val bounds = it.boundsInRoot()
                                 nextCenter = bounds.center
                                 keyBounds[KeyNext] = bounds
-                            },
+                            }.handPointer(),
                         interactionSource = nextInteractionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -419,7 +420,7 @@ internal fun PlaybackControls(
                                         haptics.performTick()
                                         onExpandLyrics()
                                     },
-                                    modifier = Modifier.size(controlSize),
+                                    modifier = Modifier.size(controlSize).handPointer(),
                                     colors = IconButtonDefaults.filledIconButtonColors(
                                         containerColor = expandContainer,
                                         contentColor = expandContent,
@@ -753,6 +754,7 @@ internal fun PlayModeButton(
                 } else {
                     Modifier
                         .clip(CircleShape)
+                        .handPointer()
                         .combinedClickable(
                             role = Role.Button,
                             onClickLabel = null,
@@ -891,6 +893,7 @@ private fun PlayModeHalf(
                 if (split) {
                     Modifier
                         .clip(shape)
+                        .handPointer()
                         .combinedClickable(onLongClick = onMerge, onClick = onToggle)
                         .semantics {
                             contentDescription = label

@@ -64,6 +64,8 @@ class FileAiProviderStore(context: Context) : AiProviderStore {
             .put("searchKeyDeepSeek", p.searchKeyDeepSeek)
             .put("searchKeyExa", p.searchKeyExa)
             .put("searchKeyTavily", p.searchKeyTavily)
+            .put("searchKeyBrave", p.searchKeyBrave)
+            .put("searchKeyDoubao", p.searchKeyDoubao)
 
         internal fun decode(o: JSONObject): AiProviderPrefs {
             val d = AiProviderPrefs()
@@ -81,6 +83,8 @@ class FileAiProviderStore(context: Context) : AiProviderStore {
                 searchKeyDeepSeek = o.optString("searchKeyDeepSeek", d.searchKeyDeepSeek),
                 searchKeyExa = o.optString("searchKeyExa", d.searchKeyExa),
                 searchKeyTavily = o.optString("searchKeyTavily", d.searchKeyTavily),
+                searchKeyBrave = o.optString("searchKeyBrave", d.searchKeyBrave),
+                searchKeyDoubao = o.optString("searchKeyDoubao", d.searchKeyDoubao),
             )
             // Files written while the search services shared one key: it was typed for the
             // service chosen then, so that service keeps it and the others start empty.

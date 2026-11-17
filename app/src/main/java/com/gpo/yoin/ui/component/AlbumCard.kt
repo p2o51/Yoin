@@ -76,6 +76,7 @@ fun AlbumCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .handPointer()
                 .clickable(
                     interactionSource = interactionSource,
                     indication = if (showIndication) ripple() else null,

@@ -23,6 +23,8 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
+import com.gpo.yoin.data.source.TrackNames
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -66,6 +68,8 @@ class SpotifyMusicSource(
     rateLimitGate: SpotifyRateLimitGate? = null,
     apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The `Accept-Language` [MusicMetadata.nativeNames] reads names in first; see [SpotifyNameLanguages]. */
+    private val deviceLanguage: () -> String = { SpotifyNameLanguages.deviceLanguage() },
 ) : MusicSource {
 
     private val apiClient = SpotifyApiClient(
@@ -97,7 +101,19 @@ class SpotifyMusicSource(
     private val savedAlbumDelta = SavedTrackDelta(clock)
     private val recentlyPlayedCache =
         SingleFlightValue<List<SpotifyPlayHistoryObject>>(RECENTLY_PLAYED_MAX_AGE_MS, clock)
-    private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<Int>>()
+    // Per playlist, the songs Yoin lists in order: each one's raw offset in
+    // the playlist and its id, so a row index is trusted only while it still
+    // points at the same song ([resolvePlaylistContextOffset]).
+    private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<ListedPlaylistEntry>>()
+
+    /** Track id → its names in the languages it's from ([MusicMetadata.nativeNames]); misses kept too. */
+    private val nativeNamesById = object : LinkedHashMap<String, List<TrackNames>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TrackNames>>?): Boolean =
+            size > NATIVE_NAMES_KEPT
+    }
+
+    /** Track id → its ISRC, as the [MusicMetadata.nativeNames] read found it (empty: it had none). */
+    private val isrcById = ConcurrentHashMap<String, String>()
 
     /** The signed-in account's Spotify profile picture, if it has one. */
     suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
@@ -197,7 +213,20 @@ class SpotifyMusicSource(
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
                 if (playlist == null) {
                     playlistTrackOffsetsById.remove(rawId)
-                    return@supervisorScope cancelAndReturnNull()
+                    // A playlist Spotify makes (Daily Mix, Discover Weekly…) is a 404 to this
+                    // app; App Remote reads its songs from the Spotify app (SpotifyMadeForYou.kt).
+                    val made = if (isSpotifyMadePlaylist(rawId)) {
+                        SpotifyContentBridge.browser?.spotifyMadePlaylist(rawId)
+                    } else {
+                        null
+                    }
+                    if (made != null) {
+                        playlistTrackOffsetsById[rawId] = made.tracks.mapIndexed { index, track ->
+                            ListedPlaylistEntry(offset = index, trackRawId = track.id.rawId)
+                        }
+                    }
+                    meId.cancel()
+                    return@supervisorScope made
                 }
                 // Starts from the first page the playlist object embeds, when it does.
                 // A development-mode app may read the items of only the user's own and
@@ -214,7 +243,9 @@ class SpotifyMusicSource(
                     null
                 }
                 val indexedTracks = items?.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
-                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { it.first }
+                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { (offset, track) ->
+                    ListedPlaylistEntry(offset = offset, trackRawId = track.id.rawId)
+                }
                 playlist.toPlaylist(
                     tracks = indexedTracks.orEmpty().map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
@@ -301,6 +332,56 @@ class SpotifyMusicSource(
 
     private val metadata = object : MusicMetadata {
         override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
+
+        /**
+         * The track read again with `Accept-Language` set, first to the device's language (which also brings
+         * the ISRC), then to the language of the ISRC's country when that's another one; see
+         * [SpotifyNameLanguages]. The ISRC country's names come first. A song whose ISRC country has no
+         * language there is read in English too, last, unless the device speaks it. A 404 or a local file has
+         * none. Kept per track id, misses too; a failed read isn't kept.
+         */
+        override suspend fun nativeNames(trackId: MediaId): List<TrackNames> {
+            if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return emptyList()
+            val rawId = trackId.rawId.takeIf { SPOTIFY_TRACK_ID.matches(it) } ?: return emptyList()
+            synchronized(nativeNamesById) { nativeNamesById[rawId]?.let { return it } }
+            val device = deviceLanguage()
+            val inDeviceLanguage = orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = device) }
+            inDeviceLanguage?.let { isrcById[rawId] = it.externalIds?.isrc?.trim()?.uppercase().orEmpty() }
+            val isrcLanguage = SpotifyNameLanguages.isrcLanguage(inDeviceLanguage?.externalIds?.isrc)
+                ?.takeUnless { SpotifyNameLanguages.sameLanguage(it, device) }
+            val inIsrcLanguage = isrcLanguage?.let { language ->
+                orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = language) }
+            }
+            // A song from elsewhere (US, GB…) on a device in another language: Spotify writes its artist the
+            // device's way (ケイティ・ペリー), which lyrics sources rarely know; the English names they do.
+            val inEnglish = inDeviceLanguage
+                ?.takeIf { SpotifyNameLanguages.isrcLanguage(it.externalIds?.isrc) == null }
+                ?.takeUnless { SpotifyNameLanguages.sameLanguage(device, ENGLISH) }
+                ?.let { orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = ENGLISH) } }
+            val names = listOfNotNull(
+                inIsrcLanguage?.lyricNames(),
+                inDeviceLanguage?.lyricNames(),
+                inEnglish?.lyricNames(),
+            ).distinct()
+            synchronized(nativeNamesById) { nativeNamesById[rawId] = names }
+            return names
+        }
+
+        /** From the [nativeNames] read when there was one, else one plain read of the track. */
+        override suspend fun isrc(trackId: MediaId): String? {
+            if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return null
+            val rawId = trackId.rawId.takeIf { SPOTIFY_TRACK_ID.matches(it) } ?: return null
+            isrcById[rawId]?.let { return it.ifEmpty { null } }
+            val track = orNullIfNotFound { apiClient.getTrack(rawId) } ?: return null
+            val isrc = track.externalIds?.isrc?.trim()?.uppercase().orEmpty()
+            isrcById[rawId] = isrc
+            return isrc.ifEmpty { null }
+        }
+
+        // Songs rebuilt from local history (Home's cards) and Made For You rows come without their album and
+        // artist; one read of the track gives both, so Now Playing's title and artist open them.
+        override suspend fun songLinks(trackId: MediaId): SongLinks? =
+            library.getTrack(trackId)?.let { SongLinks(albumId = it.albumId, artistId = it.artistId) }
 
         override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =
             id.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY && it.rawId.isNotBlank() }
@@ -421,6 +502,10 @@ class SpotifyMusicSource(
         ): Result<String?> = runCatching {
             if (items.isEmpty()) return@runCatching snapshotId
             val rawId = requireSpotify(playlistId).rawId
+            // A position is the song's place among the songs Yoin lists; Spotify
+            // counts every entry, the local files and episodes Yoin leaves out
+            // too. The last read of the playlist says which is which.
+            val offsets = playlistTrackOffsetsById[rawId]
             // Spotify removes by uri + positions; group positions by uri so
             // duplicate tracks at different positions each get targeted.
             val grouped = items
@@ -428,7 +513,7 @@ class SpotifyMusicSource(
                 .map { (uri, refs) ->
                     SpotifyRemoveTrackItem(
                         uri = uri,
-                        positions = refs.map { it.position }.sorted(),
+                        positions = refs.map { offsets?.getOrNull(it.position)?.offset ?: it.position }.sorted(),
                     )
                 }
             val newSnapshot = apiClient.removeTracksFromPlaylist(
@@ -541,7 +626,14 @@ class SpotifyMusicSource(
         if (parts.size != 3 || parts[0] != "spotify") return null
         val index = when (parts[1]) {
             "album" -> apiClient.getAlbumTracks(parts[2]).indexOfFirst { it.uri == trackUri }
-            "playlist" -> apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            // A Spotify-made playlist is a 404 to the Web API: the list App Remote read for its page.
+            "playlist" -> if (isSpotifyMadePlaylist(parts[2])) {
+                playlistTrackOffsetsById[parts[2]]
+                    ?.firstOrNull { "spotify:track:${it.trackRawId}" == trackUri }
+                    ?.offset ?: -1
+            } else {
+                apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            }
             else -> return null
         }
         return index.takeIf { it >= 0 }
@@ -606,15 +698,19 @@ class SpotifyMusicSource(
      * Translate the visible row index in Yoin's filtered playlist view back
      * to Spotify's raw playlist offset. Returns null when the source no
      * longer has a trustworthy mapping (e.g. stale cache after a mutation),
-     * so callers can safely fall back to bare App Remote playback.
+     * so callers can safely fall back to bare App Remote playback. Also null
+     * when the song the source listed at that index is not [trackId]: the
+     * page's list has moved on from the last read (a row taken off while its
+     * removal is out), and the song's uri is the start to use.
      */
     fun resolvePlaylistContextOffset(
         playlistId: MediaId,
         visibleStartIndex: Int,
+        trackId: MediaId,
     ): Int? {
         val rawId = requireSpotify(playlistId).rawId
-        val offsets = playlistTrackOffsetsById[rawId] ?: return null
-        return offsets.getOrNull(visibleStartIndex)
+        val listed = playlistTrackOffsetsById[rawId]?.getOrNull(visibleStartIndex) ?: return null
+        return listed.offset.takeIf { trackId.provider == MediaId.PROVIDER_SPOTIFY && listed.trackRawId == trackId.rawId }
     }
 
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
@@ -817,6 +913,15 @@ class SpotifyMusicSource(
     }
 
     companion object {
+        /** The extra read for songs from countries [SpotifyNameLanguages] has no language for. */
+        private const val ENGLISH = "en"
+
+        /** Tracks whose names [MusicMetadata.nativeNames] keeps: a few albums' worth. */
+        private const val NATIVE_NAMES_KEPT = 256
+
+        /** A Spotify track id: base62, 22 characters. Local files and episodes don't have one. */
+        private val SPOTIFY_TRACK_ID = Regex("[0-9A-Za-z]{22}")
+
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_FORBIDDEN = 403
 
@@ -912,3 +1017,13 @@ data class SpotifyPlayerQueue(
     val playing: Track?,
     val next: List<Track>,
 )
+
+/** A song a playlist read listed: its raw offset in the playlist and its Spotify id. */
+private data class ListedPlaylistEntry(val offset: Int, val trackRawId: String)
+
+/** The title and first artist, the way [toTrack] names a track for lyrics; null when either is blank. */
+private fun SpotifyTrackObject.lyricNames(): TrackNames? {
+    val title = name.trim()
+    val artist = artists.firstOrNull()?.name?.trim().orEmpty()
+    return TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
+}

@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -78,6 +80,7 @@ import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.abs
 
 /**
@@ -348,7 +351,7 @@ private fun NotePageLine(
             emphasis = NoteLineEmphasis.Page,
             distance = distance,
             meta = if (showDate) formatNoteDate(note.createdAt, resources = noteDateResources) else null,
-            modifier = Modifier.combinedClickable(
+            modifier = Modifier.pointerPressPreview(interaction).combinedClickable(
                 interactionSource = interaction,
                 indication = null,
                 onClickLabel = anchor?.let {
@@ -374,8 +377,16 @@ private fun NotePageLine(
         ) {
             if (onRealign != null) {
                 YoinDropdownMenuItem(
-                    text = stringResource(R.string.np_note_realign, formatNotePosition(menuNowMs)),
+                    text = stringResource(R.string.np_note_realign),
                     leadingIcon = { Icon(YoinSymbols.MusicNote, contentDescription = null) },
+                    // The moment it would move to, quieter at the item's end: no dot.
+                    trailingIcon = {
+                        Text(
+                            text = formatNotePosition(menuNowMs),
+                            style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                     onClick = {
                         menuOpen = false
                         haptics.performTick()
@@ -418,6 +429,7 @@ private fun NoteDeletedLine(onUndo: () -> Unit, modifier: Modifier = Modifier) {
                 haptics.performTick()
                 onUndo()
             },
+            modifier = Modifier.handPointer(),
         ) {
             Text(text = stringResource(R.string.np_note_undo), fontWeight = FontWeight.SemiBold)
         }

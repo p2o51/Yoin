@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.LayoutDirection
@@ -48,6 +49,7 @@ import androidx.navigation3.ui.NavDisplay
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.BarPlaySplitActions
+import com.gpo.yoin.ui.component.HorizontalResizePointer
 import com.gpo.yoin.ui.detail.DetailHostMode
 import com.gpo.yoin.ui.detail.LocalDetailHostMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -357,6 +359,7 @@ fun DetailPaneDivider(
             .width(PaneGutterWidth)
             .fillMaxHeight()
             .voteHighFrameRate(split.dragging)
+            .pointerHoverIcon(HorizontalResizePointer)
             .draggable(
                 state = dragState,
                 orientation = Orientation.Horizontal,

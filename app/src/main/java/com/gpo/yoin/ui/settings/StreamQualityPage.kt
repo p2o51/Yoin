@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.clickable
@@ -109,7 +110,7 @@ private fun SpatialAudioGroup(
                     title = stringResource(R.string.settings_spatial_audio_switch),
                     summary = spatialAudioStatus(state),
                     onClick = { onModeChange(if (on) SpatialAudioMode.Off else SpatialAudioMode.Auto) },
-                    trailing = { Switch(checked = on, onCheckedChange = null) },
+                    trailing = { Switch(checked = on, onCheckedChange = null, modifier = Modifier.handPointer()) },
                 )
             }
             // Kept while Yoin's switch is off too: the switch never adds or removes a row.
@@ -171,17 +172,24 @@ private fun QualityGroup(
 }
 
 @Composable
-internal fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+internal fun QualityRow(
+    label: String,
+    detail: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .handPointer()
             .clickable(role = Role.RadioButton, onClick = onClick)
             .heightIn(min = SettingsRowMinHeight)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(SettingsRowIconGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp).handPointer())
         Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = label,

@@ -156,27 +156,16 @@ internal fun JbiColumnGrid(
     )
 }
 
-/** Between a standing signal card's cover block and its rating. */
-internal val JbiTallCopyGap = 10.dp
-
-/**
- * A standing signal card's copy keeps the lying one's three lines: it then
- * ends beside its neighbours' next covers, before their titles.
- */
-internal const val JbiTallCommentMaxLines = 3
-
-/** A row height to borrow when no single-row piece measured one (a lattice of only standing cards). */
+/** A row height to borrow when no piece measured one. */
 private val JbiRowCopyEstimate = 44.dp
 
 /**
  * Jump Back In on a [JbiLayout] template (HomeJbiTemplate.kt), layout phase
  * only. Every piece is measured at the fixed width of the columns it spans.
- * One row pitch runs the whole grid — the tallest single-row piece plus the
- * 16dp gap, or half a standing card plus gap when its copy runs longer — so
- * covers keep one rhythm down every lane; each piece then sits at
- * (its row + its lane's offset) × pitch, hanging from the top of its cell. A
- * standing card gets two pitches minus the gap as its minimum height. [cell]
- * must emit exactly one layout node per cell.
+ * One row pitch runs the whole grid — the tallest piece plus the 16dp gap —
+ * so covers keep one rhythm down every lane; each piece then sits at
+ * (its row + its lane's offset) × pitch, hanging from the top of its cell.
+ * [cell] must emit exactly one layout node per cell.
  */
 @Composable
 internal fun JbiSpanGrid(
@@ -200,9 +189,7 @@ internal fun JbiSpanGrid(
 
             var rowHeight = 0
             for (index in 0 until count) {
-                val piece = pieces[index]
-                if (piece.kind == JbiPieceKind.TallSignal) continue
-                val w = widthOf(piece)
+                val w = widthOf(pieces[index])
                 val placeable = measurables[index].measure(Constraints(minWidth = w, maxWidth = w))
                 placeables[index] = placeable
                 rowHeight = maxOf(rowHeight, placeable.height)
@@ -211,19 +198,7 @@ internal fun JbiSpanGrid(
                 val column = (pitchX - gap).coerceAtLeast(0f).toDp()
                 rowHeight = (jbiCoverSide(column, fit) + JbiRowCopyEstimate).roundToPx()
             }
-            val tallMin = rowHeight * 2 + rowGap.roundToInt()
-            var tallest = tallMin
-            for (index in 0 until count) {
-                val piece = pieces[index]
-                if (piece.kind != JbiPieceKind.TallSignal) continue
-                val w = widthOf(piece)
-                val placeable = measurables[index].measure(
-                    Constraints(minWidth = w, maxWidth = w, minHeight = tallMin),
-                )
-                placeables[index] = placeable
-                tallest = maxOf(tallest, placeable.height)
-            }
-            val pitchY = maxOf(rowHeight + rowGap, (tallest + rowGap) / 2f)
+            val pitchY = rowHeight + rowGap
             var height = 0
             val ys = IntArray(count)
             for (index in 0 until count) {
@@ -254,38 +229,70 @@ internal fun JbiSpanGrid(
 }
 
 /**
- * The 1×2 on true columns. From its own width `W = 2 × col + 12dp` it recovers
- * the column, measures the cover block at [jbiCoverSide] of it and gives the
- * copy the rest, `W − side − 16dp`, at `x = side + 16dp` — the phone's 16dp
- * cover/copy language. Both hang from the top. Exactly two children: the cover
- * block, then the copy.
+ * The lying signal card ("1×2"), on the phone and on true columns alike.
+ * Exactly three children: the cover artwork, the copy (rating, date, note),
+ * then the title + subtitle caption.
+ *
+ * The cover is [fixedCover] when given (the phone's 100dp), else
+ * [jbiCoverSide] of the column recovered from the card's own width
+ * `W = 2 × col + 12dp`. The copy takes `W − side − 16dp` at `x = side + 16dp`,
+ * both hanging from the top. The caption sits 5dp under the cover and runs
+ * the card's full width — under the copy too, truncating only at the card's
+ * right edge (owner 2026-11-14: 「Girl, so conf…」 cut at the cover's width
+ * with empty room beside it). A copy that runs past the cover's bottom keeps
+ * the caption to the cover's width instead, so the two never overlap.
  */
 @Composable
 internal fun JbiWideCardLayout(
     fit: JbiCoverFit,
     modifier: Modifier = Modifier,
+    fixedCover: Dp? = null,
     content: @Composable () -> Unit,
 ) {
-    val measurePolicy = remember(fit) {
+    val measurePolicy = remember(fit, fixedCover) {
         MeasurePolicy { measurables, constraints ->
             val width = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth
-            val column = ((width - JbiColumnGap.toPx()) / 2f).coerceAtLeast(0f).toDp()
-            val side = jbiCoverSide(column, fit).roundToPx().coerceIn(0, width)
+            val side = if (fixedCover != null) {
+                fixedCover.roundToPx().coerceIn(0, width)
+            } else {
+                val column = ((width - JbiColumnGap.toPx()) / 2f).coerceAtLeast(0f).toDp()
+                jbiCoverSide(column, fit).roundToPx().coerceIn(0, width)
+            }
             val copyX = side + JbiWideCardCopyGap.roundToPx()
             val copyWidth = (width - copyX).coerceAtLeast(0)
-            val cover = measurables.getOrNull(0)
-                ?.measure(Constraints(minWidth = side, maxWidth = side))
+            val cover = measurables.getOrNull(0)?.measure(Constraints.fixed(side, side))
             val copy = measurables.getOrNull(1)
                 ?.measure(Constraints(minWidth = copyWidth, maxWidth = copyWidth))
-            val height = maxOf(cover?.height ?: 0, copy?.height ?: 0)
+            val captionY = side + JbiWideCaptionGap.roundToPx()
+            val captionWidth = jbiWideCaptionWidth(
+                cardWidth = width,
+                coverSide = side,
+                copyHeight = copy?.height ?: 0,
+                captionTop = captionY,
+            )
+            val caption = measurables.getOrNull(2)
+                ?.measure(Constraints(minWidth = 0, maxWidth = captionWidth))
+            val height = maxOf(captionY + (caption?.height ?: 0), copy?.height ?: 0)
             layout(width, constraints.constrainHeight(height)) {
                 cover?.placeRelative(0, 0)
                 copy?.placeRelative(copyX, 0)
+                caption?.placeRelative(0, captionY)
             }
         }
     }
     Layout(content = content, modifier = modifier, measurePolicy = measurePolicy)
 }
+
+/**
+ * How wide a lying card's caption may run: the card's whole width when the
+ * copy ends above the caption's top, else the cover's width (a long note
+ * running down beside the title would overlap it).
+ */
+internal fun jbiWideCaptionWidth(cardWidth: Int, coverSide: Int, copyHeight: Int, captionTop: Int): Int =
+    if (copyHeight <= captionTop) cardWidth else coverSide.coerceAtMost(cardWidth)
+
+/** Between a lying card's cover and its caption: the 1×1's own 5dp. */
+internal val JbiWideCaptionGap = 5.dp
 
 /**
  * The 1×1 backdrop square on true columns: [jbiCoverSide] of the width its

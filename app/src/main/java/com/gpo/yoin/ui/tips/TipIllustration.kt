@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -58,6 +59,10 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.KeyboardShortcuts -> KeyboardShortcutsDemo(playing)
+            HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
+            HomeBubbleTip.HomeScreenWidgets -> HomeScreenWidgetsDemo(playing)
+            HomeBubbleTip.LibraryRefresh -> LibraryRefreshDemo(playing)
             HomeBubbleTip.AiServices -> AiServicesDemo(playing)
             HomeBubbleTip.ContinueOn -> ContinueOnDemo(playing)
             HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
@@ -113,6 +118,7 @@ private fun NameDemo(playing: Boolean) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
+                    .handPointer()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                         notes += now.longValue
                     },

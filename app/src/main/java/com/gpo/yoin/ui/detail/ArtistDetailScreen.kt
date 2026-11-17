@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -300,6 +301,7 @@ fun ArtistDetailScreen(
             // Persistent bottom bar — rendered in ALL states; Play/menu act on
             // Content and no-op during Loading/Error.
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                 playContainer = scheme.primary,
                 playContent = scheme.onPrimary,
                 onPlay = onPlay,
@@ -448,6 +450,7 @@ private fun ArtistFollowStar(
                 if (following) haptics.performTick() else haptics.performConfirm()
                 onToggle()
             },
+            modifier = Modifier.handPointer(),
         ) {
             Icon(
                 imageVector = if (following) YoinSymbols.StarFilled else YoinSymbols.Star,
@@ -906,6 +909,7 @@ private fun ArtistPlayedRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer()
             .clickable {
                 haptics.performClick()
                 onClick()
@@ -1086,7 +1090,8 @@ private fun ArtistDiscography(
                 onClick = { showAll = !showAll },
                 modifier = Modifier
                     .padding(start = ArtistReleaseYearColumn)
-                    .seamFade(),
+                    .seamFade()
+                    .handPointer(),
             ) {
                 Text(
                     text = if (showAll) {
@@ -1121,6 +1126,7 @@ private fun ArtistReleaseRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer()
             .clickable {
                 haptics.performClick()
                 onClick()

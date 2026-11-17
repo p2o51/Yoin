@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -574,7 +575,7 @@ private fun CardTeaser(
                     .background(tones.ink.copy(alpha = MemoryCardTokens.DiaryTonalAlpha))
                     .then(
                         if (interactive) {
-                            Modifier.clickable(role = Role.Button, onClickLabel = openDiary) {
+                            Modifier.handPointer().clickable(role = Role.Button, onClickLabel = openDiary) {
                                 haptics.performClick()
                                 onOpenDiary()
                             }
@@ -612,7 +613,7 @@ private fun CardTeaser(
                         .background(tones.button)
                         .then(
                             if (interactive) {
-                                Modifier.clickable(role = Role.Button) {
+                                Modifier.handPointer().clickable(role = Role.Button) {
                                     haptics.performClick()
                                     onOpenAlbum()
                                 }

@@ -1,4 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
@@ -58,6 +61,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -457,15 +461,33 @@ fun NowPlayingScreen(
         lyricsRevealOwedAt = 0L
         if (SystemClock.uptimeMillis() - owed <= LyricsRevealWaitMs) revealLyrics()
     }
-    // A translation: the slow sweep while it is fetched, each line lights once when it lands.
+    // A translation: the slow sweep while it is fetched; showing or hiding it
+    // sends a wave down the page (below).
     val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
     val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
-    val latestTranslationShown by rememberUpdatedState(translationShown)
-    var wasTranslating by remember { mutableStateOf(false) }
+    // Translation shown / hidden on the same song: a soft pluck that rings
+    // while the lines open (or close) down the page. A song change clears
+    // translation silently.
+    val translationHaptics = rememberYoinHaptics()
+    val translationSeen = remember { arrayOf<Any?>(translationShown, revealSongId) }
+    LaunchedEffect(translationShown, revealSongId) {
+        val (lastShown, lastSong) = translationSeen
+        if (revealSongId != null && lastSong == revealSongId && lastShown != translationShown) {
+            translationHaptics.performPluck(opening = translationShown)
+            // The background answers every show / hide with the same wave.
+            transportSignal.glow(
+                ActionGlowKind.TranslationWave,
+                null,
+                value = if (translationShown) 1f else 0f,
+                targetY = transportSignal.currentLineRootY ?: Float.NaN,
+                areaRoot = transportSignal.lyricsAreaRoot,
+            )
+        }
+        translationSeen[0] = translationShown
+        translationSeen[1] = revealSongId
+    }
     LaunchedEffect(translating) {
         transportSignal.lyricsWaiting = translating
-        if (wasTranslating && !translating && latestTranslationShown) revealLyrics()
-        wasTranslating = translating
     }
     // Every user seek (lyric line, note row, wave bar) tells the background
     // first: the player may buffer at the new spot, and that dip is the
@@ -662,7 +684,7 @@ private fun LaunchingContent(
     ) {
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start),
+            modifier = Modifier.align(Alignment.Start).handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
@@ -740,7 +762,7 @@ private fun ConnectErrorContent(
     ) {
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start),
+            modifier = Modifier.align(Alignment.Start).handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
@@ -787,7 +809,7 @@ private fun ConnectErrorContent(
             // The way out sits on the page itself: the shell snackbar that also
             // offers it is hidden behind Now Playing and gone after a few seconds.
             Spacer(modifier = Modifier.height(20.dp))
-            FilledTonalButton(onClick = onOpenSpotify) {
+            FilledTonalButton(onClick = onOpenSpotify, modifier = Modifier.handPointer()) {
                 Text(text = stringResource(R.string.shell_snackbar_open_spotify))
             }
         }
@@ -1681,6 +1703,16 @@ private fun CompactPlayingContent(
                 bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx() -
                 focusLyricOverflowPx
         }
+        // The part of that growth released ABOVE the lyric window (top bar,
+        // cover row, gaps, tab row): the window's top rises by this much, its
+        // bottom drops by the rest. The lyric seat reads the final top from it.
+        val lyricsViewportGrowthAbovePx = with(LocalDensity.current) {
+            topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
+                coverRowHeight.roundToPx() +
+                coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
+                tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
+                tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx()
+        }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
         val lyricTools: @Composable (iconSize: Dp) -> Unit = { iconSize ->
@@ -1966,6 +1998,8 @@ private fun CompactPlayingContent(
                         },
                         // 16:9: the expanded page keeps TEXT tabs, tools at their end.
                         textOnly = lyricOneLine,
+                        aboutBusy = aboutUiState is AboutUiState.Loading &&
+                            rememberAboutHasSourceRows(state.lyricCredits, state.spineFacts),
                         tools = if (
                             tabsSelected == NowPlayingDetailPage.Lyrics &&
                             (lyricOneLine || toolsInCompactTabs)
@@ -2124,6 +2158,7 @@ private fun CompactPlayingContent(
                                         noteSortMode = noteSortMode,
                                         onNoteSortModeChange = onNoteSortModeChange,
                                         lyricsViewportGrowthPx = lyricsViewportGrowthPx,
+                                        lyricsViewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         lyricsSelection = lyricsSelection,
@@ -2192,6 +2227,7 @@ private fun CompactPlayingContent(
                                     .fillMaxSize()
                                     // Not the run-on: the transport's gaps stay the transport's.
                                     .padding(bottom = focusLyricOverflow)
+                                    .handPointer()
                                     .clickable(
                                         interactionSource = pagerClickSource,
                                         indication = null,
@@ -2928,6 +2964,7 @@ private fun WidePlayingContent(
                                                     scaleX = route.scaleX
                                                     transformOrigin = TransformOrigin(0f, 0.5f)
                                                 }
+                                                .pointerPressPreview(route.interactionSource)
                                                 .noRippleClickable(
                                                     interactionSource = route.interactionSource,
                                                     onClick = route.onClick,
@@ -2949,6 +2986,7 @@ private fun WidePlayingContent(
                                         scaleX = route.scaleX
                                         transformOrigin = TransformOrigin(0f, 0.5f)
                                     }
+                                    .pointerPressPreview(route.interactionSource)
                                     .noRippleClickable(
                                         interactionSource = route.interactionSource,
                                         onClick = route.onClick,
@@ -3656,6 +3694,7 @@ private fun LandscapePlayingContent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .handPointer()
                         .clickable(interactionSource = pagerClickSource, indication = null) {
                             onDetailPageChange(NowPlayingDetailPage.Lyrics)
                             onStageModeChange(NowPlayingStageMode.Expanded)
@@ -3802,7 +3841,7 @@ private fun LandscapePlayingContent(
                     // Expanded: the explicit back steps the stage back, the
                     // same destination as system back (AGENTS.md).
                     onClick = { if (!expanded || !onStageBack()) onDismiss() },
-                    modifier = Modifier.size(LandscapeHeaderHeight),
+                    modifier = Modifier.size(LandscapeHeaderHeight).handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
@@ -4230,6 +4269,7 @@ private fun TabletopPlayingContent(
                                         scaleX = route.scaleX
                                         transformOrigin = TransformOrigin(0f, 0.5f)
                                     }
+                                    .pointerPressPreview(route.interactionSource)
                                     .noRippleClickable(
                                         interactionSource = route.interactionSource,
                                         onClick = route.onClick,
@@ -4258,6 +4298,7 @@ private fun TabletopPlayingContent(
                                                 scaleX = route.scaleX
                                                 transformOrigin = TransformOrigin(0f, 0.5f)
                                             }
+                                            .pointerPressPreview(route.interactionSource)
                                             .noRippleClickable(
                                                 interactionSource = route.interactionSource,
                                                 onClick = route.onClick,
@@ -4309,7 +4350,8 @@ private fun TabletopPlayingContent(
                                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
                             ),
                         )
-                        .padding(4.dp),
+                        .padding(4.dp)
+                        .handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
@@ -4446,7 +4488,7 @@ private fun WideTopBar(
         modifier = modifier.heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.handPointer()) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = stringResource(R.string.np_cd_wide_close),
@@ -4520,7 +4562,7 @@ internal fun StageTopBar(
             .padding(start = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.handPointer()) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = if (stageMode == NowPlayingStageMode.Compact) {
@@ -4555,6 +4597,7 @@ internal fun StageTopBar(
                         scaleX = coverScale
                         scaleY = coverScale
                     }
+                    .pointerPressPreview(interactionSource)
                     .noRippleClickable(
                         interactionSource = interactionSource,
                         onClick = onEnterImmersive,
@@ -4696,6 +4739,9 @@ internal fun StageTabs(
     // swapping to the big button group, with the lyric tools at the row's end.
     textOnly: Boolean = false,
     tools: (@Composable () -> Unit)? = null,
+    // Gemini is loading About over credits / facts already shown: a small
+    // indicator sits between the About and Note tabs (owner 2026-11-16).
+    aboutBusy: Boolean = false,
 ) {
     Box(
         modifier = modifier
@@ -4708,7 +4754,7 @@ internal fun StageTabs(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CompactTextTabs(selected = selected, onSelect = onSelect)
+                CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
                 Spacer(modifier = Modifier.weight(1f))
                 tools?.invoke()
             }
@@ -4727,7 +4773,7 @@ internal fun StageTabs(
                     },
                 verticalAlignment = if (tools != null) Alignment.CenterVertically else Alignment.Top,
             ) {
-                CompactTextTabs(selected = selected, onSelect = onSelect)
+                CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
                 if (tools != null) {
                     Spacer(modifier = Modifier.weight(1f))
                     tools()
@@ -4738,6 +4784,7 @@ internal fun StageTabs(
             FullscreenTabGroup(
                 selected = selected,
                 onSelect = onSelect,
+                aboutBusy = aboutBusy,
                 modifier = Modifier.graphicsLayer {
                     alpha = detailProgress
                     translationY = 8.dp.toPx() * (1f - detailProgress)
@@ -4752,15 +4799,41 @@ private fun CompactTextTabs(
     selected: NowPlayingDetailPage,
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
+    aboutBusy: Boolean = false,
 ) {
+    val busyProgress by animateFloatAsState(
+        targetValue = if (aboutBusy) 1f else 0f,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "aboutBusy",
+    )
     val lyricsLabel = stringResource(R.string.np_text_tab_lyrics)
     val aboutLabel = stringResource(R.string.np_text_tab_about)
     val noteLabel = stringResource(R.string.np_text_tab_note)
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // Gaps are each tab's own start padding, so the About indicator can
+        // open from nothing without a spacer's gap popping in.
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         NowPlayingDetailPage.entries.forEach { page ->
+            if (page == NowPlayingDetailPage.Note && busyProgress > 0f) {
+                Box(
+                    modifier = Modifier.width(CompactTabBusySlot * busyProgress.coerceAtLeast(0f)),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    YoinLoadingIndicator(
+                        size = CompactTabBusySize,
+                        modifier = Modifier
+                            .wrapContentSize(unbounded = true)
+                            .graphicsLayer {
+                                val p = busyProgress.coerceIn(0f, 1f)
+                                alpha = p
+                                scaleX = p
+                                scaleY = p
+                            },
+                    )
+                }
+            }
             val isSelected = page == selected
             // Same language as the title/artist rows: a left-anchored
             // text-width stretch (press dips, selection widens) instead of a
@@ -4787,11 +4860,13 @@ private fun CompactTextTabs(
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .padding(start = if (page.ordinal == 0) 0.dp else 12.dp)
                     .graphicsLayer {
                         alpha = if (isSelected) 1f else 0.5f
                         scaleX = stretch
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(interaction)
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
@@ -5029,6 +5104,7 @@ internal fun OneLineLyricRow(
     Box(
         modifier = modifier
             .semantics(mergeDescendants = true) { role = Role.Button }
+            .pointerPressPreview(interaction)
             .noRippleClickable(interactionSource = interaction) {
                 haptics.performClick()
                 onExpand()
@@ -5132,6 +5208,7 @@ private fun ExpandedDetailPage(
     // shows where the draft will land.
     noteWriting: Boolean = false,
     lyricsViewportGrowthPx: Int = 0,
+    lyricsViewportGrowthAbovePx: Int = lyricsViewportGrowthPx,
     lyricsSelection: LyricsSelectionState? = null,
     // The page's end padding up to the screen edge (single column): the held
     // last line may run on into it.
@@ -5151,6 +5228,7 @@ private fun ExpandedDetailPage(
                 lyricsSelection?.toggle(index)
             },
             viewportGrowthPx = lyricsViewportGrowthPx,
+            viewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
             songTitle = state.songTitle.takeIf { lyricsTitleCard },
@@ -5363,6 +5441,7 @@ internal fun CompactBottomHero(
                         scaleX = routeInteraction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(routeInteraction.interactionSource)
                     .noRippleClickable(
                         interactionSource = routeInteraction.interactionSource,
                         onClick = routeInteraction.onClick,
@@ -5397,6 +5476,7 @@ internal fun CompactBottomHero(
                         scaleX = routeInteraction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(routeInteraction.interactionSource)
                     .noRippleClickable(
                         interactionSource = routeInteraction.interactionSource,
                         onClick = routeInteraction.onClick,
@@ -5924,6 +6004,7 @@ private fun PlayingFromLabel(
                         scaleX = interaction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(interaction.interactionSource)
                     .noRippleClickable(
                         interactionSource = interaction.interactionSource,
                         onClick = interaction.onClick,
@@ -6059,6 +6140,7 @@ internal fun FavoriteButton(
                 }
                 .clip(CircleShape)
                 .background(heartContainerColor)
+                .handPointer()
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = ripple(),
@@ -6516,3 +6598,7 @@ private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map 
 
 /** New lyrics landing this long after an apply still get its reveal. */
 private const val LyricsRevealWaitMs = 15_000L
+
+/** The compact text tabs' About-loading slot (indicator + its gap) and indicator size. */
+private val CompactTabBusySlot = 32.dp
+private val CompactTabBusySize = 20.dp

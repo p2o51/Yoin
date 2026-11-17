@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.hoverable
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
@@ -85,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.GrabPointer
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
@@ -503,8 +506,9 @@ internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources?
             HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.YourPlaylists -> "No playlists in your library" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.OtherProfiles -> "Nothing played on your other accounts lately" // i18n-allow: HomeEditBlockTest asserts this English
-            HomeSection.LyricHighlight -> "Listen a while and Gemini Nano picks the first line" // i18n-allow: matches the English resource
+            HomeSection.LyricHighlight -> "No lyric cards yet" // i18n-allow: matches the English resource
             HomeSection.MemoryGrid -> "No memories yet" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.MadeForYou -> "Playlists made for you show here" // i18n-allow: matches the English resource
         }
     }
     return resources.getString(section.placeholderRes)
@@ -724,7 +728,7 @@ private fun BoxScope.HomeEditBadges(
                     onClick = { controller.hide(section) },
                     enabled = motion.inputEditing,
                     colors = hideColors,
-                    modifier = Modifier.size(HideButtonSize),
+                    modifier = Modifier.size(HideButtonSize).handPointer(enabled = motion.inputEditing),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.VisibilityOff,
@@ -741,6 +745,7 @@ private fun BoxScope.HomeEditBadges(
                     modifier = Modifier
                         .size(BadgeTouch)
                         .testTag(homeEditHandleTag(section))
+                        .then(if (controller.isEditing) Modifier.pointerHoverIcon(GrabPointer) else Modifier)
                         .homeEditHandle(deps.targets, section)
                         .graphicsLayer {
                             val local = badgeLocal(motion.ripple(section))

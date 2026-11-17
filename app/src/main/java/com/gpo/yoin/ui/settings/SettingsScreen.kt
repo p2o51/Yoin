@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
+import android.content.ClipData
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -90,6 +93,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
@@ -100,6 +104,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.player.PlayTrace
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -143,8 +148,11 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.animateFloatAsPacedState
 import com.gpo.yoin.ui.theme.currentScreenCornerRadius
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
 object SettingsFocus {
@@ -485,6 +493,7 @@ fun SettingsContent(
                                         item { WelcomeGuideItem() }
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
+                                        item { ExportLogItem(snackbarHostState) }
                                         item(key = SettingsFeature.About, paintsOwnSegment = listDetail) {
                                             AboutYoinItem(
                                                 listDetail = listDetail,
@@ -752,7 +761,8 @@ private fun ProfileAccountRow(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("account_row_${card.id}"),
+                .testTag("account_row_${card.id}")
+                .handPointer(),
             shape = LocalSettingsRowShape.current,
             color = Color.Transparent,
             onClick = {
@@ -797,7 +807,7 @@ private fun ProfileAccountRow(
                             haptics.performTick()
                             menuOpen = true
                         },
-                        modifier = Modifier.minimumTouchTarget(),
+                        modifier = Modifier.minimumTouchTarget().handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
@@ -855,6 +865,7 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
                     haptics.performClick()
                     onAddAccount()
                 },
+                modifier = Modifier.handPointer(),
             ) {
                 Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -923,7 +934,7 @@ private fun ProfileCardTile(
                     onTap()
                     true
                 }
-            },
+            }.handPointer(),
         shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
@@ -950,7 +961,7 @@ private fun ProfileCardTile(
                             haptics.performTick()
                             menuOpen = true
                         },
-                        modifier = Modifier.minimumTouchTarget(),
+                        modifier = Modifier.minimumTouchTarget().handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
@@ -1075,7 +1086,8 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .width(112.dp)
             .fillMaxHeight()
             .testTag("add_account")
-            .seamDissolve(),
+            .seamDissolve()
+            .handPointer(),
         shape = YoinContainerShapes.Card,
         color = settingsSurfaces().row,
         contentColor = MaterialTheme.colorScheme.primary,
@@ -1190,10 +1202,11 @@ private fun ServiceChoiceRow(
     val haptics = rememberYoinHaptics()
     val enabled = onClick != null
     Surface(
-        modifier = Modifier
+        modifier = (Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .alpha(if (enabled) 1f else 0.5f),
+            .alpha(if (enabled) 1f else 0.5f))
+            .handPointer(enabled = enabled),
         onClick = {
             haptics.performClick()
             onClick?.invoke()
@@ -1255,7 +1268,12 @@ private fun GeminiItem(
 ) {
     val ai = AiSettings(aiPrefs, geminiKey = apiKey)
     val provider = providerName(ai.provider)
-    val tier = if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier)
+    // Beside the service: Custom's model, the tier where the service has two, nothing for one tier.
+    val detail = when {
+        ai.provider == AiProvider.Custom -> ai.modelId
+        ai.provider.tiers.size > 1 -> tierName(aiPrefs.activeTier)
+        else -> null
+    }
     FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
@@ -1263,7 +1281,10 @@ private fun GeminiItem(
         summaryContent = if (ai.isReady) {
             {
                 MetaLine(
-                    groups = listOf(MetaGroup.Plain(provider), MetaGroup.Plain(tier, muted = true)),
+                    groups = listOfNotNull(
+                        MetaGroup.Plain(provider),
+                        detail?.let { MetaGroup.Plain(it, muted = true) },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1331,7 +1352,7 @@ private fun NeoDbItem(
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { onOpenSignIn(draftInstance) }) {
+            Button(onClick = { onOpenSignIn(draftInstance) }, modifier = Modifier.handPointer()) {
                 Text(
                     stringResource(
                         if (signedIn) R.string.settings_neodb_sign_in_again else R.string.settings_neodb_sign_in,
@@ -1344,6 +1365,7 @@ private fun NeoDbItem(
                         draftToken = ""
                         onClearToken()
                     },
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.settings_neodb_sign_out)) }
             }
         }
@@ -1358,7 +1380,7 @@ private fun NeoDbItem(
             label = "neoDbManualToken",
         ) { manual ->
             if (!manual) {
-                TextButton(onClick = { showManualToken = true }) {
+                TextButton(onClick = { showManualToken = true }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.settings_neodb_use_token))
                 }
             } else {
@@ -1373,6 +1395,7 @@ private fun NeoDbItem(
                     OutlinedButton(
                         onClick = { onSaveConfig(draftInstance, draftToken) },
                         enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim(),
+                        modifier = Modifier.handPointer(enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim()),
                     ) { Text(stringResource(R.string.settings_neodb_save_token)) }
                 }
             }
@@ -1664,15 +1687,37 @@ private fun ScreenCornersItem(
 ) {
     val title = stringResource(R.string.settings_motion_screen_corners)
     val radius = currentScreenCornerRadius().value.roundToInt()
-    val summary = if (ScreenCorners.userRadius == null) {
-        stringResource(R.string.screen_corners_summary_follow, radius)
+    val value = stringResource(R.string.screen_corners_value, radius)
+    val summary = if (ScreenCorners.userRadius == null) stringResource(R.string.screen_corners_follow) else value
+    // Following the screen: "Match screen", then the value beside it as a MetaLine group, no glyph.
+    val summaryContent: (@Composable ColumnScope.() -> Unit)? = if (ScreenCorners.userRadius == null) {
+        {
+            MetaLine(
+                groups = listOf(MetaGroup.Plain(summary), MetaGroup.Stat(value)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
-        stringResource(R.string.screen_corners_value, radius)
+        null
     }
     if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+        FeaturePageRow(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            selected = selected,
+            onClick = onOpenPage,
+            summaryContent = summaryContent,
+        )
     } else {
-        SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
+        SettingsItem(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            summaryContent = summaryContent,
+            onClick = onOpenPage,
+        )
     }
 }
 
@@ -1810,6 +1855,41 @@ private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
     )
 }
 
+/**
+ * Settings › Help and about › Export log (iOS's row): the playback diagnostics log ([PlayTrace]) as a .txt
+ * through the system share sheet; nothing leaves the phone unless the user picks where it goes.
+ */
+@Composable
+private fun ExportLogItem(snackbarHostState: SnackbarHostState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val failed = stringResource(R.string.settings_about_export_log_failed)
+    SettingsItem(
+        icon = YoinSymbols.Share,
+        title = stringResource(R.string.settings_about_export_log),
+        summary = stringResource(R.string.settings_about_export_log_summary),
+        onClick = {
+            scope.launch {
+                val shared = runCatching {
+                    val file = withContext(Dispatchers.IO) { PlayTrace.writeExport(context) }
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newRawUri(null, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, null))
+                }
+                shared.exceptionOrNull()?.let { error ->
+                    if (error is CancellationException) throw error
+                    snackbarHostState.showSnackbar(failed)
+                }
+            }
+        },
+    )
+}
+
 /** Settings › About › Website: yoin.gojyuplus.com, in the app's language. */
 @Composable
 private fun WebsiteItem(snackbarHostState: SnackbarHostState) {
@@ -1896,6 +1976,7 @@ private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
                     onClearCache()
                 },
                 enabled = cacheSizeBytes > 0,
+                modifier = Modifier.handPointer(enabled = cacheSizeBytes > 0),
             ) { Text(stringResource(R.string.settings_storage_clear)) }
         },
     )
@@ -1970,7 +2051,7 @@ private fun ProfileSwitchOverlay(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onDismissError) { Text(stringResource(R.string.settings_switch_ok)) }
+                        Button(onClick = onDismissError, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_switch_ok)) }
                     }
                     ProfileManager.SwitchState.Idle -> Unit
                 }
@@ -2013,9 +2094,10 @@ private fun DeleteProfileDialog(
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_remove_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_remove_cancel)) } },
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_remove_cancel)) } },
     )
 }
 

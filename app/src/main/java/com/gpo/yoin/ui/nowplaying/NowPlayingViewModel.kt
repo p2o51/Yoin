@@ -40,6 +40,7 @@ import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.AddToPlaylistRow
+import com.gpo.yoin.ui.component.DeviceStatusDlnaProtocols
 import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -260,7 +261,9 @@ class NowPlayingViewModel(
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
 
-                    if (prefetched == null) loadLyrics(songId, track?.title, track?.artist, track?.durationSec)
+                    if (prefetched == null) {
+                        loadLyrics(songId, track?.title, track?.artist, track?.durationSec, track?.album)
+                    }
                 } else {
                     _lyrics.value = emptyList()
                     _lyricCredits.value = null
@@ -277,6 +280,28 @@ class NowPlayingViewModel(
                     _askState.value = AskBarState.Idle
                 }
             }
+        }
+        viewModelScope.launch {
+            // About stays lazy (fetched once the page is shown), but "shown"
+            // includes staying on it while the song changes: the pager only
+            // reports a page when it SETTLES, so a listener who sat on About
+            // got the next song's "Load song info" with nothing loading
+            // (owner 2026-11-16). A fetch still running for the previous song
+            // is dropped so it can't hold the new song's About in Loading.
+            var aboutSongId: MediaId? = null
+            combine(currentSongId, _detailPage) { songId, page -> songId to page }
+                .distinctUntilChanged()
+                .collect { (songId, page) ->
+                    if (songId != aboutSongId) {
+                        if (aboutSongId != null) {
+                            canonicalFetchJob?.cancel()
+                            canonicalFetchJob = null
+                            _aboutLoading.value = false
+                        }
+                        aboutSongId = songId
+                    }
+                    if (songId != null && page == NowPlayingDetailPage.About) onAboutOpened()
+                }
         }
         viewModelScope.launch {
             // Preload the next song's lyrics. collectLatest + a short delay:
@@ -1072,28 +1097,46 @@ class NowPlayingViewModel(
         }
         val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
             ?: _isStarred.value
-        val nextFavorite = !currentFavorite
-        viewModelScope.launch {
-            repository.setFavorite(track, nextFavorite)
-                .onSuccess {
-                    _isStarred.value = nextFavorite
-                }
-                .onFailure { error ->
-                    // The optimistic heart has already reverted in the repository;
-                    // surface WHY instead of leaving a silent no-op (the symptom
-                    // was "heart bounces but nothing sticks").
-                    _addToPlaylistMessages.tryEmit(
-                        userMessage(
-                            error.message,
-                            if (nextFavorite) {
-                                R.string.np_msg_couldnt_save_favorite
-                            } else {
-                                R.string.np_msg_couldnt_remove_favorite
-                            },
-                        ),
-                    )
-                }
+        viewModelScope.launch { setFavorite(track, !currentFavorite) }
+    }
+
+    /**
+     * The keyboard's Like (Ctrl+D): the playing song's heart flips also when
+     * Now Playing is closed, from the state the repository holds for it —
+     * [uiState] is only kept up while the player is on screen.
+     */
+    fun toggleFavoriteOfPlaying() {
+        val track = playbackManager.playbackState.value.currentTrack ?: return
+        if (track.id.rawId.isBlank() || track.id.rawId == REMOTE_UNKNOWN_TRACK_ID) {
+            _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_cant_save))
+            return
         }
+        viewModelScope.launch {
+            val starred = repository.observeFavoriteState(track).first().isStarred
+            setFavorite(track, !starred)
+        }
+    }
+
+    private suspend fun setFavorite(track: Track, nextFavorite: Boolean) {
+        repository.setFavorite(track, nextFavorite)
+            .onSuccess {
+                _isStarred.value = nextFavorite
+            }
+            .onFailure { error ->
+                // The optimistic heart has already reverted in the repository;
+                // surface WHY instead of leaving a silent no-op (the symptom
+                // was "heart bounces but nothing sticks").
+                _addToPlaylistMessages.tryEmit(
+                    userMessage(
+                        error.message,
+                        if (nextFavorite) {
+                            R.string.np_msg_couldnt_save_favorite
+                        } else {
+                            R.string.np_msg_couldnt_remove_favorite
+                        },
+                    ),
+                )
+            }
     }
 
     fun addCurrentToLibrary() {
@@ -1682,13 +1725,27 @@ class NowPlayingViewModel(
         }
     }
 
-    private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?, durationSec: Int?) {
+    private suspend fun loadLyrics(
+        songId: MediaId,
+        title: String?,
+        artist: String?,
+        durationSec: Int?,
+        album: String?,
+    ) {
         // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在
         // 实际完成 / 失败时把 loading 关掉。若被 collectLatest 取消，让
         // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
         // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
-            val loadedLyrics = repository.getLoadedLyrics(songId, title, artist, durationSec?.times(1_000L))
+            // The song on screen: when no names the service gives find lyrics, the AI may name it as released.
+            val loadedLyrics = repository.getLoadedLyrics(
+                songId,
+                title,
+                artist,
+                durationSec?.times(1_000L),
+                album = album,
+                askAi = true,
+            )
             when (loadedLyrics) {
                 null -> {
                     _lyrics.value = emptyList()
@@ -1839,7 +1896,11 @@ private fun buildDevices(
                 id = renderer.id,
                 name = renderer.name,
                 isActive = renderer.id == selectedDlna?.id,
-                statusText = if (renderer.id == selectedDlna?.id) NpDeviceStatusConnected else "DLNA · UPnP",
+                statusText = if (renderer.id == selectedDlna?.id) {
+                    NpDeviceStatusConnected
+                } else {
+                    DeviceStatusDlnaProtocols
+                },
             )
         })
     }

@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.remote
 
+import java.util.Locale
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -27,9 +28,23 @@ data class SubsonicResponseBody(
     val lyricsList: LyricsList? = null,
     val shares: SharesResponse? = null,
     val type: String? = null,
+    val serverVersion: String? = null,
     val openSubsonic: Boolean? = null,
     val openSubsonicExtensions: List<OpenSubsonicExtension> = emptyList(),
 )
+
+/**
+ * What the server calls itself, as its account page shows it: OpenSubsonic `type` with each word
+ * capitalised, then `serverVersion` as sent ("Navidrome 0.64.2"). Null from a plain Subsonic
+ * server, which sends neither.
+ */
+val SubsonicResponseBody.serverName: String?
+    get() {
+        val name = type.orEmpty().split(' ').filter { it.isNotBlank() }
+            .joinToString(" ") { word -> word.replaceFirstChar { it.titlecase(Locale.ROOT) } }
+        return listOf(name, serverVersion.orEmpty().trim()).filter { it.isNotEmpty() }
+            .joinToString(" ").takeIf { it.isNotEmpty() }
+    }
 
 /** `createShare` / `getShares`: the server's share links. */
 @Serializable

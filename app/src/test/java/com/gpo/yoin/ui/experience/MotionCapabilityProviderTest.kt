@@ -62,4 +62,55 @@ class MotionCapabilityProviderTest {
         assertEquals(MotionProfile.AdaptiveReduced, provider.profile.value)
         report.join()
     }
+
+    @Test
+    fun should_reduceMotion_when_animatorDurationScaleIsZero() {
+        assertEquals(
+            MotionProfile.AdaptiveReduced,
+            resolveMotionProfile(
+                lowRamDevice = false,
+                powerSaveEnabled = false,
+                hasHighPressure = false,
+                animatorDurationScale = 0f,
+            ),
+        )
+    }
+
+    @Test
+    fun should_keepFullMotion_when_animatorDurationScaleIsSlowedOrNormal() {
+        listOf(0.5f, 1f, 10f).forEach { scale ->
+            assertEquals(
+                MotionProfile.Full,
+                resolveMotionProfile(
+                    lowRamDevice = false,
+                    powerSaveEnabled = false,
+                    hasHighPressure = false,
+                    animatorDurationScale = scale,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun should_reduceMotion_when_anyReasonHolds() {
+        assertEquals(MotionProfile.AdaptiveReduced, resolveMotionProfile(true, false, false, 1f))
+        assertEquals(MotionProfile.AdaptiveReduced, resolveMotionProfile(false, true, false, 1f))
+        assertEquals(MotionProfile.AdaptiveReduced, resolveMotionProfile(false, false, true, 1f))
+        assertEquals(MotionProfile.Full, resolveMotionProfile(false, false, false, 1f))
+    }
+
+    @Test
+    fun should_followAnimatorScale_when_itChangesAndProviderRefreshes() {
+        var scale = 1f
+        val provider = MotionCapabilityProvider(lowRamDevice = false, animatorDurationScale = { scale })
+        assertEquals(MotionProfile.Full, provider.profile.value)
+
+        scale = 0f
+        provider.refresh()
+        assertEquals(MotionProfile.AdaptiveReduced, provider.profile.value)
+
+        scale = 1f
+        provider.refresh()
+        assertEquals(MotionProfile.Full, provider.profile.value)
+    }
 }

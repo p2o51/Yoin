@@ -78,7 +78,10 @@ fun SongInfoDisplay(
                 .weight(1f)
                 .fillMaxWidth(),
         )
-        if (aboutUiState !is AboutUiState.Ready) AboutStatus(aboutUiState, onRetry)
+        // Loading over content shows in the tab row (between About and Note), not under it.
+        if (aboutUiState is AboutUiState.ApiKeyMissing || aboutUiState is AboutUiState.Error) {
+            AboutStatus(aboutUiState, onRetry)
+        }
     }
 }
 
@@ -95,7 +98,7 @@ private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
         label = "songInfoStatus",
     ) { shown ->
         when (shown) {
-            is AboutUiState.Idle -> TextButton(onClick = onRetry) {
+            is AboutUiState.Idle -> TextButton(onClick = onRetry, modifier = Modifier.handPointer()) {
                 Text(stringResource(R.string.cmp_song_info_tap_load))
             }
             is AboutUiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -116,7 +119,7 @@ private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    TextButton(onClick = { context.startActivity(SettingsActivity.intent(context)) }) {
+                    TextButton(onClick = { context.startActivity(SettingsActivity.intent(context)) }, modifier = Modifier.handPointer()) {
                         Text(stringResource(R.string.cmp_song_info_settings))
                     }
                 }
@@ -130,7 +133,7 @@ private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                TextButton(onClick = onRetry) { Text(stringResource(R.string.cmp_song_info_retry)) }
+                TextButton(onClick = onRetry, modifier = Modifier.handPointer()) { Text(stringResource(R.string.cmp_song_info_retry)) }
             }
             is AboutUiState.Ready -> Unit
         }

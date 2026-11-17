@@ -96,6 +96,24 @@ interface LocalRatingDao {
     )
     suspend fun markSynced(songId: String, provider: String, profileId: String, rating: Float?): Int
 
+    /**
+     * A deleted account's ratings owed to its server: no one can send them any more (the server's
+     * address and sign-in went with the account), so they stop being owed. The scores stay, for
+     * Memories and cloud sync; only the flag goes.
+     */
+    @Query("UPDATE local_ratings SET needsSync = 0 WHERE profileId = :profileId AND needsSync = 1")
+    suspend fun clearPendingForProfile(profileId: String): Int
+
+    /**
+     * The same for accounts deleted before [clearPendingForProfile] ran on delete: rows still owed
+     * to a profile id no account has. Legacy rows from before profiles ('') are left alone.
+     */
+    @Query(
+        "UPDATE local_ratings SET needsSync = 0 " +
+            "WHERE needsSync = 1 AND profileId != '' AND profileId NOT IN (SELECT id FROM profiles)",
+    )
+    suspend fun clearPendingForDeletedProfiles(): Int
+
     @Query("DELETE FROM local_ratings")
     suspend fun deleteAll()
 }

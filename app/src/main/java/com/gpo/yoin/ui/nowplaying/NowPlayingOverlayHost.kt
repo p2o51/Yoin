@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
@@ -66,6 +67,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
+import com.gpo.yoin.ui.component.ShowAppNotices
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.showYoinSnackbar
 import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
@@ -792,7 +794,7 @@ private fun PanelToggleButton(
             haptics.performClick()
             onClick()
         },
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier.size(44.dp).handPointer(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -820,14 +822,18 @@ private const val PanelBackTravelFraction = 0.35f
  * Hoisted separately from the overlay because the sheet also serves non-NP
  * entry points (Library rows); every window that mounts
  * [NowPlayingOverlayHost] should mount this beside it, last in its root Box.
+ * [showAppNotices]: the window's app notices (AppNotices) ride this snackbar
+ * too — for a window whose only snackbar this is (the album and artist pages).
  */
 @Composable
 fun BoxScope.NowPlayingAccessories(
     viewModel: NowPlayingViewModel,
     container: AppContainer,
+    showAppNotices: Boolean = false,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    if (showAppNotices) ShowAppNotices(container.appNotices, snackbarHostState)
 
     LaunchedEffect(viewModel, context) {
         viewModel.addToPlaylistMessages.collect { message ->
@@ -904,7 +910,9 @@ internal fun List<YoinDevice>.localizedForSheet(): List<YoinDevice> {
     val switchBack = stringResource(R.string.np_device_switch_back_cast)
     val connected = stringResource(R.string.np_device_connected_cast)
     val usePill = stringResource(R.string.np_device_use_cast_pill)
-    val remembered = stringResource(R.string.np_device_spotify_remembered)
+    // Two lines, not one joined by a dot: what it is, then what it may need.
+    val remembered = stringResource(R.string.np_device_spotify_remembered) + "\n" +
+        stringResource(R.string.np_device_spotify_remembered_detail)
     val spotifyOnly = stringResource(R.string.np_device_spotify_only)
     return map { device ->
         if (

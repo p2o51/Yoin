@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -338,7 +339,7 @@ private fun LazyItemScope.QueueEditableRow(
     val latestRow by rememberUpdatedState(row)
     val latestShown by rememberUpdatedState(shown)
     val handle = if (canMove) {
-        Modifier.pointerInput(Unit) {
+        Modifier.pointerHoverIcon(GrabPointer).pointerInput(Unit) {
             detectVerticalDragGestures(
                 onDragStart = {
                     state.dragging = latestShown.indexOfFirst { it.item.entryId == latestRow.item.entryId }
@@ -512,7 +513,7 @@ private fun QueueSectionLabel(text: String, action: (() -> Unit)? = null) {
             modifier = Modifier.weight(1f),
         )
         if (action != null) {
-            TextButton(onClick = action) { Text(clearLabel) }
+            TextButton(onClick = action, modifier = Modifier.handPointer()) { Text(clearLabel) }
         }
     }
 }
@@ -542,7 +543,7 @@ private fun QueueTrackRow(
             .fillMaxWidth()
             .height(QueueRowHeight)
             .background(if (lifted) scheme.surfaceContainerHighest else scheme.surfaceContainer)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.handPointer().clickable(onClick = onClick) else Modifier)
             .padding(start = 24.dp, end = if (handle != null) 8.dp else 24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

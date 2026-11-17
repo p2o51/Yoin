@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -125,9 +126,62 @@ class AiClient(
                 }
                 root.array("results").map { SearchHit(it.str("title"), it.str("url"), it.str("content")) }
             }
+            AiSearchService.Brave -> braveSearch(key, query)
+            AiSearchService.Doubao -> {
+                // 豆包搜索, Custom edition (Volcengine). NeedContent asks for each page's text.
+                val body = buildJsonObject {
+                    put("Query", query.take(DOUBAO_QUERY_LIMIT))
+                    put("SearchType", "web")
+                    put("Count", SEARCH_RESULTS)
+                    putJsonObject("Filter") { put("NeedContent", true) }
+                }
+                val root = post(DOUBAO_SEARCH_URL, body, "Doubao", null) { header("Authorization", "Bearer $key") }
+                // A refused call still answers 200: Result is null and the reason is in ResponseMetadata.
+                doubaoError(root)?.let { throw GeminiException("Doubao error: $it") }
+                root.obj("Result")?.array("WebResults").orEmpty().map { item ->
+                    SearchHit(item.str("Title"), item.str("Url"), item.str("Content").ifEmpty { item.str("Summary") })
+                }
+            }
             AiSearchService.None -> emptyList()
         }.filter { it.text.isNotBlank() }
             .map { it.copy(text = it.text.take(MAX_PAGE_CHARS)) }
+    }
+
+    /**
+     * Brave: the LLM Context endpoint, which returns page text. A plan without it (403, 404 or
+     * 422) falls back once to web search, each page then being its description and extra snippets.
+     */
+    private fun braveSearch(key: String, query: String): List<SearchHit> {
+        fun get(path: String, extra: Map<String, String>): JsonObject {
+            val url = BRAVE_BASE_URL.toHttpUrl().newBuilder().addPathSegments(path)
+                .addQueryParameter("q", query)
+                .addQueryParameter("count", SEARCH_RESULTS.toString())
+                .apply { extra.forEach { (name, value) -> addQueryParameter(name, value) } }
+                .build()
+            val request = Request.Builder().url(url).get()
+                .header("X-Subscription-Token", key)
+                .header("Accept", "application/json")
+                .build()
+            return execute(request, "Brave", null)
+        }
+        val context = try {
+            get("res/v1/llm/context", emptyMap())
+        } catch (error: GeminiException) {
+            if (error.httpCode?.let { it in BRAVE_FALLBACK_CODES } != true) throw error
+            null
+        }
+        if (context != null) {
+            return context.obj("grounding")?.array("generic").orEmpty().map { item ->
+                SearchHit(item.str("title"), item.str("url"), item.strings("snippets").joinToString("\n"))
+            }
+        }
+        val web = get("res/v1/web/search", mapOf("extra_snippets" to "true"))
+        return web.obj("web")?.array("results").orEmpty().map { item ->
+            val text = (listOf(item.str("description")) + item.strings("extra_snippets"))
+                .filter(String::isNotBlank)
+                .joinToString("\n")
+            SearchHit(item.str("title"), item.str("url"), text)
+        }
     }
 
     /** The model ids a Custom endpoint offers, for the 「拉取」 button. */
@@ -264,8 +318,11 @@ class AiClient(
     private fun errorMessage(body: String): String = runCatching {
         val root = json.parseToJsonElement(body).jsonObject
         (root["error"] as? JsonObject)?.str("message")?.takeIf(String::isNotBlank)
+            // Brave names the reason `detail`.
+            ?: (root["error"] as? JsonObject)?.str("detail")?.takeIf(String::isNotBlank)
             ?: (root["error"] as? JsonPrimitive)?.contentOrNull
             ?: root.str("message").takeIf(String::isNotBlank)
+            ?: doubaoError(root)
     }.getOrNull() ?: body.take(200)
 
     companion object {
@@ -273,12 +330,25 @@ class AiClient(
         const val MAX_PAGES_IN_PROMPT = 10
         const val MAX_PAGE_CHARS = 2000
         private const val DEEPSEEK_QUERY_LIMIT = 128
+        private const val DOUBAO_QUERY_LIMIT = 100
+        private const val DOUBAO_SEARCH_URL = "https://open.feedcoopapi.com/search_api/web_search"
+        private const val BRAVE_BASE_URL = "https://api.search.brave.com/"
+        private val BRAVE_FALLBACK_CODES = setOf(403, 404, 422)
         private const val ANTHROPIC_VERSION = "2023-06-01"
 
         // Thinking counts against the cap and current Claude models think by default; a long
         // lyric translation alone runs to a few thousand tokens.
         private const val ANTHROPIC_MAX_TOKENS = 16000
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /** 豆包搜索's refusal, "Message (Code)", from ResponseMetadata.Error; null when there is none. */
+        private fun doubaoError(root: JsonObject): String? {
+            val error = root.obj("ResponseMetadata")?.obj("Error") ?: return null
+            val message = error.str("Message")
+            val code = error.str("Code").ifEmpty { error.str("CodeN") }
+            if (message.isEmpty() && code.isEmpty()) return null
+            return if (code.isEmpty()) message else "${message.ifEmpty { code }} ($code)"
+        }
 
         fun providerLabel(ai: AiSettings): String = when (ai.provider) {
             AiProvider.Gemini -> "Gemini"
@@ -376,3 +446,6 @@ private fun JsonObject.array(key: String): List<JsonObject> =
 private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
 
 private fun JsonObject.str(key: String): String = (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
+
+private fun JsonObject.strings(key: String): List<String> =
+    (this[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()

@@ -116,6 +116,18 @@ enum class HomeSection(
         defaultEnabled = true,
         appendEnabled = true,
     ),
+
+    // Owner 2026-11-15 (「为你推荐」): the playlists the service makes for the
+    // account — Spotify's daylist, Discover Weekly, Daily Mixes…, Apple Music's
+    // personal mixes (HomeMadeForYou.kt). Hidden for services that have none,
+    // so on by default and for customized layouts too.
+    MadeForYou(
+        id = "made_for_you",
+        title = "Made For You",
+        supportingText = "Playlists Spotify and Apple Music make for you",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
     ;
 
     /**
@@ -152,6 +164,7 @@ internal val HomeSection.titleRes: Int
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles
         HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight
         HomeSection.MemoryGrid -> R.string.home_section_memory_grid
+        HomeSection.MadeForYou -> R.string.home_section_made_for_you
     }
 
 @get:StringRes
@@ -166,6 +179,7 @@ internal val HomeSection.supportingRes: Int
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles_supporting
         HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight_supporting
         HomeSection.MemoryGrid -> R.string.home_section_memory_grid_supporting
+        HomeSection.MadeForYou -> R.string.home_section_made_for_you_supporting
     }
 
 @get:StringRes
@@ -180,6 +194,7 @@ internal val HomeSection.placeholderRes: Int
         HomeSection.OtherProfiles -> R.string.home_placeholder_other_profiles
         HomeSection.LyricHighlight -> R.string.home_placeholder_lyric_highlight
         HomeSection.MemoryGrid -> R.string.home_placeholder_memory_grid
+        HomeSection.MadeForYou -> R.string.home_placeholder_made_for_you
     }
 
 /**

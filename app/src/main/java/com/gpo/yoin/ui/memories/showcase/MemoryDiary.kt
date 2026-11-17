@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.togetherWith
@@ -793,7 +794,7 @@ private fun TrackGroup(
                         }
                     }
                 }
-                .then(if (interactive) Modifier.clickable(role = Role.Button) { onTrack(track) } else Modifier)
+                .then(if (interactive) Modifier.handPointer().clickable(role = Role.Button) { onTrack(track) } else Modifier)
                 .padding(horizontal = MemoryDiaryTokens.RowBleed),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -879,7 +880,7 @@ private fun NoteRow(
                     }
                 }
             }
-            .then(if (interactive) Modifier.clickable(role = Role.Button, onClick = onPlay) else Modifier)
+            .then(if (interactive) Modifier.handPointer().clickable(role = Role.Button, onClick = onPlay) else Modifier)
             .padding(start = MemoryDiaryTokens.RowBleed, end = MemoryDiaryTokens.RowBleed, top = 8.dp, bottom = 10.dp),
     ) {
         Text(
@@ -972,7 +973,7 @@ private fun DiaryFoot(
                             .background(tones.button)
                             .then(
                                 if (interactive) {
-                                    Modifier.clickable(role = Role.Button, onClick = onOpenAlbum)
+                                    Modifier.handPointer().clickable(role = Role.Button, onClick = onOpenAlbum)
                                 } else {
                                     Modifier
                                 },
@@ -1001,7 +1002,7 @@ private fun DiaryFoot(
                         DiaryNeoDbLine(memory = memory, host = host, interactive = interactive)
                     }
                     if (host.neoDbVoicesAvailable) {
-                        TextButton(onClick = { host.openNeoDbVoices(memory) }, enabled = interactive) {
+                        TextButton(onClick = { host.openNeoDbVoices(memory) }, enabled = interactive, modifier = Modifier.handPointer(enabled = interactive)) {
                             Text(
                                 text = stringResource(R.string.neodb_voices_peek),
                                 style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
@@ -1039,7 +1040,7 @@ private fun DiaryNeoDbLine(
                         .clip(RoundedCornerShape(percent = 50))
                         .then(
                             if (interactive) {
-                                Modifier.clickable(role = Role.Button) { host.pushNeoDb(memory) }
+                                Modifier.handPointer().clickable(role = Role.Button) { host.pushNeoDb(memory) }
                             } else {
                                 Modifier
                             },
@@ -1069,6 +1070,7 @@ private fun DiaryNeoDbLine(
                     TextButton(
                         onClick = { host.pushNeoDb(memory) },
                         enabled = interactive,
+                        modifier = Modifier.handPointer(enabled = interactive),
                     ) {
                         Text(stringResource(R.string.mem_retry))
                     }

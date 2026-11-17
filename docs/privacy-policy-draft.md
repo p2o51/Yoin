@@ -15,7 +15,7 @@ Release review: 2026-10-13. The notes in this section are internal follow-up ite
 
 # Yoin Privacy Policy
 
-Last updated: 2026-10-13
+Last updated: 2026-11-13
 
 Yoin is an Android music client. It stores your music profiles, settings, listening history, ratings, reviews, notes and cached content on your device. It also connects to music providers and optional services to browse and play music, find lyrics, generate text and synchronize selected data. Yoin does not provide a hosted music catalog.
 
@@ -51,6 +51,8 @@ These automatic requests can occur after you have configured a key; they do not 
 After you connect NeoDB, saving an album review in Yoin automatically sends album lookup information, your rating and review text to the selected instance. This includes closing the album's rating panel or saving a review in Memories; a separate sync tap is not required. Yoin can also read your own records back.
 
 Long reviews are sent with public visibility (`visibility=0`). Short reviews keep the shelf record's existing visibility, or use public visibility for a new record. Yoin does not offer a visibility selector. Yoin does not request a separate Fediverse broadcast, but that does not make these records private. Synchronized reviews should not be treated as private backups or local-only notes. The selected NeoDB instance's access and retention policies also apply.
+
+What others say (opened from an album's rating panel or the end of a Memories entry) connects only when you open the page and runs a fresh lookup each time: without NeoDB connected, Yoin queries `neodb.social` anonymously without account information; when connected, it queries your selected instance with your NeoDB access token for signed-in reading, retrying on the same instance without the token if the token is rejected. This read-only page sends the album title and artist name to search the NeoDB catalog, followed by the matched item's NeoDB identifier and page numbers to read public ratings and others' short and long reviews (20 per page), and does not write or post anything or send your ratings, reviews or notes. For any Discogs or MusicBrainz link on the NeoDB item, Yoin also uses that Discogs or MusicBrainz identifier from NeoDB to request the album's public rating from `api.discogs.com` or `musicbrainz.org` (with a User-Agent identifying Yoin), while Douban, RYM and AOTY are links only and open in your browser if you tap them. These services and their hosts receive the network requests (such as IP address and request timing) and process and retain them under their own policies.
 
 ## Optional Google Drive Sync
 

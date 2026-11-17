@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Context
 import android.net.Uri
 import androidx.annotation.StringRes
@@ -423,7 +424,7 @@ private fun SpotoolfyImportStatus(
     val scheme = MaterialTheme.colorScheme
     when (import) {
         SpotoolfyImport.None -> if (installed) {
-            TextButton(onClick = onPickFile) { Text(stringResource(R.string.landing_spotoolfy_pick_instead)) }
+            TextButton(onClick = onPickFile, modifier = Modifier.handPointer()) { Text(stringResource(R.string.landing_spotoolfy_pick_instead)) }
         }
         SpotoolfyImport.Reading -> Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -474,7 +475,7 @@ private fun SpotoolfyImportStatus(
             ErrorLine(stringResource(import.failure.message))
             // Without Spotoolfy the pill already chooses a file; with it, the pill opens Spotoolfy.
             if (installed) {
-                TextButton(onClick = onPickFile, modifier = Modifier.padding(top = 4.dp)) {
+                TextButton(onClick = onPickFile, modifier = Modifier.padding(top = 4.dp).handPointer()) {
                     Text(stringResource(R.string.landing_spotoolfy_pick))
                 }
             }
@@ -509,9 +510,9 @@ private fun ImportCard(title: String, body: String?, onRecap: () -> Unit, onRepl
             )
         }
         Row(modifier = Modifier.padding(start = 22.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalButton(onClick = onRecap) { Text(stringResource(R.string.landing_spotoolfy_recap_again)) }
+            FilledTonalButton(onClick = onRecap, modifier = Modifier.handPointer()) { Text(stringResource(R.string.landing_spotoolfy_recap_again)) }
             Spacer(Modifier.width(4.dp))
-            TextButton(onClick = onReplace) { Text(stringResource(R.string.landing_spotoolfy_replace)) }
+            TextButton(onClick = onReplace, modifier = Modifier.handPointer()) { Text(stringResource(R.string.landing_spotoolfy_replace)) }
         }
     }
 }

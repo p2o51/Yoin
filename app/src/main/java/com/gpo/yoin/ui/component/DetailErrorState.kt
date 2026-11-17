@@ -65,7 +65,7 @@ fun DetailErrorState(
                 color = MaterialTheme.colorScheme.error,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onRetry) { Text(stringResource(R.string.cmp_detail_retry)) }
+                TextButton(onClick = onRetry, modifier = Modifier.handPointer()) { Text(stringResource(R.string.cmp_detail_retry)) }
                 diagnostics?.let { CopyDiagnosticsButton(report = it) }
             }
         }

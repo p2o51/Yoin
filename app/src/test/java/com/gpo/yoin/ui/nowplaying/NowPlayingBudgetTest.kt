@@ -460,4 +460,24 @@ class NowPlayingBudgetTest {
         assertDp(24.dp, stageColumnBottomInset(24.dp))
         assertDp(48.dp, stageColumnBottomInset(48.dp))
     }
+
+    @Test
+    fun should_evenTheGapsOverTheCoverAndUnderTheTitle_when_focusOnA32Tablet() {
+        // Owner 2026-11-14: on a 3:2 tablet the equal side/top margin hung the
+        // focus stage low. The gaps over the cover and under the title match now.
+        val spec = nowPlayingEnlargedSpec(800.dp)
+        val focus = nn(resolveStageColumnBudget(800.dp, 1120.dp, column(transport = 124.dp), enlarged = spec).focus)
+        assertDp(focus.topBar, focus.accessory)
+        assertDp(1120.dp, focus.total)
+    }
+
+    @Test
+    fun should_keepTheCoverAndLyrics_when_focusGapsAreEvened() {
+        val spec = nowPlayingEnlargedSpec(800.dp)
+        val focus = nn(resolveStageColumnBudget(800.dp, 1120.dp, column(transport = 124.dp), enlarged = spec).focus)
+        // The equal side margin still picks the cover; only the vertical gaps move.
+        assertTrue(focus.cover > 0.dp)
+        assertTrue(focus.lyricSlot >= 0.dp)
+        assertTrue(focus.topBar < (800.dp - focus.cover) / 2f)
+    }
 }

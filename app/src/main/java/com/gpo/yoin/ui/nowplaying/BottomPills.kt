@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -245,7 +246,7 @@ internal fun TopBarActionIcons(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.height(size),
+                    modifier = Modifier.height(size).handPointer(),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp),
@@ -269,7 +270,7 @@ internal fun TopBarActionIcons(
                     haptics.performContextClick()
                     onClick()
                 },
-                modifier = Modifier.size(size),
+                modifier = Modifier.size(size).handPointer(),
             ) {
                 Icon(
                     imageVector = icon,
@@ -371,7 +372,8 @@ private fun ButtonGroupScope.PillButton(
         modifier = modifier
             .height(pillHeight)
             .minimumTouchTarget()
-            .animateWidth(interactionSource),
+            .animateWidth(interactionSource)
+            .handPointer(),
         interactionSource = interactionSource,
         shape = shape,
         contentPadding = PaddingValues(horizontal = (pillHeight.value * 0.3f).dp),

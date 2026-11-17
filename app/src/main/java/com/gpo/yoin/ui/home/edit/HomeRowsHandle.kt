@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.ui.component.VerticalResizePointer
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -137,6 +139,7 @@ private fun BoxScope.HomeRowsHandle(
                 }
                 .seamDissolve()
                 .hoverable(hoverSource)
+                .then(if (controller.isEditing) Modifier.pointerHoverIcon(VerticalResizePointer) else Modifier)
                 .pointerInput(section, engine) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)

@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,7 @@ internal fun LibrarySortRow(
                 .offset(x = -SortRowPressBleed)
                 .minimumTouchTarget()
                 .clip(RoundedCornerShape(12.dp))
+                .handPointer()
                 .clickable(
                     onClickLabel = stringResource(R.string.library_sort_action),
                     role = Role.DropdownList

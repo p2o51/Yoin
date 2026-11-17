@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -682,7 +683,7 @@ private fun DemoNowPlayingStage(
                             )
                             .then(
                                 if (onCoverClick != null) {
-                                    Modifier.clickable(
+                                    Modifier.handPointer().clickable(
                                         interactionSource = coverSource,
                                         indication = null,
                                         onClick = onCoverClick,

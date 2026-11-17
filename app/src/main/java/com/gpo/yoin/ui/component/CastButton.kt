@@ -65,6 +65,7 @@ fun CastButton(
                             haptics.performContextClick()
                             onClick()
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Cast,
@@ -86,6 +87,7 @@ fun CastButton(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                         ),
+                        modifier = Modifier.handPointer(),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(

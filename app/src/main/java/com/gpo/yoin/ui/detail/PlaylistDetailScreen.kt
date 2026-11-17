@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -36,7 +37,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -192,20 +193,31 @@ fun PlaylistDetailScreen(
     notedSongIds: Set<String> = emptySet(),
     // A song row's long-press sheet (album rows have the same); null leaves rows tap-only.
     trackMenu: TrackMenuHost? = null,
+    // The sheet's "Remove from playlist", by the row's key; shown when the
+    // account can edit the playlist (Content.canRemoveSongs).
+    onRemoveSong: ((rowKey: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var menuSongId by remember { mutableStateOf<String?>(null) }
+    val content = uiState as? PlaylistDetailUiState.Content
+    // The row the sheet was opened on: a song can be in the playlist twice.
+    var menuSong by remember { mutableStateOf<PlaylistSong?>(null) }
     if (trackMenu != null) {
-        menuSongId?.let { songId ->
-            TrackMenuSheet(songId = songId, onDismissRequest = { menuSongId = null }, host = trackMenu)
+        menuSong?.let { song ->
+            TrackMenuSheet(
+                songId = song.id,
+                onDismissRequest = { menuSong = null },
+                host = trackMenu,
+                onRemoveFromPlaylist = onRemoveSong
+                    ?.takeIf { content?.canRemoveSongs == true }
+                    ?.let { remove -> { remove(song.rowKey) } },
+            )
         }
     }
-    val onSongLongClick: ((String) -> Unit)? = trackMenu?.let { { songId -> menuSongId = songId } }
+    val onSongLongClick: ((PlaylistSong) -> Unit)? = trackMenu?.let { { song -> menuSong = song } }
     // Dialog states lifted here so they survive child recomposition (e.g.
     // after a rename refreshes the Content).
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    val content = uiState as? PlaylistDetailUiState.Content
 
     // Header title/subtitle colours seeded from the cover (same MCU path as the
     // Album & Artist pages); animated so the resolve doesn't pop.
@@ -453,7 +465,7 @@ fun PlaylistDetailScreen(
                                         // Only the stamp is a button; the resting cover is just a picture.
                                         .then(
                                             if (docked) {
-                                                Modifier.clickable(
+                                                Modifier.handPointer().clickable(
                                                     role = Role.Button,
                                                     onClickLabel = showCoverLabel,
                                                 ) { expanded = false }
@@ -594,6 +606,7 @@ fun PlaylistDetailScreen(
             // this window fades in). Play rides the cover-seeded primary; on an
             // empty playlist it simply no-ops.
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                 playContainer = headerScheme.primary,
                 playContent = headerScheme.onPrimary,
                 onPlay = onPlayAllClick,
@@ -665,10 +678,11 @@ fun PlaylistDetailScreen(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.detail_playlist_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
+                TextButton(onClick = { showDeleteConfirm = false }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.detail_playlist_cancel_delete))
                 }
             },
@@ -763,6 +777,7 @@ private fun PlaylistTopHeader(
                     onClick = {},
                     enabled = false,
                     colors = IconButtonDefaults.iconButtonColors(disabledContentColor = Color.White),
+                    modifier = Modifier.handPointer(enabled = false),
                 ) {
                     Icon(imageVector = YoinSymbols.MoreVertical, contentDescription = null)
                 }
@@ -774,6 +789,7 @@ private fun PlaylistTopHeader(
                         haptics.performTick()
                         showOverflow = true
                     },
+                    modifier = Modifier.handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.MoreVertical,
@@ -916,10 +932,11 @@ private fun RenamePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty() && name.trim() != initialName,
+                modifier = Modifier.handPointer(enabled = name.trim().isNotEmpty() && name.trim() != initialName),
             ) { Text(stringResource(R.string.detail_playlist_rename_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.detail_playlist_cancel_rename)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.detail_playlist_cancel_rename)) }
         },
     )
 }
@@ -1372,12 +1389,19 @@ internal fun PlaylistTrackList(
         if (header != null) {
             item(key = "playlist-medium-hero") { header() }
         }
+        // The count and the empty line trade places on a fade when the last
+        // song is removed (or one comes back).
         if (content.songs.isNotEmpty()) {
             item(key = "playlist-count") {
                 AlbumTrackCountLabel(
                     count = content.songCount ?: content.songs.size,
                     totalDurationSeconds = content.totalDuration,
                     modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = null,
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
                         .padding(start = 8.dp, top = 2.dp, bottom = 10.dp)
                         .seamFade(),
                 )
@@ -1394,26 +1418,47 @@ internal fun PlaylistTrackList(
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, top = 8.dp),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = null,
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .padding(start = 8.dp, top = 8.dp),
                 )
             }
         }
-        // A playlist may hold the same song twice — position + index keep keys unique.
-        itemsIndexed(
+        // Keyed by the entry (a playlist may hold the same song twice), so a
+        // row removed from the playlist fades out and the rows under it move up.
+        items(
             items = content.songs,
-            key = { index, song -> "${song.position}-$index-${song.id}" },
-        ) { _, song ->
+            key = { song -> song.rowKey },
+        ) { song ->
             PlaylistTrackRow(
                 song = song,
                 hasNote = song.id in rowMarks.notedSongIds,
                 accent = rowMarks.accent,
                 onClick = { onSongClick(song.id) },
-                onLongClick = rowMarks.onLongClick?.let { open -> { open(song.id) } },
+                onLongClick = rowMarks.onLongClick?.let { open -> { open(song) } },
+                modifier = Modifier.animateItem(
+                    fadeInSpec = YoinMotion.effectsSpring(),
+                    placementSpec = YoinMotion.spatialSpring(),
+                    fadeOutSpec = YoinMotion.effectsSpring(),
+                ),
             )
         }
         if (footer != null) {
             item(key = "playlist-liner-notes") {
-                Box(modifier = Modifier.seamFade()) { footer() }
+                // Moves up with the rows above it.
+                Box(
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = null,
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = null,
+                        )
+                        .seamFade(),
+                ) { footer() }
             }
         }
     }
@@ -1439,8 +1484,8 @@ private fun PlaylistTrackCredit(artist: String, album: String) {
 internal data class PlaylistRowMarks(
     val notedSongIds: Set<String>,
     val accent: () -> Color,
-    /** Opens the song's long-press sheet; null where the page has none. */
-    val onLongClick: ((songId: String) -> Unit)? = null,
+    /** Opens the row's long-press sheet; null where the page has none. */
+    val onLongClick: ((song: PlaylistSong) -> Unit)? = null,
 )
 
 /**
@@ -1462,6 +1507,7 @@ private fun PlaylistTrackRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer()
             .combinedClickable(
                 onClick = {
                     haptics.performClick()
@@ -1666,11 +1712,16 @@ private fun PlaylistHeroMeta(
                     style = MaterialTheme.typography.bodyLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    text = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration) ?: "—",
-                    style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Songs without durations (a Spotify-made playlist read over App Remote) leave the line out
+                // rather than show "—" under a count that is there.
+                val totalDuration = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration)
+                if (totalDuration != null || count == 0) {
+                    Text(
+                        text = totalDuration ?: "—",
+                        style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (content.owner.isNotBlank()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1792,6 +1843,7 @@ private fun PlaylistDetailPreviewContent() {
                         album = "OK Computer",
                         duration = 386,
                         coverArtUrl = null,
+                        rowKey = "row-0",
                     ),
                     PlaylistSong(
                         id = "2",
@@ -1800,6 +1852,7 @@ private fun PlaylistDetailPreviewContent() {
                         album = "The Wall",
                         duration = 382,
                         coverArtUrl = null,
+                        rowKey = "row-1",
                     ),
                 ),
             ),

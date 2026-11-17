@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -479,7 +480,7 @@ private fun BoxScope.DemoHomePage(
                 if (headerAction != null) {
                     headerAction()
                 } else {
-                    IconButton(onClick = {}, modifier = Modifier.homeEditHeaderIcon(editProgress)) {
+                    IconButton(onClick = {}, modifier = Modifier.homeEditHeaderIcon(editProgress).handPointer()) {
                         Icon(
                             imageVector = YoinSymbols.Settings,
                             contentDescription = null,

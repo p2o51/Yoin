@@ -170,6 +170,7 @@ fun YoinSnackbar(data: SnackbarData, modifier: Modifier = Modifier) {
                     onClick = data::performAction,
                     shape = YoinShapeTokens.Full,
                     colors = ButtonDefaults.textButtonColors(contentColor = scheme.inversePrimary),
+                    modifier = Modifier.handPointer(),
                 ) {
                     Text(text = action, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                 }
@@ -178,6 +179,7 @@ fun YoinSnackbar(data: SnackbarData, modifier: Modifier = Modifier) {
                 IconButton(
                     onClick = data::dismiss,
                     colors = IconButtonDefaults.iconButtonColors(contentColor = scheme.inverseOnSurface),
+                    modifier = Modifier.handPointer(),
                 ) {
                     Icon(imageVector = YoinSymbols.Close, contentDescription = dismissLabel)
                 }

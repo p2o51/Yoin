@@ -2,7 +2,11 @@ package com.gpo.yoin.ui.experience
 
 import android.app.ActivityManager
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalAccessorScope
 import androidx.compose.runtime.DisposableEffect
@@ -55,6 +59,8 @@ val LocalMotionCapabilityProvider = staticCompositionLocalOf {
 class MotionCapabilityProvider(
     private val lowRamDevice: Boolean,
     private val powerSaveEnabled: () -> Boolean = { false },
+    // The system's animator duration scale (Settings.Global.ANIMATOR_DURATION_SCALE; 1 when unset).
+    private val animatorDurationScale: () -> Float = { 1f },
 ) {
     constructor(context: Context) : this(
         lowRamDevice = (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
@@ -63,7 +69,22 @@ class MotionCapabilityProvider(
             (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
                 ?.isPowerSaveMode == true
         },
-    )
+        animatorDurationScale = {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        },
+    ) {
+        // "Remove animations" can be turned on or off while Yoin runs: follow it (the container lives as
+        // long as the process, so the observer does too).
+        context.contentResolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    refresh()
+                }
+            },
+        )
+    }
 
     private val highPressureTags = linkedSetOf<String>()
     private val _profile = MutableStateFlow(MotionProfile.Full)
@@ -91,12 +112,12 @@ class MotionCapabilityProvider(
         refresh()
     }
 
-    private fun resolveProfile(hasHighPressure: Boolean): MotionProfile =
-        if (lowRamDevice || powerSaveEnabled() || hasHighPressure) {
-            MotionProfile.AdaptiveReduced
-        } else {
-            MotionProfile.Full
-        }
+    private fun resolveProfile(hasHighPressure: Boolean): MotionProfile = resolveMotionProfile(
+        lowRamDevice = lowRamDevice,
+        powerSaveEnabled = powerSaveEnabled(),
+        hasHighPressure = hasHighPressure,
+        animatorDurationScale = animatorDurationScale(),
+    )
 
     /**
      * [setHighPressure], with a high report lifting itself after [maxDurationMs]
@@ -111,6 +132,23 @@ class MotionCapabilityProvider(
         }
     }
 }
+
+/**
+ * The motion tier for what the device reports. The system's "remove animations" (an animator duration
+ * scale of 0) reduces Yoin's motion rather than removing it (owner 2026-11-13), as low RAM, power saving
+ * and a moment of high pressure do.
+ */
+internal fun resolveMotionProfile(
+    lowRamDevice: Boolean,
+    powerSaveEnabled: Boolean,
+    hasHighPressure: Boolean,
+    animatorDurationScale: Float,
+): MotionProfile =
+    if (lowRamDevice || powerSaveEnabled || hasHighPressure || animatorDurationScale == 0f) {
+        MotionProfile.AdaptiveReduced
+    } else {
+        MotionProfile.Full
+    }
 
 /**
  * Report [tag]'s pressure while composed. [maxDurationMs] caps one stretch of

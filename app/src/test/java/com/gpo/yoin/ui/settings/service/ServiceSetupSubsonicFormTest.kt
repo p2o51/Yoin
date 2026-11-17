@@ -1,17 +1,24 @@
 package com.gpo.yoin.ui.settings.service
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextReplacement
+import androidx.test.core.app.ApplicationProvider
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.YoinTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -80,7 +87,7 @@ class ServiceSetupSubsonicFormTest {
         setPage()
 
         field(USERNAME).performTextReplacement("qa2")
-        state = managing(stored().copy(status = SubsonicStatus.Reachable))
+        state = managing(stored().copy(status = SubsonicStatus.Reachable()))
         rule.waitForIdle()
 
         field("qa2").assertExists()
@@ -110,6 +117,42 @@ class ServiceSetupSubsonicFormTest {
         field(SERVER).assertExists()
     }
 
+    // What the server calls itself sits under the test's status, on its text's line.
+    @Test
+    fun should_nameTheServerUnderTheStatus_when_theTestFoundANamedServer() {
+        state = managing(stored().copy(status = SubsonicStatus.Reachable(server = SERVER_NAME)))
+        setPage()
+
+        val status = rule.onNodeWithText(reachable).getUnclippedBoundsInRoot()
+        val name = rule.onNodeWithText(SERVER_NAME).getUnclippedBoundsInRoot()
+        assertEquals(status.left, name.left)
+        assertTrue(name.top >= status.bottom)
+    }
+
+    @Test
+    fun should_showTheStatusAlone_when_theServerGivesNoName() {
+        state = managing(stored().copy(status = SubsonicStatus.Reachable()))
+        setPage()
+
+        rule.onNodeWithText(reachable).assertExists()
+        rule.onNodeWithText(SERVER_NAME).assertDoesNotExist()
+    }
+
+    @Test
+    fun should_dropTheServersName_when_anotherTestStarts() {
+        state = managing(stored().copy(status = SubsonicStatus.Reachable(server = SERVER_NAME)))
+        setPage()
+        rule.onNodeWithText(SERVER_NAME).assertExists()
+
+        state = managing(stored().copy(isBusy = true, status = SubsonicStatus.Testing))
+        rule.waitForIdle()
+
+        rule.onNodeWithText(SERVER_NAME).assertDoesNotExist()
+    }
+
+    private val reachable: String
+        get() = ApplicationProvider.getApplicationContext<Context>().getString(R.string.settings_setup_reachable)
+
     private fun stored() = SubsonicFormState(
         initialUrl = SERVER,
         initialUsername = USERNAME,
@@ -127,5 +170,6 @@ class ServiceSetupSubsonicFormTest {
     private companion object {
         const val SERVER = "http://127.0.0.1:4933"
         const val USERNAME = "qa"
+        const val SERVER_NAME = "Navidrome 0.64.2"
     }
 }

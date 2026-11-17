@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -325,6 +326,7 @@ fun AlbumDetailScreen(
                 val barScheme = rememberCoverColorScheme(content?.coverArtUrl)
                     ?: MaterialTheme.colorScheme
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                     // Targets: the bar animates the change itself (YoinChromeGroup).
                     playContainer = barScheme.primary,
                     playContent = barScheme.onPrimary,
@@ -681,8 +683,10 @@ private fun AlbumDetailContent(
                 pageShift = pageShift,
                 // Short screens (Fold outer, 16:9) set the cover beside the meta on the
                 // 16dp line: the mark could only hug it there, the old look the redo
-                // left behind, so they go without it (owner 2026-11-07).
-                butterfly = barLayout != AlbumBarLayout.Short,
+                // left behind, so they go without it (owner 2026-11-07). Tablets too:
+                // on Medium the hugging blocks only peek out round the cover (owner
+                // 2026-11-14, 「平板上面这个蝴蝶还没下」).
+                butterfly = barLayout != AlbumBarLayout.Short && barLayout != AlbumBarLayout.Medium,
                 // The blocks sit behind the cover on their own layer: cubed, so
                 // they fade out ahead of it (and in after it) and never show
                 // through the half-faded cover as loose shapes.
@@ -729,7 +733,7 @@ private fun AlbumDetailContent(
                         // Only the stamp is a button; the resting cover is just a picture.
                         .then(
                             if (docked) {
-                                Modifier.clickable(
+                                Modifier.handPointer().clickable(
                                     role = Role.Button,
                                     onClickLabel = showCoverLabel,
                                 ) {
@@ -842,8 +846,6 @@ private fun AlbumDetailContent(
                             if (useWideOverview) {
                                 AlbumWideOverview(
                                     content = content,
-                                    primaryBlock = primaryBlock,
-                                    secondaryBlock = secondaryBlock,
                                     accent = primaryBlock,
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
@@ -1545,7 +1547,7 @@ private fun AlbumHeroComment(
                 albumLastPlayLabels(at, LocalContext.current.resources).first
             }
             Column(
-                modifier = Modifier.clickable(
+                modifier = Modifier.handPointer(enabled = interactive).clickable(
                     enabled = interactive,
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
@@ -1573,7 +1575,7 @@ private fun AlbumHeroComment(
             FilledTonalIconButton(
                 onClick = onEditComment,
                 enabled = interactive,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(40.dp).handPointer(enabled = interactive),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Edit,
@@ -1772,8 +1774,6 @@ private val AlbumWideListMaxWidth = 800.dp
 @Composable
 private fun AlbumWideOverview(
     content: AlbumDetailUiState.Content,
-    primaryBlock: Color,
-    secondaryBlock: Color,
     accent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
@@ -1798,16 +1798,12 @@ private fun AlbumWideOverview(
                 .verticalScroll(rememberScrollState())
                 .padding(top = 24.dp, bottom = 120.dp),
         ) {
+            // No hugging blocks on tablets (owner 2026-11-14): they only peeked
+            // out round the cover. The box keeps its size, so nothing moves.
             Box(
                 modifier = Modifier.size(AlbumWideCoverSide + 40.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                AlbumArrowBackdropHugging(
-                    primaryBlock = primaryBlock,
-                    secondaryBlock = secondaryBlock,
-                    lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                    modifier = Modifier.matchParentSize(),
-                )
                 ExpressiveMediaArtwork(
                     model = content.coverArtUrl,
                     contentDescription = content.albumName,

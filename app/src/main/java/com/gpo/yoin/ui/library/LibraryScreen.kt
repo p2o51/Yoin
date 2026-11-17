@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -45,11 +47,13 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ExpandedFullScreenSearchBar
@@ -137,6 +141,7 @@ import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinPullToRefreshBox
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.minimumTouchTarget
@@ -423,6 +428,7 @@ fun LibraryScreen(
                 onAddSongToLibrary = viewModel::addSongToLibrary,
                 onCreatePlaylist = viewModel::createPlaylist,
                 onRetry = viewModel::refresh,
+                onRefresh = viewModel::pullRefresh,
                 coverArtUrlBuilder = viewModel::buildCoverArtUrl,
                 headerAction = accountButton,
                 modifier = Modifier.fillMaxSize(),
@@ -486,6 +492,8 @@ fun LibraryContent(
     onAddSongToLibrary: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
+    // A pull on the view shown reads it again; null = no pull (previews, the tip page's demo).
+    onRefresh: (() -> Unit)? = null,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
     // The header's corner control (the account avatar); null = the Settings gear.
@@ -540,6 +548,7 @@ fun LibraryContent(
                                             haptics.performReject()
                                             onRetry()
                                         },
+                                        modifier = Modifier.handPointer(),
                                     ) {
                                         Text(stringResource(R.string.library_error_retry))
                                     }
@@ -548,6 +557,7 @@ fun LibraryContent(
                                             haptics.performContextClick()
                                             onNavigateToSettings()
                                         },
+                                        modifier = Modifier.handPointer(),
                                     ) {
                                         Text(stringResource(R.string.library_error_settings))
                                     }
@@ -590,6 +600,7 @@ fun LibraryContent(
                             onSongLongClick = onSongLongClick,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
+                            onRefresh = onRefresh,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                             collapseSearchOnOpen = collapseSearchOnOpen,
                             headerAction = headerAction,
@@ -636,6 +647,7 @@ private fun LibraryContentBody(
     onSongLongClick: (song: Track, leave: () -> Unit) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
+    onRefresh: (() -> Unit)?,
     coverArtUrlBuilder: ((String) -> String)?,
     collapseSearchOnOpen: Boolean = false,
     headerAction: (@Composable (Modifier) -> Unit)? = null,
@@ -759,6 +771,7 @@ private fun LibraryContentBody(
                             haptics.performTick()
                             scope.launch { searchBarState.animateToCollapsed() }
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Back,
@@ -778,6 +791,7 @@ private fun LibraryContentBody(
                             haptics.performTick()
                             textFieldState.setTextAndPlaceCursorAtEnd("")
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Close,
@@ -873,7 +887,7 @@ private fun LibraryContentBody(
                                 haptics.performContextClick()
                                 onNavigateToSettings()
                             },
-                            modifier = Modifier.minimumTouchTarget(),
+                            modifier = Modifier.minimumTouchTarget().handPointer(),
                         ) {
                             Icon(
                                 imageVector = YoinSymbols.Settings,
@@ -908,7 +922,20 @@ private fun LibraryContentBody(
                     onPlaylistsByYouChange = onPlaylistsByYouChange,
                 )
             }
-            Box(modifier = Modifier.weight(1f)) {
+            // A pull on any view reads that view again (iOS's .refreshable). The
+            // views never move for it: the indicator alone comes down from under
+            // this box's top edge, the same line their items dissolve into
+            // (seamDissolveViewport), so at rest the seam has nothing to cut and
+            // the fixed header and chips above stay as they are.
+            YoinPullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = {
+                    haptics.performTick()
+                    onRefresh?.invoke()
+                },
+                enabled = onRefresh != null,
+                modifier = Modifier.weight(1f),
+            ) {
                 val tabSizeSpec = YoinMotion.spatialSpring<IntSize>()
                 AnimatedContent(
                     targetState = state.selectedTab,
@@ -1280,7 +1307,7 @@ private fun LibraryWideHeaderRow(
                     haptics.performContextClick()
                     onNavigateToSettings()
                 },
-                modifier = Modifier.minimumTouchTarget(),
+                modifier = Modifier.minimumTouchTarget().handPointer(),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Settings,
@@ -1332,7 +1359,7 @@ private fun ArtistsTabContent(
         return
     }
     if (artists.isEmpty()) {
-        EmptyState(message = stringResource(R.string.library_empty_artists), modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_artists), modifier = modifier, pullable = true)
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
@@ -1409,7 +1436,7 @@ private fun ArtistGridItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        modifier = modifier.pointerPressPreview(interactionSource).noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // The shared artwork: its fallback icon on a failed load, and the retry
@@ -1462,7 +1489,7 @@ private fun ArtistListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -1522,7 +1549,7 @@ private fun AlbumsTabContent(
         return
     }
     if (albums.isEmpty()) {
-        EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier, pullable = true)
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
@@ -1665,7 +1692,7 @@ private fun AllTabContent(
         return
     }
     if (items.isEmpty()) {
-        EmptyState(message = stringResource(R.string.library_empty_all), modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_all), modifier = modifier, pullable = true)
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
@@ -1828,7 +1855,11 @@ private fun SongsTabContent(
             )
         }
         if (songs.isEmpty()) {
-            EmptyState(message = stringResource(R.string.library_empty_songs), modifier = Modifier.weight(1f))
+            EmptyState(
+                message = stringResource(R.string.library_empty_songs),
+                modifier = Modifier.weight(1f),
+                pullable = true,
+            )
         } else {
             LazyColumn(
                 state = listState,
@@ -1909,7 +1940,7 @@ private fun RandomMixHeader(
                 haptics.performTick()
                 onReshuffle()
             },
-            modifier = Modifier.minimumTouchTarget(),
+            modifier = Modifier.minimumTouchTarget().handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.Shuffle,
@@ -1971,6 +2002,7 @@ private fun PlaylistsTabContent(
             EmptyState(
                 message = stringResource(R.string.library_empty_playlists),
                 modifier = Modifier.fillMaxSize(),
+                pullable = true,
             )
         } else {
             LazyColumn(
@@ -2025,7 +2057,8 @@ private fun PlaylistsTabContent(
                     haptics.performTick()
                     showCreateDialog = true
                 },
-                expanded = fabVisible,
+                // An empty list has nothing to scroll: a drag over it (a pull to refresh) doesn't fold the label.
+                expanded = fabVisible || playlists.isEmpty(),
                 // The label row is hidden from accessibility (M3 keeps the
                 // name steady whether it is expanded or not): the icon names
                 // the button, in both states.
@@ -2043,7 +2076,7 @@ private fun PlaylistsTabContent(
                     .padding(
                         end = 16.dp,
                         bottom = floatingBottomGroupContentPadding(),
-                    ),
+                    ).handPointer(),
             )
         }
     }
@@ -2082,10 +2115,11 @@ private fun CreatePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty(),
+                modifier = Modifier.handPointer(enabled = name.trim().isNotEmpty()),
             ) { Text(stringResource(R.string.library_playlist_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_playlist_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.library_playlist_cancel)) }
         },
     )
 }
@@ -2099,7 +2133,7 @@ private fun PlaylistListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -2165,7 +2199,7 @@ private fun FavoritesTabContent(
         favorites.tracks.isNotEmpty()
 
     if (!hasContent) {
-        EmptyState(message = stringResource(R.string.library_empty_favorites), modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_favorites), modifier = modifier, pullable = true)
         return
     }
 
@@ -2290,7 +2324,7 @@ private fun AlbumListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -2454,6 +2488,7 @@ private fun SearchResultsContent(
                         haptics.performReject()
                         onRetrySearch()
                     },
+                    modifier = Modifier.handPointer(),
                 ) {
                     Text(stringResource(R.string.library_search_retry))
                 }
@@ -2987,13 +3022,28 @@ private fun TabLoadingState(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * [pullable]: a view's empty state inside Library's pull box. Nothing scrolls
+ * here, so it takes the drag the way a list at its top would and hands it on:
+ * an empty view can be pulled to read it again like any other. It never moves
+ * (no range, no overscroll).
+ */
 @Composable
 private fun EmptyState(
     message: String,
     modifier: Modifier = Modifier,
+    pullable: Boolean = false,
 ) {
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .then(
+                if (pullable) {
+                    Modifier.verticalScroll(state = rememberScrollState(), overscrollEffect = null)
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         ExpressiveSectionPanel(

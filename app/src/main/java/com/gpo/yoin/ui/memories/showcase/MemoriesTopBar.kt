@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -221,6 +223,7 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
                     true
                 }
             }
+            .pointerPressPreview(interaction, shape)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
@@ -422,7 +425,7 @@ internal fun MemoryPageBarSlots(
         }
         if (inDiaryMorph) {
             val interactive = diaryOpen && shown
-            val tapToCard = if (interactive) Modifier.clickable(onClick = onCloseDiary) else Modifier
+            val tapToCard = if (interactive) Modifier.handPointer().clickable(onClick = onCloseDiary) else Modifier
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)

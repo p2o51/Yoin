@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -239,7 +240,7 @@ private fun VoicesMessage(text: String, action: String, onAction: () -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = onAction) { Text(action) }
+        TextButton(onClick = onAction, modifier = Modifier.handPointer()) { Text(action) }
     }
 }
 
@@ -325,7 +326,7 @@ private fun VoicesContent(
             ) {
                 when {
                     state.loadingMore -> YoinLoadingIndicator(size = 32.dp)
-                    state.moreFailed -> TextButton(onClick = onLoadMore) {
+                    state.moreFailed -> TextButton(onClick = onLoadMore, modifier = Modifier.handPointer()) {
                         Text(stringResource(R.string.detail_retry))
                     }
                     state.voices.isNotEmpty() -> Text(
@@ -436,6 +437,7 @@ private fun References(
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 onClick = { onOpenUrl(ref.url) },
+                modifier = Modifier.handPointer(),
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).widthIn(min = 72.dp)) {
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -478,6 +480,7 @@ private fun VoiceCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(if (lifted) scheme.surfaceContainerHigh else scheme.surfaceContainer)
+            .handPointer()
             .clickable {
                 haptics.performClick()
                 if (folded) onUnfold() else onOpen()
@@ -523,14 +526,30 @@ private fun VoiceCard(
                     .clip(CircleShape)
                     .background(scheme.secondaryContainer),
             )
-            Text(
-                text = voice.byline(),
-                style = MaterialTheme.typography.labelSmall,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // The name and, apart from it by space and tone, the instance: no glyph between them.
+            Row(
                 modifier = Modifier.weight(1f),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = voice.author,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                voice.otherInstance()?.let { host ->
+                    Text(
+                        text = host,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
             if (voice.reviewTitle != null) {
                 Text(
                     text = stringResource(R.string.neodb_voices_review),
@@ -543,10 +562,10 @@ private fun VoiceCard(
     }
 }
 
-/** The writer's name; their instance only when it isn't the one the page reads (NeoDB is federated). */
-private fun NeoDbVoice.byline(): String {
+/** The writer's instance, only when it isn't the one the page reads (NeoDB is federated). */
+private fun NeoDbVoice.otherInstance(): String? {
     val host = handle.substringAfter('@', "")
-    return if (host.isEmpty() || host == "neodb.social") author else "$author · $host"
+    return host.takeUnless { it.isEmpty() || it == "neodb.social" }
 }
 
 /** A NeoDB grade (1–10) as stars out of five, a filled star from Yoin Symbols beside the number. */
@@ -595,7 +614,7 @@ private fun WaysOut(
                 },
                 shapes = ButtonDefaults.shapes(),
                 // The gap to the row below is the button's own, so it opens and closes with it.
-                modifier = Modifier.padding(bottom = WaysOutGap).fillMaxWidth().height(52.dp),
+                modifier = Modifier.padding(bottom = WaysOutGap).fillMaxWidth().height(52.dp).handPointer(),
             ) { Text(stringResource(R.string.neodb_voices_open_neodb)) }
         }
         Row {
@@ -644,7 +663,7 @@ private fun OtherWayOut(label: String, onClick: () -> Unit, modifier: Modifier =
             onClick()
         },
         shapes = ButtonDefaults.shapes(),
-        modifier = modifier,
+        modifier = modifier.handPointer(),
     ) { Text(label, maxLines = 1) }
 }
 

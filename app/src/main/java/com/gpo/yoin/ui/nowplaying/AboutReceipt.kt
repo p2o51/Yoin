@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,6 +38,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onLongClick
@@ -49,6 +52,7 @@ import com.gpo.yoin.data.model.LyricCredit
 import com.gpo.yoin.data.model.LyricCreditRole
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.ui.component.ThinkingDots
+import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -246,23 +250,37 @@ internal fun AboutReceipt(
                     }
                 }
                 val noteLabel = stringResource(R.string.cmp_lyric_credits_note)
-                Text(
-                    text = if (expanded) {
-                        stringResource(R.string.cmp_lyric_credits_less)
-                    } else {
-                        stringResource(
-                            R.string.cmp_lyric_credits_more,
-                            others.size,
-                            others.take(3).joinToString("、") { it.role.ifEmpty { noteLabel } } + "…",
-                        )
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                // "N more", then the first roles quieter beside it: space between, no glyph.
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .handPointer()
                         .clickable(role = Role.Button) { expanded = !expanded }
                         .padding(vertical = 10.dp),
-                )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (expanded) {
+                            stringResource(R.string.cmp_lyric_credits_less)
+                        } else {
+                            stringResource(R.string.cmp_lyric_credits_more, others.size)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = others.take(3).joinToString("、") { it.role.ifEmpty { noteLabel } } + "…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
             }
             if (notices.isNotEmpty()) {
                 DashedRule()
@@ -455,15 +473,30 @@ internal fun AboutCarousel(
             modifier = Modifier.fillMaxSize(),
             label = "aboutCarousel",
         ) { shown ->
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            // A page taller than the window (a long credits line) starts at
+            // the top and fades out downward instead of being cut at both
+            // ends (owner 2026-11-16); a page that fits stays centred.
+            var boxHeight by remember { mutableIntStateOf(0) }
+            var pageHeight by remember { mutableIntStateOf(0) }
+            val overflows = boxHeight > 0 && pageHeight > boxHeight
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { boxHeight = it.height }
+                    .then(if (overflows) Modifier.edgeFade(bottom = CarouselOverflowFade) else Modifier),
+                contentAlignment = if (overflows) Alignment.TopStart else Alignment.CenterStart,
+            ) {
+                val pageModifier = Modifier
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                    .onSizeChanged { pageHeight = it.height }
                 when (val page = pages.getOrNull(shown)) {
-                    is AboutCarouselPage.Lines -> Column {
+                    is AboutCarouselPage.Lines -> Column(modifier = pageModifier) {
                         page.rows.forEachIndexed { i, row ->
                             if (i > 0) DashedRule()
                             ReceiptLine(label = row.label, value = row.value)
                         }
                     }
-                    is AboutCarouselPage.Paragraph -> Column {
+                    is AboutCarouselPage.Paragraph -> Column(modifier = pageModifier) {
                         Text(
                             text = page.paragraph.label,
                             style = MaterialTheme.typography.labelLarge,
@@ -484,3 +517,20 @@ internal fun AboutCarousel(
         }
     }
 }
+
+/**
+ * Whether About already has something to show before Gemini answers: the
+ * lyrics' credits or the server's facts. While Gemini loads over such a
+ * page, the wait shows as a small indicator in the tab row (between About
+ * and Note) instead of replacing or trailing the content (owner 2026-11-16).
+ */
+@androidx.compose.runtime.Composable
+internal fun rememberAboutHasSourceRows(credits: LyricCredits?, facts: SpineSourceFacts?): Boolean {
+    val resources = androidx.compose.ui.platform.LocalContext.current.resources
+    return androidx.compose.runtime.remember(credits, facts, resources) {
+        aboutReceiptRows(emptyList(), credits, facts, resourceAboutLabels(resources)).isNotEmpty()
+    }
+}
+
+/** Bottom fade of a compact About page taller than its window. */
+private val CarouselOverflowFade = 40.dp

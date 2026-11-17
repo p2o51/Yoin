@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.ai
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -7,6 +8,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -31,7 +34,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,13 +51,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -66,11 +69,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
@@ -83,12 +87,15 @@ import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.keepInViewAboveKeyboard
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.SettingsFeature
 import com.gpo.yoin.ui.settings.SettingsFeatureActivity
+import com.gpo.yoin.ui.settings.SettingsItem
+import com.gpo.yoin.ui.settings.SettingsSegments
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -145,11 +152,11 @@ internal fun AiSettingsPageBody(
             },
             chipModifier = providerModifier,
         )
-        TradeoffChart(provider = prefs.provider, tier = prefs.tier)
+        TradeoffChart(provider = prefs.provider, tier = prefs.activeTier, searchService = prefs.searchService)
 
         // Tiers ⇄ Custom is the page's one body swap: the two cross-fade and the page takes its new
-        // height on the spatial spring. The tiered services share a body, so picking among them
-        // swaps nothing.
+        // height on the spatial spring. The other services share a body, so picking among them
+        // swaps nothing; the tier choice folds away for a service with one tier (Qwen).
         val sizeSpring = YoinMotion.spatialSpring<IntSize>()
         AnimatedContent(
             targetState = prefs.provider,
@@ -165,32 +172,46 @@ internal fun AiSettingsPageBody(
             if (provider != AiProvider.Custom) {
                 // Everything here reads [provider], not the choice: on its way out for Custom this
                 // body still shows the service it was for.
-                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
-                            IconButton(onClick = {
-                                haptics.performClick()
-                                onOpenTiers()
-                            }) {
-                                Icon(
-                                    YoinSymbols.Info,
-                                    contentDescription = stringResource(R.string.ai_cd_tier_details),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                Column {
+                    AnimatedVisibility(
+                        visible = provider.tiers.size > 1,
+                        enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                        exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                    ) {
+                        // The gap to the key field folds away with the choice.
+                        Column(
+                            modifier = Modifier.padding(bottom = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    haptics.performClick()
+                                    onOpenTiers()
+                                }, modifier = Modifier.handPointer()) {
+                                    Icon(
+                                        YoinSymbols.Info,
+                                        contentDescription = stringResource(R.string.ai_cd_tier_details),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AiTier.entries.forEach { tier ->
-                                TierCard(
-                                    tier = tier,
-                                    selected = prefs.tier == tier,
-                                    onClick = {
-                                        haptics.performSegmentTick()
-                                        actions.setTier(tier)
-                                    },
-                                    modifier = Modifier.weight(1f).then(tierModifier(tier)),
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Both, whatever [provider] offers: this is only seen for a service
+                                // with two, and while it folds away it must not change.
+                                AiTier.entries.forEach { tier ->
+                                    TierCard(
+                                        tier = tier,
+                                        selected = prefs.tier == tier,
+                                        onClick = {
+                                            haptics.performSegmentTick()
+                                            actions.setTier(tier)
+                                        },
+                                        modifier = Modifier.weight(1f).then(tierModifier(tier)),
+                                    )
+                                }
                             }
                         }
                     }
@@ -200,10 +221,10 @@ internal fun AiSettingsPageBody(
                             onValueChange = { actions.setKey(provider, it) },
                             label = stringResource(R.string.ai_key_label),
                             placeholder = if (provider == AiProvider.Gemini) "AIza…" else "sk-…",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                         val (linkText, url) = keyLink(provider)
-                        TextButton(onClick = { onOpenLink(url) }) {
+                        TextButton(onClick = { onOpenLink(url) }, modifier = Modifier.handPointer()) {
                             Text(linkText)
                             Spacer(Modifier.width(4.dp))
                             Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -215,14 +236,14 @@ internal fun AiSettingsPageBody(
             }
         }
 
-        LanguageButton(language = state.targetLanguage, onPick = actions::setTargetLanguage)
+        LanguageRow(language = state.targetLanguage, onPick = actions::setTargetLanguage)
 
         Button(
             onClick = {
                 haptics.performClick()
                 onOpenTry()
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp).then(tryModifier),
+            modifier = Modifier.fillMaxWidth().height(52.dp).then(tryModifier).handPointer(),
         ) {
             Icon(YoinSymbols.PlayCircle, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -263,7 +284,7 @@ private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A choice that rounds into a pill and fills when picked (the services, formats, thinking, search). */
+/** A choice that rounds into a pill and fills when picked (the services, formats, thinking, models). */
 @Composable
 private fun ChoiceChip(
     text: String,
@@ -294,7 +315,8 @@ private fun ChoiceChip(
         contentColor = if (selected) scheme.onPrimary else scheme.onSurface,
         modifier = modifier
             .height(height.dp)
-            .semantics { this.selected = selected; role = Role.RadioButton },
+            .semantics { this.selected = selected; role = Role.RadioButton }
+            .handPointer(),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = horizontalPadding.dp)) {
             Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
@@ -342,7 +364,8 @@ private fun TierCard(tier: AiTier, selected: Boolean, onClick: () -> Unit, modif
         contentColor = if (selected) scheme.onPrimary else scheme.onSurface,
         modifier = modifier
             .height(84.dp)
-            .semantics { this.selected = selected; role = Role.RadioButton },
+            .semantics { this.selected = selected; role = Role.RadioButton }
+            .handPointer(),
     ) {
         Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.padding(horizontal = 18.dp)) {
             Text(tierName(tier), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -358,34 +381,123 @@ private fun providerColor(provider: AiProvider, dark: Boolean): Color = when (pr
 }
 
 /**
- * Every tier as a dot on two of speed / cost / accuracy. No axis picker: the
- * button beside the legend steps through [AiChartViews] and the dots spring
- * to their new places. Untested tiers are hollow dots in the corner.
+ * Custom's search services on the chart, made the way [providerColor] is: a pair per theme.
+ * DeepSeek keeps its service colour; No search, the baseline, is the scheme's outline.
+ */
+private fun searchServiceColor(service: AiSearchService, dark: Boolean, outline: Color): Color = when (service) {
+    AiSearchService.DeepSeek -> providerColor(AiProvider.DeepSeek, dark)
+    AiSearchService.Exa -> if (dark) Color(0xFFB9A3FF) else Color(0xFF6A4CD6)
+    AiSearchService.Tavily -> providerColor(AiProvider.Gemini, dark)
+    AiSearchService.Brave -> providerColor(AiProvider.Qwen, dark)
+    AiSearchService.Doubao -> providerColor(AiProvider.Custom, dark)
+    AiSearchService.None -> outline
+}
+
+/** One dot of the chart, from either set. [label] is empty for a dot that goes unnamed. */
+private class ChartDot(
+    val point: AiChartPoint,
+    val set: AiChartSet,
+    val color: Color,
+    val label: String,
+    /** Picked: the tier in use (its service's), or Custom's search service. */
+    val chosen: Boolean,
+    /** Drawn at full strength; another service's tiers are faded. */
+    val mine: Boolean,
+    /** Its name shows (alpha aside): the chosen service's tiers, or any search dot (faded in when chosen). */
+    val named: Boolean,
+    val bold: Boolean,
+)
+
+/** The dot the chart highlights: the tier in use, or with Custom the search service picked. */
+internal fun chosenChartPoint(provider: AiProvider, tier: AiTier, searchService: AiSearchService): AiChartPoint? =
+    when (AiChartSet.forProvider(provider)) {
+        AiChartSet.Tiers -> AiTierBenchmark.point(provider, tier)
+        AiChartSet.Search -> AiSearchBenchmark.point(searchService)
+    }
+
+/**
+ * Every tier as a dot, or with Custom every search service Custom can use (DeepSeek writing with
+ * each). It opens on cost against the overall score (accuracy and speed together); the button
+ * beside the legend steps through [AiChartViews], the other three being two of speed / cost /
+ * accuracy, and the dots spring to their new places. Each set has its own axis ranges
+ * ([AiChartSet.range]); going to or from Custom cross-fades the two sets. The chosen dot grows
+ * and haloes on a spring, so picking another tier or search moves the highlight. A dot whose
+ * numbers are estimates says so in its name.
  */
 @Composable
-private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
+private fun TradeoffChart(provider: AiProvider, tier: AiTier, searchService: AiSearchService) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.surface.luminance() < 0.5f
     val haptics = rememberYoinHaptics()
     var view by rememberSaveable { mutableIntStateOf(0) }
     var turns by rememberSaveable { mutableIntStateOf(0) }
     val (xAxis, yAxis) = AiChartViews[view % AiChartViews.size]
-    val measured = AiTierBenchmark.points.filter { it.measured }
-    val untested = AiTierBenchmark.points.filterNot { it.measured }
+    val set = AiChartSet.forProvider(provider)
+    val searchShown by animateFloatAsState(
+        if (set == AiChartSet.Search) 1f else 0f,
+        YoinMotion.defaultEffectsSpec(),
+        label = "searchSetShown",
+    )
+    val chosen = chosenChartPoint(provider, tier, searchService)
+    val tierDots = AiTierBenchmark.points.map { point ->
+        ChartDot(
+            point = point,
+            set = AiChartSet.Tiers,
+            color = providerColor(point.provider, dark),
+            // A service with one tier has no tier to name: its dot goes without. An estimated
+            // tier's name carries the mark the tier page puts on an estimated cost.
+            label = when {
+                point.provider.tiers.size <= 1 -> ""
+                point.estimated -> stringResource(R.string.ai_tier_estimated, tierName(point.tier))
+                else -> tierName(point.tier)
+            },
+            chosen = point == chosen,
+            mine = point.provider == provider,
+            named = point.provider == provider,
+            bold = point.tier == tier,
+        )
+    }
+    val searchDots = AiSearchBenchmark.points.map { point ->
+        val name = searchServiceName(point.service)
+        ChartDot(
+            point = point,
+            set = AiChartSet.Search,
+            color = searchServiceColor(point.service, dark, scheme.outline),
+            label = if (point.estimated) stringResource(R.string.ai_tier_estimated, name) else name,
+            chosen = point == chosen,
+            mine = true,
+            named = true,
+            bold = true,
+        )
+    }
+    val dots = tierDots + searchDots
     val spring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-    // Fixed order and count: one pair of springs per measured tier.
-    val positions = measured.map { point ->
-        val x by animateFloatAsState(xAxis.fraction(point) ?: 0f, spring, label = "dotX")
-        val y by animateFloatAsState(yAxis.fraction(point) ?: 0f, spring, label = "dotY")
+    // Fixed order and count: one pair of springs per dot, each on its own set's ranges.
+    val positions = dots.map { dot ->
+        val x by animateFloatAsState(xAxis.fraction(dot.point, dot.set), spring, label = "dotX")
+        val y by animateFloatAsState(yAxis.fraction(dot.point, dot.set), spring, label = "dotY")
         Offset(x, y)
     }
-    val labels = measured.map { tierName(it.tier) }
+    // 0 → 1 as a dot becomes the chosen one. Its size moves on the spatial spring; its halo
+    // and a search dot's name fade on the effects spring.
+    val emphasis = dots.map { dot ->
+        val e by animateFloatAsState(if (dot.chosen) 1f else 0f, spring, label = "dotChosen")
+        e
+    }
+    val chosenAlpha = dots.map { dot ->
+        val a by animateFloatAsState(
+            if (dot.chosen) 1f else 0f,
+            YoinMotion.defaultEffectsSpec(),
+            label = "dotChosenAlpha",
+        )
+        a
+    }
     val axisLabel = mapOf(
         AiAxis.Speed to stringResource(R.string.ai_axis_speed),
         AiAxis.Cost to stringResource(R.string.ai_axis_cost),
         AiAxis.Accuracy to stringResource(R.string.ai_axis_accuracy),
+        AiAxis.Overall to stringResource(R.string.ai_axis_overall),
     )
-    val untestedText = stringResource(R.string.ai_untested)
     val measurer = rememberTextMeasurer()
     // From the type scale: a bare TextStyle has no font family, and the canvas would draw the
     // system font instead of the app's.
@@ -396,82 +508,146 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
     val iconTurn by animateFloatAsState(turns * 180f, YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive), label = "flipTurn")
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(200.dp)) {
-            val left = 52.dp.toPx()
-            val right = size.width - 8.dp.toPx()
-            val top = 8.dp.toPx()
-            val bottom = size.height - 34.dp.toPx()
-            val gridColor = scheme.outlineVariant
-            for (i in 0..4) {
-                val gx = left + (right - left) * i / 4f
-                val gy = top + (bottom - top) * i / 4f
-                drawLine(gridColor, Offset(gx, top), Offset(gx, bottom), 1.dp.toPx())
-                drawLine(gridColor, Offset(left, gy), Offset(right, gy), 1.dp.toPx())
-            }
-            fun at(f: Offset) = Offset(left + f.x * (right - left), bottom - f.y * (bottom - top))
-
-            // Axis ends: worst at the origin, best at the far end.
-            drawEnd(measurer, axisValue(xAxis, worst = true), small, Offset(left, bottom + 4.dp.toPx()), alignEnd = false)
-            drawEnd(measurer, axisValue(xAxis, worst = false), small, Offset(right, bottom + 4.dp.toPx()), alignEnd = true)
-            drawEnd(measurer, axisValue(yAxis, worst = true), small, Offset(left - 6.dp.toPx(), bottom - 12.dp.toPx()), alignEnd = true)
-            drawEnd(measurer, axisValue(yAxis, worst = false), small, Offset(left - 6.dp.toPx(), top), alignEnd = true)
-            val xText = measurer.measure("${axisLabel.getValue(xAxis)} →", axisStyle)
-            drawText(xText, topLeft = Offset((left + right - xText.size.width) / 2f, bottom + 16.dp.toPx()))
-            val gutter = left - 6.dp.toPx()
-            val yText = measurer.measure("↑${axisLabel.getValue(yAxis)}", axisStyle)
-            if (yText.size.width <= gutter) {
-                drawText(yText, topLeft = Offset(gutter - yText.size.width, (top + bottom - yText.size.height) / 2f))
-            } else {
-                // Too long to sit beside the plot (「More accurate」): it runs up the axis instead,
-                // written like the x label, so its arrow still points at the better end.
-                val along = measurer.measure("${axisLabel.getValue(yAxis)} →", axisStyle)
-                val centre = Offset(along.size.height / 2f, (top + bottom) / 2f)
-                val unturned = Offset(centre.x - along.size.width / 2f, centre.y - along.size.height / 2f)
-                rotate(degrees = -90f, pivot = centre) { drawText(along, topLeft = unturned) }
-            }
-
-            untested.forEachIndexed { i, point ->
-                val mine = point.provider == provider
-                val chosen = mine && point.tier == tier
-                val c = Offset(right - (14 + i * 18).dp.toPx(), bottom - 14.dp.toPx())
-                drawCircle(
-                    color = providerColor(point.provider, dark).copy(alpha = if (mine) 1f else 0.45f),
-                    radius = (if (chosen) 7.5f else 5.5f).dp.toPx(),
-                    center = c,
-                    style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))),
-                )
-                if (mine && i == untested.lastIndex) {
-                    val t = measurer.measure(untestedText, small)
-                    drawText(t, topLeft = Offset(c.x - 14.dp.toPx() - t.size.width, c.y - t.size.height / 2f))
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+            val density = LocalDensity.current
+            val plot = density.chartPlot(Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()))
+            // The names are measured here, not while drawing: where each goes depends on its size.
+            // Every name has a place worked out, so picking a service shows its names where they
+            // belong rather than sliding them there.
+            val labelLayouts = dots.map { dot ->
+                dot.label.takeIf { it.isNotEmpty() }?.let {
+                    measurer.measure(it, dotLabel.copy(fontWeight = if (dot.bold) FontWeight.Bold else FontWeight.Medium))
                 }
             }
-
-            measured.forEachIndexed { i, point ->
-                val mine = provider == AiProvider.Custom || point.provider == provider
-                val chosen = point.provider == provider && point.tier == tier
-                val alpha = when {
-                    provider == AiProvider.Qwen -> 0.3f
-                    mine -> 1f
-                    else -> 0.3f
-                }
-                val color = providerColor(point.provider, dark)
-                val c = at(positions[i])
-                if (chosen) drawCircle(color.copy(alpha = 0.18f), radius = 13.dp.toPx(), center = c)
-                drawCircle(scheme.surface, radius = (if (chosen) 9.5f else 7.5f).dp.toPx(), center = c)
-                drawCircle(color.copy(alpha = alpha), radius = (if (chosen) 7.5f else 5.5f).dp.toPx(), center = c)
-                if (point.provider == provider) {
-                    val t = measurer.measure(
-                        labels[i],
-                        dotLabel.copy(fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium),
+            val labelTargets = with(density) {
+                val centres = dots.map { dot ->
+                    Offset(
+                        plot.left + xAxis.fraction(dot.point, dot.set) * plot.width,
+                        plot.bottom - yAxis.fraction(dot.point, dot.set) * plot.height,
                     )
-                    drawText(t, topLeft = Offset(c.x + 10.dp.toPx(), c.y - t.size.height / 2f))
+                }
+                val targets = Array(dots.size) { Offset.Zero }
+                AiChartSet.entries.forEach { chartSet ->
+                    val inSet = dots.indices.filter { dots[it].set == chartSet }
+                    val setCentres = inSet.map { centres[it] }
+                    // A tier's names are placed with its service's other tier (both show); a search
+                    // service's name shows alone, so each is placed on its own.
+                    inSet.indices.filter { labelLayouts[inSet[it]] != null }
+                        .groupBy { k ->
+                            when (val point = dots[inSet[k]].point) {
+                                is AiTierPoint -> point.provider.name
+                                is AiSearchPoint -> point.service.name
+                            }
+                        }
+                        .values
+                        .forEach { group ->
+                            val placed = AiChartLabels.place(
+                                plot = plot,
+                                dots = setCentres,
+                                dotRadius = 9.5.dp.toPx(),
+                                gap = 10.dp.toPx(),
+                                labels = group.map { k -> k to labelLayouts[inSet[k]]!!.size.toSize() },
+                            )
+                            group.forEachIndexed { n, k -> targets[inSet[k]] = placed[n] }
+                        }
+                }
+                targets
+            }
+            val labelSpring = YoinMotion.defaultSpatialSpec<Offset>(role = YoinMotionRole.Expressive)
+            val labelOffsets = dots.indices.map { i ->
+                val at by animateOffsetAsState(labelTargets[i], labelSpring, label = "labelAt")
+                at
+            }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val chart = chartPlot(size)
+                val left = chart.left
+                val right = chart.right
+                val top = chart.top
+                val bottom = chart.bottom
+                val gridColor = scheme.outlineVariant
+                for (i in 0..4) {
+                    val gx = left + (right - left) * i / 4f
+                    val gy = top + (bottom - top) * i / 4f
+                    drawLine(gridColor, Offset(gx, top), Offset(gx, bottom), 1.dp.toPx())
+                    drawLine(gridColor, Offset(left, gy), Offset(right, gy), 1.dp.toPx())
+                }
+                fun at(f: Offset) = Offset(left + f.x * (right - left), bottom - f.y * (bottom - top))
+                val setAlpha = { chartSet: AiChartSet ->
+                    if (chartSet == AiChartSet.Search) searchShown else 1f - searchShown
+                }
+
+                // Axis ends: worst at the origin, best at the far end. An end the two sets print
+                // differently cross-fades with them.
+                fun drawEnds(axis: AiAxis, worst: Boolean, anchor: Offset, alignEnd: Boolean) {
+                    val tiers = axisValue(axis, AiChartSet.Tiers, worst)
+                    val search = axisValue(axis, AiChartSet.Search, worst)
+                    if (tiers == search) {
+                        drawEnd(measurer, tiers, small, anchor, alignEnd)
+                    } else {
+                        drawEnd(measurer, tiers, small, anchor, alignEnd, alpha = setAlpha(AiChartSet.Tiers))
+                        drawEnd(measurer, search, small, anchor, alignEnd, alpha = setAlpha(AiChartSet.Search))
+                    }
+                }
+                drawEnds(xAxis, worst = true, Offset(left, bottom + 4.dp.toPx()), alignEnd = false)
+                drawEnds(xAxis, worst = false, Offset(right, bottom + 4.dp.toPx()), alignEnd = true)
+                drawEnds(yAxis, worst = true, Offset(left - 6.dp.toPx(), bottom - 12.dp.toPx()), alignEnd = true)
+                drawEnds(yAxis, worst = false, Offset(left - 6.dp.toPx(), top), alignEnd = true)
+                val xText = measurer.measure("${axisLabel.getValue(xAxis)} →", axisStyle)
+                drawText(xText, topLeft = Offset((left + right - xText.size.width) / 2f, bottom + 16.dp.toPx()))
+                val gutter = left - 6.dp.toPx()
+                val yText = measurer.measure("↑${axisLabel.getValue(yAxis)}", axisStyle)
+                if (yText.size.width <= gutter) {
+                    drawText(yText, topLeft = Offset(gutter - yText.size.width, (top + bottom - yText.size.height) / 2f))
+                } else {
+                    // Too long to sit beside the plot (「More accurate」): it runs up the axis instead,
+                    // written like the x label, so its arrow still points at the better end.
+                    val along = measurer.measure("${axisLabel.getValue(yAxis)} →", axisStyle)
+                    val centre = Offset(along.size.height / 2f, (top + bottom) / 2f)
+                    val unturned = Offset(centre.x - along.size.width / 2f, centre.y - along.size.height / 2f)
+                    rotate(degrees = -90f, pivot = centre) { drawText(along, topLeft = unturned) }
+                }
+
+                // Set by set; in each, the chosen dot last: two dots can overlap, and the chosen
+                // one stays whole.
+                val drawOrder = dots.indices.sortedWith(compareBy({ dots[it].set.ordinal }, { dots[it].chosen }))
+                drawOrder.forEach { i ->
+                    val dot = dots[i]
+                    val shown = setAlpha(dot.set)
+                    if (shown <= 0.001f) return@forEach
+                    val e = emphasis[i]
+                    val glow = chosenAlpha[i].coerceIn(0f, 1f)
+                    val alpha = (if (dot.mine) 1f else 0.3f) * shown
+                    val c = at(positions[i])
+                    if (glow > 0f) drawCircle(dot.color.copy(alpha = 0.18f * glow * shown), radius = 13.dp.toPx(), center = c)
+                    drawCircle(scheme.surface.copy(alpha = shown), radius = (7.5f + 2f * e).dp.toPx(), center = c)
+                    drawCircle(dot.color.copy(alpha = dot.color.alpha * alpha), radius = (5.5f + 2f * e).dp.toPx(), center = c)
+                    val name = labelLayouts[i]
+                    if (dot.named && name != null) {
+                        // A search dot's name shows only on the chosen one, fading in as it is picked.
+                        val nameAlpha = if (dot.set == AiChartSet.Search) glow else 1f
+                        if (nameAlpha * shown > 0.001f) {
+                            drawText(name, topLeft = c + labelOffsets[i], alpha = nameAlpha * shown)
+                        }
+                    }
                 }
             }
         }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val showText = maxWidth >= 360.dp
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Legend(dark = dark, modifier = Modifier.weight(1f))
+                val sizeSpring = YoinMotion.spatialSpring<IntSize>()
+                AnimatedContent(
+                    targetState = set,
+                    transitionSpec = {
+                        val fade = YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                        fade.using(SizeTransform { _, _ -> sizeSpring })
+                    },
+                    label = "chartLegend",
+                    modifier = Modifier.weight(1f),
+                ) { shownSet ->
+                    Legend(set = shownSet, dark = dark)
+                }
                 Surface(
                     onClick = {
                         haptics.performSegmentTick()
@@ -481,6 +657,7 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                     shape = CircleShape,
                     color = scheme.surfaceBright,
                     contentColor = scheme.onSurface,
+                    modifier = Modifier.handPointer(),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -499,8 +676,26 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                 }
             }
         }
+        AnimatedVisibility(
+            visible = set == AiChartSet.Search,
+            enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+            exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        ) {
+            Text(
+                text = stringResource(R.string.ai_search_chart_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+            )
+        }
     }
 }
+
+/** The chart's plot in a canvas of [size]: room for the y values on the left and the x axis below. */
+private fun Density.chartPlot(size: Size): Rect =
+    Rect(left = 52.dp.toPx(), top = 8.dp.toPx(), right = size.width - 8.dp.toPx(), bottom = size.height - 34.dp.toPx())
 
 private fun DrawScope.drawEnd(
     measurer: androidx.compose.ui.text.TextMeasurer,
@@ -508,19 +703,23 @@ private fun DrawScope.drawEnd(
     style: TextStyle,
     anchor: Offset,
     alignEnd: Boolean,
+    alpha: Float = 1f,
 ) {
+    if (alpha <= 0.001f) return
     val layout = measurer.measure(text, style)
-    drawText(layout, topLeft = Offset(if (alignEnd) anchor.x - layout.size.width else anchor.x, anchor.y))
+    drawText(layout, topLeft = Offset(if (alignEnd) anchor.x - layout.size.width else anchor.x, anchor.y), alpha = alpha)
 }
 
-/** The value printed at an axis end: [worst] is the origin side. */
-private fun axisValue(axis: AiAxis, worst: Boolean): String {
+/** The value printed at an axis end in [set]: [worst] is the origin side. */
+internal fun axisValue(axis: AiAxis, set: AiChartSet, worst: Boolean): String {
     val atMin = axis.higherIsBetter == worst
-    val v = if (atMin) axis.min else axis.max
+    val range = set.range(axis)
+    val v = if (atMin) range.start else range.endInclusive
     return when (axis) {
         AiAxis.Speed -> "${trimNumber(v)}s"
         AiAxis.Cost -> "$${trimNumber(v)}"
         AiAxis.Accuracy -> "${trimNumber(v)}%"
+        AiAxis.Overall -> trimNumber(v)
     }
 }
 
@@ -529,14 +728,23 @@ internal fun trimNumber(v: Float): String =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Legend(dark: Boolean, modifier: Modifier = Modifier) {
+private fun Legend(set: AiChartSet, dark: Boolean, modifier: Modifier = Modifier) {
+    val outline = MaterialTheme.colorScheme.outline
+    val entries: List<Pair<String, Color>> = when (set) {
+        AiChartSet.Tiers -> listOf(AiProvider.Gemini, AiProvider.DeepSeek, AiProvider.Qwen).map {
+            providerName(it) to providerColor(it, dark)
+        }
+        AiChartSet.Search -> AiSearchBenchmark.points.map {
+            searchServiceName(it.service) to searchServiceColor(it.service, dark, outline)
+        }
+    }
     FlowRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf(AiProvider.Gemini, AiProvider.DeepSeek, AiProvider.Qwen).forEach { provider ->
+        entries.forEach { (name, color) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Canvas(Modifier.size(8.dp)) { drawCircle(providerColor(provider, dark)) }
+                Canvas(Modifier.size(8.dp)) { drawCircle(color) }
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    providerName(provider),
+                    name,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -580,14 +788,14 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
             },
             label = stringResource(R.string.ai_custom_url),
             placeholder = if (prefs.customFormat == AiApiFormat.OpenAi) "https://api.openai.com/v1" else "https://api.anthropic.com",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         SecretTextField(
             value = prefs.customKey,
             onValueChange = { actions.setKey(AiProvider.Custom, it) },
             label = stringResource(R.string.ai_key_label),
             placeholder = "sk-…",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         // The model field and the rows that come and go under it. They bring their own gaps, so a
         // row opening or closing moves what is below it the whole way, with no jump at either end.
@@ -613,11 +821,13 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             enabled = !state.models.loading &&
                                 prefs.customBaseUrl.isNotBlank() &&
                                 prefs.customKey.isNotBlank(),
-                            modifier = Modifier.requiredHeight(40.dp),
+                            modifier = Modifier.requiredHeight(40.dp).handPointer(enabled = !state.models.loading &&
+                                prefs.customBaseUrl.isNotBlank() &&
+                                prefs.customKey.isNotBlank()),
                         ) { Text(stringResource(R.string.ai_custom_pull)) }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
             )
             val chips = modelChips(state.models.ids, model)
             Column(modifier = Modifier.fillMaxWidth().animateContentSize(YoinMotion.spatialSpring())) {
@@ -684,23 +894,10 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
             }
         }
         Spacer(Modifier.height(4.dp))
-        SectionLabel(stringResource(R.string.ai_search_label))
         Column {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                AiSearchService.entries.forEach { service ->
-                    ChoiceChip(
-                        text = searchServiceName(service),
-                        selected = prefs.searchService == service,
-                        onClick = {
-                            haptics.performSegmentTick()
-                            actions.setSearchService(service)
-                        },
-                    )
-                }
-            }
+            // Six services: a value row and its menu, as the answer language is (a chip row no
+            // longer fits a phone).
+            SearchServiceRow(service = prefs.searchService, onPick = actions::setSearchService)
             val searchOn = prefs.searchService != AiSearchService.None
             // Keep the last service's field on screen while it folds away for 「不搜索」.
             var keyService by remember { mutableStateOf(prefs.searchService) }
@@ -722,11 +919,11 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             onValueChange = { actions.setSearchKey(keyService, it) },
                             label = stringResource(R.string.ai_search_key, name),
                             placeholder = "",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                     }
-                    TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
-                        Text(stringResource(R.string.ai_get_search_key, name))
+                    TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }, modifier = Modifier.handPointer()) {
+                        Text(searchKeyLink(keyService))
                         Spacer(Modifier.width(4.dp))
                         Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -754,44 +951,102 @@ private fun searchServiceName(service: AiSearchService): String = when (service)
     AiSearchService.DeepSeek -> stringResource(R.string.ai_provider_deepseek)
     AiSearchService.Exa -> "Exa"
     AiSearchService.Tavily -> "Tavily"
+    AiSearchService.Brave -> "Brave"
+    AiSearchService.Doubao -> stringResource(R.string.ai_search_doubao)
     AiSearchService.None -> stringResource(R.string.ai_search_none)
+}
+
+/** Custom's search service: a value row (the service on the right) opening a menu of all of them. */
+@Composable
+private fun SearchServiceRow(service: AiSearchService, onPick: (AiSearchService) -> Unit) {
+    val haptics = rememberYoinHaptics()
+    var open by remember { mutableStateOf(false) }
+    SettingsSegments {
+        item {
+            Box {
+                SettingsItem(
+                    icon = YoinSymbols.Search,
+                    title = stringResource(R.string.ai_search_label),
+                    onClick = { open = true },
+                    trailing = {
+                        Text(
+                            text = searchServiceName(service),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    },
+                )
+                YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    AiSearchService.entries.forEach { option ->
+                        YoinDropdownMenuItem(
+                            text = searchServiceName(option),
+                            onClick = {
+                                haptics.performContextClick()
+                                open = false
+                                onPick(option)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "Get a … key", one string per service: English's article follows the name (an Exa key). */
+@Composable
+private fun searchKeyLink(service: AiSearchService): String = when (service) {
+    AiSearchService.DeepSeek -> stringResource(R.string.ai_get_search_key_deepseek)
+    AiSearchService.Exa -> stringResource(R.string.ai_get_search_key_exa)
+    AiSearchService.Tavily -> stringResource(R.string.ai_get_search_key_tavily)
+    AiSearchService.Brave -> stringResource(R.string.ai_get_search_key_brave)
+    AiSearchService.Doubao -> stringResource(R.string.ai_get_search_key_doubao)
+    AiSearchService.None -> ""
 }
 
 private fun searchKeyUrl(service: AiSearchService): String = when (service) {
     AiSearchService.DeepSeek -> "https://platform.deepseek.com/api_keys"
     AiSearchService.Exa -> "https://dashboard.exa.ai/api-keys"
     AiSearchService.Tavily -> "https://app.tavily.com/home"
+    AiSearchService.Brave -> "https://api-dashboard.search.brave.com/app/keys"
+    AiSearchService.Doubao -> "https://console.volcengine.com/search-infinity/api-key"
     AiSearchService.None -> ""
 }
 
+/** The answer language: a value row (the language on the right) opening the same menu. */
 @Composable
-private fun LanguageButton(language: String, onPick: (String) -> Unit) {
+private fun LanguageRow(language: String, onPick: (String) -> Unit) {
     val haptics = rememberYoinHaptics()
     var open by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(
-            onClick = {
-                haptics.performTick()
-                open = true
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                stringResource(R.string.settings_gemini_answer_in, language),
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Start,
-            )
-        }
-        YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
-                YoinDropdownMenuItem(
-                    text = option,
-                    onClick = {
-                        haptics.performContextClick()
-                        open = false
-                        onPick(option)
+    SettingsSegments {
+        item {
+            Box {
+                SettingsItem(
+                    icon = YoinSymbols.Translate,
+                    title = stringResource(R.string.ai_answer_language),
+                    onClick = { open = true },
+                    trailing = {
+                        Text(
+                            text = language,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     },
                 )
+                YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
+                        YoinDropdownMenuItem(
+                            text = option,
+                            onClick = {
+                                haptics.performContextClick()
+                                open = false
+                                onPick(option)
+                            },
+                        )
+                    }
+                }
             }
         }
     }

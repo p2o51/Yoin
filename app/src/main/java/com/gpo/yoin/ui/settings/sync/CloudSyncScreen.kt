@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.sync
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.SeamTop
 import android.app.Activity
@@ -560,7 +561,7 @@ private fun OffContent(
                     OutlinedButton(
                         onClick = onTurnOn,
                         enabled = !turningOn,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().handPointer(enabled = !turningOn),
                     ) {
                         Text(
                             stringResource(
@@ -591,7 +592,8 @@ private fun TurnOnBlock(turningOn: Boolean, onTurnOn: () -> Unit) {
             enabled = !turningOn,
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("cloud_sync_turn_on"),
+                .testTag("cloud_sync_turn_on")
+                .handPointer(enabled = !turningOn),
         ) {
             Text(
                 stringResource(
@@ -654,6 +656,7 @@ private fun BuildDetailsRow(
                     }
                 }
             },
+            modifier = Modifier.handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.Copy,
@@ -704,6 +707,7 @@ private fun OnContent(
                                 onTurnOn()
                             },
                             enabled = !turningOn,
+                            modifier = Modifier.handPointer(enabled = !turningOn),
                         ) {
                             Text(stringResource(R.string.settings_sync_reconnect))
                         }
@@ -737,12 +741,14 @@ private fun OnContent(
                                 haptics.performConfirm()
                                 onUploadAgain()
                             },
+                            modifier = Modifier.handPointer(),
                         ) { Text(stringResource(R.string.settings_sync_upload_again)) }
                         OutlinedButton(
                             onClick = {
                                 haptics.performClick()
                                 onTurnOff()
                             },
+                            modifier = Modifier.handPointer(),
                         ) { Text(stringResource(R.string.settings_sync_turn_off_short)) }
                     }
                 }
@@ -928,6 +934,7 @@ private fun StatusRow(state: CloudSyncState, now: Long, onSyncNow: () -> Unit) {
                 onSyncNow()
             },
             enabled = state.phase != CloudSyncPhase.Syncing,
+            modifier = Modifier.handPointer(enabled = state.phase != CloudSyncPhase.Syncing),
         ) {
             Icon(
                 imageVector = YoinSymbols.Refresh,
@@ -1017,6 +1024,7 @@ private fun AccountRow(
                                 haptics.performConfirm()
                                 onStartSyncing(account.localProfileId)
                             },
+                            modifier = Modifier.handPointer(),
                         ) { Text(stringResource(R.string.settings_sync_start_syncing)) }
                         LinkButton(
                             candidates = status.linkCandidates,
@@ -1029,12 +1037,14 @@ private fun AccountRow(
                                 haptics.performConfirm()
                                 onKeepAsBefore(account.localProfileId)
                             },
+                            modifier = Modifier.handPointer(),
                         ) { Text(stringResource(R.string.settings_sync_keep_before)) }
                         OutlinedButton(
                             onClick = {
                                 haptics.performClick()
                                 onRequestStartFresh(account.localProfileId)
                             },
+                            modifier = Modifier.handPointer(),
                         ) { Text(stringResource(R.string.settings_sync_start_fresh)) }
                     }
                 }
@@ -1055,6 +1065,7 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
                 haptics.performConfirm()
                 onLink(single)
             },
+            modifier = Modifier.handPointer(),
         ) { Text(stringResource(R.string.settings_sync_link_to, linkLabel(single))) }
         return
     }
@@ -1065,6 +1076,7 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
                 haptics.performTick()
                 menuOpen = true
             },
+            modifier = Modifier.handPointer(),
         ) { Text(stringResource(R.string.settings_sync_link_menu)) }
         YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             candidates.forEach { candidate ->
@@ -1139,6 +1151,7 @@ private fun CloudAccountItem(
                                 menuOpen = true
                             }
                         },
+                        modifier = Modifier.handPointer(),
                     ) { Text(stringResource(R.string.settings_sync_link)) }
                     YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         linkTargets.forEach { local ->
@@ -1158,6 +1171,7 @@ private fun CloudAccountItem(
                         haptics.performClick()
                         onAdd(service)
                     },
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.settings_sync_add)) }
             }
         },
@@ -1195,6 +1209,7 @@ private fun DeviceItem(device: SyncDeviceRow, now: Long, onRequestRemove: (Strin
                             haptics.performTick()
                             menuOpen = true
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
@@ -1299,7 +1314,7 @@ private fun DestructiveItem(
         enabled = enabled,
         shape = LocalSettingsRowShape.current,
         color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().handPointer(enabled = enabled),
     ) {
         Row(
             modifier = Modifier
@@ -1377,6 +1392,7 @@ private fun ReviewDialog(
                     haptics.performConfirm()
                     onResolve(true)
                 },
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_sync_review_restore)) }
         },
         dismissButton = {
@@ -1386,6 +1402,7 @@ private fun ReviewDialog(
                     onResolve(false)
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_sync_review_delete_all)) }
         },
     )
@@ -1405,10 +1422,11 @@ private fun DeleteCloudDataDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) 
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_sync_delete_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_delete_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_sync_delete_cancel)) }
         },
     )
 }
@@ -1427,10 +1445,11 @@ private fun StartFreshDialog(account: SyncAccountRow, onDismiss: () -> Unit, onC
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_sync_fresh_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_fresh_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_sync_fresh_cancel)) }
         },
     )
 }
@@ -1449,10 +1468,11 @@ private fun RemoveDeviceDialog(device: SyncDeviceRow, onDismiss: () -> Unit, onC
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_sync_remove_device_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_remove_device_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_sync_remove_device_cancel)) }
         },
     )
 }

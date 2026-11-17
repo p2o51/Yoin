@@ -30,7 +30,7 @@ fun TrackLibraryButton(
     IconButton(
         onClick = onClick,
         enabled = !isWorking && membership != LibraryMembership.Added,
-        modifier = modifier,
+        modifier = modifier.handPointer(enabled = !isWorking && membership != LibraryMembership.Added),
     ) {
         AnimatedContent(
             targetState = isWorking to membership,

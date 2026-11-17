@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -77,8 +78,20 @@ fun AboutFullscreenPane(
     contentBottomPadding: androidx.compose.ui.unit.Dp = 96.dp,
 ) {
     val context = LocalContext.current
+    // Credits / server facts already in hand: show them while Gemini is
+    // still to come or loading (the tab row carries the wait), instead of a
+    // blank page or a lone spinner. Same content key as Ready, so Gemini's
+    // rows join in place rather than cross-fading the page.
+    val hasSourceRows = rememberAboutHasSourceRows(credits, facts)
+    val shownState = if (
+        hasSourceRows && (aboutUiState is AboutUiState.Idle || aboutUiState is AboutUiState.Loading)
+    ) {
+        AboutUiState.Ready(emptyList())
+    } else {
+        aboutUiState
+    }
     AnimatedContent(
-        targetState = aboutUiState,
+        targetState = shownState,
         transitionSpec = {
             YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
@@ -118,6 +131,7 @@ fun AboutFullscreenPane(
                 )
                 TextButton(
                     onClick = { context.startActivity(SettingsActivity.intent(context)) },
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.np_about_open_settings)) }
             }
             is AboutUiState.Error -> Column(
@@ -132,7 +146,7 @@ fun AboutFullscreenPane(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = onRetryCanonical) { Text(stringResource(R.string.np_about_retry)) }
+                TextButton(onClick = onRetryCanonical, modifier = Modifier.handPointer()) { Text(stringResource(R.string.np_about_retry)) }
             }
             is AboutUiState.Ready -> ReadyContent(
                 entries = state.entries,

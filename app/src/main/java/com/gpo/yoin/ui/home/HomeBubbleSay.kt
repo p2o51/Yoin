@@ -46,8 +46,12 @@ internal enum class HomeBubbleTip(
     private val symbol: () -> ImageVector,
     private val minSdk: Int = 0,
 ) {
+    KeyboardShortcuts(R.string.home_tip_keyboard_shortcuts_title, R.string.home_tip_keyboard_shortcuts, day(2026, 11, 13), { YoinSymbols.Keyboard }),
+    VolumeLeveling(R.string.home_tip_volume_leveling_title, R.string.home_tip_volume_leveling, day(2026, 11, 13), { YoinSymbols.VolumeUp }),
+    HomeScreenWidgets(R.string.home_tip_widgets_title, R.string.home_tip_widgets, day(2026, 11, 13), { YoinSymbols.Library }),
+    LibraryRefresh(R.string.home_tip_library_refresh_title, R.string.home_tip_library_refresh, day(2026, 11, 13), { YoinSymbols.Refresh }),
     MemoryLedger(R.string.home_tip_memory_ledger_title, R.string.home_tip_memory_ledger, day(2026, 11, 12), { YoinSymbols.Memory }),
-    AiServices(R.string.home_tip_ai_services_title, R.string.home_tip_ai_services, day(2026, 11, 12), { YoinSymbols.Sparkle }),
+    AiServices(R.string.home_tip_ai_services_title, R.string.home_tip_ai_services, day(2026, 11, 13), { YoinSymbols.Sparkle }),
     Labs(R.string.home_tip_labs_title, R.string.home_tip_labs, day(2026, 11, 12), { YoinSymbols.Insights }),
     SpotifyElsewhere(R.string.home_tip_spotify_elsewhere_title, R.string.home_tip_spotify_elsewhere, day(2026, 11, 10), { YoinSymbols.MusicNote }),
     SettingsRegrouped(R.string.home_tip_settings_regrouped_title, R.string.home_tip_settings_regrouped, day(2026, 11, 9), { YoinSymbols.Settings }),

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.audioFormatTags
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -140,10 +141,12 @@ internal class TrackMenuQuickAction(
  * bottom sheet, not a dropdown): the song (cover, title, artist), then a top
  * row of one-tap actions on the song — Play next / Add to queue / Favorite /
  * Share (owner 2026-11-03) — then Add to playlist, then Go to album / View in
- * Scrapbook / Go to artist / Open in …, then [playerSection] when the host has
- * player settings (Now Playing's Keep screen on). The queue actions are the
- * detail ▾ rows for one song ([rememberDetailMenu], so the provider rules and
- * the snackbar lines are the same).
+ * Scrapbook / Go to artist / Open in …, then Remove from playlist on a
+ * playlist page whose playlist the account can edit ([onRemoveFromPlaylist]),
+ * then [playerSection] when the host has player settings (Now Playing's Keep
+ * screen on). The queue actions are the detail ▾ rows for one song
+ * ([rememberDetailMenu], so the provider rules and the snackbar lines are the
+ * same).
  *
  * [nowPlaying]: the sheet is about the song that is playing (the mini player's
  * and the Now Playing cover's long-press). Queueing it again makes no sense, so
@@ -163,6 +166,8 @@ internal fun TrackMenuSheet(
     onDismissRequest: () -> Unit,
     host: TrackMenuHost,
     nowPlaying: Boolean = false,
+    // The playlist page's own: takes this row's entry out of its playlist. Null leaves the row out.
+    onRemoveFromPlaylist: (() -> Unit)? = null,
     playerSection: (@Composable () -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
@@ -330,6 +335,12 @@ internal fun TrackMenuSheet(
         ).toTypedArray(),
         menu.onOpenIn?.let { open -> menu.openInLabel?.let { TrackMenuRow(it, YoinSymbols.Launch, open) } },
     )
+    // Last and on its own: the one row that takes something away.
+    val editRows = listOfNotNull(
+        onRemoveFromPlaylist?.let {
+            TrackMenuRow(stringResource(R.string.track_menu_remove_from_playlist), YoinSymbols.Delete, it)
+        },
+    )
 
     YoinModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -355,7 +366,7 @@ internal fun TrackMenuSheet(
                     close()
                 }
             },
-            groups = listOf(folded + playlistRows, goRows),
+            groups = listOf(folded + playlistRows, goRows, editRows),
             onRowClick = { row ->
                 haptics.performContextClick()
                 row.onClick()
@@ -502,7 +513,8 @@ private fun TrackMenuQuickRow(actions: List<TrackMenuQuickAction>, onClick: (Tra
                         modifier = Modifier
                             .weight(1f)
                             .animateWidth(interaction)
-                            .heightIn(min = TrackMenuQuickHeight),
+                            .heightIn(min = TrackMenuQuickHeight)
+                            .handPointer(),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
@@ -571,7 +583,7 @@ internal fun TrackMenuRowItem(
         onClick = onClick,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
     ) {
         TrackMenuRowContent(label = label, icon = icon)
     }
@@ -617,6 +629,7 @@ internal fun TrackMenuToggleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
+            .handPointer()
             .toggleable(
                 value = checked,
                 role = Role.Switch,
@@ -627,7 +640,7 @@ internal fun TrackMenuToggleRow(
             ),
     ) {
         TrackMenuRowContent(label = label, icon = icon) {
-            Switch(checked = checked, onCheckedChange = null)
+            Switch(checked = checked, onCheckedChange = null, modifier = Modifier.handPointer())
         }
     }
 }

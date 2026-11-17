@@ -19,7 +19,15 @@ import androidx.compose.ui.unit.dp
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -27,12 +35,13 @@ import androidx.compose.ui.layout.layout
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
+/** A clickable without a ripple; a mouse or trackpad pointer over it is the hand ([handPointer]). */
 internal fun Modifier.noRippleClickable(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
     onClickLabel: String? = null,
     onClick: () -> Unit,
-): Modifier = clickable(
+): Modifier = handPointer(enabled).clickable(
     interactionSource = interactionSource,
     indication = null,
     enabled = enabled,
@@ -42,15 +51,20 @@ internal fun Modifier.noRippleClickable(
 
 /**
  * Animated press feedback using standard spring physics (no overshoot)
- * to avoid layout shape edge clipping.
+ * to avoid layout shape edge clipping. Under a mouse, trackpad or stylus
+ * pointer the content also lifts a little toward it ([HoverLiftScale], as
+ * iPad's `.hoverEffect(.lift)`), on the same spring. The clickable that
+ * shares [interactionSource] reports the hover; a finger never hovers, so
+ * touch looks exactly as before.
  */
 internal fun Modifier.elasticPress(
     interactionSource: InteractionSource,
     pressedScale: Float = 0.97f,
 ): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isHovered by interactionSource.collectIsHoveredAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) pressedScale else 1f,
+        targetValue = pressHoverScale(pressed = isPressed, hovered = isHovered, pressedScale = pressedScale),
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "elasticPressScale",
     )
@@ -59,6 +73,88 @@ internal fun Modifier.elasticPress(
         scaleY = scale
     }
 }
+
+/** How far a card lifts under a hovering pointer: quiet, a third of the press. */
+internal const val HoverLiftScale = 1.01f
+
+/** The alpha of the hover wash a control without a ripple draws, M3's hover state layer. */
+internal const val HoverHighlightAlpha = 0.08f
+
+/** [elasticPress]'s resting scale: a press wins over a hover. */
+internal fun pressHoverScale(pressed: Boolean, hovered: Boolean, pressedScale: Float): Float = when {
+    pressed -> pressedScale
+    hovered -> HoverLiftScale
+    else -> 1f
+}
+
+/**
+ * Hover feedback for a control that draws no ripple (its clickable passes
+ * `indication = null`): under a mouse, trackpad or stylus pointer a wash of
+ * [color] at [HoverHighlightAlpha] fades in over it in [shape], on the effects
+ * spring, the way M3's hover state layer does on the buttons beside it. A
+ * finger never hovers, so touch looks exactly as before.
+ */
+internal fun Modifier.hoverHighlight(
+    interactionSource: InteractionSource,
+    shape: Shape,
+    color: Color,
+): Modifier = composed {
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val wash by animateFloatAsState(
+        targetValue = if (isHovered) HoverHighlightAlpha else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "hoverHighlight",
+    )
+    drawWithContent {
+        drawContent()
+        if (wash > 0f) {
+            drawOutline(
+                outline = shape.createOutline(size, layoutDirection, this),
+                color = color.copy(alpha = color.alpha * wash),
+            )
+        }
+    }
+}
+
+/**
+ * The hand pointer over something a click acts on (owner 2026-11-13), the
+ * way a desktop shows a link or a button. Only a mouse, trackpad or stylus
+ * shows a pointer, so touch is unchanged. Put it next to the control's
+ * clickable, with the same [enabled]: a control that can't be clicked keeps
+ * the arrow.
+ */
+internal fun Modifier.handPointer(enabled: Boolean = true): Modifier =
+    if (enabled) pointerHoverIcon(PointerIcon.Hand) else this
+
+/**
+ * The pointer's preview of a press for a control whose clickable draws no
+ * ripple (`indication = null`): the hand pointer and the hover wash
+ * ([hoverHighlight]) M3's hover state layer gives the controls that do. Pass
+ * the clickable's [interactionSource]. [shape] is the wash's outline; the
+ * default fills the bounds, for a chain that clips before it. [color] defaults
+ * to the content color. A control that already lifts under the pointer
+ * ([elasticPress]) needs only [handPointer].
+ */
+internal fun Modifier.pointerPressPreview(
+    interactionSource: InteractionSource,
+    shape: Shape = RectangleShape,
+    color: Color = Color.Unspecified,
+    enabled: Boolean = true,
+): Modifier = composed {
+    val wash = color.takeOrElse { LocalContentColor.current }
+    handPointer(enabled).then(if (enabled) Modifier.hoverHighlight(interactionSource, shape, wash) else Modifier)
+}
+
+/** The pointer over a handle that drags sideways, such as the column divider. */
+internal val HorizontalResizePointer: PointerIcon =
+    PointerIcon(android.view.PointerIcon.TYPE_HORIZONTAL_DOUBLE_ARROW)
+
+/** The pointer over a handle that drags up and down, such as Home's rows handle. */
+internal val VerticalResizePointer: PointerIcon =
+    PointerIcon(android.view.PointerIcon.TYPE_VERTICAL_DOUBLE_ARROW)
+
+/** The pointer over a handle that picks something up to move it, such as a queue row's grip. */
+internal val GrabPointer: PointerIcon = PointerIcon(android.view.PointerIcon.TYPE_GRAB)
 
 internal fun Modifier.minimumTouchTarget(
     minSize: Dp = 44.dp,

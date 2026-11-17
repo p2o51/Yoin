@@ -342,6 +342,7 @@ private fun NoteSortOption(
         modifier = Modifier
             .clip(YoinShapeTokens.Full)
             .background(container)
+            .pointerPressPreview(interaction)
             .noRippleClickable(interactionSource = interaction, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
@@ -634,6 +635,7 @@ fun NoteWriteBar(
             }
             // Over the aurora: a light veil, not another solid grey block.
             .background(scheme.surfaceContainerHigh.copy(alpha = 0.92f))
+            .pointerPressPreview(cardInteraction, enabled = !open)
             .noRippleClickable(
                 interactionSource = cardInteraction,
                 enabled = !open,
@@ -744,6 +746,7 @@ private fun NoteStampChip(
             .height(36.dp)
             .clip(YoinShapeTokens.Full)
             .background(scheme.primary.copy(alpha = 0.12f))
+            .pointerPressPreview(interaction)
             .noRippleClickable(
                 interactionSource = interaction,
                 onClickLabel = if (open) realignLabel else writeLabel,
@@ -859,7 +862,7 @@ internal fun JournalSavePill(
     val interaction = remember { MutableInteractionSource() }
     Surface(
         modifier = if (onClick != null) {
-            modifier.noRippleClickable(
+            modifier.pointerPressPreview(interaction, enabled = enabled).noRippleClickable(
                 interactionSource = interaction,
                 enabled = enabled,
                 onClick = onClick,

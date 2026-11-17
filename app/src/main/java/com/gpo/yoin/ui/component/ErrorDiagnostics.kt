@@ -117,7 +117,7 @@ fun CopyDiagnosticsButton(
                 copied = true
             }
         },
-        modifier = modifier,
+        modifier = modifier.handPointer(),
     ) {
         Crossfade(targetState = copied, animationSpec = YoinMotion.fastEffectsSpec(), label = "diagnosticsCopied") {
             Text(stringResource(if (it) R.string.cmp_error_details_copied else R.string.cmp_error_copy_details))

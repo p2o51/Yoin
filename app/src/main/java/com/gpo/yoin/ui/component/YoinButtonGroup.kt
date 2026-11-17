@@ -420,7 +420,8 @@ fun YoinButtonGroup(
                             .width(g.homeWidth)
                             .fillMaxHeight()
                             .graphicsLayer { alpha = navAlpha }
-                            .barEditLeftSlotSemantics(editing, editLeftSlot),
+                            .barEditLeftSlotSemantics(editing, editLeftSlot)
+                            .handPointer(),
                         interactionSource = homeInteraction,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = editHomeContainer,
@@ -747,10 +748,18 @@ private fun LibraryButton(
     val libraryDescription = stringResource(R.string.cmp_bar_cd_library)
     val doneLabel = stringResource(R.string.cmp_bar_label_done)
     val doneDescription = stringResource(R.string.cmp_bar_cd_done)
+    val shape = rememberBarEditPressShape(
+        rest = MaterialTheme.shapes.extraLarge,
+        interactionSource = interactionSource,
+        active = editing,
+    )
     Surface(
         modifier = modifier
             .width(width)
             .fillMaxHeight()
+            // No ripple here, so the hover wash Home's button gets from its own.
+            .hoverHighlight(interactionSource, shape, contentColor)
+            .handPointer()
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -758,11 +767,7 @@ private fun LibraryButton(
                 onLongClick = onLongClick,
             )
             .then(if (editing) Modifier.semantics { contentDescription = doneDescription } else Modifier),
-        shape = rememberBarEditPressShape(
-            rest = MaterialTheme.shapes.extraLarge,
-            interactionSource = interactionSource,
-            active = editing,
-        ),
+        shape = shape,
         color = containerColor,
         contentColor = contentColor,
         tonalElevation = 0.dp,
@@ -1051,7 +1056,7 @@ private fun BarEditLeftSlotLayersPreview() {
 private fun BarExtraButton(action: BarExtraAction, size: Dp, onClick: () -> Unit) {
     FilledTonalIconButton(
         onClick = onClick,
-        modifier = Modifier.size(size),
+        modifier = Modifier.size(size).handPointer(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1092,13 +1097,13 @@ internal fun LibrarySearchShortcutHint(
             modifier = Modifier.size(48.dp),
             contentAlignment = Alignment.Center,
         ) {
+            // Flat, no shadow (owner 2026-11-13): the inverse surface sets it apart from the
+            // page instead, as YoinSnackbar does (about 18:1 against surface, light and dark).
             Surface(
                 modifier = Modifier.size(46.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = MaterialTheme.colorScheme.primary,
-                tonalElevation = 8.dp,
-                shadowElevation = 16.dp,
+                color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inversePrimary,
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),

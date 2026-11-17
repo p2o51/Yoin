@@ -25,21 +25,37 @@ import com.gpo.yoin.ui.theme.YoinTheme
 @Composable
 internal fun VolumeLevelingPageContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val haptics = rememberYoinHaptics()
     val settings by ReplayGainPreference.observe(context).collectAsState()
+    VolumeLevelingPageBody(
+        mode = settings.mode,
+        onModeChange = { ReplayGainPreference.setMode(context, it) },
+        modifier = modifier,
+    )
+}
+
+/** The page itself, stateless, so the Tips demo can show the real thing. */
+@Composable
+internal fun VolumeLevelingPageBody(
+    mode: ReplayGainMode,
+    onModeChange: (ReplayGainMode) -> Unit,
+    modifier: Modifier = Modifier,
+    rowModifier: (ReplayGainMode) -> Modifier = { Modifier },
+) {
+    val haptics = rememberYoinHaptics()
     SettingsSegments(modifier = modifier) {
-        ReplayGainMode.entries.forEach { mode ->
-            item(key = mode) {
+        ReplayGainMode.entries.forEach { option ->
+            item(key = option) {
                 QualityRow(
-                    label = replayGainModeLabel(mode),
+                    label = replayGainModeLabel(option),
                     detail = null,
-                    selected = mode == settings.mode,
+                    selected = option == mode,
                     onClick = {
-                        if (mode != settings.mode) {
+                        if (option != mode) {
                             haptics.performContextClick()
-                            ReplayGainPreference.setMode(context, mode)
+                            onModeChange(option)
                         }
                     },
+                    modifier = rowModifier(option),
                 )
             }
         }

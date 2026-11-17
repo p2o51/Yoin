@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -97,6 +98,7 @@ private fun StyleCard(
         modifier = Modifier
             .fillMaxWidth()
             .semantics { this.selected = selected }
+            .handPointer()
             .clickable(role = Role.RadioButton, onClick = onClick),
     ) {
         Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp)) {
@@ -116,7 +118,7 @@ private fun StyleCard(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.padding(top = 8.dp, end = 8.dp),
             ) {
-                RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(start = 2.dp))
+                RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(start = 2.dp).handPointer())
                 Text(
                     text = stringResource(style.nameRes),
                     style = MaterialTheme.typography.titleMedium,

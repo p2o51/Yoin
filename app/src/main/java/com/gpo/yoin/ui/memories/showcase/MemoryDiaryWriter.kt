@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
@@ -169,6 +170,7 @@ internal fun MemoryDiaryEntry(
             .then(
                 if (enabled && blank && !writing) {
                     Modifier
+                        .pointerPressPreview(interaction)
                         .noRippleClickable(
                             interactionSource = interaction,
                             onClickLabel = writeReviewAction,
@@ -262,6 +264,7 @@ internal fun MemoryDiaryEntry(
                 Box(
                     modifier = Modifier
                         .height(DiaryWriterTokens.RowHit)
+                        .pointerPressPreview(cancelInteraction)
                         .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = discardDraft) {
                             text = ""
                             writing = false
@@ -281,6 +284,7 @@ internal fun MemoryDiaryEntry(
                 Box(
                     modifier = Modifier
                         .height(DiaryWriterTokens.RowHit)
+                        .pointerPressPreview(saveInteraction)
                         .noRippleClickable(interactionSource = saveInteraction, onClickLabel = saveReview) {
                             val words = text.trim()
                             if (words.isEmpty()) {

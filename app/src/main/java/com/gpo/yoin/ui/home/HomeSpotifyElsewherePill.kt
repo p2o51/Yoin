@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -117,6 +118,7 @@ internal fun HomeSpotifyElsewherePill(
                 .widthIn(max = 220.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .handPointer()
                 .clickable(role = Role.Button) {
                     haptics.performContextClick()
                     onClick(item)

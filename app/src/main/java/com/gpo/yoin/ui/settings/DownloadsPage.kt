@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +39,8 @@ import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.data.offline.OfflineEntry
 import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
@@ -97,7 +101,7 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
                         haptics.performContextClick()
                         downloads.settingsStore.setOverMobileData(!settings.overMobileData)
                     },
-                    trailing = { Switch(checked = settings.overMobileData, onCheckedChange = null) },
+                    trailing = { Switch(checked = settings.overMobileData, onCheckedChange = null, modifier = Modifier.handPointer()) },
                 )
             }
         }
@@ -147,10 +151,11 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
                         downloads.removeAll()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.settings_downloads_remove_all_confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmRemoveAll = false }) {
+                TextButton(onClick = { confirmRemoveAll = false }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.settings_downloads_cancel))
                 }
             },
@@ -168,14 +173,11 @@ private fun DownloadEntryRow(entry: OfflineEntry, downloads: OfflineDownloads) {
         OfflineCollection.Kind.Playlist -> YoinSymbols.Playlist
         OfflineCollection.Kind.Song -> YoinSymbols.MusicNote
     }
+    // Progress or trouble in place of the count, on its own line: a narrow row keeps it whole.
     val status = when (val s = entry.status) {
         is OfflineStatus.Downloading -> stringResource(R.string.settings_downloads_entry_progress, s.done, s.total)
         OfflineStatus.Failed -> stringResource(R.string.settings_downloads_entry_failed)
-        else -> stringResource(
-            R.string.settings_downloads_entry_songs,
-            entry.total,
-            formatBytes(entry.bytes, context.resources),
-        )
+        else -> null
     }
     val open: (() -> Unit)? = when (collection.kind) {
         OfflineCollection.Kind.Album -> ({ context.startActivity(AlbumDetailActivity.intent(context, collection.id)) })
@@ -185,7 +187,39 @@ private fun DownloadEntryRow(entry: OfflineEntry, downloads: OfflineDownloads) {
     SettingsItem(
         icon = icon,
         title = collection.title,
-        summary = listOfNotNull(collection.subtitle?.takeIf(String::isNotBlank), status).joinToString(" · "),
+        // The artist, then the count and size as a song row has them (MetaLine): no glyph between.
+        summaryContent = {
+            collection.subtitle?.takeIf(String::isNotBlank)?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (status != null) {
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                MetaLine(
+                    groups = listOf(
+                        MetaGroup.Stat(
+                            entry.total.toString(),
+                            pluralStringResource(R.plurals.detail_unit_song, entry.total),
+                        ),
+                        MetaGroup.Stat(formatBytes(entry.bytes, context.resources)),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
         onClick = open,
         trailing = {
             IconButton(
@@ -193,6 +227,7 @@ private fun DownloadEntryRow(entry: OfflineEntry, downloads: OfflineDownloads) {
                     haptics.performReject()
                     downloads.removeLater(collection.key) {}
                 },
+                modifier = Modifier.handPointer(),
             ) {
                 Icon(YoinSymbols.Close, contentDescription = stringResource(R.string.settings_downloads_entry_remove))
             }
@@ -205,13 +240,14 @@ private fun ChoiceRow(label: String, detail: String?, selected: Boolean, onClick
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .handPointer()
             .clickable(role = Role.RadioButton, onClick = onClick)
             .heightIn(min = SettingsRowMinHeight)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(SettingsRowIconGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp).handPointer())
         Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             if (detail != null) {
@@ -233,15 +269,20 @@ internal fun downloadQualityLabel(quality: DownloadQuality): String = when (val 
     else -> stringResource(R.string.settings_stream_quality_kbps, kbps)
 }
 
-/** The Storage row's summary: the quality, and what the downloads take. */
+/** The Downloads row's summary: the quality. */
 @Composable
 internal fun downloadsSummary(downloads: OfflineDownloads): String {
     val settings by downloads.settingsStore.settings.collectAsState()
+    return downloadQualityLabel(settings.quality)
+}
+
+/** The Downloads row's second line: what the downloads take on this device. */
+@Composable
+internal fun downloadsSummaryDetail(downloads: OfflineDownloads): String {
     val bytes by downloads.downloadBytes.collectAsState()
-    val quality = downloadQualityLabel(settings.quality)
     return if (bytes <= 0L) {
-        stringResource(R.string.settings_downloads_summary_empty, quality)
+        stringResource(R.string.settings_downloads_list_empty)
     } else {
-        stringResource(R.string.settings_downloads_summary, quality, formatBytes(bytes, LocalContext.current.resources))
+        stringResource(R.string.settings_downloads_summary, formatBytes(bytes, LocalContext.current.resources))
     }
 }

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -80,13 +81,22 @@ fun SongListItem(
     // pointerInput over an already-clickable Surface consumes events
     // inconsistently on some API levels — single-click ripples stop firing or
     // long-press accidentally propagates as a click.
+    val haptics = rememberYoinHaptics()
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .handPointer()
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = ripple(),
-                onClick = if (isUnavailable) ({ showUnavailableReason = !showUnavailableReason }) else onClick,
+                onClick = if (isUnavailable) {
+                    { showUnavailableReason = !showUnavailableReason }
+                } else {
+                    {
+                        haptics.performContextClick()
+                        onClick()
+                    }
+                },
                 onLongClick = onLongClick,
             ),
         shape = YoinContainerShapes.ListRow,

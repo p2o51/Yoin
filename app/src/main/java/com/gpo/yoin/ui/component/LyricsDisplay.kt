@@ -11,6 +11,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,10 +56,10 @@ import com.gpo.yoin.ui.nowplaying.LyricDotsSolid
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.nowplaying.UpNextHandoffTickSlackMs
 import com.gpo.yoin.ui.nowplaying.UpNextLyrics
+import com.gpo.yoin.ui.nowplaying.isReadableLyricLine
 import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
 import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
 import com.gpo.yoin.ui.nowplaying.lyricDotRadius
-import com.gpo.yoin.ui.nowplaying.LyricDotsReadableLines
 import com.gpo.yoin.ui.nowplaying.lyricDotsRest
 import com.gpo.yoin.ui.nowplaying.lyricHalftone
 import com.gpo.yoin.ui.nowplaying.outroProgress
@@ -439,8 +440,7 @@ private fun LyricsDisplayContent(
                     text = line.text,
                     isActive = active,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
-                    upcoming = currentIndex >= 0 && index > currentIndex &&
-                        index - currentIndex <= LyricDotsReadableLines,
+                    readable = isReadableLyricLine(index, currentIndex),
                     fontScale = fontScale,
                     focus = focus,
                     // Held while it is the current line; the hand-over lets go.
@@ -452,12 +452,8 @@ private fun LyricsDisplayContent(
             if (shownUpNext != null && upNextLine != null) {
                 val rise: () -> Float = { upNextRisePx }
                 item(key = "upNextLabel") {
-                    Text(
-                        text = stringResource(R.string.np_lyric_up_next, shownUpNext.title),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    // The label quiet, the song's title stronger: space between, no glyph.
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = UpNextLabelGap, bottom = 2.dp)
@@ -465,7 +461,24 @@ private fun LyricsDisplayContent(
                                 alpha = upNextAlpha * currentBlockAlpha
                                 translationY = rise()
                             },
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.np_lyric_up_next),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = shownUpNext.title,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                 }
                 item(key = "upNextLine") {
                     // As the next song's own list shows it before its first
@@ -500,9 +513,9 @@ private fun LyricLineItem(
     isActive: Boolean,
     modifier: Modifier = Modifier,
     distance: Int = 0,
-    // One of the next LyricDotsReadableLines: in focus its dots stay full
-    // enough to read (owner 2026-11-05).
-    upcoming: Boolean = false,
+    // One of the next LyricDotsReadableLines, or the line just sung: in focus
+    // its dots stay full enough to read (owner 2026-11-05, 2026-11-14).
+    readable: Boolean = false,
     fontScale: Float = 1f,
     focus: () -> Float = { 0f },
     stretch: Float = 0f,
@@ -544,7 +557,7 @@ private fun LyricLineItem(
     // Focus's halftone: the line's own dot radius. The current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. Lines that are current when they first show start solid.
-    val restDots = lyricDotsRest(upcoming)
+    val restDots = lyricDotsRest(readable)
     val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive, restDots) {

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.spotoolfy
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -170,7 +171,7 @@ private fun RecapTopBar(page: Int, showPage: Boolean, onClose: () -> Unit) {
             .height(TopBarHeight)
             .padding(start = 4.dp, end = 16.dp),
     ) {
-        IconButton(onClick = onClose) {
+        IconButton(onClick = onClose, modifier = Modifier.handPointer()) {
             Icon(YoinSymbols.Close, contentDescription = stringResource(R.string.spotoolfy_recap_close))
         }
         Box(
@@ -705,6 +706,7 @@ private fun WordChip(word: RecapWord, onClick: () -> Unit, modifier: Modifier) {
             .height(height)
             .clip(CircleShape)
             .background(container)
+            .handPointer(enabled = word.keyword != null)
             .clickable(enabled = word.keyword != null, onClick = onClick)
             .padding(horizontal = 14.dp),
     ) {
@@ -726,6 +728,7 @@ private fun LyricCard(lyric: RecapLyric, onClick: () -> Unit, modifier: Modifier
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(scheme.tertiaryContainer)
+            .handPointer()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
@@ -755,6 +758,7 @@ private fun NoteCard(note: RecapNote, onClick: () -> Unit, modifier: Modifier) {
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(scheme.surfaceContainerHigh)
+            .handPointer()
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
@@ -795,7 +799,8 @@ private fun JoinCard(fromSettings: Boolean, onJoin: () -> Unit, onDone: () -> Un
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .handPointer(),
             ) { Text(stringResource(R.string.spotoolfy_recap_done), style = MaterialTheme.typography.titleSmall) }
         } else {
             Text(
@@ -816,7 +821,8 @@ private fun JoinCard(fromSettings: Boolean, onJoin: () -> Unit, onDone: () -> Un
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .handPointer(),
             ) { Text(stringResource(R.string.spotoolfy_recap_join), style = MaterialTheme.typography.titleSmall) }
         }
     }

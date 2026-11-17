@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -375,7 +376,7 @@ internal fun MemoryTitleSlot(
                 now.text,
                 now.kind,
                 if (editable && enabled && editor != null) {
-                    Modifier.noRippleClickable(interactionSource = interaction, onClickLabel = editTitle) {
+                    Modifier.pointerPressPreview(interaction).noRippleClickable(interactionSource = interaction, onClickLabel = editTitle) {
                         editor.begin(key, memory.titleDraftSeed())
                     }
                 } else {
@@ -565,6 +566,7 @@ internal fun MemoryTitleEditRow(
             Box(
                 modifier = Modifier
                     .height(DiaryWriterTokens.RowHit)
+                    .pointerPressPreview(saveInteraction)
                     .noRippleClickable(interactionSource = saveInteraction, onClickLabel = saveTitle) {
                         // the same save as the keyboard's Done
                         editor.requestSave()
@@ -594,6 +596,7 @@ private fun QuietTextButton(label: String, style: TextStyle, onClick: () -> Unit
     Box(
         modifier = Modifier
             .height(DiaryWriterTokens.RowHit)
+            .pointerPressPreview(interaction)
             .noRippleClickable(interactionSource = interaction, onClickLabel = clickLabel ?: label, onClick = onClick)
             .semantics { role = Role.Button }
             .padding(horizontal = 16.dp),

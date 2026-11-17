@@ -76,7 +76,9 @@ class NoteFullscreenPaneTest {
         )
 
         rule.onNodeWithText("placeholder line two").performTouchInput { longClick() }
-        rule.onNodeWithText("Align to now · 1:35").performClick()
+        // The moment it moves to sits at the item's end, not after a dot.
+        rule.onNodeWithText("1:35").assertExists()
+        rule.onNodeWithText("Align to now").performClick()
 
         assertEquals(listOf("n2" to 95_000L), realigned)
     }

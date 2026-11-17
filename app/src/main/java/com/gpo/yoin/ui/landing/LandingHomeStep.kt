@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
@@ -281,7 +282,7 @@ private fun SectionRow(
                     color = scheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = state.enabled, onCheckedChange = onEnabled)
+            Switch(checked = state.enabled, onCheckedChange = onEnabled, modifier = Modifier.handPointer())
         }
     }
 }
@@ -325,6 +326,10 @@ private fun SectionGlyph(section: HomeSection, color: Color, modifier: Modifier 
             }
             HomeSection.MemoryGrid -> for (c in 0 until 4) for (r in 0 until 3) {
                 box(4f + c * 7.4f, 8f + r * 7.4f, 5.6f, 5.6f, 0.9f - (c + r) * 0.1f, 1.4f)
+            }
+            HomeSection.MadeForYou -> for (c in 0..2) {
+                box(3f + c * 10.5f, 10f, 9f, 9f, 0.9f - c * 0.25f, 2f)
+                box(3f + c * 10.5f, 22f, 7f, 2.4f, 0.35f, 1.2f)
             }
         }
     }
