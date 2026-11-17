@@ -625,8 +625,10 @@ extension View {
     func labRecede(_ depth: CGFloat, sheet: Bool = false) -> some View {
         let lab = GlassLab.shared
         let d = min(max(depth, 0), 1)
+        let active = d > 0.001
         let k = sheet ? "sheetRecede" : "recede"
-        let insets = WindowInsets.current
+        let blurRadius: CGFloat = active && !lab.solidSurfaces ? lab.extra(k + "Blur") * d : 0
+        let scale: CGFloat = active ? 1 - lab.extra(k + "Scale") * d : 1
         // Hosted in a full-screen frame (the layer still lays out in the same
         // safe area): a blur draws only inside its view's frame, and the
         // layer's own frame stops at the safe area, so any blur cut the
@@ -634,33 +636,42 @@ extension View {
         return Color.clear
             .ignoresSafeArea()
             .overlay { self }
-            // Blur inside the corner mask, so the plane's silhouette stays crisp.
-            .blur(radius: lab.solidSurfaces ? 0 : lab.extra(k + "Blur") * d)
+            // Blur inside the corner clip, so the plane's silhouette stays crisp.
+            .blur(radius: blurRadius)
             // The world behind keeps the display's corners as it steps back,
             // and gives up the status-bar and home-indicator bands (the look
             // behind a sheet) by the same depth: they slide away with what
             // rises over it.
-            .mask {
-                RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous)
-                    .padding(.top, insets.top * d)
-                    .padding(.bottom, insets.bottom * d)
+            .overlay {
+                if active {
+                    let insets = WindowInsets.current
+                    VStack(spacing: 0) {
+                        Yoin.surface.frame(height: insets.top * d)
+                        Spacer(minLength: 0)
+                        Yoin.surface.frame(height: insets.bottom * d)
+                    }
                     .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                }
             }
+            .clipShape(.rect(cornerRadius: active ? 44 : 0, style: .continuous))
             // Drawn scaled, laid out as is. A layout scale (scaleEffect) moved
             // the layer off the screen's edges, and then nothing in it could
             // reach under the status bar (ignoresSafeArea): Now Playing's dark
             // top went to the surface on the first frame a sheet rose.
-            .modifier(RenderScale(scale: 1 - lab.extra(k + "Scale") * d).ignoredByLayout())
+            .modifier(RenderScale(scale: scale).ignoredByLayout())
             // What the shrinking plane uncovers is the app's surface, not the
             // window's black (a black rim at the corners read as a flash),
             // and the dim lies over both, so the rim dims with the plane.
             .background {
-                if d > 0.001 { Yoin.surface.ignoresSafeArea() }
+                if active { Yoin.surface.ignoresSafeArea() }
             }
             .overlay {
-                Color.black.opacity(lab.extra(k + "Dim") * d)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                if active {
+                    Color.black.opacity(lab.extra(k + "Dim") * d)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
             }
     }
 

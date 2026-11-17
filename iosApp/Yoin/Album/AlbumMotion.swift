@@ -179,3 +179,79 @@ enum AlbumPopGate {
         edgeDrag = nil
     }
 }
+
+/// High-frequency pull-up (`p`), pager (`page`), and scroll progress for `AlbumDetailView`
+/// and `AlbumScrapbookView`, isolated from `AlbumDetailView.body` so 120Hz drag/spring
+/// frames only re-evaluate the transforming layers and spectrum canvas.
+@MainActor
+@Observable
+final class AlbumDetailMotionState {
+    var p: CGFloat { didSet { refresh() } }
+    var page: CGFloat { didSet { refresh() } }
+    var pageBase: CGFloat? { didSet { refresh() } }
+    var pageMoving: Bool = false { didSet { refresh() } }
+    var pageTarget: CGFloat { didSet { refresh() } }
+    var listScroll: CGFloat = 0
+
+    /// Thresholded flags so structural bodies only re-evaluate when crossing boundaries.
+    private(set) var offFirstPage: Bool
+    private(set) var isPullActive: Bool
+    private(set) var isPullHalf: Bool
+    private(set) var isPullLessHalf: Bool
+    private(set) var listInteractive: Bool
+    private(set) var isScrapbookVisible: Bool
+    private(set) var isScrapbookSettled: Bool
+    private(set) var coverInFlight: Bool
+    private(set) var pageLessHalf: Bool
+
+    @ObservationIgnored var forcedPageFrac: CGFloat?
+    @ObservationIgnored var listAtTop = true
+
+    init(p: CGFloat, page: CGFloat, forcedPageFrac: CGFloat? = nil) {
+        self.p = p
+        self.page = page
+        self.pageTarget = page
+        self.forcedPageFrac = forcedPageFrac
+        let f = Self.computePageFrac(page: page, pageBase: nil, forced: forcedPageFrac)
+        self.offFirstPage = page > 0
+        self.isPullActive = p > 0.001
+        self.isPullHalf = p > 0.5
+        self.isPullLessHalf = p < 0.5
+        self.listInteractive = p >= 1
+        self.isScrapbookVisible = page > 0.001
+        self.isScrapbookSettled = page >= 1
+        self.coverInFlight = f < 0.999
+        self.pageLessHalf = f < 0.5
+    }
+
+    var pageFrac: CGFloat {
+        Self.computePageFrac(page: page, pageBase: pageBase, forced: forcedPageFrac)
+    }
+
+    private static func computePageFrac(page: CGFloat, pageBase: CGFloat?, forced: CGFloat?) -> CGFloat {
+        if let f = forced, page == 0, pageBase == nil { return f }
+        return min(1, max(0, page))
+    }
+
+    private func refresh() {
+        let f = pageFrac
+        let off = pageBase != nil || pageTarget > 0
+        if off != offFirstPage { offFirstPage = off }
+        let pullActive = p > 0.001
+        if pullActive != isPullActive { isPullActive = pullActive }
+        let pullHalf = p > 0.5
+        if pullHalf != isPullHalf { isPullHalf = pullHalf }
+        let pullLessHalf = p < 0.5
+        if pullLessHalf != isPullLessHalf { isPullLessHalf = pullLessHalf }
+        let interactive = p >= 1
+        if interactive != listInteractive { listInteractive = interactive }
+        let scrapVis = page > 0.001 || pageBase != nil
+        if scrapVis != isScrapbookVisible { isScrapbookVisible = scrapVis }
+        let scrapSet = page >= 1 && pageBase == nil && !pageMoving
+        if scrapSet != isScrapbookSettled { isScrapbookSettled = scrapSet }
+        let inFlight = f < 0.999
+        if inFlight != coverInFlight { coverInFlight = inFlight }
+        let lessHalf = f < 0.5
+        if lessHalf != pageLessHalf { pageLessHalf = lessHalf }
+    }
+}

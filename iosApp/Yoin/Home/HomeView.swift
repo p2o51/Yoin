@@ -493,7 +493,7 @@ struct HomeView: View {
         let supporting = hasHero ? Array(a.dropFirst()) : a
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                 switch row.shape {
                 case .hero:
                     HeroCard(entry: a[0])
@@ -503,13 +503,14 @@ struct HomeView: View {
                     let usable = max(0, contentWidth - gap * CGFloat(row.slots.count - 1))
                     let total = CGFloat(row.slots.reduce(0) { $0 + $1.weight })
                     HStack(spacing: gap) {
-                        ForEach(Array(row.slots.enumerated()), id: \.offset) { _, slot in
+                        ForEach(Array(row.slots.enumerated()), id: \.offset) { slotIndex, slot in
                             let width = contentWidth > 0 ? usable * CGFloat(slot.weight) / total : nil
                             Group {
                                 if slot.kind == .hero {
-                                    HeroCard(entry: a[0]).frame(maxHeight: .infinity)
+                                    HeroCard(entry: a[0], tile: "act-hero-\(rowIndex)-\(slotIndex)").frame(maxHeight: .infinity)
                                 } else if let e = supporting.entry(at: slot.entryIndex) {
-                                    if slot.kind == .small { SmallCard(entry: e) } else { WideCard(entry: e) }
+                                    let tile = "act-\(rowIndex)-\(slotIndex)"
+                                    if slot.kind == .small { SmallCard(entry: e, tile: tile) } else { WideCard(entry: e, tile: tile) }
                                 } else {
                                     // An entry past the supply: a spacer of the same weight.
                                     Color.clear
@@ -757,7 +758,7 @@ struct HomeView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Recently Added"))
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 14) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     if !tiles.isEmpty {
                         VStack(alignment: .leading, spacing: 14) {
                             ForEach(Array(stride(from: 0, to: min(tiles.count, trackCols * 2), by: trackCols)), id: \.self) { r in
@@ -775,8 +776,8 @@ struct HomeView: View {
                         }
                         .frame(width: gridWidth, alignment: .topLeading)
                     }
-                    ForEach(Array(feed.recentAlbums.enumerated()), id: \.offset) { _, album in
-                        AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
+                    ForEach(Array(feed.recentAlbums.enumerated()), id: \.offset) { i, album in
+                        AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-added-\(i)")
                     }
                 }
                 .padding(.horizontal, density.margin)
@@ -792,7 +793,7 @@ struct HomeView: View {
     private func recentlyPlayed(_ feed: HomeFeed) -> some View {
         shelf(HomeSection.recentlyPlayed.title) {
             ForEach(feed.recentlyPlayed) { album in
-                AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
+                AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-played")
             }
         }
     }
@@ -808,7 +809,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(title)
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 14) { content() }
+                LazyHStack(alignment: .top, spacing: 14) { content() }
                     .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
@@ -823,7 +824,7 @@ struct HomeView: View {
             HomeSectionTitle(String(localized: "Rediscover"))
             ScrollView(.horizontal) {
                 // A smaller song card sits on the album cards' centre line.
-                HStack(alignment: .center, spacing: Tokens.home.REDISCOVER_GAP.cg) {
+                LazyHStack(alignment: .center, spacing: Tokens.home.REDISCOVER_GAP.cg) {
                     ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
                         Group {
                             if let song = c.song {
@@ -836,6 +837,7 @@ struct HomeView: View {
                         .frame(width: contentWidth * 0.86)
                     }
                 }
+                .frame(minHeight: cards.contains { $0.song == nil } ? Tokens.home.REDISCOVER_CARD_HEIGHT.cg : nil)
                 .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
@@ -957,8 +959,8 @@ private struct HeroCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var zoomTile = ZoomTile()
     var entry: ActivityEntry
+    var tile: String = "act-hero"
     private var album: Album { entry.album }
     private var timeAgo: String { entry.eyebrow }
 
@@ -975,10 +977,10 @@ private struct HeroCard: View {
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
-        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
-                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
+                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: tile)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
                     Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
@@ -1000,17 +1002,17 @@ private struct SmallCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var entry: ActivityEntry
+    var tile: String
     private var album: Album { entry.album }
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var zoomTile = ZoomTile()
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
                     EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
-                        .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
+                        .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: tile)
                     VStack(alignment: .leading, spacing: 0) {
                         // Too narrow for "Album • Artist": the kind alone (the title names the rest).
                         Text(entry.typeLabel).homeType(Tokens.type.labelSmall)
@@ -1039,17 +1041,17 @@ private struct WideCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var zoomTile = ZoomTile()
     var entry: ActivityEntry
+    var tile: String
     private var album: Album { entry.album }
     private var timeAgo: String { entry.eyebrow }
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
             HStack(spacing: 12) {
                 EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
-                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
+                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: tile)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
                     Text(album.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
@@ -1123,18 +1125,20 @@ private struct JBICell: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var zoomTile = ZoomTile()
     var item: JBIItem
     /// Raw album id → memory mark; only an album's own cover wears one.
     var marks: [String: AlbumMemoryMark] = [:]
     /// The cover's size: the phone's, or a tablet column's (HomeDensity.jbiColumn).
     var size: CGFloat = Tokens.home.JBI_COVER.cg
+    var tile: String = "jbi"
     @Environment(\.colorScheme) private var colorScheme
 
-    init(item: JBIItem, marks: [String: AlbumMemoryMark] = [:], size: CGFloat = Tokens.home.JBI_COVER.cg) {
+    init(item: JBIItem, marks: [String: AlbumMemoryMark] = [:], size: CGFloat = Tokens.home.JBI_COVER.cg,
+         tile: String = "jbi") {
         self.item = item
         self.marks = marks
         self.size = size
+        self.tile = tile
     }
 
     /// The mock shelf's album cover with its hand-set mark.
@@ -1177,12 +1181,12 @@ private struct JBICell: View {
         case let .album(album):
             let mark = marks[album.id.rawId]
             let s = scheme!
-            Button { jbiTap { model.open(album, tile: zoomTile.key) } } label: {
+            Button { jbiTap { model.open(album, tile: tile) } } label: {
                 AlbumItem(album: album, size: size, subtitle: album.kindLine) {
                     // albumMemoryMarkInk: palette base, accent in dark mode.
                     if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
                 }
-                .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+                .zoomSource(album.id, zoomNS, tile: tile)
             }
             .buttonStyle(PressScale())
             // Dragged onto the queue or a playlist, as Library's cells are.
@@ -1445,11 +1449,11 @@ private struct AlbumMini: View {
     @Environment(\.colorScheme) private var colorScheme
     var album: Album
     var mark: MemoryMark? = nil
+    var tile: String
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var zoomTile = ZoomTile()
 
     var body: some View {
-        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.open(album, tile: tile) } } label: {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
             AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6) {
@@ -1457,7 +1461,7 @@ private struct AlbumMini: View {
                     MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background)
                 }
             }
-            .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+            .zoomSource(album.id, zoomNS, tile: tile)
         }
         .buttonStyle(PressScale())
         .yoinDraggable { YoinDrag.album(album, model: model) }
@@ -1653,20 +1657,52 @@ private struct RediscoverSongCard: View {
 
 // MARK: - Glass cards
 
+/// Pre-blurred cover wash for Home cards (pre-blurred 48x48 real cover when loaded, smooth
+/// three-color gradient fallback otherwise or for mock covers).
+private struct HomeCardBackdrop<S: InsettableShape>: View {
+    var palette: CoverPalette
+    var strength: Double
+    var shape: S
+
+    var body: some View {
+        Group {
+            if strength <= 0.001 {
+                Color.clear
+                    .task(id: palette.cover?.key) {
+                        if let ref = palette.cover { await CoverArtwork.shared.load(ref) }
+                    }
+            } else if let ref = palette.cover {
+                LinearGradient(colors: [palette.a, palette.b, palette.c],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .overlay {
+                        if let image = CoverArtwork.shared.cardImage(ref) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                    }
+                    .opacity(strength)
+                    .task(id: ref.key) { await CoverArtwork.shared.load(ref) }
+            } else {
+                LinearGradient(colors: [palette.a, palette.b, palette.c],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .opacity(strength)
+            }
+        }
+        .clipShape(shape)
+    }
+}
+
 extension View {
     /// Home's cover-color cards as Liquid Glass. Glass needs something to
-    /// refract, so the card's own cover sits behind it, scaled up and heavily
-    /// blurred, clipped to the card; the glass on top is tinted with the
-    /// card wash so text keeps the solid card's contrast.
+    /// refract, so a lightweight wash of the card's own cover sits behind it,
+    /// clipped to the card; the glass on top is tinted with the card wash so
+    /// text keeps the solid card's contrast.
     func homeGlassCard<S: InsettableShape>(_ palette: CoverPalette, scheme: CoverScheme, shape: S) -> some View {
         let lab = GlassLab.shared
         return background {
             ZStack {
-                CoverArt(palette: palette, cornerRadius: 0, seed: 1)
-                    .scaleEffect(1.6)
-                    .blur(radius: lab.extra("coverBlur"))
-                    .opacity(lab.extra("coverStrength"))
-                    .clipShape(shape)
+                HomeCardBackdrop(palette: palette, strength: lab.extra("coverStrength"), shape: shape)
                 shape.fill(.clear)
                     .labGlass("homeCards", scheme: scheme, brand: .brand(dark: false),
                               auto: cardWash(scheme, palette), in: shape)

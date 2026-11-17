@@ -67,7 +67,7 @@ struct MemoryDiaryView: View {
     private var barHeight: CGFloat { layout.barHeight }
 
     var body: some View {
-        let tones = MemoryTones(palette: card.album.palette, dark: dark)
+        let tones = MemoryTones.cached(for: card, dark: dark)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Another account's memory is read-only here: its title is that account's.
@@ -96,6 +96,8 @@ struct MemoryDiaryView: View {
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             morph.scrollY = max(0, y)
         }
+        .onAppear { morph.updateBarHeight(barHeight) }
+        .onChange(of: barHeight) { _, h in morph.updateBarHeight(h) }
         .simultaneousGesture(horizontalPager, including: interactive ? .all : .subviews)
         .modifier(DiaryViewport(diary: diary))
         .allowsHitTesting(interactive)

@@ -1,4 +1,5 @@
 import CoreText
+import os
 import SwiftUI
 import UIKit
 import YoinShared
@@ -16,6 +17,44 @@ enum YoinFont {
         var round: CGFloat = 0
         /// nil = follow the point size (opsz is clamped to the font's 6…144).
         var opticalSize: CGFloat?
+    }
+
+    private struct CacheKey: Hashable, Sendable {
+        let sizeQ: Int
+        let weightQ: Int
+        let widthQ: Int
+        let roundQ: Int
+        let opticalSizeQ: Int
+        let textStyleRaw: String
+        let preferredContentSizeCategoryRaw: String
+    }
+
+    private struct CachedFont: @unchecked Sendable {
+        let uiFont: UIFont
+        let font: Font
+    }
+
+    private struct CacheState: @unchecked Sendable {
+        var entries: [CacheKey: CachedFont] = [:]
+        var lastCategoryRaw: String = UIContentSizeCategory.large.rawValue
+    }
+
+    private static let cache = OSAllocatedUnfairLock<CacheState>(initialState: CacheState())
+    private static let maxCacheEntries = 512
+
+    private static func quantize(_ value: CGFloat) -> Int {
+        guard value.isFinite else { return 0 }
+        return Int((value * 4).rounded())
+    }
+
+    private static func clampedOpticalSize(for size: CGFloat, explicit: CGFloat?) -> CGFloat {
+        min(Tokens.type.OPTICAL_SIZE_MAX.cg, max(Tokens.type.OPTICAL_SIZE_MIN.cg, explicit ?? size))
+    }
+
+    private static func mainThreadCategoryRaw() -> String? {
+        Thread.isMainThread
+            ? MainActor.assumeIsolated { UIApplication.shared.preferredContentSizeCategory.rawValue }
+            : nil
     }
 
     /// The variable file as a CGFont. Not a descriptor from
@@ -49,6 +88,29 @@ enum YoinFont {
     }()
 
     static func uiFont(size: CGFloat, _ axes: Axes) -> UIFont {
+        let opsz = clampedOpticalSize(for: size, explicit: axes.opticalSize)
+        let key = CacheKey(
+            sizeQ: quantize(size),
+            weightQ: quantize(axes.weight),
+            widthQ: quantize(axes.width),
+            roundQ: quantize(axes.round),
+            opticalSizeQ: quantize(opsz),
+            textStyleRaw: "",
+            preferredContentSizeCategoryRaw: ""
+        )
+        if let hit = cache.withLock({ $0.entries[key] }) {
+            return hit.uiFont
+        }
+        let built = makeUIFont(size: size, axes: axes, opticalSize: opsz)
+        let pair = CachedFont(uiFont: built, font: Font(built))
+        cache.withLock { state in
+            if state.entries.count >= maxCacheEntries { state.entries.removeAll(keepingCapacity: true) }
+            state.entries[key] = pair
+        }
+        return built
+    }
+
+    private static func makeUIFont(size: CGFloat, axes: Axes, opticalSize: CGFloat) -> UIFont {
         guard let base else {
             assertionFailure("Google Sans Flex variable font missing from the bundle")
             return UIFont(name: "GoogleSansFlex-Regular", size: size) ?? .systemFont(ofSize: size)
@@ -57,7 +119,7 @@ enum YoinFont {
             "wght": axes.weight,
             "wdth": axes.width,
             "ROND": axes.round,
-            "opsz": min(Tokens.type.OPTICAL_SIZE_MAX.cg, max(Tokens.type.OPTICAL_SIZE_MIN.cg, axes.opticalSize ?? size)),
+            "opsz": opticalSize,
         ]
         var variations: [String: NSNumber] = [:]
         for (tag, value) in values {
@@ -75,7 +137,8 @@ enum YoinFont {
         let variable = uiFont(size: 17, Axes(weight: 500, round: 100))
         let family = variable.familyName
         let scaled = UIFontMetrics(forTextStyle: .body).scaledFont(for: variable)
-        let line = "[YoinFont] statics missing: \(missing.isEmpty ? "none" : missing.joined(separator: ", ")); variable → \(variable.fontName) (\(family)); axes \(axisNames.keys.sorted()); text size \(UIApplication.shared.preferredContentSizeCategory.rawValue); scaledFont(for:) → \(scaled.familyName)"
+        let textSize = mainThreadCategoryRaw() ?? cache.withLock { $0.lastCategoryRaw }
+        let line = "[YoinFont] statics missing: \(missing.isEmpty ? "none" : missing.joined(separator: ", ")); variable → \(variable.fontName) (\(family)); axes \(axisNames.keys.sorted()); text size \(textSize); scaledFont(for:) → \(scaled.familyName)"
         print(line)
         NSLog("%@", line)
         assert(missing.isEmpty && family.contains("Google Sans"), line)
@@ -86,11 +149,41 @@ enum YoinFont {
     /// descriptor, a lookup by name that this unregistered instance doesn't answer, so on an
     /// iPhone whose text size isn't the default the text fell back to the system font.
     static func font(size: CGFloat, _ axes: Axes, relativeTo style: UIFont.TextStyle = .body) -> Font {
+        let mainRaw = mainThreadCategoryRaw()
+        let opsz = clampedOpticalSize(for: size, explicit: axes.opticalSize)
+        let sizeQ = quantize(size)
+        let weightQ = quantize(axes.weight)
+        let widthQ = quantize(axes.width)
+        let roundQ = quantize(axes.round)
+        let opszQ = quantize(opsz)
+        let lookup: (hit: CachedFont?, key: CacheKey) = cache.withLock { state in
+            let categoryRaw = mainRaw ?? state.lastCategoryRaw
+            if let mainRaw, state.lastCategoryRaw != mainRaw { state.lastCategoryRaw = mainRaw }
+            let key = CacheKey(
+                sizeQ: sizeQ,
+                weightQ: weightQ,
+                widthQ: widthQ,
+                roundQ: roundQ,
+                opticalSizeQ: opszQ,
+                textStyleRaw: style.rawValue,
+                preferredContentSizeCategoryRaw: categoryRaw
+            )
+            return (state.entries[key], key)
+        }
+        if let hit = lookup.hit { return hit.font }
+
         let scaled = UIFontMetrics(forTextStyle: style).scaledValue(for: size)
         var a = axes
         // Optical size follows the designed size, as before scaling.
         if a.opticalSize == nil { a.opticalSize = size }
-        return Font(uiFont(size: scaled, a))
+        let ui = uiFont(size: scaled, a)
+        let font = Font(ui)
+        let pair = CachedFont(uiFont: ui, font: font)
+        cache.withLock { state in
+            if state.entries.count >= maxCacheEntries { state.entries.removeAll(keepingCapacity: true) }
+            state.entries[lookup.key] = pair
+        }
+        return font
     }
 
     /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600) (YoinTokens.Typography).

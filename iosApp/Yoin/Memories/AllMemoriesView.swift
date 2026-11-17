@@ -45,9 +45,8 @@ struct AllMemoriesView: View {
     /// Where the grid's squares are and how far the page has scrolled: the squares that rise into the top bar.
     @State private var lift = MemoryGridLift()
     @State private var scrollPosition = ScrollPosition(edge: .top)
-    /// The page's width (its layout) and the headline's frame in its content (the bar's title handoff).
+    /// The page's width (its layout).
     @State private var pageWidth: CGFloat = 0
-    @State private var headline: CGRect = .zero
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var app: CoverScheme {
@@ -67,7 +66,7 @@ struct AllMemoriesView: View {
                     .yoinRole(Tokens.type.displaySmall)
                     .foregroundStyle(app.onSurface)
                     .padding(.top, 8)
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { headline = $0 }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { lift.headline = $0 }
                 if let state = ledger, !state.isEmpty {
                     content(state)
                 } else {
@@ -92,13 +91,12 @@ struct AllMemoriesView: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { lift.viewport = $0; pageWidth = $0.width }
         .overlay {
             if demo == nil, let state = source.state, !state.isEmpty {
-                MemoryGridLiftLayer(lift: lift, pixels: MemoryGridLiftMath.pixels(state.grid),
-                                    paint: MemoryGridPaint(covers: state.covers, faint: app.onSurface.opacity(0.07)),
-                                    under: app.surfaceContainer)
+                MemoryGridLiftLayer(lift: lift, grid: state.grid, covers: state.covers,
+                                    faint: app.onSurface.opacity(0.07), under: app.surfaceContainer)
             }
         }
         .modifier(TopBar(plain: demo != nil) {
-            LedgerTopBar(lift: lift, headline: headline, lifts: demo == nil && !(source.state?.isEmpty ?? true),
+            LedgerTopBar(lift: lift, lifts: demo == nil && !(source.state?.isEmpty ?? true),
                          onSurface: app.onSurface, page: demo == nil ? app.surfaceContainer : nil) {
                 if let demo { demo.onBack() } else { dismiss() }
             }
@@ -106,7 +104,7 @@ struct AllMemoriesView: View {
         .background(app.surfaceContainer.ignoresSafeArea())
         // White icons with the bar's white back and title once the squares have formed it (Android
         // MemoryLedgerScreen drivesStatusBar), in the light scheme and a full window.
-        .statusBarLight(demo == nil && !(source.state?.isEmpty ?? true) && lift.progress > MemoryGridLiftMath.formed
+        .statusBarLight(demo == nil && !(source.state?.isEmpty ?? true) && lift.isFormed
                         && colorScheme == .light && !inPadColumn && !model.npExpanded && !(model.isPad && model.npPanel))
         .toolbar(.hidden, for: .navigationBar)
         .task {
@@ -381,7 +379,8 @@ struct AllMemoriesView: View {
         return HStack(alignment: .top, spacing: layout.gutter) {
             ForEach(lanes.indices, id: \.self) { l in
                 LazyVStack(spacing: 12) {
-                    ForEach(lanes[l].map { items[$0] }) { item in
+                    ForEach(lanes[l], id: \.self) { idx in
+                        let item = items[idx]
                         switch item {
                         case .album: albumCard(item, state, anchor: item.id)
                         case .song: songCard(item, state, anchor: item.id)
@@ -754,8 +753,6 @@ struct AllMemoriesView: View {
 /// (Android TopAppBar title handoff); both white once the grid's squares have formed the bar.
 private struct LedgerTopBar: View {
     let lift: MemoryGridLift
-    /// The headline, in the page's content.
-    let headline: CGRect
     /// The grid has squares to rise.
     let lifts: Bool
     let onSurface: Color
@@ -763,16 +760,9 @@ private struct LedgerTopBar: View {
     let page: Color?
     let onBack: () -> Void
 
-    /// 0 = the headline below the bar, 1 = wholly gone under it.
-    private var handoff: CGFloat {
-        guard headline.height > 0 else { return 0 }
-        return min(max((lift.insetTop - (headline.minY - lift.scrollY)) / headline.height, 0), 1)
-    }
-
     var body: some View {
-        let formed = lifts && lift.progress > MemoryGridLiftMath.formed
+        let formed = lifts && lift.isFormed
         let content = formed ? Color.white : onSurface
-        let alpha = handoff
         HStack(spacing: 8) {
             Button(action: onBack) {
                 YoinIcon("back", size: 22)
@@ -784,13 +774,7 @@ private struct LedgerTopBar: View {
             .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
-            Text("All Memories")
-                .yoinRole(Tokens.type.titleLarge)
-                .foregroundStyle(content)
-                .lineLimit(1)
-                .opacity(alpha)
-                .offset(y: (1 - alpha) * 14)
-                .accessibilityHidden(alpha < 0.5)
+            LedgerTopBarTitle(lift: lift, content: content)
             Spacer(minLength: 0)
         }
         .animation(Yoin.effects, value: formed)
@@ -800,10 +784,36 @@ private struct LedgerTopBar: View {
             // The album page's top (TopEdgeBlur) while what's under the bar is the page; it gives way as the
             // grid's squares rise to make the bar.
             if let page {
-                TopEdgeBlur(tint: page)
-                    .opacity(lifts ? 1 - min(max(lift.progress / MemoryGridLiftMath.formed, 0), 1) : 1)
+                LedgerTopBarEdgeBlur(lift: lift, lifts: lifts, page: page)
             }
         }
+    }
+}
+
+private struct LedgerTopBarTitle: View {
+    let lift: MemoryGridLift
+    let content: Color
+
+    var body: some View {
+        let alpha = lift.titleHandoff
+        Text("All Memories")
+            .yoinRole(Tokens.type.titleLarge)
+            .foregroundStyle(content)
+            .lineLimit(1)
+            .opacity(alpha)
+            .offset(y: (1 - alpha) * 14)
+            .accessibilityHidden(alpha < 0.5)
+    }
+}
+
+private struct LedgerTopBarEdgeBlur: View {
+    let lift: MemoryGridLift
+    let lifts: Bool
+    let page: Color
+
+    var body: some View {
+        TopEdgeBlur(tint: page)
+            .opacity(lifts ? 1 - min(max(lift.progress / MemoryGridLiftMath.formed, 0), 1) : 1)
     }
 }
 

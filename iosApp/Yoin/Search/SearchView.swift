@@ -71,8 +71,10 @@ struct SearchView: View {
     /// Android LibrarySearchScrollMemory: one position per (scope, filter)
     /// for the current query, so All → Songs → All lands where All was left.
     /// Another query forgets them all.
+    @MainActor private final class OffsetBox { var value: CGFloat = 0 }
+
     @State private var savedOffsets: [String: CGFloat] = [:]
-    @State private var offset: CGFloat = 0
+    @State private var offsetBox = OffsetBox()
     /// Results have scrolled under the pinned header (scrollLitTrack).
     @State private var scrolledUnder = false
     /// The open staging: false on the first frame, then true on the effects
@@ -109,8 +111,9 @@ struct SearchView: View {
         .offeredWidth { width = max(0, $0 - 32) }
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
-            offset = y
-            scrolledUnder = y > 1
+            offsetBox.value = y
+            let under = y > 1
+            if under != scrolledUnder { scrolledUnder = under }
         }
         .onChange(of: query) { _, _ in savedOffsets = [:] }
         .opacity(staged ? 1 : 0)
@@ -335,7 +338,7 @@ struct SearchView: View {
             selected: [.scope(scope), .filter(filter)],
             label: { $0.label(catalog: catalogName) },
             onTap: { chip in
-                savedOffsets[positionKey] = offset
+                savedOffsets[positionKey] = offsetBox.value
                 withAnimation(Yoin.spatial) {
                     switch chip {
                     case .scope(let s): scope = s

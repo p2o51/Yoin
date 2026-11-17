@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import os
+import UIKit
 
 /// One note on a song, anchored to the moment it was written. Android
 /// `data/local/SongNote` (Room `song_notes`, `positionMs` since v27); the
@@ -27,27 +29,127 @@ struct SongNote: Codable, Identifiable, Hashable, Sendable {
 @MainActor
 @Observable
 final class NotesStore {
-    static let shared = NotesStore(fileURL: NotesStore.defaultURL)
+    static let shared = NotesStore(fileURL: NotesStore.defaultURL, now: Date.init, scopes: .shared, asyncWrites: true)
 
     /// Every note on disk, every account's.
-    private var stored: [SongNote] = []
+    @ObservationIgnored private var stored: [SongNote] = []
+    private var allRevision = 0
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let scopes: AccountScope
+    @ObservationIgnored private let asyncWrites: Bool
+    @ObservationIgnored private let writer = NotesFileWriter()
+    @ObservationIgnored private var trackIndex: [TrackKey: NotesTrackEntry] = [:]
+    @ObservationIgnored private let emptySignals: [NotesSignalBox] = (0..<64).map { _ in NotesSignalBox() }
+    @ObservationIgnored private var visibleNotesCache: (revision: Int, scope: ScopeSnapshot, notes: [SongNote])?
+    @ObservationIgnored private var lifecycleObservers: [NotesObserverToken] = []
+
+    private struct TrackKey: Hashable {
+        var provider: String
+        var scope: String?
+        var trackId: String
+    }
+
+    private struct ScopeSnapshot: Equatable {
+        var subsonic: String?
+        var spotify: String?
+    }
 
     /// The notes of the signed-in account (another server's notes on a song with the same id stay hidden).
-    var notes: [SongNote] { stored.filter(visible) }
+    var notes: [SongNote] {
+        let rev = allRevision
+        let snap = currentScopeSnapshot
+        if let c = visibleNotesCache, c.revision == rev, c.scope == snap { return c.notes }
+        let filtered = stored.filter(visible)
+        visibleNotesCache = (rev, snap, filtered)
+        return filtered
+    }
 
     /// Every account's notes (All Memories reads across accounts, #178).
-    var everyAccount: [SongNote] { stored }
+    var everyAccount: [SongNote] {
+        _ = allRevision
+        return stored
+    }
 
-    init(fileURL: URL, now: @escaping () -> Date = Date.init, scopes: AccountScope = .shared) {
+    convenience init(fileURL: URL, now: @escaping () -> Date = Date.init, scopes: AccountScope = .shared) {
+        self.init(fileURL: fileURL, now: now, scopes: scopes, asyncWrites: false)
+    }
+
+    private init(fileURL: URL, now: @escaping () -> Date, scopes: AccountScope, asyncWrites: Bool) {
         self.fileURL = fileURL
         self.now = now
         self.scopes = scopes
+        self.asyncWrites = asyncWrites
         if let data = try? Data(contentsOf: fileURL),
            let saved = try? JSONDecoder().decode([SongNote].self, from: data) {
             stored = saved
+            buildTrackIndex()
+        }
+        if asyncWrites {
+            for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+                let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    if Thread.isMainThread {
+                        MainActor.assumeIsolated { self?.writer.flushInBackground() }
+                    } else {
+                        Task { @MainActor [weak self] in self?.writer.flushInBackground() }
+                    }
+                }
+                lifecycleObservers.append(NotesObserverToken(token))
+            }
+        }
+    }
+
+    /// Writes any pending background snapshot to disk now.
+    func flush() { writer.flush() }
+
+    private var currentScopeSnapshot: ScopeSnapshot {
+        ScopeSnapshot(
+            subsonic: scopes.scope(for: AccountScope.subsonicProvider),
+            spotify: scopes.scope(for: AccountScope.spotifyProvider)
+        )
+    }
+
+    private static func emptySlot(for key: TrackKey) -> Int {
+        Int(UInt(bitPattern: key.hashValue) & 63)
+    }
+
+    private func buildTrackIndex() {
+        var grouped: [TrackKey: [SongNote]] = [:]
+        for note in stored {
+            let key = TrackKey(provider: note.provider, scope: note.scope, trackId: note.trackId)
+            grouped[key, default: []].append(note)
+        }
+        trackIndex = grouped.mapValues { NotesTrackEntry(notes: Self.timeline($0)) }
+    }
+
+    private func indexInsert(_ note: SongNote) {
+        let key = TrackKey(provider: note.provider, scope: note.scope, trackId: note.trackId)
+        if let entry = trackIndex[key] {
+            entry.notes = Self.timeline(entry.notes + [note])
+            entry.revision &+= 1
+        } else {
+            trackIndex[key] = NotesTrackEntry(notes: [note])
+            emptySignals[Self.emptySlot(for: key)].revision &+= 1
+        }
+    }
+
+    private func indexUpdate(_ note: SongNote) {
+        let key = TrackKey(provider: note.provider, scope: note.scope, trackId: note.trackId)
+        guard let entry = trackIndex[key], let i = entry.notes.firstIndex(where: { $0.id == note.id }) else { return }
+        entry.notes[i] = note
+        entry.notes = Self.timeline(entry.notes)
+        entry.revision &+= 1
+    }
+
+    private func indexRemove(id: String, key: TrackKey) {
+        guard let entry = trackIndex[key] else { return }
+        entry.notes.removeAll { $0.id == id }
+        if entry.notes.isEmpty {
+            trackIndex[key] = nil
+            entry.revision &+= 1
+            emptySignals[Self.emptySlot(for: key)].revision &+= 1
+        } else {
+            entry.revision &+= 1
         }
     }
 
@@ -63,7 +165,14 @@ final class NotesStore {
 
     /// This song's notes in timeline order (Android `NoteSortMode.Timeline`).
     func notes(provider: String, trackId: String) -> [SongNote] {
-        Self.timeline(notes.filter { $0.provider == provider && $0.trackId == trackId })
+        let scope = scopes.scope(for: provider)
+        let key = TrackKey(provider: provider, scope: scope, trackId: trackId)
+        if let entry = trackIndex[key] {
+            _ = entry.revision
+            return entry.notes
+        }
+        _ = emptySignals[Self.emptySlot(for: key)].revision
+        return []
     }
 
     /// Saves a note; blank words are ignored. Returns the stored note; nil when it couldn't be written.
@@ -76,12 +185,13 @@ final class NotesStore {
         let note = SongNote(id: UUID().uuidString, provider: provider, trackId: trackId, content: words,
                             createdAt: ms, updatedAt: ms, title: title, artist: artist,
                             positionMs: positionMs.map { max(0, $0) }, scope: scopes.scope(for: provider))
-        stored.append(note)
+        var next = stored
+        next.append(note)
         // Not on disk: nothing is kept, so the editor keeps the words (Codex, 2026-11-06).
-        guard write(stored) else {
-            stored.removeLast()
-            return nil
-        }
+        guard writeUserChange(next) else { return nil }
+        stored = next
+        indexInsert(note)
+        allRevision &+= 1
         Self.onLocalChange?()
         return note
     }
@@ -93,14 +203,26 @@ final class NotesStore {
         guard let i = index(id) else { return nil }
         var next = stored
         let removed = next.remove(at: i)
-        return change(next) ? removed : nil
+        guard writeUserChange(next) else { return nil }
+        stored = next
+        indexRemove(id: removed.id, key: TrackKey(provider: removed.provider, scope: removed.scope, trackId: removed.trackId))
+        allRevision &+= 1
+        Self.onLocalChange?()
+        return removed
     }
 
     /// Puts a deleted note back as it was (Android's 撤销 after a delete). False when it couldn't be written.
     @discardableResult
     func restore(_ note: SongNote) -> Bool {
         guard !stored.contains(where: { $0.id == note.id && $0.scope == note.scope }) else { return true }
-        return change(stored + [note])
+        var next = stored
+        next.append(note)
+        guard writeUserChange(next) else { return false }
+        stored = next
+        indexInsert(note)
+        allRevision &+= 1
+        Self.onLocalChange?()
+        return true
     }
 
     /// New words for a note; blank words are ignored. Returns the stored note; nil when it couldn't be
@@ -112,7 +234,13 @@ final class NotesStore {
         var next = stored
         next[i].content = words
         next[i].updatedAt = nowMs
-        return change(next) ? stored[i] : nil
+        guard writeUserChange(next) else { return nil }
+        stored = next
+        let updated = stored[i]
+        indexUpdate(updated)
+        allRevision &+= 1
+        Self.onLocalChange?()
+        return updated
     }
 
     /// Android "Align to now": the note moves to [positionMs] of its song (nil: not written, not moved).
@@ -122,7 +250,13 @@ final class NotesStore {
         var next = stored
         next[i].positionMs = max(0, positionMs)
         next[i].updatedAt = nowMs
-        return change(next) ? stored[i] : nil
+        guard writeUserChange(next) else { return nil }
+        stored = next
+        let updated = stored[i]
+        indexUpdate(updated)
+        allRevision &+= 1
+        Self.onLocalChange?()
+        return updated
     }
 
     // MARK: Cloud sync (Data/Sync)
@@ -130,11 +264,17 @@ final class NotesStore {
     /// A note added, edited, moved or deleted by the user: Data/Sync debounces an upload.
     @ObservationIgnored static var onLocalChange: (@MainActor () -> Void)?
 
-    func note(id: String) -> SongNote? { index(id).map { stored[$0] } }
+    func note(id: String) -> SongNote? {
+        _ = allRevision
+        return index(id).map { stored[$0] }
+    }
 
     /// The note [id] under whichever account it was written (sync reads every account's; Android looks a
     /// note up by its UUID alone).
-    func syncNote(id: String) -> SongNote? { stored.first { $0.id == id } }
+    func syncNote(id: String) -> SongNote? {
+        _ = allRevision
+        return stored.first { $0.id == id }
+    }
 
     /// Writes a note that came from another device as it is (its own times and moment). False (and
     /// nothing changed) when it couldn't reach the disk: sync retries it rather than count it applied.
@@ -143,8 +283,30 @@ final class NotesStore {
         var note = note
         note.scope = scopes.scope(for: note.provider)
         var next = stored
-        if let i = index(note.id) { next[i] = note } else { next.append(note) }
-        return commit(next)
+        let old: SongNote?
+        if let i = index(note.id) {
+            old = stored[i]
+            next[i] = note
+        } else {
+            old = nil
+            next.append(note)
+        }
+        guard writer.writeSync(to: fileURL, notes: next) else { return false }
+        stored = next
+        if let old {
+            let oldKey = TrackKey(provider: old.provider, scope: old.scope, trackId: old.trackId)
+            let newKey = TrackKey(provider: note.provider, scope: note.scope, trackId: note.trackId)
+            if oldKey == newKey {
+                indexUpdate(note)
+            } else {
+                indexRemove(id: old.id, key: oldKey)
+                indexInsert(note)
+            }
+        } else {
+            indexInsert(note)
+        }
+        allRevision &+= 1
+        return true
     }
 
     /// Removes a note another device deleted (false: not on disk, nothing changed).
@@ -152,51 +314,56 @@ final class NotesStore {
     func syncRemove(id: String) -> Bool {
         guard let i = index(id) else { return true }
         var next = stored
-        next.remove(at: i)
-        return commit(next)
+        let removed = next.remove(at: i)
+        guard writer.writeSync(to: fileURL, notes: next) else { return false }
+        stored = next
+        indexRemove(id: removed.id, key: TrackKey(provider: removed.provider, scope: removed.scope, trackId: removed.trackId))
+        allRevision &+= 1
+        return true
     }
 
     /// Notes saved before notes carried an account belong to the first Subsonic account seen after the
     /// update (AccountScope.adoptLegacyIfNeeded, once per install).
     func adoptLegacy(provider: String, scope: String) {
         guard stored.contains(where: { $0.provider == provider && $0.scope == nil }) else { return }
-        stored = stored.map { n in
-            var n = n
-            if n.provider == provider && n.scope == nil { n.scope = scope }
-            return n
+        var next: [SongNote] = []
+        next.reserveCapacity(stored.count)
+        var changed: [(old: SongNote, new: SongNote)] = []
+        for n in stored {
+            if n.provider == provider && n.scope == nil {
+                var adopted = n
+                adopted.scope = scope
+                next.append(adopted)
+                changed.append((n, adopted))
+            } else {
+                next.append(n)
+            }
         }
-        persistOnly()
-    }
-
-    /// [next] on disk first, then in memory.
-    private func commit(_ next: [SongNote]) -> Bool {
-        guard write(next) else { return false }
         stored = next
-        return true
+        for pair in changed {
+            indexRemove(id: pair.old.id, key: TrackKey(provider: pair.old.provider, scope: pair.old.scope, trackId: pair.old.trackId))
+            indexInsert(pair.new)
+        }
+        allRevision &+= 1
+        persistOnly()
     }
 
     private var nowMs: Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
 
-    /// A user's change: [next] on disk first, then in memory, then sync told. False: not written, nothing changed.
-    private func change(_ next: [SongNote]) -> Bool {
-        guard commit(next) else { return false }
-        Self.onLocalChange?()
-        return true
+    private func writeUserChange(_ next: [SongNote]) -> Bool {
+        if asyncWrites {
+            writer.writeAsync(to: fileURL, notes: next)
+            return true
+        }
+        return writer.writeSync(to: fileURL, notes: next)
     }
 
     private func persistOnly() {
         // A failed write keeps the user's notes in memory for this run.
-        _ = write(stored)
-    }
-
-    private func write(_ notes: [SongNote]) -> Bool {
-        do {
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try JSONEncoder().encode(notes).write(to: fileURL, options: .atomic)
-            return true
-        } catch {
-            return false
+        if asyncWrites {
+            writer.writeAsync(to: fileURL, notes: stored)
+        } else {
+            _ = writer.writeSync(to: fileURL, notes: stored)
         }
     }
 
@@ -226,6 +393,8 @@ final class NotesStore {
         }
     }
 
+    private nonisolated static let mediumDateFormatter = NotesLockedDateFormatter()
+
     /// Android `formatNoteDate`: just now / minutes / hours / days ago, then the date.
     nonisolated static func formatDate(_ epochMs: Int64, nowMs: Int64) -> String {
         let delta = max(0, nowMs - epochMs) / 1000
@@ -236,10 +405,7 @@ final class NotesStore {
         case hours < 24: return hours == 1 ? String(localized: "1 hour ago") : String(localized: "\(hours) hours ago")
         case days < 7: return days == 1 ? String(localized: "1 day ago") : String(localized: "\(days) days ago")
         default:
-            let f = DateFormatter()
-            f.dateStyle = .medium
-            f.timeStyle = .none
-            return f.string(from: Date(timeIntervalSince1970: Double(epochMs) / 1000))
+            return mediumDateFormatter.string(from: Date(timeIntervalSince1970: Double(epochMs) / 1000))
         }
     }
 
@@ -258,5 +424,143 @@ final class NotesStore {
     nonisolated static func formatPosition(_ ms: Int64) -> String {
         let total = max(0, ms) / 1000
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+@MainActor
+@Observable
+private final class NotesTrackEntry {
+    @ObservationIgnored var notes: [SongNote]
+    var revision = 0
+    init(notes: [SongNote]) { self.notes = notes }
+}
+
+@MainActor
+@Observable
+private final class NotesSignalBox {
+    var revision = 0
+}
+
+private final class NotesLockedDateFormatter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.timeZone = .autoupdatingCurrent
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
+    func string(from date: Date) -> String {
+        lock.withLock { formatter.string(from: date) }
+    }
+}
+
+private final class NotesObserverToken: @unchecked Sendable {
+    private let token: NSObjectProtocol
+    init(_ token: NSObjectProtocol) { self.token = token }
+    deinit { NotificationCenter.default.removeObserver(token) }
+}
+
+private final class NotesBackgroundTaskHolder: @unchecked Sendable {
+    private let id = OSAllocatedUnfairLock<UIBackgroundTaskIdentifier>(initialState: .invalid)
+
+    @MainActor
+    func begin(name: String) {
+        let taskId = UIApplication.shared.beginBackgroundTask(withName: name) { [self] in
+            self.end()
+        }
+        id.withLock { $0 = taskId }
+    }
+
+    func end() {
+        let current = id.withLock { value -> UIBackgroundTaskIdentifier in
+            let current = value
+            value = .invalid
+            return current
+        }
+        guard current != .invalid else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { UIApplication.shared.endBackgroundTask(current) }
+        } else {
+            DispatchQueue.main.async {
+                UIApplication.shared.endBackgroundTask(current)
+            }
+        }
+    }
+}
+
+private final class NotesFileWriter: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.gpo.yoin.notes", qos: .utility)
+
+    private struct PendingJob: Sendable {
+        let url: URL
+        let notes: [SongNote]
+    }
+
+    private struct State: Sendable {
+        var pending: PendingJob?
+        var scheduled = false
+        var activeDrains = 0
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func writeAsync(to url: URL, notes: [SongNote]) {
+        let schedule = state.withLock { s in
+            s.pending = PendingJob(url: url, notes: notes)
+            defer { s.scheduled = true }
+            return !s.scheduled
+        }
+        if schedule {
+            queue.asyncAfter(deadline: .now() + .milliseconds(50)) { [self] in drain() }
+        }
+    }
+
+    func writeSync(to url: URL, notes: [SongNote]) -> Bool {
+        queue.sync {
+            let ok = Self.encodeAndWrite(url: url, notes: notes)
+            if ok { state.withLock { $0.pending = nil } }
+            return ok
+        }
+    }
+
+    func flush() { queue.sync { drain() } }
+
+    @MainActor
+    func flushInBackground() {
+        let hasWork = state.withLock { $0.pending != nil || $0.activeDrains > 0 }
+        guard hasWork else { return }
+        let holder = NotesBackgroundTaskHolder()
+        holder.begin(name: "com.gpo.yoin.notes.flush")
+        queue.async { [self, holder] in
+            self.drain()
+            holder.end()
+        }
+    }
+
+    private func drain() {
+        let job: PendingJob? = state.withLock { s in
+            guard let pending = s.pending else { return nil }
+            s.pending = nil
+            s.scheduled = false
+            s.activeDrains += 1
+            return pending
+        }
+        guard let job else { return }
+        defer { state.withLock { $0.activeDrains -= 1 } }
+        _ = Self.encodeAndWrite(url: job.url, notes: job.notes)
+    }
+
+    private static func encodeAndWrite(url: URL, notes: [SongNote]) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try JSONEncoder().encode(notes).write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 }

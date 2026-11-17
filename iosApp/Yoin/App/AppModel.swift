@@ -1,5 +1,6 @@
 import SwiftUI
 import YoinShared
+import os
 
 /// Pushed pages on the phone's NavigationStack.
 enum Route: Hashable {
@@ -1037,10 +1038,27 @@ extension EnvironmentValues {
     }
 }
 
-/// One cover tile's identity for the album zoom: a tile keeps it as `@State`, marks
-/// its cover with `zoomSource(_:_:tile:)` and opens with `model.open(_:tile:)`.
-struct ZoomTile {
-    let key = UUID().uuidString
+/// One cover tile's identity for the album zoom: a tile keeps it as `@State` (or
+/// passes a deterministic tile key), marks its cover with `zoomSource(_:_:tile:)`
+/// and opens with `model.open(_:tile:)`.
+struct ZoomTile: Sendable {
+    private static let nextSeq = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    private let explicit: String?
+    private let seq: UInt64
+
+    init(_ key: String? = nil) {
+        explicit = key
+        if key == nil {
+            seq = Self.nextSeq.withLock { n in
+                n &+= 1
+                return n
+            }
+        } else {
+            seq = 0
+        }
+    }
+
+    var key: String { explicit ?? String(seq, radix: 36) }
 
     static func sourceID(_ id: MediaId, tile: String?) -> String {
         "\(tile ?? "-")|\(id.provider)|\(id.rawId)"

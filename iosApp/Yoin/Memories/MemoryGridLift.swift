@@ -101,14 +101,22 @@ final class MemoryGridLift {
     }
 
     /// The scroll view's content offset and top inset (status bar and top bar).
-    private(set) var scrollY: CGFloat = 0
-    private(set) var insetTop: CGFloat = 0
+    @ObservationIgnored private(set) var scrollY: CGFloat = 0
+    @ObservationIgnored private(set) var insetTop: CGFloat = 0
+    /// The page headline's frame in content space, for the top-bar title handoff.
+    @ObservationIgnored var headline: CGRect = .zero { didSet { refresh() } }
     /// The scroll view's frame on screen (below the top bar: its content scrolls on up under it).
     var viewport: CGRect = .zero
     /// The whole grid, in content space.
     var grid: CGRect = .zero { didSet { refresh() } }
+    /// The grid's way under the bar (0 = below bar, 1 = wholly under bar); only mutated when changed.
+    private(set) var progress: CGFloat = 0
     /// The grid's copies have taken off: the real grid steps aside so no square shows twice.
     private(set) var lifting = false
+    /// Whether the bar has formed (`progress > MemoryGridLiftMath.formed`), thresholded so the page doesn't rebuild per frame.
+    private(set) var isFormed = false
+    /// 0 = headline below bar, 1 = headline wholly under bar; only mutated while transitioning.
+    private(set) var titleHandoff: CGFloat = 0
 
     @ObservationIgnored var wall: Wall?
     @ObservationIgnored var quads: [Int: CGRect] = [:]
@@ -119,14 +127,17 @@ final class MemoryGridLift {
         refresh()
     }
 
-    /// The grid's way under the bar (the bar's bottom is the scroll view's top inset).
-    var progress: CGFloat {
-        MemoryGridLiftMath.progress(gridTop: grid.minY - scrollY, gridHeight: grid.height, barBottom: insetTop)
-    }
-
     private func refresh() {
-        let now = progress > 0.001
+        let p = MemoryGridLiftMath.progress(gridTop: grid.minY - scrollY, gridHeight: grid.height, barBottom: insetTop)
+        if p != progress { progress = p }
+        let now = p > 0.001
         if now != lifting { lifting = now }
+        let formed = p > MemoryGridLiftMath.formed
+        if formed != isFormed { isFormed = formed }
+        let handoff: CGFloat = headline.height > 0
+            ? min(max((insetTop - (headline.minY - scrollY)) / headline.height, 0), 1)
+            : 0
+        if handoff != titleHandoff { titleHandoff = handoff }
     }
 
     /// Where `pixel` sits in content space; nil when its part of the grid isn't placed.
@@ -147,60 +158,128 @@ final class MemoryGridLift {
 }
 
 /// The squares on their way up and, landed, the bar: drawn over the page and under the top bar's back button.
+/// Precomputes `pixels` and `[String: BackdropColors]` when `grid` / `covers` / cover colors change,
+/// isolating per-frame `lift.progress` / `lift.viewport` reads inside `MemoryGridLiftCanvas`.
 struct MemoryGridLiftLayer: View {
     let lift: MemoryGridLift
-    let pixels: [LiftPixel]
-    let paint: MemoryGridPaint
+    let grid: MemoryGrid
+    let covers: [String: CoverPalette]
+    let faint: Color
     /// The page's colour: the album page's top blur (TopEdgeBlur) under the bar while the squares make it,
     /// taking over from the bar's own as that one gives way (51, 2026-11-16: the formed bar cut the page off
     /// with a hard edge; the album page's top is the one to match).
     var under: Color? = nil
+
+    @State private var cache = LiftPreparedCache()
+
+    var body: some View {
+        let prepared = cache.resolve(grid: grid, covers: covers)
+        MemoryGridLiftCanvas(lift: lift, pixels: prepared.pixels, colors: prepared.colors, faint: faint, under: under)
+    }
+}
+
+@MainActor
+private final class LiftPreparedCache {
+    private var lastGrid: MemoryGrid?
+    private var lastCovers: [String: CoverPalette] = [:]
+    private var lastDerived: [String: (ref: CoverRef, colors: CoverArtwork.Colors?)] = [:]
+    private(set) var pixels: [LiftPixel] = []
+    private(set) var colors: [String: BackdropColors] = [:]
+
+    func resolve(grid: MemoryGrid, covers: [String: CoverPalette]) -> (pixels: [LiftPixel], colors: [String: BackdropColors]) {
+        if lastGrid != grid {
+            lastGrid = grid
+            pixels = MemoryGridLiftMath.pixels(grid)
+            rebuildColors(covers: covers)
+            return (pixels, colors)
+        }
+        var needsColors = lastCovers != covers
+        if !needsColors {
+            for (_, entry) in lastDerived {
+                if CoverArtwork.shared.colors(entry.ref) != entry.colors {
+                    needsColors = true
+                    break
+                }
+            }
+        }
+        if needsColors {
+            rebuildColors(covers: covers)
+        }
+        return (pixels, colors)
+    }
+
+    private func rebuildColors(covers: [String: CoverPalette]) {
+        lastCovers = covers
+        var derivedMap: [String: (ref: CoverRef, colors: CoverArtwork.Colors?)] = [:]
+        var out: [String: BackdropColors] = [:]
+        for pixel in pixels {
+            for mark in pixel.cell.marks {
+                let key = mark.album.key
+                if out[key] != nil { continue }
+                let palette = covers[key] ?? MemoryGridView.fallback(key)
+                if let ref = palette.cover {
+                    derivedMap[key] = (ref: ref, colors: CoverArtwork.shared.colors(ref))
+                }
+                out[key] = BackdropColors(palette)
+            }
+        }
+        lastDerived = derivedMap
+        colors = out
+    }
+}
+
+private struct MemoryGridLiftCanvas: View {
+    let lift: MemoryGridLift
+    let pixels: [LiftPixel]
+    let colors: [String: BackdropColors]
+    let faint: Color
+    var under: Color?
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
 
     var body: some View {
-        GeometryReader { geo in
-            let origin = geo.frame(in: .global).origin
-            // Content space to this layer. The scroll view's frame starts under the top bar while its content
-            // runs up under the bar and the status bar (its top inset), so the bar ends where the frame starts.
-            let dx = lift.viewport.minX - origin.x
-            let barBottom = lift.viewport.minY - origin.y
-            let dy = barBottom - lift.insetTop - lift.scrollY
-            let p = lift.progress
+        let p = lift.progress
+        if p > 0.001 {
+            let paint = MemoryGridPaint(covers: [:], faint: faint)
             let reduced = reduceMotion
             let rtl = layoutDirection == .rightToLeft
-            let sources = p > 0.001 && !reduced ? pixels.map { lift.rect(of: $0)?.offsetBy(dx: dx, dy: dy) } : []
-            ZStack(alignment: .top) {
-                if let under, barBottom > 0 {
-                    // Solid to a little above the bar's foot, then a long eased fall-off past it
-                    // (51, 2026-11-16: longer and softer than the album's short edge).
-                    let h = barBottom + Self.tail
-                    ProgressiveEdgeBlur(tint: under, strong: true,
-                                        fadeFrom: Double(max(barBottom - Self.feather, 0) / h))
-                        .frame(height: h)
-                        .opacity(Double(min(max(p / MemoryGridLiftMath.formed, 0), 1)))
-                }
-                Canvas { ctx, size in
-                    draw(&ctx, size: size, p: p, barBottom: barBottom, sources: sources, reduced: reduced, rtl: rtl)
+            GeometryReader { geo in
+                let origin = geo.frame(in: .global).origin
+                // Content space to this layer. The scroll view's frame starts under the top bar while its content
+                // runs up under the bar and the status bar (its top inset), so the bar ends where the frame starts.
+                let dx = lift.viewport.minX - origin.x
+                let barBottom = lift.viewport.minY - origin.y
+                let dy = barBottom - lift.insetTop - lift.scrollY
+                ZStack(alignment: .top) {
+                    if let under, barBottom > 0 {
+                        // Solid to a little above the bar's foot, then a long eased fall-off past it
+                        // (51, 2026-11-16: longer and softer than the album's short edge).
+                        let h = barBottom + Self.tail
+                        ProgressiveEdgeBlur(tint: under, strong: true,
+                                            fadeFrom: Double(max(barBottom - Self.feather, 0) / h))
+                            .frame(height: h)
+                            .opacity(Double(min(max(p / MemoryGridLiftMath.formed, 0), 1)))
+                    }
+                    Canvas { ctx, size in
+                        draw(&ctx, size: size, p: p, barBottom: barBottom, dx: dx, dy: dy,
+                             paint: paint, reduced: reduced, rtl: rtl)
+                    }
                 }
             }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     private func draw(_ ctx: inout GraphicsContext, size: CGSize, p: CGFloat, barBottom: CGFloat,
-                      sources: [CGRect?], reduced: Bool, rtl: Bool) {
+                      dx: CGFloat, dy: CGFloat, paint: MemoryGridPaint, reduced: Bool, rtl: Bool) {
         let n = pixels.count
         guard n > 0, p > 0.001, barBottom > 0 else { return }
         let mosaic = MemoryGridLiftMath.mosaic(count: n, width: size.width, height: barBottom)
-        var colors: [String: BackdropColors] = [:]
-        func of(_ album: LedgerAlbum) -> BackdropColors {
-            if let c = colors[album.key] { return c }
-            let c = paint.colors(album)
-            colors[album.key] = c
-            return c
+        let of: (LedgerAlbum) -> BackdropColors = { album in
+            colors[album.key] ?? Self.fallbackBackdrop(album.key)
         }
         if reduced {
             // Reduce Motion: no flight, the whole bar fades in where it ends up (one layer, not one per square).
@@ -213,14 +292,31 @@ struct MemoryGridLiftLayer: View {
                 }
             }
         } else {
+            var lastSourceIndex = -1
+            var lastSourceRect: CGRect?
             for k in 0..<mosaic.places {
                 let i = MemoryGridLiftMath.pixel(forPlace: k, places: mosaic.places, count: n)
                 let pixel = pixels[i]
                 let target = MemoryGridLiftMath.target(k, mosaic, width: size.width, rtl: rtl)
                 let q = MemoryGridLiftMath.flight(i, of: n, at: p)
-                let from = i < sources.count ? sources[i] : nil
-                let rect = from.map { q >= 1 ? target : lerp($0, target, q) } ?? target
-                let radius = from.map { $0.width * (pixel.mark < 0 ? MemoryGridPaint.wallRadius : MemoryGridPaint.quadRadius) * (1 - q) } ?? 0
+                let rect: CGRect
+                let radius: CGFloat
+                if q >= 1 {
+                    rect = target
+                    radius = 0
+                } else {
+                    if i != lastSourceIndex {
+                        lastSourceIndex = i
+                        lastSourceRect = lift.rect(of: pixel)?.offsetBy(dx: dx, dy: dy)
+                    }
+                    if let from = lastSourceRect {
+                        rect = lerp(from, target, q)
+                        radius = from.width * (pixel.mark < 0 ? MemoryGridPaint.wallRadius : MemoryGridPaint.quadRadius) * (1 - q)
+                    } else {
+                        rect = target
+                        radius = 0
+                    }
+                }
                 // The grid's look in flight; the bar's pixels as it lands.
                 let landed = smoothstep(0.7, 1, q)
                 if landed < 1 {
@@ -242,9 +338,9 @@ struct MemoryGridLiftLayer: View {
             ctx.blendMode = .destinationOut
             let top = barBottom - feather
             ctx.fill(Path(CGRect(x: 0, y: top, width: size.width, height: feather)),
-                     with: .linearGradient(Gradient(stops: ProgressiveEdgeBlur.easedFalloff(from: 0).map {
-                         Gradient.Stop(color: .black.opacity(1 - Self.alpha($0.color)), location: $0.location)
-                     }), startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: barBottom)))
+                     with: .linearGradient(Self.featherGradient,
+                                           startPoint: CGPoint(x: 0, y: top),
+                                           endPoint: CGPoint(x: 0, y: barBottom)))
             // The squares' half-point overlap ran a hairline of colour just past the bar's bottom.
             ctx.fill(Path(CGRect(x: 0, y: barBottom - 0.5, width: size.width, height: 3)),
                      with: .color(.black.opacity(Double(smoothstep(0.6, 1, p)))))
@@ -257,10 +353,18 @@ struct MemoryGridLiftLayer: View {
     /// How far past the bar's bottom the blur under it eases out.
     static let tail: CGFloat = 44
 
-    private static func alpha(_ c: Color) -> Double {
-        var a: CGFloat = 0
-        UIColor(c).getRed(nil, green: nil, blue: nil, alpha: &a)
-        return Double(a)
+    private static let featherGradient: Gradient = {
+        let steps = 8
+        let stops: [Gradient.Stop] = (0...steps).map { i in
+            let t = Double(i) / Double(steps)
+            let eraseAlpha = 1 - 0.5 * (1 + cos(Double.pi * t))
+            return Gradient.Stop(color: .black.opacity(eraseAlpha), location: CGFloat(t))
+        }
+        return Gradient(stops: stops)
+    }()
+
+    private static func fallbackBackdrop(_ key: String) -> BackdropColors {
+        BackdropColors(MemoryGridView.fallback(key))
     }
 
     /// A square landed in the bar, as pixels: two colours (an album written about, or two albums spliced)

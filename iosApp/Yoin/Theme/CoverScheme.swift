@@ -268,8 +268,8 @@ enum CoverSeed {
     @MainActor
     static func seedArgb(for album: Album) -> Int {
         // A server cover: its image's seed once loaded, the placeholder until then.
-        if album.palette.cover != nil { return CoverScheme.argb(of: album.palette.a) }
-        return pick(for: album)?.argb ?? CoverScheme.argb(of: album.palette.a)
+        if album.palette.cover != nil { return album.palette.seedArgb }
+        return pick(for: album)?.argb ?? album.palette.seedArgb
     }
 
     /// The seed swatch of an album's rendered `CoverArt`, cached by album id.
