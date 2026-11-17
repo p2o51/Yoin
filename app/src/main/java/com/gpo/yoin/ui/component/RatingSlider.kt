@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -9,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,7 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -40,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -209,21 +216,6 @@ fun RatingSlider(
                 .background(MaterialTheme.colorScheme.primary),
         )
 
-        // Rating label inside the bar. Cross-fade the label color from
-        // onSurfaceVariant → onPrimary as the primary fill reaches it: the label
-        // sits in the last ~20% of the track, so the crossover starts once the
-        // fill exceeds 80% (rating ≥ 4).
-        val labelCrossoverT = ((animatedFraction - 0.80f) / 0.20f).coerceIn(0f, 1f)
-        val labelTarget = lerp(
-            MaterialTheme.colorScheme.onSurfaceVariant,
-            MaterialTheme.colorScheme.onPrimary,
-            labelCrossoverT,
-        )
-        val labelColor by animateColorAsState(
-            targetValue = labelTarget,
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "ratingLabelColor",
-        )
         // Unrated: no number. The last one fades out (and a first score fades
         // in) on the effects spring instead of popping.
         val lastLabel = remember { mutableStateOf("") }
@@ -247,10 +239,63 @@ fun RatingSlider(
                     .clearAndSetSemantics {},
             )
         }
+        // The number inside the bar: onSurfaceVariant over the track and
+        // onPrimary where the fill runs behind it, split along the fill's own
+        // edge (rounded end included). Crossing the color by the score alone
+        // (80 → 100 %) left 8.6 on a short bar half covered by a fill the
+        // number didn't follow.
+        val shownLabel = label ?: lastLabel.value
+        val fillShape = YoinShapeTokens.Full
+        RatingLabel(
+            text = shownLabel,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = labelAlpha),
+            isVertical = isVertical,
+        )
+        RatingLabel(
+            text = shownLabel,
+            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = labelAlpha),
+            isVertical = isVertical,
+            // The same number again: one is enough for TalkBack.
+            modifier = Modifier.clearAndSetSemantics {}.drawWithContent {
+                // Read in draw: the fill's spring redraws the split, no recomposition.
+                val fraction = animatedFraction.coerceIn(0f, 1f)
+                if (fraction <= 0f) return@drawWithContent
+                val fillSize = if (isVertical) {
+                    Size(size.width, size.height * fraction)
+                } else {
+                    Size(size.width * fraction, size.height)
+                }
+                val origin = when {
+                    isVertical -> Offset(0f, size.height - fillSize.height)
+                    layoutDirection == LayoutDirection.Rtl -> Offset(size.width - fillSize.width, 0f)
+                    else -> Offset.Zero
+                }
+                val path = Path().apply {
+                    addOutline(fillShape.createOutline(fillSize, layoutDirection, this@drawWithContent))
+                    translate(origin)
+                }
+                clipPath(path) { this@drawWithContent.drawContent() }
+            },
+        )
+    }
+}
+
+/**
+ * The bar's number, laid out over the whole bar so both colored copies (and
+ * the fill's clip) share the bar's own coordinates.
+ */
+@Composable
+private fun BoxScope.RatingLabel(
+    text: String,
+    color: Color,
+    isVertical: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = Modifier.matchParentSize().then(modifier)) {
         Text(
-            text = label ?: lastLabel.value,
+            text = text,
             style = MaterialTheme.typography.titleLarge.withTabularFigures(),
-            color = labelColor.copy(alpha = labelColor.alpha * labelAlpha),
+            color = color,
             maxLines = 1,
             softWrap = false,
             modifier = Modifier
