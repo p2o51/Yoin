@@ -472,7 +472,7 @@ fun NowPlayingScreen(
     val translationSeen = remember { arrayOf<Any?>(translationShown, revealSongId) }
     LaunchedEffect(translationShown, revealSongId) {
         val (lastShown, lastSong) = translationSeen
-        if (lastSong == revealSongId && lastShown != translationShown) {
+        if (revealSongId != null && lastSong == revealSongId && lastShown != translationShown) {
             translationHaptics.performPluck(opening = translationShown)
             // The background answers every show / hide with the same wave.
             transportSignal.glow(

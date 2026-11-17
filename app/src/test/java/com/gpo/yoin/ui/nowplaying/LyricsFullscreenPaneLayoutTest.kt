@@ -149,4 +149,87 @@ class LyricsFullscreenPaneLayoutTest {
             }
         }
     }
+
+    @Test
+    fun should_keepFocusLinePinned_when_translationToggles() {
+        val translated = (0 until 20).map {
+            LyricLine(startMs = 10_000L + it * 5_000L, text = "Current line $it", translation = "Translation $it")
+        }
+        var showTranslation by mutableStateOf(false)
+        rule.setContent {
+            YoinTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LyricsFullscreenPane(
+                        lyrics = translated,
+                        positionMs = { 50_000L },
+                        loading = false,
+                        showTranslation = showTranslation,
+                        autoScrollEnabled = true,
+                        recenterRequestKey = 0,
+                        onUserScroll = {},
+                        onSeekToMs = {},
+                        trackKey = "translated-song",
+                        songTitle = "First Song",
+                        artist = "Night QA Band",
+                        durationMs = duration,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        val beforeTop = rule.onNodeWithText("Current line 8").getBoundsInRoot().top
+
+        rule.runOnIdle { showTranslation = true }
+        rule.mainClock.advanceTimeBy(2_000L)
+        rule.waitForIdle()
+
+        val afterTop = rule.onNodeWithText("Current line 8").getBoundsInRoot().top
+        assertEquals("focus line keeps its y", beforeTop.value, afterTop.value, 2f)
+        val tr8 = rule.onNodeWithText("Translation 8").getBoundsInRoot()
+        assertTrue(tr8.bottom - tr8.top > 0.dp)
+    }
+
+    @Test
+    fun should_glideToNextLine_when_playheadAdvancesDuringTranslationWave() {
+        val translated = (0 until 20).map {
+            LyricLine(startMs = 10_000L + it * 5_000L, text = "Current line $it", translation = "Translation $it")
+        }
+        var showTranslation by mutableStateOf(false)
+        var position by mutableLongStateOf(50_000L)
+        rule.setContent {
+            YoinTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LyricsFullscreenPane(
+                        lyrics = translated,
+                        positionMs = { position },
+                        loading = false,
+                        showTranslation = showTranslation,
+                        autoScrollEnabled = true,
+                        recenterRequestKey = 0,
+                        onUserScroll = {},
+                        onSeekToMs = {},
+                        trackKey = "translated-wave",
+                        songTitle = "First Song",
+                        artist = "Night QA Band",
+                        durationMs = duration,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        val line8Before = rule.onNodeWithText("Current line 8").getBoundsInRoot()
+        val seatCenter = (line8Before.top + line8Before.bottom).value / 2f
+
+        rule.runOnIdle { showTranslation = true }
+        rule.mainClock.advanceTimeBy(150L)
+        rule.runOnIdle { position = 55_000L }
+        rule.mainClock.advanceTimeBy(3_000L)
+        rule.waitForIdle()
+
+        val line9 = rule.onNodeWithText("Current line 9").getBoundsInRoot()
+        val tr9 = rule.onNodeWithText("Translation 9").getBoundsInRoot()
+        assertTrue(tr9.bottom - tr9.top > 0.dp)
+        val line9Center = (line9.top + tr9.bottom).value / 2f
+        assertEquals("next line glides to the focus seat", seatCenter, line9Center, 4f)
+    }
 }

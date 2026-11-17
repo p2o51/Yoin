@@ -10,12 +10,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -553,8 +547,8 @@ private fun LyricsFullscreenList(
     // Where the translation wave starts: the focus line while the page
     // follows the playhead, else the top of what is on screen. Taken once
     // per toggle, before the rows read it (no scroll-position reads here).
-    val translationWaveOrigin = remember { intArrayOf(-1) }
-    val waveToggleSeen = remember { booleanArrayOf(showTranslation) }
+    val translationWaveOrigin = remember(trackKey) { intArrayOf(-1) }
+    val waveToggleSeen = remember(trackKey) { booleanArrayOf(showTranslation) }
     if (waveToggleSeen[0] != showTranslation) {
         waveToggleSeen[0] = showTranslation
         translationWaveOrigin[0] = if (autoScrollEnabled && focusItem >= 0) {
@@ -573,39 +567,68 @@ private fun LyricsFullscreenList(
     // The pin is the focus row's seat as it was before the toggle (its own
     // translation opens below it, the line itself stays put); the next line
     // advance seats rows by their new size.
-    val lastShowTranslation = remember { booleanArrayOf(showTranslation) }
-    LaunchedEffect(showTranslation) {
+    val latestAutoScroll by rememberUpdatedState(autoScrollEnabled)
+    val latestFocusItem by rememberUpdatedState(focusItem)
+    val latestSeat by rememberUpdatedState(seat)
+    val latestEdgeFadePx by rememberUpdatedState(edgeFadePx)
+    val latestUpNextHeaderIndex by rememberUpdatedState(upNextHeaderIndex)
+    val latestSongEndItem by rememberUpdatedState(songEndItem)
+    val latestSongEndTailPx by rememberUpdatedState(songEndTailPx)
+    val hasAnyTranslation = remember(lyrics) { lyrics.any { !it.translation.isNullOrBlank() } }
+    val lastShowTranslation = remember(trackKey) { booleanArrayOf(showTranslation) }
+    LaunchedEffect(trackKey, showTranslation) {
         if (lastShowTranslation[0] == showTranslation) return@LaunchedEffect
         lastShowTranslation[0] = showTranslation
-        if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
+        if (!latestAutoScroll || latestFocusItem < 0 || !hasAnyTranslation) return@LaunchedEffect
         var lastSignature = -1L
         var stableFrames = 0
         var pinnedItem = -1
         var pinnedOffset = 0
         // The wave starts its far rows late: keep pinning until the last of
         // them has had time to begin, or a quiet stretch between two rows
-        // would read as settled.
-        val waveStartNanos = System.nanoTime()
+        // would read as settled. Driven by frameNanos so Compose's test clock works.
+        var waveStartNanos = -1L
         val waveSpanNanos = (TranslationWaveMaxRows * TranslationWaveStepMs + TranslationWaveSettleSlackMs) * 1_000_000L
-        while (stableFrames < TranslationSettleFrames || System.nanoTime() - waveStartNanos < waveSpanNanos) {
-            val signature = withFrameNanos {
+        while (true) {
+            var abortWave = false
+            var waveElapsedNanos = 0L
+            val signature = withFrameNanos { frameNanos ->
+                if (!latestAutoScroll || latestFocusItem < 0) {
+                    abortWave = true
+                    return@withFrameNanos 0L
+                }
+                if (waveStartNanos < 0L) waveStartNanos = frameNanos
+                waveElapsedNanos = frameNanos - waveStartNanos
                 val info = listState.layoutInfo
                 if (info.viewportSize.height > 0) {
-                    val focus = focusItem
-                    if (focus != pinnedItem) {
+                    val focus = latestFocusItem
+                    if (pinnedItem < 0) {
                         pinnedItem = focus
-                        pinnedOffset = if (focus == upNextHeaderIndex) {
+                        pinnedOffset = if (focus == latestUpNextHeaderIndex) {
                             0
                         } else {
-                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx, seat, songEndItem, songEndTailPx)
+                            info.lyricsFocusScrollOffsetPx(
+                                focus,
+                                latestEdgeFadePx,
+                                latestSeat,
+                                latestSongEndItem,
+                                latestSongEndTailPx,
+                            )
                         }
+                    } else if (focus != pinnedItem) {
+                        // A line advance started a glide to the new row; stop re-pinning
+                        // the previous row so requestScrollToItem does not cancel it.
+                        abortWave = true
+                        return@withFrameNanos 0L
                     }
-                    listState.requestScrollToItem(focus, pinnedOffset)
+                    listState.requestScrollToItem(pinnedItem, pinnedOffset)
                 }
                 info.visibleItemsInfo.fold(0L) { acc, item -> acc * 31 + item.size }
             }
+            if (abortWave) break
             stableFrames = if (signature == lastSignature) stableFrames + 1 else 0
             lastSignature = signature
+            if (stableFrames >= TranslationSettleFrames && waveElapsedNanos >= waveSpanNanos) break
         }
     }
 
@@ -1027,20 +1050,8 @@ private fun LyricRow(
         // focus line, so the opening travels all the way down the page.
         AnimatedVisibility(
             visible = secondaryShown,
-            enter = expandVertically(
-                animationSpec = YoinMotion.translationUnrollSpring(),
-                expandFrom = Alignment.Top,
-            ) + slideInVertically(
-                animationSpec = YoinMotion.translationUnrollSpring(),
-                initialOffsetY = { -it / 2 },
-            ) + fadeIn(animationSpec = YoinMotion.translationFadeSpring()),
-            exit = shrinkVertically(
-                animationSpec = YoinMotion.translationUnrollSpring(),
-                shrinkTowards = Alignment.Top,
-            ) + slideOutVertically(
-                animationSpec = YoinMotion.translationUnrollSpring(),
-                targetOffsetY = { -it / 2 },
-            ) + fadeOut(animationSpec = YoinMotion.translationUnrollSpring()),
+            enter = YoinMotion.translationEnter(),
+            exit = YoinMotion.translationExit(),
         ) {
             Text(
                 text = secondary.orEmpty(),

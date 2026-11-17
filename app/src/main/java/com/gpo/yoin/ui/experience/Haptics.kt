@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalView
  */
 class YoinHaptics internal constructor(private val view: View) {
 
-    private val vibrator: Vibrator? by lazy {
+    private val vibrator: Vibrator? by lazy(LazyThreadSafetyMode.NONE) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             view.context.getSystemService(VibratorManager::class.java)?.defaultVibrator
         } else {
@@ -45,28 +45,29 @@ class YoinHaptics internal constructor(private val view: View) {
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
     private fun composePluck(opening: Boolean): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
         val v = vibrator ?: return false
-        if (!v.hasVibrator()) return false
-        val attack = VibrationEffect.Composition.PRIMITIVE_CLICK
-        val ring = VibrationEffect.Composition.PRIMITIVE_LOW_TICK
-        if (!v.areAllPrimitivesSupported(attack, ring)) return false
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // USAGE_TOUCH only exists from 33; before that honour the switch by hand.
-            val enabled = Settings.System.getInt(
-                view.context.contentResolver,
-                Settings.System.HAPTIC_FEEDBACK_ENABLED,
-                1,
-            )
-            if (enabled == 0) return true
-        }
-        val strength = if (opening) 1f else 0.8f
-        val effect = VibrationEffect.startComposition()
-            .addPrimitive(attack, 0.42f * strength)
-            .addPrimitive(ring, 0.30f * strength, PluckRingGapMs)
-            .addPrimitive(ring, 0.18f * strength, PluckRingGapMs)
-            .addPrimitive(ring, 0.09f * strength, PluckRingGapMs + 12)
-            .compose()
         return try {
+            if (!v.hasVibrator()) return false
+            val attack = VibrationEffect.Composition.PRIMITIVE_CLICK
+            val ring = VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+            if (!v.areAllPrimitivesSupported(attack, ring)) return false
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                // USAGE_TOUCH only exists from 33; before that honour the switch by hand.
+                val enabled = Settings.System.getInt(
+                    view.context.contentResolver,
+                    Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                    1,
+                )
+                if (enabled == 0) return true
+            }
+            val strength = if (opening) 1f else 0.8f
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(attack, 0.42f * strength)
+                .addPrimitive(ring, 0.30f * strength, PluckRingGapMs)
+                .addPrimitive(ring, 0.18f * strength, PluckRingGapMs)
+                .addPrimitive(ring, 0.09f * strength, PluckRingGapMs + 12)
+                .compose()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH))
             } else {
@@ -74,9 +75,7 @@ class YoinHaptics internal constructor(private val view: View) {
                 v.vibrate(effect)
             }
             true
-        } catch (_: SecurityException) {
-            false
-        } catch (_: IllegalArgumentException) {
+        } catch (_: RuntimeException) {
             false
         }
     }

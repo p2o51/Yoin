@@ -140,15 +140,16 @@ internal data class ActionGlow(
 }
 
 /**
- * Adds [incoming] to the running lights: a play-mode light retires the
- * play-mode lights still running, so quick taps round the cycle read as one
- * light moving on rather than a pile.
+ * Adds [incoming] to the running lights: a play-mode or translation-wave light
+ * retires any light of the same family still running, so quick taps read as
+ * one light moving on rather than a pile.
  */
 internal fun MutableList<ActionGlow>.addHandingOver(incoming: ActionGlow) {
-    if (incoming.kind.isPlayMode) {
+    if (incoming.kind.isPlayMode || incoming.kind == ActionGlowKind.TranslationWave) {
         for (i in indices) {
             val g = this[i]
-            if (g.kind.isPlayMode && g.retiredUptimeMs == Long.MAX_VALUE) {
+            val sameFamily = if (incoming.kind.isPlayMode) g.kind.isPlayMode else g.kind == incoming.kind
+            if (sameFamily && g.retiredUptimeMs == Long.MAX_VALUE) {
                 this[i] = g.copy(retiredUptimeMs = incoming.bornUptimeMs)
             }
         }
@@ -420,31 +421,33 @@ internal fun DrawScope.drawActionGlow(
             }
         }
         ActionGlowKind.TranslationWave -> {
-            val opening = glow.value >= 0.5f
-            val area = glow.areaRoot?.translate(-origin)?.takeIf { !it.isEmpty }
-            val top = area?.top ?: (h * 0.3f)
-            val from = (if (glow.targetY.isNaN()) top else glow.targetY - origin.y).coerceIn(top, h)
-            val color = if (opening) pal.p else pal.s
-            val strength = if (opening) 0.62f else 0.4f
             val step = TranslationWaveBandDp * dp
-            // Bands every [step] from the lyrics' top to the screen's bottom;
-            // each lights when the wave reaches it (by its distance from the
-            // current line) and fades on a long, soft bell.
-            var y = top + step * 0.5f
-            while (y < h + step) {
-                val delay = abs(y - from) / dp * TranslationWaveMsPerDp
-                val v = (tMs - delay) / TranslationWaveBandLifeMs
-                if (v > 0f && v < 1f) {
-                    glowEllipse(
-                        Offset(w / 2f, y),
-                        rx = w * 0.9f,
-                        ry = step * 1.1f,
-                        color = color,
-                        alpha = k * strength * softBell(v),
-                        blend = blend,
-                    )
+            if (h > 0f && step > 0f) {
+                val opening = glow.value >= 0.5f
+                val area = glow.areaRoot?.translate(-origin)?.takeIf { !it.isEmpty }
+                val top = (area?.top ?: (h * 0.3f)).coerceIn(0f, h)
+                val from = (if (glow.targetY.isNaN()) top else glow.targetY - origin.y).coerceIn(top, h)
+                val color = if (opening) pal.p else pal.s
+                val strength = if (opening) 0.62f else 0.4f
+                // Bands every [step] from the lyrics' top to the screen's bottom;
+                // each lights when the wave reaches it (by its distance from the
+                // current line) and fades on a long, soft bell.
+                var y = top + step * 0.5f
+                while (y < h + step) {
+                    val delay = abs(y - from) / dp * TranslationWaveMsPerDp
+                    val v = (tMs - delay) / TranslationWaveBandLifeMs
+                    if (v > 0f && v < 1f) {
+                        glowEllipse(
+                            Offset(w / 2f, y),
+                            rx = w * 0.9f,
+                            ry = step * 1.1f,
+                            color = color,
+                            alpha = k * strength * softBell(v),
+                            blend = blend,
+                        )
+                    }
+                    y += step
                 }
-                y += step
             }
         }
         ActionGlowKind.DeviceHandoff -> {

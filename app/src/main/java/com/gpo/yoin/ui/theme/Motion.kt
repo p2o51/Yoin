@@ -280,12 +280,6 @@ object YoinMotion {
     )
 
     /**
-     * The landing mascot's own springs (role-free: it is a character, not a
-     * surface). Land = the fins flying into the mark; gesture = a wave, a nod,
-     * a cheer; hop = the vertical kick of a nod or a cheer; shake = the head
-     * ringing out a "no".
-     */
-    /**
      * Lyric translations unrolling under their lines (owner 2026-11-16: soft,
      * like a plucked string). Slower than the default spatial spring and
      * almost without overshoot, so a page of lines opening one after another
@@ -302,10 +296,34 @@ object YoinMotion {
         stiffness = TranslationFadeStiffness,
     )
 
+    /** Lyric row translation unrolling downward from the line above it. */
+    fun translationEnter(): EnterTransition = composeExpandVertically(
+        animationSpec = translationUnrollSpring(),
+        expandFrom = Alignment.Top,
+    ) + composeSlideInVertically(
+        animationSpec = translationUnrollSpring(),
+        initialOffsetY = { -it / 2 },
+    ) + composeFadeIn(animationSpec = translationFadeSpring())
+
+    /** Lyric row translation folding back into the line above it. */
+    fun translationExit(): ExitTransition = composeShrinkVertically(
+        animationSpec = translationUnrollSpring(),
+        shrinkTowards = Alignment.Top,
+    ) + composeSlideOutVertically(
+        animationSpec = translationUnrollSpring(),
+        targetOffsetY = { -it / 2 },
+    ) + composeFadeOut(animationSpec = translationUnrollSpring())
+
     private const val TranslationUnrollDamping = 0.92f
     private const val TranslationUnrollStiffness = 170f
     private const val TranslationFadeStiffness = 120f
 
+    /**
+     * The landing mascot's own springs (role-free: it is a character, not a
+     * surface). Land = the fins flying into the mark; gesture = a wave, a nod,
+     * a cheer; hop = the vertical kick of a nod or a cheer; shake = the head
+     * ringing out a "no".
+     */
     fun mascotLandSpring(): FiniteAnimationSpec<Float> = spring(MascotLandDamping, MascotLandStiffness)
 
     fun mascotGestureSpring(): FiniteAnimationSpec<Float> = spring(MascotGestureDamping, MascotGestureStiffness)
