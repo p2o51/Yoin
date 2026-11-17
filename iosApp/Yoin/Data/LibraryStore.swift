@@ -1521,7 +1521,13 @@ final class LibraryStore {
 
     func runSearch(_ query: String, scope: SearchScope = .library) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isReal, !q.isEmpty else { search = nil; searchRequest = nil; searchPhase = .idle; searchFailure = nil; return }
+        guard isReal, !q.isEmpty else {
+            if search != nil { search = nil }
+            if searchRequest != nil { searchRequest = nil }
+            if searchPhase != .idle { searchPhase = .idle }
+            if searchFailure != nil { searchFailure = nil }
+            return
+        }
         let request = SearchRequest(query: q, scope: searchesCatalog ? scope : .library)
         searchRequest = request
         searchPhase = .loading

@@ -278,7 +278,7 @@ struct ShellBar: View {
         .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
         .animation(model.searchActive ? nil : SearchView.fadeThrough, value: model.searchActive)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            if !model.searchActive && model.searchCircleFrame != frame { model.searchCircleFrame = frame }
+            if !model.searchActive, !frame.nearlyMatches(model.searchCircleFrame) { model.searchCircleFrame = frame }
         }
         .accessibilityLabel("Search")
     }
@@ -308,17 +308,12 @@ struct ShellBar: View {
         .background {
             // World (R5): the folded room's ambient already breathes in the pill.
             if lab.extra("pillAmbient") > 0, !model.isIdle {
-                // Sized by the pill (the ambient's own blobs are page-sized).
-                Color.clear
-                    .overlay { NowPlayingAmbient(scheme: scheme) }
-                    .clipShape(.capsule)
-                    .opacity(lab.extra("pillAmbient"))
-                    .allowsHitTesting(false)
+                PillAmbientWash(scheme: scheme, dark: colorScheme == .dark, opacity: lab.extra("pillAmbient"))
             }
         }
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            model.np.pillFrame = r
+            if !model.searchActive, !model.np.mounted, !r.nearlyMatches(model.np.pillFrame) { model.np.pillFrame = r }
         }
         // While Now Playing is up (or morphing), the morph's glass shape is
         // the pill: it starts and ends exactly on this frame.
@@ -482,6 +477,42 @@ struct ShellNavFace: View {
     }
 }
 
+/// Lightweight gradient wash for the mini-player pill (`pillAmbient`),
+/// preserving the folded room's cover palette without mounting large live blurs.
+private struct PillAmbientWash: View {
+    var scheme: CoverScheme
+    var dark: Bool
+    var opacity: Double
+
+    var body: some View {
+        ZStack {
+            scheme.background
+            LinearGradient(
+                colors: [
+                    scheme.secondaryContainer.opacity(0.65),
+                    scheme.primary.opacity(dark ? 0.55 : 0.42),
+                    scheme.tertiaryContainer.opacity(0.65),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [
+                    scheme.primary.opacity(dark ? 0.48 : 0.36),
+                    .clear,
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: 140
+            )
+        }
+        .clipShape(.capsule)
+        .opacity(opacity)
+        .animation(Yoin.effects, value: scheme.primary)
+        .allowsHitTesting(false)
+    }
+}
+
 /// The mini player's content: cover, title over artist, progress wash.
 /// The bar's pill reports its cover / title frames to the Now Playing
 /// morph (`np`); the morph draws a copy without cover and title (those fly).
@@ -494,6 +525,7 @@ struct PillContent: View {
     var np: NowPlayingPresentation? = nil
     var showCover = true
     var showTitle = true
+    var showWash = true
     /// The tip page's demo phone: its made-up song in the engine's place (its playhead rides the environment).
     var demo: NowPlayingDemo? = nil
     private let height: CGFloat = 60
@@ -534,14 +566,18 @@ struct PillContent: View {
                 .frame(width: 42, height: 42)
                 .opacity(showCover ? 1 : 0)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                    np?.pillCoverFrame = r
+                    if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillCoverFrame) {
+                        np.pillCoverFrame = r
+                    }
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
                 MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                        np?.pillTitleFrame = r
+                        if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillTitleFrame) {
+                            np.pillTitleFrame = r
+                        }
                     }
                 MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }
@@ -560,9 +596,10 @@ struct PillContent: View {
             // Playing is up: the pill is hidden then, and a wash moving in
             // the shell redrew the whole blurred world behind the page every
             // frame.
-            if np?.mounted != true {
+            if showWash, np?.mounted != true {
                 PlaybackPosition { position, duration in
-                    PillWash(positionSec: position, durationSec: duration, playing: p.isPlaying,
+                    PillWash(positionSec: position, durationSec: duration,
+                             playing: p.isPlaying && SheetRise.shared.progress < 0.5,
                              color: scheme.primary.opacity(lab.extra("washOpacity")),
                              amplitude: lab.extra("washAmplitude"))
                 }
@@ -776,5 +813,14 @@ struct PlaybackFailureBanner: View {
         case .installSpotify: "Install Spotify"
         case .retry, .openSpotifyThenRetry, .none: "Retry"
         }
+    }
+}
+
+extension CGRect {
+    func nearlyMatches(_ other: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(minX - other.minX) <= tolerance
+            && abs(minY - other.minY) <= tolerance
+            && abs(width - other.width) <= tolerance
+            && abs(height - other.height) <= tolerance
     }
 }

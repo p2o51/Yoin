@@ -625,40 +625,60 @@ extension View {
     func labRecede(_ depth: CGFloat, sheet: Bool = false) -> some View {
         let lab = GlassLab.shared
         let d = min(max(depth, 0), 1)
+        let active = d > 0.001
         let k = sheet ? "sheetRecede" : "recede"
+        let maxBlur = lab.extra(k + "Blur")
+        let rawBlur: CGFloat = active && !lab.solidSurfaces ? maxBlur * d : 0
+        // Quantize intermediate blur steps (0.5pt) while preserving exact 0 at rest and exact
+        // `maxBlur` at full depth, avoiding 60x/s CAFilter Gaussian kernel rebuilds over Liquid Glass.
+        let blurRadius: CGFloat = !active ? 0 : d >= 0.99 ? maxBlur : (rawBlur * 2).rounded() / 2
+        let scale: CGFloat = active ? 1 - lab.extra(k + "Scale") * d : 1
         let insets = WindowInsets.current
         // Hosted in a full-screen frame (the layer still lays out in the same
         // safe area): a blur draws only inside its view's frame, and the
         // layer's own frame stops at the safe area, so any blur cut the
-        // status-bar band off.
+        // status-bar band off. Keep overlay/background structure invariant across
+        // `active` so crossing 0.001 at open/close never inserts or removes subtrees.
         return Color.clear
             .ignoresSafeArea()
             .overlay { self }
-            // Blur inside the corner mask, so the plane's silhouette stays crisp.
-            .blur(radius: lab.solidSurfaces ? 0 : lab.extra(k + "Blur") * d)
+            // Blur inside the corner clip, so the plane's silhouette stays crisp.
+            .blur(radius: blurRadius)
             // The world behind keeps the display's corners as it steps back,
             // and gives up the status-bar and home-indicator bands (the look
             // behind a sheet) by the same depth: they slide away with what
-            // rises over it.
-            .mask {
-                RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous)
-                    .padding(.top, insets.top * d)
-                    .padding(.bottom, insets.bottom * d)
-                    .ignoresSafeArea()
+            // rises over it. Scaled on GPU instead of per-frame VStack relayout.
+            .overlay {
+                ZStack {
+                    Yoin.surface
+                        .frame(height: insets.top)
+                        .scaleEffect(x: 1, y: active ? max(d, 0.0001) : 0.0001, anchor: .top)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                    Yoin.surface
+                        .frame(height: insets.bottom)
+                        .scaleEffect(x: 1, y: active ? max(d, 0.0001) : 0.0001, anchor: .bottom)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                .opacity(active ? 1 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
+            .clipShape(.rect(cornerRadius: active ? 44 : 0, style: .continuous))
             // Drawn scaled, laid out as is. A layout scale (scaleEffect) moved
             // the layer off the screen's edges, and then nothing in it could
             // reach under the status bar (ignoresSafeArea): Now Playing's dark
             // top went to the surface on the first frame a sheet rose.
-            .modifier(RenderScale(scale: 1 - lab.extra(k + "Scale") * d).ignoredByLayout())
+            .modifier(RenderScale(scale: scale).ignoredByLayout())
             // What the shrinking plane uncovers is the app's surface, not the
             // window's black (a black rim at the corners read as a flash),
             // and the dim lies over both, so the rim dims with the plane.
             .background {
-                if d > 0.001 { Yoin.surface.ignoresSafeArea() }
+                Yoin.surface
+                    .opacity(active ? 1 : 0)
+                    .ignoresSafeArea()
             }
             .overlay {
-                Color.black.opacity(lab.extra(k + "Dim") * d)
+                Color.black.opacity(active ? lab.extra(k + "Dim") * d : 0)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
@@ -965,11 +985,27 @@ struct GlassLabGestureInstaller: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
-/// The key window's safe-area insets (status bar, home indicator).
+/// The key window's safe-area insets (status bar, home indicator), cached per window size
+/// so 120 Hz recede frames don't traverse connectedScenes on every tick.
 private enum WindowInsets {
+    @MainActor private static var cachedSize: CGSize = .zero
+    @MainActor private static var cachedInsets: UIEdgeInsets = .zero
+
     @MainActor static var current: UIEdgeInsets {
+        if cachedSize != .zero, cachedInsets.top > 0 {
+            if let w = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow,
+               w.bounds.size == cachedSize {
+                return cachedInsets
+            }
+        }
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        return scenes.lazy.compactMap(\.keyWindow).first?.safeAreaInsets ?? .zero
+        guard let window = scenes.lazy.compactMap(\.keyWindow).first else { return cachedInsets }
+        let insets = window.safeAreaInsets
+        if insets.top > 0 || insets.bottom > 0 {
+            cachedSize = window.bounds.size
+            cachedInsets = insets
+        }
+        return insets
     }
 }
 

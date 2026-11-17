@@ -26,10 +26,7 @@ struct LibraryView: View {
     @State private var accountFrame: CGRect = .zero
     @State private var width: CGFloat = 370
     @State private var position = ScrollPosition()
-    @State private var metrics = ScrollMetrics()
-    @State private var awake = LaunchConfig.screen == "library-scroller"
-    @State private var held = LaunchConfig.screen == "library-scroller"
-    @State private var hideTask: Task<Void, Never>?
+    @State private var scrollState = LibraryScrollState()
     @State private var naming = false
     @State private var newName = ""
     @State private var order = LibraryOrderMemo()
@@ -228,32 +225,25 @@ struct LibraryView: View {
             ScrollMetrics(offset: $0.contentOffset.y + $0.contentInsets.top, content: $0.contentSize.height,
                           viewport: $0.containerSize.height, insets: $0.contentInsets.top + $0.contentInsets.bottom)
         } action: { _, m in
-            metrics = m
+            scrollState.update(m)
             let visible = m.viewport - m.insets - Tokens.library.GRID_TOP_PADDING.cg
             if abs(visible - gridViewport) > 0.5 { gridViewport = visible }
             memory.offsets[tab] = m.offset
-            wake()
+            scrollState.wake()
         }
         .overlay {
             // Grid views only (All, Artists, Albums), past three screens.
             if filter == nil || filter == .artists || filter == .albums {
-                LibraryFastScroller(
-                    fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0
-                        ? 0.45 : metrics.fraction(shown.count, columns: columns),
-                    worthShowing: metrics.worthShowing(shown.count, columns: columns),
-                    awake: awake, sections: ordered.sections, itemCount: shown.count, columns: columns, scheme: scheme,
-                    onDrag: { f in
-                        position.scrollTo(y: metrics.offset(for: f, shown.count, columns: columns))
-                        wake()
-                    },
-                    held: $held)
-                // Android LibraryGridFastScroller: the grid box (under the 64
-                // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
-                // bottom = floatingBottomGroupContentPadding 108 over the inset,
-                // less the 62 the shell already reserves for the bar.
-                .padding(.top, 64 + (wideHeader ? 0 : Tokens.library.CHIP_HEIGHT.cg + 4) + Tokens.library.SCROLLER_TOP_INSET.cg
-                         + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
-                .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
+                LibraryScrollerOverlay(
+                    scrollState: scrollState,
+                    sections: ordered.sections,
+                    itemCount: shown.count,
+                    columns: columns,
+                    scheme: scheme,
+                    wideHeader: wideHeader
+                ) { y in
+                    position.scrollTo(y: y)
+                }
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -271,13 +261,14 @@ struct LibraryView: View {
             if LaunchConfig.screen == "library-scroller" {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
-                    position.scrollTo(y: metrics.offset(for: 0.45, items.count, columns: columns))
+                    position.scrollTo(y: scrollState.metrics.offset(for: 0.45, items.count, columns: columns))
                 }
             } else if let y = memory.offsets[tab], y > 0 {
                 // Back where this view was left (Android keeps each tab's state).
                 position.scrollTo(y: y)
             }
         }
+        .onDisappear { scrollState.cancelSleep() }
         .onChange(of: model.store.generation) { _, _ in memory.offsets = [:] }
         // The sorts are the account's own, kept across launches.
         .onChange(of: model.store.homeScope, initial: true) { _, scope in memory.scope = scope }
@@ -286,16 +277,6 @@ struct LibraryView: View {
                            startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
         )
-    }
-
-    /// Awake while scrolling; asleep 1.6 s after scrolling and holding stop.
-    private func wake() {
-        awake = true
-        hideTask?.cancel()
-        hideTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1600))
-            if !Task.isCancelled && !held && LaunchConfig.screen != "library-scroller" { awake = false }
-        }
     }
 
     // MARK: Header: search pill + avatar
@@ -363,15 +344,20 @@ struct LibraryView: View {
     /// Android LibraryFilterRow, in the style Glass Lab picks (see
     /// LibraryFilterRow below; Android-faithful tonal chips by default).
     private var chips: some View {
-        LibraryFilterRow(filter: Binding(get: { filter }, set: { select($0) }), kinds: filterKinds,
-                         byYou: filter == .playlists && byYouAvailable
-                             ? Binding(get: { memory.byYou }, set: { memory.byYou = $0 }) : nil,
-                         scheme: scheme, style: LibraryFilterRow.Style.current, overContent: metrics.offset > 1)
+        LibraryChipsBar(
+            scrollState: scrollState,
+            filter: Binding(get: { filter }, set: { select($0) }),
+            kinds: filterKinds,
+            byYou: filter == .playlists && byYouAvailable
+                ? Binding(get: { memory.byYou }, set: { memory.byYou = $0 }) : nil,
+            scheme: scheme,
+            style: LibraryFilterRow.Style.current
+        )
     }
 
     /// Another view: this one's place is kept, the new one's comes back.
     private func select(_ kind: LibraryKind?) {
-        memory.offsets[tab] = metrics.offset
+        memory.offsets[tab] = scrollState.metrics.offset
         memory.filter = kind
         position.scrollTo(y: memory.offsets[LibraryMemory.Tab(kind)] ?? 0)
     }
@@ -1048,6 +1034,123 @@ enum LibraryGrid {
     }
 }
 
+/// Isolated scroll & fast-scroller state so 120Hz scroll updates only re-render
+/// the fast-scroller overlay (and thresholded chip bar), never `LibraryView.body`.
+@MainActor
+@Observable
+final class LibraryScrollState {
+    var metrics = LibraryView.ScrollMetrics()
+    var awake = LaunchConfig.screen == "library-scroller"
+    var held = LaunchConfig.screen == "library-scroller"
+    var overContent = false
+
+    @ObservationIgnored private var lastWakeAt: ContinuousClock.Instant = .now
+    @ObservationIgnored private var sleepTask: Task<Void, Never>?
+    @ObservationIgnored private var sleepToken = 0
+
+    func update(_ m: LibraryView.ScrollMetrics) {
+        if metrics != m { metrics = m }
+        let over = m.offset > 1
+        if over != overContent { overContent = over }
+    }
+
+    func setHeld(_ newValue: Bool) {
+        if held != newValue { held = newValue }
+        if !newValue { wake() }
+    }
+
+    /// Awake while scrolling; asleep 1.6 s after scrolling and holding stop.
+    func wake() {
+        if !awake { awake = true }
+        lastWakeAt = .now
+        guard sleepTask == nil else { return }
+        sleepToken &+= 1
+        let token = sleepToken
+        sleepTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.sleepToken == token { self.sleepTask = nil }
+            }
+            while let self, !Task.isCancelled {
+                let now = ContinuousClock.now
+                let deadline = lastWakeAt + .milliseconds(1600)
+                if now >= deadline {
+                    if !held && LaunchConfig.screen != "library-scroller" {
+                        awake = false
+                    }
+                    return
+                }
+                try? await Task.sleep(for: deadline - now)
+            }
+        }
+    }
+
+    func cancelSleep() {
+        sleepToken &+= 1
+        sleepTask?.cancel()
+        sleepTask = nil
+    }
+}
+
+private struct LibraryChipsBar: View {
+    var scrollState: LibraryScrollState
+    var filter: Binding<LibraryKind?>
+    var kinds: [LibraryKind]
+    var byYou: Binding<Bool>?
+    var scheme: CoverScheme
+    var style: LibraryFilterRow.Style
+
+    var body: some View {
+        LibraryFilterRow(
+            filter: filter,
+            kinds: kinds,
+            byYou: byYou,
+            scheme: scheme,
+            style: style,
+            overContent: scrollState.overContent
+        )
+    }
+}
+
+private struct LibraryScrollerOverlay: View {
+    var scrollState: LibraryScrollState
+    var sections: [LibraryFastScroller.Section]
+    var itemCount: Int
+    var columns: Int
+    var scheme: CoverScheme
+    var wideHeader: Bool
+    var onScrollTo: (CGFloat) -> Void
+
+    var body: some View {
+        let m = scrollState.metrics
+        let heldBinding = Binding(
+            get: { scrollState.held },
+            set: { scrollState.setHeld($0) }
+        )
+        LibraryFastScroller(
+            fraction: scrollState.held && LaunchConfig.screen == "library-scroller" && m.offset == 0
+                ? 0.45 : m.fraction(itemCount, columns: columns),
+            worthShowing: m.worthShowing(itemCount, columns: columns),
+            awake: scrollState.awake,
+            sections: sections,
+            itemCount: itemCount,
+            columns: columns,
+            scheme: scheme,
+            onDrag: { f in
+                onScrollTo(m.offset(for: f, itemCount, columns: columns))
+                scrollState.wake()
+            },
+            held: heldBinding
+        )
+        // Android LibraryGridFastScroller: the grid box (under the 64
+        // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
+        // bottom = floatingBottomGroupContentPadding 108 over the inset,
+        // less the 62 the shell already reserves for the bar.
+        .padding(.top, 64 + (wideHeader ? 0 : Tokens.library.CHIP_HEIGHT.cg + 4) + Tokens.library.SCROLLER_TOP_INSET.cg
+                 + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
+        .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
+    }
+}
+
 /// Library's sorted lists, kept until something the build read changes
 /// (LibraryStore.home's pattern): the build runs under observation tracking
 /// and the first change it saw bumps [revision], which the view reads.
@@ -1443,6 +1546,7 @@ struct SegmentChipRow<ID: Hashable>: View {
                     ForEach(group, id: \.self) { id in
                         chip(id, accent: i == groups.count - 1)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                                guard !(frames[id]?.nearlyMatches($0) ?? false) else { return }
                                 frames[id] = $0
                                 revealOnArrival()
                             }
@@ -1465,6 +1569,8 @@ struct SegmentChipRow<ID: Hashable>: View {
         .onScrollGeometryChange(for: [CGFloat].self) { g in
             [g.contentOffset.x + g.contentInsets.leading, g.containerSize.width, g.contentSize.width]
         } action: { _, m in
+            let changed = abs(offset - m[0]) > 0.5 || abs(view.width - m[1]) > 0.5 || abs(contentWidth - m[2]) > 0.5
+            guard changed else { return }
             offset = m[0]; view.width = m[1]; contentWidth = m[2]
             let edges = (offset > 1, offset + view.width < contentWidth - 1)
             if edges != (fadeLeading, fadeTrailing) {

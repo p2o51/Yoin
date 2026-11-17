@@ -113,6 +113,9 @@ struct NowPlayingView: View, Equatable {
     /// The transport row is on screen (Android stageControlsLive): off once
     /// the expanded stage has settled over it, on as soon as it collapses.
     @State private var transportLive = true
+    /// Offscreen pager neighbours (`About`, `Note`) mount once the open morph has settled
+    /// (or immediately on horizontal drag) so frame 0 of prewarm/open only builds `Lyrics`.
+    @State private var neighboursWarm = false
     /// Android auto-immersive lyric tools (LyricToolsIdleState): stepped away.
     @State private var lyricToolsIdle = false
     @State private var lyricToolsTouchedAt = Date()
@@ -205,8 +208,30 @@ struct NowPlayingView: View, Equatable {
             .task(id: lyricToolsIdleEligible) { await trackLyricToolsIdle(lyricToolsIdleEligible) }
             .task(id: focusIdleEligible) { await trackFocusIdle(focusIdleEligible) }
             // Any touch on the player re-arms the count (passive: it never
-            // takes a touch from anything).
-            .background(TouchWatcher(onTouch: { wakeLyricTools() }, onTouchAt: { glow.touched(at: $0) }))
+            // takes a touch from anything). Ignored while resident-closed.
+            .background(TouchWatcher(
+                onTouch: { if npMorph?.mounted != false { wakeLyricTools() } },
+                onTouchAt: { if npMorph?.mounted != false { glow.touched(at: $0) } }
+            ))
+            .onChange(of: npMorph?.mounted) { _, mounted in
+                if mounted == false {
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) {
+                        if !wide, stage != .compact { stage = .compact }
+                        shortFocus = false
+                        pagerDrag = 0
+                        composing = false
+                    }
+                }
+            }
+            .task(id: npMorph == nil || (npMorph?.mounted == true && npMorph?.warming != true && npMorph?.inFlight != true)) {
+                let settled = npMorph == nil || (npMorph?.mounted == true && npMorph?.warming != true && npMorph?.inFlight != true)
+                guard settled, !neighboursWarm else { return }
+                try? await Task.sleep(for: .milliseconds(220))
+                guard !Task.isCancelled else { return }
+                neighboursWarm = true
+            }
             .modifier(GlowWiring(glow: glow, playing: playback.isPlaying,
                                  songKey: engineTrack.map(NowPlayingData.key), reduceMotion: reduceMotion,
                                  onSongChange: glowSongChanged,
@@ -1570,13 +1595,11 @@ struct NowPlayingView: View, Equatable {
         return !loaded.synced
     }
 
-    /// The current song's note moments as fractions of the bar.
-    private func noteAnchors(duration: Double) -> [Double] {
-        guard duration > 0 else { return [] }
-        if let demo { return demo.noteAnchors }
+    /// The current song's anchored note moments (ms into the track), read outside the 4 Hz playhead.
+    private var noteAnchorMs: [Int64] {
+        if let demo { return demo.noteAnchorsMs }
         let key = currentNoteKey
-        return NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
-            .compactMap { $0.positionMs.map { Double($0) / 1000 / duration } }
+        return NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).compactMap(\.positionMs)
     }
 
     // 5. The detail page. Compact: the small window (Lyrics / About / Note),
@@ -1643,13 +1666,15 @@ struct NowPlayingView: View, Equatable {
     }
 
     /// The three pages side by side, moved by the pager's position; the one
-    /// on screen and its neighbours are built (Android beyondViewportPageCount 1).
+    /// on screen is always built, and its neighbours join once the open morph settles
+    /// or as soon as a horizontal swipe starts (Android beyondViewportPageCount 1).
     private func detailPager<Page: View>(@ViewBuilder page: @escaping (NowPlayingDetailPage) -> Page) -> some View {
         let pos = pagerPosition
+        let reach: CGFloat = (neighboursWarm || abs(pagerDrag) > 0.5 || npMorph == nil) ? 1.5 : 0.5
         return ZStack(alignment: .topLeading) {
             ForEach(NowPlayingDetailPage.allCases, id: \.self) { pg in
                 let d = CGFloat(pg.rawValue) - pos
-                if abs(d) < 1.5 {
+                if abs(d) < reach {
                     page(pg)
                         .offset(x: d * pagerStride)
                         .allowsHitTesting(pg.rawValue == shownTab)
@@ -1658,7 +1683,10 @@ struct NowPlayingView: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pagerWidth = max($0, 1) }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+            let next = max($0, 1)
+            if abs(next - pagerWidth) > 0.5 { pagerWidth = next }
+        }
     }
 
     /// The pager's swipe, on the whole window (its tap-to-open layer and the
@@ -2144,9 +2172,13 @@ struct NowPlayingView: View, Equatable {
     /// The capsule is drawn outside the row, so the bar never changes width
     /// under the finger and rests at Android's width.
     private func progress(_ p: PlaybackSnapshot, timesAway: Bool = false) -> some View {
+        let demoAnchors = demo?.noteAnchors
+        let anchorMs = demoAnchors == nil ? noteAnchorMs : []
         // The position is read inside PlaybackPosition, so the engine's ticks
         // redraw this row only.
-        PlaybackPosition { position, duration in
+        return PlaybackPosition { position, duration in
+        let anchors = demoAnchors ?? (duration > 0 && !anchorMs.isEmpty
+            ? anchorMs.map { Double($0) / 1000 / duration } : [])
         HStack(spacing: 0) {
             // PlaybackTimeLabel: labelLarge tabular, min 44 / 52, 8 apart.
             Text(formatTime(Int(position)))
@@ -2157,9 +2189,9 @@ struct NowPlayingView: View, Equatable {
             WavyProgressBar(progress: position / duration,
                             duration: duration, isPlaying: p.isPlaying,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
-                            noteAnchors: noteAnchors(duration: duration),
+                            noteAnchors: anchors,
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
-                            live: transportLive,
+                            live: transportLive && (npMorph?.mounted != false),
                             actedScrub: demo?.scrub,
                             onScrubbing: { touch("progress", $0) },
                             onScrubMove: { glowScrub($0) }) { fraction in

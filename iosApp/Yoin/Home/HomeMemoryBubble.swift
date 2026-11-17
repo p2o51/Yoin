@@ -199,10 +199,15 @@ struct MemoryBubbleOverlay: View {
     var scheme: CoverScheme
     /// The feed's scroll distance (the arrow fades out over the first 48 pt).
     var scroll: HomeScrollState
-    /// Something above Home owns the screen (Now Playing, a pushed page, search).
-    var covered: Bool
+    /// Extra cover condition from Home (e.g. Spotify's header pill); Now Playing / Search / path
+    /// are read here so opening them never invalidates the whole `HomeView.body`.
+    var extraCovered = false
     /// Home being edited: the bubble keeps quiet and the arrow fades over P's first half.
     var edit: HomeEditController
+
+    private var covered: Bool {
+        extraCovered || !model.path.isEmpty || model.npExpanded || model.np.mounted || model.searchActive
+    }
 
     private var scrolled: CGFloat { scroll.scrolled }
     private var editing: Bool { edit.isEditing }

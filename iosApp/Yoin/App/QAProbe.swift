@@ -191,6 +191,55 @@ enum QAProbe {
 
     private static func run(_ cycle: String, _ model: AppModel) async {
         try? await Task.sleep(for: .seconds(2))
+        if cycle == "showcase" {
+            if model.isIdle, let first = model.store.albums.first ?? model.library.albums().first {
+                model.play(first)
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+            set("nptap", true, model)
+            try? await Task.sleep(for: .milliseconds(1600))
+            set("nptap", false, model)
+            try? await Task.sleep(for: .milliseconds(1300))
+            set("searchtap", true, model)
+            try? await Task.sleep(for: .milliseconds(1600))
+            set("searchtap", false, model)
+            try? await Task.sleep(for: .milliseconds(1300))
+            set("sheet", true, model)
+            try? await Task.sleep(for: .milliseconds(1500))
+            set("sheet", false, model)
+            try? await Task.sleep(for: .milliseconds(1200))
+            print("[hitch] cycle_done showcase")
+            return
+        }
+        if cycle == "memories" {
+            for i in 0..<3 {
+                beginPhase("memories open")
+                let open = signposter.beginInterval("open", id: signposter.makeSignpostID(), "memories \(i)")
+                model.memories.open()
+                try? await Task.sleep(for: .milliseconds(1200))
+                signposter.endInterval("open", open)
+
+                beginPhase("memories swipe")
+                MemoriesQAProbe.swipe?(1)
+                try? await Task.sleep(for: .milliseconds(1000))
+                MemoriesQAProbe.swipe?(1)
+                try? await Task.sleep(for: .milliseconds(1000))
+
+                beginPhase("memories diary")
+                MemoriesQAProbe.toggleDiary?()
+                try? await Task.sleep(for: .milliseconds(1000))
+                MemoriesQAProbe.toggleDiary?()
+                try? await Task.sleep(for: .milliseconds(1000))
+
+                beginPhase("memories close")
+                let close = signposter.beginInterval("close", id: signposter.makeSignpostID(), "memories \(i)")
+                model.memories.close()
+                try? await Task.sleep(for: .milliseconds(1200))
+                signposter.endInterval("close", close)
+            }
+            print("[hitch] cycle_done memories")
+            return
+        }
         for i in 0..<4 {
             let open = signposter.beginInterval("open", id: signposter.makeSignpostID(), "\(cycle) \(i)")
             set(cycle, true, model)
@@ -201,12 +250,17 @@ enum QAProbe {
             try? await Task.sleep(for: .seconds(1.5))
             signposter.endInterval("close", close)
         }
+        print("[hitch] cycle_done \(cycle)")
+    }
+
+    private static func beginPhase(_ name: String) {
+        HitchMonitor.shared.phase = name
+        HitchMonitor.shared.phaseStart = CACurrentMediaTime()
+        print("[hitch] phase \(name)")
     }
 
     private static func set(_ cycle: String, _ open: Bool, _ model: AppModel) {
-        HitchMonitor.shared.phase = "\(cycle) \(open ? "open" : "close")"
-        HitchMonitor.shared.phaseStart = CACurrentMediaTime()
-        print("[hitch] phase \(HitchMonitor.shared.phase)")
+        beginPhase("\(cycle) \(open ? "open" : "close")")
         switch cycle {
         case "np": model.setNowPlaying(expanded: open)
         case "nptap":

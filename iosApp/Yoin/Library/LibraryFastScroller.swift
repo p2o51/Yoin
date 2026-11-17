@@ -42,10 +42,10 @@ struct LibraryFastScroller: View {
             let extent = max(1, g.size.height - 64)
             let thumbY = fraction * extent
             let visible = worthShowing && (awake || held)
-            let ticks = placedTicks(extent: extent)
-            let current = currentSection
             ZStack(alignment: .topTrailing) {
                 if held && !sections.isEmpty {
+                    let ticks = placedTicks(extent: extent)
+                    let current = currentSection
                     // Tick column + bubble, only while held.
                     HStack(alignment: .top, spacing: 8) {
                         Text(current?.label ?? "")

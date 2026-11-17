@@ -16,7 +16,7 @@ struct ArtistDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var kindFilter: ReleaseKind?
     @State private var showAll = false
-    @State private var scrollY: CGFloat = 0
+    @State private var scroll = ArtistScrollModel()
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
     /// The server's page when signed in (releases, Most Played by play
@@ -61,7 +61,13 @@ struct ArtistDetailView: View {
                 } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        ring(w: w, portrait: portrait)
+                        ArtistRingHero(scroll: scroll,
+                                       w: w,
+                                       portrait: portrait,
+                                       primary: s.primary,
+                                       tertiary: s.tertiary,
+                                       coverPalette: isMock ? hero.palette : page.palette,
+                                       coverSeed: hero.seed + 3)
                             .padding(.top, headerHeight)
                         Spacer().frame(height: 32)
                         VStack(alignment: .leading, spacing: 0) {
@@ -79,7 +85,7 @@ struct ArtistDetailView: View {
                 // the top blur, the ring's turn and its dissolve all count from there, as Android's
                 // scrollState does.
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
-                    scrollY = y
+                    scroll.y = y
                 }
                 // Content starts below the header and scrolls up under it, into the album page's top.
                 .scrollPosition($scrollPosition)
@@ -101,8 +107,7 @@ struct ArtistDetailView: View {
                         // as a slab over the ring; line it up with the album page): its strong progressive blur
                         // in the page's top colour from the top of the screen to just past the header's foot,
                         // coming in as content goes under it.
-                        TopEdgeBlur(tint: topTint)
-                            .opacity(min(1, max(0, scrollY / Self.blurIn)))
+                        ArtistTopBlur(scroll: scroll, tint: topTint, blurIn: Self.blurIn)
                     }
             }
         }
@@ -194,50 +199,6 @@ struct ArtistDetailView: View {
             }
         }
         .padding(.leading, 8).padding(.trailing, 4).padding(.top, 4).padding(.bottom, 6)
-    }
-
-    // MARK: Open ring hero
-
-    /// Android ArtistOpenRing (DetailBackdrops.kt), Compact: band = width ×
-    /// (portrait + 150). The ring's outer edge reaches 0.84 × the portrait
-    /// from its centre; of the room outside the portrait the gap takes 41 %
-    /// and the ring 59 %. Its opening is centred at −45° (upper right) and
-    /// 0.9 rad wide, round caps; the dot sits in the opening, 0.45 × the ring
-    /// width across. No outline. It turns 0.06° per px of scroll (Android px:
-    /// 3 per pt) and dissolves into dots over the first 220 pt of scroll.
-    /// Reduced motion: still, and it scrolls away with the page.
-    private func ring(w: CGFloat, portrait: CGFloat) -> some View {
-        let reach: CGFloat = 0.84
-        let room = portrait * (reach - 0.5)
-        let stroke = room * 0.59
-        let radius = portrait / 2 + room * 0.41 + stroke / 2
-        let opening: CGFloat = 0.9 * 180 / .pi
-        let degrees = reduceMotion ? 0 : scrollY * 3 * Tokens.detail.ARTIST_MARK_DEGREES_PER_PX.cg
-        let leaving = reduceMotion ? 0 : min(1, max(0, scrollY / 220))
-        let leave = leaving * leaving * (3 - 2 * leaving)
-        return ZStack {
-            Canvas { gc, size in
-                gc.translateBy(x: size.width / 2, y: size.height / 2)
-                gc.rotate(by: .degrees(degrees))
-                // Clockwise on screen from the opening's end round to its start.
-                var arc = Path()
-                arc.addRelativeArc(center: .zero, radius: radius,
-                                   startAngle: .degrees(-45 + opening / 2), delta: .degrees(360 - opening))
-                gc.stroke(arc, with: .color(s.primary), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
-                let a = -45 * CGFloat.pi / 180
-                let dot = stroke * 0.45
-                gc.fill(Path(ellipseIn: CGRect(x: cos(a) * radius - dot, y: sin(a) * radius - dot,
-                                               width: dot * 2, height: dot * 2)),
-                        with: .color(s.tertiary))
-            }
-            .dotDissolve(leave)
-            .allowsHitTesting(false)
-            // Mock: the newest cover; server: the artist's image (else that cover).
-            CoverArt(palette: isMock ? hero.palette : page.palette, cornerRadius: portrait / 2, seed: hero.seed + 3)
-                .frame(width: portrait, height: portrait)
-                .clipShape(.circle)
-        }
-        .frame(width: w, height: portrait + Tokens.detail.ARTIST_BAND_EXTRA.cg)
     }
 
     // MARK: Loading / failed
@@ -421,8 +382,10 @@ struct ArtistDetailView: View {
                     .padding(8)
                     .transition(.opacity)
             }
-            ForEach(Array(visible.enumerated()), id: \.element.id) { i, r in
-                releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(visible.enumerated()), id: \.element.id) { i, r in
+                    releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
+                }
             }
             if shown.count > collapsed {
                 // M3 TextButton: 12 × 8 content padding, min height 40.
@@ -507,5 +470,81 @@ struct ArtistDetailView: View {
         }
         .buttonStyle(PressScale())
         .yoinDraggable { YoinDrag.album(r, model: model) }
+    }
+}
+
+@MainActor
+@Observable
+final class ArtistScrollModel {
+    var y: CGFloat = 0
+}
+
+private struct ArtistTopBlur: View {
+    var scroll: ArtistScrollModel
+    var tint: Color
+    var blurIn: CGFloat
+
+    var body: some View {
+        TopEdgeBlur(tint: tint)
+            .opacity(min(1, max(0, scroll.y / blurIn)))
+    }
+}
+
+/// Android ArtistOpenRing (DetailBackdrops.kt), Compact: isolated from `ArtistDetailView.body`
+/// so 120Hz scroll frames only update the ring canvas and dissolve shader.
+private struct ArtistRingHero: View {
+    var scroll: ArtistScrollModel
+    var w: CGFloat
+    var portrait: CGFloat
+    var primary: Color
+    var tertiary: Color
+    var coverPalette: CoverPalette
+    var coverSeed: Int
+
+    var body: some View {
+        ZStack {
+            ArtistOpenRingCanvas(scroll: scroll, portrait: portrait, primary: primary, tertiary: tertiary)
+            // Mock: the newest cover; server: the artist's image (else that cover).
+            CoverArt(palette: coverPalette, cornerRadius: portrait / 2, seed: coverSeed)
+                .frame(width: portrait, height: portrait)
+                .clipShape(.circle)
+        }
+        .frame(width: w, height: portrait + Tokens.detail.ARTIST_BAND_EXTRA.cg)
+    }
+}
+
+private struct ArtistOpenRingCanvas: View {
+    var scroll: ArtistScrollModel
+    var portrait: CGFloat
+    var primary: Color
+    var tertiary: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let reach: CGFloat = 0.84
+        let room = portrait * (reach - 0.5)
+        let stroke = room * 0.59
+        let radius = portrait / 2 + room * 0.41 + stroke / 2
+        let opening: CGFloat = 0.9 * 180 / .pi
+        let y = scroll.y
+        let degrees = reduceMotion ? 0 : y * 3 * Tokens.detail.ARTIST_MARK_DEGREES_PER_PX.cg
+        let leaving = reduceMotion ? 0 : min(1, max(0, y / 220))
+        let leave = leaving * leaving * (3 - 2 * leaving)
+        Canvas { gc, size in
+            gc.translateBy(x: size.width / 2, y: size.height / 2)
+            gc.rotate(by: .degrees(degrees))
+            // Clockwise on screen from the opening's end round to its start.
+            var arc = Path()
+            arc.addRelativeArc(center: .zero, radius: radius,
+                               startAngle: .degrees(-45 + opening / 2), delta: .degrees(360 - opening))
+            gc.stroke(arc, with: .color(primary), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+            let a = -45 * CGFloat.pi / 180
+            let dot = stroke * 0.45
+            gc.fill(Path(ellipseIn: CGRect(x: cos(a) * radius - dot, y: sin(a) * radius - dot,
+                                           width: dot * 2, height: dot * 2)),
+                    with: .color(tertiary))
+        }
+        .dotDissolve(leave)
+        .allowsHitTesting(false)
     }
 }

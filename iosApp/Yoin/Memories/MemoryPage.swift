@@ -101,6 +101,77 @@ final class MemoriesDeckModel {
     }
 }
 
+/// Isolated pager position so 120Hz horizontal swipes and springs only update
+/// `MemoriesAurora`, lightweight page offset modifiers, `MemoriesAwardDriver`,
+/// and active `MemoriesTopBar` subviews without rebuilding `MemoriesView.body`.
+@MainActor
+@Observable
+final class MemoriesPagerModel {
+    var position: CGFloat = 0 { didSet { refresh() } }
+    private(set) var currentIndex: Int = 0
+    private(set) var visibleStart: Int = 0
+    private(set) var visibleEnd: Int = -1
+    private(set) var isMoving = false
+    @ObservationIgnored private var count: Int = 0
+
+    var visibleRange: [Int] {
+        guard count > 0, visibleStart <= visibleEnd else { return [] }
+        return Array(visibleStart...visibleEnd)
+    }
+
+    func updateCount(_ newCount: Int) {
+        count = newCount
+        refresh()
+    }
+
+    func snap(to newPosition: CGFloat, count newCount: Int) {
+        count = newCount
+        isMoving = false
+        position = newPosition
+        refresh()
+    }
+
+    func beginMove() {
+        if !isMoving { isMoving = true }
+    }
+
+    func endMove() {
+        if isMoving {
+            isMoving = false
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        guard count > 0 else {
+            if currentIndex != 0 { currentIndex = 0 }
+            if visibleStart != 0 { visibleStart = 0 }
+            if visibleEnd != -1 { visibleEnd = -1 }
+            return
+        }
+        let idx = min(max(Int(position.rounded()), 0), count - 1)
+        if idx != currentIndex { currentIndex = idx }
+        if isMoving {
+            // While swiping/settling, only cards actually intersecting the viewport (`floor...ceil`)
+            // must be present; never construct card `i + 2` on the first pixel of a swipe (`0.001`),
+            // and keep already-warmed neighbours within ±2 so nothing unmounts mid-flight.
+            let needLo = max(0, Int(position.rounded(.down)))
+            let needHi = min(count - 1, Int(position.rounded(.up)))
+            let lo = visibleEnd >= visibleStart ? max(0, max(needLo - 1, min(visibleStart, needLo))) : needLo
+            let hi = visibleEnd >= visibleStart ? min(count - 1, min(needHi + 1, max(visibleEnd, needHi))) : needHi
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        } else {
+            // At rest, pre-mount immediate neighbours `[cur - 1 ... cur + 1]` so the next swipe
+            // finds `cur ± 1` already laid out and warm.
+            let lo = max(0, idx - 1)
+            let hi = min(count - 1, idx + 1)
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        }
+    }
+}
+
 /// One page's anchors (page pt, at rest) and its diary scroll.
 @MainActor
 @Observable
@@ -112,13 +183,17 @@ final class MemoryPageMorph {
     var cardTitle: CGRect = .zero
     var cardTitleFont: CGFloat = 26
     /// The diary title at scroll 0 (nil: fallback A, the album name flies to the bar).
-    var diaryTitle: CGRect?
+    var diaryTitle: CGRect? { didSet { refreshScrolledPastHeader() } }
     var diaryTitleFont: CGFloat = 22
     var dem: CGRect = .zero
     /// The top of the diary's first line at scroll 0 (the blocks' lag reads it).
-    var diaryTop: CGFloat = 0
-    /// The diary's scroll (0 = top).
-    var scrollY: CGFloat = 0
+    var diaryTop: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    /// The diary's scroll (0 = top). Ignored by Observation so 120Hz diary scrolling
+    /// only notifies `MemoriesTopBar` and morph layers when `scrolledPastHeader` flips.
+    @ObservationIgnored var scrollY: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    @ObservationIgnored private var headerBarHeight: CGFloat = MemoriesLayoutTokens.barHeight
+    /// Whether the diary title has scrolled past the top bar.
+    private(set) var scrolledPastHeader = false
     /// A frozen collapse keeps its timing until p reaches 0 or 1.
     var frozenHold = false
 
@@ -126,9 +201,22 @@ final class MemoryPageMorph {
     var barCover: CGPoint = .zero
     var barTitle: CGRect = .zero
 
+    func updateBarHeight(_ barHeight: CGFloat) {
+        guard barHeight != headerBarHeight else { return }
+        headerBarHeight = barHeight
+        refreshScrolledPastHeader()
+    }
+
+    private func refreshScrolledPastHeader() {
+        let top = diaryTitle?.minY ?? diaryTop
+        let past = scrollY > 0 && scrollY >= top - headerBarHeight
+        if past != scrolledPastHeader { scrolledPastHeader = past }
+    }
+
     /// The diary title has scrolled under the bar (Android `so ≥ thr`).
     func frozen(barHeight: CGFloat) -> Bool {
         if frozenHold { return true }
+        if barHeight == headerBarHeight { return scrolledPastHeader }
         let top = diaryTitle?.minY ?? diaryTop
         return scrollY > 0 && scrollY >= top - barHeight
     }
@@ -208,7 +296,7 @@ struct MemoryCardFace: View {
     static func titleFont(_ kind: MemoryCard.TitleKind) -> CGFloat { kind == .album ? 24 : 26 }
 
     var body: some View {
-        let tones = MemoryTones(palette: card.album.palette, dark: dark)
+        let tones = MemoryTones.cached(for: card, dark: dark)
         VStack(spacing: 0) {
             Color.clear.frame(height: barHeight + metrics.air1)
             exhibit(tones)
@@ -450,6 +538,7 @@ private struct CoverMorph: ViewModifier {
 struct MemoryPageView: View {
     var card: MemoryCard
     var deck: MemoriesDeckModel
+    var pager: MemoriesPagerModel
     var layout: MemoriesLayout
     var scheme: CoverScheme
     var dark: Bool
@@ -461,8 +550,8 @@ struct MemoryPageView: View {
     var horizontalPager: AnyGesture<DragGesture.Value>
 
     @State private var warm = false
-    /// Seconds after a page appears before its hidden diary is built.
-    static let warmDelay: Double = 0.6
+    /// Seconds at rest on the current page before its hidden `DiaryHead` anchors pre-build.
+    static let warmDelay: Double = 0.55
 
     private var diary: MemoriesDiary { deck.diary }
 
@@ -473,11 +562,9 @@ struct MemoryPageView: View {
                            scheme: scheme, dark: dark, interactive: current && !diary.isDiaryLevel,
                            onOpenAlbum: onOpenAlbum, onTitle: onTitle)
                 .ignoresSafeArea(.keyboard)
-            // The current page's diary is laid out under its card (hidden) once
-            // Memories is in place: its anchors are measured before p first
-            // moves, and the first open never pays for building it mid-flight.
-            // Not while q moves (an open or a retreat must not pay for it either).
-            if diary.isShown || (current && warm && deck.presentation.isOpen) {
+            // Only the active card (or one already warmed) mounts its diary: offscreen neighbours
+            // (`±1`) must NOT all construct a `MemoryDiaryView` simultaneously on frame 1 of `openDiary`.
+            if current && (diary.isShown || (warm && deck.presentation.isOpen)) {
                 MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
                                 interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
                                 onTitle: onTitle, onReview: onReview,
@@ -485,9 +572,13 @@ struct MemoryPageView: View {
             }
         }
         .coordinateSpace(.named(MemoryPageMorph.space))
-        .task {
-            // After the open's spring has done most of its travel.
+        .task(id: current) {
+            guard current, !warm else { return }
             try? await Task.sleep(for: .seconds(MemoryPageView.warmDelay / LaunchConfig.animationSpeed))
+            while !Task.isCancelled && (pager.isMoving || deck.presentation.dragging || deck.presentation.fraction > 0.002) {
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+            guard !Task.isCancelled, current else { return }
             warm = true
         }
         .onAppear {
