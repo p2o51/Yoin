@@ -21,6 +21,7 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,7 @@ import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import 'home_carry.dart' show pressRect;
 import 'home_edit_hints.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
@@ -87,25 +89,42 @@ class HomeEditController extends Notifier<HomeEditState> {
   /// A section is being carried (Home sets it): the bar's left slot does nothing meanwhile.
   bool carrying = false;
 
-  void enter() {
+  /// Mid-carry an exit waits for the drop (Home sets it; Android
+  /// HomeEditLayer.deferExit): true when the carry took the exit, which then
+  /// runs through [finishExit] once the strips have unfolded.
+  bool Function({required bool done})? deferExit;
+
+  /// Enters edit mode. [haptic] false: the long-press already played it (HomeEditGestures).
+  void enter({bool haptic = true}) {
     if (state.editing) return;
-    YoinHaptics.longPress();
+    if (haptic) YoinHaptics.longPress();
     // Snapshot the session's hints before recording it (the "New" chips are this session's).
     final hints = ref.read(homeEditHintsProvider.notifier).startSession(ref.read(homeLayoutProvider));
     state = HomeEditState(editing: true, hints: hints);
   }
 
-  void exit() {
-    carrying = false;
-    if (!state.editing) return;
-    state = HomeEditState(hints: state.hints);
-  }
+  /// Leaves edit mode (system back, Library, the app hidden, a blank tap).
+  /// Mid-carry it waits for the carry to finish (Android commitAndExit).
+  void exit() => _leave(done: false);
 
   /// The bar's Done: leaves with the confirm haptic.
-  void done() {
+  void done() => _leave(done: true);
+
+  void _leave({required bool done}) {
+    if (!state.editing) {
+      carrying = false;
+      return;
+    }
+    if (deferExit?.call(done: done) ?? false) return;
+    finishExit(done: done);
+  }
+
+  /// The exit itself, now (a deferred one once the carry has finished).
+  void finishExit({required bool done}) {
+    carrying = false;
     if (!state.editing) return;
-    YoinHaptics.confirm();
-    exit();
+    if (done) YoinHaptics.confirm();
+    state = HomeEditState(hints: state.hints);
   }
 
   /// The bar's left slot: Undo while there is history, else Add (scrolls to
@@ -159,6 +178,18 @@ class HomeEditController extends Notifier<HomeEditState> {
     final layout = ref.read(homeLayoutProvider);
     final next = withSectionRows(layout, section, rows);
     if (identical(next, layout)) return false;
+    _apply(next);
+    return true;
+  }
+
+  /// A carry's drop (Android commitOrder): the sections the feed draws in
+  /// [order], saved at once as one Undo step with the confirm haptic; false
+  /// when it changed nothing.
+  bool commitOrder(List<HomeSection> order) {
+    final layout = ref.read(homeLayoutProvider);
+    final next = withSectionsOrdered(layout, layout.visibleV1Sections, order);
+    if (identical(next, layout)) return false;
+    YoinHaptics.confirm();
     _apply(next);
     return true;
   }
@@ -252,7 +283,20 @@ class HomeEditPlate extends StatelessWidget {
     this.resizeHandle,
     this.childTaps = false,
     this.onPlateTap,
+    this.liftTint = 0,
+    this.grow,
+    this.hideKey,
   });
+
+  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeCarryEngine liftTint).
+  final double liftTint;
+
+  /// The plate growing from the press square (the entry latch), or the press
+  /// charge's pre-show; null = the full plate at [progress].
+  final HomeEditPlateGrow? grow;
+
+  /// The hide button's key: the edit gestures leave it alone.
+  final Key? hideKey;
 
   /// A tap on the plate while editing (it kicks the block).
   final VoidCallback? onPlateTap;
@@ -292,6 +336,21 @@ class HomeEditPlate extends StatelessWidget {
     final e = progress.clamp(0.0, 1.0);
     final on = e > 0.001;
     final colors = Theme.of(context).colorScheme;
+    final plateColor = Color.lerp(
+      colors.surfaceContainerHigh,
+      colors.surfaceContainerHighest,
+      liftTint.clamp(0.0, 1.0),
+    )!;
+    final shadows = lift <= 0
+        ? null
+        : [
+            BoxShadow(
+              color: colors.shadow.withValues(alpha: HomeEditMetrics.liftShadowAlpha * lift),
+              blurRadius: HomeEditMetrics.liftShadow * 2 * lift,
+              offset: Offset(0, HomeEditMetrics.liftShadow / 2 * lift),
+            ),
+          ];
+    final rtl = Directionality.of(context) == TextDirection.rtl;
     final strings = HomeStrings.of(context);
     final vertical = HomeEditMetrics.plateOutsetV * e;
     final name = strings.sectionTitle(section);
@@ -320,32 +379,43 @@ class HomeEditPlate extends StatelessWidget {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            PositionedDirectional(
-              start: start - homeEditPlateOutset(start),
-              end: end - homeEditPlateOutset(end),
-              top: -vertical,
-              bottom: -vertical,
-              child: on
-                  ? Opacity(
-                      opacity: e,
-                      child: DecoratedBox(
-                        decoration: ShapeDecoration(
-                          color: colors.surfaceContainerHigh,
-                          shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(HomeEditMetrics.plateCorner)),
-                          shadows: lift <= 0
-                              ? null
-                              : [
-                                  BoxShadow(
-                                    color: colors.shadow.withValues(alpha: HomeEditMetrics.liftShadowAlpha * lift),
-                                    blurRadius: HomeEditMetrics.liftShadow * 2 * lift,
-                                    offset: Offset(0, HomeEditMetrics.liftShadow / 2 * lift),
-                                  ),
-                                ],
+            if (grow != null)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _PlateGrowPainter(
+                    grow: grow!,
+                    // Physical insets of the full plate and of the content, from the reading direction.
+                    left: rtl ? end - homeEditPlateOutset(end) : start - homeEditPlateOutset(start),
+                    right: rtl ? start - homeEditPlateOutset(start) : end - homeEditPlateOutset(end),
+                    contentLeft: rtl ? end : start,
+                    contentRight: rtl ? start : end,
+                    vertical: vertical,
+                    color: plateColor,
+                    shadows: shadows,
+                  ),
+                ),
+              )
+            else
+              PositionedDirectional(
+                start: start - homeEditPlateOutset(start),
+                end: end - homeEditPlateOutset(end),
+                top: -vertical,
+                bottom: -vertical,
+                child: on
+                    ? Opacity(
+                        opacity: e,
+                        child: DecoratedBox(
+                          decoration: ShapeDecoration(
+                            color: plateColor,
+                            shape: RoundedSuperellipseBorder(
+                              borderRadius: BorderRadius.circular(HomeEditMetrics.plateCorner),
+                            ),
+                            shadows: shadows,
+                          ),
                         ),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             IgnorePointer(
               ignoring: e > 0.5 && !childTaps,
               child: HomeEditPlateScope(
@@ -368,16 +438,19 @@ class HomeEditPlate extends StatelessWidget {
                           children: [
                             ?dragHandle,
                             // A tooltip alone is no label on HarmonyOS' reader: say it.
-                            Semantics(
-                              container: true,
-                              button: true,
-                              label: strings.hideSectionCd(name),
-                              onTap: onHide,
-                              excludeSemantics: true,
-                              child: IconButton(
-                                tooltip: strings.hideSectionCd(name),
-                                onPressed: onHide,
-                                icon: Icon(YoinSymbols.visibilityOff, color: colors.onSurfaceVariant),
+                            KeyedSubtree(
+                              key: hideKey,
+                              child: Semantics(
+                                container: true,
+                                button: true,
+                                label: strings.hideSectionCd(name),
+                                onTap: onHide,
+                                excludeSemantics: true,
+                                child: IconButton(
+                                  tooltip: strings.hideSectionCd(name),
+                                  onPressed: onHide,
+                                  icon: Icon(YoinSymbols.visibilityOff, color: colors.onSurfaceVariant),
+                                ),
                               ),
                             ),
                           ],
@@ -397,6 +470,90 @@ class HomeEditPlate extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A plate drawn somewhere other than its full rest (Android plateFrame):
+/// [from] in the section content's own px (the latched R_press), [t] of the
+/// way to the full plate, at [alpha]; or, with no [from], the press charge's
+/// pre-show: R_press around [origin] at [charge], sized against the content
+/// as it is laid out.
+@immutable
+final class HomeEditPlateGrow {
+  const HomeEditPlateGrow(Rect this.from, this.t, this.alpha) : origin = Offset.zero, charge = 0;
+
+  const HomeEditPlateGrow.press(this.origin, this.charge, this.alpha) : from = null, t = 0;
+
+  final Rect? from;
+  final double t;
+  final double alpha;
+  final Offset origin;
+  final double charge;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HomeEditPlateGrow &&
+      other.from == from &&
+      other.t == t &&
+      other.alpha == alpha &&
+      other.origin == origin &&
+      other.charge == charge;
+
+  @override
+  int get hashCode => Object.hash(from, t, alpha, origin, charge);
+}
+
+/// The growing plate: a painted round rect (no clip), with the lift's shadow under it.
+class _PlateGrowPainter extends CustomPainter {
+  _PlateGrowPainter({
+    required this.grow,
+    required this.left,
+    required this.right,
+    required this.contentLeft,
+    required this.contentRight,
+    required this.vertical,
+    required this.color,
+    required this.shadows,
+  });
+
+  final HomeEditPlateGrow grow;
+  final double left;
+  final double right;
+  final double contentLeft;
+  final double contentRight;
+  final double vertical;
+  final Color color;
+  final List<BoxShadow>? shadows;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = grow.alpha.clamp(0.0, 1.0);
+    if (alpha <= 0) return;
+    final full = Rect.fromLTRB(left, -vertical, size.width - right, size.height + vertical);
+    final content = Size(math.max(0, size.width - contentLeft - contentRight), size.height);
+    final from = grow.from ?? pressRect(grow.origin, content, grow.charge);
+    final rect = Rect.lerp(from.shift(Offset(contentLeft, 0)), full, grow.t)!;
+    // The plate's own shape (a rounded superellipse), painted.
+    const radius = Radius.circular(HomeEditMetrics.plateCorner);
+    for (final shadow in shadows ?? const <BoxShadow>[]) {
+      final shade = rect.shift(shadow.offset).inflate(shadow.spreadRadius);
+      canvas.drawRSuperellipse(RSuperellipse.fromRectAndRadius(shade, radius), shadow.toPaint());
+    }
+    canvas.drawRSuperellipse(
+      RSuperellipse.fromRectAndRadius(rect, radius),
+      Paint()..color = color.withValues(alpha: color.a * alpha),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PlateGrowPainter old) =>
+      old.grow != grow ||
+      old.left != left ||
+      old.right != right ||
+      old.contentLeft != contentLeft ||
+      old.contentRight != contentRight ||
+      old.vertical != vertical ||
+      old.color != color ||
+      !listEquals(old.shadows, shadows);
 }
 
 /// An empty section's stand-in while editing: its name and placeholder line.
