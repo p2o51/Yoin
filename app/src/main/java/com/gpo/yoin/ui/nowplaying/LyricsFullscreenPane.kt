@@ -101,6 +101,9 @@ fun LyricsFullscreenPane(
     onSeekToMs: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewportGrowthPx: Int = 0,
+    // How much of [viewportGrowthPx] the window still grows UPWARD (the slots
+    // above it releasing); the rest it grows downward. Defaults to all of it.
+    viewportGrowthAbovePx: Int = viewportGrowthPx,
     trackKey: Any = Unit,
     queueIndex: Int = 0,
     songTitle: String? = null,
@@ -177,6 +180,7 @@ fun LyricsFullscreenPane(
                 onUserScroll = if (selecting) ({}) else onUserScroll,
                 onSeekToMs = onSeekToMs,
                 viewportGrowthPx = viewportGrowthPx,
+                viewportGrowthAbovePx = viewportGrowthAbovePx,
                 songTitle = shown.songTitle,
                 artist = shown.artist,
                 upNext = shown.upNext,
@@ -237,6 +241,7 @@ private fun LyricsFullscreenList(
     onUserScroll: () -> Unit,
     onSeekToMs: (Long) -> Unit,
     viewportGrowthPx: Int,
+    viewportGrowthAbovePx: Int,
     songTitle: String?,
     artist: String?,
     upNext: UpNextLyrics?,
@@ -496,8 +501,13 @@ private fun LyricsFullscreenList(
         // The next song's title goes where its own list will open it (item 0,
         // at rest), not to the focus seat.
         val handOver = target == upNextHeaderIndex
+        var liveSeat = seat
         val offsetPx = {
-            if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx, seat, songEndItem, songEndTailPx)
+            if (handOver) {
+                0
+            } else {
+                listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx, liveSeat, songEndItem, songEndTailPx)
+            }
         }
 
         // scrollToItem remeasures the list at once, so a row first laid out by
@@ -530,7 +540,7 @@ private fun LyricsFullscreenList(
                         val rest = if (handOver) {
                             null
                         } else {
-                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, seat, songEndItem, songEndTailPx)
+                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, liveSeat, songEndItem, songEndTailPx)
                         }
                         if (rest != null && rest != 0 &&
                             (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
@@ -538,8 +548,24 @@ private fun LyricsFullscreenList(
                             listState.animateScrollBy(rest.toFloat(), seatSettleSpec)
                         }
                     }
-                    // Actual window/keyboard resizes still keep the line anchored.
-                    else -> seatNow()
+                    // Actual window/keyboard resizes still keep the line
+                    // anchored — on the SCREEN: the seat is re-read from the
+                    // window as it is now, so a window that grows at one end
+                    // (the lyric tools tucking away below) leaves the line
+                    // where it is instead of carrying it along and gliding it
+                    // back once the settle delay re-reads the seat.
+                    else -> {
+                        val geometry = windowGeometry
+                        if (!handOver && geometry != LyricsWindowGeometry.Unknown) {
+                            liveSeat = lyricsScreenSeatFraction(
+                                windowTopPx = geometry.topPx,
+                                windowPx = geometry.heightPx,
+                                screenPx = geometry.screenPx,
+                                fadePx = edgeFadePx,
+                            )
+                        }
+                        seatNow()
+                    }
                 }
                 firstAnchor = false
             }
@@ -602,12 +628,16 @@ private fun LyricsFullscreenList(
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
                 // Mid-reshape the list is already measured at its expanded
-                // height (viewportGrowthPx) and the window grows up into it:
+                // height (viewportGrowthPx) and the window grows into it —
+                // up by the slots above releasing, down by the ones below:
                 // read the seat for the window it is becoming, so opening the
-                // page does not end in a second glide.
+                // page lands on the seat at once instead of in the middle
+                // and gliding up half a second later (2026-11-17 tablet log:
+                // 820px of growth, 545 up / 275 down).
                 val growth = viewportGrowthPx.coerceAtLeast(0)
+                val growthAbove = viewportGrowthAbovePx.coerceIn(0, growth)
                 windowGeometry = LyricsWindowGeometry(
-                    topPx = coordinates.positionInRoot().y - growth,
+                    topPx = coordinates.positionInRoot().y - growthAbove,
                     heightPx = coordinates.size.height + growth,
                     screenPx = coordinates.findRootCoordinates().size.height,
                 )
