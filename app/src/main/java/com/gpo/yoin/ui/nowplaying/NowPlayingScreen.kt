@@ -461,15 +461,33 @@ fun NowPlayingScreen(
         lyricsRevealOwedAt = 0L
         if (SystemClock.uptimeMillis() - owed <= LyricsRevealWaitMs) revealLyrics()
     }
-    // A translation: the slow sweep while it is fetched, each line lights once when it lands.
+    // A translation: the slow sweep while it is fetched; showing or hiding it
+    // sends a wave down the page (below).
     val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
     val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
-    val latestTranslationShown by rememberUpdatedState(translationShown)
-    var wasTranslating by remember { mutableStateOf(false) }
+    // Translation shown / hidden on the same song: a soft pluck that rings
+    // while the lines open (or close) down the page. A song change clears
+    // translation silently.
+    val translationHaptics = rememberYoinHaptics()
+    val translationSeen = remember { arrayOf<Any?>(translationShown, revealSongId) }
+    LaunchedEffect(translationShown, revealSongId) {
+        val (lastShown, lastSong) = translationSeen
+        if (revealSongId != null && lastSong == revealSongId && lastShown != translationShown) {
+            translationHaptics.performPluck(opening = translationShown)
+            // The background answers every show / hide with the same wave.
+            transportSignal.glow(
+                ActionGlowKind.TranslationWave,
+                null,
+                value = if (translationShown) 1f else 0f,
+                targetY = transportSignal.currentLineRootY ?: Float.NaN,
+                areaRoot = transportSignal.lyricsAreaRoot,
+            )
+        }
+        translationSeen[0] = translationShown
+        translationSeen[1] = revealSongId
+    }
     LaunchedEffect(translating) {
         transportSignal.lyricsWaiting = translating
-        if (wasTranslating && !translating && latestTranslationShown) revealLyrics()
-        wasTranslating = translating
     }
     // Every user seek (lyric line, note row, wave bar) tells the background
     // first: the player may buffer at the new spot, and that dip is the
@@ -1685,6 +1703,16 @@ private fun CompactPlayingContent(
                 bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx() -
                 focusLyricOverflowPx
         }
+        // The part of that growth released ABOVE the lyric window (top bar,
+        // cover row, gaps, tab row): the window's top rises by this much, its
+        // bottom drops by the rest. The lyric seat reads the final top from it.
+        val lyricsViewportGrowthAbovePx = with(LocalDensity.current) {
+            topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
+                coverRowHeight.roundToPx() +
+                coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
+                tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
+                tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx()
+        }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
         val lyricTools: @Composable (iconSize: Dp) -> Unit = { iconSize ->
@@ -2130,6 +2158,7 @@ private fun CompactPlayingContent(
                                         noteSortMode = noteSortMode,
                                         onNoteSortModeChange = onNoteSortModeChange,
                                         lyricsViewportGrowthPx = lyricsViewportGrowthPx,
+                                        lyricsViewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         lyricsSelection = lyricsSelection,
@@ -5179,6 +5208,7 @@ private fun ExpandedDetailPage(
     // shows where the draft will land.
     noteWriting: Boolean = false,
     lyricsViewportGrowthPx: Int = 0,
+    lyricsViewportGrowthAbovePx: Int = lyricsViewportGrowthPx,
     lyricsSelection: LyricsSelectionState? = null,
     // The page's end padding up to the screen edge (single column): the held
     // last line may run on into it.
@@ -5198,6 +5228,7 @@ private fun ExpandedDetailPage(
                 lyricsSelection?.toggle(index)
             },
             viewportGrowthPx = lyricsViewportGrowthPx,
+            viewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
             songTitle = state.songTitle.takeIf { lyricsTitleCard },
