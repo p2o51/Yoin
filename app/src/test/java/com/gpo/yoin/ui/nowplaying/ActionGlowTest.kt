@@ -1,14 +1,26 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.player.PlayMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ActionGlowTest {
     @Test
     fun should_lightShuffle_when_roundKeyTurnsShuffleOn() {
@@ -87,5 +99,56 @@ class ActionGlowTest {
         val kinds = ActionGlowKind.entries.filter { it.isPlayMode }
         assertEquals(5, kinds.size)
         kinds.forEach { assertTrue("$it runs ${it.durationMs} ms", it.durationMs <= 800) }
+    }
+
+    @Test
+    fun should_retireRunningTranslationWave_when_toggledAgain() {
+        val glows = mutableListOf(
+            ActionGlow(ActionGlowKind.TranslationWave, Rect.Zero, bornUptimeMs = 1_000L, value = 1f),
+        )
+        glows.addHandingOver(
+            ActionGlow(ActionGlowKind.TranslationWave, Rect.Zero, bornUptimeMs = 1_250L, value = 0f),
+        )
+        assertEquals(1_250L, glows[0].retiredUptimeMs)
+        assertEquals(Long.MAX_VALUE, glows[1].retiredUptimeMs)
+    }
+
+    @Test
+    fun should_notCrash_when_translationWaveAreaTopExceedsCanvasHeight() {
+        val image = Bitmap.createBitmap(800, 1000, Bitmap.Config.ARGB_8888).asImageBitmap()
+        val canvas = Canvas(image)
+        val scope = CanvasDrawScope()
+        val palette = GlowPalette(Color.Blue, Color.Cyan, Color.Magenta, dark = true)
+        val cases = listOf(
+            // Portrait-recorded lyrics area drawn on a shrunk/rotated 1000px-tall canvas.
+            ActionGlow(
+                kind = ActionGlowKind.TranslationWave,
+                anchorRoot = Rect.Zero,
+                bornUptimeMs = 0L,
+                value = 1f,
+                targetY = 1900f,
+                areaRoot = Rect(0f, 1800f, 800f, 2400f),
+            ),
+            // Partially overlapping area where targetY is below the canvas bottom.
+            ActionGlow(
+                kind = ActionGlowKind.TranslationWave,
+                anchorRoot = Rect.Zero,
+                bornUptimeMs = 0L,
+                value = 0f,
+                targetY = 1900f,
+                areaRoot = Rect(0f, 500f, 800f, 2400f),
+            ),
+        )
+        cases.forEach { glow ->
+            scope.draw(Density(2f), LayoutDirection.Ltr, canvas, Size(800f, 1000f)) {
+                drawActionGlow(
+                    glow = glow,
+                    tMs = 500f,
+                    origin = Offset.Zero,
+                    pal = palette,
+                    blend = BlendMode.Plus,
+                )
+            }
+        }
     }
 }

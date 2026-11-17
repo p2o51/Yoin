@@ -10,8 +10,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -44,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -614,6 +613,20 @@ private fun LyricsFullscreenList(
             }
     }
 
+    // Where the translation wave starts: the focus line while the page
+    // follows the playhead, else the top of what is on screen. Taken once
+    // per toggle, before the rows read it (no scroll-position reads here).
+    val translationWaveOrigin = remember(trackKey) { intArrayOf(-1) }
+    val waveToggleSeen = remember(trackKey) { booleanArrayOf(showTranslation) }
+    if (waveToggleSeen[0] != showTranslation) {
+        waveToggleSeen[0] = showTranslation
+        translationWaveOrigin[0] = if (autoScrollEnabled && focusItem >= 0) {
+            focusItem
+        } else {
+            Snapshot.withoutReadObservation { listState.firstVisibleItemIndex }
+        }
+    }
+
     // Translation toggle: every row grows (or shrinks) by its translation
     // line on the spatial spring. Re-pin the focus line every frame while the
     // rows are still changing size, so the lines open outward around it
@@ -623,34 +636,68 @@ private fun LyricsFullscreenList(
     // The pin is the focus row's seat as it was before the toggle (its own
     // translation opens below it, the line itself stays put); the next line
     // advance seats rows by their new size.
-    val lastShowTranslation = remember { booleanArrayOf(showTranslation) }
-    LaunchedEffect(showTranslation) {
+    val latestAutoScroll by rememberUpdatedState(autoScrollEnabled)
+    val latestFocusItem by rememberUpdatedState(focusItem)
+    val latestSeat by rememberUpdatedState(seat)
+    val latestEdgeFadePx by rememberUpdatedState(edgeFadePx)
+    val latestUpNextHeaderIndex by rememberUpdatedState(upNextHeaderIndex)
+    val latestSongEndItem by rememberUpdatedState(songEndItem)
+    val latestSongEndTailPx by rememberUpdatedState(songEndTailPx)
+    val hasAnyTranslation = remember(lyrics) { lyrics.any { !it.translation.isNullOrBlank() } }
+    val lastShowTranslation = remember(trackKey) { booleanArrayOf(showTranslation) }
+    LaunchedEffect(trackKey, showTranslation) {
         if (lastShowTranslation[0] == showTranslation) return@LaunchedEffect
         lastShowTranslation[0] = showTranslation
-        if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
+        if (!latestAutoScroll || latestFocusItem < 0 || !hasAnyTranslation) return@LaunchedEffect
         var lastSignature = -1L
         var stableFrames = 0
         var pinnedItem = -1
         var pinnedOffset = 0
-        while (stableFrames < TranslationSettleFrames) {
-            val signature = withFrameNanos {
+        // The wave starts its far rows late: keep pinning until the last of
+        // them has had time to begin, or a quiet stretch between two rows
+        // would read as settled. Driven by frameNanos so Compose's test clock works.
+        var waveStartNanos = -1L
+        val waveSpanNanos = (TranslationWaveMaxRows * TranslationWaveStepMs + TranslationWaveSettleSlackMs) * 1_000_000L
+        while (true) {
+            var abortWave = false
+            var waveElapsedNanos = 0L
+            val signature = withFrameNanos { frameNanos ->
+                if (!latestAutoScroll || latestFocusItem < 0) {
+                    abortWave = true
+                    return@withFrameNanos 0L
+                }
+                if (waveStartNanos < 0L) waveStartNanos = frameNanos
+                waveElapsedNanos = frameNanos - waveStartNanos
                 val info = listState.layoutInfo
                 if (info.viewportSize.height > 0) {
-                    val focus = focusItem
-                    if (focus != pinnedItem) {
+                    val focus = latestFocusItem
+                    if (pinnedItem < 0) {
                         pinnedItem = focus
-                        pinnedOffset = if (focus == upNextHeaderIndex) {
+                        pinnedOffset = if (focus == latestUpNextHeaderIndex) {
                             0
                         } else {
-                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx, seat, songEndItem, songEndTailPx)
+                            info.lyricsFocusScrollOffsetPx(
+                                focus,
+                                latestEdgeFadePx,
+                                latestSeat,
+                                latestSongEndItem,
+                                latestSongEndTailPx,
+                            )
                         }
+                    } else if (focus != pinnedItem) {
+                        // A line advance started a glide to the new row; stop re-pinning
+                        // the previous row so requestScrollToItem does not cancel it.
+                        abortWave = true
+                        return@withFrameNanos 0L
                     }
-                    listState.requestScrollToItem(focus, pinnedOffset)
+                    listState.requestScrollToItem(pinnedItem, pinnedOffset)
                 }
                 info.visibleItemsInfo.fold(0L) { acc, item -> acc * 31 + item.size }
             }
+            if (abortWave) break
             stableFrames = if (signature == lastSignature) stableFrames + 1 else 0
             lastSignature = signature
+            if (stableFrames >= TranslationSettleFrames && waveElapsedNanos >= waveSpanNanos) break
         }
     }
 
@@ -724,7 +771,14 @@ private fun LyricsFullscreenList(
                                 showSecondary = !artist.isNullOrBlank(),
                                 isActive = !selecting && focusItem == 0,
                                 distance = if (focusItem >= 0) focusItem else 0,
-                                onTap = if (isSynced && !selecting) ({ onSeekToMs(0L) }) else null,
+                                onTap = if (isSynced && !selecting) {
+                                    {
+                                        selectHaptics.performContextClick()
+                                        onSeekToMs(0L)
+                                    }
+                                } else {
+                                    null
+                                },
                                 blockAlpha = currentBlock,
                                 selectMode = selecting,
                                 // Never pickable: once a pick exists it steps back.
@@ -738,6 +792,7 @@ private fun LyricsFullscreenList(
                     }
                     itemsIndexed(lyrics, key = { index, _ -> index }) { index, line ->
                         val item = index + headerOffset
+                        val waveOrigin = translationWaveOrigin[0]
                         val active = !selecting && item == focusItem
                         val selectRole = lyricSelectionRole(index, selectedLines)
                         LyricRow(
@@ -758,7 +813,12 @@ private fun LyricsFullscreenList(
                             onTap = if (selecting) {
                                 { tapInSelectMode(index) }
                             } else {
-                                line.startMs?.let { ms -> { onSeekToMs(ms) } }
+                                line.startMs?.let { ms ->
+                                    {
+                                        selectHaptics.performContextClick()
+                                        onSeekToMs(ms)
+                                    }
+                                }
                             },
                             blockAlpha = currentBlock,
                             selectMode = selecting,
@@ -767,6 +827,7 @@ private fun LyricsFullscreenList(
                             runBottom = index + 1 !in selectedLines,
                             // spotoolfy keeps the line being sung lit while you pick.
                             playingInSelectMode = selecting && item == focusItem,
+                            secondaryDelayMs = translationWaveDelayMs(item, waveOrigin),
                         )
                     }
                     if (shownUpNext != null) {
@@ -894,7 +955,21 @@ private fun LyricRow(
     // One of the next lines, or the line just sung: its focus dots stay
     // readable (LyricDotsReadable, see isReadableLyricLine).
     readable: Boolean = false,
+    // How long this row waits before its translation follows a toggle: the
+    // rows open one after another outward from the focus line, so the change
+    // travels down the page (see translationWaveDelayMs).
+    secondaryDelayMs: Int = 0,
 ) {
+    // The shown state trails showSecondary by this row's place in the wave.
+    // A row composed fresh (scrolled in) starts settled, with no wave.
+    var secondaryShown by remember { mutableStateOf(showSecondary) }
+    val latestSecondaryDelayMs by rememberUpdatedState(secondaryDelayMs)
+    LaunchedEffect(showSecondary) {
+        if (secondaryShown == showSecondary) return@LaunchedEffect
+        val wait = latestSecondaryDelayMs
+        if (wait > 0) delay(wait.toLong())
+        secondaryShown = showSecondary
+    }
     val selected = selectMode && selectRole == LyricSelectionRole.Picked
     // Focus's halftone (see LyricHalftone.kt): the current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
@@ -1041,16 +1116,15 @@ private fun LyricRow(
         // opens under the lyric instead of the text popping in and pushing
         // everything below by a full line in one frame. The gap lives INSIDE
         // the animated block, so a collapsed row is exactly one line tall.
+        //
+        // The translation unrolls softly (owner 2026-11-16): a slow, nearly
+        // bounce-free spring, the text easing down out of its line as the
+        // row opens, and each row starting a beat after the one nearer the
+        // focus line, so the opening travels all the way down the page.
         AnimatedVisibility(
-            visible = showSecondary,
-            enter = expandVertically(
-                animationSpec = YoinMotion.spatialSpring(),
-                expandFrom = Alignment.Top,
-            ) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = shrinkVertically(
-                animationSpec = YoinMotion.spatialSpring(),
-                shrinkTowards = Alignment.Top,
-            ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            visible = secondaryShown,
+            enter = YoinMotion.translationEnter(),
+            exit = YoinMotion.translationExit(),
         ) {
             Text(
                 text = secondary.orEmpty(),
@@ -1164,6 +1238,19 @@ private fun Modifier.upNextTail(blockPx: () -> Int): Modifier = layout { measura
 
 /** Frames of unchanged row sizes before the translation re-pin stops. */
 private const val TranslationSettleFrames = 3
+
+/** The translation wave: each row starts this long after its neighbour nearer the origin. */
+private const val TranslationWaveStepMs = 32
+
+/** Rows past this distance from the origin all start together (the wave has left the screen). */
+private const val TranslationWaveMaxRows = 18
+
+/** Pinning keeps going this long after the farthest row has started. */
+private const val TranslationWaveSettleSlackMs = 60
+
+/** This row's start delay in the translation wave; 0 when no wave has run yet. */
+internal fun translationWaveDelayMs(item: Int, origin: Int): Int =
+    if (origin < 0) 0 else minOf(abs(item - origin), TranslationWaveMaxRows) * TranslationWaveStepMs
 
 /**
  * Find the index of the lyric line active at [positionMs] — the LAST

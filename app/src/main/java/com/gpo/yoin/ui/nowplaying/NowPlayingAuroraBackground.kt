@@ -175,7 +175,8 @@ class NowPlayingTransportSignal {
         areaRoot: Rect? = null,
     ) {
         val anchor = anchorRoot?.takeIf { !it.isEmpty }
-            ?: if (kind == ActionGlowKind.RoomLift || kind == ActionGlowKind.LyricsReveal) Rect.Zero else return
+            ?: if (kind == ActionGlowKind.RoomLift || kind == ActionGlowKind.LyricsReveal ||
+                kind == ActionGlowKind.TranslationWave) Rect.Zero else return
         if (pendingGlows.size >= MaxPendingGlows) pendingGlows.removeAt(0)
         pendingGlows += ActionGlow(kind, anchor, SystemClock.uptimeMillis(), value, targetY, areaRoot)
         glowFires++

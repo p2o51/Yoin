@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.InteractionSource
@@ -107,6 +108,8 @@ internal fun LyricsActionBar(
                 enabled = (actionInFlight == null || translating) && canTranslate,
                 onClick = { if (actionInFlight == null) onTranslateClick() },
                 size = iconSize,
+                // Showing / hiding plucks when the lines move (NowPlayingScreen).
+                tapHaptic = false,
             )
             // ✓ = select lines (copy / share as image). Editing the
             // LRC moved into select mode's own bar; with no lines to
@@ -294,9 +297,15 @@ private fun LyricsActionIcon(
     size: Dp = 52.dp,
     // The key that leaves a mode reads stronger than the actions beside it.
     emphasized: Boolean = false,
+    // Off for a key whose result plays its own haptic (translate: the pluck).
+    tapHaptic: Boolean = true,
 ) {
+    val haptics = rememberYoinHaptics()
     FilledTonalIconButton(
-        onClick = onClick,
+        onClick = {
+            if (tapHaptic) haptics.performContextClick()
+            onClick()
+        },
         enabled = enabled,
         modifier = modifier
             .size(width = size, height = size)
