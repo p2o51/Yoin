@@ -459,11 +459,10 @@ fun NowPlayingScreen(
         lyricsRevealOwedAt = 0L
         if (SystemClock.uptimeMillis() - owed <= LyricsRevealWaitMs) revealLyrics()
     }
-    // A translation: the slow sweep while it is fetched, each line lights once when it lands.
+    // A translation: the slow sweep while it is fetched; showing or hiding it
+    // sends a wave down the page (below).
     val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
     val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
-    val latestTranslationShown by rememberUpdatedState(translationShown)
-    var wasTranslating by remember { mutableStateOf(false) }
     // Translation shown / hidden on the same song: a soft pluck that rings
     // while the lines open (or close) down the page. A song change clears
     // translation silently.
@@ -473,14 +472,20 @@ fun NowPlayingScreen(
         val (lastShown, lastSong) = translationSeen
         if (lastSong == revealSongId && lastShown != translationShown) {
             translationHaptics.performPluck(opening = translationShown)
+            // The background answers every show / hide with the same wave.
+            transportSignal.glow(
+                ActionGlowKind.TranslationWave,
+                null,
+                value = if (translationShown) 1f else 0f,
+                targetY = transportSignal.currentLineRootY ?: Float.NaN,
+                areaRoot = transportSignal.lyricsAreaRoot,
+            )
         }
         translationSeen[0] = translationShown
         translationSeen[1] = revealSongId
     }
     LaunchedEffect(translating) {
         transportSignal.lyricsWaiting = translating
-        if (wasTranslating && !translating && latestTranslationShown) revealLyrics()
-        wasTranslating = translating
     }
     // Every user seek (lyric line, note row, wave bar) tells the background
     // first: the player may buffer at the new spot, and that dip is the

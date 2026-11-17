@@ -17,6 +17,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -86,6 +87,15 @@ internal enum class ActionGlowKind(val durationMs: Int) {
 
     /** New lyrics or a translation arrived: each line lights once, top to bottom, over the lyrics. */
     LyricsReveal(1300),
+
+    /**
+     * Translation shown ([ActionGlow.value] 1) or hidden (0): a soft light
+     * opens out from the current line ([ActionGlow.targetY]) and runs all the
+     * way down to the bottom of the screen (and up to the lyrics' top), in
+     * step with the lines unrolling. Hiding runs the same way, dimmer, in the
+     * secondary colour.
+     */
+    TranslationWave(TranslationWaveMs),
 
     /** Playback moved to another device: the light leaves downwards, then a ring comes back from the bottom. */
     DeviceHandoff(2100),
@@ -409,6 +419,34 @@ internal fun DrawScope.drawActionGlow(
                 i++
             }
         }
+        ActionGlowKind.TranslationWave -> {
+            val opening = glow.value >= 0.5f
+            val area = glow.areaRoot?.translate(-origin)?.takeIf { !it.isEmpty }
+            val top = area?.top ?: (h * 0.3f)
+            val from = (if (glow.targetY.isNaN()) top else glow.targetY - origin.y).coerceIn(top, h)
+            val color = if (opening) pal.p else pal.s
+            val strength = if (opening) 0.62f else 0.4f
+            val step = TranslationWaveBandDp * dp
+            // Bands every [step] from the lyrics' top to the screen's bottom;
+            // each lights when the wave reaches it (by its distance from the
+            // current line) and fades on a long, soft bell.
+            var y = top + step * 0.5f
+            while (y < h + step) {
+                val delay = abs(y - from) / dp * TranslationWaveMsPerDp
+                val v = (tMs - delay) / TranslationWaveBandLifeMs
+                if (v > 0f && v < 1f) {
+                    glowEllipse(
+                        Offset(w / 2f, y),
+                        rx = w * 0.9f,
+                        ry = step * 1.1f,
+                        color = color,
+                        alpha = k * strength * softBell(v),
+                        blend = blend,
+                    )
+                }
+                y += step
+            }
+        }
         ActionGlowKind.DeviceHandoff -> {
             if (tMs < 1100f) {
                 val v = tMs / 1100f
@@ -601,6 +639,24 @@ private fun DrawScope.glowDotRow(y: Float, x0: Float, x1: Float, color: Color, t
 }
 
 private fun bell(t: Float): Float = sin(PI.toFloat() * t.coerceIn(0f, 1f))
+
+/** A bell that rises quickly and lets go slowly (the translation wave's bands). */
+private fun softBell(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return if (x < 0.3f) sin(PI.toFloat() / 2f * (x / 0.3f)) else 0.5f + 0.5f * cos(PI.toFloat() * (x - 0.3f) / 0.7f)
+}
+
+/** How fast the translation wave travels: the lyric rows' stagger (32ms a row) over a ~58dp row. */
+private const val TranslationWaveMsPerDp = 0.55f
+
+/** Height of one band of the translation wave. */
+private const val TranslationWaveBandDp = 40f
+
+/** How long one band stays lit. */
+private const val TranslationWaveBandLifeMs = 1100f
+
+/** Long enough for the wave to cross a tall tablet screen (~1300dp) and its last band to fade. */
+private const val TranslationWaveMs = 1900
 
 /** Up quickly, then a long settle: a light that arrives and lets go without a bounce. */
 private fun swell(t: Float): Float {
