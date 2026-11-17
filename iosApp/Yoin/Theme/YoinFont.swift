@@ -71,7 +71,7 @@ enum YoinFont {
 
     /// Axis tags by name, from the font itself (CGFont variations are keyed
     /// by axis name: "Weight", "Width", "Roundness", "Optical size").
-    nonisolated(unsafe) private static let axisNames: [String: String] = {
+    private static let axisNames: [String: String] = {
         guard let axes = base?.variationAxes as? [[String: Any]] else { return [:] }
         var out: [String: String] = [:]
         for a in axes {

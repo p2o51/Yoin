@@ -214,14 +214,28 @@ struct NowPlayingView: View, Equatable {
                 onTouchAt: { if npMorph?.mounted != false { glow.touched(at: $0) } }
             ))
             .onChange(of: npMorph?.mounted) { _, mounted in
-                if mounted == false {
+                let slot: NowPlayingBackSlot = panel ? .panel : .full
+                if mounted == true {
+                    if demo == nil {
+                        let token = backToken
+                        model.npStageBack[slot] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+                    }
+                } else if mounted == false {
+                    if model.npStageBack[slot]?.token == backToken { model.npStageBack[slot] = nil }
+                    glow.stopAll()
                     var t = Transaction()
                     t.disablesAnimations = true
                     withTransaction(t) {
                         if !wide, stage != .compact { stage = .compact }
+                        expandedFromFocus = false
                         shortFocus = false
+                        if tab != NowPlayingDetailPage.lyrics.rawValue { tab = NowPlayingDetailPage.lyrics.rawValue }
                         pagerDrag = 0
                         composing = false
+                        editingNoteId = nil
+                        keyboardHeight = 0
+                        leaveLyricsSelect(follow: true)
+                        about.resetAsk()
                     }
                 }
             }
@@ -232,7 +246,7 @@ struct NowPlayingView: View, Equatable {
                 guard !Task.isCancelled else { return }
                 neighboursWarm = true
             }
-            .modifier(GlowWiring(glow: glow, playing: playback.isPlaying,
+            .modifier(GlowWiring(glow: glow, active: npMorph?.mounted != false, playing: playback.isPlaying,
                                  songKey: engineTrack.map(NowPlayingData.key), reduceMotion: reduceMotion,
                                  onSongChange: glowSongChanged,
                                  lyricsArea: { glow.frame(.lyrics) }))
@@ -254,6 +268,7 @@ struct NowPlayingView: View, Equatable {
         let i = model.player.currentIndex
         let forward = glowIndex.flatMap { last in i.map { $0 >= last } } ?? true
         glowIndex = i
+        guard npMorph?.mounted != false else { return }
         glow.songChanged(forward: forward, lyricsLead: glowLyricsLead, inPlace: lyricsDirection.inPlace)
     }
 
@@ -299,7 +314,8 @@ struct NowPlayingView: View, Equatable {
         // The expanded page's tools, or the enlarged column's tab-row tools at rest
         // (Android toolsOnScreen: the enlarged tablet's tab row).
         let enlargedRest = model.isPad && !panel && !wide && stage == .compact
-        guard model.player.isPlaying, stage == .expanded || enlargedRest, tab == NowPlayingDetailPage.lyrics.rawValue,
+        guard npMorph?.mounted != false, model.player.isPlaying, stage == .expanded || enlargedRest,
+              tab == NowPlayingDetailPage.lyrics.rawValue,
               lyricsFollow, !lyricsSelecting, let l = loadedLyrics else { return false }
         return l.synced
     }
@@ -331,7 +347,7 @@ struct NowPlayingView: View, Equatable {
     /// Android wideFocusIdleEligible: two-column focus, playing, synced
     /// lyrics (the mock counts as synced), not selecting lines.
     private var focusIdleEligible: Bool {
-        guard wide, stage == .focus, !lyricsSelecting else { return false }
+        guard npMorph?.mounted != false, wide, stage == .focus, !lyricsSelecting else { return false }
         guard let t = engineTrack else { return playback.isPlaying }
         guard model.player.isPlaying, case .lines(let l) = data.lyricsState(t) else { return false }
         return l.synced
@@ -369,12 +385,20 @@ struct NowPlayingView: View, Equatable {
         page
             .offset(y: max(0, dragY))
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { n in
+                guard npMorph?.mounted != false else {
+                    if keyboardHeight != 0 { keyboardHeight = 0 }
+                    return
+                }
                 guard let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
                       let screen = (n.object as? UIScreen) ?? UIApplication.shared.connectedScenes
                         .compactMap({ ($0 as? UIWindowScene)?.screen }).first else { return }
                 withAnimation(Yoin.spatial) { keyboardHeight = max(0, screen.bounds.maxY - end.minY) }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                guard npMorph?.mounted != false else {
+                    if keyboardHeight != 0 { keyboardHeight = 0 }
+                    return
+                }
                 withAnimation(Yoin.spatial) { keyboardHeight = 0 }
             }
         // iPad Full only; on the phone the morph owns the drag.
@@ -440,7 +464,7 @@ struct NowPlayingView: View, Equatable {
         .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
         // ⌘[ steps back inside this player before the shell closes it (AppModel.backFromKeyboard).
         .onAppear {
-            guard demo == nil else { return }
+            guard demo == nil, npMorph?.mounted != false else { return }
             let token = backToken
             model.npStageBack[panel ? .panel : .full] = NowPlayingStageBack(token: token) { keyboardStageBack() }
         }
@@ -1832,7 +1856,7 @@ struct NowPlayingView: View, Equatable {
     private func lyricPreview(_ p: PlaybackSnapshot) -> some View {
         if let t = engineTrack {
             if case .lines(let loaded) = data.lyricsState(t), loaded.synced {
-                PlaybackPosition { position, _ in
+                PlaybackPosition(live: npMorph?.mounted != false) { position, _ in
                     let i = loaded.activeIndex(positionSec: position)
                     OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
                                      ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
@@ -1867,7 +1891,7 @@ struct NowPlayingView: View, Equatable {
                 // The one-line row (Android OneLineLyricRow): the line replaced
                 // in place, never a list scrolled through a 32 pt slot.
                 lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
-                    PlaybackPosition { position, _ in
+                    PlaybackPosition(live: npMorph?.mounted != false) { position, _ in
                         let i = loaded.activeIndex(positionSec: position)
                         OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
                                          ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
@@ -1879,7 +1903,7 @@ struct NowPlayingView: View, Equatable {
                 // Only this subtree reads the position; the line index is
                 // derived per tick and the lines re-render when it moves.
                 lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
-                    PlaybackPosition { position, duration in
+                    PlaybackPosition(live: npMorph?.mounted != false) { position, duration in
                         LyricLinesView(lines: loaded.lines, active: loaded.activeIndex(positionSec: position),
                                        anchor: anchor, primary: scheme.primary,
                                        onSurfaceVariant: scheme.onSurfaceVariant, wraps: wraps, solo: solo,
@@ -1983,7 +2007,7 @@ struct NowPlayingView: View, Equatable {
         if notes.isEmpty {
             windowLabel(String(localized: "Write"), clear: clear)
         } else {
-            PlaybackPosition { position, _ in
+            PlaybackPosition(live: npMorph?.mounted != false) { position, _ in
                 NoteLinesView(notes: notes,
                               activeId: NotesStore.currentAnchoredNoteId(notes, positionMs: Int64(position * 1000)),
                               primary: scheme.primary, onSurfaceVariant: scheme.onSurfaceVariant)
@@ -2176,7 +2200,7 @@ struct NowPlayingView: View, Equatable {
         let anchorMs = demoAnchors == nil ? noteAnchorMs : []
         // The position is read inside PlaybackPosition, so the engine's ticks
         // redraw this row only.
-        return PlaybackPosition { position, duration in
+        return PlaybackPosition(live: npMorph?.mounted != false) { position, duration in
         let anchors = demoAnchors ?? (duration > 0 && !anchorMs.isEmpty
             ? anchorMs.map { Double($0) / 1000 / duration } : [])
         HStack(spacing: 0) {

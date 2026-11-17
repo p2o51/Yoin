@@ -488,4 +488,137 @@ final class HomeMemoriesReviewTests: XCTestCase {
         XCTAssertGreaterThan(bottomHomeBar.0, 200, "Bottom safe-area band was not red: \(bottomHomeBar)")
         XCTAssertLessThan(bottomHomeBar.1, 80, "Bottom safe-area band was clipped to white instead of edge-to-edge: \(bottomHomeBar)")
     }
+
+    func test_should_collectAllDescendantScrollViews_when_sheetContainsMultipleScrollViews() {
+        let root = UIView()
+        let headerContainer = UIView()
+        let horizontalChips = UIScrollView()
+        let bodyContainer = UIView()
+        let verticalList = UIScrollView()
+        headerContainer.addSubview(horizontalChips)
+        bodyContainer.addSubview(verticalList)
+        root.addSubview(headerContainer)
+        root.addSubview(bodyContainer)
+
+        let collected = SheetRiseView.descendantScrollViews(in: root)
+        XCTAssertEqual(collected.count, 2)
+        XCTAssertTrue(collected.contains(where: { $0 === horizontalChips }))
+        XCTAssertTrue(collected.contains(where: { $0 === verticalList }))
+    }
+
+    func test_should_stopGlowImmediately_when_residentPlayerUnmounts() {
+        let glow = NowPlayingGlow()
+        glow.glow(.playBurst, at: nil)
+        XCTAssertTrue(glow.live)
+        XCTAssertFalse(glow.lights.isEmpty)
+
+        glow.stopAll()
+        XCTAssertFalse(glow.live)
+        XCTAssertTrue(glow.lights.isEmpty)
+        XCTAssertNil(glow.hold)
+    }
+
+    func test_should_keepPadSearchQueryAcrossClose_while_resettingPhoneResidentSearch() {
+        XCTAssertEqual(
+            SearchView.resolvedOpenScope(current: .catalog, isPadHosted: true, startsOnCatalog: false, canSearchCatalog: true, launchScreen: ""),
+            .catalog,
+            "iPad keeps user-selected catalog scope across visits"
+        )
+        XCTAssertEqual(
+            SearchView.resolvedOpenScope(current: .catalog, isPadHosted: true, startsOnCatalog: false, canSearchCatalog: false, launchScreen: ""),
+            .library,
+            "Non-catalog (Subsonic) account never stays stranded on catalog scope"
+        )
+        XCTAssertEqual(
+            SearchView.resolvedOpenScope(current: .catalog, isPadHosted: false, startsOnCatalog: false, canSearchCatalog: true, launchScreen: ""),
+            .library,
+            "Phone resident SearchView resets scope to library unless searchStartsOnCatalog is true"
+        )
+        XCTAssertEqual(
+            SearchView.resolvedOpenScope(current: .library, isPadHosted: false, startsOnCatalog: true, canSearchCatalog: true, launchScreen: ""),
+            .catalog
+        )
+
+        func findTextFields(in view: UIView) -> [UITextField] {
+            var out: [UITextField] = []
+            if let tf = view as? UITextField { out.append(tf) }
+            for sub in view.subviews { out.append(contentsOf: findTextFields(in: sub)) }
+            return out
+        }
+
+        let model = AppModel(library: MockLibrary.shared, playback: MockLibrary.shared)
+        model.searchActive = true
+
+        struct PadSearchHost: View {
+            let model: AppModel
+            @Namespace private var ns
+            var body: some View {
+                NavigationStack {
+                    SearchView(npNamespace: ns, onClose: {})
+                }
+                .environment(model)
+            }
+        }
+
+        struct PhoneSearchHost: View {
+            let model: AppModel
+            @Namespace private var ns
+            var body: some View {
+                NavigationStack {
+                    SearchView(npNamespace: ns)
+                }
+                .environment(model)
+            }
+        }
+
+        func makeWindow(frame: CGRect, root: UIViewController) -> UIWindow {
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            let w = scene.map(UIWindow.init(windowScene:)) ?? UIWindow(frame: frame)
+            w.frame = frame
+            w.rootViewController = root
+            w.makeKeyAndVisible()
+            return w
+        }
+
+        // 1. iPad (`onClose != nil`): query typed into UITextField survives > 420ms close and reopen.
+        let padHost = UIHostingController(rootView: PadSearchHost(model: model))
+        let padWindow = makeWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180), root: padHost)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        padWindow.layoutIfNeeded()
+        let padField = findTextFields(in: padWindow).first
+        XCTAssertNotNil(padField)
+        padField?.text = "Miles Davis"
+        padField?.sendActions(for: .editingChanged)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        XCTAssertEqual(padField?.text, "Miles Davis")
+
+        model.searchActive = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.55))
+        model.searchActive = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(findTextFields(in: padWindow).first?.text, "Miles Davis",
+                       "iPad PadShell SearchView must keep its query across visits")
+        padWindow.isHidden = true
+
+        // 2. Phone (`onClose == nil`): query clears even on rapid < 420ms close -> reopen.
+        model.searchActive = true
+        let phoneHost = UIHostingController(rootView: PhoneSearchHost(model: model))
+        let phoneWindow = makeWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852), root: phoneHost)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        phoneWindow.layoutIfNeeded()
+        let phoneField = findTextFields(in: phoneWindow).first
+        XCTAssertNotNil(phoneField)
+        phoneField?.text = "Radiohead"
+        phoneField?.sendActions(for: .editingChanged)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        XCTAssertEqual(phoneField?.text, "Radiohead")
+
+        model.searchActive = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1)) // < 420ms rapid reopen
+        model.searchActive = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(findTextFields(in: phoneWindow).first?.text, "",
+                       "Phone resident SearchView must reset query even on rapid <420ms reopen")
+        phoneWindow.isHidden = true
+    }
 }

@@ -49,6 +49,7 @@ private struct LyricLinesBody: View {
     var solo: Bool
     var outro: LyricLinesView.Outro?
 
+    @Environment(\.npMorph) private var npMorph
     @State private var heights: [Int: CGFloat] = [:]
     @State private var labelHeight: CGFloat = 0
     /// The list's scroll, driven on its own (see the offset below); nil until first laid out.
@@ -160,6 +161,15 @@ private struct LyricLinesBody: View {
         .onAppear { scrollY = anchor - 4 - above }
         .onChange(of: anchor - 4 - above) { _, target in
             guard scrollY != nil else { scrollY = target; return }
+            // When waking from resident-closed or prewarming at the pill, seat the active line immediately.
+            let waking = npMorph?.mounted == false || npMorph?.warming == true
+                || (npMorph?.inFlight == true && (npMorph?.progress ?? 1) < 0.05)
+            if waking {
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) { scrollY = target }
+                return
+            }
             withAnimation(handing ? Yoin.slowSpatial : Self.scroll) { scrollY = target }
         }
     }
@@ -213,6 +223,11 @@ struct NoteLinesView: View, Equatable {
     var activeId: String?
     var primary: Color
     var onSurfaceVariant: Color
+    @Environment(\.npMorph) private var npMorph
+
+    nonisolated static func == (a: NoteLinesView, b: NoteLinesView) -> Bool {
+        a.notes == b.notes && a.activeId == b.activeId && a.primary == b.primary && a.onSurfaceVariant == b.onSurfaceVariant
+    }
 
     /// Android `NoteStampColumnWidth`.
     static let stampColumn: CGFloat = 40
@@ -240,7 +255,9 @@ struct NoteLinesView: View, Equatable {
     private func anchor(_ proxy: ScrollViewProxy, animated: Bool) {
         guard let id = activeId ?? notes.last?.id else { return }
         let target = UnitPoint(x: 0, y: 0.22)
-        if animated {
+        let waking = npMorph?.mounted == false || npMorph?.warming == true
+            || (npMorph?.inFlight == true && (npMorph?.progress ?? 1) < 0.05)
+        if animated && !waking {
             withAnimation(Yoin.spatial) { proxy.scrollTo(id, anchor: target) }
         } else {
             proxy.scrollTo(id, anchor: target)

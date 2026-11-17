@@ -103,8 +103,8 @@ struct PhoneShell: View {
                                                  active: model.section == .home && model.path.isEmpty))
             }
             // Root Home / Library have no inline keyboard inputs (Memories ignores keyboard itself),
-            // so Search's keyboard never relayouts Home/Library or moves ShellBar across 120Hz frames.
-            .ignoresSafeArea(model.path.isEmpty ? .keyboard : [], edges: .bottom)
+            // and while Search is active its keyboard belongs to SearchView rather than the stack behind it.
+            .ignoresSafeArea(model.searchActive || model.path.isEmpty ? .keyboard : [], edges: .bottom)
             // World: the shell steps back (scale, dim, blur) as Now Playing
             // unfolds over it or a sheet comes up, off the same progress.
             .modifier(WorldRecede(layer: .shell))
@@ -315,8 +315,8 @@ final class SheetRiseView: UIView {
     private var rest: CGFloat?
     private weak var sheet: UIView?
     private weak var controller: UIViewController?
-    private weak var sheetScrollView: UIScrollView?
-    private var didSearchScrollView = false
+    private var sheetScrollViews: [WeakScrollViewRef] = []
+    private var lastScrollScanAt: CFTimeInterval = 0
     /// The sheet's rise has been seen under way (or it had none to show):
     /// until then a frame read before UIKit attaches the presentation
     /// animation (model = drawn, at rest) would report a full rise for one
@@ -376,16 +376,18 @@ final class SheetRiseView: UIView {
                 && ($0.state == .began || $0.state == .changed) }) == true { return true }
             view = cur.superview
         }
-        // A scroll view inside the sheet hands its pan to the sheet at the top.
-        if !didSearchScrollView || sheetScrollView?.window == nil {
-            sheetScrollView = v.firstDescendantScrollView()
-            didSearchScrollView = sheetScrollView != nil
+        // Any scroll view inside the sheet may hand its pan to the sheet at the top.
+        let now = CACurrentMediaTime()
+        if sheetScrollViews.isEmpty || now - lastScrollScanAt > 0.5 || sheetScrollViews.contains(where: { $0.view?.window == nil }) {
+            var found: [WeakScrollViewRef] = []
+            v.collectDescendantScrollViews(into: &found)
+            sheetScrollViews = found
+            lastScrollScanAt = now
         }
-        if let s = sheetScrollView {
-            let st = s.panGestureRecognizer.state
+        return sheetScrollViews.contains { ref in
+            guard let st = ref.view?.panGestureRecognizer.state else { return false }
             return st == .began || st == .changed
         }
-        return false
     }
 
     @objc private func tick() {
@@ -438,12 +440,21 @@ final class SheetRiseView: UIView {
 }
 
 private extension UIView {
-    func firstDescendantScrollView() -> UIScrollView? {
+    func collectDescendantScrollViews(into out: inout [SheetRiseView.WeakScrollViewRef]) {
         for sub in subviews {
-            if let s = sub as? UIScrollView { return s }
-            if let found = sub.firstDescendantScrollView() { return found }
+            if let s = sub as? UIScrollView { out.append(.init(view: s)) }
+            sub.collectDescendantScrollViews(into: &out)
         }
-        return nil
+    }
+}
+
+extension SheetRiseView {
+    struct WeakScrollViewRef { weak var view: UIScrollView? }
+
+    static func descendantScrollViews(in root: UIView) -> [UIScrollView] {
+        var found: [WeakScrollViewRef] = []
+        root.collectDescendantScrollViews(into: &found)
+        return found.compactMap(\.view)
     }
 }
 
