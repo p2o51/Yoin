@@ -647,23 +647,18 @@ extension View {
             // The world behind keeps the display's corners as it steps back,
             // and gives up the status-bar and home-indicator bands (the look
             // behind a sheet) by the same depth: they slide away with what
-            // rises over it. Scaled on GPU instead of per-frame VStack relayout.
-            .overlay {
-                ZStack {
-                    Yoin.surface
-                        .frame(height: insets.top)
-                        .scaleEffect(x: 1, y: active ? max(d, 0.0001) : 0.0001, anchor: .top)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                    Yoin.surface
-                        .frame(height: insets.bottom)
-                        .scaleEffect(x: 1, y: active ? max(d, 0.0001) : 0.0001, anchor: .bottom)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                }
-                .opacity(active ? 1 : 0)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            }
-            .clipShape(.rect(cornerRadius: active ? 44 : 0, style: .continuous))
+            // rises over it. Note `Color.clear.ignoresSafeArea().overlay { self }`
+            // still has a safe-area layout rect, so the clip shape expands out into
+            // the safe-area margins (`insets * (1 - d)`, or unbounded bleed at rest)
+            // instead of chopping off edge-to-edge top/bottom washes at `d == 0`.
+            .clipShape(
+                FullBleedRecedeClipShape(
+                    topOutset: active ? insets.top * (1 - d) : max(insets.top, 200),
+                    bottomOutset: active ? insets.bottom * (1 - d) : max(insets.bottom, 200),
+                    horizontalOutset: active ? 0 : max(insets.left + insets.right, 100),
+                    cornerRadius: active ? 44 : 0
+                )
+            )
             // Drawn scaled, laid out as is. A layout scale (scaleEffect) moved
             // the layer off the screen's edges, and then nothing in it could
             // reach under the status bar (ignoresSafeArea): Now Playing's dark
@@ -1006,6 +1001,26 @@ private enum WindowInsets {
             cachedInsets = insets
         }
         return insets
+    }
+}
+
+/// Clip shape for `labRecede` that expands out from the safe-area layout rect into the
+/// window's safe-area margins (`topOutset` / `bottomOutset`), preserving full edge-to-edge
+/// bleed at rest while rounding the receding plane's corners as depth grows.
+private struct FullBleedRecedeClipShape: Shape {
+    var topOutset: CGFloat
+    var bottomOutset: CGFloat
+    var horizontalOutset: CGFloat
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = CGRect(
+            x: rect.minX - horizontalOutset,
+            y: rect.minY - topOutset,
+            width: rect.width + horizontalOutset * 2,
+            height: rect.height + topOutset + bottomOutset
+        )
+        return Path(roundedRect: r, cornerRadius: cornerRadius, style: .continuous)
     }
 }
 
