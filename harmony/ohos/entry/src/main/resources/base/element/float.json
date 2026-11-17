@@ -1,0 +1,12 @@
+{
+  "float": [
+    {
+      "name": "card_light_only",
+      "value": "1"
+    },
+    {
+      "name": "card_dark_only",
+      "value": "0"
+    }
+  ]
+}

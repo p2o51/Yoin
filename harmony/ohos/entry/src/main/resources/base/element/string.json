@@ -1,0 +1,44 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "yoin"
+    },
+    {
+      "name": "card_play_label",
+      "value": "Play"
+    },
+    {
+      "name": "card_play_description",
+      "value": "Recent listening"
+    },
+    {
+      "name": "card_play_empty",
+      "value": "Nothing played yet"
+    },
+    {
+      "name": "card_memory_label",
+      "value": "Memory"
+    },
+    {
+      "name": "card_memory_description",
+      "value": "Your album memories"
+    },
+    {
+      "name": "card_memory_empty",
+      "value": "No memories yet"
+    },
+    {
+      "name": "permission_vibrate_reason",
+      "value": "Used for touch feedback when tapping, dragging and rating"
+    }
+  ]
+}

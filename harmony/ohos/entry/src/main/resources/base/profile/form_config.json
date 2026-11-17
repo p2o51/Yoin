@@ -1,0 +1,46 @@
+{
+  "forms": [
+    {
+      "name": "play",
+      "displayName": "$string:card_play_label",
+      "description": "$string:card_play_description",
+      "src": "./ets/widget/pages/PlayCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": true,
+      "updateEnabled": false,
+      "defaultDimension": "2*2",
+      "supportDimensions": [
+        "1*2",
+        "2*2",
+        "2*4"
+      ]
+    },
+    {
+      "name": "memory",
+      "displayName": "$string:card_memory_label",
+      "description": "$string:card_memory_description",
+      "src": "./ets/widget/pages/MemoryCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": false,
+      "updateEnabled": false,
+      "defaultDimension": "2*2",
+      "supportDimensions": [
+        "1*2",
+        "2*2",
+        "2*4"
+      ]
+    }
+  ]
+}

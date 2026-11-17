@@ -1,0 +1,45 @@
+{
+ "result": {
+  "resultCode": "000000",
+  "resultMessage": "Success!"
+ },
+ "sortedContentTypes": [
+  "1"
+ ],
+ "hasNextPage": "1",
+ "totalNum": "21",
+ "songSimpleInfos": [
+  {
+   "contentID": "MSZAMhtEID2dggSuc",
+   "contentName": "Blinding Lights",
+   "contentType": "1",
+   "artistName": "The Weeknd",
+   "albumName": "The Highlights",
+   "subTitle": "The Weeknd - The Highlights",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/c79f27f1099d33cf774ef29ea024247e/fccc85b2037b9d71f82f28a3a433384d/36df5a58-61d9-4ae6-80c4-2e8a06756e3f.lrc",
+   "contentExInfo": "{\"artistNames\":\"The Weeknd\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/c79f27f1099d33cf774ef29ea024247e/fccc85b2037b9d71f82f28a3a433384d/36df5a58-61d9-4ae6-80c4-2e8a06756e3f.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/c79f27f1099d33cf774ef29ea024247e/fccc85b2037b9d71f82f28a3a433384d/36df5a58-61d9-4ae6-80c4-2e8a06756e3f.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\",\\\"wordByWordLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/67020b6e711556843ab8b4d733087b70/c79f27f1099d33cf774ef29ea024247e/MSZAMhtEID2dggSuc_7eb4cceb-0c2b-45b6-acc1-600dc3fae97c.hmrc\\\"}\",\"fileInfos\":[{\"duration\":\"200\"}]}",
+   "childContents": [
+    {
+     "contentID": "M3dqdXU5rrFVNHZN0",
+     "contentName": "Blinding Lights",
+     "contentType": "1",
+     "artistName": "The Weeknd",
+     "albumName": "After Hours",
+     "subTitle": "The Weeknd - After Hours",
+     "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/dc433d6d1fe946e214907ef73d43f9d9/fccc85b2037b9d71f82f28a3a433384d/4f180ce0-5f1a-4127-8a02-915966b67977.lrc",
+     "contentExInfo": "{\"artistNames\":\"The Weeknd\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/dc433d6d1fe946e214907ef73d43f9d9/fccc85b2037b9d71f82f28a3a433384d/4f180ce0-5f1a-4127-8a02-915966b67977.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/dc433d6d1fe946e214907ef73d43f9d9/fccc85b2037b9d71f82f28a3a433384d/4f180ce0-5f1a-4127-8a02-915966b67977.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\"}\",\"fileInfos\":[{\"duration\":\"200\"}]}"
+    }
+   ]
+  },
+  {
+   "contentID": "M6B8NFVXH3Nq-NS70",
+   "contentName": "Blinding Lights",
+   "contentType": "1",
+   "artistName": "The Weeknd",
+   "albumName": "After Hours (Deluxe)",
+   "subTitle": "The Weeknd - After Hours (Deluxe)",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/b8980f46062d6662699694931b54ccd3/fccc85b2037b9d71f82f28a3a433384d/2222a32d-8edb-4667-a3fc-c0b87bd6bf85.lrc",
+   "contentExInfo": "{\"artistNames\":\"The Weeknd\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/b8980f46062d6662699694931b54ccd3/fccc85b2037b9d71f82f28a3a433384d/2222a32d-8edb-4667-a3fc-c0b87bd6bf85.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/b8980f46062d6662699694931b54ccd3/fccc85b2037b9d71f82f28a3a433384d/2222a32d-8edb-4667-a3fc-c0b87bd6bf85.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\"}\",\"fileInfos\":[{\"duration\":\"200\"}]}"
+  }
+ ]
+}

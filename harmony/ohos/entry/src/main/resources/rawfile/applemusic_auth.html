@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Yoin</title>
+  <style>
+    :root { color-scheme: light dark; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; padding: 24px; box-sizing: border-box;
+      font-family: -apple-system, system-ui, "HarmonyOS Sans", sans-serif;
+      background: #faf7f8; color: #1c1b1c; text-align: center;
+    }
+    @media (prefers-color-scheme: dark) { body { background: #141213; color: #ece6e8; } }
+    #status { font-size: 16px; opacity: 0.8; min-height: 22px; }
+    #signin {
+      appearance: none; border: 0; border-radius: 28px; padding: 14px 28px;
+      font-size: 17px; font-weight: 600; color: #fff;
+      background: linear-gradient(135deg, #fb5c74, #fa586a); cursor: pointer;
+      display: none;
+    }
+    #signin[disabled] { opacity: 0.5; }
+  </style>
+  <!-- MusicKit JS v3 from Apple's CDN. The developer token is injected from
+       ArkTS (never in this page's URL) and MusicKit is configured below. -->
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" data-web-components></script>
+</head>
+<body>
+  <div id="status">Loading Apple Music…</div>
+  <button id="signin" disabled>Sign in with Apple Music</button>
+
+  <script>
+    (function () {
+      var bridge = function () { return window.yoinAuthBridge; };
+      var statusEl = document.getElementById('status');
+      var button = document.getElementById('signin');
+      var developerToken = null;
+      var musicReady = false;
+      var inFlight = false;
+
+      var APP_NAME = 'Yoin';
+
+      function setStatus(text) { statusEl.textContent = text; }
+
+      // MusicKit v3 ignores app.name on the consent page: it names the app after
+      // window.location.host (the "thirdPartyName" it sends in the authorize URL
+      // and answers the consent page's thirdPartyInfo call with). Rename it on
+      // this instance only; nothing else in that payload changes.
+      function nameTheApp(music) {
+        try {
+          // The instance reaches its StoreKit through the API manager's store.
+          var services = music && music._services;
+          var store = services && services.apiManager && services.apiManager.store;
+          var storekit = (store && store.storekit) || (music && music.storekit);
+          var view = storekit && storekit._serviceSetupView;
+          if (!view || typeof view._thirdPartyInfo !== 'function') {
+            console.log('yoin: app name hook unavailable');
+            return;
+          }
+          var original = view._thirdPartyInfo;
+          view._thirdPartyInfo = function () {
+            var info = JSON.parse(original.apply(view, arguments));
+            info.thirdPartyName = APP_NAME;
+            return JSON.stringify(info);
+          };
+          console.log('yoin: app name hook set');
+        } catch (e) {
+          console.log('yoin: app name hook failed');
+        }
+      }
+
+      function report(method, a, b) {
+        try { var br = bridge(); if (br && br[method]) { br[method](a, b); } } catch (e) {}
+      }
+
+      function readyToSignIn() {
+        if (developerToken && musicReady && !inFlight) {
+          button.disabled = false;
+          button.style.display = 'inline-block';
+          setStatus('');
+          report('onReady');
+        }
+      }
+
+      async function doAuthorize() {
+        if (inFlight || !developerToken || !musicReady) return;
+        inFlight = true;
+        button.disabled = true;
+        setStatus('Opening Apple ID…');
+        try {
+          var music = MusicKit.getInstance();
+          // Opens the Apple ID sign-in window; ArkWeb routes it through onWindowNew.
+          var mut = await music.authorize();
+          if (!mut) { throw new Error('no token'); }
+          var storefront = '';
+          try { storefront = music.storefrontId || ''; } catch (e) {}
+          if (!storefront) {
+            try {
+              var r = await fetch('https://api.music.apple.com/v1/me/storefront', {
+                headers: { 'Authorization': 'Bearer ' + developerToken, 'Music-User-Token': mut }
+              });
+              var j = await r.json();
+              if (j && j.data && j.data[0] && j.data[0].id) { storefront = j.data[0].id; }
+            } catch (e) {}
+          }
+          report('onToken', String(mut), String(storefront || 'us'));
+        } catch (e) {
+          inFlight = false;
+          button.disabled = false;
+          setStatus('Sign-in did not finish.');
+          var msg = (e && e.message) ? String(e.message) : 'authorize failed';
+          report('onError', 'auth_failed', msg);
+        }
+      }
+
+      button.addEventListener('click', doAuthorize);
+
+      // Called by ArkTS (runJavaScript) with the developer token once fetched.
+      window.__yoinStartAuth = async function (token) {
+        developerToken = token;
+        try {
+          if (!window.MusicKit) {
+            await new Promise(function (resolve) {
+              document.addEventListener('musickitloaded', resolve, { once: true });
+            });
+          }
+          await MusicKit.configure({
+            developerToken: developerToken,
+            app: { name: APP_NAME, build: '1.0.0', icon: 'https://yoin.gojyuplus.com/apple-touch-icon.png' }
+          });
+          nameTheApp(MusicKit.getInstance());
+          musicReady = true;
+          readyToSignIn();
+          // No auto-authorize: window.open for the Apple ID window is gated on a
+          // real in-page gesture, so the user taps the button below to open it.
+        } catch (e) {
+          var msg = (e && e.message) ? String(e.message) : 'configure failed';
+          report('onError', 'page_failed', msg);
+        }
+      };
+
+      window.addEventListener('error', function () { report('onError', 'page_failed', 'script error'); });
+
+      // Diagnostics: Apple's consent window talks to this page over JSON-RPC
+      // postMessage. Log who called and which method — never params or results,
+      // which carry tokens.
+      window.addEventListener('message', function (e) {
+        var d = e && e.data;
+        if (d && typeof d === 'object' && d.jsonrpc === '2.0') {
+          console.log('yoin: rpc ' + (d.method ? 'call ' + d.method : 'reply') + ' from ' + e.origin);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

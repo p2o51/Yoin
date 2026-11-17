@@ -1,0 +1,44 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "模块描述"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "yoin"
+    },
+    {
+      "name": "card_play_label",
+      "value": "播放"
+    },
+    {
+      "name": "card_play_description",
+      "value": "最近收听"
+    },
+    {
+      "name": "card_play_empty",
+      "value": "暂无播放记录"
+    },
+    {
+      "name": "card_memory_label",
+      "value": "Memories"
+    },
+    {
+      "name": "card_memory_description",
+      "value": "你的专辑 Memories"
+    },
+    {
+      "name": "card_memory_empty",
+      "value": "暂无 Memories"
+    },
+    {
+      "name": "permission_vibrate_reason",
+      "value": "用于点按、拖动与评分时的触感反馈"
+    }
+  ]
+}

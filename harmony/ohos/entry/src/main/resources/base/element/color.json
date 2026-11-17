@@ -1,0 +1,48 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "card_surface",
+      "value": "#FFF4EAFF"
+    },
+    {
+      "name": "card_on_surface",
+      "value": "#FF392B53"
+    },
+    {
+      "name": "card_on_surface_variant",
+      "value": "#FF665883"
+    },
+    {
+      "name": "card_primary",
+      "value": "#FF6B4FA3"
+    },
+    {
+      "name": "card_shelf",
+      "value": "#FFE0F9CB"
+    },
+    {
+      "name": "card_backdrop_1",
+      "value": "#FFCEB5FF"
+    },
+    {
+      "name": "card_backdrop_2",
+      "value": "#FFCBFA94"
+    },
+    {
+      "name": "card_backdrop_3",
+      "value": "#FFEADDFF"
+    },
+    {
+      "name": "card_placeholder",
+      "value": "#FFEADDFF"
+    },
+    {
+      "name": "card_badge_ink",
+      "value": "#FF2A1F3D"
+    }
+  ]
+}
