@@ -439,4 +439,53 @@ final class HomeMemoriesReviewTests: XCTestCase {
                       "Expected bottom touch at \(bottomPoint) to reach content under collapsed safe-area bar, got \(String(describing: openHit)), barSuperview=\(String(describing: barView.superview))")
         window.isHidden = true
     }
+
+    func test_should_bleedIntoTopAndBottomSafeAreas_when_labRecedeIsAtRest() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView:
+            ZStack {
+                Color(red: 1, green: 0, blue: 0)
+                    .ignoresSafeArea()
+                    .labRecede(0)
+            }
+            .background(Color.white.ignoresSafeArea())
+        )
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        window.layoutIfNeeded()
+        CATransaction.flush()
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { ctx in
+            window.layer.render(in: ctx.cgContext)
+        }
+        window.isHidden = true
+
+        guard let cg = image.cgImage,
+              let data = cg.dataProvider?.data,
+              let ptr = CFDataGetBytePtr(data) else {
+            return XCTFail("Failed to rasterize window hierarchy")
+        }
+        func rgb(_ x: Int, _ y: Int) -> (UInt8, UInt8, UInt8) {
+            let offset = y * cg.bytesPerRow + x * (cg.bitsPerPixel / 8)
+            // CGImage from UIGraphicsImageRenderer on arm64 simulator is BGRA (byteOrder32Little) or RGBA:
+            let isLittle = cg.bitmapInfo.contains(.byteOrder32Little)
+            return isLittle ? (ptr[offset + 2], ptr[offset + 1], ptr[offset]) : (ptr[offset], ptr[offset + 1], ptr[offset + 2])
+        }
+        let center = rgb(196, 400)
+        let topStatusBar = rgb(196, 12)
+        let bottomHomeBar = rgb(196, 840)
+        XCTAssertGreaterThan(center.0, 200, "Center sanity check must render red: \(center)")
+        XCTAssertLessThan(center.1, 80, "Center sanity check must not be white: \(center)")
+        // Must render red edge-to-edge (NOT clipped to white 255,255,255) in both status-bar and home-indicator bands.
+        XCTAssertGreaterThan(topStatusBar.0, 200, "Top safe-area band was not red: \(topStatusBar)")
+        XCTAssertLessThan(topStatusBar.1, 80, "Top safe-area band was clipped to white instead of edge-to-edge: \(topStatusBar)")
+        XCTAssertGreaterThan(bottomHomeBar.0, 200, "Bottom safe-area band was not red: \(bottomHomeBar)")
+        XCTAssertLessThan(bottomHomeBar.1, 80, "Bottom safe-area band was clipped to white instead of edge-to-edge: \(bottomHomeBar)")
+    }
 }
