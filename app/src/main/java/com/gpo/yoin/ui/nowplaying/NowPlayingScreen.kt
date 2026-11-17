@@ -1703,6 +1703,16 @@ private fun CompactPlayingContent(
                 bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx() -
                 focusLyricOverflowPx
         }
+        // The part of that growth released ABOVE the lyric window (top bar,
+        // cover row, gaps, tab row): the window's top rises by this much, its
+        // bottom drops by the rest. The lyric seat reads the final top from it.
+        val lyricsViewportGrowthAbovePx = with(LocalDensity.current) {
+            topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
+                coverRowHeight.roundToPx() +
+                coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
+                tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
+                tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx()
+        }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
         val lyricTools: @Composable (iconSize: Dp) -> Unit = { iconSize ->
@@ -2148,6 +2158,7 @@ private fun CompactPlayingContent(
                                         noteSortMode = noteSortMode,
                                         onNoteSortModeChange = onNoteSortModeChange,
                                         lyricsViewportGrowthPx = lyricsViewportGrowthPx,
+                                        lyricsViewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         lyricsSelection = lyricsSelection,
@@ -5197,6 +5208,7 @@ private fun ExpandedDetailPage(
     // shows where the draft will land.
     noteWriting: Boolean = false,
     lyricsViewportGrowthPx: Int = 0,
+    lyricsViewportGrowthAbovePx: Int = lyricsViewportGrowthPx,
     lyricsSelection: LyricsSelectionState? = null,
     // The page's end padding up to the screen edge (single column): the held
     // last line may run on into it.
@@ -5216,6 +5228,7 @@ private fun ExpandedDetailPage(
                 lyricsSelection?.toggle(index)
             },
             viewportGrowthPx = lyricsViewportGrowthPx,
+            viewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
             songTitle = state.songTitle.takeIf { lyricsTitleCard },
