@@ -537,14 +537,6 @@ internal fun HomeGridCells(
             if (k !in currentSet && k !in leaving) {
                 val leave = HomeGridLeaving(drawn)
                 leaving[k] = leave
-                scope.launch {
-                    leave.alpha.animateTo(0f, fadeOut)
-                    if (leaving[k] === leave) {
-                        leaving.remove(k)
-                        places.remove(k)
-                        leavingVersion++
-                    }
-                }
             }
         }
     }
@@ -561,6 +553,16 @@ internal fun HomeGridCells(
             }
             leavingNow.forEach { (k, leave) ->
                 androidx.compose.runtime.key(k) {
+                    // The fade runs as an effect of the leaving cell, never launched during composition;
+                    // a cell that comes back leaves composition here, which cancels its fade.
+                    androidx.compose.runtime.LaunchedEffect(leave) {
+                        leave.alpha.animateTo(0f, fadeOut)
+                        if (leaving[k] === leave) {
+                            leaving.remove(k)
+                            places.remove(k)
+                            leavingVersion++
+                        }
+                    }
                     Box(Modifier.graphicsLayer { alpha = leave.alpha.value }) { leave.drawn.content(leave.drawn.cell) }
                 }
             }
