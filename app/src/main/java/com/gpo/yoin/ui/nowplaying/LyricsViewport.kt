@@ -158,14 +158,25 @@ internal fun lyricsScreenSeatFraction(
     windowPx: Int,
     screenPx: Int,
     fadePx: Int,
+    stepped: Boolean = true,
 ): Float {
     val fade = lyricsEdgeFadePx(windowPx, fadePx)
     val band = windowPx - fade * 2
     if (band <= 0 || screenPx <= 0) return LyricsFocusFraction
     val raw = (screenPx * LyricsScreenSeat - windowTopPx - fade) / band
     val held = raw.coerceIn(LyricsSeatMinFraction, LyricsFocusFraction)
-    return (held * 50f).roundToInt() / 50f
+    return if (stepped) (held * 50f).roundToInt() / 50f else held
 }
+
+/**
+ * The seat a settled window takes: [next] (its screen seat), unless the sung
+ * row already sits within [slopPx] of it — then [actual], the row's own place
+ * (both as shares of a [bandPx] clean band), so a window that ends a few
+ * pixels off its estimate does not glide the line for nothing, and later
+ * lines keep the same place. [actual] null: the row isn't laid out / followed.
+ */
+internal fun lyricsSettledSeat(actual: Float?, next: Float, bandPx: Int, slopPx: Float): Float =
+    if (actual != null && bandPx > 0 && kotlin.math.abs(next - actual) * bandPx <= slopPx) actual else next
 
 /**
  * Apply to a wrapper around the list, so the changing measure policy does not
