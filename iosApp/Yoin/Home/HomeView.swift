@@ -783,7 +783,6 @@ struct HomeView: View {
             }
             .scrollIndicators(.hidden)
             .padding(.horizontal, -density.margin)
-            .shelfEdgeFade()
         }
     }
 
@@ -814,7 +813,6 @@ struct HomeView: View {
             }
             .scrollIndicators(.hidden)
             .padding(.horizontal, -density.margin)
-            .shelfEdgeFade()
         }
     }
 
@@ -842,7 +840,6 @@ struct HomeView: View {
             }
             .scrollIndicators(.hidden)
             .padding(.horizontal, -density.margin)
-            .shelfEdgeFade()
         }
     }
 }

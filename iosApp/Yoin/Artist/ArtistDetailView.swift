@@ -97,16 +97,11 @@ struct ArtistDetailView: View {
                 }
                 header
                     .background(alignment: .top) {
-                        // The album page's top (51, 2026-11-14): its progressive blur in the page's top
-                        // colour from the top of the screen, coming in as content goes under (the album's
-                        // comes in with the list's rise). Denser than the album's and solid down to the
-                        // header's foot, then easing out below it, so the big ring doesn't glow through
-                        // behind the title (51, 2026-11-15).
-                        let solid = geo.safeAreaInsets.top + headerHeight
-                        ProgressiveEdgeBlur(tint: topTint, dense: true,
-                                            fadeFrom: Double(solid / (solid + Self.blurTail)))
-                            .frame(height: solid + Self.blurTail)
-                            .offset(y: -geo.safeAreaInsets.top)
+                        // The album page's top, exactly (51, 2026-11-16: the denser, longer band of 11-15 read
+                        // as a slab over the ring; line it up with the album page): its strong progressive blur
+                        // in the page's top colour from the top of the screen to just past the header's foot,
+                        // coming in as content goes under it.
+                        TopEdgeBlur(tint: topTint)
                             .opacity(min(1, max(0, scrollY / Self.blurIn)))
                     }
             }
@@ -132,8 +127,6 @@ struct ArtistDetailView: View {
     private var topTint: Color { app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual) }
     /// How far content scrolls under the header before the top blur is all the way in.
     private static let blurIn: CGFloat = 24
-    /// How far below the header the top blur eases out.
-    private static let blurTail: CGFloat = 24
 
     private var background: some View {
         LinearGradient(colors: [topTint,
