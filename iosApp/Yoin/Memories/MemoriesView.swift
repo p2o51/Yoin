@@ -30,6 +30,7 @@ struct MemoriesView: View {
     @State private var axis: MemoriesDragAxis?
     @State private var route: MemoriesVerticalRoute?
     @State private var pagerAxis: MemoriesDragAxis?
+    @GestureState private var gestureTouchActive = false
     @State private var dragStartPosition: CGFloat = 0
     @State private var pager = SpringRunner()
     @State private var layout = MemoriesLayouts.layout(width: 390, height: 844)
@@ -194,6 +195,27 @@ struct MemoriesView: View {
             }
         }
         .onChange(of: reduceMotion, initial: true) { _, r in deck.diary.reduced = r }
+        .onChange(of: gestureTouchActive) { _, active in
+            // System gesture cancellation skips DragGesture.onEnded; defer one main-actor turn so a normal
+            // lift's onEnded runs first, then settle any stranded drag cleanly.
+            guard !active else { return }
+            Task { @MainActor in
+                guard !gestureTouchActive else { return }
+                let wasHorizontal = axis == .horizontal || pagerAxis == .horizontal
+                let pendingRoute = route
+                if axis != nil || pagerAxis != nil || route != nil {
+                    axis = nil
+                    pagerAxis = nil
+                    route = nil
+                    deck.router.lift()
+                    if wasHorizontal {
+                        turn(to: MemoryDeck.settlePage(position: pagerModel.position, velocity: 0, count: cards.count), velocity: 0)
+                    } else if let pendingRoute {
+                        deck.router.release(pendingRoute, velocityY: 0)
+                    }
+                }
+            }
+        }
         // VoiceOver's two-finger scrub is iOS's back for an overlay: one level at a time.
         .accessibilityAction(.escape) { back() }
         .accessibilityAddTraits(.isModal)
@@ -210,7 +232,7 @@ struct MemoriesView: View {
                                onReview: { review(card, $0) },
                                leftGesture: pageGesture(zone: .card), horizontalPager: horizontalPager())
         } else {
-            MemoryPageView(card: card, deck: deck, pager: pagerModel, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
+            MemoryPageView(card: card, index: i, deck: deck, pager: pagerModel, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
                            onOpenAlbum: { open(card, from: $0) }, onTitle: { title(card, $0) },
                            onReview: { review(card, $0) },
                            horizontalPager: horizontalPager())
@@ -401,6 +423,7 @@ struct MemoriesView: View {
         // The window's space, not this surface's: q moves it, so a finger measured in its own space
         // read a motion that moved the surface that changed the motion (tracking and the release velocity).
         AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop, coordinateSpace: .global)
+            .updating($gestureTouchActive) { _, state, _ in state = true }
             .onChanged { v in
                 let router = deck.router
                 if axis == nil {
@@ -435,6 +458,7 @@ struct MemoriesView: View {
     /// Sideways over a scroll (the diary, the spread's right page): only a horizontal drag pages.
     private func horizontalPager() -> AnyGesture<DragGesture.Value> {
         AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop, coordinateSpace: .global)
+            .updating($gestureTouchActive) { _, state, _ in state = true }
             .onChanged { v in
                 if pagerAxis == nil {
                     let a = MemoriesRouting.axis(dx: v.translation.width, dy: v.translation.height, slop: 0) ?? .vertical

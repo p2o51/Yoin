@@ -74,7 +74,7 @@ final class CoverArtwork: @unchecked Sendable {
     private static let memoryLimit = 160
     private static let cardImageSize = 48
     private static let cardBlurSigma: Double = 8
-    nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "covers")
 
     func slot(_ ref: CoverRef) -> Slot {

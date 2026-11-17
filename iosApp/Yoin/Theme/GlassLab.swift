@@ -980,27 +980,23 @@ struct GlassLabGestureInstaller: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
-/// The key window's safe-area insets (status bar, home indicator), cached per window size
-/// so 120 Hz recede frames don't traverse connectedScenes on every tick.
+/// The key window's safe-area insets (status bar, home indicator), holding a weak reference
+/// to the active key window so 120 Hz recede frames don't traverse connectedScenes on every tick
+/// while still reading live safeAreaInsets across portrait, landscape, and Stage Manager resizes.
 private enum WindowInsets {
-    @MainActor private static var cachedSize: CGSize = .zero
-    @MainActor private static var cachedInsets: UIEdgeInsets = .zero
+    @MainActor private static weak var cachedWindow: UIWindow?
 
     @MainActor static var current: UIEdgeInsets {
-        if cachedSize != .zero, cachedInsets.top > 0 {
-            if let w = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow,
-               w.bounds.size == cachedSize {
-                return cachedInsets
-            }
+        if let w = cachedWindow, w.isKeyWindow, w.windowScene != nil {
+            return w.safeAreaInsets
         }
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let window = scenes.lazy.compactMap(\.keyWindow).first else { return cachedInsets }
-        let insets = window.safeAreaInsets
-        if insets.top > 0 || insets.bottom > 0 {
-            cachedSize = window.bounds.size
-            cachedInsets = insets
+        let activeScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let window = activeScene?.keyWindow ?? scenes.lazy.compactMap(\.keyWindow).first else {
+            return cachedWindow?.safeAreaInsets ?? .zero
         }
-        return insets
+        cachedWindow = window
+        return window.safeAreaInsets
     }
 }
 

@@ -87,10 +87,12 @@ struct SearchView: View {
     /// field already, so from there it starts grown.
     @State private var grown = false
     @State private var hasMounted = false
+    @State private var needsPhoneReset = false
     @State private var focusTask: Task<Void, Never>?
     @State private var closeResetTask: Task<Void, Never>?
     @Namespace private var morph
     private var showsField: Bool { grown || model.searchOrigin != .bar }
+    private var isPadHosted: Bool { onClose != nil }
 
     /// Search's own content arrives a beat after its surface (fade through).
     @MainActor static var fadeThrough: Animation {
@@ -145,11 +147,21 @@ struct SearchView: View {
         .animation(Yoin.effects, value: staged)
         .overlay { circleStandIn }
         .onAppear { hasMounted = true }
+        .onChange(of: model.store.searchesCatalog) { _, searchesCatalog in
+            if model.store.isReal, !searchesCatalog, scope == .catalog {
+                scope = .library
+            }
+        }
         // However Search closes, the field folds back into the circle as it fades.
         .onChange(of: model.searchActive) { _, active in
             focusTask?.cancel()
             closeResetTask?.cancel()
             if active {
+                if !isPadHosted, needsPhoneReset {
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { resetPhoneSession() }
+                }
                 if hasMounted {
                     beginStagedOpen()
                 } else {
@@ -159,17 +171,16 @@ struct SearchView: View {
             }
             focused = false
             withAnimation(Yoin.spatial) { grown = false }
+            // iPad's PadShell intentionally retains Search's query and results across visits (`onClose != nil`).
+            // Only the phone's resident SearchView resets once its fold-out fade completes.
+            guard !isPadHosted else { return }
+            needsPhoneReset = true
             closeResetTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(Int(420 / LaunchConfig.animationSpeed)))
                 guard !Task.isCancelled, !model.searchActive else { return }
                 var t = Transaction()
                 t.disablesAnimations = true
-                withTransaction(t) {
-                    staged = false
-                    if LaunchConfig.searchQuery.isEmpty, !query.isEmpty { query = "" }
-                    if filter != LaunchConfig.searchFilter { filter = LaunchConfig.searchFilter }
-                    if !savedOffsets.isEmpty { savedOffsets = [:] }
-                }
+                withTransaction(t) { resetPhoneSession() }
             }
         }
         // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
@@ -194,10 +205,46 @@ struct SearchView: View {
         }
     }
 
+    private func resetPhoneSession() {
+        needsPhoneReset = false
+        staged = false
+        if LaunchConfig.searchQuery.isEmpty, !query.isEmpty { query = "" }
+        let defaultScope: Scope = LaunchConfig.screen == "search-catalog" ? .catalog : .library
+        if scope != defaultScope { scope = defaultScope }
+        if filter != LaunchConfig.searchFilter { filter = LaunchConfig.searchFilter }
+        if !savedOffsets.isEmpty { savedOffsets = [:] }
+        if !notStreamedReasons.isEmpty { notStreamedReasons = [] }
+        if scrolledUnder { scrolledUnder = false }
+        offsetBox.value = 0
+        scrollPosition.scrollTo(edge: .top)
+    }
+
+    static func resolvedOpenScope(
+        current: Scope,
+        isPadHosted: Bool,
+        startsOnCatalog: Bool,
+        canSearchCatalog: Bool,
+        launchScreen: String = LaunchConfig.screen
+    ) -> Scope {
+        if isPadHosted {
+            if startsOnCatalog, canSearchCatalog { return .catalog }
+            if !canSearchCatalog, current == .catalog { return .library }
+            return current
+        }
+        return ((startsOnCatalog || launchScreen == "search-catalog") && canSearchCatalog) ? .catalog : .library
+    }
+
     /// Synchronous open path when SearchView was already prewarmed or resident in the hierarchy:
     /// starts the circle-to-field morph and surface fade-through on frame 0 without an async hop.
     private func beginStagedOpen() {
-        if model.searchStartsOnCatalog { scope = .catalog }
+        let canSearchCatalog = !model.store.isReal || model.store.searchesCatalog
+        let targetScope = Self.resolvedOpenScope(
+            current: scope,
+            isPadHosted: isPadHosted,
+            startsOnCatalog: model.searchStartsOnCatalog,
+            canSearchCatalog: canSearchCatalog
+        )
+        if scope != targetScope { scope = targetScope }
         staged = true
         let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
         let fromBar = model.searchOrigin == .bar && !grown

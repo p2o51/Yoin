@@ -82,4 +82,37 @@ final class MemoryExcerptTests: XCTestCase {
         XCTAssertEqual(pager.currentIndex, 0)
         XCTAssertTrue(pager.visibleRange.contains(0))
     }
+
+    @MainActor
+    func test_should_mountIncomingDiaryDuringHorizontalSwipe_while_skippingOffscreenNeighboursAtRest() {
+        let pager = MemoriesPagerModel()
+        pager.snap(to: 1, count: 4)
+
+        // At rest on card 1: opening the diary mounts ONLY card 1, never offscreen ±1 neighbours (0 and 2).
+        XCTAssertFalse(pager.mountsDiary(for: 0, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 1, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertFalse(pager.mountsDiary(for: 2, diaryShown: true, warm: false, presentationOpen: true))
+
+        // First pixel of a horizontal swipe in diary mode (1.0 -> 1.01) mounts incoming card 2 immediately
+        // while keeping outgoing card 1 mounted across the 50% midpoint with zero blank gap or pop.
+        pager.beginMove()
+        pager.position = 1.01
+        XCTAssertFalse(pager.mountsDiary(for: 0, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 1, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 2, diaryShown: true, warm: false, presentationOpen: true))
+
+        pager.position = 1.49
+        XCTAssertTrue(pager.mountsDiary(for: 1, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 2, diaryShown: true, warm: false, presentationOpen: true))
+
+        pager.position = 1.51
+        XCTAssertTrue(pager.mountsDiary(for: 1, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 2, diaryShown: true, warm: false, presentationOpen: true))
+
+        // Once settled at 2.0, card 1 is wholly offscreen (>= 1.0 page away) and unmounts its diary.
+        pager.position = 2.0
+        pager.endMove()
+        XCTAssertFalse(pager.mountsDiary(for: 1, diaryShown: true, warm: false, presentationOpen: true))
+        XCTAssertTrue(pager.mountsDiary(for: 2, diaryShown: true, warm: false, presentationOpen: true))
+    }
 }

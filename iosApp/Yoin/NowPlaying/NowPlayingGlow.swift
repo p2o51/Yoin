@@ -245,6 +245,19 @@ final class NowPlayingGlow {
         return frame(.lyrics).map { $0.midY }
     }
 
+    /// Clears all running lights immediately when a resident player folds away.
+    func stopAll() {
+        sleeper?.cancel()
+        sleeper = nil
+        lights.removeAll()
+        hold = nil
+        shownHold = nil
+        let past = Date.distantPast
+        holdFade.set(0, past)
+        waitFade.set(0, past)
+        if live { live = false }
+    }
+
     // MARK: Clock
 
     /// The clock runs while anything is lit; it stops by itself once all of it has settled.
@@ -814,6 +827,7 @@ struct PlayModeKey: Equatable {
 /// moved to another device, Keep screen on.
 struct GlowWiring: ViewModifier {
     var glow: NowPlayingGlow
+    var active = true
     var playing: Bool
     var songKey: String?
     var reduceMotion: Bool
@@ -824,24 +838,33 @@ struct GlowWiring: ViewModifier {
         let actions = LyricsActions.shared
         content
             .onChange(of: songKey) { onSongChange() }
-            .onChange(of: playing) { _, on in glow.playingChanged(to: on) }
+            .onChange(of: playing) { _, on in
+                guard active else { return }
+                glow.playingChanged(to: on)
+            }
             .onChange(of: reduceMotion, initial: true) { _, r in glow.reduceMotion = r }
-            .onChange(of: actions.inFlight == .translate) { _, waiting in glow.setWaiting(waiting, area: lyricsArea()) }
+            .onChange(of: actions.inFlight == .translate) { _, waiting in
+                guard active else { return }
+                glow.setWaiting(waiting, area: lyricsArea())
+            }
             // A translation came out: each line lights once, top to bottom.
             .onChange(of: actions.showTranslation) { old, new in
+                guard active else { return }
                 if new.values.filter({ $0 }).count > old.values.filter({ $0 }).count {
                     glow.glow(.lyricsReveal, at: nil, area: lyricsArea())
                 }
             }
             // Long-press on the cover: a ring closes in on it.
             .onChange(of: PlaylistActions.shared.menu?.id) { _, id in
-                guard id != nil, PlaylistActions.shared.menu?.context.kind == .nowPlaying else { return }
+                guard active, id != nil, PlaylistActions.shared.menu?.context.kind == .nowPlaying else { return }
                 glow.glow(.coverHold, from: .cover)
             }
             .onReceive(NotificationCenter.default.publisher(for: SpotifyPlayingDevice.transferred)) { _ in
+                guard active else { return }
                 glow.glow(.deviceHandoff, from: .devices)
             }
             .onReceive(NotificationCenter.default.publisher(for: NowPlayingGlow.roomLift)) { _ in
+                guard active else { return }
                 glow.glow(.roomLift, at: nil)
             }
     }

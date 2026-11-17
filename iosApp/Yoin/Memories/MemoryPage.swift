@@ -170,6 +170,15 @@ final class MemoriesPagerModel {
             if hi != visibleEnd { visibleEnd = hi }
         }
     }
+    /// Whether `cardIndex` should mount its diary right now: at rest (`position == currentIndex`)
+    /// only the active card mounts on `openDiary`, while any horizontal swipe (`< 0.999` page away)
+    /// mounts the incoming card's diary immediately so diary-mode paging never shows a blank neighbour.
+    func mountsDiary(for cardIndex: Int, diaryShown: Bool, warm: Bool, presentationOpen: Bool) -> Bool {
+        let isCurrent = cardIndex == currentIndex
+        if isCurrent && warm && presentationOpen { return true }
+        guard diaryShown else { return false }
+        return isCurrent || abs(CGFloat(cardIndex) - position) < 0.999
+    }
 }
 
 /// One page's anchors (page pt, at rest) and its diary scroll.
@@ -537,6 +546,7 @@ private struct CoverMorph: ViewModifier {
 /// One page: the card and, once p moves, the diary under it.
 struct MemoryPageView: View {
     var card: MemoryCard
+    var index: Int
     var deck: MemoriesDeckModel
     var pager: MemoriesPagerModel
     var layout: MemoriesLayout
@@ -557,14 +567,20 @@ struct MemoryPageView: View {
 
     var body: some View {
         let morph = deck.morph(card)
+        let shouldMountDiary = pager.mountsDiary(
+            for: index,
+            diaryShown: diary.isShown,
+            warm: warm,
+            presentationOpen: deck.presentation.isOpen
+        )
         ZStack(alignment: .top) {
             MemoryCardFace(card: card, deck: deck, morph: morph, metrics: MemoryCardMetrics(layout: layout),
                            scheme: scheme, dark: dark, interactive: current && !diary.isDiaryLevel,
                            onOpenAlbum: onOpenAlbum, onTitle: onTitle)
                 .ignoresSafeArea(.keyboard)
-            // Only the active card (or one already warmed) mounts its diary: offscreen neighbours
-            // (`±1`) must NOT all construct a `MemoryDiaryView` simultaneously on frame 1 of `openDiary`.
-            if current && (diary.isShown || (warm && deck.presentation.isOpen)) {
+            // At rest only the active card mounts its diary on `openDiary`, while horizontal swipes
+            // in diary mode (`< 0.999` page away) mount the incoming card immediately with zero blank gap.
+            if shouldMountDiary {
                 MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
                                 interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
                                 onTitle: onTitle, onReview: onReview,
