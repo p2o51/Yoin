@@ -477,20 +477,39 @@ private fun LyricsFullscreenList(
     // must not chase that.
     var windowGeometry by remember { mutableStateOf(LyricsWindowGeometry.Unknown) }
     var seatFraction by remember { mutableFloatStateOf(Float.NaN) }
+    val seatSlopPx = with(LocalDensity.current) { LyricsSeatSlop.toPx() }
     LaunchedEffect(edgeFadePx) {
         snapshotFlow { windowGeometry }
             .filter { it != LyricsWindowGeometry.Unknown }
             .collectLatest { geometry ->
                 // The first report seats at once; later ones wait to settle.
                 if (!seatFraction.isNaN()) delay(LyricsSeatSettleMs)
+                val next = lyricsScreenSeatFraction(
+                    windowTopPx = geometry.topPx,
+                    windowPx = geometry.heightPx,
+                    screenPx = geometry.screenPx,
+                    fadePx = edgeFadePx,
+                    stepped = false,
+                )
+                // Where the sung row actually sits in this window, as a share
+                // of the clean band: when it is already within a few dp of
+                // the new seat (the expand's estimate, a tool row tucking
+                // away below), the seat takes the row's place instead of
+                // gliding it there — and later lines keep that same place.
+                val info = listState.layoutInfo
+                val row = info.visibleItemsInfo.firstOrNull { it.index == focusItem }
+                val fade = lyricsEdgeFadePx(info.viewportSize.height, edgeFadePx)
+                val band = info.viewportSize.height - fade * 2
+                val actual = if (row != null && band > 0 && autoScrollEnabled && !seatFraction.isNaN()) {
+                    (row.offset + row.size / 2f - fade) / band
+                } else {
+                    null
+                }
                 seatFraction = lyricsSettledSeat(
-                    current = seatFraction,
-                    next = lyricsScreenSeatFraction(
-                        windowTopPx = geometry.topPx,
-                        windowPx = geometry.heightPx,
-                        screenPx = geometry.screenPx,
-                        fadePx = edgeFadePx,
-                    ),
+                    actual = actual,
+                    next = next,
+                    bandPx = band,
+                    slopPx = seatSlopPx,
                 )
             }
     }
@@ -523,6 +542,9 @@ private fun LyricsFullscreenList(
             if (measured != estimated) listState.scrollToItem(target, measured)
         }
         var firstAnchor = true
+        // The window's top when the line was last seated: a resize that keeps
+        // it (the window only grew or shrank below) leaves the row where it is.
+        var seatTop = Float.NaN
         snapshotFlow { listState.layoutInfo.viewportSize.height }
             .filter { it > 0 }
             .collect {
@@ -531,6 +553,7 @@ private fun LyricsFullscreenList(
                     !hasCentered -> {
                         seatNow()
                         hasCentered = true
+                        seatTop = windowGeometry.topPx
                     }
                     // First reaction to this advance / translation toggle / recenter: glide.
                     firstAnchor && !windowCovered.value -> {
@@ -550,6 +573,7 @@ private fun LyricsFullscreenList(
                         ) {
                             listState.animateScrollBy(rest.toFloat(), seatSettleSpec)
                         }
+                        seatTop = windowGeometry.topPx
                     }
                     // Actual window/keyboard resizes still keep the line
                     // anchored — on the SCREEN: the seat is re-read from the
@@ -559,6 +583,15 @@ private fun LyricsFullscreenList(
                     // back once the settle delay re-reads the seat.
                     else -> {
                         val geometry = windowGeometry
+                        val info = listState.layoutInfo
+                        val row = info.visibleItemsInfo.firstOrNull { it.index == target }
+                        val fade = lyricsEdgeFadePx(info.viewportSize.height, edgeFadePx)
+                        val rowStillClear = row != null &&
+                            row.offset >= fade && row.offset + row.size <= info.viewportSize.height - fade
+                        if (!firstAnchor && !handOver && rowStillClear && kotlin.math.abs(geometry.topPx - seatTop) < 1f) {
+                            // Same top: the list kept the row's place on its own.
+                            return@collect
+                        }
                         if (!handOver && geometry != LyricsWindowGeometry.Unknown) {
                             // Unstepped: a 2% step is ~30px on a tall
                             // window, which made the line zigzag as the
@@ -572,6 +605,7 @@ private fun LyricsFullscreenList(
                             )
                         }
                         seatNow()
+                        seatTop = geometry.topPx
                     }
                 }
                 firstAnchor = false
@@ -1156,3 +1190,6 @@ private data class LyricsWindowGeometry(val topPx: Float, val heightPx: Int, val
 
 /** How long the lyric window must hold still before the screen seat is re-read. */
 private const val LyricsSeatSettleMs = 250L
+
+/** A settled window whose seat is within this of where the row already sits keeps the row's place. */
+private val LyricsSeatSlop = 16.dp
