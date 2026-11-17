@@ -93,7 +93,8 @@ struct AllMemoriesView: View {
         .overlay {
             if demo == nil, let state = source.state, !state.isEmpty {
                 MemoryGridLiftLayer(lift: lift, pixels: MemoryGridLiftMath.pixels(state.grid),
-                                    paint: MemoryGridPaint(covers: state.covers, faint: app.onSurface.opacity(0.07)))
+                                    paint: MemoryGridPaint(covers: state.covers, faint: app.onSurface.opacity(0.07)),
+                                    under: app.surfaceContainer)
             }
         }
         .modifier(TopBar(plain: demo != nil) {

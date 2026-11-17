@@ -172,11 +172,19 @@ struct MemoriesBarRetreat: ViewModifier {
 
     func body(content: Content) -> some View {
         let hide = active ? min(1, max(0, 1 - presentation.fraction)) : 0
-        content
-            .offset(y: hide * 120)
-            .opacity(Double(max(0, 1 - hide * 1.4)))
-            .allowsHitTesting(hide < 0.5)
-            .animation(Yoin.standardDefaultSpatial, value: active)
+        // Gone for good once Memories is all the way open: an empty bar slot. The safe-area bar's own
+        // container keeps taking touches in its band even with its content's hit testing off, and Memories'
+        // Diary / Go to album sit in that band, so with the bar merely hidden they never got a tap
+        // (51, 2026-11-16). It comes back on the first frame of the retreat.
+        if hide >= 1 {
+            Color.clear.frame(height: 0)
+        } else {
+            content
+                .offset(y: hide * 120)
+                .opacity(Double(max(0, 1 - hide * 1.4)))
+                .allowsHitTesting(hide < 0.5)
+                .animation(Yoin.standardDefaultSpatial, value: active)
+        }
     }
 }
 

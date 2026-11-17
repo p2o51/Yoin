@@ -151,6 +151,10 @@ struct MemoryGridLiftLayer: View {
     let lift: MemoryGridLift
     let pixels: [LiftPixel]
     let paint: MemoryGridPaint
+    /// The page's colour: the album page's top blur (TopEdgeBlur) under the bar while the squares make it,
+    /// taking over from the bar's own as that one gives way (51, 2026-11-16: the formed bar cut the page off
+    /// with a hard edge; the album page's top is the one to match).
+    var under: Color? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
 
@@ -166,8 +170,19 @@ struct MemoryGridLiftLayer: View {
             let reduced = reduceMotion
             let rtl = layoutDirection == .rightToLeft
             let sources = p > 0.001 && !reduced ? pixels.map { lift.rect(of: $0)?.offsetBy(dx: dx, dy: dy) } : []
-            Canvas { ctx, size in
-                draw(&ctx, size: size, p: p, barBottom: barBottom, sources: sources, reduced: reduced, rtl: rtl)
+            ZStack(alignment: .top) {
+                if let under, barBottom > 0 {
+                    // Solid to a little above the bar's foot, then a long eased fall-off past it
+                    // (51, 2026-11-16: longer and softer than the album's short edge).
+                    let h = barBottom + Self.tail
+                    ProgressiveEdgeBlur(tint: under, strong: true,
+                                        fadeFrom: Double(max(barBottom - Self.feather, 0) / h))
+                        .frame(height: h)
+                        .opacity(Double(min(max(p / MemoryGridLiftMath.formed, 0), 1)))
+                }
+                Canvas { ctx, size in
+                    draw(&ctx, size: size, p: p, barBottom: barBottom, sources: sources, reduced: reduced, rtl: rtl)
+                }
             }
         }
         .ignoresSafeArea()
@@ -220,6 +235,32 @@ struct MemoryGridLiftLayer: View {
         if veil > 0 {
             ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: barBottom)), with: .color(.black.opacity(veil)))
         }
+        // The formed bar's foot feathers into the blur under it (the album page's spectrum strip has no hard
+        // edge either): the last stretch above the bar's bottom fades out, with no slope at either end.
+        let feather = min(Self.feather, barBottom * 0.5) * smoothstep(0.6, 1, p)
+        if feather > 0.5 {
+            ctx.blendMode = .destinationOut
+            let top = barBottom - feather
+            ctx.fill(Path(CGRect(x: 0, y: top, width: size.width, height: feather)),
+                     with: .linearGradient(Gradient(stops: ProgressiveEdgeBlur.easedFalloff(from: 0).map {
+                         Gradient.Stop(color: .black.opacity(1 - Self.alpha($0.color)), location: $0.location)
+                     }), startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: barBottom)))
+            // The squares' half-point overlap ran a hairline of colour just past the bar's bottom.
+            ctx.fill(Path(CGRect(x: 0, y: barBottom - 0.5, width: size.width, height: 3)),
+                     with: .color(.black.opacity(Double(smoothstep(0.6, 1, p)))))
+            ctx.blendMode = .normal
+        }
+    }
+
+    /// How far above the formed bar's bottom its squares fade out.
+    static let feather: CGFloat = 52
+    /// How far past the bar's bottom the blur under it eases out.
+    static let tail: CGFloat = 44
+
+    private static func alpha(_ c: Color) -> Double {
+        var a: CGFloat = 0
+        UIColor(c).getRed(nil, green: nil, blue: nil, alpha: &a)
+        return Double(a)
     }
 
     /// A square landed in the bar, as pixels: two colours (an album written about, or two albums spliced)

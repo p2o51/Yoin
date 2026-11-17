@@ -153,7 +153,6 @@ struct OtherAccountsShelf: View {
             }
             .scrollIndicators(.hidden)
             .padding(.horizontal, -margin)
-            .shelfEdgeFade()
         }
     }
 

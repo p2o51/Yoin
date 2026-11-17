@@ -58,7 +58,7 @@ struct SpotifyDevicesSheet: View {
         if d.privateSession { return String(localized: "Private session") }
         if d.isActive { return String(localized: "Playing here") }
         if d.spotifyOnly { return String(localized: "Switch through Spotify") }
-        if d.remembered { return String(localized: "Recently used · may need waking in Spotify") }
+        if d.remembered { return String(localized: "May need waking in Spotify") }
         return typeLabel(d.type)
     }
 

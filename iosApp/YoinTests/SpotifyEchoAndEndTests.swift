@@ -27,3 +27,16 @@ final class SpotifyEchoAndEndTests: XCTestCase {
         XCTAssertTrue(SpotifyAudioOutput.overran(timeSec: 212.5, durationSec: 210))
     }
 }
+
+/// Device 11-16: a song started over App Remote plays on through its album, so the engine's next may be
+/// Spotify's own next already; queued as well it would play twice.
+final class SpotifyEnqueueSkipTests: XCTestCase {
+    func test_should_notQueue_when_spotifysNextIsTheEnginesNext() {
+        XCTAssertTrue(SpotifyAudioOutput.spotifyPlaysNextAlready(spotifysNext: "spotify:track:a", next: "spotify:track:a"))
+    }
+
+    func test_should_queue_when_spotifysNextIsAnotherSongOrUnknown() {
+        XCTAssertFalse(SpotifyAudioOutput.spotifyPlaysNextAlready(spotifysNext: "spotify:track:b", next: "spotify:track:a"))
+        XCTAssertFalse(SpotifyAudioOutput.spotifyPlaysNextAlready(spotifysNext: nil, next: "spotify:track:a"))
+    }
+}

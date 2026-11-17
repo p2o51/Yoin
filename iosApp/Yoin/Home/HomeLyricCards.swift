@@ -38,7 +38,6 @@ struct HomeLyricCardsSection: View {
                 .modifier(LyricCardsDemoPager(position: demo?.position))
                 .scrollIndicators(.hidden)
                 .padding(.horizontal, -margin)
-                .shelfEdgeFade()
             }
         }
         .onAppear {
