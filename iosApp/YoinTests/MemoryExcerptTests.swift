@@ -42,4 +42,44 @@ final class MemoryExcerptTests: XCTestCase {
         XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 60)), 17)
         XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 61)), 16)
     }
+
+    func test_should_handleEmptyAndZeroWidthInputs_when_pickingCachedExcerpts() {
+        XCTAssertNil(MemoryExcerptFit.pick([], width: 324))
+        XCTAssertNil(MemoryExcerptFit.pick(["Short."], width: 0))
+        XCTAssertNil(MemoryExcerptFit.pick(["Short."], width: -12))
+        XCTAssertEqual(MemoryExcerptFit.pick(["Short."], width: 324), "Short.")
+        XCTAssertEqual(MemoryExcerptFit.pick(["Short."], width: 324), "Short.")
+    }
+
+    @MainActor
+    func test_should_deferFarNeighbourMountUntilSettled_when_memoriesPagerSwipes() {
+        let pager = MemoriesPagerModel()
+        XCTAssertEqual(pager.visibleRange, [])
+
+        pager.snap(to: 0, count: 5)
+        XCTAssertEqual(pager.visibleRange, [0, 1])
+
+        // First pixel of swipe from 0 -> 1 must NOT mount card 2 mid-swipe.
+        pager.beginMove()
+        pager.position = 0.001
+        XCTAssertEqual(pager.visibleRange, [0, 1])
+        pager.position = 0.72
+        XCTAssertEqual(pager.visibleRange, [0, 1])
+
+        // Once settled at 1.0, card 2 pre-mounts at rest for the next swipe.
+        pager.position = 1.0
+        pager.endMove()
+        XCTAssertEqual(pager.visibleRange, [0, 1, 2])
+
+        // Continuous flick past 1.0 into 1.05 mounts card 2 immediately if not already warm.
+        pager.snap(to: 0, count: 5)
+        pager.beginMove()
+        pager.position = 1.05
+        XCTAssertTrue(pager.visibleRange.contains(2))
+
+        // Rubber-band past 0 stays valid.
+        pager.position = -0.18
+        XCTAssertEqual(pager.currentIndex, 0)
+        XCTAssertTrue(pager.visibleRange.contains(0))
+    }
 }

@@ -74,10 +74,11 @@ struct MemoryDiaryView: View {
                 DiaryHead(card: card, deck: deck, morph: morph, scheme: scheme, tones: tones,
                           enabled: interactive && !card.fromOther, onTitle: onTitle)
                     .pageFrame { r in if morph.scrollY < 0.5 { morph.diaryTop = r.minY } }
-                DiaryBlocks(card: card, deck: deck, scheme: scheme, tones: tones, interactive: interactive,
-                            showGo: true, firstBlock: card.paragraph != nil && card.review == nil && card.titleKind != .album ? 1 : 0,
-                            onOpenAlbum: onOpenAlbum, onReview: onReview) { k, view in
-                    AnyView(view.morphLayer(diary) { p in blockPose(p, k: k) })
+                if diary.isShown {
+                    DiaryBlocks(card: card, deck: deck, scheme: scheme, tones: tones, interactive: interactive,
+                                showGo: true, firstBlock: card.paragraph != nil && card.review == nil && card.titleKind != .album ? 1 : 0,
+                                onOpenAlbum: onOpenAlbum, onReview: onReview,
+                                diary: diary, blockPose: { p, k in blockPose(p, k: k) })
                 }
             }
             .padding(.horizontal, MemoryDiaryTokens.sideInset)
@@ -307,9 +308,19 @@ struct DiaryBlocks: View {
     /// Go to album, from the button tapped (its switch-notice anchor).
     var onOpenAlbum: (String) -> Void
     var onReview: (String) -> Bool
-    var block: (Int, AnyView) -> AnyView = { _, v in v }
+    var diary: MemoriesDiary? = nil
+    var blockPose: ((CGFloat, Int) -> MorphPose)? = nil
 
     @Environment(AppModel.self) private var model
+
+    @ViewBuilder
+    private func stagedBlock<V: View>(_ k: Int, _ content: V) -> some View {
+        if let diary, let blockPose {
+            content.morphLayer(diary) { p in blockPose(p, k) }
+        } else {
+            content
+        }
+    }
 
     var body: some View {
         let liner = !card.diaryTracks.isEmpty
@@ -318,19 +329,19 @@ struct DiaryBlocks: View {
         let k0 = firstBlock
         VStack(alignment: .leading, spacing: 0) {
             // Another account's memory is read-only here: its blank page takes no review.
-            block(k0, AnyView(MemoryDiaryEntry(card: card, tones: tones, scheme: scheme, drafts: deck.drafts,
-                                               enabled: interactive && !card.fromOther, onSave: onReview)))
+            stagedBlock(k0, MemoryDiaryEntry(card: card, tones: tones, scheme: scheme, drafts: deck.drafts,
+                                             enabled: interactive && !card.fromOther, onSave: onReview))
             if liner {
                 if card.review != nil {
-                    block(k0 + 1, AnyView(separator))
+                    stagedBlock(k0 + 1, separator)
                 } else {
                     Color.clear.frame(height: MemoryDiaryTokens.blankLinerGap)
                 }
-                block(k0 + 2, AnyView(linerView))
+                stagedBlock(k0 + 2, linerView)
             }
             Color.clear.frame(height: MemoryDiaryTokens.endGap)
-            if footer != nil { block(k0 + 3, AnyView(runOut)) }
-            block(k0 + 4, AnyView(foot(footer)))
+            if footer != nil { stagedBlock(k0 + 3, runOut) }
+            stagedBlock(k0 + 4, foot(footer))
         }
     }
 

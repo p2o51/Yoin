@@ -1546,6 +1546,7 @@ struct SegmentChipRow<ID: Hashable>: View {
                     ForEach(group, id: \.self) { id in
                         chip(id, accent: i == groups.count - 1)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                                guard !(frames[id]?.nearlyMatches($0) ?? false) else { return }
                                 frames[id] = $0
                                 revealOnArrival()
                             }
@@ -1568,6 +1569,8 @@ struct SegmentChipRow<ID: Hashable>: View {
         .onScrollGeometryChange(for: [CGFloat].self) { g in
             [g.contentOffset.x + g.contentInsets.leading, g.containerSize.width, g.contentSize.width]
         } action: { _, m in
+            let changed = abs(offset - m[0]) > 0.5 || abs(view.width - m[1]) > 0.5 || abs(contentWidth - m[2]) > 0.5
+            guard changed else { return }
             offset = m[0]; view.width = m[1]; contentWidth = m[2]
             let edges = (offset > 1, offset + view.width < contentWidth - 1)
             if edges != (fadeLeading, fadeTrailing) {

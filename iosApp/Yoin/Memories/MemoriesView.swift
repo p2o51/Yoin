@@ -110,6 +110,30 @@ struct MemoriesView: View {
             resize(CGSize(width: size.width, height: Self.windowHeight))
             // Back from a page pushed over it: the same deck, its cards' data refreshed.
             if builtFor == presentation.openCount { refreshInPlace() } else { rebuild() }
+            MemoriesQAProbe.swipe = { step in
+                guard !cards.isEmpty else { return }
+                let start = pagerModel.position
+                let dir = CGFloat(step >= 0 ? 1 : -1)
+                pagerModel.beginMove()
+                Task { @MainActor in
+                    let t0 = CACurrentMediaTime()
+                    while true {
+                        let t = min(1, CGFloat((CACurrentMediaTime() - t0) / 0.24))
+                        let eased = 1 - (1 - t) * (1 - t)
+                        let raw = start + dir * eased * 0.42
+                        let last = CGFloat(max(cards.count - 1, 0))
+                        pagerModel.position = raw < 0 ? -rubber(-raw) : raw > last ? last + rubber(raw - last) : raw
+                        if t >= 1 { break }
+                        try? await Task.sleep(for: .milliseconds(8))
+                    }
+                    let target = min(max(Int(start.rounded()) + (step >= 0 ? 1 : -1), 0), max(cards.count - 1, 0))
+                    turn(to: target, velocity: dir * 1.8)
+                }
+            }
+            MemoriesQAProbe.toggleDiary = {
+                guard cards.indices.contains(currentIndex) else { return }
+                if deck.diary.isDiaryLevel { deck.closeDiary() } else { deck.openDiary(cards[currentIndex]) }
+            }
             #if DEBUG
             MemoriesScript.swipe = { _ in
                 let start = pagerModel.position
@@ -186,7 +210,7 @@ struct MemoriesView: View {
                                onReview: { review(card, $0) },
                                leftGesture: pageGesture(zone: .card), horizontalPager: horizontalPager())
         } else {
-            MemoryPageView(card: card, deck: deck, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
+            MemoryPageView(card: card, deck: deck, pager: pagerModel, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
                            onOpenAlbum: { open(card, from: $0) }, onTitle: { title(card, $0) },
                            onReview: { review(card, $0) },
                            horizontalPager: horizontalPager())
@@ -308,9 +332,11 @@ struct MemoriesView: View {
 
     private func turn(to page: Int, velocity: CGFloat) {
         let key = cards.indices.contains(page) ? cards[page].id : nil
+        pagerModel.beginMove()
         pager.run(from: pagerModel.position, to: CGFloat(page), velocity: velocity, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { v in
             pagerModel.position = v
-        } completion: { [deck] in
+        } completion: { [deck, pagerModel] in
+            pagerModel.endMove()
             deck.awards.onPagerSettled(key)
         }
     }
@@ -431,6 +457,7 @@ struct MemoriesView: View {
     private func beginPaging() {
         deck.router.beginHorizontal()
         dragStartPosition = pagerModel.position
+        pagerModel.beginMove()
         pager.stop()
     }
 
@@ -674,4 +701,10 @@ private final class SurfaceTop {
 @MainActor
 private final class LoadedOpen {
     var open: Int?
+}
+
+@MainActor
+enum MemoriesQAProbe {
+    static var swipe: ((Int) -> Void)?
+    static var toggleDiary: (() -> Void)?
 }

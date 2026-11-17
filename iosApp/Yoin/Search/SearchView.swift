@@ -86,6 +86,9 @@ struct SearchView: View {
     /// stand-in shows where the bar's circle rests). Library's pill is the
     /// field already, so from there it starts grown.
     @State private var grown = false
+    @State private var hasMounted = false
+    @State private var focusTask: Task<Void, Never>?
+    @State private var closeResetTask: Task<Void, Never>?
     @Namespace private var morph
     private var showsField: Bool { grown || model.searchOrigin != .bar }
 
@@ -108,14 +111,20 @@ struct SearchView: View {
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
         // The content's width is the offered width less the 16 margins (see `offeredWidth`).
-        .offeredWidth { width = max(0, $0 - 32) }
+        .offeredWidth {
+            let next = max(0, $0 - 32)
+            if abs(next - width) > 0.5 { width = next }
+        }
+        // Empty query has no results or empty-state card to center above the keyboard:
+        // ignoring keyboard safe-area avoids 120 Hz ScrollView/GeometryReader relayouts on open/close.
+        .ignoresSafeArea(query.isEmpty ? .keyboard : [], edges: .bottom)
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             offsetBox.value = y
             let under = y > 1
             if under != scrolledUnder { scrolledUnder = under }
         }
-        .onChange(of: query) { _, _ in savedOffsets = [:] }
+        .onChange(of: query) { _, _ in if !savedOffsets.isEmpty { savedOffsets = [:] } }
         .opacity(staged ? 1 : 0)
         .animation(Self.fadeThrough, value: staged)
         .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
@@ -135,18 +144,36 @@ struct SearchView: View {
         .background(scheme.surfaceContainerHigh.opacity(staged ? 1 : 0).ignoresSafeArea())
         .animation(Yoin.effects, value: staged)
         .overlay { circleStandIn }
+        .onAppear { hasMounted = true }
         // However Search closes, the field folds back into the circle as it fades.
         .onChange(of: model.searchActive) { _, active in
-            // Built ahead under a finger (prewarm): the open starts on the tap.
+            focusTask?.cancel()
+            closeResetTask?.cancel()
             if active {
-                Task { await start() }
+                if hasMounted {
+                    beginStagedOpen()
+                } else {
+                    focusTask = Task { await start() }
+                }
                 return
             }
             focused = false
             withAnimation(Yoin.spatial) { grown = false }
+            closeResetTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(Int(420 / LaunchConfig.animationSpeed)))
+                guard !Task.isCancelled, !model.searchActive else { return }
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                    staged = false
+                    if LaunchConfig.searchQuery.isEmpty, !query.isEmpty { query = "" }
+                    if filter != LaunchConfig.searchFilter { filter = LaunchConfig.searchFilter }
+                    if !savedOffsets.isEmpty { savedOffsets = [:] }
+                }
+            }
         }
         // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
-        .task { if model.searchActive { await start() } }
+        .task { if model.searchActive, !staged { await start() } }
         .task {
             // Screenshots: `-screen search-scrolled` runs the results under the chips.
             guard LaunchConfig.searchScrolled else { return }
@@ -156,37 +183,39 @@ struct SearchView: View {
         // Source search once typing pauses (300 ms); a scope change asks again.
         .task(id: "\(model.store.generation)|\(scope)|\(query)") {
             guard model.store.isReal else { return }
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                await model.store.runSearch("", scope: scope.store)
+                return
+            }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await model.store.runSearch(query, scope: scope.store)
         }
     }
 
-    /// The open: on the first frame Search is shown (on mount, or on the tap
-    /// when it was built ahead), then everything animates in.
-    private func start() async {
-        // Built ahead from the bar: the open may have asked for the catalog since.
+    /// Synchronous open path when SearchView was already prewarmed or resident in the hierarchy:
+    /// starts the circle-to-field morph and surface fade-through on frame 0 without an async hop.
+    private func beginStagedOpen() {
         if model.searchStartsOnCatalog { scope = .catalog }
-        // After the first frame: from there everything animates in.
         staged = true
         let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
-        guard model.searchOrigin == .bar, !grown else {
-            // From Library's pill: nothing travels, but let the surface
-            // come in before the keyboard's first-load stall.
-            guard focus else { return }
-            try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / 2 / LaunchConfig.animationSpeed)))
-            if model.searchActive { focused = true }
-            return
+        let fromBar = model.searchOrigin == .bar && !grown
+        if fromBar {
+            withAnimation(Yoin.spatial) { grown = true }
         }
-        // The keyboard comes up once the field has landed: bringing it up
-        // stalls the main thread for a few frames, and mid-morph that froze
-        // the field half-way up the screen, then it jumped to the header.
-        // (A fixed beat, the spatial spring's settle: a completion
-        // callback fired before the morph had even started.)
-        withAnimation(Yoin.spatial) { grown = true }
         guard focus else { return }
-        try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / LaunchConfig.animationSpeed)))
-        if model.searchActive { focused = true }
+        let waitMs = Int((fromBar ? Self.morphSettleMs : Self.morphSettleMs / 2) / LaunchConfig.animationSpeed)
+        focusTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(waitMs))
+            guard !Task.isCancelled, model.searchActive else { return }
+            focused = true
+        }
+    }
+
+    /// Cold-mount open path: waits one turn so `circleStandIn` establishes its source anchor first.
+    private func start() async {
+        beginStagedOpen()
     }
 
     // MARK: No results

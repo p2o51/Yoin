@@ -83,12 +83,13 @@ struct MemoriesTopBar: View {
                                             slotEnd: slotEnd, width: width)
                 }
             }
-            if layout.twoState && diary.isShown {
+            if layout.twoState {
                 ForEach(visible, id: \.self) { i in
                     if cards.indices.contains(i) {
                         MemoriesTopBarSlotBView(card: cards[i], index: i, pager: pager, fallbackPosition: position,
                                                 deck: deck, layout: layout, scheme: scheme,
                                                 slotEnd: slotEnd, width: width)
+                            .opacity(diary.isShown ? 1 : 0)
                     }
                 }
             }

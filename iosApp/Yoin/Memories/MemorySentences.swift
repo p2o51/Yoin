@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Whole-sentence handling for Memories' excerpts (Android copy/MemorySentences): the card never cuts
 /// a sentence and never shows an ellipsis.
@@ -96,8 +97,30 @@ enum MemoryExcerptFit {
         return max(1, Int(((rect.height + style.lineSpacing) / line).rounded()))
     }
 
+    private struct PickCacheKey: Hashable, Sendable {
+        var candidates: [String]
+        var widthHalfPt: Int
+        var sizeCategory: String
+    }
+
+    private static let pickCache = OSAllocatedUnfairLock<[PickCacheKey: String?]>(initialState: [:])
+
     /// The first candidate that fits, or nil (the attribution alone).
     static func pick(_ candidates: [String], width: CGFloat) -> String? {
-        candidates.first { lines($0, width: width) <= maxLines }
+        guard !candidates.isEmpty, width > 0 else { return nil }
+        let key = PickCacheKey(
+            candidates: candidates,
+            widthHalfPt: Int((width * 2).rounded()),
+            sizeCategory: UITraitCollection.current.preferredContentSizeCategory.rawValue
+        )
+        if let hit = pickCache.withLock({ $0[key] }) {
+            return hit
+        }
+        let chosen = candidates.first { lines($0, width: width) <= maxLines }
+        pickCache.withLock { all in
+            if all.count >= 128 { all.removeAll(keepingCapacity: true) }
+            all[key] = .some(chosen)
+        }
+        return chosen
     }
 }

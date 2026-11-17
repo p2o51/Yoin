@@ -60,9 +60,6 @@ struct HomeView: View {
 
     private var memories: MemoriesPresentation { model.memories }
 
-    /// Something above Home owns the screen: the bubble keeps quiet, the pull stays shut.
-    private var covered: Bool { !model.path.isEmpty || model.npExpanded || model.np.mounted || model.searchActive }
-
     /// What the bubble can say: the account's latest memory, its others, its notes.
     private var pill: HomeMemoryPill? {
         let store = model.store
@@ -87,8 +84,10 @@ struct HomeView: View {
                 feedScroll
                     .frame(width: g.size.width, height: g.size.height)
                     .onChange(of: g.size, initial: true) { _, size in
+                        guard abs(size.width - feedSize.width) > 0.5 || abs(size.height - feedSize.height) > 0.5 else { return }
                         feedSize = size
-                        contentWidth = HomeDensity(width: size.width, height: size.height).content
+                        let nextWidth = HomeDensity(width: size.width, height: size.height).content
+                        if abs(nextWidth - contentWidth) > 0.5 { contentWidth = nextWidth }
                     }
             }
                 .modifier(IslandPush(bubble: bubble))
@@ -97,7 +96,7 @@ struct HomeView: View {
                 .modifier(MemoriesHomeBehind(presentation: memories))
             // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
-                                covered: covered || spotifyElsewhereUp, edit: edit)
+                                extraCovered: spotifyElsewhereUp, edit: edit)
             if memories.mounted {
                 MemoriesView(presentation: memories)
                     // The whole window: under the status bar and the bottom bar too
@@ -116,8 +115,12 @@ struct HomeView: View {
         // Memories' page runs the window's height, and travels it.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
             let window = MemoriesView.windowHeight
-            pageBleed = EdgeInsets(top: max(frame.minY, 0), leading: 0, bottom: max(window - frame.maxY, 0), trailing: 0)
-            memories.containerHeight = frame.height + pageBleed.top + pageBleed.bottom
+            let top = max(frame.minY, 0)
+            let bottom = max(window - frame.maxY, 0)
+            if abs(top - pageBleed.top) > 0.5 || abs(bottom - pageBleed.bottom) > 0.5 {
+                pageBleed = EdgeInsets(top: top, leading: 0, bottom: bottom, trailing: 0)
+            }
+            memories.containerHeight = frame.height + top + bottom
         }
         .environment(\.homeScheme, scheme)
         .environment(\.homeEdit, edit)
@@ -159,7 +162,7 @@ struct HomeView: View {
             await OtherAccountMemories.shared.reload(model: model)
         }
         .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
-        .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
+        .background(HomeCoverEffects(feedLoaded: feed != nil, edit: edit, spotifyElsewhere: spotifyElsewhere))
         #if DEBUG
         .task { await SpotifyElsewhereSeed.run(spotifyElsewhere, model: model) }
         #endif
@@ -177,8 +180,6 @@ struct HomeView: View {
             }
             edit.snapExit()
         }
-        // Something opens over Home: edit mode ends under it.
-        .onChange(of: covered) { _, c in if c { edit.exit() } }
         .onChange(of: model.path.isEmpty) { _, home in
             if !home {
                 if held == nil { held = liveFeed }
@@ -266,7 +267,7 @@ struct HomeView: View {
             .coordinateSpace(.named(HomeEditController.feedSpace))
             .background(HomeHoldObserver(edit: edit))
             .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
-            .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
+            .background(HomePullBridge(memories: memories, edit: edit) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
@@ -397,14 +398,6 @@ struct HomeView: View {
 
     private var spotifyElsewhereUp: Bool {
         SpotifyElsewhere.visible(spotifyElsewhere.shown, yoinPlaying: model.playback.isPlaying)
-    }
-
-    /// The header can be seen: the pill's 5 s run only then (Android 8cd973e6c).
-    private var spotifyElsewhereOnScreen: Bool {
-        SpotifyElsewhere.headerOnScreen(
-            feedLoaded: feed != nil, sceneActive: scenePhase == .active,
-            nowPlaying: model.npExpanded || model.np.mounted, detailColumn: model.isPad && model.padSelection != nil,
-            pushed: !model.path.isEmpty, search: model.searchActive, memories: memories.mounted)
     }
 
     private var header: some View {
@@ -1732,5 +1725,49 @@ extension HomeFeed {
         // Read from their own stores (HomeView.hasContent).
         case .otherProfiles, .lyricHighlight, .memoryGrid: false
         }
+    }
+}
+
+/// Observes `npExpanded`, `np.mounted`, and `searchActive` outside `HomeView.body`
+/// so opening/closing Now Playing or Search never re-evaluates Home's feed sections.
+private struct HomeCoverEffects: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    var feedLoaded: Bool
+    var edit: HomeEditController
+    var spotifyElsewhere: SpotifyElsewhereWatch
+
+    private var covered: Bool {
+        !model.path.isEmpty || model.npExpanded || model.np.mounted || model.searchActive
+    }
+
+    private var spotifyElsewhereOnScreen: Bool {
+        SpotifyElsewhere.headerOnScreen(
+            feedLoaded: feedLoaded, sceneActive: scenePhase == .active,
+            nowPlaying: model.npExpanded || model.np.mounted, detailColumn: model.isPad && model.padSelection != nil,
+            pushed: !model.path.isEmpty, search: model.searchActive, memories: model.memories.mounted)
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: covered) { _, c in if c { edit.exit() } }
+            .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
+    }
+}
+
+/// Isolates `covered` reads for the pull-to-Memories scroll observer.
+private struct HomePullBridge: View {
+    @Environment(AppModel.self) private var model
+    var memories: MemoriesPresentation
+    var edit: HomeEditController
+    var onEngage: () -> Void
+
+    private var covered: Bool {
+        !model.path.isEmpty || model.npExpanded || model.np.mounted || model.searchActive
+    }
+
+    var body: some View {
+        ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered, onEngage: onEngage)
     }
 }

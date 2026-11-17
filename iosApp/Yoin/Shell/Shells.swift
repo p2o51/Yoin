@@ -39,6 +39,8 @@ struct PhoneShell: View {
     @Environment(AppModel.self) private var model
     @Namespace private var zoomNS
     @Namespace private var npNS
+    @State private var searchResident = false
+    @State private var npResident = false
 
     var body: some View {
         @Bindable var model = model
@@ -100,31 +102,45 @@ struct PhoneShell: View {
                     .modifier(MemoriesBarRetreat(presentation: model.memories,
                                                  active: model.section == .home && model.path.isEmpty))
             }
+            // Root Home / Library have no inline keyboard inputs (Memories ignores keyboard itself),
+            // so Search's keyboard never relayouts Home/Library or moves ShellBar across 120Hz frames.
+            .ignoresSafeArea(model.path.isEmpty ? .keyboard : [], edges: .bottom)
             // World: the shell steps back (scale, dim, blur) as Now Playing
             // unfolds over it or a sheet comes up, off the same progress.
             .modifier(WorldRecede(layer: .shell))
 
-            if model.searchActive || model.searchWarming {
+            if searchResident || model.searchActive || model.searchWarming {
                 SearchView(npNamespace: npNS)
-                    // Warming: built, unseen and untouchable; it shows at once on the tap.
+                    // In: SearchView stages itself immediately (circle stand-in at 1, surface + chips fade in).
+                    // Out: one fade while the field folds back, keeping the view warm in the hierarchy.
                     .opacity(model.searchActive ? 1 : 0)
-                    .animation(nil, value: model.searchWarming)
+                    .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
                     .allowsHitTesting(model.searchActive)
+                    .accessibilityHidden(!model.searchActive)
                     .zIndex(0.5)
-                    // In: SearchView stages itself (the field grows out of
-                    // the bar's circle opaque; surface, then chips, fade in).
-                    // Out: one fade while the field folds back.
-                    .transition(.asymmetric(insertion: .identity, removal: .opacity))
-            }
-
-            if model.np.mounted {
-                // Mounted and unmounted without a transition: the morph's
-                // progress carries the whole in and out.
-                NowPlayingMorph(npNamespace: npNS)
-                    .modifier(WorldRecede(layer: .nowPlaying))
-                    .zIndex(1)
                     .transition(.identity)
             }
+
+            if (npResident && !model.isIdle) || model.np.mounted {
+                // Kept resident once warmed so subsequent opens skip rebuilding the view hierarchy;
+                // hidden and non-interactive whenever `np.mounted` is false.
+                NowPlayingMorph(npNamespace: npNS)
+                    .modifier(WorldRecede(layer: .nowPlaying))
+                    .opacity(model.np.mounted ? 1 : 0)
+                    .allowsHitTesting(model.np.mounted)
+                    .accessibilityHidden(!model.np.mounted)
+                    .zIndex(model.np.mounted ? 1 : -1)
+                    .transition(.identity)
+            }
+        }
+        .onChange(of: model.searchActive || model.searchWarming, initial: true) { _, on in
+            if on && !searchResident { searchResident = true }
+        }
+        .onChange(of: model.np.mounted, initial: true) { _, on in
+            if on && !npResident { npResident = true }
+        }
+        .onChange(of: model.isIdle) { _, idle in
+            if idle { npResident = false }
         }
         // The plane behind a receding layer is the app surface, never black
         // (labRecede draws it too): black read as a flash at the corners.
@@ -271,8 +287,9 @@ final class SheetRise {
     func report(_ source: ObjectIdentifier, _ value: CGFloat?) {
         sources[source] = value
         let p = sources.values.max() ?? 0
-        // Ends are always written; in between, sub-pixel steps are skipped.
-        if p != progress && (p == 0 || p == 1 || abs(p - progress) > 0.002) { progress = p }
+        // Ends are always written; in between, sub-pixel steps are skipped so UIKit's
+        // sheet backdrop and WorldRecede don't thrash Gaussian blur passes at 120 Hz.
+        if p != progress && (p == 0 || p == 1 || abs(p - progress) > 0.008) { progress = p }
     }
 }
 
@@ -298,6 +315,8 @@ final class SheetRiseView: UIView {
     private var rest: CGFloat?
     private weak var sheet: UIView?
     private weak var controller: UIViewController?
+    private weak var sheetScrollView: UIScrollView?
+    private var didSearchScrollView = false
     /// The sheet's rise has been seen under way (or it had none to show):
     /// until then a frame read before UIKit attaches the presentation
     /// animation (model = drawn, at rest) would report a full rise for one
@@ -358,18 +377,27 @@ final class SheetRiseView: UIView {
             view = cur.superview
         }
         // A scroll view inside the sheet hands its pan to the sheet at the top.
-        return v.firstScrollViewPanActive()
+        if !didSearchScrollView || sheetScrollView?.window == nil {
+            sheetScrollView = v.firstDescendantScrollView()
+            didSearchScrollView = sheetScrollView != nil
+        }
+        if let s = sheetScrollView {
+            let st = s.panGestureRecognizer.state
+            return st == .began || st == .changed
+        }
+        return false
     }
 
     @objc private func tick() {
         guard let window, let sheet = findSheet() else { return }
         let nowTime = CACurrentMediaTime()
         let isDismissing = controller?.isBeingDismissed == true
-        let isDragged = dragged(sheet)
         let model = sheet.convert(sheet.bounds, to: window).minY
         let wl = window.layer.presentation() ?? window.layer
         let pl = sheet.layer.presentation() ?? sheet.layer
         let now = pl.convert(pl.bounds, to: wl).minY
+        let needsDragCheck = !isDismissing && ((rest.map { abs(model - $0) > 0.5 } ?? false) || armed)
+        let isDragged = needsDragCheck ? dragged(sheet) : false
         var detentChanged = false
         // Only when the frame moved for a detent change: not under a drag,
         // and not as it leaves (UIKit sets the frame off screen at once).
@@ -410,14 +438,12 @@ final class SheetRiseView: UIView {
 }
 
 private extension UIView {
-    func firstScrollViewPanActive() -> Bool {
+    func firstDescendantScrollView() -> UIScrollView? {
         for sub in subviews {
-            if let s = sub as? UIScrollView, s.panGestureRecognizer.state == .began || s.panGestureRecognizer.state == .changed {
-                return true
-            }
-            if sub.firstScrollViewPanActive() { return true }
+            if let s = sub as? UIScrollView { return s }
+            if let found = sub.firstDescendantScrollView() { return found }
         }
-        return false
+        return nil
     }
 }
 

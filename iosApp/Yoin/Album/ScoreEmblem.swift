@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// Port of Android component/ScoreEmblem.kt (Memories "groove" emblem) for
 /// the Page surface, light and dark Album/Average kinds.
@@ -50,11 +51,20 @@ struct ScoreEmblem: View {
     /// How much of the solid ground still shows through the glass lens.
     private static let groundAlpha = 0.24
 
-    private struct Colors {
+    private struct Colors: Sendable {
         var ground, cut, dots, rim, label, labelRing, ink: Color
         var lit, flare, tiltHigh, tiltLow: Color
     }
 
+    private struct ColorsCacheKey: Hashable, Sendable {
+        var palette: CoverPalette
+        var derived: CoverArtwork.Colors?
+        var dark: Bool
+    }
+
+    private static let colorsCache = OSAllocatedUnfairLock<[ColorsCacheKey: Colors]>(initialState: [:])
+
+    @MainActor
     private var colors: Colors {
         func hsl(_ c: Color) -> (CGFloat, CGFloat, CGFloat) {
             var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -68,10 +78,10 @@ struct ScoreEmblem: View {
             return Color(hue: h, saturation: v == 0 ? 0 : 2 * (1 - l / v), brightness: v)
         }
         func mix(_ a: Color, _ b: Color, _ t: Double) -> Color { a.mix(with: b, by: t, in: .device) }
+        let dark = colorScheme == .dark
         if kind == .unrated {
             // GrooveColors Unrated on a page: a faint outline ground, an outline
             // lattice, no rim; the mould (slot) is drawn by the label.
-            let dark = colorScheme == .dark
             let theme = neutrals ?? .brand(dark: dark)
             let n = theme.outline
             let clear = Color.clear
@@ -81,23 +91,35 @@ struct ScoreEmblem: View {
                           ink: theme.onSurfaceVariant,
                           lit: clear, flare: clear, tiltHigh: clear, tiltLow: clear)
         }
+        let derived = palette.cover.flatMap { CoverArtwork.shared.colors($0) }
+        let cacheKey = ColorsCacheKey(palette: palette, derived: derived, dark: dark)
+        if let hit = Self.colorsCache.withLock({ $0[cacheKey] }) {
+            return hit
+        }
         let (h, s, l) = hsl(CoverSeed.seed(for: palette))
         let base = fromHSL(h, s, min(0.46, max(0.22, l)))
         let accent = BackdropColors(palette).accent
         let deep = mix(base, .black, 0.55)
         let soft = mix(base, .white, 0.8)
-        if colorScheme == .dark {
-            return Colors(ground: mix(base, .black, 0.62), cut: mix(soft, accent, 0.3), dots: soft.opacity(0.42),
-                          rim: soft, label: mix(soft, accent, 0.25), labelRing: accent, ink: deep,
-                          lit: mix(accent, .white, 0.3), flare: mix(accent, .white, 0.15),
-                          tiltHigh: mix(accent, .white, 0.45), tiltLow: mix(base, .black, 0.7))
+        let built: Colors
+        if dark {
+            built = Colors(ground: mix(base, .black, 0.62), cut: mix(soft, accent, 0.3), dots: soft.opacity(0.42),
+                           rim: soft, label: mix(soft, accent, 0.25), labelRing: accent, ink: deep,
+                           lit: mix(accent, .white, 0.3), flare: mix(accent, .white, 0.15),
+                           tiltHigh: mix(accent, .white, 0.45), tiltLow: mix(base, .black, 0.7))
+        } else {
+            built = Colors(ground: mix(mix(soft, .white, 0.62), mix(soft, base, 0.06), 0.6),
+                           cut: mix(mix(base, deep, 0.2), mix(base, accent, 0.32), 0.4),
+                           dots: base.opacity(0.42), rim: base,
+                           label: mix(mix(base, .white, 0.14), mix(base, deep, 0.3), 0.5),
+                           labelRing: accent, ink: mix(soft, .white, 0.72),
+                           lit: accent, flare: mix(accent, base, 0.1), tiltHigh: accent, tiltLow: deep)
         }
-        return Colors(ground: mix(mix(soft, .white, 0.62), mix(soft, base, 0.06), 0.6),
-                      cut: mix(mix(base, deep, 0.2), mix(base, accent, 0.32), 0.4),
-                      dots: base.opacity(0.42), rim: base,
-                      label: mix(mix(base, .white, 0.14), mix(base, deep, 0.3), 0.5),
-                      labelRing: accent, ink: mix(soft, .white, 0.72),
-                      lit: accent, flare: mix(accent, base, 0.1), tiltHigh: accent, tiltLow: deep)
+        Self.colorsCache.withLock { all in
+            if all.count >= 128 { all.removeAll(keepingCapacity: true) }
+            all[cacheKey] = built
+        }
+        return built
     }
 
     /// GrooveType: max(s × 0.29, 21.5) sp (21.5 at 64 pt).
@@ -310,12 +332,13 @@ struct ScoreEmblem: View {
         disc.translateBy(x: center.x, y: center.y)
         disc.rotate(by: .degrees(ch.disc))
         disc.translateBy(x: -center.x, y: -center.y)
+        // Batch all pre-cut lattice dots into a single Path fill instead of ~180 individual fills.
+        var dotsPath = Path()
         for ring in 0..<layout.rings {
             let chunk = layout.chunks[ring]
             guard !chunk.isEmpty else { continue }
             let r = outer - pitch * (CGFloat(ring) + 0.5)
             let share = 360.0 / Double(chunk.count)
-            // the pre-cut lattice, under every track (cuts cover the rated ones)
             for t in chunk {
                 let a0 = -90 + share * Double(t - chunk.lowerBound)
                 let spacing = max(2.6, dot * 2.3)
@@ -324,10 +347,16 @@ struct ScoreEmblem: View {
                 for i in 0..<count {
                     let ang = (a0 + share * (Double(i) + (ring.isMultiple(of: 2) ? 0 : 0.5)) / Double(count)) * .pi / 180
                     let pt = CGPoint(x: center.x + r * cos(ang), y: center.y + r * sin(ang))
-                    disc.fill(Path(ellipseIn: CGRect(x: pt.x - dot / 2, y: pt.y - dot / 2, width: dot, height: dot)),
-                              with: .color(c.dots))
+                    dotsPath.addEllipse(in: CGRect(x: pt.x - dot / 2, y: pt.y - dot / 2, width: dot, height: dot))
                 }
             }
+        }
+        disc.fill(dotsPath, with: .color(c.dots))
+
+        for ring in 0..<layout.rings {
+            let chunk = layout.chunks[ring]
+            guard !chunk.isEmpty else { continue }
+            let r = outer - pitch * (CGFloat(ring) + 0.5)
             // an unrated emblem cuts no ring
             let runs = kind == .unrated ? [] : layout.runs[ring]
             guard !runs.isEmpty else { continue }
@@ -368,8 +397,9 @@ struct ScoreEmblem: View {
 }
 
 extension CoverSeed {
-    /// Seed color for a palette (renders the mock cover through Palette).
+    /// Seed color for a palette (renders the mock cover through Palette; server covers use `palette.a` directly).
     @MainActor static func seed(for palette: CoverPalette) -> Color {
+        if palette.cover != nil { return palette.a }
         let album = MockLibrary.allAlbums.first { $0.palette == palette }
         return album.map { CoverSeed.seed(for: $0) } ?? palette.a
     }

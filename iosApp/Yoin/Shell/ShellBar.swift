@@ -278,7 +278,7 @@ struct ShellBar: View {
         .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
         .animation(model.searchActive ? nil : SearchView.fadeThrough, value: model.searchActive)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            if !model.searchActive && model.searchCircleFrame != frame { model.searchCircleFrame = frame }
+            if !model.searchActive, !frame.nearlyMatches(model.searchCircleFrame) { model.searchCircleFrame = frame }
         }
         .accessibilityLabel("Search")
     }
@@ -313,7 +313,7 @@ struct ShellBar: View {
         }
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            model.np.pillFrame = r
+            if !model.searchActive, !model.np.mounted, !r.nearlyMatches(model.np.pillFrame) { model.np.pillFrame = r }
         }
         // While Now Playing is up (or morphing), the morph's glass shape is
         // the pill: it starts and ends exactly on this frame.
@@ -525,6 +525,7 @@ struct PillContent: View {
     var np: NowPlayingPresentation? = nil
     var showCover = true
     var showTitle = true
+    var showWash = true
     /// The tip page's demo phone: its made-up song in the engine's place (its playhead rides the environment).
     var demo: NowPlayingDemo? = nil
     private let height: CGFloat = 60
@@ -565,14 +566,18 @@ struct PillContent: View {
                 .frame(width: 42, height: 42)
                 .opacity(showCover ? 1 : 0)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                    np?.pillCoverFrame = r
+                    if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillCoverFrame) {
+                        np.pillCoverFrame = r
+                    }
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
                 MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                        np?.pillTitleFrame = r
+                        if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillTitleFrame) {
+                            np.pillTitleFrame = r
+                        }
                     }
                 MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }
@@ -591,9 +596,10 @@ struct PillContent: View {
             // Playing is up: the pill is hidden then, and a wash moving in
             // the shell redrew the whole blurred world behind the page every
             // frame.
-            if np?.mounted != true {
+            if showWash, np?.mounted != true {
                 PlaybackPosition { position, duration in
-                    PillWash(positionSec: position, durationSec: duration, playing: p.isPlaying,
+                    PillWash(positionSec: position, durationSec: duration,
+                             playing: p.isPlaying && SheetRise.shared.progress < 0.5,
                              color: scheme.primary.opacity(lab.extra("washOpacity")),
                              amplitude: lab.extra("washAmplitude"))
                 }
@@ -807,5 +813,14 @@ struct PlaybackFailureBanner: View {
         case .installSpotify: "Install Spotify"
         case .retry, .openSpotifyThenRetry, .none: "Retry"
         }
+    }
+}
+
+extension CGRect {
+    func nearlyMatches(_ other: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(minX - other.minX) <= tolerance
+            && abs(minY - other.minY) <= tolerance
+            && abs(width - other.width) <= tolerance
+            && abs(height - other.height) <= tolerance
     }
 }

@@ -111,6 +111,7 @@ final class MemoriesPagerModel {
     private(set) var currentIndex: Int = 0
     private(set) var visibleStart: Int = 0
     private(set) var visibleEnd: Int = -1
+    private(set) var isMoving = false
     @ObservationIgnored private var count: Int = 0
 
     var visibleRange: [Int] {
@@ -125,8 +126,20 @@ final class MemoriesPagerModel {
 
     func snap(to newPosition: CGFloat, count newCount: Int) {
         count = newCount
+        isMoving = false
         position = newPosition
         refresh()
+    }
+
+    func beginMove() {
+        if !isMoving { isMoving = true }
+    }
+
+    func endMove() {
+        if isMoving {
+            isMoving = false
+            refresh()
+        }
     }
 
     private func refresh() {
@@ -138,10 +151,24 @@ final class MemoriesPagerModel {
         }
         let idx = min(max(Int(position.rounded()), 0), count - 1)
         if idx != currentIndex { currentIndex = idx }
-        let lo = max(0, Int(position.rounded(.down)) - 1)
-        let hi = min(count - 1, Int(position.rounded(.up)) + 1)
-        if lo != visibleStart { visibleStart = lo }
-        if hi != visibleEnd { visibleEnd = hi }
+        if isMoving {
+            // While swiping/settling, only cards actually intersecting the viewport (`floor...ceil`)
+            // must be present; never construct card `i + 2` on the first pixel of a swipe (`0.001`),
+            // and keep already-warmed neighbours within ±2 so nothing unmounts mid-flight.
+            let needLo = max(0, Int(position.rounded(.down)))
+            let needHi = min(count - 1, Int(position.rounded(.up)))
+            let lo = visibleEnd >= visibleStart ? max(0, max(needLo - 1, min(visibleStart, needLo))) : needLo
+            let hi = visibleEnd >= visibleStart ? min(count - 1, min(needHi + 1, max(visibleEnd, needHi))) : needHi
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        } else {
+            // At rest, pre-mount immediate neighbours `[cur - 1 ... cur + 1]` so the next swipe
+            // finds `cur ± 1` already laid out and warm.
+            let lo = max(0, idx - 1)
+            let hi = min(count - 1, idx + 1)
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        }
     }
 }
 
@@ -511,6 +538,7 @@ private struct CoverMorph: ViewModifier {
 struct MemoryPageView: View {
     var card: MemoryCard
     var deck: MemoriesDeckModel
+    var pager: MemoriesPagerModel
     var layout: MemoriesLayout
     var scheme: CoverScheme
     var dark: Bool
@@ -522,8 +550,8 @@ struct MemoryPageView: View {
     var horizontalPager: AnyGesture<DragGesture.Value>
 
     @State private var warm = false
-    /// Seconds after a page appears before its hidden diary is built.
-    static let warmDelay: Double = 0.6
+    /// Seconds at rest on the current page before its hidden `DiaryHead` anchors pre-build.
+    static let warmDelay: Double = 0.55
 
     private var diary: MemoriesDiary { deck.diary }
 
@@ -534,11 +562,9 @@ struct MemoryPageView: View {
                            scheme: scheme, dark: dark, interactive: current && !diary.isDiaryLevel,
                            onOpenAlbum: onOpenAlbum, onTitle: onTitle)
                 .ignoresSafeArea(.keyboard)
-            // The current page's diary is laid out under its card (hidden) once
-            // Memories is in place: its anchors are measured before p first
-            // moves, and the first open never pays for building it mid-flight.
-            // Not while q moves (an open or a retreat must not pay for it either).
-            if diary.isShown || (current && warm && deck.presentation.isOpen) {
+            // Only the active card (or one already warmed) mounts its diary: offscreen neighbours
+            // (`±1`) must NOT all construct a `MemoryDiaryView` simultaneously on frame 1 of `openDiary`.
+            if current && (diary.isShown || (warm && deck.presentation.isOpen)) {
                 MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
                                 interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
                                 onTitle: onTitle, onReview: onReview,
@@ -546,9 +572,13 @@ struct MemoryPageView: View {
             }
         }
         .coordinateSpace(.named(MemoryPageMorph.space))
-        .task {
-            // After the open's spring has done most of its travel.
+        .task(id: current) {
+            guard current, !warm else { return }
             try? await Task.sleep(for: .seconds(MemoryPageView.warmDelay / LaunchConfig.animationSpeed))
+            while !Task.isCancelled && (pager.isMoving || deck.presentation.dragging || deck.presentation.fraction > 0.002) {
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+            guard !Task.isCancelled, current else { return }
             warm = true
         }
         .onAppear {

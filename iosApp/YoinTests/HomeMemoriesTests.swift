@@ -380,4 +380,63 @@ final class HomeMemoriesReviewTests: XCTestCase {
         XCTAssertEqual(AppleMusicAudioOutput.startPosition(startSec: 0, pendingSeek: 83.2), 83.2)
         XCTAssertEqual(AppleMusicAudioOutput.startPosition(startSec: 12, pendingSeek: nil), 12)
     }
+
+    // MARK: Collapsed safe-area bar hit-testing while Memories is open
+
+    func test_should_passBottomTouchesThroughSafeAreaBar_when_memoriesIsOpen() {
+        let p = MemoriesPresentation()
+        p.containerHeight = 852
+        p.snapClosed()
+
+        final class TapProbeView: UIView {}
+        struct ProbeRepresentable: UIViewRepresentable {
+            let view: TapProbeView
+            func makeUIView(context: Context) -> TapProbeView { view }
+            func updateUIView(_ uiView: TapProbeView, context: Context) {}
+        }
+        struct TestHost: View {
+            let presentation: MemoriesPresentation
+            let targetView: TapProbeView
+            let barView: TapProbeView
+            var body: some View {
+                NavigationStack {
+                    ProbeRepresentable(view: targetView)
+                        .ignoresSafeArea()
+                }
+                .safeAreaBar(edge: .bottom) {
+                    ProbeRepresentable(view: barView)
+                        .frame(height: 64)
+                        .frame(maxWidth: .infinity)
+                        .modifier(MemoriesBarRetreat(presentation: presentation, active: true))
+                }
+            }
+        }
+
+        let targetView = TapProbeView()
+        let barView = TapProbeView()
+        let host = UIHostingController(rootView: TestHost(presentation: p, targetView: targetView, barView: barView))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        CATransaction.flush()
+
+        let bottomPoint = CGPoint(x: 196, y: 810)
+        // Closed Memories: bar sits in the bottom band and receives touches there.
+        let closedHit = window.hitTest(bottomPoint, with: nil)
+        XCTAssertNotNil(closedHit)
+        XCTAssertFalse(closedHit === targetView, "While Memories is closed, the safe-area bar occupies the bottom band")
+
+        // Open Memories (fraction == 0 -> hide == 1): empty bar slot yields touches to content underneath.
+        p.pull(852)
+        XCTAssertEqual(p.fraction, 0, accuracy: 1e-6)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        window.layoutIfNeeded()
+        CATransaction.flush()
+
+        let openHit = window.hitTest(bottomPoint, with: nil)
+        XCTAssertTrue(openHit === targetView || (openHit?.isDescendant(of: targetView) ?? false),
+                      "Expected bottom touch at \(bottomPoint) to reach content under collapsed safe-area bar, got \(String(describing: openHit)), barSuperview=\(String(describing: barView.superview))")
+        window.isHidden = true
+    }
 }

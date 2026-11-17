@@ -251,6 +251,13 @@ struct TrackMenuSheet: View {
     init(track: PlaylistEntry, context: TrackMenuContext = .library) {
         self.track = track
         self.context = context
+        // Non-Apple-Music links (Spotify, etc.) are pure synchronous URL formatting:
+        // resolve them upfront so the "Open in Spotify" row is present on frame 0 and
+        // never resizes the sheet detent mid-presentation.
+        let initialLink = track.track.id.provider == AppleMusicMapping.provider
+            ? nil
+            : WebLinks.url(kind: .track, id: track.track.id, appleStorefront: nil)
+        _link = State(initialValue: initialLink)
     }
 
     @Environment(AppModel.self) private var model
@@ -384,10 +391,12 @@ struct TrackMenuSheet: View {
 
     /// The song's public link: Spotify's is its id, Apple Music's needs the storefront.
     private func loadLink() async {
+        guard link == nil else { return }
         var shop: String?
         if track.track.id.provider == AppleMusicMapping.provider { shop = await store.apple?.webStorefront() }
         guard !Task.isCancelled else { return }
-        link = WebLinks.url(kind: .track, id: track.track.id, appleStorefront: shop)
+        let resolvedLink = WebLinks.url(kind: .track, id: track.track.id, appleStorefront: shop)
+        if resolvedLink != link { link = resolvedLink }
     }
 
     private func flash(_ id: String) {
@@ -828,8 +837,6 @@ extension View {
 private struct PlaylistActionsHost: ViewModifier {
     @Environment(AppModel.self) private var model
     @State private var name = ""
-    /// Android NowPlayingKeepScreenOn: the screen stays on while Now Playing is up.
-    @AppStorage("keepScreenOn") private var keepScreenOn = false
 
     func body(content: Content) -> some View {
         @Bindable var actions = PlaylistActions.shared
@@ -873,6 +880,19 @@ private struct PlaylistActionsHost: ViewModifier {
             #if DEBUG
             .task { await PlaylistActions.shared.runDemo(model) }
             #endif
+            .background(KeepScreenOnObserver())
+    }
+}
+
+/// Isolates `model.npExpanded` observation so RootView's `PlaylistActionsHost` never
+/// re-evaluates on every Now Playing open/close.
+private struct KeepScreenOnObserver: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("keepScreenOn") private var keepScreenOn = false
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
             .onChange(of: model.npExpanded, initial: true) { _, open in
                 UIApplication.shared.isIdleTimerDisabled = keepScreenOn && open
             }

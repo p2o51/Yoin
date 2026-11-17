@@ -314,27 +314,32 @@ struct NowPlayingMorph: View {
             ZStack(alignment: .topLeading) {
                 surface(shape: shape, rect: rect, screen: screen, q: q)
 
-                // The pill's own content (artist, progress wash) rides the
-                // shape's top edge and fades as the page takes over.
-                // Gone once faded out: its wash keeps a timeline running.
-                if q < 0.22 && !fromPanel {
-                    PillContent(showCover: false, showTitle: false)
+                // The pill's own content (artist) rides the shape's top edge
+                // and fades as the page takes over; kept mounted without its wash
+                // so crossing q = 0.22 on close never rebuilds subviews mid-spring.
+                if !fromPanel {
+                    PillContent(showCover: false, showTitle: false, showWash: false)
                         .frame(width: pill.width, height: pill.height)
                         .offset(x: rect.minX, y: rect.maxY - pill.height)
-                        .opacity(1 - smooth(0, 0.22, q))
+                        .opacity(q < 0.22 ? 1 - smooth(0, 0.22, q) : 0)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
 
                 page(screen: screen, rect: rect, shape: shape, q: q, insets: insets)
 
                 // From the panel the page itself is the panel's twin: nothing flies.
-                if np.inFlight && !fromPanel {
+                // Kept mounted while not fromPanel so starting `close` (`inFlight = true`)
+                // never constructs CoverArt + mask + dual Text views on frame 1 of the close.
+                if !fromPanel {
                     flights(np: np, origin: origin, q: q, rect: rect, scale: rect.width / screen.width)
                         .mask(alignment: .topLeading) {
                             shape.frame(width: rect.width, height: rect.height)
                                 .offset(x: rect.minX, y: rect.minY)
                         }
+                        .opacity(np.inFlight ? 1 : 0)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
 
                 if np.closing {
