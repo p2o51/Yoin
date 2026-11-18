@@ -217,15 +217,22 @@ final class SpotifyMappingTests: XCTestCase {
         XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
     }
 
-    func test_should_send_player_calls_when_the_limit_is_short() async throws {
+    func test_should_block_player_calls_when_the_limit_is_short() async throws {
         SpotifyStubProtocol.route = { r, _ in
             r.url?.path == "/v1/me/albums" ? .init(status: 429, headers: ["Retry-After": "10"], body: "")
                 : .init(status: 204, body: "")
         }
         let api = makeAPI(maxRetries: 0)
         _ = try? await api.get("me/albums", as: SpotifyDTO.Paging<SpotifyDTO.Album>.self)
-        try await api.send("PUT", "me/player/pause")
-        XCTAssertEqual(SpotifyStubProtocol.requests.count, 2)
+        do {
+            try await api.send("PUT", "me/player/pause")
+            XCTFail("Expected player call to be blocked while rate gate has an active backoff")
+        } catch let error as SpotifyAPIError {
+            guard case .rateLimited = error else {
+                return XCTFail("Expected .rateLimited, got \(error)")
+            }
+        }
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
     }
 
     func test_should_fail_a_player_command_without_waiting_when_the_429_is_longer_than_five_seconds() async {

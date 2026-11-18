@@ -133,10 +133,18 @@ final class PlayerEngine {
         var lastTickAt: Double = ProcessInfo.processInfo.systemUptime
     }
 
+    private var spotifyOutput: SpotifyAudioOutput? {
+        (output as? SpotifyAudioOutput) ?? ((output as? RoutingAudioOutput)?.spotify as? SpotifyAudioOutput)
+    }
+
     init(output: any AudioOutput, shuffler: @escaping ([QueueItem]) -> [QueueItem] = { $0.shuffled() }) {
         self.output = output
         self.shuffler = shuffler
         output.events = self
+        spotifyOutput?.trackMetadata = { [weak self] trackId in
+            guard let self, let match = self.queue.first(where: { $0.track.id == trackId }) else { return nil }
+            return (match.track.title, match.track.artist)
+        }
     }
 
     // MARK: Starting
@@ -496,7 +504,26 @@ final class PlayerEngine {
     /// Plays the failed song again from where it stopped (Retry; play does the same).
     func retry() {
         guard failure != nil else { return }
-        if externalTrack != nil {
+        if let deadExternal = externalTrack {
+            if spotifyOutput?.hasDeadExternalTarget == true {
+                // P0-2: remote speaker vanished or left no active target — clear stale external adoption
+                // and surface clean guidance rather than firing 404 resumePlayback into a dead loop.
+                externalTrack = nil
+                externalScrobbleKey = nil
+                isPlaying = false
+                isBuffering = false
+                progress.durationSec = currentItem?.track.durationSec ?? 0
+                progress.positionSec = 0
+                consecutiveFailures = 0
+                let guidance = Platform.current.isMac
+                    ? SpotifyFailureCopy.notOpenOnMac
+                    : SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word)
+                let reportedTrack = currentItem?.track ?? deadExternal
+                failure = PlaybackFailure(track: reportedTrack, message: guidance, network: true)
+                onEvent?(.failed(track: reportedTrack, message: guidance))
+                onStateChange?()
+                return
+            }
             // The failure is Spotify's own song's: Retry plays that song in Spotify again, never the parked
             // queue's (audit 11-15 #38: it started the parked song over Spotify's).
             failure = nil
@@ -846,8 +873,13 @@ extension PlayerEngine: AudioOutputEvents {
             progress.durationSec = track.durationSec
             progress.positionSec = positionSec
         } else if wasExternal {
-            // The queue's song is back: its own clock and length.
+            // The queue's song is back (or player returned to idle): clear external scrobble key & stale progress.
+            externalScrobbleKey = nil
             progress.durationSec = currentItem?.track.durationSec ?? 0
+            if currentItem == nil {
+                progress.positionSec = 0
+                failure = nil
+            }
             // Time away under Spotify's song wasn't listening to it.
             scrobble.lastTickSec = positionSec
             scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime

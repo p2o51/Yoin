@@ -16,10 +16,43 @@ struct SpotifyThisDevice: Equatable, Sendable {
     var kind: Kind
     /// A Mac's own names (its host name, and whatever UIKit calls it); empty on iPhone and iPad.
     var names: [String] = []
+    /// Persisted local Spotify Connect device ID for this device & account, used before name matching.
+    var learnedId: String? = nil
 
     static let phone = SpotifyThisDevice(kind: .phone)
     static let tablet = SpotifyThisDevice(kind: .tablet)
     static func mac(_ names: [String]) -> SpotifyThisDevice { SpotifyThisDevice(kind: .mac, names: names) }
+
+    func withLearnedId(_ id: String?) -> SpotifyThisDevice {
+        var copy = self
+        copy.learnedId = id.flatMap { $0.isEmpty ? nil : $0 }
+        return copy
+    }
+
+    private static func storageKey(profileId: String, kind: Kind) -> String {
+        let suffix: String = switch kind {
+        case .phone: "phone"
+        case .tablet: "tablet"
+        case .mac: "mac"
+        }
+        return "spotifyLearnedDeviceId.\(profileId).\(suffix)"
+    }
+
+    static func loadLearnedId(profileId: String?, kind: Kind, defaults: UserDefaults = .standard) -> String? {
+        guard let profileId, !profileId.isEmpty else { return nil }
+        return defaults.string(forKey: storageKey(profileId: profileId, kind: kind))
+            .flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    static func saveLearnedId(_ deviceId: String?, profileId: String?, kind: Kind, defaults: UserDefaults = .standard) {
+        guard let profileId, !profileId.isEmpty else { return }
+        let key = storageKey(profileId: profileId, kind: kind)
+        if let deviceId, !deviceId.isEmpty {
+            defaults.set(deviceId, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
 
     var isMac: Bool { kind == .mac }
 
@@ -65,14 +98,28 @@ struct SpotifyThisDevice: Equatable, Sendable {
         }
     }
 
-    func matches(_ now: SpotifySource.PlayerNow) -> Bool { matches(name: now.deviceName, type: now.deviceType) }
-    func matches(_ d: SpotifySource.Device) -> Bool { matches(name: d.name, type: d.type) }
+    /// Matches by persisted local device ID first (for renamed devices), then by type + name.
+    func matches(id: String?, name: String, type: String) -> Bool {
+        if let learnedId, !learnedId.isEmpty, let id, !id.isEmpty, learnedId == id {
+            return true
+        }
+        return matches(name: name, type: type)
+    }
 
-    /// This device in the account's Connect list; with several named alike, the active one
-    /// (Android pickLocalSpotifyDevice). Never another device of the same type, nor one Spotify
-    /// names without an id (a transfer can't name it).
+    func matches(_ now: SpotifySource.PlayerNow) -> Bool {
+        matches(id: now.deviceId, name: now.deviceName, type: now.deviceType)
+    }
+    func matches(_ d: SpotifySource.Device) -> Bool {
+        matches(id: d.id, name: d.name, type: d.type)
+    }
+
+    /// This device in the account's Connect list; persisted device ID first, then active/matching name.
     func pick(_ devices: [SpotifySource.Device]) -> SpotifySource.Device? {
-        let mine = devices.filter { $0.hasId && matches($0) }
+        if let learnedId, !learnedId.isEmpty,
+           let learned = devices.first(where: { $0.hasId && $0.id == learnedId }) {
+            return learned
+        }
+        let mine = devices.filter { $0.hasId && matches(name: $0.name, type: $0.type) }
         return mine.first(where: \.isActive) ?? mine.first
     }
 

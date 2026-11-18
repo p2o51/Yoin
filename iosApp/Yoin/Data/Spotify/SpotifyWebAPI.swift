@@ -125,7 +125,7 @@ final class SpotifyWebAPI: Sendable {
     /// One request; the response body (empty for most writes). [still] is asked before each try.
     @discardableResult
     func send(_ method: String, _ path: String, _ query: [String: String] = [:], json: Data? = nil,
-              while still: StillWanted? = nil) async throws -> Data {
+              headers: [String: String] = [:], while still: StillWanted? = nil) async throws -> Data {
         let url = try url(path, query)
         var attempt = 0
         var refreshed = false
@@ -137,27 +137,32 @@ final class SpotifyWebAPI: Sendable {
         // 15 s waits answered half a minute late), and none during a long limit.
         let retries = player ? min(maxRetries, 1) : maxRetries
         let retryWait = player ? min(maxRetryWait, Self.playerRetryWait) : maxRetryWait
-        // This request just waited out its own 429: the backoff it set is over for it.
-        var waited = false
+        // Generation of the backoff this call already slept out, so mocked clocks advance once without
+        // letting a new concurrent 429 slip past.
+        var sleptGen: UInt64? = nil
         while true {
             if let still, await !still() { throw SpotifyCommandDropped() }
-            if gated, !waited {
-                let left = await gate.remaining()
-                if left > 0 {
+            let (left, gen) = await gate.state()
+            if gated {
+                if left > 0, sleptGen != gen {
                     guard left <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: left) }
                     try await sleep(left)
-                    waited = true
+                    sleptGen = gen
                     continue
                 }
-            } else if player, !waited {
-                // A long limit (minutes to hours): the 4 s poll, the watch and a command fail here at once
-                // instead of going out and lengthening it (audit 11-15 #67, Android's gate refuses all).
-                let left = await gate.remaining()
-                if left > maxRetryWait { throw SpotifyAPIError.rateLimited(retryAfter: left) }
+            } else if player {
+                // P1-9: match Android's SpotifyApiClient — refuse all player polls and commands whenever the
+                // shared rate gate has any active backoff (except after this call's own single short-429 sleep).
+                if left > 0, sleptGen != gen {
+                    throw SpotifyAPIError.rateLimited(retryAfter: left)
+                }
             }
-            waited = false
+            sleptGen = nil
             var req = URLRequest(url: url)
             req.httpMethod = method
+            for (field, value) in headers {
+                req.setValue(value, forHTTPHeaderField: field)
+            }
             let bearer = try await token()
             // The token may have waited on a refresh: asked again right before the request goes out.
             if let still, await !still() { throw SpotifyCommandDropped() }
@@ -189,11 +194,11 @@ final class SpotifyWebAPI: Sendable {
                 try await refresh()
             case 429:
                 let wait = max(1, Int(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Self.defaultRetryAfter)
-                await gate.recordBackoff(wait)
+                let recordedGen = await gate.recordBackoff(wait)
                 guard attempt < retries, wait <= retryWait else { throw SpotifyAPIError.rateLimited(retryAfter: wait) }
                 attempt += 1
                 try await sleep(wait)
-                waited = true
+                sleptGen = recordedGen
             case let status:
                 throw SpotifyAPIError.http(status: status, message: Self.errorMessage(data))
             }
@@ -208,8 +213,9 @@ final class SpotifyWebAPI: Sendable {
         path.hasPrefix("me/player") && !path.hasPrefix("me/player/recently-played")
     }
 
-    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], as: T.Type = T.self) async throws -> T {
-        let data = try await send("GET", path, query)
+    func get<T: Decodable>(_ path: String, _ query: [String: String] = [:],
+                           headers: [String: String] = [:], as: T.Type = T.self) async throws -> T {
+        let data = try await send("GET", path, query, headers: headers)
         do { return try Self.decoder.decode(T.self, from: data) } catch {
             throw SpotifyAPIError.decoding(path)
         }

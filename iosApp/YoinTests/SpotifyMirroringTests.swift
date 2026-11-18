@@ -253,8 +253,17 @@ final class SpotifyMirroringTests: XCTestCase {
         let engine = self.engine!
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [MirrorStub.self]
+        final class MirrorClock: @unchecked Sendable {
+            private let lock = NSLock()
+            private var current = Date()
+            var now: Date { lock.withLock { current } }
+            func advance(by seconds: Int) { lock.withLock { current = current.addingTimeInterval(TimeInterval(seconds)) } }
+        }
+        let clock = MirrorClock()
+        let gate = SpotifyRateGate(now: { clock.now })
         // The rate limit's wait: the listener moves to the next song before the retry.
-        source = SpotifySource(api: SpotifyWebAPI(token: { "tok" }, session: URLSession(configuration: cfg), sleep: { _ in
+        source = SpotifySource(api: SpotifyWebAPI(token: { "tok" }, gate: gate, session: URLSession(configuration: cfg), sleep: { secs in
+            clock.advance(by: secs)
             await MainActor.run { engine.jump(to: 1) }
         }))
         spotify.adopt = { false }

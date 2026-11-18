@@ -17,6 +17,79 @@ struct RemotePlayerState: Equatable, Sendable {
     var imageIdentifier: String = ""
     /// The song's album, `spotify:album:<id>` (empty for a podcast episode or a local file).
     var albumURI: String? = nil
+    var contextURI: String? = nil
+    var contextTitle: String? = nil
+}
+
+struct SpotifyContentItem: Equatable, Sendable {
+    let title: String
+    let subtitle: String
+    let uri: String
+    let imageIdentifier: String?
+    let isPlayable: Bool
+    let isContainer: Bool
+}
+
+struct SpotifyContentContainer: Identifiable, Equatable, Sendable {
+    var id: String { uri }
+    let title: String
+    let subtitle: String
+    let uri: String
+    let items: [SpotifyContentItem]
+}
+
+extension SpotifyRemote {
+    enum ConnectFailure: Error, Sendable, Equatable {
+        case noClientId
+        case appMissing
+        case premiumRequired
+        case auth(String)
+        case localRefused(String)
+        case transport(String)
+
+        var message: String {
+            switch self {
+            case .noClientId: return "Add your Spotify Client ID in Settings"
+            case .appMissing: return SpotifyFailureCopy.appMissing
+            case .premiumRequired: return "Spotify Premium is required to play"
+            case .auth(let m): return m.isEmpty ? String(localized: "Reconnect Spotify in Settings") : m
+            case .localRefused(let m): return m.isEmpty ? "Spotify didn't answer locally" : m
+            case .transport(let m): return m.isEmpty ? "Couldn't reach Spotify" : m
+            }
+        }
+
+        static func isLocalConnectionRefused(_ error: Error?) -> Bool {
+            var current = error as NSError?
+            for _ in 0..<8 {
+                guard let ns = current else { return false }
+                if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ECONNREFUSED) { return true }
+                current = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+            }
+            return false
+        }
+
+        static func classify(error: Error?, message: String?, hasClientId: Bool = true) -> ConnectFailure {
+            if !hasClientId { return .noClientId }
+            let raw = (message?.isEmpty == false ? message : error?.localizedDescription) ?? ""
+            if isLocalConnectionRefused(error) { return .localRefused(raw) }
+            let lower = [message, error?.localizedDescription]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: " ")
+            if lower.contains("client_id") || lower.contains("client id") { return .noClientId }
+            if lower.contains("not installed") || lower.contains("cannot open") { return .appMissing }
+            if lower.contains("premium") { return .premiumRequired }
+            if lower.contains("unauthor") || lower.contains("token") || lower.contains("auth")
+                || lower.contains("consent") || lower.contains("invalid_grant")
+                || lower.contains("revoked") || lower.contains("redirect")
+                || lower.contains("access_denied") {
+                return .auth(raw)
+            }
+            if lower.contains("connection refused") || (lower.contains("posix") && lower.contains("61")) {
+                return .localRefused(raw)
+            }
+            return .transport(raw)
+        }
+    }
 }
 
 /// One App Remote connection to the Spotify app as SpotifyRemote drives it: the SDK's SPTAppRemote, or a
@@ -30,6 +103,7 @@ protocol AppRemoteLink: AnyObject {
     var onConnectFailed: ((String) -> Void)? { get set }
     var onDisconnected: ((String) -> Void)? { get set }
     var onPlayerState: ((RemotePlayerState) -> Void)? { get set }
+    var onConnectFailedError: ((Error?, String) -> Void)? { get set }
     func connect()
     func disconnect()
     /// Opens the Spotify app on [uri] (it plays it and hands back); false: the app isn't installed.
@@ -47,6 +121,19 @@ protocol AppRemoteLink: AnyObject {
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void)
     func setShuffle(_ on: Bool)
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode)
+    func fetchRecommendedContainers(_ completion: @escaping @MainActor ([SpotifyContentContainer]) -> Void)
+}
+
+@MainActor
+extension AppRemoteLink {
+    var onConnectFailedError: ((Error?, String) -> Void)? {
+        get { nil }
+        set {}
+    }
+
+    func fetchRecommendedContainers(_ completion: @escaping @MainActor ([SpotifyContentContainer]) -> Void) {
+        completion([])
+    }
 }
 
 /// The connection to the Spotify app (Android SpotifyAppRemotePlayer's connection half): App Remote
@@ -70,6 +157,10 @@ final class SpotifyRemote {
     var onPlayerState: ((RemotePlayerState) -> Void)?
     /// The connection failed or dropped with this message (a typed failure on Android).
     var onFailure: ((String) -> Void)?
+    /// Structured connection failure (preserves NSPOSIXErrorDomain ECONNREFUSED / auth / missing Client ID).
+    var onConnectFailure: ((ConnectFailure) -> Void)?
+    private(set) var lastConnectFailure: ConnectFailure?
+    private var connectInFlight = false
     /// The Spotify app woke on a song and handed back to Yoin.
     var onWoken: (() -> Void)?
     /// A connection is up (after a wake's handback too).
@@ -131,7 +222,11 @@ final class SpotifyRemote {
     func connect(timeout: Double = SpotifyRemote.connectTimeoutSec) async -> Bool {
         PlayTrace.log("SR connect connected=\(isConnected)\(broken ? " broken #\(connectionNumber)" : "")")
         if let healTask { return await healTask.value }
-        guard enabled(), account != nil, let r = appRemote() else { return false }
+        guard enabled(), account != nil else { return false }
+        guard let r = appRemote() else {
+            reportFailure(.noClientId)
+            return false
+        }
         if r.isConnected, broken {
             PlayTrace.log("SR reconnect #\(connectionNumber): broken")
             close(r)
@@ -145,6 +240,7 @@ final class SpotifyRemote {
         return await withCheckedContinuation { cont in
             connectWaiters.append(cont)
             guard connectWaiters.count == 1 else { return }
+            lastConnectFailure = nil
             // One attempt per connect the SDK is asked for. With the Spotify app asleep the SDK neither
             // connects nor fails for a long while (Play looked dead until Spotify was opened by hand):
             // past [timeout] the caller wakes it. The timeout ends only its own attempt: an earlier
@@ -152,9 +248,14 @@ final class SpotifyRemote {
             // album went to Spotify again).
             attempt += 1
             let mine = attempt
-            connectionNumber += 1
-            PlayTrace.log("SR connecting #\(connectionNumber)")
-            r.connect()
+            if !connectInFlight {
+                connectInFlight = true
+                connectionNumber += 1
+                PlayTrace.log("SR connecting #\(connectionNumber)")
+                r.connect()
+            } else {
+                PlayTrace.log("SR connect joined in-flight #\(connectionNumber)")
+            }
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(timeout))
                 guard let self, Self.timeoutEnds(attempt: mine, current: self.attempt) else { return }
@@ -248,51 +349,95 @@ final class SpotifyRemote {
         link.disconnect()
     }
 
+    private func reportFailure(_ failure: ConnectFailure) {
+        lastConnectFailure = failure
+        onConnectFailure?(failure)
+        onFailure?(failure.message)
+    }
+
+    /// Loads Spotify's "Made for You" / recommended containers via App Remote Content API when connected on iOS.
+    func fetchMadeForYouContainers() async -> [SpotifyContentContainer] {
+        guard enabled(), let r = link, r.isConnected else { return [] }
+        return await withCheckedContinuation { cont in
+            var resumed = false
+            r.fetchRecommendedContainers { containers in
+                guard !resumed else { return }
+                resumed = true
+                cont.resume(returning: containers)
+            }
+        }
+    }
+
     /// Opens the Spotify app on [uri] (it starts playing it) and connects when it hands back.
     func wake(playing uri: String) {
         PlayTrace.log("SR wake \(uri)")
         guard enabled() else {
             // Off for the QA fake, or on a Mac (no App Remote there; the output never asks).
-            return onFailure?(SpotifyFake.isOn ? "The QA fake doesn't play songs" : SpotifyFailureCopy.notOpenOnMac) ?? ()
+            reportFailure(.transport(SpotifyFake.isOn ? "The QA fake doesn't play songs" : SpotifyFailureCopy.notOpenOnMac))
+            return
         }
-        guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
+        guard let r = appRemote() else {
+            reportFailure(.noClientId)
+            return
+        }
         r.authorizeAndPlay(uri) { [weak self] opened in
             guard !opened else { return }
             // Installed but refused (a tester's 11-15 log said "Install the Spotify app" while Spotify was
             // playing on that very iPhone): only a missing app is called missing.
             let installed = SpotifyApp.isInstalled
             PlayTrace.log("SR wake not opened installed=\(installed)")
-            self?.onFailure?(installed ? SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word) : SpotifyFailureCopy.appMissing)
+            let failure: ConnectFailure = installed
+                ? .transport(SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word))
+                : .appMissing
+            self?.reportFailure(failure)
         }
     }
 
     /// Spotify came back to yoin://auth/spotify/app-remote: its token, then the connection.
     func handle(_ url: URL) -> Bool {
         PlayTrace.log("SR handback")
-        guard url.absoluteString.hasPrefix(SpotifyConfig.appRemoteRedirectURI), let r = appRemote() else { return false }
+        guard url.absoluteString.hasPrefix(SpotifyConfig.appRemoteRedirectURI) else { return false }
+        guard let r = appRemote() else {
+            reportFailure(.noClientId)
+            finishConnect(false)
+            return true
+        }
         let params = r.handback(url)
-        if let t = params.token {
+        if let t = params.token, !t.isEmpty {
             // The SDK's own flow: the woken app plays the song; connect with its token (never a
             // second connection over a live one) and drive it through App Remote from here.
             r.accessToken = t
+            let activeConnect = connectInFlight || !connectWaiters.isEmpty
             if r.isConnected, broken {
                 // A broken connection is still up (a wake after its starts failed): a fresh one.
                 PlayTrace.log("SR reconnect #\(connectionNumber): broken (handback)")
                 close(r)
-                Task { [weak self] in
-                    guard let self, await self.closed(r) else { return }
-                    self.connectionNumber += 1
-                    PlayTrace.log("SR connecting #\(self.connectionNumber) (handback)")
-                    r.connect()
+                if !activeConnect {
+                    Task { [weak self] in
+                        guard let self, await self.closed(r) else { return }
+                        guard !self.connectInFlight, self.connectWaiters.isEmpty, !r.isConnected else { return }
+                        self.connectionNumber += 1
+                        self.connectInFlight = true
+                        PlayTrace.log("SR connecting #\(self.connectionNumber) (handback)")
+                        r.connect()
+                    }
                 }
-            } else if !r.isConnected {
+            } else if !r.isConnected, !activeConnect {
                 connectionNumber += 1
+                connectInFlight = true
                 PlayTrace.log("SR connecting #\(connectionNumber) (handback)")
                 r.connect()
+            } else if !r.isConnected {
+                PlayTrace.log("SR handback skipped duplicate connect (already in flight)")
             }
             onWoken?()
-        } else if let e = params.error {
-            onFailure?(e)
+        } else if let e = params.error, !e.isEmpty {
+            let failure = ConnectFailure.classify(error: nil, message: e, hasClientId: true)
+            reportFailure(failure)
+            finishConnect(false)
+        } else {
+            reportFailure(.auth("Spotify returned no token"))
+            finishConnect(false)
         }
         return true
     }
@@ -300,6 +445,8 @@ final class SpotifyRemote {
     func disconnect() {
         healTask?.cancel()
         healTask = nil
+        connectInFlight = false
+        lastConnectFailure = nil
         if let link, link.isConnected {
             closing = true
             link.disconnect()
@@ -312,6 +459,7 @@ final class SpotifyRemote {
     }
 
     private func finishConnect(_ ok: Bool) {
+        connectInFlight = false
         // Whatever ended this attempt, its timer no longer ends anything.
         attempt += 1
         let waiters = connectWaiters
@@ -367,6 +515,8 @@ final class SpotifyRemote {
         l.onEstablished = { [weak self, weak l] in
             guard let self, let l, l === self.link else { return }
             PlayTrace.log("SR established #\(self.connectionNumber)")
+            self.connectInFlight = false
+            self.lastConnectFailure = nil
             self.broken = false
             self.closing = false
             self.subscribe(l, number: self.connectionNumber)
@@ -378,6 +528,20 @@ final class SpotifyRemote {
             PlayTrace.log("SR connect failed \(message)")
             // A dropped remote's late failure isn't the current connection's.
             guard let self, let l, l === self.link else { return }
+            self.connectInFlight = false
+            let failure = ConnectFailure.classify(error: nil, message: message, hasClientId: true)
+            self.lastConnectFailure = failure
+            self.onConnectFailure?(failure)
+            self.finishConnect(false)
+        }
+        l.onConnectFailedError = { [weak self, weak l] error, message in
+            Self.log.info("connect failed: \(message, privacy: .public)")
+            PlayTrace.log("SR connect failed \(message)")
+            guard let self, let l, l === self.link else { return }
+            self.connectInFlight = false
+            let failure = ConnectFailure.classify(error: error, message: message, hasClientId: true)
+            self.lastConnectFailure = failure
+            self.onConnectFailure?(failure)
             self.finishConnect(false)
         }
         l.onDisconnected = { [weak self, weak l] message in
@@ -419,6 +583,7 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
     private let remote: SPTAppRemote
     var onEstablished: (() -> Void)?
     var onConnectFailed: ((String) -> Void)?
+    var onConnectFailedError: ((Error?, String) -> Void)?
     var onDisconnected: ((String) -> Void)?
     var onPlayerState: ((RemotePlayerState) -> Void)?
 
@@ -443,7 +608,86 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
 
     func handback(_ url: URL) -> (token: String?, error: String?) {
         let params = remote.authorizationParameters(from: url)
-        return (params?[SPTAppRemoteAccessTokenKey], params?[SPTAppRemoteErrorDescriptionKey])
+        let token = params?[SPTAppRemoteAccessTokenKey]
+        let error = params?[SPTAppRemoteErrorDescriptionKey]
+            ?? params?["error"]
+            ?? URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "error" })?.value
+        return (token, error)
+    }
+
+    func fetchRecommendedContainers(_ completion: @escaping @MainActor ([SpotifyContentContainer]) -> Void) {
+        guard let api = remote.contentAPI else {
+            completion([])
+            return
+        }
+        api.fetchRecommendedContentItems(forType: SPTAppRemoteContentTypeDefault, flattenContainers: false) { result, error in
+            guard error == nil, let raw = result as? [SPTAppRemoteContentItem] else {
+                Task { @MainActor in completion([]) }
+                return
+            }
+            let candidates = raw.filter { $0.isContainer || !($0.children ?? []).isEmpty }
+            guard !candidates.isEmpty else {
+                Task { @MainActor in completion([]) }
+                return
+            }
+            final class ContainerBox: @unchecked Sendable {
+                let lock = NSLock()
+                var items: [Int: SpotifyContentContainer] = [:]
+            }
+            let box = ContainerBox()
+            let group = DispatchGroup()
+            func mapItems(_ list: [SPTAppRemoteContentItem]) -> [SpotifyContentItem] {
+                list.map { child in
+                    SpotifyContentItem(
+                        title: child.title ?? "",
+                        subtitle: child.subtitle ?? "",
+                        uri: child.uri,
+                        imageIdentifier: child.imageIdentifier,
+                        isPlayable: child.isPlayable,
+                        isContainer: child.isContainer
+                    )
+                }
+            }
+            for (idx, container) in candidates.enumerated() {
+                let existing = container.children ?? []
+                if !existing.isEmpty || !container.isContainer {
+                    let mapped = SpotifyContentContainer(
+                        title: container.title ?? "",
+                        subtitle: container.subtitle ?? "",
+                        uri: container.uri,
+                        items: mapItems(existing)
+                    )
+                    box.lock.lock()
+                    box.items[idx] = mapped
+                    box.lock.unlock()
+                    continue
+                }
+                let containerTitle = container.title ?? ""
+                let containerSubtitle = container.subtitle ?? ""
+                let containerURI = container.uri
+                group.enter()
+                api.fetchChildren(of: container) { childResult, _ in
+                    let fetched = (childResult as? [SPTAppRemoteContentItem]) ?? []
+                    let mapped = SpotifyContentContainer(
+                        title: containerTitle,
+                        subtitle: containerSubtitle,
+                        uri: containerURI,
+                        items: mapItems(fetched)
+                    )
+                    box.lock.lock()
+                    box.items[idx] = mapped
+                    box.lock.unlock()
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                box.lock.lock()
+                let ordered = (0..<candidates.count).compactMap { box.items[$0] }
+                box.lock.unlock()
+                Task { @MainActor in completion(ordered) }
+            }
+        }
     }
 
     private func answer(_ done: @escaping (Error?) -> Void) -> SPTAppRemoteCallback {
@@ -498,11 +742,28 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) { remote.playerAPI?.setRepeatMode(mode, callback: nil) }
 
     nonisolated static func state(_ s: SPTAppRemotePlayerState) -> RemotePlayerState {
-        RemotePlayerState(uri: s.track.uri, isPaused: s.isPaused, positionMs: s.playbackPosition,
-                          durationMs: Int(s.track.duration), shuffling: s.playbackOptions.isShuffling,
-                          repeatRaw: s.playbackOptions.repeatMode.rawValue, title: s.track.name,
-                          artist: s.track.artist.name, album: s.track.album.name,
-                          imageIdentifier: s.track.imageIdentifier, albumURI: s.track.album.uri)
+        let obj = s as? NSObject
+        let contextURI: String? = if obj?.responds(to: NSSelectorFromString("contextURI")) == true {
+            ((obj?.value(forKey: "contextURI") as? URL)?.absoluteString
+                ?? (obj?.value(forKey: "contextURI") as? String))
+                .flatMap { $0.isEmpty ? nil : $0 }
+        } else {
+            nil
+        }
+        let contextTitle: String? = if obj?.responds(to: NSSelectorFromString("contextTitle")) == true {
+            (obj?.value(forKey: "contextTitle") as? String)
+                .flatMap { $0.isEmpty ? nil : $0 }
+        } else {
+            nil
+        }
+        return RemotePlayerState(
+            uri: s.track.uri, isPaused: s.isPaused, positionMs: s.playbackPosition,
+            durationMs: Int(s.track.duration), shuffling: s.playbackOptions.isShuffling,
+            repeatRaw: s.playbackOptions.repeatMode.rawValue, title: s.track.name,
+            artist: s.track.artist.name, album: s.track.album.name,
+            imageIdentifier: s.track.imageIdentifier, albumURI: s.track.album.uri,
+            contextURI: contextURI, contextTitle: contextTitle
+        )
     }
 }
 
@@ -518,7 +779,13 @@ extension SDKAppRemoteLink: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegat
         // The whole error, underlying ones too: "Connection attempt failed." alone said nothing of why
         // (a tester's 11-15 log, every connect failing in 10 ms while Spotify played here).
         let text = error.map { Self.describe($0 as NSError) } ?? "-"
-        MainActor.assumeIsolated { onConnectFailed?(text) }
+        MainActor.assumeIsolated {
+            if let onConnectFailedError {
+                onConnectFailedError(error, text)
+            } else {
+                onConnectFailed?(text)
+            }
+        }
     }
 
     nonisolated static func describe(_ e: NSError) -> String {
