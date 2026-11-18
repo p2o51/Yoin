@@ -471,4 +471,118 @@ enum AppleMusicMapping {
     static func albums(in resources: [AppleMusicJSON.Object]) -> [Album] {
         uniqueById(resources.compactMap(album).map(album))
     }
+
+    // MARK: Made For You & Metadata (0.6.5)
+
+    /// Apple's prefix for Made For You personal mixes (Favorites Mix, New Music Mix, Chill Mix…).
+    static let personalMixPrefix = "pl.pm-"
+
+    /// Personal mixes (`pl.pm-*`) from `/v1/me/recommendations` groups in Apple's order.
+    /// Bare mixes without attributes keep an empty title so `AppleMusicSource.madeForYou` hydrates them.
+    static func madeForYouMixes(in groups: [AppleMusicJSON.Object]) -> [LibraryItem] {
+        var seen = Set<String>()
+        var mixes: [LibraryItem] = []
+        for group in groups {
+            for resource in AppleMusicJSON.related(group, "contents") ?? [] {
+                guard (resource["type"] as? String) == "playlists",
+                      let id = resource["id"] as? String,
+                      id.hasPrefix(personalMixPrefix),
+                      let mix = madeForYouMix(resource),
+                      seen.insert(mix.id.rawId).inserted else { continue }
+                mixes.append(mix)
+            }
+        }
+        return mixes
+    }
+
+    static func madeForYouMix(_ resource: AppleMusicJSON.Object) -> LibraryItem? {
+        guard let id = resource["id"] as? String, !id.isEmpty else { return nil }
+        let a = AppleMusicJSON.attributes(resource)
+        let description = a["description"] as? AppleMusicJSON.Object
+        let title = AppleMusicJSON.string(a, "name")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let subtitle = AppleMusicJSON.string(description, "short")
+            ?? AppleMusicJSON.string(description, "standard")
+            ?? AppleMusicJSON.string(a, "curatorName")
+            ?? String(localized: "Apple Music")
+        let art = artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url"))
+        return LibraryItem(id: MediaId(provider: provider, rawId: id), kind: .playlist, title: title,
+                           subtitle: subtitle, palette: palette(art, key: id),
+                           count: AppleMusicJSON.int(a, "trackCount"), ownedByMe: false)
+    }
+
+    static func alternateName(_ resource: AppleMusicJSON.Object) -> (title: String, artist: String)? {
+        let a = AppleMusicJSON.attributes(resource)
+        let title = AppleMusicJSON.string(a, "name")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artist = AppleMusicJSON.string(a, "artistName")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !title.isEmpty, !artist.isEmpty else { return nil }
+        return (title: title, artist: artist)
+    }
+
+    static func songLinks(_ resource: AppleMusicJSON.Object) -> (albumId: String?, artistId: String?, artistName: String?) {
+        let a = AppleMusicJSON.attributes(resource)
+        let catalog = AppleMusicJSON.related(resource, "catalog")?.first
+        let catalogAttributes = catalog.map(AppleMusicJSON.attributes)
+        let album = AppleMusicJSON.related(resource, "albums")?.first
+            ?? catalog.flatMap { AppleMusicJSON.related($0, "albums")?.first }
+        let artist = AppleMusicJSON.related(resource, "artists")?.first
+            ?? catalog.flatMap { AppleMusicJSON.related($0, "artists")?.first }
+        let albumId = album.flatMap(relatedRawId)
+            ?? albumId(fromSongURL: AppleMusicJSON.string(a, "url") ?? AppleMusicJSON.string(catalogAttributes, "url"))
+        let artistId = artist.flatMap(relatedRawId)
+        let rawArtistName = artist.flatMap { AppleMusicJSON.string(AppleMusicJSON.attributes($0), "name") }
+            ?? AppleMusicJSON.string(a, "artistName")
+            ?? catalogAttributes.flatMap { AppleMusicJSON.string($0, "artistName") }
+        let artistName = rawArtistName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (albumId: albumId,
+                artistId: artistId,
+                artistName: artistName?.isEmpty == true ? nil : artistName)
+    }
 }
+
+/// Shared status-code protocol so MusicKit errors and test stubs report HTTP failures uniformly.
+protocol HTTPStatusError: Error {
+    var httpStatus: Int { get }
+}
+
+/// Bounded least-recently-used cache preserving cached `nil` optionals as `.some(nil)`.
+struct BoundedLRU<Key: Hashable, Value> {
+    let capacity: Int
+    private var storage: [Key: Value] = [:]
+    private var order: [Key] = []
+
+    init(capacity: Int = 256) {
+        self.capacity = max(0, capacity)
+    }
+
+    mutating func value(forKey key: Key) -> Value? {
+        guard let entry = storage[key] else { return nil }
+        if let idx = order.firstIndex(of: key) {
+            order.remove(at: idx)
+            order.append(key)
+        }
+        return entry
+    }
+
+    mutating func insert(_ value: Value, forKey key: Key) {
+        guard capacity > 0 else { return }
+        storage[key] = value
+        if let idx = order.firstIndex(of: key) {
+            order.remove(at: idx)
+        } else if order.count >= capacity {
+            let evicted = order.removeFirst()
+            storage.removeValue(forKey: evicted)
+        }
+        order.append(key)
+    }
+
+    mutating func removeAll() {
+        storage.removeAll()
+        order.removeAll()
+    }
+
+    var count: Int { storage.count }
+
+    func contains(_ key: Key) -> Bool { storage.index(forKey: key) != nil }
+}
+
+extension BoundedLRU: Sendable where Key: Sendable, Value: Sendable {}

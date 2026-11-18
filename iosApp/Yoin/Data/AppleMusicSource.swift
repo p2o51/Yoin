@@ -34,12 +34,47 @@ final class AppleMusicSource {
 
     var isAuthorized: Bool { authorization == .authorized }
 
+    typealias RequestTransport = @MainActor (_ path: String, _ query: [String: String]) async throws -> AppleMusicJSON.Object
+    typealias StorefrontProvider = @MainActor () async throws -> String
+
+    nonisolated static let maxLibrarySongs = 2000
+    nonisolated static let songsPageSize = 100
+
+    private struct AltNameKey: Hashable, Sendable {
+        var catalogId: String
+        var regionKey: String
+    }
+
+    private struct AltNameEntry: Hashable, Sendable {
+        var title: String
+        var artist: String
+    }
+
+    private struct SongLinksEntry: Hashable, Sendable {
+        var albumId: String?
+        var artistId: String?
+        var artistName: String?
+    }
+
+    private struct StorefrontInfo: Sendable {
+        var defaultLanguage: String?
+        var supportedLanguages: Set<String>
+    }
+
     @ObservationIgnored private var storefront: String?
     /// Song raw id → its resource JSON, for the player.
     @ObservationIgnored private var songResources: [String: Data] = [:]
+    /// Library song raw id (with and without `library:`) → catalog song id when known.
+    @ObservationIgnored private var libraryCatalogIds: [String: String] = [:]
     /// Catalog song ids known to be in the user's library (from library reads and adds).
     @ObservationIgnored private var inLibrary: Set<String> = []
+    @ObservationIgnored private var alternateNamesCache = BoundedLRU<AltNameKey, [AltNameEntry]>(capacity: 256)
+    @ObservationIgnored private var isrcCache = BoundedLRU<String, String?>(capacity: 256)
+    @ObservationIgnored private var songLinksCache = BoundedLRU<String, SongLinksEntry>(capacity: 256)
+    @ObservationIgnored private var storefrontInfoCache: [String: StorefrontInfo] = [:]
     @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored private let transport: RequestTransport?
+    @ObservationIgnored private let storefrontProvider: StorefrontProvider?
     @ObservationIgnored let log = Logger(subsystem: "com.gpo.yoin", category: "applemusic")
     /// The account's name region (its page in Settings), read on every list so a change applies at once.
     @ObservationIgnored var nameRegion: @MainActor () -> AppleMusicNameRegion = {
@@ -57,8 +92,18 @@ final class AppleMusicSource {
         })
 
     init() {
+        self.transport = nil
+        self.storefrontProvider = nil
         authorization = Self.map(MusicAuthorization.currentStatus)
         if isAuthorized { watchSubscription() }
+    }
+
+    init(storefront: String? = nil, authorization: Authorization = .authorized,
+         storefrontProvider: StorefrontProvider? = nil, transport: @escaping RequestTransport) {
+        self.storefront = storefront
+        self.authorization = authorization
+        self.storefrontProvider = storefrontProvider
+        self.transport = transport
     }
 
     private static func map(_ s: MusicAuthorization.Status) -> Authorization {
@@ -108,17 +153,42 @@ final class AppleMusicSource {
         return error.localizedDescription
     }
 
+    nonisolated static func httpStatus(of error: Error) -> Int? {
+        if let e = error as? MusicDataRequest.Error { return e.status }
+        if let e = error as? HTTPStatusError { return e.httpStatus }
+        if let e = error as? SpotifyAPIError {
+            switch e {
+            case .unauthorized: return 401
+            case .rateLimited: return 429
+            case .http(let status, _): return status
+            default: return nil
+            }
+        }
+        return nil
+    }
+
+    nonisolated static func isAuthOrRateLimit(_ error: Error) -> Bool {
+        guard let status = httpStatus(of: error) else { return false }
+        return status == 401 || status == 403 || status == 429
+    }
+
     /// The storefront the public web links name (`us`); nil when it can't be read.
     func webStorefront() async -> String? { try? await countryCode() }
 
     private func countryCode() async throws -> String {
         if let storefront { return storefront }
-        let code = try await MusicDataRequest.currentCountryCode
+        let code: String
+        if let storefrontProvider {
+            code = try await storefrontProvider()
+        } else {
+            code = try await MusicDataRequest.currentCountryCode
+        }
         storefront = code
         return code
     }
 
     private func get(_ path: String, _ query: [String: String] = [:]) async throws -> AppleMusicJSON.Object {
+        if let transport { return try await transport(path, query) }
         guard var c = URLComponents(string: "https://api.music.apple.com" + path) else {
             throw RequestError(message: String(localized: "Bad request"))
         }
@@ -227,6 +297,16 @@ final class AppleMusicSource {
         if songResources[s.rawId] == nil, let data = try? JSONSerialization.data(withJSONObject: resource) {
             songResources[s.rawId] = data
         }
+        if let libId = s.libraryId, let c = s.catalogId {
+            libraryCatalogIds[libId] = c
+            libraryCatalogIds[AppleMusicMapping.libraryPrefix + libId] = c
+        }
+        if let isrc = s.isrc {
+            isrcCache.insert(isrc, forKey: s.rawId)
+            if let libId = s.libraryId {
+                isrcCache.insert(isrc, forKey: AppleMusicMapping.libraryPrefix + libId)
+            }
+        }
         if s.libraryId != nil, let c = s.catalogId { inLibrary.insert(c) }
     }
 
@@ -308,10 +388,172 @@ final class AppleMusicSource {
             .compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem)
     }
 
-    /// The first few hundred library songs (the API lists them in library order).
-    func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
-        let r = try await all("/v1/me/library/songs", ["limit": "100", "include": "albums,catalog"], cap: cap)
+    /// Library songs, up to `maxLibrarySongs` (or `cap`).
+    func librarySongs(cap: Int = maxLibrarySongs) async throws -> [PlaylistEntry] {
+        let capped = min(max(cap, 0), Self.maxLibrarySongs)
+        guard capped > 0 else { return [] }
+        let r = try await all("/v1/me/library/songs", ["limit": "100", "include": "albums,catalog,artists"], cap: capped)
         return AppleMusicMapping.entries(await named(songs(r)))
+    }
+
+    /// One cursor/offset page of library songs, capped at `maxLibrarySongs` (2000).
+    func librarySongsPage(offset: Int, limit: Int = songsPageSize) async throws -> (songs: [PlaylistEntry], nextOffset: Int?) {
+        guard offset >= 0, offset < Self.maxLibrarySongs, limit > 0 else { return ([], nil) }
+        let pageLimit = min(limit, Self.songsPageSize, Self.maxLibrarySongs - offset)
+        let root = try await get("/v1/me/library/songs",
+                                 ["limit": String(pageLimit), "offset": String(offset), "include": "albums,catalog,artists"])
+        let resources = AppleMusicJSON.resources(root)
+        let entries = AppleMusicMapping.entries(await named(songs(resources)))
+        let nextOffset: Int?
+        if let next = AppleMusicJSON.next(root), !resources.isEmpty {
+            let parsed = URLComponents(string: next)?.queryItems?.first(where: { $0.name == "offset" })?.value
+                .flatMap(Int.init) ?? (offset + resources.count)
+            nextOffset = (parsed > offset && parsed < Self.maxLibrarySongs) ? parsed : nil
+        } else {
+            nextOffset = nil
+        }
+        return (songs: entries, nextOffset: nextOffset)
+    }
+
+    /// Personal Made For You mixes (`pl.pm-*`) from `/v1/me/recommendations`, hydrating bare mixes from catalog.
+    func madeForYou() async throws -> [LibraryItem] {
+        let groups = try await everyPage("/v1/me/recommendations")
+        let listed = AppleMusicMapping.madeForYouMixes(in: groups)
+        let bare = listed.filter { $0.title.isEmpty }.map(\.id.rawId)
+        guard !bare.isEmpty else { return listed }
+        let shop = try await countryCode()
+        var byId: [String: LibraryItem] = [:]
+        var idx = 0
+        while idx < bare.count {
+            let end = min(idx + 25, bare.count)
+            let chunk = Array(bare[idx..<end])
+            idx = end
+            let root = try await get("/v1/catalog/\(shop)/playlists", ["ids": chunk.joined(separator: ",")])
+            for r in AppleMusicJSON.resources(root) {
+                if let mix = AppleMusicMapping.madeForYouMix(r) {
+                    byId[mix.id.rawId] = mix
+                }
+            }
+        }
+        return listed.compactMap { mix in mix.title.isEmpty ? byId[mix.id.rawId] : mix }
+            .filter { !$0.title.isEmpty }
+    }
+
+    /// English names (`l=en-US`) for a catalog song on non-English storefronts (or when name region overrides),
+    /// kept in a 256-entry LRU cache.
+    func alternateNames(trackId: String) async -> [(title: String, artist: String)] {
+        let catalogId: String? = AppleMusicMapping.isCatalogSongId(trackId)
+            ? trackId
+            : libraryCatalogIds[trackId]
+        guard let catalogId, !catalogId.isEmpty else { return [] }
+        let region = nameRegion()
+        let cacheKey = AltNameKey(catalogId: catalogId, regionKey: region.key)
+        if let cached = alternateNamesCache.value(forKey: cacheKey) {
+            return cached.map { ($0.title, $0.artist) }
+        }
+        do {
+            let shop = try await countryCode()
+            if let info = try await storefrontInfo(shop) {
+                if !info.supportedLanguages.isEmpty
+                    && !info.supportedLanguages.contains("en-us")
+                    && !info.supportedLanguages.contains("en") {
+                    alternateNamesCache.insert([], forKey: cacheKey)
+                    return []
+                }
+                if info.defaultLanguage?.hasPrefix("en") == true && region == .off {
+                    alternateNamesCache.insert([], forKey: cacheKey)
+                    return []
+                }
+            }
+            let root = try await get("/v1/catalog/\(shop)/songs/\(catalogId)", ["l": "en-US"])
+            let names = AppleMusicJSON.resources(root).compactMap(AppleMusicMapping.alternateName)
+            let entries = names.map { AltNameEntry(title: $0.title, artist: $0.artist) }
+            alternateNamesCache.insert(entries, forKey: cacheKey)
+            return entries.map { ($0.title, $0.artist) }
+        } catch {
+            if Self.httpStatus(of: error) == 404 {
+                alternateNamesCache.insert([], forKey: cacheKey)
+            }
+            return []
+        }
+    }
+
+    private func storefrontInfo(_ shop: String) async throws -> StorefrontInfo? {
+        if let cached = storefrontInfoCache[shop] { return cached }
+        do {
+            let root = try await get("/v1/storefronts/\(shop)")
+            guard let first = AppleMusicJSON.resources(root).first else { return nil }
+            let attrs = AppleMusicJSON.attributes(first)
+            let defaultLang = AppleMusicJSON.string(attrs, "defaultLanguageTag")?.lowercased()
+            let supported = Set((attrs["supportedLanguageTags"] as? [String] ?? []).map { $0.lowercased() })
+            let info = StorefrontInfo(defaultLanguage: defaultLang, supportedLanguages: supported)
+            storefrontInfoCache[shop] = info
+            return info
+        } catch {
+            if Self.httpStatus(of: error) == 404 { return nil }
+            throw error
+        }
+    }
+
+    /// ISRC code for a catalog or library song, backed by a 256-entry LRU cache.
+    func isrc(trackId: String) async -> String? {
+        guard !trackId.isEmpty else { return nil }
+        if let cached = isrcCache.value(forKey: trackId) { return cached }
+        do {
+            let root: AppleMusicJSON.Object
+            if AppleMusicMapping.isCatalogSongId(trackId) {
+                let shop = try await countryCode()
+                root = try await get("/v1/catalog/\(shop)/songs/\(trackId)")
+            } else {
+                let libId = AppleMusicMapping.resourceId(trackId)
+                guard AppleMusicMapping.isLibraryId(trackId) || libId.hasPrefix("i."), !libId.isEmpty else { return nil }
+                root = try await get("/v1/me/library/songs/\(libId)", ["include": "catalog"])
+            }
+            guard let resource = AppleMusicJSON.resources(root).first else {
+                isrcCache.insert(nil, forKey: trackId)
+                return nil
+            }
+            let code = AppleMusicMapping.song(resource)?.isrc
+            isrcCache.insert(code, forKey: trackId)
+            return code
+        } catch {
+            if Self.httpStatus(of: error) == 404 {
+                isrcCache.insert(nil, forKey: trackId)
+            }
+            return nil
+        }
+    }
+
+    /// Album, artist, and artist name for a song missing route links (PR #244), cached in a 256-entry LRU.
+    func songLinks(trackId: String) async -> (albumId: String?, artistId: String?, artistName: String?) {
+        let bare = AppleMusicMapping.resourceId(trackId)
+        guard !trackId.isEmpty, !bare.isEmpty else { return (nil, nil, nil) }
+        if let cached = songLinksCache.value(forKey: trackId) {
+            return (cached.albumId, cached.artistId, cached.artistName)
+        }
+        do {
+            let root: AppleMusicJSON.Object
+            if AppleMusicMapping.isCatalogSongId(trackId) {
+                let shop = try await countryCode()
+                root = try await get("/v1/catalog/\(shop)/songs/\(trackId)", ["include": "albums,artists"])
+            } else {
+                guard AppleMusicMapping.isLibraryId(trackId) || bare.hasPrefix("i.") else { return (nil, nil, nil) }
+                root = try await get("/v1/me/library/songs/\(bare)", ["include": "catalog,albums,artists"])
+            }
+            guard let resource = AppleMusicJSON.resources(root).first else {
+                songLinksCache.insert(SongLinksEntry(), forKey: trackId)
+                return (nil, nil, nil)
+            }
+            let resolved = AppleMusicMapping.songLinks(resource)
+            songLinksCache.insert(SongLinksEntry(albumId: resolved.albumId, artistId: resolved.artistId,
+                                                 artistName: resolved.artistName), forKey: trackId)
+            return resolved
+        } catch {
+            if Self.httpStatus(of: error) == 404 {
+                songLinksCache.insert(SongLinksEntry(), forKey: trackId)
+            }
+            return (nil, nil, nil)
+        }
     }
 
     // MARK: Details
@@ -468,16 +710,46 @@ final class AppleMusicSource {
     }
 
     /// Catalog songs by ISRC (`GET /v1/catalog/{storefront}/songs?filter[isrc]=…`, Android
-    /// `catalogSongsByIsrc`): a request per batch of codes; a code the storefront doesn't know is left out, and
-    /// so is a batch Apple refuses (its songs fall back to the title search).
+    /// `catalogSongsByIsrc`): keeps non-throwing signature for existing Stage 1 callers.
     func catalogSongsByIsrc(_ isrcs: [String]) async -> [String: [AMSong]] {
+        (try? await fetchCatalogSongsByIsrc(isrcs, propagateErrors: false)) ?? [:]
+    }
+
+    /// Throwing variant for `PlaylistRestore` (Stage 2 wiring): propagates HTTP 401/403/429 auth and
+    /// rate-limit errors (and cancellation/network failures) so restore triggers `RestoreInterrupted`.
+    func catalogSongsByIsrcThrowing(_ isrcs: [String]) async throws -> [String: [AMSong]] {
+        try await fetchCatalogSongsByIsrc(isrcs, propagateErrors: true)
+    }
+
+    private func fetchCatalogSongsByIsrc(_ isrcs: [String], propagateErrors: Bool) async throws -> [String: [AMSong]] {
+        let batches = AppleMusicMapping.isrcBatches(isrcs)
+        guard !batches.isEmpty else { return [:] }
         var found: [String: [AMSong]] = [:]
-        for batch in AppleMusicMapping.isrcBatches(isrcs) {
-            guard !Task.isCancelled,
-                  let path = try? await catalog("songs"),
-                  let root = try? await get(path, ["filter[isrc]": batch.joined(separator: ",")]) else { continue }
-            for (code, songs) in AppleMusicMapping.groupByIsrc(self.songs(AppleMusicJSON.resources(root)), batch: batch) {
-                found[code, default: []] += songs
+        let path: String
+        do {
+            path = try await catalog("songs")
+        } catch {
+            if propagateErrors { throw error }
+            return [:]
+        }
+        for batch in batches {
+            if propagateErrors { try Task.checkCancellation() }
+            else if Task.isCancelled { break }
+            do {
+                let root = try await get(path, ["filter[isrc]": batch.joined(separator: ",")])
+                for (code, songs) in AppleMusicMapping.groupByIsrc(self.songs(AppleMusicJSON.resources(root)), batch: batch) {
+                    found[code, default: []] += songs
+                }
+            } catch {
+                if error is CancellationError {
+                    if propagateErrors { throw error }
+                    break
+                }
+                if !propagateErrors { continue }
+                if let status = Self.httpStatus(of: error), status == 400 || status == 404 {
+                    continue
+                }
+                throw error
             }
         }
         return found

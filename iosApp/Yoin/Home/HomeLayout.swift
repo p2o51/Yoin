@@ -7,6 +7,12 @@ import Observation
 /// document reads the same on both apps. iOS renders all but On Your Other
 /// Accounts, which is kept in the layout (its order and visibility ride
 /// along) and stays out of the feed and the edit tray until iOS has it.
+/// Stage 2 integration contract for the Made For You section id across iOS & Android (`HomeSection`).
+/// Stage 1 keeps `enum HomeSection` unchanged so unowned exhaustive switches compile independently.
+enum MadeForYouSectionContract {
+    static let rawId = "made_for_you"
+}
+
 enum HomeSection: String, CaseIterable, Hashable, Sendable {
     case activities
     case jumpBackIn = "jump_back_in"
