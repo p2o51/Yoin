@@ -216,4 +216,18 @@ enum SpotifyMapping {
         }
         return (tracks, offsets)
     }
+
+    /// Trimmed, uppercased ISRC when non-empty.
+    static func normalizedIsrc(_ raw: String?) -> String? {
+        let code = raw?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
+        return code.isEmpty ? nil : code
+    }
+
+    /// Title + first credited artist formatted for lyrics matching (Android `SpotifyTrackObject.lyricNames`).
+    static func lyricNames(_ t: SpotifyDTO.Track) -> (title: String, artist: String)? {
+        let title = (t.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = (t.artists?.first?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !artist.isEmpty else { return nil }
+        return (title: title, artist: artist)
+    }
 }

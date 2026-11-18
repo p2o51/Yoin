@@ -135,4 +135,13 @@ enum SpotifyDTO {
         var artists: Paging<Artist?>?
         var playlists: Paging<Playlist?>?
     }
+
+    struct Device: Decodable, Hashable, Sendable {
+        var id: String?
+        var name: String?
+        var type: String?
+        var isActive: Bool?
+        var isRestricted: Bool?
+        var isPrivateSession: Bool?
+    }
 }

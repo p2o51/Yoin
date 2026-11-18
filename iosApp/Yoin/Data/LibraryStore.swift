@@ -87,6 +87,7 @@ final class LibraryStore {
     private(set) var playlists: [LibraryItem] = []
     private(set) var songs: [PlaylistEntry] = []
     private(set) var favorites: [PlaylistEntry] = []
+    private(set) var madeForYou: [LibraryItem] = []
     /// The source's starred artists and albums (Subsonic getStarred2), over
     /// Favorites' songs. In memory only: the disk copy holds the songs.
     private(set) var favoriteArtists: [LibraryItem] = []
@@ -110,6 +111,16 @@ final class LibraryStore {
     var searchPaging: [SearchKind: SongsMore] = [:]
     /// Where Liked Songs' next read starts (Spotify; nil: the list is whole).
     @ObservationIgnored var spotifySongsNext: Int?
+    /// Where Apple Music Library › Songs' next read starts (nil: the list is whole).
+    @ObservationIgnored var appleSongsNextOffset: Int?
+    /// Last-seen song entries (e.g. removed on unlike or liked from Now Playing) so #65 re-likes stay local.
+    @ObservationIgnored private var rememberedSongEntries: [String: PlaylistEntry] = [:]
+    @ObservationIgnored private var observedHeartSongs: Set<String> = []
+    @ObservationIgnored private var songLinksCache: [MediaId: SongLinks] = [:]
+    /// Sleep hook for background `hydrateMemoryAlbums` throttling (overridden in unit tests).
+    @ObservationIgnored var memoryHydrationSleep: @Sendable (Duration) async throws -> Void = {
+        try await Task.sleep(for: $0)
+    }
 
     /// Artist hearts set here, ahead of the server (reverted when the write
     /// fails). Song hearts live in `FavoritesStore`, shared with Now Playing.
@@ -118,7 +129,7 @@ final class LibraryStore {
 
     init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource,
          history: HistoryStore = .shared, notes: NotesStore = .shared, ratings: LocalRatings = .shared,
-         disk: DetailDiskCache = .shared) {
+         disk: DetailDiskCache = .shared, spotifyAccount: (source: SpotifySource, scope: String)? = nil) {
         self.session = session
         self.sources = sources
         self.appleMusic = appleMusic
@@ -126,6 +137,7 @@ final class LibraryStore {
         self.notes = notes
         self.ratings = ratings
         self.disk = disk
+        self.spotifyAccount = spotifyAccount
         observeSession()
         hearts.onWrite = { [weak self] provider, songId in
             // Wherever the heart was set: the stored pages that show it are written with it.
@@ -135,7 +147,11 @@ final class LibraryStore {
             self.dropFromDisk(.list, "favorites")
             // The starred list is the source's: read it again on the next visit.
             self.favoritesStale = true
-            if provider == SpotifyMapping.provider { self.followLikedSongs(songId) }
+            if provider == SpotifyMapping.provider {
+                self.followLikedSongs(songId)
+            } else {
+                self.syncSongStarFlag(provider: provider, songId: songId, on: on)
+            }
         }
         Task { await disk.purgeExpired() }
         // audit 11-15 #66: iOS keeps Yoin suspended for days; back in front, what is past its age reads again.
@@ -205,7 +221,13 @@ final class LibraryStore {
         songs = []
         songsMore = .none
         songsPager = nil
+        spotifySongsNext = nil
+        appleSongsNextOffset = nil
+        rememberedSongEntries = [:]
+        observedHeartSongs = []
+        songLinksCache = [:]
         favorites = []
+        madeForYou = []
         favoriteArtists = []
         favoriteAlbums = []
         phases = [:]
@@ -282,12 +304,14 @@ final class LibraryStore {
                                   trackPool: randomSongs.enumerated().map { mapping.entry($1, index: $0) })
             homeLists = lists
             homePhase = .loaded
+            setFailureReport("home", error: nil)
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(ServerSession.message(for: error), privacy: .public)")
             // Offline: the stored feed stays up.
             homePhase = homeLists != nil ? .loaded : .failed
+            setFailureReport("home", error: homeLists == nil ? error : nil)
         }
     }
 
@@ -306,11 +330,13 @@ final class LibraryStore {
                                   random: l.older, recentTracks: l.recentTracks, trackPool: l.recentTracks)
             homeLists = lists
             homePhase = .loaded
+            setFailureReport("home", error: nil)
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(AppleMusicSource.message(for: error), privacy: .public)")
             homePhase = homeLists != nil ? .loaded : .failed
+            setFailureReport("home", error: homeLists == nil ? error : nil)
         }
     }
 
@@ -330,12 +356,57 @@ final class LibraryStore {
                                   trackPool: l.trackPool.isEmpty ? l.recentTracks : l.trackPool)
             homeLists = lists
             homePhase = .loaded
+            setFailureReport("home", error: nil)
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(SpotifySource.message(for: error), privacy: .public)")
             homePhase = homeLists != nil ? .loaded : .failed
+            setFailureReport("home", error: homeLists == nil ? error : nil)
         }
+    }
+
+    var madeForYouPhase: Phase { phase("madeForYou") }
+
+    /// Records or clears a failure diagnostic report (`RetryRow(details:)` contract).
+    @MainActor
+    func setFailureReport(_ key: String, error: Error?) {
+        if let error {
+            failureReports[key] = ErrorDiagnostics.report(error)
+        } else {
+            failureReports[key] = nil
+        }
+    }
+
+    /// Personal mixes for Home's Made For You row (Apple Music `/v1/me/recommendations`, or cached Spotify mixes).
+    func loadMadeForYou(force: Bool = false) async {
+        await cachedLoad("madeForYou", kind: .list, id: "madeForYou", force: force,
+                         inMemory: { !self.madeForYou.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Item], c) in self.madeForYou = d.map(c.item) }) { [self] in
+            if let apple {
+                let items = try await apple.madeForYou()
+                try ensureLive()
+                madeForYou = items
+                return codec.map { c in items.map(c.dto) }
+            }
+            if spotify != nil {
+                // Spotify Made For You arrives from App Remote ContentApi via `setSpotifyMadeForYou(_:)`.
+                return nil
+            }
+            madeForYou = []
+            return []
+        }
+    }
+
+    /// Stage 2 hook for Spotify App Remote ContentApi Made For You containers.
+    func setSpotifyMadeForYou(_ items: [LibraryItem]) {
+        guard spotify != nil else { return }
+        madeForYou = items
+        phases["madeForYou"] = .loaded
+        loadedAt["madeForYou"] = Date()
+        failures["madeForYou"] = nil
+        failureReports["madeForYou"] = nil
+        persist(codec.map { c in items.map(c.dto) }, kind: .list, id: "madeForYou", epoch: diskEpoch)
     }
 
     /// Home: the server's shelves with the local history laid over them.
@@ -442,33 +513,78 @@ final class LibraryStore {
             copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy })
     }
 
+    @MainActor
+    private final class HydrationMonitor {
+        var shouldAbort = false
+    }
+
+    @TaskLocal private static var hydratingMemoryAlbums = false
+    @TaskLocal private static var hydrationMonitor: HydrationMonitor?
+
     /// Loads the album details the account's memories need and the app has
     /// no track list for (Android AlbumMemoryCandidateBuilder's `getAlbum`):
     /// a synced album rating or review never resolved here, an album known
-    /// only from a play's snapshot. Through the account's cached loader, a
-    /// few at a time. True when anything new landed.
+    /// only from a play's snapshot. Throttled, capped per pass, skips Spotify
+    /// heart fills, and aborts immediately on HTTP 429/auth or offline errors.
     @discardableResult
     func hydrateMemoryAlbums() async -> Bool {
         guard isReal else { return false }
         let gen = generation
-        let missing = HomeHistory.writtenAlbumIds(historyInputs(extra: homeListAlbums))
+        let missing = Array(HomeHistory.writtenAlbumIds(historyInputs(extra: homeListAlbums))
             .filter { albumDetails[$0]?.tracks.isEmpty ?? true }
             .sorted()
+            .prefix(Self.memoryHydrationMaxAlbums))
         guard !missing.isEmpty else { return false }
+        let monitor = HydrationMonitor()
         var landed = false
-        var pending = missing[...]
-        while !pending.isEmpty, gen == generation {
-            let batch = pending.prefix(Self.memoryHydrationBatch)
-            pending = pending.dropFirst(batch.count)
-            let loads = batch.map { id in Task { await loadAlbum(id) } }
-            for load in loads { await load.value }
-            if batch.contains(where: { !(albumDetails[$0]?.tracks.isEmpty ?? true) }) { landed = true }
+        var cursor = 0
+        await Self.$hydratingMemoryAlbums.withValue(true) {
+            await Self.$hydrationMonitor.withValue(monitor) {
+                while cursor < missing.count, gen == generation, !monitor.shouldAbort, !Task.isCancelled {
+                    let end = min(cursor + Self.memoryHydrationBatch, missing.count)
+                    let batch = Array(missing[cursor..<end])
+                    cursor = end
+                    let loads = batch.map { id in Task { @MainActor in await self.loadAlbum(id) } }
+                    for load in loads { await load.value }
+                    if batch.contains(where: { !(albumDetails[$0]?.tracks.isEmpty ?? true) }) { landed = true }
+                    guard cursor < missing.count, gen == generation, !monitor.shouldAbort, !Task.isCancelled else { break }
+                    do {
+                        try await memoryHydrationSleep(Self.memoryHydrationPause)
+                    } catch {
+                        break
+                    }
+                }
+            }
         }
         return landed && gen == generation
     }
 
     /// Album loads Memories runs at once while hydrating.
-    static let memoryHydrationBatch = 4
+    static let memoryHydrationBatch = 2
+    /// Maximum missing albums Memories hydrates in one pass (`LedgerTrackResolver` pattern).
+    static let memoryHydrationMaxAlbums = 24
+    /// Inter-batch pause during background memory album hydration.
+    static let memoryHydrationPause: Duration = .milliseconds(250)
+
+    nonisolated static func shouldAbortHydration(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if AppleMusicSource.isAuthOrRateLimit(error) { return true }
+        if let u = error as? URLError, isOfflineURLCode(u.code) { return true }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain, isOfflineURLCode(URLError.Code(rawValue: ns.code)) { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENETDOWN) || ns.code == Int(ENETUNREACH) { return true }
+        return false
+    }
+
+    private nonisolated static func isOfflineURLCode(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+                .cannotFindHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+            return true
+        default:
+            return false
+        }
+    }
 
     /// Whose Home this is (Android `homeScopeKey` provider|profile): the
     /// bubble's "seen" mark and the Home layout are kept per account.
@@ -737,6 +853,9 @@ final class LibraryStore {
                     self.failureReports[key] = nil
                 }
             } catch {
+                if let monitor = Self.hydrationMonitor, Self.shouldAbortHydration(error) {
+                    monitor.shouldAbort = true
+                }
                 let message = self.message(for: error)
                 self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
                 if QAProbe.diag { print("[diag] \(key) failed: \(message) — \(error)") }
@@ -875,6 +994,9 @@ final class LibraryStore {
             do {
                 try await fetchAndStore()
             } catch {
+                if let monitor = Self.hydrationMonitor, Self.shouldAbortHydration(error) {
+                    monitor.shouldAbort = true
+                }
                 guard storedAt != nil else { throw error }
                 offlineCopies.insert(key)
                 log.info("\(key, privacy: .public): offline, showing the stored copy")
@@ -1054,22 +1176,29 @@ final class LibraryStore {
         await cachedLoad("songs", kind: .list, id: "songs", force: force, inMemory: { !self.songs.isEmpty },
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.songs = d.map(c.entry) }) { [self] in
             if let apple {
-                let read = try await apple.librarySongs()
+                let read = try await apple.librarySongsPage(offset: 0)
                 try ensureLive()
-                songs = read
-                songsMore = .none
+                rememberSongEntries(read.songs)
+                songs = read.songs
+                let hasMore = read.nextOffset != nil && songs.count < AppleMusicSource.maxLibrarySongs
+                appleSongsNextOffset = hasMore ? read.nextOffset : nil
+                songsMore = hasMore ? .available : .none
+                setFailureReport("songsMore", error: nil)
             } else if let spotify {
                 // Liked Songs (Android: Spotify's Songs is the saved tracks), the first read then more as the list ends.
-                let read = try await spotify.librarySongs(offset: 0)
+                let read = try await spotify.savedTracksPage(offset: 0)
                 try ensureLive()
+                rememberSongEntries(read.songs)
                 if Self.quietRefresh, read.next != nil, songs.count > read.songs.count {
                     // A refresh behind a longer list: its later rows stay, and so does where the next read starts.
                     songs = Self.refreshedLikedSongs(read.songs, over: songs)
                 } else {
                     songs = read.songs
-                    spotifySongsNext = read.next
-                    songsMore = read.next == nil ? .none : .available
+                    let hasMore = read.next != nil && songs.count < SpotifySource.maxSavedTracks
+                    spotifySongsNext = hasMore ? read.next : nil
+                    songsMore = hasMore ? .available : .none
                 }
+                setFailureReport("songsMore", error: nil)
             } else {
                 guard let client, let mapping else { return nil }
                 // A refresh starts again from the newest album.
@@ -1093,6 +1222,7 @@ final class LibraryStore {
                 guard songsPager === pager else { return nil }
                 songs = first
                 songsMore = pager.reachedEnd ? .none : .available
+                setFailureReport("songsMore", error: nil)
             }
             return codec.map { c in songs.map(c.dto) }
         }
@@ -1101,10 +1231,12 @@ final class LibraryStore {
     /// Songs' next page (Android `loadMoreSongs`): as the list nears its
     /// end, or from the foot's retry after a failed read. One at a time.
     func loadMoreSongs() async {
+        if apple != nil { return await loadMoreAppleSongs() }
         if spotify != nil { return await loadMoreSpotifySongs() }
         guard let pager = songsPager, songsMore == .available || songsMore == .failed else { return }
         let gen = generation
         songsMore = .loading
+        setFailureReport("songsMore", error: nil)
         do {
             let more = try await pager.next()
             guard gen == generation, songsPager === pager else { return }
@@ -1116,26 +1248,69 @@ final class LibraryStore {
             log.error("songs page failed: \(ServerSession.message(for: error), privacy: .public)")
             // The rows stay; the foot's retry reads the same page again.
             songsMore = .failed
+            setFailureReport("songsMore", error: error)
         }
     }
 
-    /// Spotify's Liked Songs beyond the first read (SpotifySource+Search librarySongs(offset:)).
-    private func loadMoreSpotifySongs() async {
-        guard let spotify, let from = spotifySongsNext, songsMore == .available || songsMore == .failed else { return }
+    /// Apple Music library songs beyond the first page, capped at `AppleMusicSource.maxLibrarySongs` (2000).
+    private func loadMoreAppleSongs() async {
+        guard let apple, let from = appleSongsNextOffset, songsMore == .available || songsMore == .failed else { return }
+        guard from < AppleMusicSource.maxLibrarySongs && songs.count < AppleMusicSource.maxLibrarySongs else {
+            appleSongsNextOffset = nil
+            songsMore = .none
+            return
+        }
         let gen = generation
         songsMore = .loading
+        setFailureReport("songsMore", error: nil)
         do {
-            let more = try await spotify.librarySongs(offset: from)
+            let more = try await apple.librarySongsPage(offset: from)
+            guard gen == generation, self.apple === apple else { return }
+            let have = Set(songs.map(\.track.id))
+            let room = max(0, AppleMusicSource.maxLibrarySongs - songs.count)
+            let added = Array(more.songs.filter { !have.contains($0.track.id) }.prefix(room))
+            rememberSongEntries(added)
+            songs += added
+            let hasMore = more.nextOffset != nil && songs.count < AppleMusicSource.maxLibrarySongs
+            appleSongsNextOffset = hasMore ? more.nextOffset : nil
+            songsMore = hasMore ? .available : .none
+            persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+        } catch {
+            guard gen == generation, self.apple === apple else { return }
+            log.error("apple songs page failed: \(AppleMusicSource.message(for: error), privacy: .public)")
+            songsMore = .failed
+            setFailureReport("songsMore", error: error)
+        }
+    }
+
+    /// Spotify's Liked Songs beyond the first read (`savedTracksPage(offset:)`), capped at 2000.
+    private func loadMoreSpotifySongs() async {
+        guard let spotify, let from = spotifySongsNext, songsMore == .available || songsMore == .failed else { return }
+        guard from < SpotifySource.maxSavedTracks && songs.count < SpotifySource.maxSavedTracks else {
+            spotifySongsNext = nil
+            songsMore = .none
+            return
+        }
+        let gen = generation
+        songsMore = .loading
+        setFailureReport("songsMore", error: nil)
+        do {
+            let more = try await spotify.savedTracksPage(offset: from)
             guard gen == generation, self.spotify === spotify else { return }
             let have = Set(songs.map(\.track.id))
-            songs += more.songs.filter { !have.contains($0.track.id) }
-            spotifySongsNext = more.next
-            songsMore = more.next == nil ? .none : .available
+            let room = max(0, SpotifySource.maxSavedTracks - songs.count)
+            let added = Array(more.songs.filter { !have.contains($0.track.id) }.prefix(room))
+            rememberSongEntries(added)
+            songs += added
+            let hasMore = more.next != nil && songs.count < SpotifySource.maxSavedTracks
+            spotifySongsNext = hasMore ? more.next : nil
+            songsMore = hasMore ? .available : .none
             persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
         } catch {
             guard gen == generation, self.spotify === spotify else { return }
             log.error("liked songs page failed: \(SpotifySource.message(for: error), privacy: .public)")
             songsMore = .failed
+            setFailureReport("songsMore", error: error)
         }
     }
 
@@ -1161,9 +1336,10 @@ final class LibraryStore {
             // library membership isn't a heart: Android rule): none.
             if apple != nil { return nil }
             if let spotify {
-                // The heart is Liked Songs: Favorites lists them.
-                let read = try await spotify.librarySongs()
+                // The heart is Liked Songs: Favorites lists them (up to 2000).
+                let read = try await spotify.librarySongs(cap: SpotifySource.maxSavedTracks)
                 try ensureLive()
+                rememberSongEntries(read)
                 favoriteArtists = []
                 favoriteAlbums = []
                 favorites = read
@@ -1239,11 +1415,13 @@ final class LibraryStore {
             guard var album else { return nil }
             if let spotify {
                 album.tracks = Self.keepingUnknownHearts(album.tracks, before: albumDetails[id]?.tracks ?? [], spotify)
-                fillSpotifyHearts(album.tracks, spotify) { [self] states in
-                    guard var a = albumDetails[id], Self.applyHearts(states, to: &a.tracks) else { return }
-                    albumDetails[id] = a
-                    dropFromDisk(.album, id)
-                    persist(codec?.dto(a), kind: .album, id: id, epoch: diskEpoch)
+                if !Self.hydratingMemoryAlbums {
+                    fillSpotifyHearts(album.tracks, spotify) { [self] states in
+                        guard var a = albumDetails[id], Self.applyHearts(states, to: &a.tracks) else { return }
+                        albumDetails[id] = a
+                        dropFromDisk(.album, id)
+                        persist(codec?.dto(a), kind: .album, id: id, epoch: diskEpoch)
+                    }
                 }
             }
             albumDetails[id] = album
@@ -1379,26 +1557,76 @@ final class LibraryStore {
     // MARK: Spotify hearts
 
     /// Spotify's Songs is Liked Songs: a heart set anywhere puts the song at its top or takes it out, in
-    /// memory and on disk; and once more if the heart goes back (a refused write).
+    /// memory and on disk; re-arms while an unconfirmed heart write is in flight so rollbacks stay synced (#65).
     private func followLikedSongs(_ songId: String) {
         syncLikedSongs(songId)
-        withObservationTracking {
-            _ = hearts.isFavorite(provider: SpotifyMapping.provider, songId: songId)
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.syncLikedSongs(songId) }
+        guard observedHeartSongs.insert(songId).inserted else { return }
+        watchLikedSong(songId, generation: generation)
+    }
+
+    private func watchLikedSong(_ songId: String, generation gen: Int) {
+        guard gen == generation else {
+            observedHeartSongs.remove(songId)
+            return
         }
+        let key = FavoritesStore.key(provider: SpotifyMapping.provider, songId: songId)
+        let stillPending = withObservationTracking {
+            _ = hearts.isFavorite(provider: SpotifyMapping.provider, songId: songId)
+            return hearts.chosen[key] != nil
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard gen == self.generation else { return }
+                self.syncLikedSongs(songId)
+                let k = FavoritesStore.key(provider: SpotifyMapping.provider, songId: songId)
+                if self.hearts.chosen[k] != nil {
+                    self.watchLikedSong(songId, generation: gen)
+                } else {
+                    self.observedHeartSongs.remove(songId)
+                }
+            }
+        }
+        if !stillPending { observedHeartSongs.remove(songId) }
     }
 
     private func syncLikedSongs(_ songId: String) {
-        guard spotify != nil, !songs.isEmpty || phase("songs") == .loaded else { return }
+        guard spotify != nil else { return }
         let on = hearts.isFavorite(provider: SpotifyMapping.provider, songId: songId)
-        let edited = Self.likedSongs(songs, songId: songId, on: on, entry: { self.entry(forSong: songId) })
-        guard edited != songs else { return }
-        // Liked Songs' next read starts one later (or earlier) now.
-        if let next = spotifySongsNext { spotifySongsNext = max(0, next + edited.count - songs.count) }
-        withAnimation(Yoin.spatial) { songs = edited }
-        dropFromDisk(.list, "songs")
-        persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+        if !on, let existing = songs.first(where: { $0.track.id.rawId == songId }) ?? favorites.first(where: { $0.track.id.rawId == songId }) {
+            rememberedSongEntries[songId] = existing
+        }
+        if !songs.isEmpty || phase("songs") == .loaded {
+            let edited = Self.likedSongs(songs, songId: songId, on: on, entry: { self.entry(forSong: songId) })
+            if edited != songs {
+                // Liked Songs' next read starts one later (or earlier) now.
+                if let next = spotifySongsNext { spotifySongsNext = max(0, next + edited.count - songs.count) }
+                withAnimation(Yoin.spatial) { songs = edited }
+                dropFromDisk(.list, "songs")
+                persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+            }
+        }
+        if !favorites.isEmpty || phase("favorites") == .loaded {
+            let editedFavorites = Self.likedSongs(favorites, songId: songId, on: on, entry: { self.entry(forSong: songId) })
+            if editedFavorites != favorites {
+                withAnimation(Yoin.spatial) { favorites = editedFavorites }
+                dropFromDisk(.list, "favorites")
+                persist(codec.map { c in favorites.map(c.dto) }, kind: .list, id: "favorites", epoch: diskEpoch)
+            }
+        }
+    }
+
+    private func syncSongStarFlag(provider: String, songId: String, on: Bool) {
+        if songs.contains(where: { $0.track.id.provider == provider && $0.track.id.rawId == songId }) {
+            var updated = songs
+            for i in updated.indices where updated[i].track.id.provider == provider && updated[i].track.id.rawId == songId {
+                updated[i].track.starred = on
+            }
+            if updated != songs {
+                songs = updated
+                dropFromDisk(.list, "songs")
+                persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+            }
+        }
     }
 
     /// [songs] with [songId] liked at the top ([entry] finds it) or every occurrence of it gone.
@@ -1411,6 +1639,17 @@ final class LibraryStore {
             return [e] + songs
         }
         return has ? songs.filter { $0.track.id.rawId != songId } : songs
+    }
+
+    /// Remember entries so a song unliked and re-liked (or liked from Now Playing) resolves locally.
+    func remember(_ entry: PlaylistEntry) {
+        rememberedSongEntries[entry.track.id.rawId] = entry
+    }
+
+    private func rememberSongEntries(_ entries: [PlaylistEntry]) {
+        for entry in entries {
+            rememberedSongEntries[entry.track.id.rawId] = entry
+        }
     }
 
     /// The song wherever this account's lists and pages hold it.
@@ -1426,7 +1665,7 @@ final class LibraryStore {
             return PlaylistEntry(album: bare, track: t)
         }
         for p in playlistDetails.values { if let e = find(p.entries) { return e } }
-        return nil
+        return rememberedSongEntries[id]
     }
 
     /// A page's hearts as the account knows them: a song no read has answered for keeps the heart the
@@ -1526,12 +1765,14 @@ final class LibraryStore {
             if searchRequest != nil { searchRequest = nil }
             if searchPhase != .idle { searchPhase = .idle }
             if searchFailure != nil { searchFailure = nil }
+            setFailureReport("search", error: nil)
             return
         }
         let request = SearchRequest(query: q, scope: searchesCatalog ? scope : .library)
         searchRequest = request
         searchPhase = .loading
         searchFailure = nil
+        setFailureReport("search", error: nil)
         searchPaging = [:]
         do {
             let hits: SearchHits
@@ -1560,6 +1801,7 @@ final class LibraryStore {
             guard !Task.isCancelled, searchRequest == request else { return }
             search = hits
             searchPhase = .loaded
+            setFailureReport("search", error: nil)
         } catch {
             guard !Task.isCancelled, searchRequest == request else { return }
             let message = message(for: error)
@@ -1567,6 +1809,7 @@ final class LibraryStore {
             // A failure is not "no results": the old request's rows go too.
             search = nil
             searchFailure = message
+            setFailureReport("search", error: error)
             searchPhase = .failed
         }
     }
@@ -1587,11 +1830,13 @@ final class LibraryStore {
                     || next.playlists != shown.playlists else { return }
             search = next
             searchPhase = .loaded
+            setFailureReport("search", error: nil)
         } catch {
             guard search.map({ $0.artists.isEmpty && $0.albums.isEmpty && $0.songs.isEmpty && $0.playlists.isEmpty }) ?? true
             else { return }
             search = nil
             searchFailure = message(for: error)
+            setFailureReport("search", error: error)
             searchPhase = .failed
         }
     }
@@ -1631,6 +1876,12 @@ final class LibraryStore {
     func toggleStar(_ track: Track) {
         // Apple Music has no heart to write (library membership is Now Playing's add button).
         guard track.id.provider != AppleMusicMapping.provider else { return }
+        if rememberedSongEntries[track.id.rawId] == nil, entry(forSong: track.id.rawId) == nil {
+            let bareAlbum = Album(id: MediaId(provider: track.id.provider, rawId: "song:\(track.id.rawId)"),
+                                  title: "", artist: track.artist ?? "", year: 0,
+                                  palette: AppleMusicMapping.palette(nil, key: track.id.rawId), tracks: [])
+            rememberedSongEntries[track.id.rawId] = PlaylistEntry(album: bareAlbum, track: track)
+        }
         // The shared heart: Now Playing and the song sheet see it at once
         // (its onWrite drops the stored pages that show it).
         hearts.toggle(provider: track.id.provider, songId: track.id.rawId, known: track.starred,
@@ -2107,5 +2358,62 @@ final class LibraryStore {
                                          cover: CoverRef(url: url))
         }
         return album
+    }
+
+    // MARK: Song Links (PR #244)
+
+    struct SongLinks: Equatable, Sendable {
+        var albumId: String?
+        var artistId: String?
+        var artistName: String?
+    }
+
+    /// Resolves album and primary artist links for a track missing route ids (PR #244 Now Playing navigation).
+    func loadSongLinks(for track: Track, albumId existingAlbumId: String? = nil,
+                       artistId existingArtistId: String? = nil,
+                       artistName existingArtistName: String? = nil) async -> SongLinks {
+        let cleanAlbumId = existingAlbumId.flatMap { !$0.isEmpty && !$0.hasPrefix("song:") ? $0 : nil }
+        let cleanArtistId = existingArtistId.flatMap { !$0.isEmpty ? $0 : nil }
+        let cleanArtistName = existingArtistName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let knownArtistName = (cleanArtistName?.isEmpty == false ? cleanArtistName : nil)
+            ?? track.artist?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanAlbumId != nil && cleanArtistId != nil {
+            return SongLinks(albumId: cleanAlbumId, artistId: cleanArtistId, artistName: knownArtistName)
+        }
+        if let cached = songLinksCache[track.id] {
+            return SongLinks(albumId: cleanAlbumId ?? cached.albumId,
+                             artistId: cleanArtistId ?? cached.artistId,
+                             artistName: knownArtistName ?? cached.artistName)
+        }
+        let gen = generation
+        let resolved: SongLinks
+        if track.id.provider == AppleMusicMapping.provider, let apple {
+            let links = await apple.songLinks(trackId: track.id.rawId)
+            resolved = SongLinks(albumId: links.albumId, artistId: links.artistId, artistName: links.artistName)
+        } else if track.id.provider == SpotifyMapping.provider, let spotify {
+            if let entry = try? await spotify.track(track.id.rawId) {
+                remember(entry)
+                let rawAlbum = entry.album.id.rawId
+                let validAlbum = (!rawAlbum.isEmpty && !rawAlbum.hasPrefix("song:")) ? rawAlbum : nil
+                let name = entry.track.artist ?? (entry.album.artist.isEmpty ? nil : entry.album.artist)
+                resolved = SongLinks(albumId: validAlbum, artistId: entry.album.artistId, artistName: name)
+            } else {
+                resolved = SongLinks()
+            }
+        } else if track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC, let client {
+            if let s = try? await client.getSong(id: track.id.rawId) {
+                resolved = SongLinks(albumId: s.albumId, artistId: s.artistId, artistName: s.artist)
+            } else {
+                resolved = SongLinks()
+            }
+        } else {
+            resolved = SongLinks()
+        }
+        if gen == generation {
+            songLinksCache[track.id] = resolved
+        }
+        return SongLinks(albumId: cleanAlbumId ?? resolved.albumId,
+                         artistId: cleanArtistId ?? resolved.artistId,
+                         artistName: knownArtistName ?? resolved.artistName)
     }
 }

@@ -12,6 +12,20 @@ import os
 /// without tracks), a missing id reads as nil, and each Home list fails on its own.
 @MainActor
 final class SpotifySource {
+    typealias TrackForLanguageFetch = @Sendable (_ trackId: String, _ acceptLanguage: String) async throws -> SpotifyDTO.Track
+
+    nonisolated static let maxSavedTracks = 2000
+
+    private struct NativeNamesKey: Hashable, Sendable {
+        var trackId: String
+        var languages: [String]
+    }
+
+    private struct NativeNamePair: Hashable, Sendable {
+        var title: String
+        var artist: String
+    }
+
     let api: SpotifyWebAPI
     let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
@@ -23,9 +37,13 @@ final class SpotifySource {
     private var playlistOffsets: [String: [Int]] = [:]
     /// The signed-in user's id, for playlist ownership (SpotifySource+Playlists); read from `me` when unset.
     var userId: String?
+    private let fetchTrackForLanguage: TrackForLanguageFetch?
+    private var isrcCache = BoundedLRU<String, String?>(capacity: 256)
+    private var nativeNamesCache = BoundedLRU<NativeNamesKey, [NativeNamePair]>(capacity: 256)
 
-    init(api: SpotifyWebAPI) {
+    init(api: SpotifyWebAPI, fetchTrackForLanguage: TrackForLanguageFetch? = nil) {
         self.api = api
+        self.fetchTrackForLanguage = fetchTrackForLanguage
     }
 
     nonisolated static func message(for error: Error) -> String {
@@ -156,12 +174,38 @@ final class SpotifySource {
         notLiked.subtract(ids)
     }
 
-    /// Liked Songs, newest like first (the API's order), the first few hundred.
-    func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
-        let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: cap)
+    /// Liked Songs, newest like first (the API's order), up to `maxSavedTracks` (or `cap`).
+    func librarySongs(cap: Int = maxSavedTracks) async throws -> [PlaylistEntry] {
+        let capped = min(max(cap, 0), Self.maxSavedTracks)
+        guard capped > 0 else { return [] }
+        let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: capped)
         let tracks = r.compactMap(\.track)
         noteLiked(tracks.compactMap(\.id))
         return SpotifyMapping.entries(tracks, saved: liked)
+    }
+
+    /// One cursor/offset page of Liked Songs (`GET /v1/me/tracks`), capped at `maxSavedTracks` (2000).
+    func savedTracksPage(offset: Int, limit: Int = 50) async throws -> (songs: [PlaylistEntry], next: Int?) {
+        guard offset >= 0, offset < Self.maxSavedTracks, limit > 0 else { return ([], nil) }
+        let target = min(limit, Self.maxSavedTracks - offset)
+        var rawCount = 0
+        var tracks: [SpotifyDTO.Track] = []
+        var at = offset
+        var more = false
+        while rawCount < target {
+            let batchSize = min(50, target - rawCount)
+            let page = try await api.get("me/tracks", ["limit": String(batchSize), "offset": String(at)],
+                                         as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+            let slice = Array(page.items.prefix(target - rawCount))
+            tracks += slice.compactMap(\.track)
+            rawCount += slice.count
+            at += page.items.count
+            more = page.next != nil && !page.items.isEmpty
+            if !more || page.items.isEmpty { break }
+        }
+        noteLiked(tracks.compactMap(\.id))
+        let next = (more && at < Self.maxSavedTracks) ? at : nil
+        return (SpotifyMapping.entries(tracks, saved: liked), next)
     }
 
     // MARK: Details
@@ -170,7 +214,7 @@ final class SpotifySource {
     /// An id Spotify doesn't have reads as nil.
     func album(_ rawId: String) async throws -> Album? {
         do {
-            let a = try await api.get("albums/\(rawId)", as: SpotifyDTO.Album.self)
+            let a = try await api.get("albums/\(rawId)", ["market": "from_token"], as: SpotifyDTO.Album.self)
             var tracks = a.tracks?.items ?? []
             var next = a.tracks?.next
             var visited = Set<String>()
@@ -190,11 +234,90 @@ final class SpotifySource {
     /// Mode apps keep; Android SpotifyApiClient.getTrack). An id Spotify doesn't have reads as nil.
     func track(_ rawId: String) async throws -> PlaylistEntry? {
         do {
-            let t = try await api.get("tracks/\(rawId)", as: SpotifyDTO.Track.self)
+            let t = try await api.get("tracks/\(rawId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+            if Self.isValidTrackId(rawId), let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc) {
+                isrcCache.insert(code, forKey: rawId)
+            }
             return SpotifyMapping.entry(t, saved: liked)
         } catch let e as SpotifyAPIError where e.isNotFound {
             return nil
         }
+    }
+
+    /// ISRC code for a Spotify track (`GET /v1/tracks/{id}`), backed by a 256-entry LRU cache.
+    func isrc(trackId: String) async -> String? {
+        guard Self.isValidTrackId(trackId) else { return nil }
+        if let cached = isrcCache.value(forKey: trackId) { return cached }
+        do {
+            let t = try await api.get("tracks/\(trackId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+            let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc)
+            isrcCache.insert(code, forKey: trackId)
+            return code
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            isrcCache.insert(nil, forKey: trackId)
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    /// Native/localized track + artist names (`GET /v1/tracks/{id}` with `Accept-Language` per language),
+    /// deduplicated in request order and backed by a 256-entry LRU cache.
+    func nativeNames(trackId: String, acceptLanguages: [String]) async -> [(title: String, artist: String)] {
+        guard Self.isValidTrackId(trackId) else { return [] }
+        var seenLangs = Set<String>()
+        let languages = acceptLanguages.compactMap { raw -> String? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seenLangs.insert(trimmed.lowercased()).inserted else { return nil }
+            return trimmed
+        }
+        guard !languages.isEmpty else { return [] }
+        let cacheKey = NativeNamesKey(trackId: trackId, languages: languages.map { $0.lowercased() })
+        if let cached = nativeNamesCache.value(forKey: cacheKey) {
+            return cached.map { ($0.title, $0.artist) }
+        }
+        var pairs: [NativeNamePair] = []
+        var seenPairs = Set<NativeNamePair>()
+        var sawSuccess = false
+        var sawNotFound = false
+        var hadTransientFailure = false
+        for language in languages {
+            do {
+                let t: SpotifyDTO.Track
+                if let fetchTrackForLanguage {
+                    t = try await fetchTrackForLanguage(trackId, language)
+                } else {
+                    // Stage 2: pass headers: ["Accept-Language": language] once SpotifyWebAPI exposes headers.
+                    t = try await api.get("tracks/\(trackId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+                }
+                sawSuccess = true
+                if let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc) {
+                    isrcCache.insert(code, forKey: trackId)
+                } else if !isrcCache.contains(trackId) {
+                    isrcCache.insert(nil, forKey: trackId)
+                }
+                if let names = SpotifyMapping.lyricNames(t) {
+                    let entry = NativeNamePair(title: names.title, artist: names.artist)
+                    if seenPairs.insert(entry).inserted {
+                        pairs.append(entry)
+                    }
+                }
+            } catch let e as SpotifyAPIError where e.isNotFound {
+                sawNotFound = true
+                break
+            } catch {
+                hadTransientFailure = true
+                break
+            }
+        }
+        if !hadTransientFailure && (sawSuccess || sawNotFound) {
+            nativeNamesCache.insert(pairs, forKey: cacheKey)
+        }
+        return pairs.map { ($0.title, $0.artist) }
+    }
+
+    nonisolated static func isValidTrackId(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
     }
 
     /// Android's artist release cap.
@@ -440,10 +563,10 @@ final class SpotifySource {
         var coverURL: URL? = nil
         /// The song's album (its Spotify id), for a hand-off of a song Spotify plays on its own.
         var albumId: String? = nil
+        var isRestricted: Bool = false
     }
 
     private struct PlayerDTO: Decodable {
-        struct D: Decodable { let id: String?; let name: String?; let type: String?; let isPrivateSession: Bool? }
         struct Named: Decodable { let name: String? }
         struct Image: Decodable { let url: String?; let width: Int? }
         struct Album: Decodable { let id: String?; let name: String?; let images: [Image]? }
@@ -460,7 +583,7 @@ final class SpotifySource {
             let images: [Image]?
             let show: Show?
         }
-        let device: D?
+        let device: SpotifyDTO.Device?
         let isPlaying: Bool?
         let item: I?
         let progressMs: Int?
@@ -469,7 +592,7 @@ final class SpotifySource {
     }
 
     func playerNow() async throws -> PlayerNow? {
-        let data = try await api.send("GET", "me/player", ["additional_types": "track,episode"])
+        let data = try await api.send("GET", "me/player", ["additional_types": "track,episode", "market": "from_token"])
         guard !data.isEmpty else { return nil }  // 204: no active device
         let r = try SpotifyWebAPI.decoder.decode(PlayerDTO.self, from: data)
         guard let d = r.device else { return nil }
@@ -486,7 +609,8 @@ final class SpotifySource {
                          albumName: r.item?.album?.name ?? r.item?.show?.name,
                          // The largest picture first (Spotify lists them biggest first; not relied on).
                          coverURL: images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)),
-                         albumId: r.item?.type == "episode" ? nil : r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 })
+                         albumId: r.item?.type == "episode" ? nil : r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 },
+                         isRestricted: d.isRestricted ?? false)
     }
 
     /// One song of Spotify's own queue as the queue sheet lists it.
@@ -497,6 +621,7 @@ final class SpotifySource {
         var title: String
         var artist: String
         var coverURL: URL?
+        var durationMs: Int? = nil
     }
 
     private struct QueueDTO: Decodable {
@@ -520,7 +645,8 @@ final class SpotifySource {
                 ?? images.max { ($0.width ?? 0) < ($1.width ?? 0) }
             return QueueEntry(id: i, uri: "spotify:track:\(t.id ?? "")", title: t.name ?? "",
                               artist: (t.artists ?? []).compactMap(\.name).joined(separator: ", "),
-                              coverURL: cover.flatMap { URL(string: $0.url) })
+                              coverURL: cover.flatMap { URL(string: $0.url) },
+                              durationMs: t.durationMs)
         }
     }
 
@@ -604,11 +730,7 @@ final class SpotifySource {
     }
 
     private struct DevicesDTO: Decodable {
-        struct D: Decodable {
-            let id: String?; let name: String?; let type: String?; let isActive: Bool?; let isRestricted: Bool?
-            let isPrivateSession: Bool?
-        }
-        let devices: [D]
+        let devices: [SpotifyDTO.Device]
     }
 
     /// The account's Spotify Connect devices (user-read-playback-state), id-less ones (a Sonos it
@@ -636,7 +758,8 @@ final class SpotifySource {
         var all = listed
         if let now {
             let playing = Device(id: now.deviceId ?? Device.noIdKey(now.deviceName), name: now.deviceName,
-                                 type: now.deviceType, isActive: true, hasId: now.deviceId != nil)
+                                 type: now.deviceType, isActive: true, hasId: now.deviceId != nil,
+                                 restricted: now.isRestricted, privateSession: now.isPrivateSession)
             if !listed.contains(where: { $0.same(as: playing) }) { all.append(playing) }
         }
         // Stable: the active one first, the rest in Spotify's order.
