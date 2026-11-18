@@ -1,4 +1,18 @@
-# Continue On (Android 17 cross-device handoff)
+# Continue On (Cross-Device Continuation & Handoff)
+
+> This document specifies Yoin's cross-device playback continuation across **Android 17 (API 37+)**, **Apple Handoff** (iOS, iPadOS, and macOS), and **HarmonyOS 应用接续**. See [platforms.md](platforms.md) for the platform parity overview.
+
+## Cross-Platform Summary
+
+| Platform | Mechanism | Transport & Identity | Confirmation UX | Pause Back-Channel |
+| :--- | :--- | :--- | :--- | :--- |
+| **Android 17+** | `Activity.setHandoffEnabled` / `HandoffActivityData` (`ContinueOnWindows`) | Google account + Wi-Fi + Bluetooth; `ContinueOnCursor` extras (< 50 KB) + `AccountKeys` | In-app `ContinueOnCard` ("Continue here") before playing | LAN TCP server (`ContinueOnPauseServer`: `PAUSE <token> <trackId>` → `OK <positionMs> <trackId>`) |
+| **iOS, iPadOS & macOS** | Apple Handoff (`NSUserActivity` type `com.gpo.yoin.playing`, `PlayingHandoff.swift`) | Apple ID / iCloud Handoff; `:shared` `AccountFingerprints` (`HandoffAccounts`) | **Direct open** via system Handoff (no `ContinueOnCard` confirmation) | None; clock catch-up up to `600s` (10 minutes) if playing; respects paused state |
+| **HarmonyOS** | OHOS `EntryAbility.onContinue` + `ContinueOnPlugin.ets` | Huawei system continuation + `ContinueOnCursor` (`harmony/docs/continue-on.md`) | In-app `ContinueOnCard` ("Continue here") | Same Dart `continue_on_controller.dart` + LAN TCP pause channel (`ContinueOnPauseChannel`) |
+
+---
+
+## Android 17 Cross-Device Handoff
 
 Android 17 (API 37) lets an app hand what it is doing to another of the
 user's devices: `Activity.setHandoffEnabled`, `onHandoffActivityDataRequested`,
@@ -90,3 +104,21 @@ later (`HomeBubbleTip.available`).
 Yoin targets API 36. Android 17 restricts local network access for apps that
 target it; moving to target 37 will need that permission for this channel
 (and for DLNA).
+
+---
+
+## Apple Handoff (iOS, iPadOS & macOS)
+
+Implemented in `iosApp/Yoin/App/PlayingHandoff.swift` (branch `claude/project-thread-2amedi`):
+
+- **System activity**: Publishes an `NSUserActivity` of type `com.gpo.yoin.playing` when a track is loaded, storing track, account fingerprint (from `:shared` `AccountFingerprints` / `HandoffAccounts`), source context, playback position, play state, timestamp (`sentAt`), queue window, and play mode.
+- **Direct open (no confirmation card)**: Opening the Handoff activity from another Apple device switches immediately to the matching account, restores the queue (full album/playlist/liked list when matched, or fallback `up to 30` track reads), applies up to **`600` seconds (10 minutes)** of clock catch-up if the source was playing (respects `paused` when paused), and starts playback cleanly.
+- **No LAN pause channel**: Unlike Android and HarmonyOS, Apple Handoff relies on the system activity lifecycle without a TCP `PAUSE` socket; for Spotify, starting on the receiving Apple device moves Spotify Connect over.
+
+## HarmonyOS App Continuation (应用接续)
+
+Implemented in `harmony/ohos/entry/src/main/ets/entryability/EntryAbility.ets`, `harmony/ohos/entry/src/main/ets/yoin/continueon/ContinueOnPlugin.ets`, and `harmony/lib/continueon/` (`harmony/docs/continue-on.md`):
+
+- Uses HarmonyOS system ability continuation (`onContinue`) paired with the Dart `ContinueOnController` and local-network `ContinueOnPauseChannel` (same `PAUSE <token> <trackId>` → `OK <positionMs> <trackId>` TCP protocol as Android).
+- Presents the same in-app `ContinueOnCard` ("Continue here") before switching accounts, pausing the sending device, rebuilding the queue, and resuming playback.
+- Spotify is excluded on HarmonyOS because no Spotify App Remote SDK exists for OHOS; the Tip card (`continueOn` in `harmony/lib/home/home_bubble_tips.dart`) is shown on HarmonyOS builds.

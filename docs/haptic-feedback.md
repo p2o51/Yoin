@@ -1,13 +1,13 @@
 # Yoin 震动反馈 (Haptic Feedback) 设计提案
 
-> **状态：已实现**（2026-07-25 复核）。§3 的「统一震动接口」已落地为
+> **状态：已实现（0.6.3+ 多端扩展，2026-11-18 校准）**。§4 的「统一震动接口」已落地为
 > `app/src/main/java/com/gpo/yoin/ui/experience/Haptics.kt`——`YoinHaptics` 把
 > `HapticFeedbackConstants` 语义化成 `performClick/performTick/performConfirm/performReject/`
-> `performLongPress/performContextClick/performLightTick`（低 API 各有降级路径），
-> 由 `rememberYoinHaptics()` 取用；当前 23 个 UI 文件（不含 `Haptics.kt` 本身）、80 处调用点。
-> 2026-10-04 为 Home 编辑态新增 `performDragStart/performSegmentTick/performThreshold/performToggle(on)`
-> （API 34 常量，低版本回退见 §F），编辑态只经 `HomeEditFeedback` 调用。
-> 本文保留为场景映射与设计意图的原始依据，不再是待办。
+> `performLongPress/performContextClick/performLightTick`，2026-10-04 新增编辑态常量，
+> 2026-11-16 新增 `performPluck`（歌词译文波浪弹拨合成震动）、`performFrequentTick`
+> （密集刻度步进）以及 `GrooveHaptics`（Memories Award 唱片刻纹合成节拍）。
+> iOS/iPadOS 与 HarmonyOS 亦分别映射至平台原生触感引擎（见 §3），桌面/macOS 端静默降级。
+> 本文第 2–3 节记录 Android 与多端现行语义规范；第 4 节保留原始落地参考。
 
 震动反馈能够显著提升应用的操作质感，帮助用户在不完全依赖视觉的情况下确认操作结果。基于 Yoin 当前的 UI 架构（包含正在播放页、首页、详情页、资料库等），本提案建议结合 Android 提供的 `HapticFeedbackConstants` 为不同的交互场景赋予层次分明的震动体验。
 
@@ -130,7 +130,36 @@ All / Artists / Albums 贴边的把手（`ui/component/YoinFastScroller.kt`，�
 | 气泡里的年月变了，但还在同一个刻度里 | 无 | — | — | 只换字 |
 | 松手 | 无 | — | — | 刻度列和气泡收起；把手留在手指离开的地方，列表自己动了或长度变了才用弹簧回到列表的位置，否则原地淡出 |
 
-## 3. 技术落地建议
+### I. 歌词译文波浪弹拨与补充点按触感（2026-11-16）
+
+对应提交 `d7d09efc0` 与 `Haptics.kt` 的 `performPluck`：
+
+- **译文波浪弹拨（`performPluck(opening: Boolean = true)`）**：
+  - 触发时机：全屏歌词切换显示/收起译文，每一行译文从当前聚焦行开始依次向外延迟展开/收起。
+  - Android 实现：在 API 31+ 且马达支持 `PRIMITIVE_CLICK` 与 `PRIMITIVE_LOW_TICK` 时，用 `VibrationEffect.startComposition()` 合成「一记轻拨起音 + 三段衰减余韵」（`PRIMITIVE_CLICK` `0.42f * strength`，随后 `34ms` 间隔 `0.30f`、`34ms` 间隔 `0.18f`、`46ms` 间隔 `0.09f` 的 `PRIMITIVE_LOW_TICK`；展开 `strength = 1.0f`，收起 `0.8f`）。API 33+ 使用 `VibrationAttributes.USAGE_TOUCH`，API 31–32 手动检查系统 `HAPTIC_FEEDBACK_ENABLED`，低版本或缺少原语回退为 `performLightTick()`。
+- **补充交互触感**：
+  - 歌单/专辑内可播放曲目行点击（`SongListItem`、`AlbumTrackRow`）：`performContextClick()`（不可用曲目展开原因说明时保留原有展开行为）。
+  - 歌词工具栏按钮（`LyricsActionBar`）、轻点歌词跳播与选择模式勾选项：按语义触发 `performContextClick()` / `performTick()`。
+  - Tab 切换组件（`YoinTabGroup`）：切入不同 Tab 时触发 `performSegmentTick()`。
+
+### J. 密集刻度步进、评分滑块与 Memories Award 刻纹节拍（2026-11）
+
+- **`performFrequentTick()`**（API 34 `SEGMENT_FREQUENT_TICK`，低版本回退 `performLightTick()`）：用于高密度连续步进交互——专辑页底部色带滑扫（`AlbumSpectrumBar` 色带切换）与「屏幕圆角」调节滑块细微变化（`ScreenCornerControl`）。
+- **评分滑块（`RatingSlider`）**：在滑动跨越 `0.1` 分步进时触发 `performTick()`。
+- **Memories Award 唱片刻纹合成震动（`GrooveHaptics.kt` / `awardBeats`）**：
+  - 随奖章颁发动画第一帧同步启动，按分档刻纹轨迹和 `reducedMotion` 规则生成节拍序列（`First`、`Replay`、`Nod`、`NodAgain` 四种模式）。
+  - 原语涵盖 `TICK`、`LOW_TICK`、`CLICK`、`THUD`、`SPIN`、`QUICK_RISE`；在 API 31+ 且全部原语受支持时以单次 `VibrationEffect.Composition` 播放（API 33+ `USAGE_TOUCH`），否则通过 `ViewFallback`（`fallbackBeats`）按时间点调用 `YoinHaptics`（不具备替代原语的步骤跳过）。
+
+## 3. 多端触感架构（Android / iOS / HarmonyOS / 平板与桌面）
+
+| 平台 | 实现路径 | 映射与降级行为 |
+| :--- | :--- | :--- |
+| **Android** | `ui/experience/Haptics.kt` (`YoinHaptics`) + `GrooveHaptics.kt` | View 语义常量 + API 31+ `VibrationEffect.Composition`；无马达平板（如 Pixel Tablet）不震动，依靠每一交互对应的视觉孪生动画表达反馈 |
+| **iOS & iPadOS** | UIKit `UIImpactFeedbackGenerator` / `UISelectionFeedbackGenerator`（`GrooveAward.swift` 中的 `GrooveHaptics`、`AlbumPullHaptics`、`HomeEdit`、`MemoriesGestures` 等） | 将 `GroovePrimitive` 刻纹节拍、专辑下拉张力、Home 编辑与切号阻尼映射为原生 iPhone 触觉引擎序列 |
+| **HarmonyOS** | ArkTS `YoinHapticsPlugin` (`harmony/ohos/.../yoin/haptics/HapticsPlugin.ets`, channel `yoin/haptics`) + `@ohos.vibrator` | 将 Yoin 13 种语义名（含 `frequentTick`，暂不含 `performPluck`）映射至 `haptic.effect.soft/hard/sharp`、`haptic.notice.success/fail` 与 `haptic.clock.timer`（`usage: 'touch'`），并用自定义 `VibratorPattern` 播放 Memories Award 刻纹节拍（不支持 HD 震动时自动降级） |
+| **macOS (iPad-on-Mac) 与桌面端** | 空操作（no-op） | 无振动马达，通过共享的弹簧物理与桌面指针悬停态承担状态确认 |
+
+## 4. 技术落地参考（历史）
 
 1. **统一震动接口**：建议在 `com.gpo.yoin.ui.experience` 包下新建 `Haptics.kt`，封装一个全局的扩展函数或组合项（Composable），将硬编码的 `Constants` 语义化。例如：
    ```kotlin

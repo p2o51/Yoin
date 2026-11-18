@@ -1,21 +1,33 @@
 # 云同步（Google Drive）
 
-> 状态：v1 实现中（2026-10-04）。产品层面的约束以本文为准，`docs/design.md` 的「设置」一节引用这里。
+> 状态：0.6.3+ 四端互通规范（Android / iOS & macOS / HarmonyOS）。产品与本地存储边界以本文、`docs/platforms.md` 与 `docs/i18n/zh-glossary.md` 为准，`docs/design.md` 引用这里。
 
 ## 一句话
 
-把笔记、评分、专辑长评、首页布局、少量设置和花钱生成的 AI 歌词翻译，存进用户**自己** Google Drive 里的隐藏应用文件夹（`appDataFolder`，权限只申请 `drive.appdata`）。默认关闭、可随时关；不登录 Yoin 照常完整可用，本地优先。
+把笔记、评分、专辑评论、首页布局、少量设置、歌单备份以及**在线 AI** 生成的歌词翻译与关于/问答内容，存进用户**自己** Google Drive 里的隐藏应用文件夹（`appDataFolder`，权限只申请 `drive.appdata`）。默认关闭、可随时关；不登录 Yoin 照常完整可用，本地优先。
+
+## 多端架构与存储形态（0.6.3+）
+
+四端复用相同的同步数据契约与合并语义（Core 引擎已在 `:shared` 的 `CloudSyncCore` / `SyncEngine` 中跨平台对齐）：
+
+| 平台 | Google OAuth 方式 | 引擎实现 | Drive `appDataFolder` 远端文件 | 本地防克隆副本库（不入系统备份） |
+| :--- | :--- | :--- | :--- | :--- |
+| **Android** (`app/`) | Credential Manager + Play Services Drive Auth | Kotlin 同步引擎 + Room 副本库 | 共享 `SyncContracts` 线协议文件：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-<epoch>-<设备ID>.json` | `no_backup/yoin-sync.db` |
+| **iOS & iPadOS / macOS** (`iosApp/`, branch `claude/project-thread-2amedi`) | `GoogleSignIn` | `:shared` `CloudSyncCore` (`SyncEngine`, `DriveAppDataClient`) | 同上共享 `SyncContracts` 线协议文件 | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（Mac 端调试需确认 `keychain-access-groups` entitlement） |
+| **HarmonyOS** (`harmony/`) | Loopback OAuth PKCE | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
+
+> 注：所有平台均必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。
 
 ## 评估结论
 
-ChatGPT 讨论里的方向（appDataFolder + 本地优先 + 字段白名单 + 墓碑 + 按 Profile 分区 + 凭据不出设备）成立，Yoin 现有结构也撑得住。但落到代码上有几处必须改：
+整体方向（`appDataFolder` + 本地优先 + 字段白名单 + 墓碑 + 按 Profile 分区 + 凭据与密钥不出设备）在多端均成立，落到实现上的核心约束如下：
 
 | 问题 | 结论 |
 |---|---|
-| Drive v3 **没有条件写**（无 ETag / If-Match），多设备写同一个文件必丢数据 | 每台设备只写自己的文件，读别人的文件后合并 |
-| Profile ID 是每台设备随机生成的 UUID，两台设备上的同一个账号 ID 不同 | 用账号指纹（Subsonic 服务器+用户名、Spotify 用户 ID）派生同步 ID，持久化绑定，只有显式操作才会改 |
+| Drive v3 **没有条件写**（无 ETag / If-Match），多设备写同一个文件必丢数据 | 每台设备写自己的状态文件（Android 按设备 ID 分 state/artifacts；Apple/HarmonyOS 通过各自 `SyncEngine` 读合并再写回），读他端快照后按版本号全序合并 |
+| Profile ID 是每台设备随机生成的 UUID，两台设备上的同一个账号 ID 不同 | 用账号指纹（Subsonic 服务器+用户名、Spotify 用户 ID）派生同步 ID（`:shared` `AccountFingerprints` / `AccountBinder`），持久化绑定，只有显式操作才会改 |
 | 删除是硬删除，数据表大多没有可靠时间戳 | 本地副本库对比出变更，删除生成墓碑，不在写入点埋点 |
-| `gemini_config` 一行里同时放了 API Key 和翻译语言 | 只同步语言字段；Key 永不出设备 |
+| Android `gemini_config` 一行里同时放了 Gemini API Key 和翻译语言 | 云同步只同步语言字段；所有 AI / Search / 音源 API Key **永不同步到 Drive**（注意在 Android 本机系统备份中，`gemini_config` 位于主数据库内仍可能随 Android 自动备份同步；DeepSeek/千问/自定义 AI 与搜索密钥在 `noBackupFilesDir/ai_provider.json`，HarmonyOS 在 `SecretStore`，iOS 在 Keychain） |
 | 改翻译语言会清空所有 About/Ask（含用户写的问题） | 同步过来的语言只在本机没有 About/Ask 记录时才生效，绝不清表 |
 | 同步过来的 Spotify Client ID 会让本机已登录的 Spotify 刷新失败 | 只在本机没有自定义 ID、也没有 Spotify 账号时才采用 |
 | NeoDB 实例地址同步过来会把本机 token 发到别的服务器 | 不同步 |
@@ -28,15 +40,15 @@ ChatGPT 讨论里的方向（appDataFolder + 本地优先 + 字段白名单 + �
 | 单曲评分、专辑评分 | 按音乐账号 | 最后修改的为准（取消评分 = 0，也是一个值） |
 | 专辑长评 | 按音乐账号 | 两台设备同时改：**两段都保留**，中间用「设备 · 日期」分隔 |
 | 首页布局 | 按音乐账号 | 最后修改的为准；「恢复默认」会同步（本机删掉布局行 = 默认） |
-| 翻译语言、Spotify Client ID、滚动边缘样式 | 全局 | 见上表的保护规则 |
-| Gemini 歌词翻译（附生成时用的歌词快照） | 全局 | 只增不删；不会覆盖你手动修改的歌词 |
-| Memory 的 AI 文案和 AI 拟题（专辑标题） | 按音乐账号 | 文案、标题分两类各自「最后修改为准」，新文案不会冲掉别处写的标题；不删 |
+| 翻译语言、Spotify Client ID、滚动边缘样式 | 全局 | 见上表的保护规则；注：`ScreenCorners` 仅限本机生效，不同步 |
+| 在线 AI 歌词翻译（附生成时用的歌词快照） | 全局 | 只增不删；不会覆盖你手动修改的歌词 |
+| Memories 的 AI 文案（`memory_copy`）和 AI 拟题（`memory_title`） | 按音乐账号 | 文案、标题分两类各自「最后修改为准」，新文案不会冲掉别处写的标题；不删 |
 | 你改过的专辑标题 | 按音乐账号 | 最后修改为准，始终优先于 AI 标题；「恢复 AI 标题」会同步 |
-| About 和 Ask Gemini（含你自己问的问题） | 全局 | 每条带生成时的语言，只写进同语言的设备；切换语言清表不会同步成删除，换到那个语言后自动补回 |
-| 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
-| 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md` §7） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
+| 歌曲「关于」/ 问一问回答（`song_about`，含你自己问的问题） | 全局 | 每条带生成时的语言，只写进同语言的设备；切换语言清表不会同步成删除，换到那个语言后自动补回 |
+| 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」、Apple Music 店面） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
+| 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md`） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
 
-**不同步**：密码、Token、API Key、Apple Music 服务地址、当前激活的账号、头像、播放历史/活动记录（每台设备各自保留）、各种缓存、手打的歌词（v1 暂不；从搜索面板选的歌词会随 AI 译文的快照带过去，带「用户选择」标记）。
+**不同步**：密码、Token、API Key（音源 / NeoDB / 在线 AI / 外部搜索）、Apple Music 服务地址、当前激活的账号、头像、播放历史/活动记录（每台设备各自保留）、各种音频与封面缓存、`ScreenCorners`（每台设备屏幕物理圆角不同）、手打的歌词（v1 暂不；从搜索面板选的歌词会随 AI 译文的快照带过去，带「用户选择」标记）。
 
 ## 怎么存
 
