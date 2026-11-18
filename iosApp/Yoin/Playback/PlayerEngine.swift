@@ -1,0 +1,913 @@
+import Foundation
+import Observation
+import YoinShared
+
+/// The playing position, split off the engine so only progress UI (scrubber,
+/// time labels, lock screen) reads it. Android rule: a per-tick field must
+/// never churn the whole Now Playing state; here the engine's own properties
+/// change only on real state changes and this object takes the ≤ 4 Hz ticks.
+@MainActor
+@Observable
+final class PlaybackProgress {
+    var positionSec: Double = 0
+    var durationSec: Double = 0
+
+    var fraction: Double { durationSec > 0 ? min(max(positionSec / durationSec, 0), 1) : 0 }
+}
+
+/// Native playback: the queue, its play modes and the transport, driving an
+/// [AudioOutput] (AVQueuePlayer in the app, a fake in tests).
+///
+/// Semantics follow Android's Media3 setup (`player/PlaybackManager.kt`,
+/// `PlayMode.kt`):
+/// - previous restarts the song past its first 3 s, else goes back a song;
+/// - repeat one only repeats on auto-advance; next / previous move on, and
+///   wrap around only under repeat all;
+/// - repeat off stops at the end of the queue;
+/// - play next goes right after the current song; add to queue goes after
+///   the songs the user already queued there, ahead of the rest;
+/// - the current song can't be removed from the queue.
+@MainActor
+@Observable
+final class PlayerEngine {
+    /// Previous restarts the song past this point (Media3 maxSeekToPreviousPosition, owner W2).
+    static let previousRestartThresholdSec: Double = 3
+    /// Submission rule (Last.fm / Subsonic scrobble): half the song or 4 min, songs over 30 s.
+    static let scrobbleMinTrackSec: Double = 30
+    static let scrobbleMaxListenSec: Double = 240
+
+    // MARK: Observable state
+
+    /// Play order (shuffled when `shuffle` is on).
+    private(set) var queue: [QueueItem] = []
+    private(set) var currentIndex: Int?
+    /// The user wants sound: true from play until pause, even while buffering.
+    private(set) var isPlaying = false
+    private(set) var isBuffering = false
+    /// The output itself said it is waiting for data (AVPlayer's
+    /// waitingToPlay): the lock screen's clock stops until it plays again
+    /// (Codex review 2026-11-10 #22). Outputs that never report it (Spotify)
+    /// leave it false.
+    private(set) var outputStalled = false
+    private(set) var shuffle = false
+    private(set) var repeatMode: RepeatMode = .all
+    /// Ticks live here; see [PlaybackProgress].
+    let progress = PlaybackProgress()
+    /// The current song couldn't be played and playback is held on it (the network or the server is
+    /// down: skipping on would only fail the rest of the queue too), or the whole queue failed. Cleared
+    /// by `retry`, or any new load (Codex A39; Android keeps the failed track and its error).
+    private(set) var failure: PlaybackFailure?
+
+    var currentItem: QueueItem? { currentIndex.map { queue[$0] } }
+    /// What is playing: Spotify's own song while it plays one that isn't the queue's
+    /// ([externalTrack]), else the queue's current song.
+    var currentTrack: PlayableTrack? { externalTrack ?? currentItem?.track }
+    /// A song the output plays that isn't in the queue (51, 2026-11-06: Yoin shows what Spotify really
+    /// plays, here or on the device it drives). The queue stays parked under it.
+    private(set) var externalTrack: PlayableTrack?
+    /// Spotify's own shuffle and repeat (nil: not reported yet). On Spotify's own song the play-mode button
+    /// shows and turns these, not the parked queue's ([shownShuffle], [cycleShownPlayMode]).
+    private(set) var externalModes: SpotifyModes?
+    /// Songs after the current one, in play order.
+    var upcoming: ArraySlice<QueueItem> {
+        guard let i = currentIndex, i + 1 < queue.count else { return [] }
+        return queue[(i + 1)...]
+    }
+
+    // MARK: Hooks
+
+    /// `submission == false`: the song started ("now playing"); `true`: it
+    /// was listened to long enough to count as a play.
+    @ObservationIgnored var onScrobble: ((PlayableTrack, _ submission: Bool, _ listenedSec: Double) -> Void)?
+    @ObservationIgnored var onEvent: ((PlayerEvent) -> Void)?
+    /// A turn of the play-mode button on Spotify's own song, for Spotify (PlaybackSystem: the Web API).
+    @ObservationIgnored var onExternalModes: ((SpotifyModes) -> Void)?
+    /// Right before sound starts (activate the audio session).
+    @ObservationIgnored var onWillPlay: (() -> Void)?
+    /// Track, play state, duration or a seek changed (refresh the lock screen).
+    @ObservationIgnored var onStateChange: (() -> Void)?
+    /// The Subsonic stream quality, read when a song opens (Settings › Server, the network, the route).
+    @ObservationIgnored var streamQuality: () -> StreamQuality = { .original }
+    /// The whole stream behind a URL is in the audio cache (Data/Cache): a
+    /// stored transcode seeks in its own bytes instead of reopening at `timeOffset`.
+    @ObservationIgnored var isStoredWhole: (URL) -> Bool = { _ in false }
+    /// The downloaded file a stream url plays when the song is whole on the
+    /// device (OfflineDownloads): played from disk whatever the stream quality.
+    @ObservationIgnored var downloadedFile: (URL) -> URL? = { _ in nil }
+    /// The Subsonic server takes `timeOffset` on `stream` (OpenSubsonic `transcodeOffset`).
+    @ObservationIgnored var timeOffsetSupported: () -> Bool = { false }
+
+    // MARK: Internals
+
+    @ObservationIgnored private let output: any AudioOutput
+    @ObservationIgnored private let shuffler: ([QueueItem]) -> [QueueItem]
+    /// The queue in its unshuffled order while shuffle is on.
+    @ObservationIgnored private var originalOrder: [QueueItem]?
+    /// The slot the output has preloaded as its next item.
+    @ObservationIgnored private var preloadedID: UUID?
+    @ObservationIgnored private var preloadedURL: URL?
+    /// Repeat off ran out of queue: the next play starts the last song over.
+    @ObservationIgnored private var ended = false
+    @ObservationIgnored private var consecutiveFailures = 0
+    @ObservationIgnored private var scrobble = ScrobbleState()
+    /// Spotify's own song's listening, kept apart from the parked queue song's (Android records whatever
+    /// plays: a song played from the Spotify app is a play too).
+    @ObservationIgnored private var externalScrobble = ScrobbleState()
+    /// "provider:id" of the song [externalScrobble] counts: the same song reported again keeps counting.
+    @ObservationIgnored private var externalScrobbleKey: String?
+    /// Each slot's stream, chosen when it is first opened or preloaded: a
+    /// song keeps it through seeks and retries, so the quality never
+    /// switches mid-song (Android `SubsonicStreamResolver` pins).
+    @ObservationIgnored private var deliveries: [UUID: StreamDelivery] = [:]
+    /// Where the current item's stream starts in the song: a transcode
+    /// reopened with `timeOffset` reports time from its own start.
+    @ObservationIgnored private var timeBaseSec: Double = 0
+
+    private struct ScrobbleState {
+        var itemID: UUID?
+        var announced = false
+        var submitted = false
+        var listenedSec: Double = 0
+        var lastTickSec: Double?
+        /// When the last tick came, on the monotonic clock.
+        var lastTickAt: Double = ProcessInfo.processInfo.systemUptime
+    }
+
+    private var spotifyOutput: SpotifyAudioOutput? {
+        (output as? SpotifyAudioOutput) ?? ((output as? RoutingAudioOutput)?.spotify as? SpotifyAudioOutput)
+    }
+
+    init(output: any AudioOutput, shuffler: @escaping ([QueueItem]) -> [QueueItem] = { $0.shuffled() }) {
+        self.output = output
+        self.shuffler = shuffler
+        output.events = self
+        spotifyOutput?.trackMetadata = { [weak self] trackId in
+            guard let self, let match = self.queue.first(where: { $0.track.id == trackId }) else { return nil }
+            return (match.track.title, match.track.artist)
+        }
+    }
+
+    // MARK: Starting
+
+    /// Replaces the queue with [tracks] and plays [startAt], from [startSec] into it; [paused] loads it
+    /// without playing (a Handoff from a device that was paused: Android play(startPaused)).
+    func play(queue tracks: [PlayableTrack], startAt: Int = 0, startSec: Double = 0, paused: Bool = false) {
+        guard !tracks.isEmpty else { stop(); return }
+        let start = min(max(startAt, 0), tracks.count - 1)
+        let items = tracks.map { QueueItem($0) }
+        if shuffle {
+            originalOrder = items
+            queue = [items[start]] + shuffler(items.enumerated().filter { $0.offset != start }.map(\.element))
+            currentIndex = 0
+        } else {
+            originalOrder = nil
+            queue = items
+            currentIndex = start
+        }
+        consecutiveFailures = 0
+        loadCurrent(play: !paused, startSec: max(0, startSec), kind: .newQueue)
+    }
+
+    /// Takes [tracks] as the queue without starting anything (Add to queue on an empty player:
+    /// Media3 addMediaItems). Nothing is loaded either: Spotify's output starts the song on load, so
+    /// the first Play loads it (the `ended` path).
+    func cue(queue tracks: [PlayableTrack]) {
+        guard currentIndex == nil, !tracks.isEmpty else { return }
+        cue(tracks.map { QueueItem($0, userQueued: true) })
+    }
+
+    private func cue(_ items: [QueueItem]) {
+        if shuffle {
+            originalOrder = items
+            queue = [items[0]] + shuffler(Array(items.dropFirst()))
+        } else {
+            originalOrder = nil
+            queue = items
+        }
+        currentIndex = 0
+        ended = true
+        failure = nil
+        isPlaying = false
+        isBuffering = false
+        outputStalled = false
+        progress.positionSec = 0
+        progress.durationSec = items[0].track.durationSec
+        onStateChange?()
+    }
+
+    /// Plays queue entry [index] (a tap in the queue sheet).
+    func jump(to index: Int) {
+        guard queue.indices.contains(index) else { return }
+        currentIndex = index
+        loadCurrent(play: true)
+    }
+
+    func stop() {
+        output.stop()
+        queue = []
+        originalOrder = nil
+        currentIndex = nil
+        // Spotify's own song and a failure belong to the session that stopped (an account switch).
+        externalTrack = nil
+        externalModes = nil
+        failure = nil
+        consecutiveFailures = 0
+        isPlaying = false
+        isBuffering = false
+        outputStalled = false
+        ended = false
+        preloadedID = nil
+        preloadedURL = nil
+        deliveries = [:]
+        timeBaseSec = 0
+        progress.positionSec = 0
+        progress.durationSec = 0
+        scrobble = ScrobbleState()
+        externalScrobble = ScrobbleState()
+        externalScrobbleKey = nil
+        onStateChange?()
+    }
+
+    // MARK: Transport
+
+    func togglePlayPause() {
+        isPlaying ? pause() : resume()
+    }
+
+    func resume() {
+        guard currentIndex != nil || externalTrack != nil, !isPlaying else { return }
+        if failure != nil { return retry() }
+        if externalTrack == nil, ended {
+            ended = false
+            loadCurrent(play: true)
+            return
+        }
+        onWillPlay?()
+        isPlaying = true
+        output.play()
+        onStateChange?()
+    }
+
+    func pause() {
+        guard isPlaying else { return }
+        isPlaying = false
+        output.pause()
+        // The output's own clock is the truth at the moment of the pause.
+        progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
+        activeScrobble.lastTickSec = progress.positionSec
+        activeScrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+        onStateChange?()
+    }
+
+    func next() {
+        if externalTrack != nil { return output.skipExternal(forward: true) }
+        guard let i = currentIndex else { return }
+        if i + 1 < queue.count {
+            currentIndex = i + 1
+        } else if repeatMode == .all {
+            currentIndex = 0
+        } else {
+            return
+        }
+        loadCurrent(play: isPlaying || ended)
+    }
+
+    func previous() {
+        if externalTrack != nil { return output.skipExternal(forward: false) }
+        guard let i = currentIndex else { return }
+        if progress.positionSec > Self.previousRestartThresholdSec {
+            seek(to: 0)
+            return
+        }
+        if i > 0 {
+            currentIndex = i - 1
+        } else if repeatMode == .all, queue.count > 1 {
+            currentIndex = queue.count - 1
+        } else {
+            seek(to: 0)
+            return
+        }
+        loadCurrent(play: isPlaying || ended)
+    }
+
+    func seek(to sec: Double) {
+        guard currentIndex != nil || externalTrack != nil else { return }
+        let duration = progress.durationSec
+        let target = duration > 0 ? min(max(sec, 0), duration) : max(sec, 0)
+        if externalTrack != nil {
+            // Spotify's own song: it seeks there; nothing of the queue's song moves.
+            output.seek(to: target)
+            progress.positionSec = target
+            // A seek is a jump, not listening time.
+            externalScrobble.lastTickSec = target
+            externalScrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+            return onStateChange?() ?? ()
+        }
+        if ended {
+            ended = false
+            loadCurrent(play: false, startSec: target)
+            return
+        }
+        if let item = currentItem, delivery(for: item).seeksByTime {
+            reopenTranscode(item, at: target)
+            return
+        }
+        output.seek(to: target)
+        progress.positionSec = target
+        // A seek is a jump, not listening time.
+        scrobble.lastTickSec = target
+        scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+        onStateChange?()
+    }
+
+    // MARK: Modes
+
+    func setShuffle(_ on: Bool) {
+        guard on != shuffle else { return }
+        shuffle = on
+        // The lock screen's shuffle state follows (PlaybackSystem).
+        defer { onStateChange?() }
+        guard let i = currentIndex else { return }
+        let current = queue[i]
+        if on {
+            originalOrder = queue
+            var rest = queue
+            rest.remove(at: i)
+            queue = [current] + shuffler(rest)
+            currentIndex = 0
+        } else if let original = originalOrder {
+            queue = original
+            currentIndex = original.firstIndex { $0.id == current.id } ?? 0
+            originalOrder = nil
+        }
+        syncPreload()
+        output.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
+    }
+
+    /// Now Playing's round play-mode button (Android `PlayMode.next()`), one
+    /// axis per tap: repeat all → shuffle → shuffle + repeat one → repeat one
+    /// → repeat all. From repeat off it goes back to repeat all, shuffle kept.
+    func cyclePlayMode() {
+        switch (shuffle, repeatMode) {
+        case (false, .all): setShuffle(true)
+        case (true, .all): setRepeat(.one)
+        case (true, .one): setShuffle(false)
+        case (false, .one): setRepeat(.all)
+        case (_, .off): setRepeat(.all)
+        }
+    }
+
+    func setRepeat(_ mode: RepeatMode) {
+        guard mode != repeatMode else { return }
+        repeatMode = mode
+        defer { onStateChange?() }
+        syncPreload()
+        output.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
+    }
+
+    // MARK: Spotify's own modes
+
+    /// What the play-mode button shows: Spotify's own modes on Spotify's own song, else the queue's.
+    var shownShuffle: Bool { externalTrack != nil ? externalModes?.shuffle ?? false : shuffle }
+    var shownRepeatMode: RepeatMode { externalTrack != nil ? externalModes?.repeatMode ?? .off : repeatMode }
+
+    /// A turn made here holds this long against Spotify's reports, which may predate it.
+    static let externalModesHoldSec: Double = 3
+    @ObservationIgnored private var externalModesTouchedAt = -Double.infinity
+
+    /// The round button's tap: on Spotify's own song it turns Spotify's modes (the queue's stay parked).
+    func cycleShownPlayMode() {
+        guard externalTrack != nil else { return cyclePlayMode() }
+        setExternalModes(SpotifyModes(shuffle: shownShuffle, repeatMode: shownRepeatMode).cycled)
+    }
+
+    func setShownShuffle(_ on: Bool) {
+        guard externalTrack != nil else { return setShuffle(on) }
+        setExternalModes(SpotifyModes(shuffle: on, repeatMode: shownRepeatMode))
+    }
+
+    func setShownRepeat(_ mode: RepeatMode) {
+        guard externalTrack != nil else { return setRepeat(mode) }
+        setExternalModes(SpotifyModes(shuffle: shownShuffle, repeatMode: mode))
+    }
+
+    private func setExternalModes(_ modes: SpotifyModes) {
+        guard modes != SpotifyModes(shuffle: shownShuffle, repeatMode: shownRepeatMode) else { return }
+        externalModesTouchedAt = ProcessInfo.processInfo.systemUptime
+        externalModes = modes
+        onExternalModes?(modes)
+        onStateChange?()
+    }
+
+    /// Spotify said what its modes are (App Remote's state, a me/player read): the button follows them on
+    /// Spotify's own song.
+    func spotifyModesDidChange(_ modes: SpotifyModes) {
+        guard ProcessInfo.processInfo.systemUptime - externalModesTouchedAt >= Self.externalModesHoldSec,
+              modes != externalModes else { return }
+        externalModes = modes
+        if externalTrack != nil { onStateChange?() }
+    }
+
+    // MARK: Queue edits
+
+    /// Right after the current song (stacks: the newest play-next plays first).
+    func playNext(_ track: PlayableTrack) {
+        insertUserQueued(track, afterQueued: false)
+    }
+
+    /// After the songs already queued by the user, ahead of the rest.
+    func addToQueue(_ track: PlayableTrack) {
+        insertUserQueued(track, afterQueued: true)
+    }
+
+    /// Moves the entry at [from] to [to] (play-order indices). Shuffle restore
+    /// keeps the original order, as Media3 does.
+    func move(from: Int, to: Int) {
+        guard from != to, queue.indices.contains(from), queue.indices.contains(to) else { return }
+        let currentID = currentItem?.id
+        let item = queue.remove(at: from)
+        queue.insert(item, at: to)
+        currentIndex = queue.firstIndex { $0.id == currentID }
+        syncPreload()
+    }
+
+    /// `List.onMove` form: [offsets] → before [destination].
+    func move(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        let currentID = currentItem?.id
+        let moving = offsets.map { queue[$0] }
+        guard !moving.contains(where: { $0.id == currentID }) else { return }
+        var rest = queue
+        for i in offsets.sorted(by: >) { rest.remove(at: i) }
+        let insertAt = destination - offsets.filter { $0 < destination }.count
+        rest.insert(contentsOf: moving, at: min(max(insertAt, 0), rest.count))
+        queue = rest
+        currentIndex = queue.firstIndex { $0.id == currentID }
+        syncPreload()
+    }
+
+    /// Takes entry [index] out. The current song stays (Android rule).
+    func remove(at index: Int) {
+        guard queue.indices.contains(index), index != currentIndex else { return }
+        let id = queue[index].id
+        queue.remove(at: index)
+        originalOrder?.removeAll { $0.id == id }
+        if let i = currentIndex, index < i { currentIndex = i - 1 }
+        syncPreload()
+    }
+
+    func remove(id: UUID) {
+        if let i = queue.firstIndex(where: { $0.id == id }) { remove(at: i) }
+    }
+
+    private func insertUserQueued(_ track: PlayableTrack, afterQueued: Bool) {
+        let item = QueueItem(track, userQueued: true)
+        guard let i = currentIndex else { return cue([item]) }
+        var at = i + 1
+        if afterQueued {
+            while at < queue.count, queue[at].userQueued { at += 1 }
+        }
+        queue.insert(item, at: at)
+        if var original = originalOrder {
+            // Same rule against the unshuffled order, so it survives shuffle off.
+            let currentID = queue[i].id
+            var o = (original.firstIndex { $0.id == currentID } ?? original.count - 1) + 1
+            if afterQueued {
+                while o < original.count, original[o].userQueued { o += 1 }
+            }
+            original.insert(item, at: min(o, original.count))
+            originalOrder = original
+        }
+        syncPreload()
+    }
+
+    // MARK: Loading
+
+    /// The entry auto-advance moves to after the current one ends.
+    private var autoAdvanceIndex: Int? {
+        guard let i = currentIndex else { return nil }
+        switch repeatMode {
+        case .one: return i
+        case .all: return i + 1 < queue.count ? i + 1 : 0
+        case .off: return i + 1 < queue.count ? i + 1 : nil
+        }
+    }
+
+    /// The song auto-advance plays next (nil on repeat-one, which plays the
+    /// same song again, and at the end of a queue that doesn't repeat). Nil
+    /// under Spotify's own song too: Spotify, not the parked queue, decides
+    /// what follows it, so the outro has no next song to show.
+    var upNextTrack: PlayableTrack? {
+        guard externalTrack == nil, repeatMode != .one, let i = autoAdvanceIndex, i != currentIndex, queue.indices.contains(i) else { return nil }
+        return queue[i].track
+    }
+
+    /// Plays the failed song again from where it stopped (Retry; play does the same).
+    func retry() {
+        guard failure != nil else { return }
+        if let deadExternal = externalTrack {
+            if spotifyOutput?.hasDeadExternalTarget == true {
+                // P0-2: remote speaker vanished or left no active target — clear stale external adoption
+                // and surface clean guidance rather than firing 404 resumePlayback into a dead loop.
+                externalTrack = nil
+                externalScrobbleKey = nil
+                isPlaying = false
+                isBuffering = false
+                progress.durationSec = currentItem?.track.durationSec ?? 0
+                progress.positionSec = 0
+                consecutiveFailures = 0
+                let guidance = Platform.current.isMac
+                    ? SpotifyFailureCopy.notOpenOnMac
+                    : SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word)
+                let reportedTrack = currentItem?.track ?? deadExternal
+                failure = PlaybackFailure(track: reportedTrack, message: guidance, network: true)
+                onEvent?(.failed(track: reportedTrack, message: guidance))
+                onStateChange?()
+                return
+            }
+            // The failure is Spotify's own song's: Retry plays that song in Spotify again, never the parked
+            // queue's (audit 11-15 #38: it started the parked song over Spotify's).
+            failure = nil
+            consecutiveFailures = 0
+            onWillPlay?()
+            isPlaying = true
+            output.play()
+            onStateChange?()
+            return
+        }
+        guard currentIndex != nil else { return }
+        let at = progress.positionSec
+        consecutiveFailures = 0
+        loadCurrent(play: true, startSec: at)
+    }
+
+    /// [kind]: why (a new queue, the listener within it, or the engine moving on by itself).
+    private func loadCurrent(play: Bool, startSec: Double = 0, kind: OutputLoadKind = .listener) {
+        externalTrack = nil
+        guard let item = currentItem else { return }
+        ended = false
+        failure = nil
+        let live = Set(queue.map(\.id))
+        deliveries = deliveries.filter { live.contains($0.key) }
+        let delivery = delivery(for: item)
+        // A transcode starts at the second asked for; a file seeks by byte.
+        let offset = delivery.seeksByTime ? Self.wholeSeconds(startSec) : 0
+        timeBaseSec = Double(offset)
+        let start = delivery.seeksByTime ? Double(offset) : startSec
+        let next = autoAdvanceIndex.map { queue[$0] }
+        preloadedID = next?.id
+        preloadedURL = next.map { streamURL(for: $0) }
+        progress.positionSec = start
+        progress.durationSec = item.track.durationSec
+        beginScrobble(item, at: start)
+        isBuffering = true
+        output.nextLoad(kind)
+        output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL,
+                    startSec: delivery.seeksByTime ? 0 : startSec)
+        if play {
+            onWillPlay?()
+            isPlaying = true
+            output.play()
+        } else {
+            // The output may still be running from the song before (AVQueuePlayer keeps its rate).
+            if isPlaying { output.pause() }
+            isPlaying = false
+        }
+        onStateChange?()
+    }
+
+    /// Tells the output what plays after the current item, when that changed.
+    private func syncPreload() {
+        let next = autoAdvanceIndex.map { queue[$0] }
+        let url = next.map { streamURL(for: $0) }
+        guard next?.id != preloadedID || url != preloadedURL else { return }
+        preloadedID = next?.id
+        preloadedURL = url
+        output.preload(url)
+    }
+
+    // MARK: Stream quality
+
+    /// The quality changed (Settings, the network, or the route under Auto): every
+    /// song not yet playing chooses again when it opens (the preloaded one included); the current song
+    /// keeps its stream.
+    func streamQualityDidChange() {
+        let currentID = currentItem?.id
+        deliveries = deliveries.filter { $0.key == currentID }
+        syncPreload()
+    }
+
+    private func delivery(for item: QueueItem) -> StreamDelivery {
+        if let pinned = deliveries[item.id] { return pinned }
+        // A downloaded song plays its file: no transcode, it seeks by byte.
+        if downloadedFile(item.track.streamURL) != nil {
+            deliveries[item.id] = .original
+            return .original
+        }
+        var planned = StreamDelivery.plan(streamQuality(), track: item.track, timeOffset: timeOffsetSupported())
+        if planned.seeksByTime, isStoredWhole(SubsonicStreamURLs.url(item.track.streamURL, delivery: planned)) {
+            planned.seeksByTime = false
+        }
+        deliveries[item.id] = planned
+        return planned
+    }
+
+    private func streamURL(for item: QueueItem, timeOffsetSec: Int = 0) -> URL {
+        if let file = downloadedFile(item.track.streamURL) { return file }
+        let delivery = delivery(for: item)
+        guard delivery.transcoded else { return item.track.streamURL }
+        return SubsonicStreamURLs.url(item.track.streamURL, delivery: delivery, timeOffsetSec: timeOffsetSec)
+    }
+
+    /// A seek in a transcode: the server has no bytes to range into, so the
+    /// stream reopens at [sec] (`timeOffset`, whole seconds) and the output's
+    /// clock counts from there.
+    private func reopenTranscode(_ item: QueueItem, at sec: Double) {
+        let offset = Self.wholeSeconds(sec)
+        timeBaseSec = Double(offset)
+        isBuffering = true
+        output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL, startSec: 0)
+        if isPlaying { output.play() }
+        progress.positionSec = Double(offset)
+        // A seek is a jump, not listening time.
+        scrobble.lastTickSec = Double(offset)
+        scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+        onStateChange?()
+    }
+
+    static func wholeSeconds(_ sec: Double) -> Int {
+        sec.isFinite && sec > 0 ? Int(sec.rounded(.down)) : 0
+    }
+
+    // MARK: Scrobble
+
+    private func beginScrobble(_ item: QueueItem, at sec: Double) {
+        scrobble = ScrobbleState(itemID: item.id, lastTickSec: sec)
+    }
+
+    /// The song now playing's count: Spotify's own song's while it plays one, else the queue song's.
+    private var activeScrobble: ScrobbleState {
+        get { externalTrack != nil ? externalScrobble : scrobble }
+        set { if externalTrack != nil { externalScrobble = newValue } else { scrobble = newValue } }
+    }
+
+    private func announceIfNeeded() {
+        guard let track = currentTrack, !activeScrobble.announced else { return }
+        activeScrobble.announced = true
+        onScrobble?(track, false, 0)
+    }
+
+    private func countListening(to sec: Double) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let wall = now - activeScrobble.lastTickAt
+        let last = activeScrobble.lastTickSec
+        activeScrobble.lastTickSec = sec
+        activeScrobble.lastTickAt = now
+        guard isPlaying, let last, let track = currentTrack else { return }
+        let delta = sec - last
+        // Ticks come every 0.25 s, but a busy main thread can hold them back:
+        // the playhead moving no faster than real time is listening, however
+        // late the tick (Codex review 2026-11-10 #23); faster is a seek.
+        guard delta > 0, delta < 2 || delta <= wall + 0.5 else { return }
+        // Announced (now playing, a history row) once the output really plays it: a start that
+        // failed, or was retried, isn't a play.
+        announceIfNeeded()
+        activeScrobble.listenedSec += delta
+        let listened = activeScrobble.listenedSec
+        let duration = progress.durationSec > 0 ? progress.durationSec : track.durationSec
+        // A length still unknown counts after four minutes heard (Android ScrobbleTracker.kt:24).
+        guard !activeScrobble.submitted, duration <= 0 || duration > Self.scrobbleMinTrackSec else { return }
+        let needed = duration > 0 ? min(duration / 2, Self.scrobbleMaxListenSec) : Self.scrobbleMaxListenSec
+        if listened >= needed {
+            activeScrobble.submitted = true
+            onScrobble?(track, true, listened)
+        }
+    }
+
+    // MARK: Failure
+
+    /// The network / server failed under the current song: hold on it (paused, the error kept, Retry
+    /// starts it again where it was) instead of failing the whole queue one song at a time.
+    private func holdAfterFailure(_ message: String) {
+        // Spotify's own song owns a failure while it plays, with no queue under it too (audit 11-15 #38:
+        // there was no banner, and the output's quiet pause swallowed the listener's next one).
+        guard let track = externalTrack ?? currentItem?.track else { return }
+        progress.positionSec = max(progress.positionSec, output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0))
+        output.pause()
+        isPlaying = false
+        isBuffering = false
+        outputStalled = false
+        failure = PlaybackFailure(track: track, message: message, network: true)
+        onEvent?(.failed(track: track, message: message))
+        onStateChange?()
+    }
+
+    private func skipAfterFailure(_ message: String) {
+        guard let track = currentItem?.track else { return }
+        consecutiveFailures += 1
+        onEvent?(.skippedAfterError(track: track, message: message))
+        if consecutiveFailures >= queue.count {
+            output.stop()
+            isPlaying = false
+            isBuffering = false
+            outputStalled = false
+            ended = true
+            failure = PlaybackFailure(track: track, message: message, network: false)
+            onEvent?(.queueFailed)
+            onStateChange?()
+            return
+        }
+        let i = currentIndex ?? 0
+        if i + 1 < queue.count {
+            currentIndex = i + 1
+        } else if repeatMode != .off {
+            currentIndex = 0
+        } else {
+            reachEnd()
+            return
+        }
+        loadCurrent(play: isPlaying, kind: .auto)
+    }
+
+    private func reachEnd() {
+        isPlaying = false
+        isBuffering = false
+        outputStalled = false
+        ended = true
+        preloadedID = nil
+        preloadedURL = nil
+        progress.positionSec = progress.durationSec
+        onEvent?(.queueEnded)
+        onStateChange?()
+    }
+}
+
+// MARK: - AudioOutputEvents
+
+extension PlayerEngine: AudioOutputEvents {
+    func outputUpcoming(limit: Int) -> [URL] {
+        guard let i = currentIndex, limit > 0 else { return [] }
+        switch repeatMode {
+        case .one: return Array(repeating: streamURL(for: queue[i]), count: limit)
+        case .off: return queue[(i + 1)...].prefix(limit).map { streamURL(for: $0) }
+        case .all:
+            guard queue.count > 1 else { return [] }
+            return (1...limit).map { streamURL(for: queue[(i + $0) % queue.count]) }
+        }
+    }
+
+    func outputDidJump(to url: URL) -> Bool {
+        guard let i = currentIndex, !queue.isEmpty else { return false }
+        // The first copy ahead in play order (wrapping), the current song last.
+        let order = (1...queue.count).map { (i + $0) % queue.count }
+        guard let index = order.first(where: { streamURL(for: queue[$0]) == url }), index != i else { return false }
+        currentIndex = index
+        ended = false
+        failure = nil
+        let item = queue[index]
+        timeBaseSec = 0
+        progress.positionSec = 0
+        progress.durationSec = item.track.durationSec
+        beginScrobble(item, at: 0)
+        let next = autoAdvanceIndex.map { queue[$0] }
+        preloadedID = next?.id
+        preloadedURL = next.map { streamURL(for: $0) }
+        output.preload(preloadedURL)
+        onStateChange?()
+        return true
+    }
+
+    func outputQueueSnapshot() -> OutputQueueSnapshot {
+        OutputQueueSnapshot(urls: queue.map { streamURL(for: $0) }, userQueued: queue.contains(where: \.userQueued),
+                            shuffle: shuffle, repeatMode: repeatMode)
+    }
+
+    func outputTimeDidChange(_ outputSec: Double) {
+        if externalTrack != nil {
+            // Spotify's own song: its clock and its own count; nothing counted for the queue's song.
+            countListening(to: outputSec)
+            if abs(progress.positionSec - outputSec) >= 0.01 { progress.positionSec = outputSec }
+            return
+        }
+        guard currentIndex != nil, !ended else { return }
+        let sec = outputSec + timeBaseSec
+        if sec > 0.5 { consecutiveFailures = 0 }
+        countListening(to: sec)
+        if abs(progress.positionSec - sec) >= 0.01 { progress.positionSec = sec }
+    }
+
+    func outputDurationDidChange(_ sec: Double) {
+        guard sec.isFinite, sec > 0, abs(progress.durationSec - sec) > 0.5 else { return }
+        // A transcode's length is the server's estimate (and only what is left
+        // after a `timeOffset`): the song's own duration stays the truth.
+        if let item = currentItem, delivery(for: item).transcoded, item.track.durationSec > 0 { return }
+        progress.durationSec = sec
+        onStateChange?()
+    }
+
+    func outputIsBufferingDidChange(_ buffering: Bool) {
+        if isBuffering != buffering { isBuffering = buffering }
+        guard outputStalled != buffering else { return }
+        outputStalled = buffering
+        onStateChange?()
+    }
+
+    func outputDidAdvanceToPreloaded() {
+        guard let id = preloadedID, let index = queue.firstIndex(where: { $0.id == id }) else {
+            reachEnd()
+            return
+        }
+        currentIndex = index
+        let item = queue[index]
+        timeBaseSec = 0
+        isBuffering = false
+        progress.positionSec = 0
+        progress.durationSec = item.track.durationSec
+        beginScrobble(item, at: 0)
+        let next = autoAdvanceIndex.map { queue[$0] }
+        preloadedID = next?.id
+        preloadedURL = next.map { streamURL(for: $0) }
+        output.preload(preloadedURL)
+        onStateChange?()
+    }
+
+    func outputDidReachEnd() {
+        reachEnd()
+    }
+
+    func outputCurrentDidFinish() {
+        guard currentIndex != nil, !ended, externalTrack == nil else { return }
+        guard let i = autoAdvanceIndex, queue.indices.contains(i) else { return reachEnd() }
+        currentIndex = i
+        loadCurrent(play: true, kind: .auto)
+    }
+
+    func outputDidFail(_ message: String, network: Bool) {
+        // An error's words can name the server ("…hostname music.example.com…"): not in the log.
+        PlayTrace.log("engine failure network=\(network): \(PlayTrace.maskHosts(message))")
+        if network { holdAfterFailure(message) } else { skipAfterFailure(message) }
+    }
+
+    func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
+        if let shuffle { setShuffle(shuffle) }
+        if let repeatMode { setRepeat(repeatMode) }
+        onStateChange?()
+    }
+
+    func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {
+        let wasExternal = externalTrack != nil
+        externalTrack = track
+        if let track {
+            let key = "\(track.provider):\(track.id)"
+            if wasExternal, key == externalScrobbleKey {
+                // The same song reported again: Spotify's position is listening while it played.
+                countListening(to: positionSec)
+            } else {
+                externalScrobbleKey = key
+                externalScrobble = ScrobbleState(lastTickSec: positionSec)
+            }
+            // Spotify plays: a start that didn't take is no longer what the listener sees.
+            failure = nil
+            isBuffering = false
+            outputStalled = false
+            isPlaying = playing
+            progress.durationSec = track.durationSec
+            progress.positionSec = positionSec
+        } else if wasExternal {
+            // The queue's song is back (or player returned to idle): clear external scrobble key & stale progress.
+            externalScrobbleKey = nil
+            progress.durationSec = currentItem?.track.durationSec ?? 0
+            if currentItem == nil {
+                progress.positionSec = 0
+                failure = nil
+            }
+            // Time away under Spotify's song wasn't listening to it.
+            scrobble.lastTickSec = positionSec
+            scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+            isPlaying = playing
+        }
+        onStateChange?()
+    }
+
+    func outputDidRecover(playing: Bool) {
+        guard failure != nil || isPlaying != playing else { return }
+        failure = nil
+        consecutiveFailures = 0
+        isBuffering = false
+        outputStalled = false
+        isPlaying = playing
+        onStateChange?()
+    }
+
+    func outputPlayingDidChangeExternally(_ playing: Bool) {
+        guard (currentIndex != nil && !ended) || externalTrack != nil, playing != isPlaying else { return }
+        isPlaying = playing
+        // Spotify's own song playing again ends a failure held on it.
+        if playing, externalTrack != nil { failure = nil }
+        if !playing {
+            progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
+            activeScrobble.lastTickSec = progress.positionSec
+            activeScrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
+        }
+        onStateChange?()
+    }
+}

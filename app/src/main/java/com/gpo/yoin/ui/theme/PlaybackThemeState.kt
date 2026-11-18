@@ -7,7 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.palette.graphics.Palette
+import com.gpo.yoin.shared.palette.Palette
 import com.gpo.yoin.ui.nowplaying.CoverField
 import com.gpo.yoin.ui.nowplaying.buildCoverField
 import kotlinx.coroutines.CoroutineScope

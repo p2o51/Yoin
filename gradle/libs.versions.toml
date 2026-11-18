@@ -37,6 +37,10 @@ okhttp = "5.5.1"
 retrofit = "3.0.0"
 kotlinxSerialization = "1.12.0"
 gson = "2.13.1"
+# :shared Subsonic client (iOS only for now). 3.4.x keeps the Android app's
+# resolved coroutines (1.10.2), okhttp (5.5.1) and serialization (1.12.0) as they are.
+ktor = "3.4.3"
+kotlinxCoroutines = "1.10.2"
 
 # On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights.
 genaiPrompt = "1.0.0-beta4"
@@ -72,6 +76,7 @@ ktlint = "12.1.2"
 yoinSymbols = "0.2.0"
 
 [libraries]
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
 android-gradleApi = { group = "com.android.tools.build", name = "gradle-api", version.ref = "agp" }
 asm = { group = "org.ow2.asm", name = "asm", version.ref = "asm" }
 # Compose BOM
@@ -128,6 +133,11 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 
 # Image loading
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
@@ -164,6 +174,8 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

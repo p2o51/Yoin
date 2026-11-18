@@ -1,0 +1,955 @@
+import Foundation
+import os
+
+/// Spotify through its Web API (Android SpotifyMusicSource), shaped like
+/// `AppleMusicSource` so `LibraryStore` can branch on it the same way: every
+/// read the screens need, parsed by `SpotifyMapping`. No playback and no OAuth
+/// here: the caller builds the `SpotifyWebAPI` with its token provider.
+///
+/// 2026 Development Mode limits, as Android handles them: `top-tracks` is gone
+/// (an artist's Most Played is empty), `/playlists/{id}/items` answers 403 for
+/// playlists the user neither owns nor collaborates on (the playlist opens
+/// without tracks), a missing id reads as nil, and each Home list fails on its own.
+@MainActor
+final class SpotifySource {
+    typealias TrackForLanguageFetch = @Sendable (_ trackId: String, _ acceptLanguage: String) async throws -> SpotifyDTO.Track
+
+    nonisolated static let maxSavedTracks = 2000
+
+    private struct NativeNamesKey: Hashable, Sendable {
+        var trackId: String
+        var languages: [String]
+    }
+
+    private struct NativeNamePair: Hashable, Sendable {
+        var title: String
+        var artist: String
+    }
+
+    let api: SpotifyWebAPI
+    let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
+
+    /// Track ids known to be in Liked Songs (library reads, saves, contains answers).
+    private(set) var liked: Set<String> = []
+    /// Track ids known not to be (contains answers, un-saves): any other id's heart is unknown.
+    private var notLiked: Set<String> = []
+    /// Playlist raw id → the raw offset of each row the page shows, for `resolvePlaylistContextOffset`.
+    private var playlistOffsets: [String: [Int]] = [:]
+    /// The signed-in user's id, for playlist ownership (SpotifySource+Playlists); read from `me` when unset.
+    var userId: String?
+    private let fetchTrackForLanguage: TrackForLanguageFetch?
+    private var isrcCache = BoundedLRU<String, String?>(capacity: 256)
+    private var nativeNamesCache = BoundedLRU<NativeNamesKey, [NativeNamePair]>(capacity: 256)
+
+    init(api: SpotifyWebAPI, fetchTrackForLanguage: TrackForLanguageFetch? = nil) {
+        self.api = api
+        self.fetchTrackForLanguage = fetchTrackForLanguage
+    }
+
+    nonisolated static func message(for error: Error) -> String {
+        if let e = error as? SpotifyAPIError {
+            switch e {
+            case .unauthorized:
+                return String(localized: "Reconnect Spotify in Settings")
+            case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("scope"):
+                return String(localized: "Reconnect Spotify in Settings to let Yoin control playback")
+            // Spotify's player refuses a free account ("PREMIUM_REQUIRED" / "Premium required").
+            case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("premium"):
+                return SpotifyFailureCopy.premium
+            default:
+                return e.errorDescription ?? error.localizedDescription
+            }
+        }
+        return error.localizedDescription
+    }
+
+    // MARK: Home
+
+    struct HomeLists: Sendable {
+        var recent: [Album]
+        var frequent: [Album]
+        var newest: [Album]
+        var older: [Album]
+        var recentTracks: [PlaylistEntry]
+        /// Jump Back In's songs: the last ones played, then a random handful of Liked Songs.
+        var trackPool: [PlaylistEntry] = []
+    }
+
+    /// How many liked songs Jump Back In draws from (Subsonic's random read asks 16 too).
+    static let likedSampleSize = 16
+
+    /// [count] liked songs picked at random from one page at a random place in the list (two reads: the
+    /// list's length, then the page).
+    func likedSample(_ count: Int = SpotifySource.likedSampleSize) async throws -> [PlaylistEntry] {
+        let head = try await api.get("me/tracks", ["limit": "1"], as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+        let total = head.total ?? head.items.count
+        guard total > 0 else { return [] }
+        let offset = total > 50 ? Int.random(in: 0...(total - 50)) : 0
+        let page = try await api.get("me/tracks", ["limit": "50", "offset": String(offset)],
+                                     as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+        let tracks = page.items.compactMap(\.track)
+        noteLiked(tracks.compactMap(\.id))
+        return Array(SpotifyMapping.entries(tracks, saved: liked).shuffled().prefix(count))
+    }
+
+    /// The recent songs first, then the sample, each song once.
+    nonisolated static func trackPool(recent: [PlaylistEntry], sample: [PlaylistEntry]) -> [PlaylistEntry] {
+        var seen = Set<MediaId>()
+        return (recent + sample).filter { seen.insert($0.track.id).inserted }
+    }
+
+    /// Activities = recently played (one request, 50 plays: its albums newest
+    /// first, once each, and its last songs); Recently Added = the newest saved
+    /// albums, the saved albums before them the older shelf. There is no heavy
+    /// rotation on Spotify. Each list fails on its own: an account with no
+    /// history still gets a page.
+    func homeLists() async throws -> HomeLists {
+        var firstError: Error?
+        func attempt<T>(_ name: String, _ body: () async throws -> [T]) async -> [T] {
+            do { return try await body() } catch {
+                firstError = firstError ?? error
+                log.info("home \(name, privacy: .public) failed: \(Self.message(for: error), privacy: .public)")
+                return []
+            }
+        }
+        let plays = await attempt("recent") {
+            try await api.get("me/player/recently-played", ["limit": "50"], as: SpotifyDTO.RecentlyPlayed.self).items
+        }
+        let saved = await attempt("saved albums") {
+            try await api.all("me/albums", ["limit": "50"], of: SpotifyDTO.SavedAlbum.self, cap: 200)
+        }
+        if plays.isEmpty && saved.isEmpty, let firstError { throw firstError }
+        let sample = await attempt("liked sample") { try await likedSample() }
+        let played = plays.compactMap(\.track)
+        let recentSongs = SpotifyMapping.entries(played, saved: liked)
+        let recent = SpotifyMapping.uniqueById(played.compactMap { $0.album.flatMap { SpotifyMapping.album($0) } })
+        let added = saved.sorted { ($0.addedAt ?? "") > ($1.addedAt ?? "") }
+            .compactMap { s in s.album.flatMap { SpotifyMapping.album($0, addedAt: s.addedAt) } }
+        return HomeLists(recent: Array(recent.prefix(20)), frequent: [],
+                         newest: Array(added.prefix(10)), older: Array(added.dropFirst(10)).shuffled(),
+                         recentTracks: Array(recentSongs.prefix(4)),
+                         trackPool: Self.trackPool(recent: Array(recentSongs.prefix(8)), sample: sample))
+    }
+
+    // MARK: Library
+
+    func libraryAlbums(cap: Int = 2000, onPage: (([Album]) -> Void)? = nil) async throws -> [Album] {
+        func albums(_ r: [SpotifyDTO.SavedAlbum]) -> [Album] {
+            SpotifyMapping.uniqueById(r.compactMap { s in s.album.flatMap { SpotifyMapping.album($0, addedAt: s.addedAt) } })
+        }
+        let r = try await api.all("me/albums", ["limit": "50"], of: SpotifyDTO.SavedAlbum.self, cap: cap,
+                                  onPage: onPage.map { f in { f(albums($0)) } })
+        return albums(r)
+    }
+
+    /// The followed artists (a cursor list: `artists.next` is a full link).
+    func libraryArtists(cap: Int = 2000, onPage: (([LibraryItem]) -> Void)? = nil) async throws -> [LibraryItem] {
+        func items(_ r: [SpotifyDTO.Artist]) -> [LibraryItem] {
+            var seen = Set<MediaId>()
+            return r.compactMap(SpotifyMapping.artistItem).filter { seen.insert($0.id).inserted }
+        }
+        var out: [SpotifyDTO.Artist] = []
+        var visited = Set<String>()
+        var page = try await api.get("me/following", ["type": "artist", "limit": "50"], as: SpotifyDTO.FollowedArtists.self).artists
+        out += page.items
+        while out.count < cap, let next = page.next {
+            guard visited.insert(next).inserted else { throw SpotifyAPIError.decoding("repeated page") }
+            onPage?(items(out))
+            page = try await api.get(next, ["type": "artist", "limit": "50"], as: SpotifyDTO.FollowedArtists.self).artists
+            out += page.items
+        }
+        return items(Array(out.prefix(cap)))
+    }
+
+    /// Every playlist of the account, all pages (a backup tells a playlist gone by its absence).
+    /// Spotify can list a null in place of a playlist it won't show.
+    func libraryPlaylists() async throws -> [LibraryItem] {
+        let r = try await api.all("me/playlists", ["limit": "50"], of: SpotifyDTO.Playlist?.self, cap: .max)
+        let me = await meId()
+        return r.compactMap { $0 }.map { SpotifyMapping.playlistItem($0, me: me) }
+    }
+
+    func noteLiked(_ ids: [String]) {
+        liked.formUnion(ids)
+        notLiked.subtract(ids)
+    }
+
+    /// Liked Songs, newest like first (the API's order), up to `maxSavedTracks` (or `cap`).
+    func librarySongs(cap: Int = maxSavedTracks) async throws -> [PlaylistEntry] {
+        let capped = min(max(cap, 0), Self.maxSavedTracks)
+        guard capped > 0 else { return [] }
+        let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: capped)
+        let tracks = r.compactMap(\.track)
+        noteLiked(tracks.compactMap(\.id))
+        return SpotifyMapping.entries(tracks, saved: liked)
+    }
+
+    /// One cursor/offset page of Liked Songs (`GET /v1/me/tracks`), capped at `maxSavedTracks` (2000).
+    func savedTracksPage(offset: Int, limit: Int = 50) async throws -> (songs: [PlaylistEntry], next: Int?) {
+        guard offset >= 0, offset < Self.maxSavedTracks, limit > 0 else { return ([], nil) }
+        let target = min(limit, Self.maxSavedTracks - offset)
+        var rawCount = 0
+        var tracks: [SpotifyDTO.Track] = []
+        var at = offset
+        var more = false
+        while rawCount < target {
+            let batchSize = min(50, target - rawCount)
+            let page = try await api.get("me/tracks", ["limit": String(batchSize), "offset": String(at)],
+                                         as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+            let slice = Array(page.items.prefix(target - rawCount))
+            tracks += slice.compactMap(\.track)
+            rawCount += slice.count
+            at += page.items.count
+            more = page.next != nil && !page.items.isEmpty
+            if !more || page.items.isEmpty { break }
+        }
+        noteLiked(tracks.compactMap(\.id))
+        let next = (more && at < Self.maxSavedTracks) ? at : nil
+        return (SpotifyMapping.entries(tracks, saved: liked), next)
+    }
+
+    // MARK: Details
+
+    /// The album and all its tracks (the album object embeds the first page).
+    /// An id Spotify doesn't have reads as nil.
+    func album(_ rawId: String) async throws -> Album? {
+        do {
+            let a = try await api.get("albums/\(rawId)", ["market": "from_token"], as: SpotifyDTO.Album.self)
+            var tracks = a.tracks?.items ?? []
+            var next = a.tracks?.next
+            var visited = Set<String>()
+            while let page = next, tracks.count < 300, visited.insert(page).inserted {
+                let more = try await api.get(page, as: SpotifyDTO.Paging<SpotifyDTO.Track>.self)
+                tracks += more.items
+                next = more.next
+            }
+            // The hearts known so far; the caller asks for the rest once the page shows (Codex N11).
+            return SpotifyMapping.album(a, tracks: tracks, saved: liked)
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            return nil
+        }
+    }
+
+    /// One song with its album as Spotify lists it (`GET /tracks/{id}`, the single-track read Development
+    /// Mode apps keep; Android SpotifyApiClient.getTrack). An id Spotify doesn't have reads as nil.
+    func track(_ rawId: String) async throws -> PlaylistEntry? {
+        do {
+            let t = try await api.get("tracks/\(rawId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+            if Self.isValidTrackId(rawId), let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc) {
+                isrcCache.insert(code, forKey: rawId)
+            }
+            return SpotifyMapping.entry(t, saved: liked)
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            return nil
+        }
+    }
+
+    /// ISRC code for a Spotify track (`GET /v1/tracks/{id}`), backed by a 256-entry LRU cache.
+    func isrc(trackId: String) async -> String? {
+        guard Self.isValidTrackId(trackId) else { return nil }
+        if let cached = isrcCache.value(forKey: trackId) { return cached }
+        do {
+            let t = try await api.get("tracks/\(trackId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+            let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc)
+            isrcCache.insert(code, forKey: trackId)
+            return code
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            isrcCache.insert(nil, forKey: trackId)
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    /// Native/localized track + artist names (`GET /v1/tracks/{id}` with `Accept-Language` per language),
+    /// deduplicated in request order and backed by a 256-entry LRU cache.
+    func nativeNames(trackId: String, acceptLanguages: [String]) async -> [(title: String, artist: String)] {
+        guard Self.isValidTrackId(trackId) else { return [] }
+        var seenLangs = Set<String>()
+        let languages = acceptLanguages.compactMap { raw -> String? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seenLangs.insert(trimmed.lowercased()).inserted else { return nil }
+            return trimmed
+        }
+        guard !languages.isEmpty else { return [] }
+        let cacheKey = NativeNamesKey(trackId: trackId, languages: languages.map { $0.lowercased() })
+        if let cached = nativeNamesCache.value(forKey: cacheKey) {
+            return cached.map { ($0.title, $0.artist) }
+        }
+        var pairs: [NativeNamePair] = []
+        var seenPairs = Set<NativeNamePair>()
+        var sawSuccess = false
+        var sawNotFound = false
+        var hadTransientFailure = false
+        for language in languages {
+            do {
+                let t: SpotifyDTO.Track
+                if let fetchTrackForLanguage {
+                    t = try await fetchTrackForLanguage(trackId, language)
+                } else {
+                    t = try await api.get("tracks/\(trackId)", ["market": "from_token"],
+                                          headers: ["Accept-Language": language], as: SpotifyDTO.Track.self)
+                }
+                sawSuccess = true
+                if let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc) {
+                    isrcCache.insert(code, forKey: trackId)
+                } else if !isrcCache.contains(trackId) {
+                    isrcCache.insert(nil, forKey: trackId)
+                }
+                if let names = SpotifyMapping.lyricNames(t) {
+                    let entry = NativeNamePair(title: names.title, artist: names.artist)
+                    if seenPairs.insert(entry).inserted {
+                        pairs.append(entry)
+                    }
+                }
+            } catch let e as SpotifyAPIError where e.isNotFound {
+                sawNotFound = true
+                break
+            } catch {
+                hadTransientFailure = true
+                break
+            }
+        }
+        if !hadTransientFailure && (sawSuccess || sawNotFound) {
+            nativeNamesCache.insert(pairs, forKey: cacheKey)
+        }
+        return pairs.map { ($0.title, $0.artist) }
+    }
+
+    nonisolated static func isValidTrackId(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
+    }
+
+    /// Android's artist release cap.
+    nonisolated static let artistReleaseCap = 100
+
+    /// The artist and its own releases (albums, singles, compilations; at most [artistReleaseCap],
+    /// 10 a request since the 2026-02 migration; `appears_on` left out). The artist, its first page of
+    /// releases and the follow state are asked at once; the other pages by offset, side by side.
+    func artist(_ rawId: String) async throws -> ArtistPage? {
+        let query = ["limit": "10", "include_groups": "album,single,compilation"]
+        async let artistRead = api.get("artists/\(rawId)", as: SpotifyDTO.Artist.self)
+        async let firstRead = api.get("artists/\(rawId)/albums", query, as: SpotifyDTO.Paging<SpotifyDTO.Album>.self)
+        // The follow state is a nicety: a failed read shows the star off.
+        async let followRead = followState(rawId)
+        let artist: SpotifyDTO.Artist
+        do {
+            artist = try await artistRead
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            return nil
+        }
+        let first = try await firstRead
+        var releases = first.items
+        let offsets = Self.releaseOffsets(total: first.total, firstCount: first.items.count, hasNext: first.next != nil)
+        if !offsets.isEmpty {
+            let pages = try await withThrowingTaskGroup(of: (Int, [SpotifyDTO.Album]).self) { group in
+                for offset in offsets {
+                    group.addTask { [api] in
+                        var q = query
+                        q["offset"] = String(offset)
+                        return (offset, try await api.get("artists/\(rawId)/albums", q,
+                                                          as: SpotifyDTO.Paging<SpotifyDTO.Album>.self).items)
+                    }
+                }
+                var out: [Int: [SpotifyDTO.Album]] = [:]
+                for try await (offset, items) in group { out[offset] = items }
+                return out
+            }
+            for offset in offsets { releases += pages[offset] ?? [] }
+        }
+        let followed = await followRead
+        return SpotifyMapping.artistPage(artist,
+                                         releases: releases.prefix(Self.artistReleaseCap).compactMap { SpotifyMapping.album($0) },
+                                         starred: followed)
+    }
+
+    /// The offsets of an artist's release pages after the first (10 each), up to [artistReleaseCap]; a
+    /// first page with no total but a next link reads on to the cap.
+    nonisolated static func releaseOffsets(total: Int?, firstCount: Int, hasNext: Bool) -> [Int] {
+        guard firstCount > 0, hasNext || (total ?? 0) > firstCount else { return [] }
+        let end = min(total ?? artistReleaseCap, artistReleaseCap)
+        return Array(stride(from: firstCount, to: end, by: 10))
+    }
+
+    private func followState(_ rawId: String) async -> Bool {
+        (try? await contains(["spotify:artist:\(rawId)"]).first) ?? false
+    }
+
+    /// Spotify's own editorial and Made For You playlists (Discover Weekly, Daily Mix, Today's Top Hits …):
+    /// their ids start 37i9dQZ, and a Development Mode app gets 404 for them (audit 11-15 #24).
+    nonisolated static func isSpotifyMade(_ rawId: String) -> Bool { rawId.hasPrefix("37i9dQZ") }
+
+    /// A playlist page's song cap (Android's page read; a backup reads up to 10 000 on its own).
+    nonisolated static let playlistPageCap = 1_000
+    /// Item pages read side by side after the first (the account's gate lets three out at once).
+    nonisolated static let playlistPageWidth = 4
+
+    /// The playlist and its playable tracks, every occurrence (up to [cap], Codex N12). Someone else's
+    /// playlist answers 403 for its items: it opens marked unreadable (N18). Local files, episodes and
+    /// removed entries are left out.
+    ///
+    /// audit 11-15 #70: the first page goes to [onFirst] as soon as it arrives, the rest are read by offset
+    /// [playlistPageWidth] at a time, and a later page that fails keeps the pages before it.
+    func playlist(_ rawId: String, cap: Int = SpotifySource.playlistPageCap,
+                  onFirst: ((PlaylistInfo) -> Void)? = nil) async throws -> PlaylistInfo? {
+        let p: SpotifyDTO.Playlist
+        do {
+            p = try await api.get("playlists/\(rawId)", ["additional_types": "track"], as: SpotifyDTO.Playlist.self)
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            playlistOffsets[rawId] = nil
+            return nil
+        }
+        let query = ["limit": "50", "additional_types": "track"]
+        var items: [SpotifyDTO.PlaylistItem] = []
+        var first: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>
+        do {
+            if let embedded = p.entries, !embedded.items.isEmpty || embedded.next != nil {
+                first = embedded
+            } else {
+                first = try await api.get("playlists/\(rawId)/items", query, as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self)
+            }
+        } catch let e as SpotifyAPIError where e.isForbidden {
+            playlistOffsets[rawId] = []
+            var info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
+            info.tracksUnavailable = true
+            return await withWriteMetadata(info, p, positions: nil)
+        }
+        items = first.items
+        if first.total == nil { first.total = p.entries?.total }
+        let offsets = Self.playlistPageOffsets(total: first.total, firstCount: items.count,
+                                               hasNext: first.next != nil, cap: cap)
+        if let onFirst, !offsets.isEmpty || first.next != nil {
+            let (tracks, rows) = SpotifyMapping.playableTracks(items)
+            onFirst(await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: rows))
+        }
+        if !offsets.isEmpty {
+            let pages = await readPlaylistPages(rawId, offsets: offsets, query: query)
+            items += Self.contiguousPages(offsets: offsets, pages: pages, log: log)
+        } else if first.total == nil {
+            // No total to split by: the `next` links one after another, as before.
+            var next = first.next
+            var visited = Set<String>()
+            do {
+                while let page = next, items.count < cap, visited.insert(page).inserted {
+                    let more = try await api.get(page, ["additional_types": "track"],
+                                                 as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self)
+                    items += more.items
+                    next = more.next
+                }
+            } catch {
+                log.info("playlist page failed, keeping \(items.count) items: \(Self.message(for: error), privacy: .public)")
+            }
+        }
+        let (tracks, rows) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
+        playlistOffsets[rawId] = rows
+        return await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: rows)
+    }
+
+    /// The offsets of a playlist's item pages after the first (50 each) up to [cap]; none when the first
+    /// holds them all or no total says how many there are.
+    nonisolated static func playlistPageOffsets(total: Int?, firstCount: Int, hasNext: Bool, cap: Int) -> [Int] {
+        guard let total, firstCount > 0, hasNext || total > firstCount else { return [] }
+        let end = min(total, cap)
+        guard end > firstCount else { return [] }
+        return Array(stride(from: firstCount, to: end, by: 50))
+    }
+
+    /// Each page at [offsets], [playlistPageWidth] in flight; a page that failed is absent.
+    private func readPlaylistPages(_ rawId: String, offsets: [Int], query: [String: String])
+        async -> [Int: Result<[SpotifyDTO.PlaylistItem], Error>] {
+        await withTaskGroup(of: (Int, Result<[SpotifyDTO.PlaylistItem], Error>).self) { group in
+            var pending = offsets[...]
+            var out: [Int: Result<[SpotifyDTO.PlaylistItem], Error>] = [:]
+            func add() {
+                guard let offset = pending.popFirst() else { return }
+                group.addTask { [api] in
+                    var q = query
+                    q["offset"] = String(offset)
+                    do {
+                        return (offset, .success(try await api.get("playlists/\(rawId)/items", q,
+                                                                    as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self).items))
+                    } catch {
+                        return (offset, .failure(error))
+                    }
+                }
+            }
+            for _ in 0..<Self.playlistPageWidth { add() }
+            for await (offset, result) in group {
+                out[offset] = result
+                // A failure stops reading further (the pages after it would be cut off anyway).
+                if case .failure = result { pending = [] }
+                add()
+            }
+            return out
+        }
+    }
+
+    /// The items of the pages in order, up to the first page missing or failed: positions stay true to
+    /// the playlist, and what was read before a failure still shows.
+    nonisolated static func contiguousPages(offsets: [Int], pages: [Int: Result<[SpotifyDTO.PlaylistItem], Error>],
+                                            log: Logger? = nil) -> [SpotifyDTO.PlaylistItem] {
+        var out: [SpotifyDTO.PlaylistItem] = []
+        for offset in offsets {
+            guard case .success(let items)? = pages[offset] else {
+                if case .failure(let error)? = pages[offset] {
+                    log?.info("playlist page at \(offset) failed: \(Self.message(for: error), privacy: .public)")
+                }
+                break
+            }
+            out += items
+            if items.isEmpty { break }
+        }
+        return out
+    }
+
+    /// The raw playlist offset of the [visibleIndex]th row of its page, for a
+    /// `play` request with a context; nil when unknown (the caller plays the bare track).
+    func resolvePlaylistContextOffset(_ rawId: String, visibleIndex: Int) -> Int? {
+        playlistOffsets[rawId]?[safe: visibleIndex]
+    }
+
+    /// Songs appended at [offsets] (an add patched into the page instead of reading it again).
+    func notePlaylistAppended(_ rawId: String, offsets: [Int]) {
+        playlistOffsets[rawId]?.append(contentsOf: offsets)
+    }
+
+    // MARK: Search
+
+    struct SearchResults: Sendable {
+        var artists: [LibraryItem]
+        var albums: [Album]
+        var songs: [PlaylistEntry]
+        var playlists: [LibraryItem]
+        /// Catalog search (SpotifySource+Search): the kinds with a next page, and the items each page held.
+        var more: Set<SearchKind> = []
+        var counts: [SearchKind: Int] = [:]
+    }
+
+    // MARK: Playback (Android SpotifyStartPlan: Web API play with a context and offset.uri)
+
+    /// Starts [uris] (the current song and the engine's next) in the Spotify app. Yoin's queue stays
+    /// the truth: an album context let Spotify carry on through the album while Yoin played a playlist
+    /// (Codex N02). No [deviceId]: Spotify's active device; with none active the call fails with
+    /// `isNoActiveDevice` and the output picks this iPhone itself.
+    /// [still] is asked before the request and before each retry (a 429 wait, a refresh): a start the
+    /// listener has since replaced never goes out late (Codex 11-07).
+    func startPlayback(uris: [String], positionMs: Int = 0, deviceId: String? = nil,
+                       while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        var body: [String: Any] = ["uris": uris]
+        if positionMs > 0 { body["position_ms"] = positionMs }
+        let json = try JSONSerialization.data(withJSONObject: body)
+        PlayTrace.log("API PUT play body \(String(data: json, encoding: .utf8) ?? "-")")
+        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], json: json, while: still)
+    }
+
+    /// Where Spotify plays now (Android getPlaybackState, a read only): nil when nothing is active.
+    struct PlayerNow: Equatable, Sendable {
+        var deviceId: String?
+        var deviceName: String
+        var deviceType: String = ""
+        var isPrivateSession: Bool = false
+        var isPlaying: Bool
+        var trackURI: String? = nil
+        /// The song asked for when Spotify plays a relinked copy of it (another market's id).
+        var linkedFromURI: String? = nil
+        var progressMs: Int = 0
+        var durationMs: Int = 0
+        var shuffle: Bool = false
+        /// "off", "track" or "context".
+        var repeatState: String = "off"
+        var trackName: String? = nil
+        var artistName: String? = nil
+        var albumName: String? = nil
+        var coverURL: URL? = nil
+        /// The song's album (its Spotify id), for a hand-off of a song Spotify plays on its own.
+        var albumId: String? = nil
+        var isRestricted: Bool = false
+    }
+
+    private struct PlayerDTO: Decodable {
+        struct Named: Decodable { let name: String? }
+        struct Image: Decodable { let url: String?; let width: Int? }
+        struct Album: Decodable { let id: String?; let name: String?; let images: [Image]? }
+        struct Show: Decodable { let id: String?; let name: String?; let publisher: String?; let images: [Image]? }
+        struct Linked: Decodable { let uri: String? }
+        struct I: Decodable {
+            let uri: String?
+            let type: String?
+            let linkedFrom: Linked?
+            let durationMs: Int?
+            let name: String?
+            let artists: [Named]?
+            let album: Album?
+            let images: [Image]?
+            let show: Show?
+        }
+        let device: SpotifyDTO.Device?
+        let isPlaying: Bool?
+        let item: I?
+        let progressMs: Int?
+        let shuffleState: Bool?
+        let repeatState: String?
+    }
+
+    func playerNow() async throws -> PlayerNow? {
+        let data = try await api.send("GET", "me/player", ["additional_types": "track,episode", "market": "from_token"])
+        guard !data.isEmpty else { return nil }  // 204: no active device
+        let r = try SpotifyWebAPI.decoder.decode(PlayerDTO.self, from: data)
+        guard let d = r.device else { return nil }
+        let joinedArtists = r.item?.artists?.compactMap(\.name).joined(separator: ", ") ?? ""
+        let artists: String? = joinedArtists.isEmpty ? nil : joinedArtists
+        let images = r.item?.album?.images ?? r.item?.images ?? r.item?.show?.images
+        return PlayerNow(deviceId: d.id, deviceName: d.name ?? String(localized: "another device"), deviceType: d.type ?? "",
+                         isPrivateSession: d.isPrivateSession ?? false,
+                         isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri,
+                         linkedFromURI: r.item?.linkedFrom?.uri, progressMs: r.progressMs ?? 0,
+                         durationMs: r.item?.durationMs ?? 0, shuffle: r.shuffleState ?? false,
+                         repeatState: r.repeatState ?? "off", trackName: r.item?.name,
+                         artistName: artists ?? r.item?.show?.publisher ?? r.item?.show?.name,
+                         albumName: r.item?.album?.name ?? r.item?.show?.name,
+                         // The largest picture first (Spotify lists them biggest first; not relied on).
+                         coverURL: images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)),
+                         albumId: r.item?.type == "episode" ? nil : r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 },
+                         isRestricted: d.isRestricted ?? false)
+    }
+
+    /// One song of Spotify's own queue as the queue sheet lists it.
+    struct QueueEntry: Equatable, Sendable, Identifiable {
+        /// Its place in the list (a song can be queued twice).
+        var id: Int
+        var uri: String
+        var title: String
+        var artist: String
+        var coverURL: URL?
+        var durationMs: Int? = nil
+    }
+
+    private struct QueueDTO: Decodable {
+        let currentlyPlaying: SpotifyDTO.Track?
+        let queue: [SpotifyDTO.Track]?
+    }
+
+    /// What Spotify plays after the current song, in its order (Android SpotifyMusicSource.playerQueue,
+    /// GET me/player/queue): the listener's queue first, then the rest of the album or playlist, about
+    /// twenty songs. A podcast episode or a local file is left out.
+    func playerQueue() async throws -> [QueueEntry] {
+        let r = try await api.get("me/player/queue", as: QueueDTO.self)
+        return Self.queueEntries(r.queue ?? [])
+    }
+
+    nonisolated static func queueEntries(_ tracks: [SpotifyDTO.Track]) -> [QueueEntry] {
+        tracks.filter { $0.type != "episode" && $0.isLocal != true && $0.id != nil }.enumerated().map { i, t in
+            // The smallest picture that still fills a 48 pt row; else the largest there is.
+            let images = t.album?.images ?? []
+            let cover = images.filter { ($0.width ?? 0) >= 120 }.min { ($0.width ?? 0) < ($1.width ?? 0) }
+                ?? images.max { ($0.width ?? 0) < ($1.width ?? 0) }
+            return QueueEntry(id: i, uri: "spotify:track:\(t.id ?? "")", title: t.name ?? "",
+                              artist: (t.artists ?? []).compactMap(\.name).joined(separator: ", "),
+                              coverURL: cover.flatMap { URL(string: $0.url) },
+                              durationMs: t.durationMs)
+        }
+    }
+
+    // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
+
+    func pausePlayback(deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("PUT", "me/player/pause", deviceId.map { ["device_id": $0] } ?? [:], while: still)
+    }
+
+    func resumePlayback(deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], while: still)
+    }
+
+    func seekPlayback(toMs ms: Int, deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        var q = ["position_ms": String(max(0, ms))]
+        if let deviceId { q["device_id"] = deviceId }
+        try await api.send("PUT", "me/player/seek", q, while: still)
+    }
+
+    /// Next or previous on the device (POST me/player/next | previous).
+    func skipPlayback(forward: Bool, deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("POST", forward ? "me/player/next" : "me/player/previous", deviceId.map { ["device_id": $0] } ?? [:],
+                           while: still)
+    }
+
+    /// Spotify's own shuffle and repeat off (Yoin's engine owns the play modes).
+    func playModesOff(deviceId: String?) async {
+        var q = deviceId.map { ["device_id": $0] } ?? [:]
+        q["state"] = "false"
+        _ = try? await api.send("PUT", "me/player/shuffle", q)
+        q["state"] = "off"
+        _ = try? await api.send("PUT", "me/player/repeat", q)
+    }
+
+    // MARK: The heart (Liked Songs)
+
+    /// `GET /me/library/contains`, 40 URIs at a time (the endpoint's maximum).
+    private func contains(_ uris: [String]) async throws -> [Bool] {
+        var out: [Bool] = []
+        for batch in uris.chunked(40) {
+            // Colons percent-encoded, commas as the list separator (the reference's own form).
+            let encoded = batch.map { $0.replacingOccurrences(of: ":", with: "%3A") }.joined(separator: ",")
+            let answer = try await api.get("me/library/contains?uris=\(encoded)", as: [Bool].self)
+            guard answer.count == batch.count else { throw SpotifyAPIError.decoding("library/contains") }
+            out += answer
+        }
+        return out
+    }
+
+    // MARK: Connect devices (Android getDevices / transferPlayback)
+
+    struct Device: Identifiable, Equatable, Sendable {
+        /// Spotify's id, or `noIdKey(name)` for a speaker Spotify names without one (Sonos).
+        var id: String
+        var name: String
+        var type: String
+        var isActive: Bool
+        /// Spotify gave an id: a transfer can name it.
+        var hasId: Bool = true
+        /// Spotify won't take a Web API transfer to it (is_restricted: Sonos).
+        var restricted: Bool = false
+        /// Remembered from an earlier list, not in Spotify's this time (SpotifyDeviceMemory).
+        var remembered: Bool = false
+        /// Spotify plays there in a private session (is_private_session; Android statusText "Private session").
+        var privateSession: Bool = false
+
+        /// Moved to only through the Spotify app (Android YoinDevice.SpotifyConnect.spotifyOnly).
+        var spotifyOnly: Bool { !hasId || restricted }
+
+        /// Row key for a device Spotify names without an id (Android SpotifyConnect.noIdKey).
+        static func noIdKey(_ name: String) -> String {
+            "spotify-no-id:\(name.trimmingCharacters(in: .whitespaces))"
+        }
+
+        /// The same device: by id when both have one, else by name (Android sameDevice).
+        func same(as other: Device) -> Bool {
+            if hasId && other.hasId { return id == other.id }
+            return name.trimmingCharacters(in: .whitespaces)
+                .caseInsensitiveCompare(other.name.trimmingCharacters(in: .whitespaces)) == .orderedSame
+        }
+    }
+
+    private struct DevicesDTO: Decodable {
+        let devices: [SpotifyDTO.Device]
+    }
+
+    /// The account's Spotify Connect devices (user-read-playback-state), id-less ones (a Sonos it
+    /// plays on) included under `Device.noIdKey`.
+    func devices() async throws -> [Device] {
+        let r = try await api.get("me/player/devices", as: DevicesDTO.self)
+        return r.devices.map { d in
+            let name = d.name ?? String(localized: "Device")
+            return Device(id: d.id ?? Device.noIdKey(name), name: name, type: d.type ?? "",
+                          isActive: d.isActive ?? false, hasId: d.id != nil, restricted: d.isRestricted ?? false,
+                          privateSession: d.isPrivateSession ?? false)
+        }
+    }
+
+    /// The Devices sheet's list (Android YoinRepository.listSpotifyDevices): the devices, plus the one
+    /// me/player says plays when the list leaves it out (Sonos, Cast: often with no id), the playing
+    /// one first.
+    func sheetDevices() async throws -> [Device] {
+        let listed = try await devices()
+        let now = try? await playerNow()
+        return Self.withPlaying(listed, now: now)
+    }
+
+    nonisolated static func withPlaying(_ listed: [Device], now: PlayerNow?) -> [Device] {
+        var all = listed
+        if let now {
+            let playing = Device(id: now.deviceId ?? Device.noIdKey(now.deviceName), name: now.deviceName,
+                                 type: now.deviceType, isActive: true, hasId: now.deviceId != nil,
+                                 restricted: now.isRestricted, privateSession: now.isPrivateSession)
+            if !listed.contains(where: { $0.same(as: playing) }) { all.append(playing) }
+        }
+        // Stable: the active one first, the rest in Spotify's order.
+        return all.filter(\.isActive) + all.filter { !$0.isActive }
+    }
+
+    /// Moves playback to [deviceId], playing there ([play] false: as it was, paused stays paused).
+    func transfer(to deviceId: String, play: Bool = true) async throws {
+        let json = try JSONSerialization.data(withJSONObject: ["device_ids": [deviceId], "play": play])
+        try await api.send("PUT", "me/player", json: json)
+    }
+
+    // MARK: Following an artist (Android SpotifyMusicSource.setArtistFollowed)
+
+    /// Follows or unfollows the artist on Spotify: PUT / DELETE me/library with the artist's URI
+    /// (the Feb 2026 Development Mode change removed PUT / DELETE me/following).
+    func setFollowed(_ on: Bool, artist rawId: String) async throws {
+        try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:artist:\(rawId)"])
+    }
+
+    /// Whether the track is in Liked Songs (nil: unknown, the read failed).
+    func isSaved(_ rawId: String) async -> Bool? {
+        // Always asked: the in-memory liked set can trail a heart changed in Spotify (audit 11-15 #19).
+        do {
+            let saved = try await contains(["spotify:track:\(rawId)"]).first ?? false
+            noteSaved(rawId, saved)
+            return saved
+        } catch {
+            log.info("library check failed: \(Self.message(for: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// The heart as far as it is known: nil when no read has said (a failed check is not "not liked").
+    func knownSaved(_ rawId: String) -> Bool? {
+        if liked.contains(rawId) { return true }
+        return notLiked.contains(rawId) ? false : nil
+    }
+
+    /// How many `contains` reads a heart fill runs at once (the gate caps the account at three).
+    static let heartFillWidth = 3
+
+    /// Several tracks' hearts (one request per 40, [heartFillWidth] at a time); a track whose batch
+    /// failed is left out, its heart unknown rather than off.
+    func savedStates(_ rawIds: [String]) async -> [String: Bool] {
+        var out: [String: Bool] = [:]
+        let batches = Array(Set(rawIds)).sorted().chunked(40)
+        await withTaskGroup(of: ([String], [Bool]?).self) { group in
+            var next = 0
+            var running = 0
+            repeat {
+                // Up to [heartFillWidth] reads out; the next starts as one answers.
+                while next < batches.count, running < Self.heartFillWidth {
+                    let batch = batches[next]
+                    next += 1
+                    running += 1
+                    group.addTask { await self.heartBatch(batch) }
+                }
+                guard let (batch, answer) = await group.next() else { break }
+                running -= 1
+                for (id, saved) in zip(batch, answer ?? []) {
+                    out[id] = saved
+                    noteSaved(id, saved)
+                }
+            } while running > 0 || next < batches.count
+        }
+        return out
+    }
+
+    /// One `contains` read for [batch]; nil answer when it failed.
+    private func heartBatch(_ batch: [String]) async -> ([String], [Bool]?) {
+        (batch, try? await contains(batch.map { "spotify:track:\($0)" }))
+    }
+
+    private func noteSaved(_ id: String, _ saved: Bool) {
+        if saved { liked.insert(id); notLiked.remove(id) } else { liked.remove(id); notLiked.insert(id) }
+    }
+
+    // MARK: Albums in the library (Android setAlbumSaved / the ▾ menu's Save to library)
+
+    /// Whether the album is in the account's library (nil: unknown, the read failed).
+    func isAlbumSaved(_ rawId: String) async -> Bool? {
+        do { return try await contains(["spotify:album:\(rawId)"]).first } catch {
+            log.info("album library check failed: \(Self.message(for: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// PUT / DELETE me/library with the album's URI, like a track's like.
+    func setAlbumSaved(_ on: Bool, album rawId: String) async throws {
+        try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:album:\(rawId)"])
+    }
+
+    func save(_ rawId: String) async throws {
+        try await api.send("PUT", "me/library", ["uris": "spotify:track:\(rawId)"])
+        noteSaved(rawId, true)
+    }
+
+    func unsave(_ rawId: String) async throws {
+        try await api.send("DELETE", "me/library", ["uris": "spotify:track:\(rawId)"])
+        noteSaved(rawId, false)
+    }
+
+    /// Maps App Remote recommended containers into Home "Made For You" playlist cards (`forHomeShelf` order).
+    nonisolated static func madeForYouItems(from containers: [SpotifyContentContainer]) -> [LibraryItem] {
+        let playlistPrefix = "spotify:playlist:"
+        let hubContainers = containers.filter { c in
+            c.uri.contains("0JQ5DAt0tbjZptfcdMSKl3")
+                || c.title.localizedCaseInsensitiveContains("made for you")
+                || c.title.contains("为你推荐")
+        }
+        let sourceItems = hubContainers.isEmpty
+            ? containers.flatMap(\.items).filter { item in
+                guard item.uri.hasPrefix(playlistPrefix) else { return false }
+                return isSpotifyMade(String(item.uri.dropFirst(playlistPrefix.count)))
+            }
+            : hubContainers.flatMap(\.items)
+
+        var seen = Set<String>()
+        struct Candidate {
+            var rawId: String
+            var title: String
+            var subtitle: String
+            var imageId: String?
+            var bucket: Int
+        }
+        var candidates: [Candidate] = []
+        let orderPrefixes = ["F1EP", "EVXc", "EVXb", "F1Ep", "F1E3", "F1EJ"]
+        for item in sourceItems {
+            guard item.uri.hasPrefix(playlistPrefix) else { continue }
+            let rawId = String(item.uri.dropFirst(playlistPrefix.count))
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawId.isEmpty, !title.isEmpty, seen.insert(rawId).inserted else { continue }
+            let rest = isSpotifyMade(rawId) ? String(rawId.dropFirst("37i9dQZ".count)) : ""
+            let bucket = orderPrefixes.firstIndex(where: { rest.hasPrefix($0) }) ?? orderPrefixes.count
+            candidates.append(Candidate(rawId: rawId, title: title,
+                                        subtitle: item.subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
+                                        imageId: item.imageIdentifier, bucket: bucket))
+        }
+        let primary = candidates.filter { $0.bucket < orderPrefixes.count }.sorted { $0.bucket < $1.bucket }
+        let chosen = primary.isEmpty ? candidates : primary
+        return chosen.map { c in
+            let coverURL: URL? = c.imageId.flatMap { id in
+                if let resolved = SpotifyAudioOutput.coverURL(imageIdentifier: id) { return resolved }
+                if id.hasPrefix("https://") || id.hasPrefix("http://") { return URL(string: id) }
+                return nil
+            }
+            let ref = coverURL.map(CoverRef.init(url:))
+            let (a, b, col) = SubsonicMapping.placeholder(ref?.key ?? c.rawId)
+            let palette = CoverPalette(a: a, b: b, c: col, cover: ref)
+            let rest = isSpotifyMade(c.rawId) ? String(c.rawId.dropFirst("37i9dQZ".count)) : ""
+            let sub: String
+            if rest.hasPrefix("F1EP") {
+                sub = "daylist"
+            } else if (rest.hasPrefix("F1E3") || rest.hasPrefix("F1EJ") || rest.hasPrefix("F1EQ")
+                        || rest.hasPrefix("F1EV") || rest.hasPrefix("F1EI")), !c.subtitle.isEmpty {
+                sub = c.subtitle
+            } else {
+                sub = "Spotify"
+            }
+            return LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: c.rawId),
+                               kind: .playlist, title: c.title, subtitle: sub,
+                               palette: palette, ownedByMe: false)
+        }
+    }
+}
+
+extension SpotifySource.QueueEntry {
+    /// The song's track id (its URI's last part), as `SpotifyAudioOutput.externalTrack` names it.
+    var trackId: String? {
+        let prefix = "spotify:track:"
+        guard uri.hasPrefix(prefix) else { return nil }
+        let id = String(uri.dropFirst(prefix.count))
+        return id.isEmpty ? nil : id
+    }
+
+    /// This song as the engine will show it when Spotify gets there: same provider and id, so lyrics
+    /// fetched for it are the ones Now Playing finds (`spotify:<id>`).
+    var playable: PlayableTrack? {
+        guard let id = trackId else { return nil }
+        return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: title, artist: artist, album: "",
+                             albumId: nil, durationSec: Double(durationMs ?? 0) / 1000,
+                             streamURL: SpotifyAudioOutput.streamURL(trackId: id), coverURL: coverURL)
+    }
+}
+
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+
+    func chunked(_ n: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: n).map { Array(self[$0 ..< Swift.min($0 + n, count)]) }
+    }
+}

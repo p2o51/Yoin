@@ -1,0 +1,607 @@
+import SwiftUI
+
+// One memory's page in the two states (Android MemoriesShowcase's page,
+// MemoryCardFace, MemoryPageMorph): the card face and the diary under it,
+// both laid out complete; p only moves and fades their pieces. Anchors are
+// measured at rest (outside each piece's own transform) in the page's
+// coordinate space; every per-frame read happens in a layer modifier, so a
+// frame of p re-renders the layers, not the page.
+
+/// The deck's shared parts for one Memories open: the two controllers and
+/// the router, the award lifecycle and its emblems, the title editor, the
+/// drafts, and each page's morph.
+@MainActor
+final class MemoriesDeckModel {
+    let presentation: MemoriesPresentation
+    let diary = MemoriesDiary()
+    let router: MemoriesGestureRouter
+    private(set) var awards = MemoriesAwardLifecycle()
+    let editor = MemoryTitleEditor()
+    let drafts = MemoryDiaryDrafts()
+    /// Going to another account's album, or playing one of its songs, asks once before switching (the
+    /// notice Home's shelf and All Memories share).
+    let switchGate = AccountSwitchGate()
+    private var morphs: [String: MemoryPageMorph] = [:]
+    private var cardAwards: [String: EmblemAwardTarget] = [:]
+    private var diaryAwards: [String: DiaryEmblemTarget] = [:]
+    /// The card emblem's size the awards were built for.
+    private(set) var sealSize: CGFloat = 0
+
+    init(presentation: MemoriesPresentation) {
+        self.presentation = presentation
+        router = MemoriesGestureRouter(reveal: presentation, diary: diary)
+        router.awards = awards
+        router.titleEditing = { [editor] in editor.isEditing }
+    }
+
+    func morph(_ card: MemoryCard) -> MemoryPageMorph {
+        if let m = morphs[card.id] { return m }
+        let m = MemoryPageMorph()
+        morphs[card.id] = m
+        return m
+    }
+
+    /// A new deck (an open, a rebuild): a new award lifecycle, every card waiting.
+    func rebuild(_ cards: [MemoryCard], seal: CGFloat) {
+        awards = MemoriesAwardLifecycle()
+        router.awards = awards
+        cardAwards = [:]
+        diaryAwards = [:]
+        sealSize = seal
+        for c in cards { register(c) }
+    }
+
+    /// One card's data changed (a write): its emblems follow the new score.
+    func refresh(_ card: MemoryCard) {
+        if let a = cardAwards[card.id]?.award,
+           a.drives(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated, size: sealSize) { return }
+        register(card)
+    }
+
+    private func register(_ c: MemoryCard) {
+        let card = EmblemAwardTarget(ScoreEmblemAward(score: c.score ?? 0, kind: c.emblemKind, rated: c.rated, size: sealSize))
+        let dem = DiaryEmblemTarget(ScoreEmblemAward(score: c.score ?? 0, kind: c.emblemKind, rated: c.rated,
+                                                     size: MemoryDiaryTokens.emblem, haptics: false))
+        cardAwards[c.id] = card
+        diaryAwards[c.id] = dem
+        awards.register(c.id, card)
+        awards.registerDiary(c.id, dem)
+    }
+
+    func cardAward(_ c: MemoryCard) -> ScoreEmblemAward? { cardAwards[c.id]?.award }
+    func diaryEmblem(_ c: MemoryCard) -> DiaryEmblemTarget? { diaryAwards[c.id] }
+
+    // MARK: p's buttons
+
+    /// The Diary button: the award on this card stops (and counts); NeoDB's state is read.
+    func openDiary(_ card: MemoryCard) {
+        MemoriesHaptics.click()
+        editor.end()
+        awards.onDiaryOpening(card.id)
+        // Another account's memory has no NeoDB line here (its state is that account's).
+        if !card.fromOther { AlbumNeoDBSync.shared.sheetOpened(card.album) }
+        diary.animate(to: 1)
+    }
+
+    /// The bar cover, slot B, ⌄ and back at the diary level.
+    func closeDiary() {
+        editor.end()
+        diary.animate(to: 0)
+    }
+
+    /// A liner row plays its track from the start; a note from its moment (MemoryPlayback.swift: the
+    /// queue says it plays from this memory's album). Another account's song: Yoin switches to that
+    /// account first, then plays (Android onPlayMemoryTrack); the first time ever the notice asks, on
+    /// the row tapped ([anchor]), since a switch stops what is playing.
+    func play(_ card: MemoryCard, track g: MemoryCard.DiaryTrack, at ms: Int64?, from anchor: String, model: AppModel) {
+        guard let owner = card.owner else { return model.play(card, track: g, at: ms) }
+        switchGate.request(from: anchor, account: owner.name, subject: g.track.title, opensAlbum: false) {
+            model.play(card, track: g, at: ms, switchingTo: owner)
+        }
+    }
+}
+
+/// Isolated pager position so 120Hz horizontal swipes and springs only update
+/// `MemoriesAurora`, lightweight page offset modifiers, `MemoriesAwardDriver`,
+/// and active `MemoriesTopBar` subviews without rebuilding `MemoriesView.body`.
+@MainActor
+@Observable
+final class MemoriesPagerModel {
+    var position: CGFloat = 0 { didSet { refresh() } }
+    private(set) var currentIndex: Int = 0
+    private(set) var visibleStart: Int = 0
+    private(set) var visibleEnd: Int = -1
+    private(set) var isMoving = false
+    @ObservationIgnored private var count: Int = 0
+
+    var visibleRange: [Int] {
+        guard count > 0, visibleStart <= visibleEnd else { return [] }
+        return Array(visibleStart...visibleEnd)
+    }
+
+    func updateCount(_ newCount: Int) {
+        count = newCount
+        refresh()
+    }
+
+    func snap(to newPosition: CGFloat, count newCount: Int) {
+        count = newCount
+        isMoving = false
+        position = newPosition
+        refresh()
+    }
+
+    func beginMove() {
+        if !isMoving { isMoving = true }
+    }
+
+    func endMove() {
+        if isMoving {
+            isMoving = false
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        guard count > 0 else {
+            if currentIndex != 0 { currentIndex = 0 }
+            if visibleStart != 0 { visibleStart = 0 }
+            if visibleEnd != -1 { visibleEnd = -1 }
+            return
+        }
+        let idx = min(max(Int(position.rounded()), 0), count - 1)
+        if idx != currentIndex { currentIndex = idx }
+        if isMoving {
+            // While swiping/settling, only cards actually intersecting the viewport (`floor...ceil`)
+            // must be present; never construct card `i + 2` on the first pixel of a swipe (`0.001`),
+            // and keep already-warmed neighbours within ±2 so nothing unmounts mid-flight.
+            let needLo = max(0, Int(position.rounded(.down)))
+            let needHi = min(count - 1, Int(position.rounded(.up)))
+            let lo = visibleEnd >= visibleStart ? max(0, max(needLo - 1, min(visibleStart, needLo))) : needLo
+            let hi = visibleEnd >= visibleStart ? min(count - 1, min(needHi + 1, max(visibleEnd, needHi))) : needHi
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        } else {
+            // At rest, pre-mount immediate neighbours `[cur - 1 ... cur + 1]` so the next swipe
+            // finds `cur ± 1` already laid out and warm.
+            let lo = max(0, idx - 1)
+            let hi = min(count - 1, idx + 1)
+            if lo != visibleStart { visibleStart = lo }
+            if hi != visibleEnd { visibleEnd = hi }
+        }
+    }
+    /// Whether `cardIndex` should mount its diary right now: at rest (`position == currentIndex`)
+    /// only the active card mounts on `openDiary`, while any horizontal swipe (`< 0.999` page away)
+    /// mounts the incoming card's diary immediately so diary-mode paging never shows a blank neighbour.
+    func mountsDiary(for cardIndex: Int, diaryShown: Bool, warm: Bool, presentationOpen: Bool) -> Bool {
+        let isCurrent = cardIndex == currentIndex
+        if isCurrent && warm && presentationOpen { return true }
+        guard diaryShown else { return false }
+        return isCurrent || abs(CGFloat(cardIndex) - position) < 0.999
+    }
+}
+
+/// One page's anchors (page pt, at rest) and its diary scroll.
+@MainActor
+@Observable
+final class MemoryPageMorph {
+    nonisolated static let space = "memoryPage"
+
+    var cover: CGRect = .zero
+    var seal: CGRect = .zero
+    var cardTitle: CGRect = .zero
+    var cardTitleFont: CGFloat = 26
+    /// The diary title at scroll 0 (nil: fallback A, the album name flies to the bar).
+    var diaryTitle: CGRect? { didSet { refreshScrolledPastHeader() } }
+    var diaryTitleFont: CGFloat = 22
+    var dem: CGRect = .zero
+    /// The top of the diary's first line at scroll 0 (the blocks' lag reads it).
+    var diaryTop: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    /// The diary's scroll (0 = top). Ignored by Observation so 120Hz diary scrolling
+    /// only notifies `MemoriesTopBar` and morph layers when `scrolledPastHeader` flips.
+    @ObservationIgnored var scrollY: CGFloat = 0 { didSet { refreshScrolledPastHeader() } }
+    @ObservationIgnored private var headerBarHeight: CGFloat = MemoriesLayoutTokens.barHeight
+    /// Whether the diary title has scrolled past the top bar.
+    private(set) var scrolledPastHeader = false
+    /// A frozen collapse keeps its timing until p reaches 0 or 1.
+    var frozenHold = false
+
+    /// The bar cover's centre and its slot B title (page pt).
+    var barCover: CGPoint = .zero
+    var barTitle: CGRect = .zero
+
+    func updateBarHeight(_ barHeight: CGFloat) {
+        guard barHeight != headerBarHeight else { return }
+        headerBarHeight = barHeight
+        refreshScrolledPastHeader()
+    }
+
+    private func refreshScrolledPastHeader() {
+        let top = diaryTitle?.minY ?? diaryTop
+        let past = scrollY > 0 && scrollY >= top - headerBarHeight
+        if past != scrolledPastHeader { scrolledPastHeader = past }
+    }
+
+    /// The diary title has scrolled under the bar (Android `so ≥ thr`).
+    func frozen(barHeight: CGFloat) -> Bool {
+        if frozenHold { return true }
+        if barHeight == headerBarHeight { return scrolledPastHeader }
+        let top = diaryTitle?.minY ?? diaryTop
+        return scrollY > 0 && scrollY >= top - barHeight
+    }
+
+    var lag: CGFloat {
+        MemoriesMorph.blockLag(cardTitleTop: cardTitle.minY, diaryTop: diaryTitle?.minY ?? diaryTop,
+                               cardTitleHeight: diaryTitle == nil ? cardTitle.height : nil)
+    }
+}
+
+/// A piece's transform from p, read in its own layer.
+struct MorphLayer: ViewModifier {
+    var diary: MemoriesDiary
+    var anchor: UnitPoint = .center
+    var pose: (CGFloat) -> MorphPose
+
+    func body(content: Content) -> some View {
+        let s = pose(diary.fraction)
+        content
+            .scaleEffect(s.scale, anchor: anchor)
+            .offset(x: s.dx, y: s.dy)
+            .opacity(Double(min(max(s.alpha, 0), 1)))
+    }
+}
+
+extension View {
+    func morphLayer(_ diary: MemoriesDiary, anchor: UnitPoint = .center, _ pose: @escaping (CGFloat) -> MorphPose) -> some View {
+        modifier(MorphLayer(diary: diary, anchor: anchor, pose: pose))
+    }
+
+    /// This view's rest frame in the page (call it after the view's own layer).
+    func pageFrame(_ apply: @escaping (CGRect) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryPageMorph.space)) } action: { apply($0) }
+    }
+}
+
+/// The card's numbers per tier (Android MemoryCardMetrics), pt.
+struct MemoryCardMetrics {
+    var cover: CGFloat
+    var seal: CGFloat
+    var air1: CGFloat
+    var short: Bool
+    /// Medium: the card's column; phone: the page.
+    var column: CGFloat?
+
+    init(layout l: MemoriesLayout) {
+        cover = l.cover
+        seal = l.seal
+        air1 = l.air1
+        short = l.short
+        column = l.tier == .medium ? MemoriesLayoutTokens.mediumCardColumn : nil
+    }
+}
+
+// MARK: - The card
+
+/// The card state of one memory (Android MemoryCardFace): the exhibit — air,
+/// the cover with the groove emblem on its lower-right corner, the title, the
+/// album row — and the teaser at the bottom: the excerpt, then
+/// [Diary | Go to album]. Flat, no cover border. Each piece rides p in its own layer.
+struct MemoryCardFace: View {
+    var card: MemoryCard
+    var deck: MemoriesDeckModel
+    var morph: MemoryPageMorph
+    var metrics: MemoryCardMetrics
+    var scheme: CoverScheme
+    var dark: Bool
+    var interactive: Bool
+    /// Go to album, from the button tapped (its switch-notice anchor).
+    var onOpenAlbum: (String) -> Void
+    var onTitle: (MemoryTitles.Outcome) -> Void
+    /// The column's inside width: what the excerpt's lines are measured at.
+    @State private var excerptWidth: CGFloat = MemoryExcerptFit.maxWidth
+
+    private var diary: MemoriesDiary { deck.diary }
+    private var barHeight: CGFloat { MemoriesLayoutTokens.barHeight }
+    static func titleFont(_ kind: MemoryCard.TitleKind) -> CGFloat { kind == .album ? 24 : 26 }
+
+    var body: some View {
+        let tones = MemoryTones.cached(for: card, dark: dark)
+        VStack(spacing: 0) {
+            Color.clear.frame(height: barHeight + metrics.air1)
+            exhibit(tones)
+            Spacer(minLength: 24)
+            teaser(tones)
+                .morphLayer(diary) { p in diary.reduced ? MorphPose() : MemoriesMorph.teaser(p) }
+                // The air under the buttons, from the screen's edge (Android: max of it and the nav bar):
+                // the card runs past the bottom bar's clearance Home keeps as safe area.
+                .padding(.bottom, max(metrics.short ? 28 : 40, MemoriesView.windowSafeBottom))
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { excerptWidth = $0 }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: metrics.column ?? .infinity)
+        .frame(maxWidth: .infinity)
+        // The card's own pull-down: the whole card rides p below 0 (its rubber band).
+        .morphLayer(diary) { p in
+            var s = MorphPose(dy: p < 0 ? -p * MemoriesBackTokens.diaryMorphDistance : 0)
+            if diary.reduced { s.alpha = MemoriesMorph.reducedCardAlpha(p) }
+            return s
+        }
+        .allowsHitTesting(interactive)
+        .accessibilityHidden(!interactive)
+    }
+
+    private func frozen() -> Bool { morph.frozen(barHeight: barHeight) }
+
+    private func exhibit(_ tones: MemoryTones) -> some View {
+        let cover = metrics.cover, seal = metrics.seal
+        // Memories: the seal sits on every cover's lower-right corner, Spotify's too (51, 11-07, like Android).
+        let onCover = true
+        return VStack(spacing: 0) {
+            CoverArt(palette: card.album.palette, cornerRadius: 0, seed: card.album.seed)
+                .frame(width: cover, height: cover)
+                .modifier(CoverMorph(diary: diary, morph: morph, cover: cover, barHeight: barHeight))
+                .pageFrame { r in if abs(diary.fraction) < 0.001 { morph.cover = r } }
+                .overlay(alignment: .topLeading) {
+                    // The emblem hangs off the lower-right corner by 0.3 / 0.24 of its size.
+                    ScoreEmblem(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated,
+                                palette: card.album.palette, size: seal, award: deck.cardAward(card),
+                                neutrals: scheme, onCover: onCover)
+                        .morphLayer(diary) { p in sealPose(p) }
+                        .pageFrame { r in if abs(diary.fraction) < 0.001 { morph.seal = r } }
+                        .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
+                        .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
+                }
+                .padding(.bottom, onCover ? seal * 0.24 : seal + CoverMarks.gap)
+            title(tones)
+                .padding(.top, metrics.short ? 22 : 30)
+            albumRow(tones)
+                .morphLayer(diary) { p in diary.reduced ? MorphPose() : MemoriesMorph.albumRow(p) }
+                .padding(.top, card.titleKind == .album ? 6 : (metrics.short ? 16 : 20))
+                .frame(maxWidth: 340)
+            MemoryTitleEditRow(card: card, surface: .card, editor: deck.editor, scheme: scheme, tones: tones,
+                               centred: true, onCommit: onTitle)
+                .frame(maxWidth: 340)
+        }
+    }
+
+    private func sealPose(_ p: CGFloat) -> MorphPose {
+        if diary.reduced { return MorphPose() }
+        if frozen() { return MorphPose(alpha: smoothstep(MemoriesMorphTokens.frozenCardFadeFrom, MemoriesMorphTokens.frozenCardFadeTo, 1 - p) ) }
+        guard morph.dem != .zero, morph.seal != .zero else { return MorphPose(alpha: 1 - smoothstep(0, 0.4, p)) }
+        let te = MemoriesMorph.titleTravel(p, frozen: false)
+        return MemoriesMorph.emblemPose(te: te, sealCenter: center(morph.seal), demCenter: center(morph.dem),
+                                        seal: morph.seal.width, dem: morph.dem.width).seal
+    }
+
+    private func titlePose(_ p: CGFloat) -> MorphPose {
+        if diary.reduced { return MorphPose() }
+        if frozen() { return MorphPose(alpha: smoothstep(MemoriesMorphTokens.frozenCardFadeFrom, MemoriesMorphTokens.frozenCardFadeTo, 1 - p)) }
+        let t = MemoriesMorph.titleTravel(p, frozen: false)
+        let from = TextAnchor(cx: morph.cardTitle.midX, y: morph.cardTitle.minY, font: morph.cardTitleFont)
+        if let d = morph.diaryTitle {
+            return MemoriesMorph.textPair(card: from, diary: TextAnchor(cx: d.midX, y: d.minY, font: morph.diaryTitleFont), t: t).card
+        }
+        // Fallback A: the album name flies to the bar's album name and is gone by .72.
+        let bar = TextAnchor(cx: morph.barTitle.midX, y: morph.barTitle.minY, font: 15)
+        var s = MemoriesMorph.textPair(card: from, diary: bar, t: t).card
+        s.alpha = 1 - smoothstep(MemoriesMorphTokens.albumTitleFadeFrom, MemoriesMorphTokens.albumTitleFadeTo, t)
+        return s
+    }
+
+    private func title(_ tones: MemoryTones) -> some View {
+        let album = card.titleKind == .album
+        let size = Self.titleFont(card.titleKind)
+        let font: Font = album ? .gsf(size, .semibold) : .system(size: size, weight: .semibold, design: .serif)
+        let spacing = album ? size * 0.3 - 6 : size * 0.36 - 7
+        // Another account's memory is read-only here: its title is that account's.
+        return MemoryTitleSlot(card: card, surface: .card, editor: deck.editor, scheme: scheme, tones: tones, font: font,
+                               lineSpacing: spacing, centred: true, enabled: interactive && !card.fromOther, onCommit: onTitle) {
+            Text(card.title)
+                .font(font)
+                .lineSpacing(spacing)
+                .multilineTextAlignment(.center)
+                .lineLimit(album ? 2 : 3)
+                .foregroundStyle(scheme.onSurface)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .frame(maxWidth: 340)
+        .morphLayer(diary, anchor: .top) { p in titlePose(p) }
+        .pageFrame { r in
+            guard abs(diary.fraction) < 0.001 else { return }
+            morph.cardTitle = r
+            morph.cardTitleFont = size
+        }
+    }
+
+    private func albumRow(_ tones: MemoryTones) -> some View {
+        VStack(spacing: 2) {
+            if card.titleKind != .album {
+                Text(card.album.title)
+                    .font(.gsf(17, .semibold))
+                    .foregroundStyle(scheme.onSurface)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                if !card.album.artist.isEmpty { Text(card.album.artist) }
+                if card.album.year > 0 { Text(String(card.album.year)).monospacedDigit() }
+            }
+            .font(.gsf(13, .medium))
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .lineLimit(1)
+        }
+    }
+
+    private func teaser(_ tones: MemoryTones) -> some View {
+        VStack(spacing: 16) {
+            if let e = card.excerpt { excerpt(e, tones) }
+            VStack(spacing: MemoryOtherAccountLine.cardGap) {
+                buttons(tones)
+                // Another account's memory: whose it is, right by Go to album (which switches there).
+                // Under the row, which already holds two buttons.
+                if let owner = card.owner {
+                    MemoryOtherAccountLine(owner: owner, tones: tones)
+                        .transition(.opacity)
+                }
+            }
+            // An account switch under the open deck moves the line in or out.
+            .animation(Yoin.spatial, value: card.fromOther)
+        }
+    }
+
+    private func buttons(_ tones: MemoryTones) -> some View {
+        let anchor = MemorySwitchAnchor.album(.card, card)
+        return HStack(spacing: 10) {
+            Button { deck.openDiary(card) } label: {
+                HStack(spacing: 8) {
+                    YoinIcon("note", size: 18)
+                    Text("Diary").font(.gsf(15, .semibold))
+                    if card.noteCount > 0 {
+                        // The count on its own 18 % pill, lighter than the label.
+                        Text("\(card.noteCount)")
+                            .font(.gsf(15, .medium)).monospacedDigit()
+                            .opacity(0.78)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 24, minHeight: 24)
+                            .background(tones.ink.opacity(0.18), in: .capsule)
+                            .padding(.leading, -2)
+                    }
+                }
+                .foregroundStyle(tones.ink)
+                .padding(.leading, 16).padding(.trailing, 20)
+                .frame(height: 48)
+                .background(tones.ink.opacity(0.14), in: .capsule)
+                .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel(card.noteCount > 0 ? String(localized: "Diary, \(card.noteCount) notes") : String(localized: "Diary"))
+            Button { onOpenAlbum(anchor) } label: {
+                Text("Go to album")
+                    .font(.gsf(15, .semibold))
+                    .foregroundStyle(tones.onButton)
+                    .padding(.horizontal, 24)
+                    .frame(height: 48)
+                    .background(tones.button, in: .capsule)
+            }
+            .buttonStyle(PressScale())
+            .accountSwitchNotice(deck.switchGate, anchor: anchor)
+        }
+    }
+
+    private func excerpt(_ e: MemoryCard.Excerpt, _ tones: MemoryTones) -> some View {
+        // Whole sentences only, never an ellipsis: the most that fits four lines, else the attribution alone.
+        let shown = MemoryExcerptFit.pick(e.candidates, width: min(MemoryExcerptFit.maxWidth, excerptWidth))
+        return VStack(spacing: 8) {
+            if let text = shown {
+                Text("“\(text)”")
+                    .font(.gsf(MemoryExcerptFit.size(text), MemoryExcerptFit.weight(text)))
+                    .lineSpacing(MemoryExcerptFit.lineSpacing(text))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(scheme.onSurface)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: MemoryExcerptFit.maxWidth)
+            }
+            HStack(spacing: 12) {
+                Text(e.kind == .review ? String(localized: "Your review") : String(localized: "Your note"))
+                    .homeType(Tokens.type.labelSmall)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                if let d = e.detail {
+                    Text(d).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(scheme.onSurface.opacity(0.6))
+                }
+            }
+            .lineLimit(1)
+        }
+    }
+}
+
+func center(_ r: CGRect) -> CGPoint { CGPoint(x: r.midX, y: r.midY) }
+
+/// The flying cover: its pose and its corner (8 → 4 as shown), from p.
+private struct CoverMorph: ViewModifier {
+    var diary: MemoriesDiary
+    var morph: MemoryPageMorph
+    var cover: CGFloat
+    var barHeight: CGFloat
+
+    func body(content: Content) -> some View {
+        let p = diary.fraction
+        let s: MorphPose = {
+            if diary.reduced { return MorphPose(corner: MemoriesMorphTokens.coverCornerCard) }
+            let fp = MemoriesMorph.coverProgress(p, frozen: morph.frozen(barHeight: barHeight))
+            guard morph.cover != .zero else { return MorphPose(alpha: 1 - fp, corner: MemoriesMorphTokens.coverCornerCard) }
+            return MemoriesMorph.coverPose(fp: fp, coverCenter: center(morph.cover), barCenter: morph.barCover,
+                                           cover: cover, barCover: MemoriesTopBar.barCover)
+        }()
+        content
+            .clipShape(.rect(cornerRadius: s.corner, style: .continuous))
+            .scaleEffect(s.scale)
+            .offset(x: s.dx, y: s.dy)
+            .opacity(Double(min(max(s.alpha, 0), 1)))
+    }
+}
+
+// MARK: - The two-state page
+
+/// One page: the card and, once p moves, the diary under it.
+struct MemoryPageView: View {
+    var card: MemoryCard
+    var index: Int
+    var deck: MemoriesDeckModel
+    var pager: MemoriesPagerModel
+    var layout: MemoriesLayout
+    var scheme: CoverScheme
+    var dark: Bool
+    /// This is the deck's current page.
+    var current: Bool
+    var onOpenAlbum: (String) -> Void
+    var onTitle: (MemoryTitles.Outcome) -> Void
+    var onReview: (String) -> Bool
+    var horizontalPager: AnyGesture<DragGesture.Value>
+
+    @State private var warm = false
+    /// Seconds at rest on the current page before its hidden `DiaryHead` anchors pre-build.
+    static let warmDelay: Double = 0.55
+
+    private var diary: MemoriesDiary { deck.diary }
+
+    var body: some View {
+        let morph = deck.morph(card)
+        let shouldMountDiary = pager.mountsDiary(
+            for: index,
+            diaryShown: diary.isShown,
+            warm: warm,
+            presentationOpen: deck.presentation.isOpen
+        )
+        ZStack(alignment: .top) {
+            MemoryCardFace(card: card, deck: deck, morph: morph, metrics: MemoryCardMetrics(layout: layout),
+                           scheme: scheme, dark: dark, interactive: current && !diary.isDiaryLevel,
+                           onOpenAlbum: onOpenAlbum, onTitle: onTitle)
+                .ignoresSafeArea(.keyboard)
+            // At rest only the active card mounts its diary on `openDiary`, while horizontal swipes
+            // in diary mode (`< 0.999` page away) mount the incoming card immediately with zero blank gap.
+            if shouldMountDiary {
+                MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
+                                interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
+                                onTitle: onTitle, onReview: onReview,
+                                horizontalPager: horizontalPager)
+            }
+        }
+        .coordinateSpace(.named(MemoryPageMorph.space))
+        .task(id: current) {
+            guard current, !warm else { return }
+            try? await Task.sleep(for: .seconds(MemoryPageView.warmDelay / LaunchConfig.animationSpeed))
+            while !Task.isCancelled && (pager.isMoving || deck.presentation.dragging || deck.presentation.fraction > 0.002) {
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+            guard !Task.isCancelled, current else { return }
+            warm = true
+        }
+        .onAppear {
+            morph.barCover = CGPoint(x: layout.barCoverStart + MemoriesTopBar.barCover / 2, y: layout.barHeight / 2)
+        }
+        .onChange(of: layout) { _, l in
+            morph.barCover = CGPoint(x: l.barCoverStart + MemoriesTopBar.barCover / 2, y: l.barHeight / 2)
+        }
+    }
+}

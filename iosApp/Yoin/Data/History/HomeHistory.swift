@@ -1,0 +1,598 @@
+import Foundation
+
+/// A plain album cover's memory mark (Android `HomeAlbumMemoryMark`): solid =
+/// an album rating, a line = your track average, dashed = notes only.
+enum AlbumMemoryMark: Hashable, Sendable { case solid, outline, dashed }
+
+/// A Jump Back In 1×2 (Android `HomeWidgetCard` with `expanded = true`): the
+/// memory album or the noted track.
+struct JBISignal: Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case ratedAlbum, notedTrack }
+    var kind: Kind
+    /// Cover, palette and where a tap goes (an album card opens it).
+    var album: Album
+    var title: String
+    var subtitle: String
+    /// "%.1f", or "N/A".
+    var score: String
+    /// A date ("Nov 1") or "Based on 4/10 tracks"; nil hides it.
+    var basis: String?
+    /// The note (noted track); a memory title would go here (none on iOS yet).
+    var comment: String?
+    /// Noted track: the song a tap plays.
+    var song: PlaylistEntry?
+}
+
+/// An album's local memory (Android `AlbumMemoryCandidate`, minus the
+/// review / album note / Ask AI parts iOS doesn't keep yet).
+struct AlbumMemory: Hashable, Sendable {
+    var album: Album
+    var totalTracks: Int
+    var ratedTrackCount: Int
+    var coverage: Double
+    var averageSongRating: Double?
+    /// The album's own score: the server's album rating (iOS keeps no local
+    /// album rating).
+    var albumRating: Double?
+    var noteCount: Int
+    /// Newest write on it (Android `lastWrittenAt`): a note, a track rating
+    /// or the album's rating / review. Plays and visits never count.
+    var lastWrittenAt: Int64?
+    var playCount: Int
+    var firstPlayedAt: Int64?
+    var lastPlayedAt: Int64?
+    var isMemoryEligible: Bool
+    /// A non-blank album review is kept here (Android `hasAlbumReview`): it
+    /// alone passes the writing gate and counts as something kept.
+    var hasAlbumReview = false
+
+    var albumId: String { album.id.rawId }
+}
+
+/// Home's history-driven parts, built from the local stores, ported from
+/// Android (HomeViewModel, data/memory/RediscoverSelection.kt,
+/// HomeAlbumMemoryMark.kt, HomeEditorialContent.formatTimeAgo). Pure.
+enum HomeHistory {
+    static let dayMs: Int64 = 86_400_000
+    /// REDISCOVER_AWAY_MS: 90 days unplayed in Yoin.
+    static let awayMs: Int64 = 90 * dayMs
+    static let coverageGate = 0.6
+    static let noteCountGate = 2
+    static let memoryMinTrackCount = 4
+    static let rediscoverLimit = 6
+    static let noteShare = 1.0 / 3.0
+
+    struct Inputs {
+        var now: Int64
+        /// The account's plays (any order).
+        var plays: [PlayEvent]
+        /// The account's notes (this provider).
+        var notes: [SongNote]
+        /// Loaded album details by raw id (track lists, server ratings).
+        var details: [String: Album]
+        /// List albums by raw id (counts, server album ratings).
+        var known: [String: Album]
+        /// A song's local rating (0–10).
+        var localRating: (String) -> Double?
+        /// The album for [id]: the app's copy, else one made from the play's snapshot.
+        var resolve: (_ albumId: String, _ snapshot: PlayEvent?) -> Album?
+        /// An album's own rating (Android `album_ratings`, 0–10; AlbumMemoryStore).
+        var localAlbumRating: (String) -> Double? = { _ in nil }
+        /// Albums with an album rating or review here (Android seeds Memories from `album_ratings`).
+        var ratedAlbumIds: [String] = []
+        /// When a song's local rating was written (epoch ms; nil = unknown).
+        var ratingWrittenAt: (String) -> Int64? = { _ in nil }
+        /// When the album's own rating / review was written (AlbumMemoryStore).
+        var albumWrittenAt: (String) -> Int64? = { _ in nil }
+        /// The album has a non-blank review here (AlbumMemoryStore).
+        var albumReviewed: (String) -> Bool = { _ in false }
+    }
+
+    // MARK: Memories
+
+    /// Who owns what: song → album and album → songs (the plays first, then
+    /// loaded track lists), and each album's written notes.
+    private struct Ownership {
+        var songsOf: [String: Set<String>] = [:]
+        var notesOf: [String: (count: Int, last: Int64)] = [:]
+    }
+
+    private static func ownership(_ x: Inputs) -> Ownership {
+        var songAlbum: [String: String] = [:]
+        var o = Ownership()
+        for p in x.plays { if let a = p.albumId { songAlbum[p.songId] = a; o.songsOf[a, default: []].insert(p.songId) } }
+        for (id, album) in x.details {
+            for t in album.tracks {
+                songAlbum[t.id.rawId] = songAlbum[t.id.rawId] ?? id
+                o.songsOf[id, default: []].insert(t.id.rawId)
+            }
+        }
+        for n in x.notes where !n.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let a = songAlbum[n.trackId] else { continue }
+            let prev = o.notesOf[a] ?? (0, 0)
+            o.notesOf[a] = (prev.count + 1, max(prev.last, n.updatedAt))
+        }
+        return o
+    }
+
+    /// The albums with something written on them here (an album rating or
+    /// review, a noted or rated song): the ones whose album detail a memory
+    /// needs (Android AlbumMemoryCandidateBuilder loads each through the
+    /// repository). Plays alone never make a memory, so they aren't listed.
+    static func writtenAlbumIds(_ x: Inputs) -> Set<String> { writtenAlbumIds(x, ownership(x)) }
+
+    private static func writtenAlbumIds(_ x: Inputs, _ o: Ownership) -> Set<String> {
+        var ids = Set(o.notesOf.keys).union(x.ratedAlbumIds)
+        for (id, songs) in o.songsOf where songs.contains(where: { x.localRating($0) != nil }) { ids.insert(id) }
+        return ids
+    }
+
+    /// Every album with plays, or with a rated / noted track the app knows
+    /// the album of, in the builder's order (coverage, notes, then newest play).
+    static func memories(_ x: Inputs) -> [AlbumMemory] {
+        let stats = HistoryStore.albumStats(x.plays)
+        let o = ownership(x)
+        let songsOf = o.songsOf, notesOf = o.notesOf
+        // Android AlbumMemoryCandidateBuilder: local_ratings and album_ratings only, never the server's stars
+        // (the album page's Bun reads the same: AlbumBun).
+        // A stored 0 is a rating (nil = never rated).
+        func rating(_ song: String) -> Double? {
+            x.localRating(song)
+        }
+        let ids = Set(stats.keys).union(writtenAlbumIds(x, o))
+
+        var out: [AlbumMemory] = []
+        for id in ids {
+            guard let album = x.details[id] ?? x.resolve(id, stats[id]?.latest) else { continue }
+            let songs = songsOf[id] ?? []
+            let rated = songs.compactMap(rating)
+            let detail = x.details[id]
+            let total = detail.map { max($0.tracks.count, $0.songCount ?? 0) }
+                ?? x.known[id]?.songCount ?? album.songCount ?? 0
+            let coverage = total > 0 ? Double(rated.count) / Double(total) : 0
+            let notes = notesOf[id]
+            let albumRating = x.localAlbumRating(id).flatMap { $0 > 0 ? $0 : nil }
+            let noteCount = notes?.count ?? 0
+            let written = ([notes?.last, x.albumWrittenAt(id)] + songs.filter { rating($0) != nil }.map(x.ratingWrittenAt))
+                .compactMap { $0 }.filter { $0 > 0 }.max()
+            let reviewed = x.albumReviewed(id)
+            let eligible = (coverage >= coverageGate || reviewed || noteCount >= noteCountGate)
+                && (total == 0 || total >= memoryMinTrackCount)
+            let s = stats[id]
+            out.append(AlbumMemory(album: album, totalTracks: total, ratedTrackCount: rated.count, coverage: coverage,
+                                   averageSongRating: rated.isEmpty ? nil : rated.reduce(0, +) / Double(rated.count),
+                                   albumRating: albumRating, noteCount: noteCount, lastWrittenAt: written,
+                                   playCount: s?.playCount ?? 0, firstPlayedAt: s?.firstPlayedAt,
+                                   lastPlayedAt: s?.lastPlayedAt, isMemoryEligible: eligible,
+                                   hasAlbumReview: reviewed))
+        }
+        return out.sorted { a, b in
+            if a.coverage != b.coverage { return a.coverage > b.coverage }
+            if a.noteCount != b.noteCount { return a.noteCount > b.noteCount }
+            let ta = a.lastPlayedAt ?? a.firstPlayedAt ?? 0, tb = b.lastPlayedAt ?? b.firstPlayedAt ?? 0
+            if ta != tb { return ta > tb }
+            return a.albumId < b.albumId
+        }
+    }
+
+    /// `albumMemoryMarkOf`: album rating, else the track average, else notes.
+    static func mark(_ m: AlbumMemory) -> AlbumMemoryMark? {
+        if m.albumRating != nil { return .solid }
+        if let avg = m.averageSongRating, avg > 0, m.ratedTrackCount > 0 { return .outline }
+        if m.noteCount > 0 { return .dashed }
+        return nil
+    }
+
+    static func marks(_ memories: [AlbumMemory]) -> [String: AlbumMemoryMark] {
+        var out: [String: AlbumMemoryMark] = [:]
+        for m in memories { if let k = mark(m) { out[m.albumId] = k } }
+        return out
+    }
+
+    // MARK: Activities
+
+    /// One Activities card's source: the entity the log row is about and when
+    /// (Android `HomeMomentEntry`).
+    struct ActivityPick: Hashable {
+        var entity: ActivityEntity
+        /// The entity's own id: the album's, the artist's, the playlist's.
+        var entityId: String
+        /// The cover, palette and words. An album is the album itself; an artist or a
+        /// playlist is made from the log row (title = its name, artist = its subtitle).
+        var album: Album
+        var at: Int64
+
+        init(album: Album, at: Int64, entity: ActivityEntity = .album, entityId: String? = nil) {
+            self.entity = entity
+            self.entityId = entityId ?? album.id.rawId
+            self.album = album
+            self.at = at
+        }
+    }
+
+    /// The entries the bento can seat (Android `selectHomeActivities`): newest first,
+    /// one per entity (album / artist / playlist by id), and no songs: the bento opens
+    /// album, playlist and artist pages only, a single play never earns a card.
+    static func activityPicks(_ records: [ActivityRecord], resolve: (String, PlayEvent?) -> Album?,
+                              limit: Int = 7) -> [ActivityPick] {
+        var seen = Set<String>()
+        var out: [ActivityPick] = []
+        for r in records.sorted(by: { $0.timestamp > $1.timestamp }) where out.count < limit {
+            guard r.entity != .song, !r.entityId.isEmpty, seen.insert("\(r.entity.rawValue):\(r.entityId)").inserted
+            else { continue }
+            let isAlbum = r.entity == .album
+            // The row's subtitle says who; blank falls back (Android home_activity_fallback_*).
+            let subtitle = r.subtitle.isEmpty
+                ? (r.entity == .artist ? String(localized: "Artist") : String(localized: "Recently active")) : r.subtitle
+            let snap = PlayEvent(id: r.id, scope: r.scope, provider: r.provider, songId: r.songId ?? "",
+                                 albumId: isAlbum ? r.entityId : nil, artistId: r.artistId, title: r.title,
+                                 album: r.title, artist: isAlbum ? r.subtitle : subtitle,
+                                 coverKey: r.coverKey, startedAt: r.timestamp, durationSec: 0)
+            guard var album = resolve(r.entityId, snap) else { continue }
+            if !isAlbum {
+                // The artist's / playlist's own name and line, whatever the id resolved to.
+                album.title = r.title
+                album.artist = subtitle
+            }
+            out.append(ActivityPick(album: album, at: r.timestamp, entity: r.entity, entityId: r.entityId))
+        }
+        return out
+    }
+
+    // MARK: Jump Back In 1×2s
+
+    /// `pickJbiMemoryCandidate` (no reviews on iOS): the first eligible album
+    /// with an album rating or a track average.
+    static func ratedAlbumSignal(_ memories: [AlbumMemory]) -> JBISignal? {
+        guard let m = memories.first(where: { $0.isMemoryEligible && ($0.albumRating != nil || $0.averageSongRating != nil) })
+        else { return nil }
+        let trackBasis = m.ratedTrackCount > 0 && m.totalTracks > 0
+        return JBISignal(kind: .ratedAlbum, album: m.album, title: m.album.title, subtitle: m.album.artist,
+                         score: scoreText(m.albumRating ?? m.averageSongRating),
+                         basis: trackBasis ? String(localized: "Based on \(m.ratedTrackCount)/\(m.totalTracks) tracks") : nil,
+                         comment: nil, song: nil)
+    }
+
+    /// `loadNotedTrackCards`' primary: the most recently touched note, with
+    /// the song's rating and its newest play (cover, album, duration).
+    static func notedTrackSignal(_ x: Inputs, placeholder: (SongNote) -> Album) -> JBISignal? {
+        let words = x.notes.filter { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard let note = words.max(by: { ($0.updatedAt, $0.createdAt) < ($1.updatedAt, $1.createdAt) }) else { return nil }
+        let play = x.plays.filter { $0.songId == note.trackId }.max { $0.startedAt < $1.startedAt }
+        let album = play?.albumId.flatMap { x.details[$0] ?? x.resolve($0, play) } ?? placeholder(note)
+        let rating = x.localRating(note.trackId)
+        var track = album.tracks.first { $0.id.rawId == note.trackId }
+            ?? Track(id: MediaId(provider: note.provider, rawId: note.trackId), number: 1, title: note.title,
+                     durationSec: max(1, Int((play?.durationSec ?? 0).rounded())), rating: rating,
+                     artist: note.artist.isEmpty ? nil : note.artist)
+        track.title = track.title.isEmpty ? note.title : track.title
+        return JBISignal(kind: .notedTrack, album: album, title: note.title,
+                         subtitle: note.artist.isEmpty ? album.artist : note.artist,
+                         score: scoreText(rating), basis: memoryDate(note.updatedAt), comment: note.content,
+                         song: PlaylistEntry(album: album, track: track))
+    }
+
+    // MARK: Rediscover (RediscoverSelection.kt, album cards)
+
+    struct RediscoverPick: Hashable {
+        var memory: AlbumMemory
+        var score: Double?
+        var lastPlayedAt: Int64
+        var fromNotes: Bool
+    }
+
+    static func hasMemory(_ m: AlbumMemory) -> Bool {
+        (m.albumRating ?? 0) > 0 || m.hasAlbumReview || m.noteCount > 0 || m.ratedTrackCount > 0
+    }
+
+    static func meetsTrackCount(_ m: AlbumMemory) -> Bool {
+        m.isMemoryEligible || m.totalTracks == 0 || m.totalTracks >= memoryMinTrackCount
+    }
+
+    static func rediscoverScore(_ m: AlbumMemory) -> Double? {
+        if let r = m.albumRating, r > 0 { return r }
+        return m.coverage >= coverageGate ? m.averageSongRating : nil
+    }
+
+    private static func ordered(_ a: RediscoverPick, _ b: RediscoverPick) -> Bool {
+        if (a.score == nil) != (b.score == nil) { return a.score != nil }
+        if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+        return a.lastPlayedAt < b.lastPlayedAt
+    }
+
+    /// `selectRediscover`: a memory, enough tracks, 90+ days since its last play.
+    static func selectRediscover(_ memories: [AlbumMemory], now: Int64, exclude: Set<String>) -> [RediscoverPick] {
+        memories.compactMap { m -> RediscoverPick? in
+            guard let last = m.lastPlayedAt, hasMemory(m), meetsTrackCount(m), now - last >= awayMs else { return nil }
+            return RediscoverPick(memory: m, score: rediscoverScore(m), lastPlayedAt: last, fromNotes: false)
+        }
+        .sorted(by: ordered)
+        .filter { !exclude.contains($0.memory.albumId) }
+    }
+
+    /// `selectRediscoverNotes`: written about, never played in Yoin, last
+    /// written 90+ days ago.
+    static func selectRediscoverNotes(_ memories: [AlbumMemory], now: Int64, exclude: Set<String>) -> [RediscoverPick] {
+        memories.filter { m in
+            m.lastPlayedAt == nil && hasMemory(m) && meetsTrackCount(m) && now - (m.lastWrittenAt ?? 0) >= awayMs
+        }
+        .map { RediscoverPick(memory: $0, score: rediscoverScore($0), lastPlayedAt: 0, fromNotes: true) }
+        .sorted { a, b in
+            if (a.score == nil) != (b.score == nil) { return a.score != nil }
+            if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+            return a.memory.noteCount > b.memory.noteCount
+        }
+        .filter { !exclude.contains($0.memory.albumId) }
+    }
+
+    // MARK: Rediscover songs (RediscoverSelection.kt, SongMemoryAggregate)
+
+    /// A song with something kept on it (Android `SongMemoryAggregate`): its rating or a written
+    /// note, with what the play history says of it (one row per song id).
+    struct SongMemory: Hashable, Sendable {
+        var songId: String
+        var provider: String
+        var title: String
+        var artist: String
+        var album: String
+        /// Blank when the track played without an album.
+        var albumId: String
+        var coverKey: String?
+        var durationSec: Double
+        var playCount: Int
+        var firstPlayedAt: Int64
+        var lastPlayedAt: Int64
+        /// The track rating (0-10); nil when unrated.
+        var rating: Double?
+        /// Non-blank notes on the track.
+        var noteCount: Int
+        /// The newest non-blank note's text.
+        var latestNote: String?
+    }
+
+    /// `PlayHistoryDao.getRediscoverSongs`: every played song that carries a rating or a non-blank
+    /// note (its metadata is the newest play's), in no particular order.
+    static func songMemories(_ x: Inputs) -> [SongMemory] {
+        var notes: [String: [SongNote]] = [:]
+        for n in x.notes where !n.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            notes[n.trackId, default: []].append(n)
+        }
+        var plays: [String: [PlayEvent]] = [:]
+        for p in x.plays { plays[p.songId, default: []].append(p) }
+        return plays.compactMap { id, rows in
+            let rating = x.localRating(id)
+            let written = notes[id] ?? []
+            guard rating != nil || !written.isEmpty, let newest = rows.max(by: { $0.startedAt < $1.startedAt }) else { return nil }
+            return SongMemory(songId: id, provider: newest.provider, title: newest.title, artist: newest.artist,
+                              album: newest.album, albumId: newest.albumId ?? "", coverKey: newest.coverKey,
+                              durationSec: rows.map(\.durationSec).max() ?? 0, playCount: rows.count,
+                              firstPlayedAt: rows.map(\.startedAt).min() ?? 0,
+                              lastPlayedAt: newest.startedAt, rating: rating, noteCount: written.count,
+                              latestNote: written.max { ($0.updatedAt, $0.createdAt) < ($1.updatedAt, $1.createdAt) }?.content)
+        }
+    }
+
+    struct RediscoverSongPick: Hashable {
+        var song: SongMemory
+        /// The track rating; nil when the song comes back on a note alone.
+        var score: Double?
+        var lastPlayedAt: Int64
+    }
+
+    /// `hasRediscoverMemory(song)`: a rating, or a non-blank note.
+    static func hasMemory(_ s: SongMemory) -> Bool {
+        s.rating != nil || (s.noteCount > 0 && !(s.latestNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// `selectRediscoverSongs`: a memory, 90+ days since its last play, in Rediscover's order;
+    /// songs shown elsewhere on Home, or whose album is, stay off.
+    static func selectRediscoverSongs(_ songs: [SongMemory], now: Int64, excludeSongIds: Set<String> = [],
+                                      excludeAlbumIds: Set<String> = []) -> [RediscoverSongPick] {
+        var seen = Set<String>()
+        return songs
+            .filter { hasMemory($0) && now - $0.lastPlayedAt >= awayMs }
+            .map { RediscoverSongPick(song: $0, score: $0.rating, lastPlayedAt: $0.lastPlayedAt) }
+            .sorted { a, b in
+                if (a.score == nil) != (b.score == nil) { return a.score != nil }
+                if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+                if a.lastPlayedAt != b.lastPlayedAt { return a.lastPlayedAt < b.lastPlayedAt }
+                return a.song.songId < b.song.songId
+            }
+            .filter { seen.insert($0.song.songId).inserted }
+            .filter { !excludeSongIds.contains($0.song.songId) && !excludeAlbumIds.contains($0.song.albumId) }
+    }
+
+    /// One card of the shelf: an album or a song (Android `RediscoverEntry`).
+    enum RediscoverShelfEntry: Hashable {
+        case album(RediscoverPick)
+        case song(RediscoverSongPick)
+
+        var score: Double? {
+            switch self { case .album(let p): p.score; case .song(let p): p.score }
+        }
+        var lastPlayedAt: Int64 {
+            switch self { case .album(let p): p.lastPlayedAt; case .song(let p): p.lastPlayedAt }
+        }
+    }
+
+    /// `selectRediscoverShelf`: albums and songs in one order (an album first on a tie), at most
+    /// [limit]; a song whose album is on the shelf as an album card stays off it.
+    static func selectRediscoverShelf(_ albums: [RediscoverPick], _ songs: [RediscoverSongPick],
+                                      limit: Int = rediscoverLimit) -> [RediscoverShelfEntry] {
+        let merged = (albums.map(RediscoverShelfEntry.album) + songs.map(RediscoverShelfEntry.song)).enumerated()
+            .sorted { l, r in
+                let a = l.element, b = r.element
+                if (a.score == nil) != (b.score == nil) { return a.score != nil }
+                if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+                if a.lastPlayedAt != b.lastPlayedAt { return a.lastPlayedAt < b.lastPlayedAt }
+                return l.offset < r.offset
+            }
+            .map(\.element)
+        // Dropping a song only lets later cards in, so the shelf's albums only grow.
+        var shownAlbums = Set<String>()
+        while true {
+            let shelf = merged.filter { e in
+                if case .song(let p) = e { return !shownAlbums.contains(p.song.albumId) }
+                return true
+            }.prefix(limit)
+            let onShelf = Set(shelf.compactMap { e -> String? in
+                if case .album(let p) = e { return p.memory.albumId }
+                return nil
+            })
+            if onShelf.isSubset(of: shownAlbums) { return Array(shelf) }
+            shownAlbums.formUnion(onShelf)
+        }
+    }
+
+    /// `mixRediscoverShelf` over album cards alone.
+    static func mix(_ listening: [RediscoverPick], _ notes: [RediscoverPick], limit: Int = rediscoverLimit) -> [RediscoverPick] {
+        mixShelf(listening.map(RediscoverShelfEntry.album), notes, limit: limit).compactMap {
+            if case .album(let p) = $0 { return p }
+            return nil
+        }
+    }
+
+    /// `mixRediscoverShelf`: every third card a note card, either kind
+    /// filling the other's places when it runs short.
+    static func mixShelf(_ listening: [RediscoverShelfEntry], _ notes: [RediscoverPick],
+                         limit: Int = rediscoverLimit) -> [RediscoverShelfEntry] {
+        guard !notes.isEmpty, limit > 0 else { return Array(listening.prefix(limit)) }
+        let share = max(1, Int((Double(limit) * noteShare).rounded()))
+        let listeningCount = min(listening.count, limit - min(share, notes.count))
+        let noteCount = min(notes.count, limit - listeningCount)
+        var shelf: [RediscoverShelfEntry] = []
+        var l = 0, n = 0
+        while l < listeningCount || n < noteCount {
+            let noteTurn = n < noteCount && (l >= listeningCount || shelf.count % 3 == 2)
+            if noteTurn { shelf.append(.album(notes[n])); n += 1 } else { shelf.append(listening[l]); l += 1 }
+        }
+        return shelf
+    }
+
+    /// A song's card: its album's cover (else a quiet placeholder) under the song's own words.
+    /// [album] resolves the song's album for the cover; [song] the entry a tap plays.
+    static func songEntry(_ p: RediscoverSongPick, now: Int64, album: (SongMemory) -> Album) -> RediscoverEntry {
+        let s = p.song
+        let cover = album(s)
+        var track = cover.tracks.first { $0.id.rawId == s.songId }
+            ?? Track(id: MediaId(provider: s.provider, rawId: s.songId), number: 1, title: s.title,
+                     durationSec: max(1, Int(s.durationSec.rounded())), rating: s.rating,
+                     artist: s.artist.isEmpty ? nil : s.artist)
+        track.title = track.title.isEmpty ? s.title : track.title
+        return RediscoverEntry(album: cover, reason: "", away: awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
+                               score: p.score, footnoteDate: "", footnotePlays: "",
+                               song: PlaylistEntry(album: cover, track: track),
+                               noteSnippet: p.score == nil ? s.latestNote?.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+    }
+
+    /// The shelf as cards: the reason line only with no score (or on a note
+    /// card), the away line except on a note card, then first-play month and
+    /// plays in Yoin. [songs] (picked with [selectRediscoverSongs]) share the shelf
+    /// with the albums, each as a card that plays the song.
+    static func rediscover(_ memories: [AlbumMemory], now: Int64, exclude: Set<String>,
+                           songs: [RediscoverSongPick] = [], songAlbum: ((SongMemory) -> Album)? = nil) -> [RediscoverEntry] {
+        let listening = selectRediscoverShelf(selectRediscover(memories, now: now, exclude: exclude),
+                                              songAlbum == nil ? [] : songs)
+        let shelf = mixShelf(listening, selectRediscoverNotes(memories, now: now, exclude: exclude))
+        return shelf.compactMap { e -> RediscoverEntry? in
+            switch e {
+            case .song(let p):
+                guard let songAlbum else { return nil }
+                return songEntry(p, now: now, album: songAlbum)
+            case .album(let p):
+                let m = p.memory
+                return RediscoverEntry(album: m.album, reason: rediscoverReason(p) ?? "",
+                                       away: p.fromNotes ? "" : awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
+                                       score: p.score, footnoteDate: m.firstPlayedAt.map(yearMonth) ?? "",
+                                       footnotePlays: m.playCount > 0 ? "\(m.playCount)" : "")
+            }
+        }
+    }
+
+    /// `rediscoverReason`: what was kept, when no badge says it.
+    static func rediscoverReason(_ p: RediscoverPick) -> String? {
+        if p.score != nil && !p.fromNotes { return nil }
+        let m = p.memory
+        if m.noteCount > 0 { return m.noteCount == 1 ? String(localized: "1 note") : String(localized: "\(m.noteCount) notes") }
+        if m.ratedTrackCount > 0 {
+            return m.ratedTrackCount == 1 ? String(localized: "1 track rated") : String(localized: "\(m.ratedTrackCount) tracks rated")
+        }
+        return nil
+    }
+
+    // MARK: Copy (Android strings, English)
+
+    /// `formatTimeAgo`: "just now", "12m ago", "2h ago", "3d ago", "2w ago".
+    static func timeAgo(_ ms: Int64, now: Int64) -> String {
+        let minutes = max(0, now - ms) / 60_000
+        let hours = minutes / 60, days = hours / 24
+        // Display copy only (built for the screen, never stored): in the reader's language.
+        if minutes < 1 { return String(localized: "just now") }
+        if minutes < 60 { return String(localized: "\(minutes)m ago") }
+        if hours < 24 { return String(localized: "\(hours)h ago") }
+        if days < 7 { return String(localized: "\(days)d ago") }
+        return String(localized: "\(days / 7)w ago")
+    }
+
+    /// "7 months away" / "1 year away" (months = days / 30, years from 365 days).
+    static func awayEyebrow(lastPlayedAt: Int64, now: Int64) -> String {
+        let days = max(0, now - lastPlayedAt) / dayMs
+        if days >= 365 {
+            let y = days / 365
+            return y == 1 ? String(localized: "1 year away") : String(localized: "\(y) years away")
+        }
+        let m = max(1, days / 30)
+        return m == 1 ? String(localized: "1 month away") : String(localized: "\(m) months away")
+    }
+
+    /// The seal's "%.1f", "N/A" without a score (0 is a score: "0.0").
+    static func scoreText(_ r: Double?) -> String {
+        guard let r else { return "N/A" }
+        return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), r)
+    }
+
+    private static func formatter(_ pattern: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = pattern
+        return f
+    }
+
+    static func date(_ ms: Int64) -> Date { Date(timeIntervalSince1970: Double(ms) / 1000) }
+
+    /// "Nov 1" (MemoryDateFormatter).
+    static func memoryDate(_ ms: Int64, locale: Locale = .current) -> String {
+        date(ms).formatted(Date.FormatStyle(locale: locale).month(.abbreviated).day())
+    }
+
+    /// "2024.03".
+    static func yearMonth(_ ms: Int64) -> String { formatter("yyyy.MM").string(from: date(ms)) }
+
+    /// Whole calendar days between two moments (0 on the same day).
+    static func calendarDays(from: Int64, to: Int64, calendar: Calendar = .current) -> Int {
+        let a = calendar.startOfDay(for: date(from)), b = calendar.startOfDay(for: date(to))
+        return max(0, calendar.dateComponents([.day], from: a, to: b).day ?? 0)
+    }
+
+    /// The album page's Last Play (`albumLastPlayLabels`): ("Yesterday", "16:04").
+    static func lastPlayLabels(_ ms: Int64, now: Int64, calendar: Calendar = .current) -> (day: String, time: String) {
+        (relativeDay(ms, now: now, calendar: calendar), {
+            let f = formatter("HH:mm")
+            f.timeZone = calendar.timeZone
+            return f.string(from: date(ms))
+        }())
+    }
+
+    /// "Today" / "Yesterday" / "3 days ago" / "Mar 14" / "Mar 14, 2024".
+    static func relativeDay(_ ms: Int64, now: Int64, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        let days = calendarDays(from: ms, to: now, calendar: calendar)
+        if days == 0 { return String(localized: "Today") }
+        if days == 1 { return String(localized: "Yesterday") }
+        if days < 7 { return String(localized: "\(days) days ago") }
+        let sameYear = calendar.component(.year, from: date(ms)) == calendar.component(.year, from: date(now))
+        // The reader's own month names and order ("Mar 14", "3月14日").
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.abbreviated).day()
+        if !sameYear { style = style.year() }
+        return date(ms).formatted(style)
+    }
+}

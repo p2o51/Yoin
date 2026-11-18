@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.ui.experience.CenteredBarBottomMargin
 import com.gpo.yoin.ui.experience.CenteredBarButtonHeight
 import com.gpo.yoin.ui.experience.CenteredBarHeight
@@ -80,7 +81,7 @@ fun FloatingBottomBar(
         modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = PortraitBarVerticalMargin)
+            .padding(horizontal = YoinTokens.Bar.HORIZONTAL_MARGIN.dp, vertical = PortraitBarVerticalMargin)
     }
     BoxWithConstraints(modifier = slot) {
         val slotWidth = this.maxWidth
@@ -126,17 +127,17 @@ private fun Modifier.lazyMaxWidth(maxWidth: () -> Dp): Modifier = layout { measu
 }
 
 /** The inner row's horizontal padding, each side. */
-val FloatingBarRowPadding = 10.dp
+val FloatingBarRowPadding = YoinTokens.Bar.ROW_PADDING.dp
 
 /** Height of fixed-height children inside the portrait bar's inner row. */
-val FloatingBarButtonHeight = 48.dp
+val FloatingBarButtonHeight = YoinTokens.Bar.BUTTON_HEIGHT.dp
 
 /** The row's button height per form: 48 in the portrait bar, 44 in the centred one. */
 fun floatingBarButtonHeight(centered: Boolean): Dp =
     if (centered) CenteredBarButtonHeight else FloatingBarButtonHeight
 
 /** Gap between bar islands (split button / pill / nav buttons). */
-val FloatingBarItemGap = 8.dp
+val FloatingBarItemGap = YoinTokens.Bar.ITEM_GAP.dp
 
 /**
  * Detail chrome: the Play split button's fixed width — its natural 60dp-era
@@ -144,7 +145,7 @@ val FloatingBarItemGap = 8.dp
  * bars and the shell morph's width lerp agree without measuring; the Play
  * half stretches inside it, so font scale squeezes padding, not layout.
  */
-val FloatingBarSplitWidth = 156.dp
+val FloatingBarSplitWidth = YoinTokens.Bar.SPLIT_WIDTH.dp
 
 /** CenteredBar detail pose: the now-playing pill's fixed width (§2.3). */
-val FloatingBarDetailPillWidth = 200.dp
+val FloatingBarDetailPillWidth = YoinTokens.Bar.DETAIL_PILL_WIDTH.dp

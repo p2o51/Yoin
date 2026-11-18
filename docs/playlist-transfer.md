@@ -164,6 +164,7 @@
 - 单份备份页顶部是服务色的状态卡：账号、跟随状态（跟随变化中 / 原歌单已不在 / 在其他设备上跟随）、四个时间方块；下面「恢复」和「立即备份」两个按钮。
 - 恢复：备份页上的 `YoinModalBottomSheet`，一个面板走完「选档案 → 匹配进度（确定进度的 Expressive LoadingIndicator + 波浪进度条）→ 审阅 → 写入 → 结果」；搜索是叠在上面的第二个 sheet。返回和拖动关闭由共享的 sheet 返回桥处理。
 - 进度通知（`RestoreLiveUpdate`）：匹配和写入期间一条常驻通知，Android 16+ 用 `ProgressStyle`：进度指示是 Yoin 吉祥物（`ic_live_yoin_mascot`，三色标志），进度条按每首歌的匹配结果分段上色（已匹配紫 #9113FF、待确认粉 #FF59CD、没找到灰，同色相邻合并成一段，没匹配到的部分保持默认色），并请求升级为 Live Update（`android.requestPromotedOngoing` extra，`setShortCriticalText` 给状态栏胶囊 "12/45"；manifest 声明 `POST_PROMOTED_NOTIFICATIONS`）。匹配完就撤掉（审阅在 App 里），写完换成可划掉的结果。2 分钟没有更新的常驻通知自动消失（进程中途死了也不会卡住）。第一次恢复时才请求通知权限；不给就不显示，恢复照常。
+- iOS 上同一件事是实时活动（Live Activity，`iosApp/Yoin/Data/Backup/RestoreLiveActivity.swift`，样子在 `iosApp/YoinWidgets/RestoreActivityViews.swift`）：锁屏一条（去向、歌单名、「12 / 45」，匹配时下面一条按结果上色的进度条，吉祥物骑在进度上），灵动岛紧凑态是吉祥物 + 「12/45」，展开同锁屏，最小态是围着吉祥物的进度环。颜色同 Android（紫 / 粉 / 灰）。匹配完撤掉，写完换成结果（锁屏上留着直到划掉）。歌太多时进度条最多 96 格，每格取多数结果（活动数据有 4 KB 上限）。更新最快半秒一次。离开 App 后借系统给的后台时间继续（放着歌就一直能跑）；2 分钟没更新就算过期、变淡；下次启动把上次没走完的撤掉。Debug 包可以用 `-qaRestoreActivity matching|creating|created|run` 起一个假的，截图和录屏用。
 
 ### 7.4 恢复审阅（`data/transfer/RestoreReview.kt`）
 

@@ -23,6 +23,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Yoin"
 include(":app")
+include(":shared")
 include(":playground:track-match")
 
 // Yoin Symbols (io.github.p2o51:yoin-symbols) is built from source until it is on Maven Central:

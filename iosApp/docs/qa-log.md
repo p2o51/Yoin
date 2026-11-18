@@ -1,0 +1,182 @@
+# iOS QA log
+
+Append-only. One row per finding. Script and method: `docs/qa-script.md`. Status values: open / fixing / fixed (commit) / wontfix / question.
+Evidence paths starting with `qa-audit/` are under the 11-04 audit scratchpad (`/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/qa-audit/`). Rerun `scripts/qa-record.sh` to regenerate them.
+
+## 2026-11-04 audit (build cceca3e74, before the fix agent's working-tree edits)
+
+### Clear defects
+
+| Pri | Screen | Step (launch args) | What's wrong | Evidence | Status |
+|---|---|---|---|---|---|
+| P0 | NP ⇄ shell | `-screen home -npAutoCycle YES -animationSpeed 0.5`; `-npScriptedDrag YES` | Close and drag-dismiss: the NP card shrinks over solid black for 4–6 frames, then the blurred shell pops in. Open: the shell vanishes to black for the last ~10 frames (R3) | qa-audit/ev-np-close-frames.png, ev-np-drag-dismiss-frames.png, ev-np-open-frames.png | open |
+| P0 | NP ⇄ shell | same | Open ends with a one-frame jump from ~0.95 scale (black rim) to full-bleed. Close: ~220 ms render stall, then in one frame the shell scale, the pill height (tall slab → bar), and the status-bar band (`if path.isEmpty && !npExpanded`, no transition) all change | qa-audit/ev-close-blank-slab.png (4→5), ev-np-close-frames.png | open |
+| P1 | NP morph | `-npAutoCycle YES` | The page fades out at rise < 0.3–0.75, so mid-fold it is a blank frosted slab (R5) | qa-audit/ev-close-blank-slab.png | open (see question 4) |
+| P1 | Mini player | `-npAutoCycle YES` (light) | The pill lands light, then flips to dark bar glass a few frames after the motion ends | qa-audit/ev-np-close-frames.png row 2 | open |
+| P1 | Search | `-screen search-longpress` | The focused field appears mid-screen (y≈405), hops under the chips, then reaches the header; chip rows double-exposed; avatar/✕ overlap | qa-audit/ev-search-ghost-field.png | open |
+| P1 | NP scrub bubble | code | `WavyProgress.swift:364` uses `.subheadline` (system font), not GSF | code | open |
+| P1 | Settings | `-screen settings`, open Playback quality / AI features | SF Symbols `chevron.down`, `checkmark`, `chevron.up.chevron.down` + `.font(.system)` (ServerSettingsView:154, GeminiSettingsSection:75/119/132) | code | open |
+| P1 | Queue sheet | `-screen np-queue` | Empty queue = header plus an empty sheet; NP controls read through the sheet glass (World `sheetPresenterDim` 0); grey band at the bottom edge | qa-audit/ev-queue-empty.png | open |
+| P1 | NP rating | srv: `-serverPlay album:al-field -serverOpenNowPlaying YES`, dark | Unrated track almost invisible, no label | qa-audit/ev-dark-np-sheets.png (6th) | open |
+| P1 | iPad NP | iPad Pro 13 portrait, `-screen np -npTab about` | Phone column stretched: ~200 pt void between tabs and transport; empty form-sheet queue | qa-audit/ev-ipad-np.png | open |
+| P2 | NP focus | `-screen np -npFocusDemo YES` | Active lyric drawn twice while the focus transition runs | qa-audit/ev-np-focus-in-frames.png | open |
+| P2 | NP compact | `-screen np` | Lyric line still visible between PAUSE row and progress row | run1/light/np.png | open |
+| P2 | Album pull-up | `-screen album-mid` | ← glyph fades out on its glass circle around p≈0.4 | qa-audit/ev-album-pullup-mid.png | open |
+| P2 | Library scroller | `-screen library-scroller` | Section rail glass over the third column; titles show through under the labels | qa-audit/ev-library-scroller-search.png | open |
+| P2 | Library → Search | `-screen library` vs `-screen search` | Field height and y differ (56 @ 93 vs 48 @ 86) | same | open |
+| P2 | Settings | `-screen settings` dark | Disabled Sign in nearly invisible; empty fields lack placeholders | qa-audit/ev-dark-detail-settings.png | open |
+| P2 | Skeletons | code | `LoadStates.swift:39` easeInOut loop (comment says effects spring) | code | open |
+| P2 | Landing | `-screen landing` | "Developer Dashboard (placeholder)" visible | run1/light/landing.png | open |
+| P2 | Library Favorites | `-screen library-favorites` | Stand-in "Random mix" of all songs | qa-audit/ev-library-scroller-search.png | open |
+| P2 | Sheets | `-screen song-menu` | Grey band at the sheet bottom; Share tile shows Home through it | run1/z-menu.png | open |
+
+### Design questions for 51
+
+| # | Question | Evidence | Status |
+|---|---|---|---|
+| Q1 | The bar turns to dark glass in light mode over covers, and the selected Library tab reads as two different greens. Keep the system adaptivity or pin it light? | qa-audit/ev-bar-over-covers-light.png | question |
+| Q2 | Library accent is olive (cover secondary) while a violet cover plays. Intended? | qa-audit/ev-library-views-light.png | question |
+| Q3 | Unrated on NP: nothing (iOS now), "–", or "Unrated" like the album stamp? Android always shows a number | qa-audit/ev-real-data-np-album-light.png | question |
+| Q4 | Mid-morph: may the NP page fade out before the card reaches pill size (blank slab ~⅓ of the fold)? | qa-audit/ev-close-blank-slab.png | question |
+| Q5 | Behind a receding layer: black ("the room in front", HEAD) or the app surface (fix WIP)? | qa-audit/ev-dark-np-sheets.png | question |
+| Q6 | PAUSE ink in dark: white (fidelity doc) or the current dark ink on lavender? | qa-audit/ev-dark-np-sheets.png | question |
+| Q7 | Detail page with nothing playing: Play split alone, centred, no Home affordance. OK? | run1/light/srv-album.png | question |
+
+## 2026-11-04 fix agent (iPhone 17 Pro sim, demo Subsonic, light + dark)
+
+Clips and frame strips: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/fix4/`.
+
+| Screen | Step | What's wrong | Fix commit |
+|---|---|---|---|
+| Shell → song sheet | long-press the mini player | One frame snaps the shell to full recede (dim + scale) ~6 frames into the sheet's rise, with black at the screen edges/corners (`PhoneShell` background black under World; recede on its own spring keyed on `sheet`). Before: before_menu_light.mp4 f283 | 95bb4dcbe: backdrop = app surface, dim over plane and rim; depth read per frame off the sheet's presentation layer (`SheetRise`), incl. drag + dismiss. after_menu_light/dark.mp4 |
+| Song sheet | long-press the mini player | Opening looked like two moves: presented at a 420 pt guess, then re-sized to the measured height mid-rise | 95bb4dcbe: detent from an exact height estimate (382 = measured 382) |
+| NP transport | tap PAUSE / PLAY | No morph: word swapped, pill width jumped, NEXT jumped; PLAY cross-faded over PAUSE | 95bb4dcbe: Android PlaybackControls port (fast spatial word box + 16⇄24 padding, 0.97/1.06/1.10 stretch, 15 % group press), keyed on state |
+| NP progress row | tap PAUSE then PLAY | Times and bar were the scrubber glass's content: the whole row vanished for 1 frame on pause and ~50 frames (0.8 s) on resume. before_playpause_light.mp4 f1688–1737 | 95bb4dcbe: glass is a layer behind the row; row drawn on top. 0 gone frames light + dark |
+| NP background | any queue | Previous / next edge colours were mock albums [11] / [1] | 95bb4dcbe: real play-order neighbours, repeat-all wrap, own-scheme fallback, Yoin.effects on change (`NowPlayingNeighboursTests`) |
+| NP ⇄ shell | open / close / drag | Black behind the card and black corners | 95bb4dcbe: surface backdrop, 0 dark-corner frames in np_openclose_light.mp4. STILL OPEN: the shell itself is not drawn for the first ~3 frames of a close (also with the recede modifier removed, so not the recede), then a ~80 ms stall; needs Instruments on device |
+| NP fold | close | Page faded out from rise 0.75: empty frosted slab for ~⅓ of the fold | 95bb4dcbe: page stays until rise 0.2 (≈ pill size) |
+| Status band | close NP | Band inserted in one frame at the end of the close | 95bb4dcbe: opacity follows the morph progress |
+| Queue sheet | `-screen np-queue` | Blank under the header when empty; grey band at the bottom edge | 95bb4dcbe: "Queue is empty" / "Nothing up next" label; bottom scroll-edge effect hidden (song sheet too). NP recedes (sheet dim 0.14) behind the Queue via SheetRise |
+| Scrub bubble | scrub the bar | System font | 95bb4dcbe: labelLarge GSF, tabular |
+| NP rating, dark | unrated song (al-field) | Empty track nearly invisible | 95bb4dcbe: tonal fill + outline while unrated, no number |
+| Mini player | after a close | Pill colour flips a few frames after landing (morph glass vs bar's adaptive glass) | open (system glass adaptation; 51 keeps adaptive glass) |
+| NP open | end of open | Card holds ~0.95 then jumps to full | open (no black rim any more; the jump itself not fixed) |
+| NP lyrics | focus / compact | Active line drawn twice; line between PAUSE row and progress row | open (not touched) |
+
+## 2026-11-04 QA fix agent, outside Now Playing (iPhone 17 sim, iOS 26.5, light + dark; demo Subsonic for Favorites)
+
+Clips and stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/qafix/` (`run9/` = search clips with frame sheets, `final/` = stills, `srv-fav.png`). New QA cases: `search-from-bar` (`-screen home-search`), `search-bar-close` (`-screen home-search -searchAutoClose YES`).
+
+| Screen | Step | What's wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| Search | `-screen search-longpress`, `-screen home-search` | A second focused field flew in mid-screen, then went below the chips, then reached the header; chip rows double-exposed; avatar and ✕ overlapped. Causes: (1) the matched source was the bar's circle, removed but still a source through its fade while the keyboard and the slide-away moved the bar; (2) focusing at once stalled the main thread (first keyboard load) mid-morph; (3) the whole overlay cross-faded over the page | qa-audit/ev-search-ghost-field.png → run9/light/search-from-bar-sheet.png, run9/dark/search-longpress-sheet.png | fixed 3827df9e8 + 65d277c4d (ShellBar) + Shells transition (went in with 95bb4dcbe). The circle stand-in morphs into the field in one path, keyboard after it lands; from Library the pill is the field. Close folds back. Residual: one ~200 ms main-thread hitch mid-flight in the sim (field holds, then catches up on the same path) |
+| Search / Library | `-screen library` vs `-screen search` | Field 56 @ y 93 vs 48 @ y 86 | final/s3.png | fixed 3827df9e8: both 56 (Android InputFieldHeight), 4 top, icon 24, GSF 16: same rect |
+| Settings | `-screen settings`, Playback quality / AI features | SF Symbols + system font | code | fixed 3827df9e8: Yoin `chevron_down`, `unfold_more` (new, gen_sfsymbols.py), `check`. App-wide grep: no `systemName`/`systemImage` left; remaining `.system(` fonts are YoinIcon sizing, the monospace receipt/copy box (Android uses FontFamily.Monospace there too), the serif Memory title, and NP's WavyProgress (other agent) |
+| Settings | `-screen settings` dark | Disabled Sign in near invisible; empty fields blank | final/s1.png | fixed 3827df9e8: MD3 disabled (onSurface 38 % on 12 %), also Save key; Android placeholders https://music.example.com / Your username / Password |
+| Library scroller | `-screen library-scroller` | Rail glass over the third column; titles read through | final/s2.png | fixed 3827df9e8: tick column surfaceContainerHigh, bubble primaryContainer, both opaque (Android YoinFastScroller) |
+| Album pull-up | `-screen album-mid` | ← fades out around p≈0.4 | final/s3.png | fixed 3827df9e8: one ← over both header twins; glass tint follows the pull, ink flips to white on the effects spring past half |
+| Skeletons | code | easeInOut loop | code | fixed 3827df9e8: repeating critically damped effects spring, still under Reduce Motion |
+| Landing | `-screen landing` | "Developer Dashboard (placeholder)" | final/s1.png | fixed 3827df9e8: the guide loads developer.spotify.com/dashboard (Android SpotifyDashboardUrl) |
+| Library Favorites | `-screen library-favorites` (+ demo server) | "Random mix" stand-in | final/s2.png, srv-fav.png | fixed 3827df9e8: starred songs (getStarred2; mock: starred tracks) under "Songs", hearts taken off drop out, re-read after any heart change, "No favorites yet" panel. Android also lists starred artists and albums: not done |
+| iPad NP | iPad Pro 13 portrait | Phone column stretched, empty form-sheet queue | qa-audit/ev-ipad-np.png | open, skipped here (NP files owned by the NP fix agent) |
+| Shell (all pages) | any `withAnimation` in the shell under World | `WorldRecede` (95bb4dcbe) ends with `.transaction { $0.animation = nil }` on the whole shell layer: the bar's slide-away, Library chips and other shell animations land in one frame (seen while verifying Search: the bar vanished in 1 frame) | run2/light/search-from-bar.mp4 | open, for the NP/shell agent (verified Search in a worktree without it) |
+
+## 2026-11-05 Codex G4 fix agent (Album / Artist), iPhone 17 sim (iOS 26.5), light + dark, demo Subsonic copy on :5000
+
+Verdicts: `docs/codex-verdicts/G4.md`. Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/g4qa/`.
+
+| Screen | Step | What was wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| Album list | `-serverRoute album:al-harbor -screen album-list` | Repeated track ids collided; no disc headings / performer; no note marker | harbor-list-light.png | fixed 620e376bf (A04, A16, A17) |
+| Album hero / scrapbook | `-serverRoute album:al-harbor` (+ `-screen album-scrapbook`, `-screen album-rate`) | Synced review missing on page 1; pen/emblem dead; title read-only | harbor-review-dark.png, harbor-scrap-light.png, harbor-rate-dark.png | fixed 620e376bf (A05, A19 part) |
+| Artist | `-serverRoute artist:ar-kiri`, server slow / failing | Empty page + live star offline; Most Played from server counts | artist-loading-light.png, artist-failed-dark.png, artist-dark.png | fixed 620e376bf (A06, A18) |
+| Playlist | `-serverRoute playlist:pl-drive`, server slow / failing | Loading looked like an empty playlist | playlist-loading-dark.png, playlist-failed-light.png | fixed 620e376bf (A42) |
+| Album (Apple Music) | code | Heart looked live, did nothing | code | fixed 620e376bf (A15): + / ✓ library button; not run (no MusicKit in sim) |
+
+## 2026-11-05 Codex G1 fix agent (Now Playing + animation), iPhone 17 Pro sim (iOS 26.5), demo Subsonic :4997
+
+Verdicts: `docs/codex-verdicts/G1.md`. Clips / strips: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/codex-g1/`.
+
+| Screen | Step | What was wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| NP morph | `-screen np-morph-close`, tap the folding card | Reversal restarted the spring at rest (speed jump) | b01-reverse.mp4 | fixed 3b7c806c3 (B01) |
+| NP lyrics | demo server, Next | Song change replaced lyrics in one frame; loading slot blank | b06-next.mp4 / -strip.png | fixed 3b7c806c3 (B06, A28) |
+| NP focus | `-screen np -npFocusDemo YES -animationSpeed 0.25` | Active line drawn twice at two anchors | b07-focus-in.png | fixed 3b7c806c3 (B07) |
+| NP lyrics | long lines | Truncated to one line | a37-idle-strip.png | fixed 3b7c806c3 (A27, B08) |
+| NP sheets / iPad | lyric search / edit / share; iPad `-screen np-queue` | No World recede under them; none on iPad | b05-ipad-np-queue.png | fixed 3b7c806c3 (B04), 7146fc589 (B05) |
+| NP expanded Lyrics | `-npTab lyrics-full`, wait 3 s | Tools never stepped away | a37-idle.mp4 | fixed e5e4abe41 (A37) |
+| Mini player | auto-advance with NP closed | Old song replaced in one frame | a32-pill.mp4 | fixed e5e4abe41 (A32) |
+| NP transport | long-press play mode | No split, repeat off unreachable | a31-split.mp4 | fixed f90e5ffa3 (A31) |
+| NP | skip while writing a note / editing lyrics / holding the rating | Note, lyrics or rating went to the new song | code | fixed 3b7c806c3 (C12–C14) |
+| Player log | play a Subsonic album | Signed stream URLs (u/t/s) logged public; timeout errors quoted them | sim log | fixed 4e34a5982 / 5a1561c57 (C07) |
+| Cloud sync | first pull with an unreadable peer file; failed disk write; interrupted delete | Gate opened anyway; apply acknowledged; resume deleted without marker | shared tests | fixed 5a1561c57 (C15, C16, C20) |
+| Accounts | sign in to server B after A | A's notes / ratings / memories showed and synced under B | unit test | fixed 5a1561c57 (C03); ratings one document (C18) |
+| Server switch | save another server while playing; sign out mid sign-in | Old queue kept playing; late ping re-signed in | code | fixed 4e34a5982 / 5a1561c57 (C04, C02) |
+| Library / cache | reset during loads; 5k+ albums; disk full while streaming | Old source repopulated; albums capped; audio stalled | unit tests | fixed 4e34a5982 (C01, A12, C06) |
+| Playback errors | offline mid-queue | Skipped through whole queue silently | unit test | fixed 4e34a5982 (A39, engine + toast; NP Retry UI open) |
+| About | change Gemini language | English answers shown / synced under new language | unit test | fixed 5a1561c57 (C17, C19) |
+
+## 2026-11-05 Codex G2 fix agent (Library / Search / iPad), iPhone 17 + iPad Pro 13 sims (iOS 26.5), light + dark, demo Subsonic :4998
+
+Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/g2/` (sheet1 Library, sheet2 Search + dark, sheet3 failure banner, s_pad2 / s_pad3 iPad). Verdicts: `docs/codex-verdicts/G2.md`.
+
+| Screen | Step | What's wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| Search (Apple Music) | type a query | Library placeholder but catalog search; no scope pair / Playlists | code | fixed 9fb056051 (A01) |
+| Search | search A, then B fails | A's rows shown under B, no Retry | code | fixed 9fb056051 (A02) |
+| Library Songs | `-screen library-songs` + server | random 50 under "Random mix" | sheet1 | fixed 9fb056051 (A03): newest albums' songs, paged, loading / Retry foot |
+| Library Favorites | `-screen library-favorites` + server | starred artists / albums dropped | sheet1 | fixed 9fb056051 (A09) |
+| Library sort / rail | Recents / Recently added | provider order, invented Today / This week buckets, year labels | code, tests | fixed 9fb056051 (A10) |
+| Library | Home → Library | view, sort, scroll reset | code | fixed 9fb056051 (A11) |
+| Library empty / partial | an empty view; one list failed in All | sort row over blank; failure hidden | code | fixed 9fb056051 (A13) |
+| Library Playlists | `-screen library-playlists` | album grid, no owner, no New playlist | sheet1, sheet2 | fixed 9fb056051 (A14; By You inline-chip form open) |
+| Library / Search grids | iPad shell column | 3 oversized columns | s_pad1 → s_pad2 | fixed 9fb056051 / 7edf34379 (A23) |
+| Library rows | data arrives, heart removed | rows cut in | code | fixed 9fb056051 (B10) |
+| iPad Search | Search tab | showed Home / Library | s_pad3 | fixed 7edf34379 (A07) |
+| iPad album column | album selected | no Play / Shuffle | s_pad2 | fixed 7edf34379 (A08) |
+| iPad accessory | idle, paused | showed a track, always Pause | s_pad2 | fixed 7edf34379 (A24) |
+| Song rows | compilation track; noted song | album artist, no note marker | code | fixed 10c3f6e58 (A17 Library half) |
+| Playback failure | `stream` 503 (:4999 copy) | silent, nothing to retry | sheet3 | fixed a6408944d (A39 UI): banner + Retry over the bar |
+| Home | — | Memories surface / Edit Home | — | open: REAL-FEATURE-GAP (A20) |
+| First run | no account | straight into mock shell | — | open: REAL-FEATURE-GAP (A40) |
+
+## 2026-11-05 O01 stream quality (iPhone 17 Pro sim, iOS 26.5, demo Subsonic :4991, `-silentAudio YES`)
+
+| Screen | Step (launch args) | What was wrong | Evidence | Status |
+|---|---|---|---|---|
+| Settings › Server › Playback | `-serverRoute settings` | one Automatic / fixed choice; Automatic = wired Original, else 128 kbps (iOS-only rule) | scratchpad/sq-settings.png (Wi‑Fi Original, Mobile data Auto) | fixed 857be362b (O01): Android's two choices and rule via shared `StreamQualityPolicy` |
+| Playback | `-serverPlay album:al-field` (+ `-streamQualityWifi auto`) | — | player log: `unmetered=true route=Speaker → original` (plain stream); with Wi‑Fi Auto `→ 192`, `maxBitRate=192&format=mp3&estimateContentLength=true` | verified |
+
+| Sheet over Now Playing / Home (World recede) | `-screen np` → Queue; `-screen home` → pill long-press; light + dark, open + drag-dismiss | the status-bar band of the layer behind went to the surface in one frame as a sheet began to rise (Now Playing's dark top → white): the recede's `scaleEffect` moved the layer off the screen's edges, so nothing inside could `ignoresSafeArea` under the status bar; the blur also clipped to the safe-area frame | build/qa/sheet-top-2026-11-05/before-after-np-queue-light.png, -4x-slow.mp4 (top-band luma: before one 13-level frame step, after ≤6/frame light, ≤2 dark) | fixed: render-only scale (`RenderScale.ignoredByLayout()`), full-screen host for the blur, band clip slides with the sheet's progress |
+| Now Playing at rest (perf) | `-screen np`, `sample` 6 s on the simulator, Release | main thread 78 % busy with nothing moving but the wave: the bar pill's progress wash kept animating under the open page, so the blurred shell behind redrew every frame | sample: main busy 78 % → 6 %; wave still moves (frame diff 123) | fixed: no wash while Now Playing is mounted; the morph's pill content leaves once faded |
+| Now Playing first open | `-screen home -npAutoCycle YES` | first open after launch jumped pill → full page in one frame (the page's first render took long and the spring clock ran on) | sweep2/np-about-cycle: before a 39.7 single-frame spike, after none | fixed: spring clock advances at most one 30 Hz frame per tick |
+| Heart, dark mode, rating release | `-screen np`, long-press the rating bar 1.2 s | on release the heart dropped 25 luma levels in one frame and took ~8 frames to come back (glass gone at once, tonal circle still fading in) | heart crop luma: before 97→72→…→89, after 97→96→94→91→90 | fixed: the circle is whole again at once on release |
+| Close stall / search hitch / first-sheet stall | `-qaHitches YES -qaCycle np\|search\|sheet` (new QAProbe) | simulator renders Now Playing ~10–30 fps, so its timings aren't the phone's; close stalls trace to the shell recede near the end of the close but not to one effect | hitch logs in the scratchpad | open: measure on the iPhone Air (needs it unlocked) |
+| NP Lyrics / About / Note pager (A30) | `-screen np`, `-screen home` → pill → window; swipes and a held half-swipe (touch_path) | tabs only changed on tap | sheettop/pager-hold.mp4: page follows the finger, holds mid-way, lands on release; tabs switch half way; pills stay at rest, the expanded bar rides the swipe; vertical lyric scroll and the drag-down unaffected | done |
+| Lyric search (A29) | demo server `-serverPlay album:al-field`, expanded Lyrics → search | only LRCLIB | sheet lists QQ Music / NetEase / Huawei Music / LRCLIB sections; picking QQ 360636584 applied 1616 chars of synced lyrics (screenshot) | done; Apple Music songs look lyrics up automatically (QQ → NetEase → LRCLIB, kept 30 days); translate uses the provider's own translation, offers a switch, else Gemini |
+| Lyric outro / up next (A36) | `-serverPlay album:al-harbor -serverOpenNowPlaying YES -serverSeekFromEnd 9` | no outro | sheettop/outro4.mp4: "Up next · Paper Lanterns" + first line rise faintly 10 s out, current lines fade and the next line glides to the top at the hand-over, song change swaps in place (no ghost frames) | done (held last line in focus only, as Android) |
+| Offline downloads (#131) | album ▾ → Download on al-field | none | 6/6 songs done in App Support/YoinOffline, index has no t/s; Settings › Storage › Downloads (quality 320 default, mobile data off) | done; device not tried |
+| About manage / regenerate (A34) | `-aboutDemo rows|sheet|focus` | — | agent screenshots scratchpad/about-shots; 12 new tests | done; own-entry sync needs the shared adapter's "*" stamp (follow-up) |
+| Landing / onboarding (Landing v3) | fresh install, `-landing YES` light + dark | static guide page | full flow recorded light and dark; Subsonic error + connected states; relaunch skips it; Settings › About › Welcome guide reruns it | done; Home preferences and scroll-edge steps not ported; Apple Music connect not tried on device |
+| Home Memories pull (ShellOverlayUp) | `-screen home`, real finger pull 550 pt, swipe up 300 pt, ⌃ Home pill | none | opens past half way or on a fling (RevealState rule), retreats on swipe up / pill / back | done; a 360 pt slow pull springs back by design |
+| Edit Home | long-press a section 0.9 s; footer Edit Home; `-homeEditScripted YES` | footer only | hold enters edit and lifts the section, release lands it (GestureState fallback when the hold is cancelled), the card under the finger does not open; reorder / hide / show / undo / reset recorded | done; dark and iPad not checked |
+
+## 2026-11-13 Spotify on a Mac (iPad Pro 13 and iPhone 17 Pro sims standing in with `-platformMac YES`, iOS 26.5, fake Spotify with its Connect player, `-silentAudio YES`)
+
+| Screen | Step (launch args) | What was wrong | Evidence | Status |
+|---|---|---|---|---|
+| Spotify start, Spotify not open here | `-spotifyFakePlayer YES -spotifyThisMac "QA Mac" -serverPlay album:al00`; the fake lists a paused Pixel and another computer | a Mac start went through App Remote and said "Open Spotify on this iPhone, then tap Play" | banner "Spotify isn't open on this Mac" with Open Spotify and Retry, light / dark / Chinese; `_qa/player` shows no command | fixed: `SpotifyAudioOutput.macTarget`, App Remote off on a Mac |
+| Spotify start, Spotify open here | the same with "QA Mac" listed (a Pixel paused and active) | — | one command, `PUT me/player/play device_id=qamac`, 100 songs handed; Now Playing runs on the fake's clock; Devices unnamed | done |
+| Spotify start, another device playing | `_qa/play` on the Pixel first | — | `PUT me/player/play device_id=pixel11pro`; the Devices pill reads Pixel 11 Pro | done |
+| Retry after opening Spotify | `YoinSpotifyQA/SpotifyQAUITests/testStartOnAMac` (taps a song, Retry, a second song) | — | passes; build/parity-shots/MAC-spotify-walk-* | done |
+| The same banner's toast | any held Spotify start | "Couldn't reach the server for …" showed beside "Open Spotify …" | no toast in the walk-through's shots | fixed: the toast is for servers |
+| A pause while a start lands (any Connect device) | unit test `SpotifyOnMacTests` (pause right after the start) | the read that showed the start landing flipped Yoin back to playing until the next read | test | fixed: that read is skipped once a held command went out |
+| A real Mac | — | — | compile only (`platform=macOS,variant=Designed for iPad`) | open: the Mac's name against Spotify's device name, `spotify:` opening the desktop app, real Spotify |
+
+## 2026-11-18 0.6.5 parity & Spotify integration (`feat/ios-0.6.5-parity-and-spotify`, iPhone 17 Pro sim)
+
+| Check / Surface | Scope & Seams | Evidence | Status |
+|---|---|---|---|
+| `:shared` KMP + `ktlintCheck` + Debug XCFramework | Merged `feat/ios-065-kmp-and-ai`, shared lyrics/transfer fixes, `LyricFetchException` propagation | `:shared:testAndroidHostTest`: 458 passed, 0 failures/skipped; `:shared:iosSimulatorArm64Test`: 461 passed, 0 failures/skipped; `ktlintCheck` & `assembleYoinSharedDebugXCFramework` passed | passed (simulator / host) |
+| Full `YoinTests` (`xcodebuild test`) | Seams 1–8: `Accept-Language` header, PR #226 lyrics fallback + `LyricFetchException` retry + active/prefetch AI gate, root `LyricsPrefetchHost` (`15s`/`30s`), `HomeSection.madeForYou` + Spotify App Remote `Made For You`, Apple Music `PlaylistRestore` 401/403/429 interrupt, `searchMore` `failureReports`, per-account `SpotifyRateGate`, Web API `enqueue` fallback, Now Playing `songLinks` navigation, `NowPlayingLyricsFallbackTests` | `YoinTests`: 1463 executed, 0 failures, 0 skipped (iPhone 17 Pro simulator) | passed (simulator unit tests) |
+| Physical iPhone Air & Mac Desktop QA | `POSIX 61` wake/confirm, lock-screen multi-track & `daylist` `Playing from`, Sonos `isRestricted`, `Made For You` App Remote containers, Handoff, Mac `AVRoutePickerView` & `enqueue` | — | open: pending Stage 3 physical device QA |

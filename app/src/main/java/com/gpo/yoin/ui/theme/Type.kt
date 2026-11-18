@@ -5,6 +5,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.tokens.YoinTokens
 
 /** Every GSF font goes through [yoinFont] so CJK fallback keeps its weight (Samsung). */
 val GoogleSansFlex = FontFamily(
@@ -22,16 +23,15 @@ val GoogleSansFlex = FontFamily(
  * (its voice).
  */
 val GoogleSansFlexRounded = FontFamily(
-    yoinFont(
-        R.font.google_sans_flex_variable,
-        FontWeight.Medium,
-        mapOf("wght" to FontWeight.Medium.weight.toFloat(), "ROND" to 100f),
-    ),
-    yoinFont(
-        R.font.google_sans_flex_variable,
-        FontWeight.SemiBold,
-        mapOf("wght" to FontWeight.SemiBold.weight.toFloat(), "ROND" to 100f),
-    ),
+    roundedFont(YoinTokens.Typography.roundedMedium),
+    roundedFont(YoinTokens.Typography.roundedSemiBold),
+)
+
+/** One rounded cut: the token's wght as both the font weight and the axis, plus its ROND. */
+private fun roundedFont(axes: YoinTokens.Typography.Axes) = yoinFont(
+    R.font.google_sans_flex_variable,
+    FontWeight(axes.weight),
+    mapOf("wght" to axes.weight.toFloat(), "ROND" to axes.round.toFloat()),
 )
 
 /**

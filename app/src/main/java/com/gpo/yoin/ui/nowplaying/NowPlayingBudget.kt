@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.shared.tokens.YoinTokens
 
 /*
  * Now Playing's height budget (adaptive-principles §6): every fixed-height
@@ -856,12 +857,12 @@ private const val EqualMarginCoverKeep = 0.7f
 /** The narrowest content width the transport is designed for (a 320dp phone less its 24dp insets). */
 private val FocusMinColumn = 272.dp
 
-const val CoverFocusMaxScale = 1.5f
+val CoverFocusMaxScale = YoinTokens.NowPlaying.COVER_FOCUS_MAX_SCALE.toFloat()
 private val CoverFocusMinGrowth = 40.dp
 private const val CoverFocusMinGrowthFraction = 0.12f
 
 /** The DualPane left stack's measuring width (TabletNP: the 312dp cover side). */
-val DualPaneStackWidth = 312.dp
+val DualPaneStackWidth = YoinTokens.NowPlaying.DUAL_PANE_STACK_WIDTH.dp
 private val DualPaneCoverMin = 168.dp
 private val DualPaneCoverFloor = 140.dp
 private val WideFrameNominal = 16.dp

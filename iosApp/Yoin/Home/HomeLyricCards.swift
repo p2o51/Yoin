@@ -1,0 +1,178 @@
+import SwiftUI
+import YoinShared
+
+/*
+ * Home's Lyric Cards (Android ui/home/HomeLyricHighlight.kt, #180 #189): passages the on-device model picked
+ * from the listener's songs, in a pager that keeps them all composed. A tap plays the song from that line.
+ * The first time the section can show, an intro card offers the beta (owner 2026-11-08: the model runs only
+ * after the opt-in); the listener's own shared or saved lines show whether or not it's on. No title on the
+ * feed (#189).
+ */
+struct HomeLyricCardsSection: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
+    @Environment(\.homeScheme) private var scheme
+    @Environment(\.homeMargin) private var margin
+    var cards: [LyricHighlightRow]
+    /// The tip page's demo phone (Tips/TipHomeScenes.swift): made-up cards with their covers, a pager the
+    /// demo turns, and nothing played or marked shown.
+    var demo: LyricCardsDemo? = nil
+    private let store = LyricHighlightStore.shared
+    private let processor = LyricHighlightProcessor.shared
+    /// How each card's song has been heard (Android's card kind), worked out once per set of cards.
+    @State private var kinds: [String: LyricHighlightSelector.Bucket] = [:]
+
+    var body: some View {
+        let s = scheme ?? .brand(dark: false)
+        VStack(alignment: .leading, spacing: 12) {
+            if demo == nil, !store.introSeen && !store.optedIn { intro(s) }
+            if !cards.isEmpty {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(cards) { card($0, s).containerRelativeFrame(.horizontal) { w, _ in min(w * 0.86, 420) } }
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, margin)
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .modifier(LyricCardsDemoPager(position: demo?.position))
+                .scrollIndicators(.hidden)
+                .padding(.horizontal, -margin)
+            }
+        }
+        .onAppear {
+            guard demo == nil else { return }
+            let now = LyricHighlightProcessor.nowMs
+            if let first = cards.first { store.markShown(first.id, at: now) }
+        }
+        .task(id: cards.map(\.id)) {
+            guard demo == nil, let account = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
+            kinds = processor.kinds(of: cards, account: account)
+        }
+    }
+
+    private func card(_ c: LyricHighlightRow, _ s: CoverScheme) -> some View {
+        Button { homeTap(edit) { if let demo { demo.onPlay(c) } else { model.playFromLine(c) } } } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(c.text ?? "")
+                    .homeType(Tokens.type.titleMedium, .medium, size: 19, lineHeight: 27)
+                    .foregroundStyle(s.onSurface)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    CoverArt(palette: palette(c), cornerRadius: 4).frame(width: 32, height: 32)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(c.title).homeType(Tokens.type.labelLarge, .semibold).foregroundStyle(s.onSurface).lineLimit(1)
+                        Text(c.artist).homeType(Tokens.type.labelMedium).foregroundStyle(s.onSurfaceVariant).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    // How the song has been heard; nothing for a song not heard yet (Android).
+                    if let kind = c.isUserPick ? LyricHighlightSelector.Bucket.user : kinds[c.id], let label = Self.label(kind) {
+                        Text(label).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSecondaryContainer)
+                            .padding(.horizontal, 8).frame(height: 22)
+                            .background(s.secondaryContainer, in: .capsule)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+            .background(s.surfaceContainerLow.mix(with: BackdropColors(palette(c)).base, by: 0.14, in: .perceptual),
+                        in: .rect(cornerRadius: 28))
+            .contentShape(.rect(cornerRadius: 28))
+        }
+        .buttonStyle(PressScale())
+        .accessibilityHint(Text("Play from this line"))
+    }
+
+    /// Android `labelRes`: on repeat, been a while, your pick; a fresh song has none.
+    static func label(_ kind: LyricHighlightSelector.Bucket) -> String? {
+        switch kind {
+        case .heavy: String(localized: "On repeat")
+        case .rediscover: String(localized: "Been a while")
+        case .user: String(localized: "Your pick")
+        case .fresh: nil
+        }
+    }
+
+    private func palette(_ c: LyricHighlightRow) -> CoverPalette {
+        if let demo { return demo.palettes[c.id] ?? MemoryGridView.fallback(c.id) }
+        if c.provider == AccountScope.subsonicProvider, let client = model.store.client {
+            return SubsonicMapping(client: client).palette(coverId: c.coverKey ?? c.albumId)
+        }
+        return AppleMusicMapping.palette(c.coverKey.flatMap(URL.init(string:)), key: c.id)
+    }
+
+    // MARK: Intro
+
+    /// The beta's first-use offer: compact, phone-wide on a tablet, the model's state folded into one line.
+    private func intro(_ s: CoverScheme) -> some View {
+        let status = processor.status ?? processor.checkNow()
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Beta").homeType(Tokens.type.labelSmall, .semibold).foregroundStyle(s.onPrimaryContainer)
+                    .padding(.horizontal, 7).frame(height: 18).background(s.primaryContainer, in: .capsule)
+                Text("You found a beta feature").homeType(Tokens.type.titleSmall, .semibold).foregroundStyle(s.onSurface)
+            }
+            Text(LabsCopy.introBody + " " + LabsCopy.introStatus(status))
+                .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer()
+                if status == .unsupported {
+                    Button("Got it") { withAnimation(Yoin.spatial) { store.introSeen = true } }
+                        .yGlassButtonStyle().controlSize(.small)
+                } else {
+                    Button("Not now") { withAnimation(Yoin.spatial) { store.introSeen = true } }
+                        .yGlassButtonStyle().controlSize(.small)
+                    Button("Turn on") { withAnimation(Yoin.spatial) { processor.setOptedIn(true) } }
+                        .yGlassButtonStyle(prominent: true).controlSize(.small)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(s.surfaceContainerLow, in: .rect(cornerRadius: 24))
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+}
+
+/// What the tip page's demo phone shows Lyric Cards with.
+struct LyricCardsDemo {
+    /// Card id → its cover.
+    var palettes: [String: CoverPalette]
+    /// The card the pager rests on; the demo turns it.
+    var position: Binding<String?>
+    var onPlay: (LyricHighlightRow) -> Void
+}
+
+/// The demo's hand on the pager; the feed's own pager is left as it is.
+private struct LyricCardsDemoPager: ViewModifier {
+    var position: Binding<String?>?
+
+    func body(content: Content) -> some View {
+        // Leading, where a swipe leaves a card (the shelf's view-aligned rest).
+        if let position { content.scrollPosition(id: position, anchor: .leading) } else { content }
+    }
+}
+
+extension AppModel {
+    /// Plays a card's song from its line (Android "Play from this line").
+    func playFromLine(_ c: LyricHighlightRow) {
+        let palette: CoverPalette = store.client.map { SubsonicMapping(client: $0).palette(coverId: c.coverKey ?? c.albumId) }
+            ?? AppleMusicMapping.palette(c.coverKey.flatMap(URL.init(string:)), key: c.id)
+        let album = store.albumDetails[c.albumId]
+            ?? Album(id: MediaId(provider: c.provider, rawId: c.albumId.isEmpty ? "song:\(c.songId)" : c.albumId),
+                     title: c.album, artist: c.artist, year: 0, palette: palette, tracks: [])
+        let track = album.tracks.first { $0.id.rawId == c.songId }
+            ?? Track(id: MediaId(provider: c.provider, rawId: c.songId), number: 1, title: c.title,
+                     durationSec: Int(c.durationMs / 1000), rating: nil)
+        // The song starts at the line (a little before it, so it's heard whole). Waiting for the load to
+        // finish buffering and seeking then played up to 6 s of a Spotify song's intro first: Spotify never
+        // says it stopped buffering (audit 11-15 #43).
+        let at = c.startMs.map { max(0, Double($0) / 1000 - 0.3) } ?? 0
+        play([PlaylistEntry(album: album, track: track)], startSec: at)
+    }
+}

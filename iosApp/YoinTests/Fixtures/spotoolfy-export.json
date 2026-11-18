@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "tracks": [
+    {"trackId": "4uLU6hMCjMI75M1A2tKUQC", "trackName": "Song A", "artistName": "Art One, Art Two", "albumName": "Album A", "albumCoverUrl": "https://example.com/a.jpg"},
+    {"trackId": "7ouMYWpwJ422jRcDASZB7P", "trackName": "Song B", "artistName": "Art One", "albumName": "Album B", "albumCoverUrl": "http://example.com/b.jpg"},
+    {"trackId": "1301WleyT98MSxVHPZCA6M", "trackName": "Song C", "artistName": "Art Three"},
+    {"trackId": "  ", "trackName": "No id"}
+  ],
+  "records": [
+    {"trackId": "4uLU6hMCjMI75M1A2tKUQC", "noteContent": "  Love this line  ", "rating": 5, "songTimestampMs": 12000, "recordedAt": 1700000000000, "lyricsSnapshot": "[00:12.30] first line\n[ar:x]\n\nsecond line"},
+    {"trackId": "4uLU6hMCjMI75M1A2tKUQC", "rating": "meh", "recordedAt": "1700000100000"},
+    {"trackId": "7ouMYWpwJ422jRcDASZB7P", "noteContent": "Again!", "rating": 0, "songTimestampMs": 0, "recordedAt": 1700000200000},
+    {"trackId": "sample1", "rating": 5, "recordedAt": 1700000300000},
+    {"trackId": "spotify:track:1301WleyT98MSxVHPZCA6M", "noteContent": "   ", "rating": 4, "recordedAt": 1700000400000},
+    {"trackId": "4uLU6hMCjMI75M1A2tKUQC", "noteContent": "no time"},
+    {"trackId": "4uLU6hMCjMI75M1A2tKUQC", "noteContent": "  Love this line  ", "rating": 5, "songTimestampMs": 12000, "recordedAt": 1700000000000},
+    42
+  ],
+  "translations": [],
+  "play_contexts": []
+}

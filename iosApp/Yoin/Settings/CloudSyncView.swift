@@ -1,0 +1,531 @@
+import SwiftUI
+import YoinShared
+
+/// Settings › Storage › Cloud sync, the entry row (Android `CloudSyncEntry`):
+/// the title and the one-line state; opens the page.
+struct CloudSyncEntryRow: View {
+    var app: CoverScheme
+    var row: Color
+    var shape: UnevenRoundedRectangle
+    @State private var sync = CloudSync.shared
+    /// DEBUG `-syncOpenPage YES` (with `-serverRoute settings`): opens the page at launch for screenshots.
+    @State private var open = {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "syncOpenPage")
+        #else
+        false
+        #endif
+    }()
+
+    /// The two-pane Settings' list: the row picks Cloud sync beside it.
+    @Environment(\.settingsList) private var list
+
+    var body: some View {
+        Button { if let list { list.pick(.cloudSync) } else { open = true } } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cloud sync")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Text(CloudSyncTexts.summary(sync))
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .contentTransition(.opacity)
+                }
+                Spacer(minLength: 16)
+                YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .settingsSegment(shape, row: row, app: app, picked: list?.picked == .cloudSync)
+            .contentShape(shape)
+        }
+        .buttonStyle(PressScale())
+        .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
+        .navigationDestination(isPresented: $open) { CloudSyncView() }
+    }
+}
+
+/// Which Devices rows offer removing their Drive copy.
+enum CloudSyncDevices {
+    /// Another device only; this one's copy is turned off or deleted from "This device".
+    static func canRemove(_ device: SyncDeviceRow) -> Bool { !device.isThisDevice }
+
+    static func removable(_ devices: [SyncDeviceRow]) -> [SyncDeviceRow] { devices.filter(canRemove) }
+}
+
+/// Accounts whose "Start fresh" was put off because the old account still has changes that aren't in
+/// the Drive (Android CloudSyncManager.startFreshAccount: no purge before they are uploaded). The
+/// account's row reads "Changes waiting to upload" under "Paused" for as long as that is so.
+enum CloudSyncFreshHold {
+    /// After a Start fresh on [profile] came back with [notUploaded] changes of the old account left.
+    static func after(_ held: Set<String>, profile: String, notUploaded: Int, state: CloudSyncState) -> Set<String> {
+        var next = held
+        if notUploaded > 0 { next.insert(profile) } else { next.remove(profile) }
+        return pruned(next, state: state)
+    }
+
+    /// With every new state: nothing is held once every change is up (the Start fresh's own last cycle
+    /// may have got them there), and an account that is no longer paused drops out.
+    static func pruned(_ held: Set<String>, state: CloudSyncState) -> Set<String> {
+        guard !held.isEmpty else { return held }
+        guard state.pendingChanges else { return [] }
+        let paused = state.accounts.filter { $0.status is SyncAccountStatusAccountChanged }.map(\.localProfileId)
+        return held.intersection(paused)
+    }
+}
+
+/// Android's CloudSyncTexts: labels only.
+enum CloudSyncTexts {
+    @MainActor
+    static func summary(_ sync: CloudSync) -> String {
+        guard sync.isConfigured else { return String(localized: "Not configured") }
+        let s = sync.state
+        switch s.phase {
+        case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
+        case is CloudSyncPhaseOffline: return s.pendingChanges ? String(localized: "Changes waiting to upload") : String(localized: "Offline")
+        case is CloudSyncPhaseNeedsReauth: return String(localized: "Reconnect Google")
+        case is CloudSyncPhaseStorageFull: return String(localized: "Google storage full")
+        case is CloudSyncPhaseCloudCopyRemoved: return String(localized: "Drive copy removed")
+        case is CloudSyncPhaseUpdateRequired: return String(localized: "Update Yoin")
+        case is CloudSyncPhaseNeedsReview: return String(localized: "Needs review")
+        case is CloudSyncPhaseError: return String(localized: "Couldn't sync")
+        case let r as CloudSyncPhaseResetElsewhere:
+            return r.deviceName.map { "Turned off on \($0)" } ?? String(localized: "Turned off on another device")
+        case is CloudSyncPhaseUpToDate:
+            if s.pendingChanges { return String(localized: "Changes waiting to upload") }
+            return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? String(localized: "On")
+        default: return String(localized: "Off")
+        }
+    }
+
+    static func relative(_ ms: Int64) -> String {
+        let delta = max(0, Date().timeIntervalSince1970 - Double(ms) / 1000)
+        if delta < 60 { return "just now" }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f.localizedString(for: Date(timeIntervalSince1970: Double(ms) / 1000), relativeTo: Date())
+    }
+}
+
+/// The Cloud sync page (PushPage from Settings; Android CloudSyncActivity).
+/// Pixel settings style as ServerSettingsView: large title, primary group
+/// labels, rows as surfaceBright segments (20 outer / 4 inner corners).
+struct CloudSyncView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var sync = CloudSync.shared
+    @State private var confirmDelete = false
+    @State private var confirmFresh: SyncAccountRow?
+    @State private var confirmRemoveDevice: SyncDeviceRow?
+    @State private var export: URL?
+    /// The service setup an Add on a cloud-only account opened.
+    @State private var setup: ServiceSetupRequest?
+
+    private var app: CoverScheme {
+        model.isIdle ? .brand(dark: colorScheme == .dark)
+                     : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
+    }
+    private var row: Color { app.surfaceBright }
+    private var state: CloudSyncState { sync.state }
+    private var enabled: Bool { state.phase.enabled }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Cloud sync")
+                        .yoinRole(Tokens.type.displaySmall)
+                        .foregroundStyle(app.onSurface)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                    // Android CloudSyncHeadline: the one-line pitch under the title while sync is off.
+                    if sync.isConfigured && !enabled {
+                        Text("Sync notes, ratings and translations")
+                            .yoinRole(Tokens.type.bodyLarge)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .padding(.horizontal, 8)
+                            .transition(.opacity)
+                    }
+                }
+                if !sync.isConfigured {
+                    group(String(localized: "Google account")) { [AnyView(info("Not configured", nil))] }
+                } else if enabled {
+                    onGroups
+                } else {
+                    offGroups
+                }
+                if let message = sync.message {
+                    Text(message)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.error)
+                        .padding(.horizontal, 8)
+                        .transition(.opacity)
+                }
+                // Android keeps this in Settings › Storage after Cloud sync; here until the Settings rework lands.
+                group(String(localized: "Playlist cloud backup")) {
+                    [AnyView(PlaylistBackupsEntryRow(app: app, row: row, shape: Self.segment(0, 1)))]
+                }
+                // Android lists what syncs with the controls of a sync that's on; off, "What you get" says it.
+                if enabled { whatSyncs }
+                goodToKnow
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
+            .animation(Yoin.spatial, value: enabled)
+            .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
+            .animation(Yoin.effects, value: sync.message)
+            .animation(Yoin.spatial, value: sync.freshHeld)
+        }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
+        .background(app.surfaceContainer.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
+        // A saved account joins the sync: refresh so it picks up what the Drive holds (Android onAdd).
+        .onChange(of: model.profiles.profiles.map(\.id)) { old, new in
+            if new.count > old.count, enabled { Task { await sync.syncNow() } }
+        }
+        .alert("Delete cloud data?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { Task { await sync.deleteCloudData() } }
+        } message: {
+            Text("Deletes Yoin's data from your Google Drive for all devices, and turns sync off on them. Data on this device stays.")
+        }
+        .alert("Start fresh as this account?", isPresented: Binding(get: { confirmFresh != nil },
+                                                                     set: { if !$0 { confirmFresh = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Start fresh", role: .destructive) {
+                if let r = confirmFresh { Task { await sync.startFresh(r.localProfileId) } }
+            }
+        } message: {
+            Text("“\(confirmFresh?.displayName ?? "")” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your Drive and your other devices keep the old ones.")
+        }
+        .alert("Remove \(confirmRemoveDevice?.name ?? "") from sync?",
+               isPresented: Binding(get: { confirmRemoveDevice != nil }, set: { if !$0 { confirmRemoveDevice = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                if let d = confirmRemoveDevice, CloudSyncDevices.canRemove(d) { Task { await sync.removeDevice(d.deviceId) } }
+            }
+        } message: {
+            Text("Deletes this device's copy from your Google Drive. If it's still syncing, it uploads again the next time it syncs.")
+        }
+        .sheet(item: Binding(get: { export.map(ShareItem.init) }, set: { if $0 == nil { export = nil } })) { item in
+            ShareSheet(url: item.url)
+        }
+    }
+
+    // MARK: Off
+
+    @ViewBuilder private var offGroups: some View {
+        if let reset = state.phase as? CloudSyncPhaseResetElsewhere {
+            Text(reset.deviceName.map { String(localized: "Cloud sync was turned off and its Drive data deleted on \($0). Turn it on again to start fresh from this device.") }
+                 ?? String(localized: "Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device."))
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(app.onSurfaceVariant)
+                .padding(.horizontal, 8)
+        }
+        whatYouGet
+        group(String(localized: "Google account")) {
+            [AnyView(action(sync.working ? String(localized: "Waiting for Google…") : String(localized: "Turn on with Google"), ink: app.primary,
+                            disabled: sync.working) { Task { await sync.turnOn() } })]
+        }
+    }
+
+    /// Android's "What you get" (CloudSyncScreen OffContent): what turning sync on brings, before the button.
+    private var whatYouGet: some View {
+        group(String(localized: "What you get")) {
+            Self.benefits.map { b in
+                AnyView(HStack(spacing: 16) {
+                    YoinIcon(b.icon, size: 20)
+                        .foregroundStyle(app.onSecondaryContainer)
+                        .frame(width: 40, height: 40)
+                        .background(app.secondaryContainer, in: .circle)
+                    Text(b.title)
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12))
+            }
+        }
+    }
+
+    /// Android's benefits, in its order (its offline icon is a cloud too).
+    static var benefits: [(icon: String, title: String)] {
+        [("edit_note", String(localized: "Notes, ratings and reviews")),
+         ("translate", String(localized: "Lyric translations")),
+         ("settings", String(localized: "Home layout and settings")),
+         ("cloud", String(localized: "Works offline"))]
+    }
+
+    // MARK: On
+
+    @ViewBuilder private var onGroups: some View {
+        group(String(localized: "Google account")) {
+            var rows: [AnyView] = [AnyView(info(state.account?.email ?? state.account?.displayName ?? String(localized: "Google account"),
+                                                status))]
+            if let review = state.phase as? CloudSyncPhaseNeedsReview {
+                rows.append(AnyView(info("\(review.count) notes disappeared from \(review.accountName)", nil)))
+                rows.append(AnyView(action(String(localized: "Restore here"), ink: app.primary) { Task { await sync.resolveReview(restore: true) } }))
+                rows.append(AnyView(action(String(localized: "Delete on all devices"), ink: app.error) { Task { await sync.resolveReview(restore: false) } }))
+            }
+            if state.phase is CloudSyncPhaseNeedsReauth {
+                rows.append(AnyView(action(String(localized: "Sign in"), ink: app.primary) { Task { await sync.turnOn() } }))
+            }
+            if state.phase is CloudSyncPhaseCloudCopyRemoved {
+                rows.append(AnyView(action(String(localized: "Upload again"), ink: app.primary) { Task { await sync.uploadAgain() } }))
+            }
+            rows.append(AnyView(action(state.phase is CloudSyncPhaseSyncing ? String(localized: "Syncing…") : String(localized: "Sync now"), ink: app.primary,
+                                       disabled: state.phase is CloudSyncPhaseSyncing) { Task { await sync.syncNow() } }))
+            return rows
+        }
+        if !state.accounts.isEmpty {
+            group(String(localized: "Accounts")) { state.accounts.map { AnyView(accountRow($0)) } }
+        }
+        if !state.cloudOnlyAccounts.isEmpty {
+            group(String(localized: "In your Drive, not on this device")) {
+                state.cloudOnlyAccounts.map { a in AnyView(cloudOnlyRow(a)) }
+            }
+        }
+        if !state.devices.isEmpty {
+            group(String(localized: "Devices")) {
+                state.devices.map { d in AnyView(deviceRow(d)) }
+            }
+        }
+        group(String(localized: "Backups")) {
+            [AnyView(info("Drive backup", state.lastBackup ?? String(localized: "None yet"))),
+             AnyView(action(String(localized: "Back up and export"), ink: app.primary, disabled: sync.working) {
+                 Task {
+                     if await sync.backupNow() != nil { export = sync.exportLatestBackup() }
+                 }
+             })]
+        }
+        group(String(localized: "This device")) {
+            [AnyView(action(String(localized: "Turn off on this device"), ink: app.primary) { Task { await sync.turnOff() } }),
+             AnyView(action(sync.working ? String(localized: "Deleting…") : String(localized: "Delete cloud data…"), ink: app.error, disabled: sync.working) {
+                 confirmDelete = true
+             })]
+        }
+    }
+
+    private var status: String {
+        if state.readOnly { return String(localized: "Reading your Drive") }
+        switch state.phase {
+        case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
+        case is CloudSyncPhaseOffline: return String(localized: "Can't reach Google")
+        case let e as CloudSyncPhaseError: return e.message
+        default:
+            if state.pendingChanges { return String(localized: "Changes waiting to upload") }
+            return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Not synced yet")
+        }
+    }
+
+    /// Android DeviceItem: this device is info only; another one has a menu that removes its Drive copy.
+    private func deviceRow(_ d: SyncDeviceRow) -> some View {
+        HStack(spacing: 8) {
+            info(d.isThisDevice ? String(localized: "This device") : d.name,
+                 d.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Hasn't synced yet"))
+            Spacer(minLength: 0)
+            if CloudSyncDevices.canRemove(d) {
+                Menu {
+                    Button(role: .destructive) { confirmRemoveDevice = d } label: {
+                        Label("Remove from sync", systemImage: "trash")
+                    }
+                } label: {
+                    YoinIcon("more_vertical", size: 22)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .frame(width: 48, height: 48)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel("More options for \(d.name)")
+                .padding(.trailing, 4)
+            }
+        }
+    }
+
+    private func cloudOnlyRow(_ a: CloudAccountRow) -> some View {
+        HStack(spacing: 8) {
+            info(a.displayName.isEmpty ? a.provider : a.displayName,
+                 [a.hint, a.fromDeviceName.map { "from \($0)" }].compactMap { $0 }.joined(separator: "\n"))
+            Spacer(minLength: 0)
+            if let service = ServiceSetupRouting.service(forProvider: a.provider) {
+                Button { setup = ServiceSetupRequest(service: service) } label: {
+                    Text("Add").yoinRole(Tokens.type.labelLarge).foregroundStyle(app.primary)
+                        .frame(minWidth: 48, minHeight: 40)
+                }
+                .buttonStyle(PressScale())
+                .padding(.trailing, 8)
+            }
+        }
+    }
+
+    private func accountRow(_ a: SyncAccountRow) -> some View {
+        let label: String
+        // A Start fresh that was put off: what this account waits for.
+        var waiting: String?
+        var buttons: [(String, () -> Void)] = []
+        switch a.status {
+        case is SyncAccountStatusSyncing: label = String(localized: "Syncing")
+        case is SyncAccountStatusNeedsIdentity: label = String(localized: "Not synced")
+        case is SyncAccountStatusNeedsReconnect: label = String(localized: "Reconnect to sync")
+        case let d as SyncAccountStatusDuplicateOf: label = String(localized: "Same as \(d.otherDisplayName)")
+        case let n as SyncAccountStatusNotSynced:
+            label = String(localized: "Not synced")
+            buttons.append((String(localized: "Start syncing"), { Task { await sync.startSyncing(a.localProfileId) } }))
+            for c in n.linkCandidates {
+                buttons.append((String(localized: "Link to \(c.displayName)"), { Task { await sync.link(a.localProfileId, to: c.syncProfileId) } }))
+            }
+        case is SyncAccountStatusAccountChanged:
+            label = String(localized: "Paused")
+            if sync.freshHeld.contains(a.localProfileId) { waiting = String(localized: "Changes waiting to upload") }
+            buttons.append((String(localized: "Keep syncing as before"), { Task { await sync.keepAsBefore(a.localProfileId) } }))
+            buttons.append((String(localized: "Start fresh"), { confirmFresh = a }))
+        default: label = ""
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            info(a.displayName, label, note: waiting)
+            if !buttons.isEmpty {
+                HStack(spacing: 16) {
+                    ForEach(buttons.indices, id: \.self) { i in
+                        Button(action: buttons[i].1) {
+                            Text(buttons[i].0).yoinRole(Tokens.type.labelLarge).foregroundStyle(app.primary)
+                                .frame(minHeight: 40)
+                        }
+                        .buttonStyle(PressScale())
+                    }
+                }
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            }
+        }
+    }
+
+    private var whatSyncs: some View {
+        group(String(localized: "What syncs")) {
+            [AnyView(info(String(localized: "Syncs"), Self.syncedLines.joined(separator: "\n"))),
+             AnyView(info(String(localized: "Stays on this device"), String(localized: "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads")))]
+        }
+    }
+
+    /// Everything the sync carries (SyncDomainBridge), Android's list with what iOS adds (Memory titles, About and
+    /// Ask); iOS has no scroll edge style to carry.
+    static var syncedLines: [String] {
+        [String(localized: "Notes on songs"),
+         String(localized: "Song and album ratings, album reviews"),
+         String(localized: "Memory titles, About and Ask"),
+         String(localized: "Home layout"),
+         String(localized: "AI lyric translations"),
+         String(localized: "Playlist cloud backups"),
+         String(localized: "Translation language and Spotify Client ID"),
+         String(localized: "Account names, server addresses")]
+    }
+
+    /// Android's "Good to know" (CloudSyncScreen, parity D-U3): where the data lives and what that means.
+    private var goodToKnow: some View {
+        group(String(localized: "Good to know")) {
+            Self.goodToKnowLines.map { line in
+                AnyView(Text(line)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14))
+            }
+        }
+    }
+
+    static var goodToKnowLines: [String] {
+        [String(localized: "Saved in a hidden Yoin folder in your own Google Drive. It's protected by your Google account, not end-to-end encrypted, and counts toward your storage."),
+         String(localized: "Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device."),
+         String(localized: "Listening history stays on each device.")]
+    }
+
+    // MARK: Pieces (ServerSettingsView's)
+
+    private var topBar: some View {
+        HStack {
+            Button { dismiss() } label: {
+                YoinIcon("back", size: 22)
+                    .foregroundStyle(app.onSurface)
+                    .frame(width: 40, height: 40)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+            .yGlassEffect(.regular.interactive(), in: .circle)
+            .frame(width: 48, height: 48)
+            .accessibilityLabel("Back")
+            .settingsPaneBack()
+            Spacer()
+        }
+        .padding(.leading, 8)
+        .padding(.vertical, 4)
+    }
+
+    private func group(_ title: String, rows: () -> [AnyView]) -> some View {
+        let items = rows()
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(app.primary)
+                .padding(.horizontal, 8)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 2) {
+                ForEach(items.indices, id: \.self) { i in
+                    items[i]
+                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                        .background(row, in: Self.segment(i, items.count))
+                }
+            }
+        }
+    }
+
+    static func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle {
+        let top: CGFloat = i == 0 ? 20 : 4
+        let bottom: CGFloat = i == count - 1 ? 20 : 4
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
+    }
+
+    /// [note]: a second line that comes and goes while the row is on screen.
+    private func info(_ title: String, _ value: String?, note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+            if let value, !value.isEmpty {
+                Text(value).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+            }
+            if let note {
+                Text(note).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                    .transition(.opacity.animation(Yoin.effects))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func action(_ title: String, ink: Color, disabled: Bool = false, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            Text(title)
+                .yoinRole(Tokens.type.bodyLarge)
+                .foregroundStyle(ink)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+        }
+        .buttonStyle(PressScale())
+        .disabled(disabled)
+        .opacity(disabled ? 0.38 : 1)
+    }
+}
+
+private struct ShareItem: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    var url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}

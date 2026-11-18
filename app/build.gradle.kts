@@ -181,20 +181,9 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-ktlint {
-    filter {
-        exclude("**/contrast/**")
-        exclude("**/dislike/**")
-        exclude("**/dynamiccolor/**")
-        exclude("**/hct/**")
-        exclude("**/palettes/**")
-        exclude("**/scheme/**")
-        exclude("**/temperature/**")
-        exclude("**/utils/**")
-    }
-}
-
 dependencies {
+    // Kotlin Multiplatform code shared with the iOS app: MCU, the Palette port, YoinTokens, pure algorithms.
+    implementation(project(":shared"))
     implementation(files("libs/musickitauth-release-1.1.2.aar"))
     // libs/ playback AAR with its 64-bit native libraries patched for 16 KB pages (build-logic MusicKitRelroPlugin)
     implementation(files(tasks.named<PatchMusicKitRelro>("patchMusicKitRelro").flatMap { it.patchedAar }))
@@ -269,8 +258,7 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Palette & Shapes
-    implementation(libs.palette)
+    // Shapes. (Palette runs on the :shared port; androidx.palette stays for PaletteParityTest.)
     implementation(libs.graphics.shapes)
 
     // Home-screen widgets
@@ -290,6 +278,7 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
+    testImplementation(libs.palette)
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.compose.ui.test.junit4)

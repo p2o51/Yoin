@@ -1,0 +1,432 @@
+import XCTest
+@testable import Yoin
+
+/// Spotify against a fake Web API (51's build 4 log, 2026-11-06): Yoin opened while the Pixel played
+/// shows that song, and a start on the playing Pixel sends Spotify's modes before the play, never after.
+@MainActor
+final class SpotifyMirroringTests: XCTestCase {
+    private var spotify: SpotifyAudioOutput!
+    private var source: SpotifySource!
+    private var engine: PlayerEngine!
+
+    override func setUp() {
+        MirrorStub.reset()
+        // This iPhone has the Spotify app (the simulator has none), what a start says of the account
+        // stays out of the app's own cards, and it is an iPhone whatever simulator runs the tests.
+        spotify = SpotifyAudioOutput(issues: SpotifyIssues(), spotifyInstalled: { true }, device: .phone)
+        engine = PlayerEngine(output: spotify)
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [MirrorStub.self]
+        source = SpotifySource(api: SpotifyWebAPI(token: { "tok" }, session: URLSession(configuration: cfg), sleep: { _ in }))
+    }
+
+    override func tearDown() {
+        // No account first: a stop while playing would pause Spotify into the next test's log.
+        spotify.control = nil
+        spotify.stop()
+        spotify = nil
+        engine = nil
+        source = nil
+        SpotifyPlayingDevice.shared.name = nil
+    }
+
+    nonisolated static func pixel(playing: Bool = true, uri: String? = "spotify:track:34h4HhkN3FD0FqIf3Pm4F6",
+                                  shuffle: Bool = true) -> String {
+        let item = uri.map {
+            #"{"uri":"\#($0)","duration_ms":200000,"name":"Song On Pixel","artists":[{"name":"Them"}],"album":{"name":"Theirs","images":[]}}"#
+        } ?? "null"
+        return #"{"device":{"id":"7a3d","name":"Pixel 11 Pro","type":"Smartphone"},"is_playing":\#(playing),"progress_ms":112946,"shuffle_state":\#(shuffle),"repeat_state":"\#(shuffle ? "context" : "off")","item":\#(item)}"#
+    }
+
+    private func waitUntil(_ seconds: Double = 3, _ done: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(seconds)
+        while !done() {
+            guard Date() < end else { return XCTFail("timed out") }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func song(_ id: String) -> PlayableTrack {
+        PlayableTrack(id: id, provider: SpotifyMapping.provider, title: id, artist: "A", album: "Al", albumId: nil,
+                      durationSec: 200, streamURL: SpotifyAudioOutput.streamURL(trackId: id), coverURL: nil)
+    }
+
+    private var puts: [String] { MirrorStub.requests.filter { $0.method == "PUT" }.map(\.url.path) }
+
+    func test_should_showWhatThePixelPlays_when_yoinOpensWithNothingLoaded() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.currentTrack?.artist, "Them")
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+        // Showing it changes nothing in Spotify (its shuffle stays on).
+        XCTAssertEqual(puts, [])
+    }
+
+    func test_should_notTakeOver_when_yoinPlaysAnotherSource() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { false }
+        spotify.control = source
+        try await waitUntil { MirrorStub.requests.contains { $0.url.path == "/v1/me/player" } }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(engine.currentTrack)
+    }
+
+    /// C-F1: the Pixel is handed the queue and plays on through it while iOS suspends Yoin; back in front,
+    /// Yoin follows it to the song it reached, without starting anything again.
+    func test_should_catchUpWithThePixel_when_itPlayedOnThroughTheQueueWhileYoinWasAway() async throws {
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: ["s1", "s2", "s3", "s4"].map(song))
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        // The start is seen playing on the Pixel...
+        MirrorStub.route = { s in
+            s.method == "GET" ? .init(status: 200, body: Self.pixel(uri: "spotify:track:s1", shuffle: false)) : .init(status: 204, body: "")
+        }
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(engine.currentTrack?.id, "s1")
+        // ...and, back from the background, it is two songs on: Yoin follows it there.
+        MirrorStub.route = { s in
+            s.method == "GET" ? .init(status: 200, body: Self.pixel(uri: "spotify:track:s3", shuffle: false)) : .init(status: 204, body: "")
+        }
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        try await waitUntil { self.engine.currentTrack?.id == "s3" }
+        XCTAssertEqual(engine.currentItem?.track.id, "s3")
+        XCTAssertNil(engine.externalTrack)
+        XCTAssertEqual(puts.filter { $0 == "/v1/me/player/play" }.count, 1)
+    }
+
+    func test_should_turnModesOffBeforeThePlay_when_startingOnThePlayingPixel() async throws {
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel()) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(puts, ["/v1/me/player/shuffle", "/v1/me/player/repeat", "/v1/me/player/play"])
+        let play = try XCTUnwrap(MirrorStub.requests.first { $0.url.path == "/v1/me/player/play" })
+        XCTAssertEqual(play.url.query, "device_id=7a3d")
+    }
+
+    func test_should_sendOnlyThePlay_when_spotifysModesAreAlreadyOff() async throws {
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+    }
+
+    func test_should_sendNoPause_when_thePixelLostTheSong() async throws {
+        // Run 2 of build 4: after the start the Pixel has no song; the pause that followed was refused.
+        MirrorStub.route = { s in
+            let started = MirrorStub.requests.contains { $0.url.path == "/v1/me/player/play" }
+            if s.method != "GET" { return .init(status: 204, body: "") }
+            return .init(status: 200, body: started ? Self.pixel(playing: false, uri: nil, shuffle: false) : Self.pixel(shuffle: false))
+        }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil(5) { self.engine.failure != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(engine.failure?.message, loc("Spotify on \("Pixel 11 Pro") stopped the song. Retry plays it on this \("iPhone")."))
+    }
+
+    func test_should_showTheOtherSong_when_theDeviceStillPlaysItAtTheCheck() async throws {
+        // The start never took and the Pixel plays on: Yoin shows that, no failure.
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil(5) { self.engine.externalTrack != nil }
+        XCTAssertNil(engine.failure)
+        XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    // MARK: Where a start goes (51, 2026-11-06 06:51)
+
+    /// A start with Spotify's active device in [reply]: whether a Web API command went anywhere.
+    private func start(with reply: MirrorStub.Reply) async throws {
+        MirrorStub.route = { s in s.method == "GET" ? reply : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil { MirrorStub.requests.contains { $0.url.path == "/v1/me/player" } }
+        try await Task.sleep(for: .seconds(2))
+    }
+
+    func test_should_playOnThisIPhone_when_theActiveDeviceIsPaused() async throws {
+        // A paused Pixel is still Spotify's active device: the start isn't sent there.
+        try await start(with: .init(status: 200, body: Self.pixel(playing: false, shuffle: false)))
+        XCTAssertEqual(puts, [])
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_playOnThisIPhone_when_nothingIsActive() async throws {
+        try await start(with: .init(status: 204, body: ""))
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_beTheRemote_when_theActiveDeviceIsPlaying() async throws {
+        try await start(with: .init(status: 200, body: Self.pixel(shuffle: false)))
+        // Remote control only: a start with its device_id, no transfer.
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(MirrorStub.requests.first { $0.url.path == "/v1/me/player/play" }?.url.query, "device_id=7a3d")
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method == "PUT" && $0.url.path == "/v1/me/player" })
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+    }
+
+    // MARK: The Mac end-to-end rule (2026-11-06)
+
+    func test_should_holdAPauseUntilTheStartIsSeen_when_pausedRightAfterAStart() async throws {
+        MirrorStub.route = { s in
+            if s.method != "GET" { return .init(status: 204, body: "") }
+            let started = MirrorStub.requests.contains { $0.url.path == "/v1/me/player/play" }
+            return .init(status: 200, body: Self.pixel(uri: started ? "spotify:track:2FNGRT6OEuexOkwHcWRsm1"
+                                                                    : "spotify:track:34h4HhkN3FD0FqIf3Pm4F6", shuffle: false))
+        }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await Task.sleep(for: .milliseconds(100))
+        engine.pause()
+        engine.seek(to: 30)
+        try await Task.sleep(for: .milliseconds(500))
+        // Nothing goes into the load on its way.
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        try await waitUntil(5) { self.puts.count == 3 }
+        XCTAssertEqual(puts.first, "/v1/me/player/play")
+        XCTAssertEqual(Set(puts.dropFirst()), ["/v1/me/player/pause", "/v1/me/player/seek"])
+    }
+
+    func test_should_judgeAStart_when_readWithinItsWindow() {
+        let uri = "spotify:track:a"
+        func now(_ u: String?, playing: Bool, at ms: Int = 0) -> SpotifySource.PlayerNow? {
+            SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone",
+                                    isPlaying: playing, trackURI: u, progressMs: ms)
+        }
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 3), .dropped)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(nil, playing: false), uri: uri, fromSec: 0, elapsed: 12), .dropped)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(uri, playing: false), uri: uri, fromSec: 0, elapsed: 3), .waiting)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(uri, playing: false), uri: uri, fromSec: 0, elapsed: 8), .dropped)
+        XCTAssertNil(SpotifyAudioOutput.startCheck(now(uri, playing: true), uri: uri, fromSec: 0, elapsed: 3))
+        // Played a while, then paused on the device: the listener's pause.
+        XCTAssertNil(SpotifyAudioOutput.startCheck(now(uri, playing: false, at: 9000), uri: uri, fromSec: 0, elapsed: 12))
+        XCTAssertNil(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 25))
+    }
+
+    func test_should_moveTheClock_when_showingSpotifysOwnSong() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+        let first = engine.progress.positionSec
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertGreaterThan(engine.progress.positionSec, first + 0.7)
+    }
+
+    // MARK: Late commands and Spotify's own song (Codex review, 2026-11-06)
+
+    func test_should_dropARetriedSeek_when_theSongChangedMeanwhile() async throws {
+        MirrorStub.route = { s in
+            if s.method == "GET" {
+                // The start is seen, so the seek isn't held.
+                let started = MirrorStub.requests.contains { $0.url.path == "/v1/me/player/play" }
+                return .init(status: 200, body: Self.pixel(uri: started ? "spotify:track:2FNGRT6OEuexOkwHcWRsm1"
+                                                                        : "spotify:track:34h4HhkN3FD0FqIf3Pm4F6", shuffle: false))
+            }
+            let seeks = MirrorStub.requests.filter { $0.url.path == "/v1/me/player/seek" }.count
+            if s.url.path == "/v1/me/player/seek", seeks == 0 { return .init(status: 429, body: "") }
+            return .init(status: 204, body: "")
+        }
+        let engine = self.engine!
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [MirrorStub.self]
+        final class MirrorClock: @unchecked Sendable {
+            private let lock = NSLock()
+            private var current = Date()
+            var now: Date { lock.withLock { current } }
+            func advance(by seconds: Int) { lock.withLock { current = current.addingTimeInterval(TimeInterval(seconds)) } }
+        }
+        let clock = MirrorClock()
+        let gate = SpotifyRateGate(now: { clock.now })
+        // The rate limit's wait: the listener moves to the next song before the retry.
+        source = SpotifySource(api: SpotifyWebAPI(token: { "tok" }, gate: gate, session: URLSession(configuration: cfg), sleep: { secs in
+            clock.advance(by: secs)
+            await MainActor.run { engine.jump(to: 1) }
+        }))
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await waitUntil(5) { MirrorStub.requests.filter { $0.method == "GET" }.count >= 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        engine.seek(to: 30)
+        try await waitUntil { self.puts.filter { $0 == "/v1/me/player/play" }.count == 2 }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(puts.filter { $0 == "/v1/me/player/seek" }.count, 1)
+    }
+
+    func test_should_finishTheStart_when_spotifyWokePausedOrWithoutTheSong() {
+        let uri = "spotify:track:4YPQaGKgOWTc16ImN17DA5"
+        typealias O = SpotifyAudioOutput
+        // 51's build 7 log, 16:42: handed back paused at 0 on the song.
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: true, wanted: uri, wantsPlay: true), .resume)
+        XCTAssertEqual(O.wakeFinish(playingURI: "", paused: true, wanted: uri, wantsPlay: true), .play)
+        XCTAssertEqual(O.wakeFinish(playingURI: "spotify:track:other", paused: false, wanted: uri, wantsPlay: true), .play)
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: false, wanted: uri, wantsPlay: true), .none)
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: true, wanted: uri, wantsPlay: false), .none)
+    }
+
+    func test_should_enqueueTheNextOnceTheSongPlays_when_startedOnThisIPhone() {
+        typealias O = SpotifyAudioOutput
+        let song = "spotify:track:6CpYN9MxjHzzvcn71aQdMD"
+        // 51's log, 18:22:38: pos 0 right after the start, then 1, 103, ...
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: false, positionMs: 0))
+        XCTAssertTrue(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: false, positionMs: 1))
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: true, positionMs: 500))
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: "spotify:track:x", current: song, paused: false, positionMs: 500))
+        XCTAssertFalse(O.readyToEnqueue(waiting: false, stateURI: song, current: song, paused: false, positionMs: 500))
+        XCTAssertTrue(O.retriesEnqueue(errorCode: -3000, alreadyRetried: false))
+        XCTAssertFalse(O.retriesEnqueue(errorCode: -3000, alreadyRetried: true))
+        XCTAssertFalse(O.retriesEnqueue(errorCode: -1000, alreadyRetried: false))
+    }
+
+    func test_should_aimAtTheSong_when_checkingACommand() {
+        let aim = SpotifyAudioOutput.Aim(generation: 3, uri: "spotify:track:a")
+        XCTAssertTrue(SpotifyAudioOutput.stillAimed(aim, generation: 3, shownURI: "spotify:track:a"))
+        XCTAssertFalse(SpotifyAudioOutput.stillAimed(aim, generation: 3, shownURI: "spotify:track:b"))
+        XCTAssertFalse(SpotifyAudioOutput.stillAimed(aim, generation: 4, shownURI: "spotify:track:a"))
+        let any = SpotifyAudioOutput.Aim(generation: 3, uri: nil)
+        XCTAssertTrue(SpotifyAudioOutput.stillAimed(any, generation: 3, shownURI: "spotify:track:b"))
+    }
+
+    func test_should_leaveSpotifysOwnSong_when_queueingNextOrShuffling() async throws {
+        // The Pixel plays on with its own song; Play next and shuffle change Yoin's queue only.
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4"), song("3a"), song("4b")])
+        try await waitUntil(5) { self.engine.externalTrack != nil }
+        engine.playNext(song("5c"))
+        engine.setShuffle(true)
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    // MARK: 51's 2026-11-17 iPhone Air log regressions
+
+    func test_should_stopPollingAndDismissAdoptedSpeaker_when_meplayerAnswers204Twice() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+
+        // The remote device goes offline (204 nothing active). After two 4 s poll reads it stops polling
+        // and clears the vanished remote card instead of looping every 4 s forever.
+        MirrorStub.route = { _ in .init(status: 204, body: "") }
+        try await waitUntil(SpotifyAudioOutput.pollSec * 2 + 2) {
+            self.engine.currentTrack == nil && SpotifyPlayingDevice.shared.name == nil
+        }
+        let readsAtStop = MirrorStub.requests.filter { $0.url.path == "/v1/me/player" }.count
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.pollSec + 1.2))
+        let readsAfter = MirrorStub.requests.filter { $0.url.path == "/v1/me/player" }.count
+        // At most 1 idle 10 s watch tick may fire in 5.2 s, never another 4 s poll loop.
+        XCTAssertLessThanOrEqual(readsAfter - readsAtStop, 1)
+    }
+
+    func test_should_keepPlayingState_when_activeDeviceIsInPrivateSessionWithNullItem() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+
+        // Private session: active device, is_playing=true, item=null.
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel(playing: true, uri: nil, shuffle: false)) }
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.pollSec + 0.8))
+        XCTAssertTrue(engine.isPlaying, "private session playing with null item must not flip Yoin to paused")
+        XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
+    }
+
+    func test_should_adoptPausedSongOnThisIPhone_when_yoinIsCompletelyIdle() async throws {
+        let localPaused = #"{"device":{"id":"ip1","name":"51's iPhone","type":"Smartphone"},"is_playing":false,"progress_ms":64000,"shuffle_state":false,"repeat_state":"off","item":{"uri":"spotify:track:34h4HhkN3FD0FqIf3Pm4F6","duration_ms":200000,"name":"Paused Here","artists":[{"name":"Them"}],"album":{"name":"Theirs","images":[]}}}"#
+        MirrorStub.route = { _ in .init(status: 200, body: localPaused) }
+        spotify.adopt = { true }
+        spotify.canAdoptPaused = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Paused Here" }
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+        XCTAssertEqual(puts, [])
+    }
+
+    func test_should_recheckAfterShortDelayOnBecameActive_when_cloudStateLagsBehindAppSwitch() async throws {
+        MirrorStub.route = { _ in .init(status: 204, body: "") }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { !MirrorStub.requests.isEmpty }
+
+        // Fast switch back from Spotify: 0 s read still sees 204, 0.4 s later Spotify's cloud updates.
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(400))
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        try await waitUntil(SpotifyAudioOutput.foregroundRecheckSec + 1.5) {
+            self.engine.currentTrack?.title == "Song On Pixel"
+        }
+        XCTAssertTrue(engine.isPlaying)
+    }
+}
+
+/// Answers each request from [route] and records it.
+private final class MirrorStub: URLProtocol {
+    struct Seen: Sendable {
+        var method: String
+        var url: URL
+    }
+
+    struct Reply {
+        var status: Int
+        var body: String
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) static var route: @Sendable (Seen) -> Reply = { _ in Reply(status: 500, body: "") }
+    nonisolated(unsafe) private static var seen: [Seen] = []
+
+    static func reset() {
+        lock.withLock { seen = [] }
+        route = { _ in Reply(status: 500, body: "") }
+    }
+
+    static var requests: [Seen] { lock.withLock { seen } }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let s = Seen(method: request.httpMethod ?? "GET", url: request.url!)
+        let reply = Self.route(s)
+        Self.lock.withLock { Self.seen.append(s) }
+        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}

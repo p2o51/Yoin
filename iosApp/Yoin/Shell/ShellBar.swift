@@ -1,0 +1,833 @@
+import SwiftUI
+
+/// Yoin's 3-part button group in Liquid Glass:
+/// Home · Now Playing pill · Library, plus a separate Search circle.
+/// On a pushed album page the same glass pieces morph into
+/// [Play | ▾] · mini pill.
+///
+/// Colors (51, 2026-11-03):
+/// - Unselected buttons: plain glass that picks up the content underneath.
+/// - Selected button, default (Apple Music iOS 26): the icon and label take
+///   the accent color, on a subtle lighter selection pill inside the glass.
+///   Glass Lab option: the accent tinted into the glass instead.
+/// - Accent: Home = primary, Library = secondary. Nothing playing → Yoin's own
+///   scheme (seed 0xFF7B3FE4); playing → the cover's scheme.
+/// - Nothing playing: the pill folds away and Home / Library split the bar
+///   with labels (Android idle bar).
+/// - Pill progress: Android NowPlayingPill's wash, primary at 25 % from the
+///   leading edge with a moving sine edge (4 pt).
+struct ShellBar: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
+    var npNamespace: Namespace.ID
+    /// iPad (PadShell): one of the bar's two floating pieces on its own. nil = the phone's whole bar.
+    var pad: PadBarPart? = nil
+    @Namespace private var glassNS
+
+    /// iPad's floating glass (PadShell, 51 2026-11-11): the nav capsule (Home, Library, Search, always
+    /// labelled like the phone's idle bar) and the mini player (the phone's pill), placed apart.
+    enum PadBarPart { case nav, player }
+
+    private let height: CGFloat = 60
+    private var lab: GlassLab { GlassLab.shared }
+    /// A long-press fired during the current touch on the pill / Library:
+    /// the release that ends it must not also tap. Cleared when the next
+    /// touch goes down, so it only ever guards its own touch's release and
+    /// never eats a later, real tap (a time window did: a tap soon after the
+    /// song sheet closed was swallowed).
+    @State private var longPressed: ShellLongPress?
+    @State private var longPresses = 0
+    /// The detail page's public link, for the ▾ menu's Share and Open in.
+    @State private var webLink = DetailWebLinkState()
+
+    private enum ShellLongPress { case pill, library }
+
+    /// Android YoinButtonGroup: Library long-press, the pill's long-press.
+    private func longPress(_ which: ShellLongPress, _ action: @escaping () -> Void) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.45)
+            // Touch down: a new touch, whatever the last one did.
+            .onChanged { _ in
+                if longPressed == which { longPressed = nil }
+                // The pill: Now Playing builds while the finger is down.
+                // (iPad: only where the tap goes Full, not to the side panel.)
+                if which == .pill, !model.isPad, !model.isIdle { model.np.prewarm() }
+            }
+            .onEnded { _ in
+                longPressed = which
+                longPresses += 1
+                action()
+            }
+    }
+
+    /// The tap, unless it is the release of this touch's long-press.
+    private func tap(_ which: ShellLongPress, _ action: () -> Void) {
+        if longPressed == which {
+            longPressed = nil
+            return
+        }
+        action()
+    }
+
+    /// Android onLibraryLongClick: straight to Library's search, empty, the
+    /// keyboard up (Search focuses its field as it opens).
+    private func openLibrarySearch() {
+        model.select(.library)
+        // Apple Music: the whole catalog (Android LibrarySearchScope.AppleMusicGlobal).
+        model.openSearch(from: .library, catalog: model.store.searchesCatalog)
+    }
+
+    /// Android onNowPlayingLongClick (owner 2026-11-03, as Apple Music's mini
+    /// player): the playing song's sheet — the one a row's long-press opens,
+    /// in Now Playing context (Favorite / Add to playlist / Share on top).
+    private func openPlayingSongMenu() {
+        let p = model.playback
+        PlaylistActions.shared.openMenu(PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+    }
+
+    private var brand: CoverScheme { .brand(dark: colorScheme == .dark) }
+    private var scheme: CoverScheme {
+        model.isIdle ? brand : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
+    }
+
+    var body: some View {
+        Group {
+            if pad == nil {
+                // The phone's bar is a safeAreaBar, and only what lies inside a safe-area bar's own
+                // bounds is touched: the banner is part of its height (hung over it as an overlay it
+                // showed, but its button did nothing).
+                VStack(spacing: 8) {
+                    failureBanner
+                    controls
+                }
+            } else {
+                controls.overlay(alignment: .bottom) { failureBanner.padding(.bottom, height + 8) }
+            }
+        }
+        .animation(Yoin.spatial, value: model.player.failure)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+        .environment(\.colorScheme, colorScheme)
+    }
+
+    /// A song that couldn't be played holds playback on it (Codex A39): said over the bar, with what
+    /// the failure offers (Retry, as the pill's play does; Settings; Open Spotify; Install Spotify).
+    @ViewBuilder
+    private var failureBanner: some View {
+        if let failure = model.player.failure, pad != .nav {
+            PlaybackFailureBanner(failure: failure, scheme: scheme, openSpotify: Self.openSpotify) {
+                switch failure.action {
+                case .settings: model.openSettings()
+                case .openSpotify: Self.openSpotify()
+                case .installSpotify: SpotifyApp.openStore()
+                case .retry, .openSpotifyThenRetry, .none: model.player.retry()
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var controls: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 6) {
+                if pad == .nav {
+                    navButton(.home)
+                    navButton(.library)
+                    searchButton
+                } else if pad == .player {
+                    if !model.isIdle { pill.frame(width: PadDockMetrics.playerWidth) }
+                } else if model.isDetail, let album = model.detailAlbum {
+                    playSplit(album)
+                        .disabled(model.detailPlayUnavailable)
+                        .opacity(model.detailPlayUnavailable ? 0.38 : 1)
+                } else {
+                    navButton(.home)
+                }
+                if pad == nil, !model.isIdle {
+                    pill
+                }
+                if pad == nil, !model.isDetail {
+                    navButton(.library)
+                    searchButton
+                        .padding(.leading, 6)
+                }
+            }
+        }
+        .animation(Yoin.spatial, value: model.isDetail)
+        .animation(Yoin.spatial, value: model.section)
+        .animation(Yoin.spatial, value: model.isIdle)
+        .frame(height: height)
+    }
+
+    /// Brings the Spotify app up (on a Mac, the desktop app); nothing is played.
+    private static func openSpotify() {
+        if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
+    }
+
+    // MARK: Nav buttons
+
+    private func accent(_ s: ShellSection) -> Color {
+        s == .home ? scheme.primary : scheme.secondary
+    }
+
+    @ViewBuilder
+    private func navButton(_ s: ShellSection) -> some View {
+        let selected = model.section == s && !(pad != nil && model.searchActive)
+        // The phone's idle bar labels its halves; iPad's nav capsule always does.
+        let labelled = model.isIdle || pad == .nav
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
+        let button = Button {
+            tap(.library) {
+                // iPad: Search is a place of its own beside the sections; Home / Library leave it.
+                if pad != nil, model.searchActive { model.searchActive = false }
+                model.select(s)
+            }
+        } label: {
+            ShellNavFace(section: s, selected: selected, labelled: labelled, scheme: scheme,
+                         sidePadding: pad == .nav ? 20 : 0, fills: model.isIdle && pad == nil, height: height)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library ? .all : .subviews)
+        .accessibilityActions {
+            if s == .library { Button("Search library", action: openLibrarySearch) }
+        }
+        if selected && tintedStyle {
+            // Tinted-glass style: force the tint on, in the accent role.
+            button
+                .yGlassEffect(.regular.tint(accent(s).opacity(lab.style("barSelected").tintOpacity)).interactive(), solid: accent(s),
+                             in: .capsule)
+                .glassEffectID(s == .home ? "home" : "library", in: glassNS)
+                .accessibilityLabel(s == .home ? String(localized: "Home") : String(localized: "Library"))
+        } else {
+            button
+                .labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand,
+                          auto: accent(s), in: Capsule())
+                .glassEffectID(s == .home ? "home" : "library", in: glassNS)
+                .accessibilityLabel(s == .home ? String(localized: "Home") : String(localized: "Library"))
+        }
+    }
+
+    @ViewBuilder
+    private var searchButton: some View {
+        if pad != nil {
+            padSearchButton
+        } else {
+            phoneSearchButton
+        }
+    }
+
+    /// iPad: Search is the nav capsule's third place (its field is up at once, no circle to grow out of),
+    /// selected like Home and Library while it is open.
+    private var padSearchButton: some View {
+        let selected = model.searchActive
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
+        let button = Button {
+            if !model.searchActive { model.openSearch(from: .library) }
+        } label: {
+            YoinIcon("search", size: 24)
+                .foregroundStyle(ink)
+                .labContrast(selected ? "barSelected" : "barUnselected")
+                .frame(width: height, height: height)
+                .background {
+                    if selected && !tintedStyle && !lab.solidSurfaces {
+                        Circle()
+                            .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+                                .opacity(lab.extra("barSelectionPill") / 0.55))
+                            .padding(5)
+                    }
+                }
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        return Group {
+            if selected && tintedStyle {
+                button.yGlassEffect(.regular.tint(scheme.tertiary.opacity(lab.style("barSelected").tintOpacity)).interactive(), solid: scheme.tertiary,
+                                   in: .circle)
+            } else {
+                button.labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand,
+                                auto: scheme.tertiary, in: Circle())
+            }
+        }
+        .glassEffectID("search", in: glassNS)
+        .accessibilityLabel("Search")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var phoneSearchButton: some View {
+        Button { model.openSearch(from: .bar) } label: {
+            YoinIcon("search", size: 24)
+                .foregroundStyle(lab.solidSurfaces ? scheme.onSurfaceVariant : Yoin.ink)
+                .labContrast("barUnselected")
+                .frame(width: height, height: height)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
+        // Touch-down: Search builds while the finger is down.
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.prewarmSearch() })
+        .glassEffectID("search", in: glassNS)
+        // The search field grows out of this circle: Search draws a stand-in
+        // here (where the circle last rested, frozen at the tap) and morphs it
+        // into the field, so this one steps out at once. A matched source
+        // inside the bar moved with the bar (keyboard, slide-away) and the
+        // field chased it mid-screen.
+        .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
+        .animation(model.searchActive ? nil : SearchView.fadeThrough, value: model.searchActive)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            if !model.searchActive, !frame.nearlyMatches(model.searchCircleFrame) { model.searchCircleFrame = frame }
+        }
+        .accessibilityLabel("Search")
+    }
+
+    // MARK: Now Playing pill
+
+    private var pill: some View {
+        let p = model.playback
+        let progress = Double(p.positionSec) / Double(p.track.durationSec)
+        return Button {
+            tap(.pill) {
+                if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
+            }
+        } label: {
+            // iPad too: Full Now Playing grows out of this pill and folds back into it (Android #190).
+            PillContent(np: model.np)
+                // A pointer over the pill: the hovered state layer inside its glass.
+                .hoverLayer(in: Capsule())
+                .contentShape(.capsule)
+                // A right-click: the playing song's sheet, as the long press (the click never opens Now Playing).
+                .onSecondaryClick(perform: openPlayingSongMenu)
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(longPress(.pill, openPlayingSongMenu))
+        .accessibilityAction(named: "Song options", openPlayingSongMenu)
+        .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
+        .background {
+            // World (R5): the folded room's ambient already breathes in the pill.
+            if lab.extra("pillAmbient") > 0, !model.isIdle {
+                PillAmbientWash(scheme: scheme, dark: colorScheme == .dark, opacity: lab.extra("pillAmbient"))
+            }
+        }
+        .glassEffectID("np", in: glassNS)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+            if !model.searchActive, !model.np.mounted, !r.nearlyMatches(model.np.pillFrame) { model.np.pillFrame = r }
+        }
+        // While Now Playing is up (or morphing), the morph's glass shape is
+        // the pill: it starts and ends exactly on this frame.
+        .opacity(model.np.mounted ? 0 : 1)
+        .accessibilityLabel("Now playing, \(p.track.title) by \(p.album.artist)")
+        .accessibilityValue(model.player.currentTrack != nil
+                            ? (p.isPlaying ? String(localized: "Playing") : String(localized: "Paused"))
+                            : "\(Int(progress * 100)) percent played")
+    }
+
+    // MARK: Album page form
+
+    /// Android detail pose: [Play split, 156 pt][8][now-playing pill]. Both
+    /// halves in the cover's primary / onPrimary; ▾ opens the detail menu.
+    /// M3 SplitButton: 2 pt gap, 4 pt inner corners, full outer corners. Own
+    /// container with 0 spacing, so the halves don't melt into one blob.
+    private func playSplit(_ album: Album) -> some View {
+        let s = CoverScheme(album: album, dark: colorScheme == .dark)
+        let tint = s.primary.opacity(0.85)
+        let inner = Tokens.bar.SPLIT_INNER_CORNER.cg
+        return GlassEffectContainer(spacing: 0) { HStack(spacing: Tokens.bar.SPLIT_GAP.cg) {
+            Button { playDetail(shuffle: false) } label: {
+                HStack(spacing: 8) {
+                    YoinIcon("play_filled", size: 20)
+                    Text("Play").font(.gsf(16, .medium))
+                }
+                .foregroundStyle(s.onPrimary)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+            .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
+                         in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
+                                                    bottomTrailingRadius: inner, topTrailingRadius: inner))
+            .glassEffectID("split.play", in: glassNS)
+            .glassEffectTransition(.materialize)
+
+            Menu {
+                Button("Shuffle play") { playDetail(shuffle: true) }
+                // Spotify plays its own song: only its queue takes songs, at the end (audit 11-15 #20).
+                if model.player.externalTrack == nil {
+                    Button("Play next") { enqueueDetail(next: true) }
+                }
+                Button("Add to queue") { enqueueDetail(next: false) }
+                // Android: needs playlist writes (Subsonic; not Apple Music).
+                if PlaylistActions.shared.canAddToPlaylist(model.store) {
+                    Button("Add to playlist") { addDetailToPlaylist() }
+                }
+                // Android DetailMenu: Save to / Remove from library (Spotify albums).
+                if case .album = model.path.last { AlbumLibraryMenuButton(album: album) }
+                // Android OfflineToggle: Download, Downloading n/m, Remove download.
+                if let c = model.detailOfflineCollection, case .album = model.path.last {
+                    OfflineMenuButton(collection: c)
+                }
+                // The mock's stand-ins; a real account's links come from its service (none on a Subsonic
+                // server: no public page).
+                if !model.store.isReal { Button("Open in Apple Music") {} }
+                DetailLinkMenuItems(target: detailTarget, link: webLink)
+                Divider()
+                if case .album = model.path.last {
+                    Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
+                }
+                if !model.store.isReal { Button("Share") {} }
+            } label: {
+                YoinIcon("chevron_down", size: 22)
+                    .foregroundStyle(s.onPrimary)
+                    .padding(.horizontal, 14)
+                    .frame(height: height)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+            .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
+                         in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
+                                                    bottomTrailingRadius: 30, topTrailingRadius: 30))
+            .glassEffectID("split.more", in: glassNS)
+            .glassEffectTransition(.materialize)
+            .accessibilityLabel("More play options")
+        } }
+        .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: height)
+        .fixedSize(horizontal: false, vertical: true)
+        .task(id: album.id) { await AlbumLibraryState.shared.load(album, store: model.store) }
+        .task(id: detailTarget) { await webLink.load(detailTarget, apple: model.store.apple) }
+    }
+
+    /// The page the ▾ menu's Share and Open in are about.
+    private var detailTarget: DetailLinkTarget? { model.detailLinkTarget() }
+
+    /// The page's songs (album tracks, playlist entries, the artist's Most
+    /// Played) into the engine.
+    private func playDetail(shuffle: Bool) {
+        model.play(loading: { await model.detailEntries() }, shuffle: shuffle)
+    }
+
+    private func enqueueDetail(next: Bool) {
+        Task {
+            model.enqueue(await model.detailEntries(), next: next) { ok in
+                if !ok { PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) }
+            }
+        }
+    }
+
+    private func addDetailToPlaylist() {
+        Task { PlaylistActions.shared.requestAdd(await model.detailEntries()) }
+    }
+}
+
+/// A nav button's face: its symbol (filled when selected), its label where the bar shows one, the accent
+/// ink and the selection highlight inside the glass. The bar's own buttons draw it, and so does the tip
+/// page's demo bar (Tips/TipHomeScenes.swift).
+struct ShellNavFace: View {
+    var section: ShellSection
+    var selected: Bool
+    /// The phone's idle bar labels its halves; iPad's nav capsule always does.
+    var labelled: Bool
+    var scheme: CoverScheme
+    var sidePadding: CGFloat = 0
+    /// The idle bar's halves share the bar's width.
+    var fills = false
+    var height: CGFloat = 60
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
+
+    var body: some View {
+        let lab = GlassLab.shared
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
+        let icon = switch section {
+        case .home: selected ? "home_filled" : "home"
+        case .library: selected ? "library_filled" : "library"
+        }
+        // Solid surfaces: Android's YoinButtonGroup inks.
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink
+            : tintedStyle ? (section == .home ? scheme.onPrimary : scheme.onSecondary)
+            : (section == .home ? scheme.primary : scheme.secondary)
+        HStack(spacing: 8) {
+            YoinIcon(icon, size: 24)
+            if labelled {
+                Text(section == .home ? String(localized: "Home") : String(localized: "Library")).font(.gsf(14, .semibold))
+            }
+        }
+        .foregroundStyle(ink)
+        .labContrast(selected ? "barSelected" : "barUnselected")
+        .padding(.horizontal, sidePadding)
+        .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
+        .frame(maxWidth: fills ? .infinity : nil)
+        .background {
+            if selected && !tintedStyle && !lab.solidSurfaces {
+                // Apple-style selection highlight inside the glass.
+                // Grey on light glass (white vanished on it), light on dark.
+                Capsule()
+                    .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+                        .opacity(lab.extra("barSelectionPill") / 0.55))
+                    .padding(5)
+            }
+        }
+        .contentShape(.capsule)
+    }
+}
+
+/// Lightweight gradient wash for the mini-player pill (`pillAmbient`),
+/// preserving the folded room's cover palette without mounting large live blurs.
+private struct PillAmbientWash: View {
+    var scheme: CoverScheme
+    var dark: Bool
+    var opacity: Double
+
+    var body: some View {
+        ZStack {
+            scheme.background
+            LinearGradient(
+                colors: [
+                    scheme.secondaryContainer.opacity(0.65),
+                    scheme.primary.opacity(dark ? 0.55 : 0.42),
+                    scheme.tertiaryContainer.opacity(0.65),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [
+                    scheme.primary.opacity(dark ? 0.48 : 0.36),
+                    .clear,
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: 140
+            )
+        }
+        .clipShape(.capsule)
+        .opacity(opacity)
+        .animation(Yoin.effects, value: scheme.primary)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The mini player's content: cover, title over artist, progress wash.
+/// The bar's pill reports its cover / title frames to the Now Playing
+/// morph (`np`); the morph draws a copy without cover and title (those fly).
+struct PillContent: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
+    var np: NowPlayingPresentation? = nil
+    var showCover = true
+    var showTitle = true
+    var showWash = true
+    /// The tip page's demo phone: its made-up song in the engine's place (its playhead rides the environment).
+    var demo: NowPlayingDemo? = nil
+    private let height: CGFloat = 60
+    private var lab: GlassLab { GlassLab.shared }
+
+    /// What the pill shows (Android NowPlayingPill `shown`): held through a
+    /// song change's exit so the old song leaves as itself.
+    struct Shown: Equatable {
+        var key: MediaId
+        var album: Album
+        var title: String
+        var artist: String
+    }
+
+    @State private var shown: Shown?
+    /// Android track-change PUSH: 0 at rest; 0 → 1 carries the old song out
+    /// left, then −1 → 0 brings the new one in from the right.
+    @State private var push: CGFloat = 0
+    @State private var pushGeneration = 0
+
+    /// Android PillPushTravel.
+    private static let pushTravel: CGFloat = 30
+
+    private var playback: PlaybackSnapshot { demo?.snapshot ?? model.playback }
+
+    private var live: Shown {
+        let p = playback
+        return Shown(key: p.track.id, album: p.album, title: p.track.title, artist: p.album.artist)
+    }
+
+    var body: some View {
+        let p = playback
+        let s = shown ?? live
+        let scheme = model.isIdle && demo == nil ? CoverScheme.brand(dark: colorScheme == .dark)
+            : CoverScheme(album: p.album, dark: colorScheme == .dark)
+        HStack(spacing: 10) {
+            CoverArt(palette: s.album.palette, cornerRadius: 6, seed: s.album.seed)
+                .frame(width: 42, height: 42)
+                .opacity(showCover ? 1 : 0)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                    if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillCoverFrame) {
+                        np.pillCoverFrame = r
+                    }
+                }
+            VStack(alignment: .leading, spacing: 1) {
+                // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
+                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                    .opacity(showTitle ? 1 : 0)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                        if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillTitleFrame) {
+                            np.pillTitleFrame = r
+                        }
+                    }
+                MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
+            }
+            .lineLimit(1)
+            .labContrast("miniPlayer")
+            Spacer(minLength: 0)
+            if p.isBuffering, p.isPlaying, showTitle {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .animation(Yoin.effects, value: p.isBuffering && p.isPlaying)
+        .offset(x: -Self.pushTravel * push)
+        .opacity(1 - 0.9 * abs(push))
+        .padding(.leading, 9)
+        .padding(.trailing, 12)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+        .background {
+            // The engine's position is read inside PlaybackPosition, so
+            // its ticks redraw the wash only, not the bar. Not while Now
+            // Playing is up: the pill is hidden then, and a wash moving in
+            // the shell redrew the whole blurred world behind the page every
+            // frame.
+            if showWash, np?.mounted != true {
+                PlaybackPosition { position, duration in
+                    PillWash(positionSec: position, durationSec: duration,
+                             playing: p.isPlaying && !p.isBuffering && SheetRise.shared.progress < 0.5,
+                             color: scheme.primary.opacity(lab.extra("washOpacity")),
+                             amplitude: lab.extra("washAmplitude"))
+                }
+                .clipShape(.capsule)
+            }
+        }
+        .onAppear { shown = live }
+        .onChange(of: live) { old, new in songChanged(from: old, to: new) }
+    }
+
+    /// Every hand-off (skip, auto-advance, another device) pushes; the same
+    /// song (metadata or cover refresh) and idle → first song sync silently.
+    private func songChanged(from old: Shown, to new: Shown) {
+        let instant = Transaction(animation: nil)
+        guard old.key != new.key, !model.isIdle, showCover, showTitle else {
+            if pushGeneration == 0 || push == 0 { withTransaction(instant) { shown = new } }
+            return
+        }
+        pushGeneration += 1
+        let generation = pushGeneration
+        // A skip mid-push lands the interrupted frame first, so two pushes
+        // never compound; the old song is whatever is on screen now.
+        if push != 0 { withTransaction(instant) { push = 0 } }
+        // Out: a fast, critically damped exit (Android: 90 ms).
+        withAnimation(Self.exitSpring) { push = 1 } completion: {
+            guard generation == pushGeneration else { return }
+            withTransaction(instant) {
+                shown = live
+                push = -1
+            }
+            // In: the Expressive spatial spring.
+            withAnimation(Yoin.spatial) { push = 0 } completion: {
+                if generation == pushGeneration { pushGeneration = 0 }
+            }
+        }
+    }
+
+    /// Expressive fast effects (critically damped, ~0.1 s): the exit.
+    private static var exitSpring: Animation {
+        let s = Tokens.motion.expressiveFastEffects
+        let k = s.stiffness
+        return Animation.interpolatingSpring(mass: 1, stiffness: k, damping: s.damping * 2 * k.squareRoot())
+            .speed(LaunchConfig.animationSpeed)
+    }
+}
+
+/// Android NowPlayingPill progress wash: fill from the leading edge to the
+/// progress point, whose edge is a vertical sine (one wave over the pill's
+/// height) that drifts while playing.
+///
+/// The engine ticks the position 4 times a second; on a short song each tick
+/// moved the edge several points, so it stepped. The timeline already draws
+/// every frame while playing (the sine drifts), so the edge is extrapolated
+/// there from the last tick at the song's rate (Android's
+/// PlaybackProgressSmoother): no extra frames or view updates.
+struct PillWash: View {
+    var positionSec: Double
+    var durationSec: Double
+    var playing: Bool
+    var color: Color
+    var amplitude: Double
+    @State private var front = WashFront()
+
+    var body: some View {
+        TimelineView(.animation(paused: !playing)) { ctx in
+            let phase = ctx.date.timeIntervalSinceReferenceDate * 2 * Double.pi
+            let progress = front.at(positionSec, of: durationSec, playing: playing, now: ctx.date)
+            Canvas { gc, size in
+                guard progress > 0 else { return }
+                let x = size.width * progress
+                var path = Path()
+                path.move(to: .zero)
+                path.addLine(to: CGPoint(x: x, y: 0))
+                for i in 0...20 {
+                    let f = Double(i) / 20
+                    let dx = sin(phase + f * 2 * Double.pi) * amplitude * (playing ? 1 : 0)
+                    path.addLine(to: CGPoint(x: x + dx, y: f * size.height))
+                }
+                path.addLine(to: CGPoint(x: 0, y: size.height))
+                path.closeSubpath()
+                gc.fill(path, with: .color(color))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// The wash edge between position ticks. A tick slightly behind what was
+/// drawn (timer jitter) re-anchors at the drawn edge instead of stepping
+/// back; a seek, a new song, or a stall past `maxLead` snaps to the tick.
+/// A plain class: written while drawing, never observed.
+final class WashFront {
+    private var sample = Double.nan
+    private var anchorSec = 0.0
+    private var anchorDate = Date.distantPast
+    private var shownSec = 0.0
+    private var wasPlaying = false
+    private static let maxLead = 0.6
+
+    func at(_ positionSec: Double, of durationSec: Double, playing: Bool, now: Date) -> Double {
+        guard durationSec > 0 else { return 0 }
+        if !playing {
+            sample = positionSec
+            anchorSec = positionSec
+            shownSec = positionSec
+            wasPlaying = false
+        } else {
+            if !wasPlaying || positionSec != sample {
+                let behind = shownSec - positionSec
+                anchorSec = wasPlaying && behind > 0 && behind <= Self.maxLead ? shownSec : positionSec
+                anchorDate = now
+                sample = positionSec
+                wasPlaying = true
+            }
+            shownSec = anchorSec + min(max(now.timeIntervalSince(anchorDate), 0), Self.maxLead)
+        }
+        return min(max(shownSec / durationSec, 0), 1)
+    }
+}
+
+/// A playback failure the engine is holding on (PlayerEngine.failure, Android
+/// "Playback unavailable" + its message): errorContainer, the message, and an
+/// explicit Retry that plays the song again from where it stopped. Spotify not open on a Mac has two
+/// steps, Open Spotify then Retry (the native Mac's banner): beside the message where both fit, under
+/// it in a narrow window.
+struct PlaybackFailureBanner: View {
+    var failure: PlaybackFailure
+    var scheme: CoverScheme
+    var openSpotify: () -> Void = {}
+    var retry: () -> Void
+
+    /// What a toast rises by to sit 12 above the phone's banner (a two-line message, 66 high).
+    static let toastLift: CGFloat = 52
+
+    var body: some View {
+        Group {
+            if failure.action == .openSpotifyThenRetry {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        message
+                        steps
+                    }
+                    VStack(alignment: .trailing, spacing: 4) {
+                        message
+                        steps
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    message
+                    if failure.action != .none { filled(actionLabel, retry) }
+                }
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(scheme.errorContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAction(named: Text(actionLabel), retry)
+        .accessibilityActions {
+            if failure.action == .openSpotifyThenRetry { Button("Open Spotify", action: openSpotify) }
+        }
+    }
+
+    private var message: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Playback unavailable")
+                .yoinRole(Tokens.type.titleSmall)
+            Text(failure.message)
+                .yoinRole(Tokens.type.bodySmall)
+                .lineLimit(2)
+        }
+        .foregroundStyle(scheme.onErrorContainer)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Open Spotify (it comes up, nothing plays), then Retry.
+    private var steps: some View {
+        HStack(spacing: 4) {
+            Button(action: openSpotify) {
+                Text("Open Spotify")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onErrorContainer)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 40)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+            filled("Retry", retry)
+        }
+    }
+
+    private func filled(_ label: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.onError)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 40)
+                .background(scheme.error, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private var actionLabel: LocalizedStringKey {
+        switch failure.action {
+        case .settings: "Settings"
+        case .openSpotify: "Open Spotify"
+        case .installSpotify: "Install Spotify"
+        case .retry, .openSpotifyThenRetry, .none: "Retry"
+        }
+    }
+}
+
+extension CGRect {
+    func nearlyMatches(_ other: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(minX - other.minX) <= tolerance
+            && abs(minY - other.minY) <= tolerance
+            && abs(width - other.width) <= tolerance
+            && abs(height - other.height) <= tolerance
+    }
+}

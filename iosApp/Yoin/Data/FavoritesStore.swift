@@ -1,0 +1,185 @@
+import Foundation
+import Observation
+import SwiftUI
+import YoinShared
+import os
+
+/// The one heart per song: Now Playing, the song sheet and the album's
+/// track rows all read and write it here, so a heart set in one shows in
+/// the others at once. Android keeps it in one place too (the repository's
+/// star writes, observed through `favoriteFlow`).
+///
+/// Optimistic: the heart flips at once and flips back when the write fails
+/// (only if no newer tap owns it by then). On Apple Music the heart is
+/// library membership: add only, since MusicKit has no remove.
+@MainActor
+@Observable
+final class FavoritesStore {
+    static let shared = FavoritesStore()
+
+    /// Hearts as the user last set them here (ahead of the server).
+    private(set) var chosen: [String: Bool] = [:]
+    /// What the source said, where the caller had nothing fresher
+    /// (Now Playing's album / getSong / library lookups).
+    private(set) var reported: [String: Bool] = [:]
+
+    /// A song's heart was written (LibraryStore drops the pages that show it).
+    @ObservationIgnored var onWrite: ((_ provider: String, _ songId: String) -> Void)?
+    @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "favorites")
+
+    static func key(provider: String, songId: String) -> String { LocalRatings.key(provider: provider, songId: songId) }
+
+    /// The user's own tap, else a fresh answer (a recheck or a write the source took, newer than any
+    /// page's copy), else [known] (what the caller's copy of the song says), else what the source
+    /// reported, else off.
+    func isFavorite(provider: String, songId: String, known: Bool? = nil) -> Bool {
+        let k = Self.key(provider: provider, songId: songId)
+        return chosen[k] ?? (fresh.contains(k) ? reported[k] : nil) ?? known ?? reported[k] ?? false
+    }
+
+    /// Whether anything is known about the song beyond the caller's copy.
+    func hasReport(provider: String, songId: String) -> Bool {
+        reported[Self.key(provider: provider, songId: songId)] != nil
+    }
+
+    /// Whether anything at all is known of the song's heart: a tap here, the caller's copy or a report.
+    func isKnown(provider: String, songId: String, known: Bool? = nil) -> Bool {
+        let k = Self.key(provider: provider, songId: songId)
+        return chosen[k] != nil || known != nil || reported[k] != nil
+    }
+
+    /// What a fresh read of the source is checked against when it answers ([refresh]).
+    struct ReadToken: Equatable {
+        fileprivate var generation: Int
+        fileprivate var writes: Int
+    }
+
+    func readToken(provider: String, songId: String) -> ReadToken {
+        ReadToken(generation: generation, writes: writes[Self.key(provider: provider, songId: songId)] ?? 0)
+    }
+
+    /// A fresh read of the source (Spotify's recheck, Android SpotifySavedStateRefresher): it replaces what
+    /// was reported and an earlier tap here gives way to it (the song may have been liked or unliked in
+    /// the Spotify app since). Dropped when a tap came after the read began, or one is still going out.
+    func refresh(_ starred: Bool, provider: String, songId: String, token: ReadToken) {
+        let k = Self.key(provider: provider, songId: songId)
+        guard token == readToken(provider: provider, songId: songId), pending[k] == nil, !sending.contains(k) else { return }
+        if reported[k] != starred { reported[k] = starred }
+        fresh.insert(k)
+        confirmed[k] = starred
+        if chosen[k] != nil { chosen[k] = nil }
+    }
+
+    /// The source's answer; the first one stands unless [overwrite].
+    func report(_ starred: Bool, provider: String, songId: String, overwrite: Bool = false) {
+        let k = Self.key(provider: provider, songId: songId)
+        if overwrite || reported[k] == nil { reported[k] = starred }
+    }
+
+    /// Bumps on every reset (sign-in / sign-out / another source): a write that answers after it touches
+    /// nothing (Codex C10).
+    @ObservationIgnored private var generation = 0
+
+    /// Flips the heart. Subsonic stars / unstars; Apple Music only adds to
+    /// the library (an added song stays added). Without a client (mock) the
+    /// heart is local only.
+    func toggle(provider: String, songId: String, known: Bool? = nil,
+                client: SubsonicClient?, apple: AppleMusicSource?) {
+        let was = isFavorite(provider: provider, songId: songId, known: known)
+        if provider == AppleMusicMapping.provider {
+            guard !was, let apple else { return }
+            write(provider: provider, songId: songId, target: true, was: was) {
+                try await apple.addToLibrary(songId)
+            }
+            return
+        }
+        if provider == SpotifyMapping.provider, let spotify = AppModel.shared.store.spotify {
+            // Liked Songs: Spotify saves and un-saves (Android SpotifyMusicSource.setFavorite).
+            let target = !was
+            write(provider: provider, songId: songId, target: target, was: was) {
+                if target { try await spotify.save(songId) } else { try await spotify.unsave(songId) }
+            }
+            return
+        }
+        guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else {
+            write(provider: provider, songId: songId, target: !was, was: was, send: nil)
+            return
+        }
+        let target = !was
+        write(provider: provider, songId: songId, target: target, was: was) {
+            if target {
+                try await client.star(id: songId, albumId: nil, artistId: nil)
+            } else {
+                try await client.unstar(id: songId, albumId: nil, artistId: nil)
+            }
+        }
+    }
+
+    /// The heart flips at once; [send] tells the source. Writes for one song
+    /// go out one at a time, newest intent last (Android serializes them with
+    /// a mutex): a quick on→off can't land out of order, and a failure rolls
+    /// the heart back to what the source last confirmed, never to a stale
+    /// `was` that no write ever reached (Codex review #18). All only for the
+    /// same account generation.
+    func write(provider: String, songId: String, target: Bool, was: Bool,
+               send: (@MainActor () async throws -> Void)?) {
+        let k = Self.key(provider: provider, songId: songId)
+        let gen = generation
+        if confirmed[k] == nil { confirmed[k] = was }
+        writes[k, default: 0] += 1
+        chosen[k] = target
+        onWrite?(provider, songId)
+        guard let send else { return }
+        pending[k] = (target, send)
+        guard sending.insert(k).inserted else { return }
+        Task {
+            defer { if gen == generation { sending.remove(k) } }
+            while gen == generation, let next = pending.removeValue(forKey: k) {
+                let (want, push) = next
+                // Already what the source holds (on→off→on before the first went out).
+                if want == confirmed[k] { continue }
+                do {
+                    try await push()
+                    guard gen == generation else { return }
+                    confirmed[k] = want
+                    reported[k] = want
+                    fresh.insert(k)
+                    // The source holds the tap now: it no longer pins the heart, so a later recheck (a
+                    // like undone in the Spotify app) shows (audit 11-15 #19). A newer tap still waiting keeps it.
+                    if pending[k] == nil, chosen[k] == want { chosen[k] = nil }
+                } catch {
+                    log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
+                    guard gen == generation else { return }
+                    // A newer tap is queued: it decides. Otherwise back to the source's value.
+                    if pending[k] == nil, let c = confirmed[k] {
+                        withAnimation(Yoin.effects) { chosen[k] = c }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Per song, the value the source last confirmed (or held before the first tap).
+    @ObservationIgnored private var confirmed: [String: Bool] = [:]
+    /// Per song, the newest write not yet sent.
+    @ObservationIgnored private var pending: [String: (Bool, @MainActor () async throws -> Void)] = [:]
+    /// Songs with a write loop running.
+    @ObservationIgnored private var sending: Set<String> = []
+    /// Per song, how many taps it has had (a read begun before the last one is stale).
+    @ObservationIgnored private var writes: [String: Int] = [:]
+    /// Songs whose [reported] value is a fresh answer (a recheck, a write the source took): it outranks
+    /// the copy a page was built with, which may be hours old (audit 11-15 #19).
+    private var fresh: Set<String> = []
+
+    /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
+    func reset() {
+        generation += 1
+        chosen = [:]
+        reported = [:]
+        confirmed = [:]
+        pending = [:]
+        sending = []
+        writes = [:]
+        fresh = []
+    }
+}

@@ -98,6 +98,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.model.albumNameWithoutVersion
+import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AlbumVersionTag
@@ -1246,7 +1247,10 @@ private fun AlbumOverviewPage(
         // (AlbumSpectrumLayer / AlbumFlyingCover); here the slot only makes room
         // for them, and closes as they fly into the bar, so the list docks
         // straight under the header.
-        val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
+        val heroCoverSide = minOf(
+            maxW * YoinTokens.Detail.ALBUM_COVER_WIDTH_FRACTION.toFloat(),
+            YoinTokens.Detail.ALBUM_COVER_MAX.dp,
+        )
         val slotHeight = lerp(heroCoverSide + 56.dp, 0.dp, expand.coerceIn(0f, 1f))
 
         Box(modifier = Modifier.fillMaxSize()) {

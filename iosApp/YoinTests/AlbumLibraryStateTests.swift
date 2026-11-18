@@ -1,0 +1,43 @@
+import XCTest
+@testable import Yoin
+
+/// B-F3: Save to library / Remove from library on Spotify albums (Android DetailMenu).
+@MainActor
+final class AlbumLibraryStateTests: XCTestCase {
+    private func album(_ provider: String) -> Album {
+        Album(id: MediaId(provider: provider, rawId: "al1"), title: "A", artist: "B", year: 2020,
+              palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
+    }
+
+    func test_should_offer_the_row_for_spotify_albums_only() {
+        XCTAssertTrue(AlbumLibraryState.applies(album(SpotifyMapping.provider)))
+        XCTAssertFalse(AlbumLibraryState.applies(album("subsonic")))
+        XCTAssertFalse(AlbumLibraryState.applies(album("applemusic")))
+    }
+
+    func test_should_name_the_action_by_the_albums_state() {
+        XCTAssertEqual(AlbumLibraryState.label(saved: false), String(localized: "Save to library"))
+        XCTAssertEqual(AlbumLibraryState.label(saved: true), String(localized: "Remove from library"))
+    }
+
+    func test_should_wait_for_the_state_before_showing_the_row() {
+        let state = AlbumLibraryState()
+        XCTAssertNil(state.saved["al1"])
+        state.set(true, for: "al1")
+        XCTAssertEqual(state.saved["al1"], true)
+    }
+
+    func test_should_forget_the_last_accounts_state_when_the_store_resets() async {
+        let defaults = UserDefaults(suiteName: "alstate-\(UUID().uuidString)")!
+        let store = LibraryStore(session: ServerSession(), sources: SourceSelection(subsonicSignedIn: false, defaults: defaults),
+                                 appleMusic: AppleMusicSource())
+        let state = AlbumLibraryState()
+        let a = album(SpotifyMapping.provider)
+        await state.load(a, store: store)
+        state.set(true, for: "al1")
+        XCTAssertEqual(state.state(for: a, store: store), true)
+        // Another account: the old state never shows before the new read (audit 11-15 #72).
+        store.reset()
+        XCTAssertNil(state.state(for: a, store: store))
+    }
+}
