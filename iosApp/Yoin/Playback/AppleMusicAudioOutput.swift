@@ -24,7 +24,7 @@ final class AppleMusicAudioOutput: AudioOutput {
     var resolve: ((String) async -> Song?)?
 
     private var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
-    private let silent = UserDefaults.standard.bool(forKey: "silentAudio")
+    private let silent = LaunchConfig.silentAudio
     private var currentId: String?
     private var nextId: String?
     /// Bumps on every load / stop; a resolve that comes back late is dropped.

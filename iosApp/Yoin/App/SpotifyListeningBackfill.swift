@@ -42,7 +42,7 @@ final class SpotifyListeningBackfill {
     }
 
     private func leftFront(_ model: AppModel) {
-        guard awayAt == nil, model.store.spotify != nil, model.player.isPlaying,
+        guard awayAt == nil, !LaunchConfig.silentAudio, model.store.spotify != nil, model.player.isPlaying,
               model.player.currentTrack?.provider == SpotifyMapping.provider else { return }
         awayAt = Int64(Date().timeIntervalSince1970 * 1000)
     }

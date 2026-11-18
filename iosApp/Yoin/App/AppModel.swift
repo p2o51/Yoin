@@ -174,6 +174,7 @@ final class AppModel {
             return PlaybackSnapshot(album: store.albumForPlaying(t) ?? Self.album(for: t, library: library),
                                     track: Self.track(for: t),
                                     positionSec: 0, isPlaying: player.isPlaying,
+                                    isBuffering: player.isBuffering && player.isPlaying && player.failure == nil,
                                     lyricLine: "", nextLyricLine: "")
         }
         set { mockPlayback = newValue }

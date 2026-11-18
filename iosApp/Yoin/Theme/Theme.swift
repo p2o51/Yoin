@@ -144,6 +144,16 @@ enum LaunchConfig {
         return 1
         #endif
     }()
+
+    /// Debug QA mute (`-silentAudio YES`): suppresses external player starts and mutes AVQueuePlayer.
+    /// Release builds always ignore it so a launch argument can never silence production playback.
+    nonisolated static var silentAudio: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "silentAudio")
+        #else
+        false
+        #endif
+    }
 }
 
 func formatTime(_ sec: Int) -> String {

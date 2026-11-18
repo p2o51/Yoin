@@ -2096,7 +2096,7 @@ struct NowPlayingView: View, Equatable {
                     glow.tapped(.playPause)
                     model.player.togglePlayPause()
                 } label: {
-                    playPauseLabel(playing: playing, pressed: pausePressed)
+                    playPauseLabel(playing: playing, buffering: p.isBuffering, pressed: pausePressed)
                         .frame(width: word)
                         .padding(.horizontal, pad)
                         .frame(width: max(0, playWidth), height: control)
@@ -2211,7 +2211,7 @@ struct NowPlayingView: View, Equatable {
                 .opacity(timesAway ? 0 : 1)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
             WavyProgressBar(progress: position / duration,
-                            duration: duration, isPlaying: p.isPlaying,
+                            duration: duration, isPlaying: p.isPlaying && !p.isBuffering,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
                             noteAnchors: anchors,
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
@@ -2258,11 +2258,15 @@ struct NowPlayingView: View, Equatable {
     /// The PLAY / PAUSE word (English) or the morphing symbol (every other
     /// language, Android wordLabel), in a box the pill sizes from the word.
     @ViewBuilder
-    private func playPauseLabel(playing: Bool, pressed: Bool) -> some View {
+    private func playPauseLabel(playing: Bool, buffering: Bool = false, pressed: Bool) -> some View {
         let stretch: CGFloat = pressed ? 1.10 : (playing ? 1.06 : 0.97)
         let ink = colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true) ? Color.white : scheme.onPrimary
         Group {
-            if Self.spellsPlayWord {
+            if buffering && playing {
+                ProgressView()
+                    .tint(ink)
+                    .scaleEffect(0.95)
+            } else if Self.spellsPlayWord {
                 // titleLarge × 0.9; PAUSE Bold with 0.5 tracking, PLAY Medium
                 // with none. Laid out at its own width (it never sizes the
                 // pill); the stretch grows from its leading edge.
@@ -2282,6 +2286,7 @@ struct NowPlayingView: View, Equatable {
         }
         .foregroundStyle(ink)
         .labContrast("transportPrimary")
+        .animation(Yoin.effects, value: buffering && playing)
         // The stretch: fast while held, default otherwise (Android textStretchSpec).
         .animation(pressed ? Yoin.standardFastSpatial : Yoin.standardDefaultSpatial, value: stretch)
         .frame(maxWidth: .infinity)

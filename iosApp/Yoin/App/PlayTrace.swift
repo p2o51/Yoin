@@ -92,8 +92,9 @@ enum PlayTrace {
 
     /// The log as a file in the caches folder, for the share sheet.
     nonisolated static func writeExport() throws -> URL {
+        let silentSuffix = LaunchConfig.silentAudio ? " [silentAudio]" : ""
         let text: String = queue.sync {
-            let device = "Yoin \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "?"))"
+            let device = "Yoin \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "?"))\(silentSuffix)"
             // Cleaned once more on the way out: whatever an older build kept never leaves the phone.
             return ([device, ""] + lines.map(redact)).joined(separator: "\n") + "\n"
         }
@@ -107,6 +108,7 @@ enum PlayTrace {
     }
 
     @MainActor static func observeApp() {
+        if LaunchConfig.silentAudio { log("app launch silentAudio=true") }
         let c = NotificationCenter.default
         for (n, name) in [(UIApplication.willEnterForegroundNotification, "willEnterForeground"),
                           (UIApplication.didBecomeActiveNotification, "didBecomeActive"),

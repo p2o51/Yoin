@@ -537,7 +537,9 @@ struct TrackMenuSheet: View {
         TrackMenuToggleRow(label: String(localized: "Keep screen on"), icon: "light_mode", scheme: app,
                            isOn: Binding(get: { keepScreenOn }, set: { on in
                                keepScreenOn = on
-                               UIApplication.shared.isIdleTimerDisabled = on && model.npExpanded
+                               UIApplication.shared.isIdleTimerDisabled = KeepScreenOnObserver.shouldDisableIdleTimer(
+                                   keepScreenOn: on, npExpanded: model.npExpanded,
+                                   isPad: model.isPad, npPanel: model.npPanel, isPlaying: model.player.isPlaying)
                                if on { NotificationCenter.default.post(name: NowPlayingGlow.roomLift, object: nil) }
                                tapped += 1
                            }))
@@ -884,17 +886,29 @@ private struct PlaylistActionsHost: ViewModifier {
     }
 }
 
-/// Isolates `model.npExpanded` observation so RootView's `PlaylistActionsHost` never
-/// re-evaluates on every Now Playing open/close.
-private struct KeepScreenOnObserver: View {
+/// Isolates `model.npExpanded` and `model.player.isPlaying` observation so RootView's
+/// `PlaylistActionsHost` never re-evaluates on every Now Playing open/close or play/pause.
+/// Matches Android `NowPlayingOverlayHost.kt`: only keeps the screen awake while Now Playing
+/// is visible AND playback is actively running.
+struct KeepScreenOnObserver: View {
     @Environment(AppModel.self) private var model
     @AppStorage("keepScreenOn") private var keepScreenOn = false
+
+    nonisolated static func shouldDisableIdleTimer(keepScreenOn: Bool, npExpanded: Bool, isPad: Bool,
+                                                   npPanel: Bool, isPlaying: Bool) -> Bool {
+        keepScreenOn && (npExpanded || (isPad && npPanel)) && isPlaying
+    }
+
+    private var active: Bool {
+        Self.shouldDisableIdleTimer(keepScreenOn: keepScreenOn, npExpanded: model.npExpanded,
+                                    isPad: model.isPad, npPanel: model.npPanel, isPlaying: model.player.isPlaying)
+    }
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: model.npExpanded, initial: true) { _, open in
-                UIApplication.shared.isIdleTimerDisabled = keepScreenOn && open
+            .onChange(of: active, initial: true) { _, on in
+                UIApplication.shared.isIdleTimerDisabled = on
             }
     }
 }
