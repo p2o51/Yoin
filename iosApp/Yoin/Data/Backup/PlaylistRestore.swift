@@ -1,4 +1,5 @@
 import Foundation
+import MusicKit
 import Observation
 import SwiftUI
 import YoinShared
@@ -16,14 +17,22 @@ struct RestoreInterrupted: Error, Equatable {
 
     /// Errors that stop matching: every later search would fail the same way.
     static func stops(_ error: Error) -> Bool {
-        guard let e = error as? SpotifyAPIError else { return false }
-        switch e {
-        case .rateLimited, .unauthorized: return true
-        default: return false
+        if let e = error as? SpotifyAPIError {
+            switch e {
+            case .rateLimited, .unauthorized: return true
+            default: return false
+            }
         }
+        return AppleMusicSource.isAuthOrRateLimit(error)
     }
 
-    static func message(for error: Error) -> String { SpotifySource.message(for: error) }
+    static func message(for error: Error) -> String {
+        if error is SpotifyAPIError { return SpotifySource.message(for: error) }
+        if error is MusicDataRequest.Error || error is any HTTPStatusError {
+            return AppleMusicSource.message(for: error)
+        }
+        return SpotifySource.message(for: error)
+    }
 }
 
 /// Where a restore writes (Android MusicSource's `library().search` and
@@ -109,7 +118,9 @@ enum PlaylistRestore {
         }
         let isrcs = tracks.filter { !isOwn($0) }.compactMap(\.isrc)
         let byIsrc: [String: [MatchTrack]]
-        do { byIsrc = isrcs.isEmpty ? [:] : try await target.tracksByIsrc(isrcs) } catch {
+        do { byIsrc = isrcs.isEmpty ? [:] : try await target.tracksByIsrc(isrcs) } catch is CancellationError {
+            throw CancellationError()
+        } catch {
             throw RestoreInterrupted(message: RestoreInterrupted.message(for: error), left: tracks.count)
         }
         try Task.checkCancellation()
@@ -219,9 +230,9 @@ final class AppleMusicRestoreDestination: RestoreDestination {
     }
 
     /// Android `tracksByIsrc`: the catalog's songs for each code, so a backup's songs match by ISRC before any
-    /// title search.
-    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]] {
-        await apple.catalogSongsByIsrc(isrcs).mapValues { $0.map(Self.track) }
+    /// title search. Throws on 401/403/429 or network failures so matching triggers `RestoreInterrupted`.
+    func tracksByIsrc(_ isrcs: [String]) async throws -> [String: [MatchTrack]] {
+        try await apple.catalogSongsByIsrcThrowing(isrcs).mapValues { $0.map(Self.track) }
     }
 
     nonisolated static func track(_ s: AMSong) -> MatchTrack {

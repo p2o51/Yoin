@@ -146,7 +146,7 @@ final class AppleMusicSource {
         var errorDescription: String? { message }
     }
 
-    static func message(for error: Error) -> String {
+    nonisolated static func message(for error: Error) -> String {
         if let e = error as? MusicDataRequest.Error {
             return e.detailText.isEmpty ? e.title : e.detailText
         }

@@ -619,13 +619,15 @@ final class LibraryPagingAndMadeForYouTests: XCTestCase {
         XCTAssertEqual(spStore.madeForYou, [spMix])
         XCTAssertEqual(spStore.madeForYouPhase, .loaded)
 
-        // HomeLayout Made For You contract & backwards-compatible retain
+        // HomeLayout Made For You promotion into HomeSection
+        XCTAssertEqual(HomeSection.madeForYou.id, "made_for_you")
         XCTAssertEqual(MadeForYouSectionContract.rawId, "made_for_you")
         let layout = HomeLayout.reconcile([
-            HomeSectionPref(id: MadeForYouSectionContract.rawId, enabled: true),
+            HomeSectionPref(id: HomeSection.madeForYou.id, enabled: true),
             HomeSectionPref(id: "activities", enabled: true)
         ])
-        XCTAssertEqual(layout.retained.map(\.id), ["made_for_you"])
+        XCTAssertEqual(layout.sections.first?.section, .madeForYou)
+        XCTAssertTrue(layout.retained.isEmpty)
     }
 }
 

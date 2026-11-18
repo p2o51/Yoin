@@ -71,6 +71,7 @@ extension LibraryStore {
               hits.query == request.query, searchMore(kind) == .available || searchMore(kind) == .failed else { return }
         let gen = generation
         searchPaging[kind] = .loading
+        setFailureReport("searchMore:\(kind.rawValue)", error: nil)
         func current() -> Bool { gen == generation && searchRequest == request && search?.query == request.query }
         do {
             let page = try await spotify.search(request.query, kinds: [kind], offset: hits.offsets[kind] ?? 0)
@@ -85,10 +86,12 @@ extension LibraryStore {
             if page.more.contains(kind) { shown.more.insert(kind) } else { shown.more.remove(kind) }
             search = shown
             searchPaging[kind] = nil
+            setFailureReport("searchMore:\(kind.rawValue)", error: nil)
         } catch {
             guard current() else { return }
             // The rows stay; the foot's retry reads the same page again.
             searchPaging[kind] = .failed
+            setFailureReport("searchMore:\(kind.rawValue)", error: error)
         }
     }
 }

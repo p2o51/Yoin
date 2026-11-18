@@ -102,6 +102,7 @@ struct RootView: View {
         .overlay { AccountSwitcherLayer().environment(model).font(.gsf(17)) }
         .background(GlassLabGestureInstaller())
         .background(SlowMotionInstaller())
+        .background(LyricsPrefetchHost(model: model))
         // The first-run landing / Welcome guide: above the shell (bar included), like Android's
         // LandingHost. Mounted and removed without a transition; it fades itself in and out.
         .overlay {
@@ -133,6 +134,62 @@ struct RootView: View {
         }
         #endif
         #endif
+    }
+}
+
+/// Lyrics ahead of Now Playing, open or closed (`np-gaps-1116 #3`, shell-scoped prefetch):
+/// fetches the playing song's lyrics at once (and retries on play resume / backoff), plus the
+/// next song's lyrics (Yoin queue or Spotify's `me/player/queue`) with 15 s / 30 s retry backoff.
+private struct LyricsPrefetchHost: View {
+    let model: AppModel
+
+    private struct CurrentKey: Equatable {
+        var trackKey: String?
+        var hasApple: Bool
+        var hasSpotify: Bool
+        var hasSubsonic: Bool
+    }
+
+    private var currentKey: CurrentKey {
+        CurrentKey(
+            trackKey: model.player.currentTrack.map(NowPlayingData.key),
+            hasApple: model.store.apple != nil,
+            hasSpotify: model.store.spotify != nil,
+            hasSubsonic: model.session.client != nil
+        )
+    }
+
+    var body: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: currentKey) {
+                guard let t = model.player.currentTrack else { return }
+                #if DEBUG
+                // `-lyricsCreditsDemo`: `prepare()` puts the demo lyrics in an empty slot; leave it empty.
+                if UserDefaults.standard.bool(forKey: "lyricsCreditsDemo") { return }
+                #endif
+                await NowPlayingData.shared.prefetchWithRetry(
+                    t, client: model.session.client, apple: model.store.apple, spotify: model.store.spotify
+                )
+            }
+            .onChange(of: model.player.isPlaying) { _, playing in
+                guard playing, let t = model.player.currentTrack else { return }
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: "lyricsCreditsDemo") { return }
+                #endif
+                Task {
+                    await NowPlayingData.shared.retryPendingIfNeeded(
+                        t, client: model.session.client, apple: model.store.apple, spotify: model.store.spotify
+                    )
+                }
+            }
+            .task(id: NowPlayingData.nextPrefetchKey(model)) {
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: "lyricsCreditsDemo") { return }
+                #endif
+                await NowPlayingData.shared.prefetchNext(model: model)
+            }
     }
 }
 

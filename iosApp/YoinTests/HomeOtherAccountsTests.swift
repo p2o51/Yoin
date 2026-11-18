@@ -30,8 +30,10 @@ final class HomeOtherAccountsTests: XCTestCase {
         XCTAssertTrue(saved.shownSections.contains(.memoryGrid))
         XCTAssertTrue(saved.shownSections.contains(.lyricHighlight))
         XCTAssertTrue(saved.shownSections.contains(.otherProfiles))
+        XCTAssertTrue(saved.shownSections.contains(.madeForYou))
         XCTAssertEqual(HomeSection.memoryGrid.id, "memory_grid")
         XCTAssertEqual(HomeSection.lyricHighlight.id, "lyric_highlight")
+        XCTAssertEqual(HomeSection.madeForYou.id, "made_for_you")
         XCTAssertTrue(HomeSection.allCases.allSatisfy(\.supportedOnIOS))
     }
 }

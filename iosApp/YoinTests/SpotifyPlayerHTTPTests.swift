@@ -98,7 +98,7 @@ final class SpotifyPlayerHTTPTests: XCTestCase {
         }
         let now = try await source().playerNow()
         let r = try XCTUnwrap(PlayerStub.requests.first)
-        XCTAssertEqual(r.url.query, "additional_types=track,episode")
+        XCTAssertEqual(r.url.query, "additional_types=track,episode&market=from_token")
         XCTAssertEqual(now?.trackURI, "spotify:episode:ep99")
         XCTAssertEqual(now?.trackName, "Episode 99")
         XCTAssertEqual(now?.artistName, "Studio 51")

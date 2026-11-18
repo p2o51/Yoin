@@ -53,15 +53,15 @@ final class LandingHomeStepTests: XCTestCase {
         let layout = LandingHomeLayout.move(.default, from: 0, to: 2)
         XCTAssertEqual(LandingHomeLayout.rows(layout).map(\.section),
                        [.jumpBackIn, .recentlyAdded, .activities, .rediscover, .recentlyPlayed, .yourPlaylists,
-                        .otherProfiles, .lyricHighlight, .memoryGrid])
+                        .otherProfiles, .lyricHighlight, .memoryGrid, .madeForYou])
         XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: 0), .default)
-        XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: 9), .default)
+        XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: HomeSection.allCases.count), .default)
     }
 
     func test_should_keepUnlistedSectionsInTheirSlots_when_reordering() {
         // Every section is listed on iOS now: the rest keep their order around the moved one.
         let layout = LandingHomeLayout.move(.default, from: 5, to: 0)
-        XCTAssertEqual(layout.sections.last?.section, .memoryGrid)
+        XCTAssertEqual(layout.sections.last?.section, .madeForYou)
         XCTAssertEqual(layout.sections.first?.section, .yourPlaylists)
     }
 

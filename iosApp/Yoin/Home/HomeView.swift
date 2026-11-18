@@ -128,6 +128,8 @@ struct HomeView: View {
             await model.store.loadHome()
             // Your Playlists reads the library's list (the Library tab's own load, once per account).
             await model.store.loadPlaylists()
+            await model.store.loadMadeForYou()
+            await loadSpotifyMadeForYou()
             // The albums memories need (the pill, the marks, the deck), after a relaunch or a sync.
             await model.store.hydrateMemoryAlbums()
             // The ledger names songs from the album pages just loaded.
@@ -140,6 +142,9 @@ struct HomeView: View {
             edit.load(scope: model.store.homeScope)
             // ⌘[ ends edit mode (ShellBackOrder.exitHomeEdit).
             model.homeEdit = edit
+            if model.store.madeForYou.isEmpty {
+                Task { await loadSpotifyMadeForYou() }
+            }
         }
         // One look each time the app opens or comes back; none outlives leaving or a switch.
         .task { spotifyElsewhere.look(model) }
@@ -148,7 +153,10 @@ struct HomeView: View {
             // Lyric Cards pick only while Yoin is in front (Android: the process lifecycle).
             if phase == .active { LyricHighlightProcessor.shared.appBecameActive(model) }
             else { LyricHighlightProcessor.shared.appResignedActive() }
-            if phase == .active { MemoryLedgerSource.shared.reload(model: model) }
+            if phase == .active {
+                MemoryLedgerSource.shared.reload(model: model)
+                Task { await loadSpotifyMadeForYou() }
+            }
         }
         // The memory ledger: read when Home shows, after an account change, and when Memories closes.
         .task(id: model.profiles.activeId) {
@@ -301,7 +309,11 @@ struct HomeView: View {
             model.barScrollHide.handleScrollPhaseChange(oldPhase: oldPhase, newPhase: newPhase)
         }
         .refreshable {
-            if model.store.isReal { await model.store.loadHome(force: true) }
+            if model.store.isReal {
+                await model.store.loadHome(force: true)
+                await model.store.loadMadeForYou(force: true)
+                await loadSpotifyMadeForYou()
+            }
         }
         .onAppear { model.barScrollHide.show() }
         // Home comes back at its top (Library in between makes a new feed), so its band starts out.
@@ -332,7 +344,17 @@ struct HomeView: View {
         // The intro shows until it's answered, on a device that could run the model.
         case .lyricHighlight: !lyricCards.isEmpty || (!LyricHighlightStore.shared.introSeen && !LyricHighlightStore.shared.optedIn)
         case .otherProfiles: !otherAccounts.isEmpty
+        case .madeForYou: !model.store.madeForYou.isEmpty
         default: feed.hasContent(s)
+        }
+    }
+
+    private func loadSpotifyMadeForYou() async {
+        guard model.store.spotify != nil, !Platform.current.isMac, SpotifyRemote.shared.isConnected else { return }
+        let containers = await SpotifyRemote.shared.fetchMadeForYouContainers()
+        let items = SpotifySource.madeForYouItems(from: containers)
+        if !items.isEmpty {
+            model.store.setSpotifyMadeForYou(items)
         }
     }
 
@@ -373,6 +395,7 @@ struct HomeView: View {
             case .lyricHighlight: HomeLyricCardsSection(cards: Array(lyricCards.prefix(edit.rowsOf(.lyricHighlight).lyricCards)))
             case .memoryGrid:
                 if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state) }
+            case .madeForYou: madeForYou(model.store.madeForYou)
             }
         }
     }
@@ -380,13 +403,14 @@ struct HomeView: View {
     /// A strip's covers: the section's first few.
     private func covers(_ s: HomeSection, _ feed: HomeFeed) -> [CoverPalette] {
         if s == .yourPlaylists { return Array(feed.playlists.prefix(3).map(\.palette)) }
+        if s == .madeForYou { return Array(model.store.madeForYou.prefix(3).map(\.palette)) }
         let albums: [Album] = switch s {
         case .activities: feed.activities.map(\.album)
         case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn.compactMap(\.album)
         case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
         case .rediscover: feed.rediscover.map(\.album)
         case .recentlyPlayed: feed.recentlyPlayed
-        case .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid: []
+        case .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid, .madeForYou: []
         }
         if s == .otherProfiles { return Array(otherAccounts.prefix(3).map(\.palette)) }
         return Array(albums.prefix(3).map(\.palette))
@@ -834,6 +858,13 @@ struct HomeView: View {
     private func yourPlaylists(_ playlists: [LibraryItem]) -> some View {
         shelf(HomeSection.yourPlaylists.title) {
             ForEach(playlists) { PlaylistMini(item: $0) }
+        }
+    }
+
+    /// Personalized mixes made by Spotify (App Remote) or Apple Music (`/v1/me/recommendations`).
+    private func madeForYou(_ items: [LibraryItem]) -> some View {
+        shelf(HomeSection.madeForYou.title) {
+            ForEach(items) { PlaylistMini(item: $0) }
         }
     }
 
@@ -1604,6 +1635,10 @@ private struct PlaylistMini: View {
                         Text(n == 1 ? String(localized: "1 song") : String(localized: "\(n) songs"))
                             .homeType(Tokens.type.labelSmall)
                             .foregroundStyle(s.onSurfaceVariant)
+                    } else if !item.subtitle.isEmpty {
+                        Text(item.subtitle)
+                            .homeType(Tokens.type.labelSmall)
+                            .foregroundStyle(s.onSurfaceVariant)
                     }
                 }
                 .lineLimit(1)
@@ -1852,7 +1887,7 @@ extension HomeFeed {
         case .recentlyPlayed: !recentlyPlayed.isEmpty
         case .yourPlaylists: !playlists.isEmpty
         // Read from their own stores (HomeView.hasContent).
-        case .otherProfiles, .lyricHighlight, .memoryGrid: false
+        case .otherProfiles, .lyricHighlight, .memoryGrid, .madeForYou: false
         }
     }
 }

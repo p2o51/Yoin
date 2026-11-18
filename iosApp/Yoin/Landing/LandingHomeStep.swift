@@ -210,6 +210,11 @@ private struct SectionGlyph: View {
                 box(8, 13, 17, 2.4, 0.9, 1.2); box(8, 18, 12, 2.4, 0.9, 1.2)
             case .memoryGrid:
                 for c in 0..<5 { for r in 0..<3 { box(4 + CGFloat(c) * 5.6, 9 + CGFloat(r) * 5.6, 4.4, 4.4, (c + r) % 3 == 0 ? 0.9 : 0.3, 1) } }
+            case .madeForYou:
+                for c in 0..<3 {
+                    box(3 + CGFloat(c) * 10.5, 10, 9, 9, 0.9 - Double(c) * 0.22, 2.5)
+                    box(3 + CGFloat(c) * 10.5, 21.5, 7.5, 2.2, 0.45, 1.1)
+                }
             }
         }
         .accessibilityHidden(true)

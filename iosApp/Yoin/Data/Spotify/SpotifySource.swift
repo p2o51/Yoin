@@ -287,8 +287,8 @@ final class SpotifySource {
                 if let fetchTrackForLanguage {
                     t = try await fetchTrackForLanguage(trackId, language)
                 } else {
-                    // Stage 2: pass headers: ["Accept-Language": language] once SpotifyWebAPI exposes headers.
-                    t = try await api.get("tracks/\(trackId)", ["market": "from_token"], as: SpotifyDTO.Track.self)
+                    t = try await api.get("tracks/\(trackId)", ["market": "from_token"],
+                                          headers: ["Accept-Language": language], as: SpotifyDTO.Track.self)
                 }
                 sawSuccess = true
                 if let code = SpotifyMapping.normalizedIsrc(t.externalIds?.isrc) {
@@ -861,6 +861,88 @@ final class SpotifySource {
     func unsave(_ rawId: String) async throws {
         try await api.send("DELETE", "me/library", ["uris": "spotify:track:\(rawId)"])
         noteSaved(rawId, false)
+    }
+
+    /// Maps App Remote recommended containers into Home "Made For You" playlist cards (`forHomeShelf` order).
+    nonisolated static func madeForYouItems(from containers: [SpotifyContentContainer]) -> [LibraryItem] {
+        let playlistPrefix = "spotify:playlist:"
+        let hubContainers = containers.filter { c in
+            c.uri.contains("0JQ5DAt0tbjZptfcdMSKl3")
+                || c.title.localizedCaseInsensitiveContains("made for you")
+                || c.title.contains("为你推荐")
+        }
+        let sourceItems = hubContainers.isEmpty
+            ? containers.flatMap(\.items).filter { item in
+                guard item.uri.hasPrefix(playlistPrefix) else { return false }
+                return isSpotifyMade(String(item.uri.dropFirst(playlistPrefix.count)))
+            }
+            : hubContainers.flatMap(\.items)
+
+        var seen = Set<String>()
+        struct Candidate {
+            var rawId: String
+            var title: String
+            var subtitle: String
+            var imageId: String?
+            var bucket: Int
+        }
+        var candidates: [Candidate] = []
+        let orderPrefixes = ["F1EP", "EVXc", "EVXb", "F1Ep", "F1E3", "F1EJ"]
+        for item in sourceItems {
+            guard item.uri.hasPrefix(playlistPrefix) else { continue }
+            let rawId = String(item.uri.dropFirst(playlistPrefix.count))
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawId.isEmpty, !title.isEmpty, seen.insert(rawId).inserted else { continue }
+            let rest = isSpotifyMade(rawId) ? String(rawId.dropFirst("37i9dQZ".count)) : ""
+            let bucket = orderPrefixes.firstIndex(where: { rest.hasPrefix($0) }) ?? orderPrefixes.count
+            candidates.append(Candidate(rawId: rawId, title: title,
+                                        subtitle: item.subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
+                                        imageId: item.imageIdentifier, bucket: bucket))
+        }
+        let primary = candidates.filter { $0.bucket < orderPrefixes.count }.sorted { $0.bucket < $1.bucket }
+        let chosen = primary.isEmpty ? candidates : primary
+        return chosen.map { c in
+            let coverURL: URL? = c.imageId.flatMap { id in
+                if let resolved = SpotifyAudioOutput.coverURL(imageIdentifier: id) { return resolved }
+                if id.hasPrefix("https://") || id.hasPrefix("http://") { return URL(string: id) }
+                return nil
+            }
+            let ref = coverURL.map(CoverRef.init(url:))
+            let (a, b, col) = SubsonicMapping.placeholder(ref?.key ?? c.rawId)
+            let palette = CoverPalette(a: a, b: b, c: col, cover: ref)
+            let rest = isSpotifyMade(c.rawId) ? String(c.rawId.dropFirst("37i9dQZ".count)) : ""
+            let sub: String
+            if rest.hasPrefix("F1EP") {
+                sub = "daylist"
+            } else if (rest.hasPrefix("F1E3") || rest.hasPrefix("F1EJ") || rest.hasPrefix("F1EQ")
+                        || rest.hasPrefix("F1EV") || rest.hasPrefix("F1EI")), !c.subtitle.isEmpty {
+                sub = c.subtitle
+            } else {
+                sub = "Spotify"
+            }
+            return LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: c.rawId),
+                               kind: .playlist, title: c.title, subtitle: sub,
+                               palette: palette, ownedByMe: false)
+        }
+    }
+}
+
+extension SpotifySource.QueueEntry {
+    /// The song's track id (its URI's last part), as `SpotifyAudioOutput.externalTrack` names it.
+    var trackId: String? {
+        let prefix = "spotify:track:"
+        guard uri.hasPrefix(prefix) else { return nil }
+        let id = String(uri.dropFirst(prefix.count))
+        return id.isEmpty ? nil : id
+    }
+
+    /// This song as the engine will show it when Spotify gets there: same provider and id, so lyrics
+    /// fetched for it are the ones Now Playing finds (`spotify:<id>`).
+    var playable: PlayableTrack? {
+        guard let id = trackId else { return nil }
+        return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: title, artist: artist, album: "",
+                             albumId: nil, durationSec: Double(durationMs ?? 0) / 1000,
+                             streamURL: SpotifyAudioOutput.streamURL(trackId: id), coverURL: coverURL)
     }
 }
 

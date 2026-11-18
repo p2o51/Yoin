@@ -60,18 +60,81 @@ final class NowPlayingData {
     /// queue entry elsewhere). `AboutState` (NowPlayingAbout.swift) adds Gemini.
     private(set) var about: [String: AboutState] = [:]
 
+    struct Dependencies {
+        var autoFetch: @MainActor (_ title: String, _ artist: String, _ durationMs: Int64?) async throws -> LyricsResult?
+        var musicBrainzNames: @Sendable (_ isrc: String, _ durationMs: Int64?) async throws -> [(title: String, artist: String)]
+        var aiHasKey: @MainActor () -> Bool
+        var aiResolveReleaseNames: @Sendable (
+            _ title: String, _ artist: String, _ album: String?, _ isrc: String?, _ durationMs: Int64?,
+            _ otherNames: [(title: String, artist: String)]
+        ) async throws -> (title: String, artist: String)?
+        var acceptLanguages: @Sendable (_ isrc: String?) -> [String]
+    }
+
+    private struct NamePair: Hashable {
+        var title: String
+        var artist: String
+    }
+
+    private struct NonAiFallbackMeta {
+        var isrc: String?
+        var nonLatinShown: Bool
+        var otherNames: [(title: String, artist: String)]
+    }
+
     @ObservationIgnored private let ratings: LocalRatings
     @ObservationIgnored private let outbox: RatingOutbox
-    @ObservationIgnored private var lyricsRetry: Set<String> = []
+    @ObservationIgnored private let userStore: LyricsUserStore
+    @ObservationIgnored private let deps: Dependencies
+    @ObservationIgnored private(set) var lyricsRetry: Set<String> = []
     @ObservationIgnored private var infoRequested: Set<String> = []
+    @ObservationIgnored private var inFlightProviderLoads: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var activeSongUpgradeRequested: Set<String> = []
+    @ObservationIgnored private var nonAiExhausted: [String: NonAiFallbackMeta] = [:]
+    @ObservationIgnored private var aiAttempted: Set<String> = []
+    @ObservationIgnored private var releaseNamesCache: [String: NamePair?] = [:]
     /// Bumps when the Subsonic account changes: a song id is the server's own, so what was loaded for
     /// another account's song with the same id goes, and loads begun before land nowhere (Codex #9).
     @ObservationIgnored private var accountGeneration = 0
 
-    init(ratings: LocalRatings? = nil, hearts: FavoritesStore? = nil, outbox: RatingOutbox? = nil) {
+    init(
+        ratings: LocalRatings? = nil,
+        hearts: FavoritesStore? = nil,
+        outbox: RatingOutbox? = nil,
+        userStore: LyricsUserStore? = nil,
+        dependencies: Dependencies? = nil
+    ) {
         self.ratings = ratings ?? .shared
         self.outbox = outbox ?? .shared
         self.hearts = hearts ?? .shared
+        self.userStore = userStore ?? .shared
+        let registry = self.registry
+        self.deps = dependencies ?? Dependencies(
+            autoFetch: { title, artist, durationMs in
+                try await registry.autoFetch(
+                    title: title,
+                    artist: artist,
+                    durationMs: durationMs.map { KotlinLong(value: $0) }
+                )
+            },
+            musicBrainzNames: { isrc, durationMs in
+                try await MusicBrainzIsrcClient.shared.names(isrc: isrc, durationMs: durationMs)
+            },
+            aiHasKey: { GeminiSettings.shared.hasKey },
+            aiResolveReleaseNames: { title, artist, album, isrc, durationMs, otherNames in
+                try await GeminiClient().resolveReleaseNames(
+                    title: title,
+                    artist: artist,
+                    album: album,
+                    isrc: isrc,
+                    durationMs: durationMs,
+                    otherNames: otherNames
+                )
+            },
+            acceptLanguages: { isrc in
+                SpotifyNameLanguages.acceptLanguages(isrc: isrc)
+            }
+        )
     }
 
     static func key(_ t: PlayableTrack) -> String { LocalRatings.key(provider: t.provider, songId: t.id) }
@@ -79,6 +142,12 @@ final class NowPlayingData {
     /// Another Subsonic account (AccountScope): everything per song starts again.
     func accountChanged() {
         accountGeneration += 1
+        inFlightProviderLoads.values.forEach { $0.cancel() }
+        inFlightProviderLoads = [:]
+        activeSongUpgradeRequested = []
+        nonAiExhausted = [:]
+        aiAttempted = []
+        releaseNamesCache = [:]
         lyrics = [:]
         lyricsSource = [:]
         serverRating = [:]
@@ -91,7 +160,8 @@ final class NowPlayingData {
     // MARK: Loading
 
     /// Fetches what this song needs and hasn't got yet.
-    func prepare(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) async {
+    func prepare(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil,
+                 spotify: SpotifySource? = nil) async {
         let k = Self.key(t)
         if let s = t.starred { hearts.report(s, provider: t.provider, songId: t.id) }
         if let r = t.userRating, serverRating[k] == nil { serverRating[k] = r }
@@ -103,11 +173,11 @@ final class NowPlayingData {
         }
         #endif
         // Lyrics the user chose (search / editor) win over every provider's.
-        if lyrics[k] == nil, let lrc = LyricsUserStore.shared.chosen(k) {
+        if lyrics[k] == nil, let lrc = userStore.chosen(k) {
             let parsed = LrcParser.shared.parse(raw: lrc)
             if !parsed.lines.isEmpty {
                 lyrics[k] = .lines(LoadedLyrics(parsed))
-                lyricsSource[k] = LyricsUserStore.shared.chosenSource(k)
+                lyricsSource[k] = userStore.chosenSource(k)
             }
         }
         if t.provider == AppleMusicMapping.provider {
@@ -126,7 +196,7 @@ final class NowPlayingData {
                     infoRequested.remove(k)
                 }
             }
-            await loadProviderLyrics(t, k)
+            await loadProviderLyrics(t, k, apple: apple, spotify: spotify, forActiveSong: true)
             return
         }
         if t.provider == SpotifyMapping.provider {
@@ -138,7 +208,7 @@ final class NowPlayingData {
             // Spotify has no lyrics to read (the providers find them); the heart is Liked Songs, asked
             // fresh on every song and rechecked after (SpotifyHeartRefresh).
             SpotifyHeartRefresh.shared.observe(t)
-            await loadProviderLyrics(t, k)
+            await loadProviderLyrics(t, k, apple: apple, spotify: spotify, forActiveSong: true)
             return
         }
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
@@ -149,14 +219,46 @@ final class NowPlayingData {
         await loadInfo(t, k, client)
     }
 
-    /// Android `getLoadedLyrics` past the server: a fresh cached hit, else
-    /// QQ → NetEase → LRCLIB by title, artist and length; the hit is kept 30 days.
-    private func loadProviderLyrics(_ t: PlayableTrack, _ k: String) async {
-        guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
+    /// True when [text] contains any Unicode letter outside the Latin script (matching Android/shared).
+    nonisolated static func hasNonLatinLetter(_ text: String) -> Bool {
+        text.range(of: #"[\p{L}&&[^\p{Latin}]]"#, options: .regularExpression) != nil
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as NSError).kotlinException is KotlinCancellationException
+    }
+
+    /// Android `getLoadedLyrics` + PR #226 localized-name fallback chain:
+    /// 1. `shown` (`autoFetch`)
+    /// 2. Apple Music `alternateNames` (when shown carries non-Latin letters)
+    /// 3. Spotify `nativeNames` (`Accept-Language` list from `SpotifyNameLanguages`)
+    /// 4. MusicBrainz ISRC recordings (`MusicBrainzIsrcClient`)
+    /// 5. Online AI `resolveReleaseNames` (only when `forActiveSong == true` and AI is configured)
+    private func loadProviderLyrics(
+        _ t: PlayableTrack,
+        _ k: String,
+        apple: AppleMusicSource? = nil,
+        spotify: SpotifySource? = nil,
+        forActiveSong: Bool = true
+    ) async {
+        if forActiveSong { activeSongUpgradeRequested.insert(k) }
+        if let existing = inFlightProviderLoads[k] {
+            await existing.value
+            if !forActiveSong { return }
+        }
+        let allowAiOnlyRetry = forActiveSong
+            && lyrics[k] == LyricsState.none
+            && !lyricsRetry.contains(k)
+            && !aiAttempted.contains(k)
+            && nonAiExhausted[k] != nil
+            && deps.aiHasKey()
+        guard lyrics[k] == nil || lyricsRetry.contains(k) || allowAiOnlyRetry else { return }
         // A retry after a failure starts from `.none`: back to loading, or
         // its answer would be thrown away below (Codex review #17).
         if lyricsRetry.remove(k) != nil, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
-        if let a = LyricsUserStore.shared.auto(k) {
+        if allowAiOnlyRetry, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
+        if let a = userStore.auto(k) {
             let parsed = LrcParser.shared.parse(raw: a.lrc)
             if !parsed.lines.isEmpty {
                 lyrics[k] = .lines(LoadedLyrics(parsed))
@@ -166,23 +268,195 @@ final class NowPlayingData {
         }
         if lyrics[k] == nil { lyrics[k] = .loading }
         let gen = accountGeneration
-        do {
-            let ms = t.durationSec > 0 ? KotlinLong(value: Int64(t.durationSec * 1000)) : nil
-            let hit = try await registry.autoFetch(title: t.title, artist: t.artist, durationMs: ms)
-            guard gen == accountGeneration, lyrics[k] == .loading || lyrics[k] == nil else { return }
-            if let hit, !hit.lyrics.lines.isEmpty {
-                let source = LyricsSource(provider: hit.providerName, songId: hit.providerSongId)
-                LyricsUserStore.shared.saveAuto(hit.lrc, source: source, for: k)
-                lyrics[k] = .lines(LoadedLyrics(hit.lyrics))
-                lyricsSource[k] = source
-            } else {
-                lyrics[k] = LyricsState.none
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.inFlightProviderLoads.removeValue(forKey: k)
+                self.activeSongUpgradeRequested.remove(k)
             }
-        } catch {
-            guard gen == accountGeneration else { return }
-            lyrics[k] = LyricsState.none
-            lyricsRetry.insert(k)
+            do {
+                let hit = try await self.resolveProviderLyrics(
+                    t, key: k, apple: apple, spotify: spotify,
+                    forActiveSong: forActiveSong, aiOnlyMeta: allowAiOnlyRetry ? self.nonAiExhausted[k] : nil
+                )
+                guard gen == self.accountGeneration,
+                      self.lyrics[k] == .loading || self.lyrics[k] == nil else { return }
+                if let hit, !hit.lyrics.lines.isEmpty {
+                    let source = LyricsSource(provider: hit.providerName, songId: hit.providerSongId)
+                    self.userStore.saveAuto(hit.lrc, source: source, for: k)
+                    self.lyrics[k] = .lines(LoadedLyrics(hit.lyrics))
+                    self.lyricsSource[k] = source
+                    self.nonAiExhausted.removeValue(forKey: k)
+                } else {
+                    self.lyrics[k] = LyricsState.none
+                }
+            } catch {
+                if Self.isCancellation(error) || Task.isCancelled {
+                    if gen == self.accountGeneration, self.lyrics[k] == .loading {
+                        self.lyrics[k] = nil
+                    }
+                    return
+                }
+                guard gen == self.accountGeneration else { return }
+                self.lyrics[k] = LyricsState.none
+                self.lyricsRetry.insert(k)
+            }
         }
+        inFlightProviderLoads[k] = task
+        await task.value
+    }
+
+    private func resolveProviderLyrics(
+        _ t: PlayableTrack,
+        key k: String,
+        apple: AppleMusicSource?,
+        spotify: SpotifySource?,
+        forActiveSong: Bool,
+        aiOnlyMeta: NonAiFallbackMeta?
+    ) async throws -> LyricsResult? {
+        let ms: Int64? = t.durationSec > 0 ? Int64(t.durationSec * 1000) : nil
+        let shownTitle = t.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shownArtist = t.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        var tried = Set<NamePair>()
+        var otherNames: [(title: String, artist: String)] = []
+        var seenOther = Set<NamePair>()
+        var transientFailure: Error?
+
+        func recordOther(_ title: String, _ artist: String) {
+            let pair = NamePair(title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                artist: artist.trimmingCharacters(in: .whitespacesAndNewlines))
+            guard !pair.title.isEmpty, !pair.artist.isEmpty,
+                  pair != NamePair(title: shownTitle, artist: shownArtist),
+                  seenOther.insert(pair).inserted else { return }
+            otherNames.append((pair.title, pair.artist))
+        }
+
+        func tryFetch(_ title: String, _ artist: String) async throws -> LyricsResult? {
+            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanTitle.isEmpty, !cleanArtist.isEmpty else { return nil }
+            let pair = NamePair(title: cleanTitle, artist: cleanArtist)
+            guard tried.insert(pair).inserted else { return nil }
+            do {
+                if let result = try await deps.autoFetch(cleanTitle, cleanArtist, ms),
+                   !result.lyrics.lines.isEmpty {
+                    return result
+                }
+                return nil
+            } catch {
+                if Self.isCancellation(error) || Task.isCancelled { throw CancellationError() }
+                transientFailure = transientFailure ?? error
+                return nil
+            }
+        }
+
+        let isrc: String?
+        let nonLatinShown: Bool
+
+        if let aiOnlyMeta {
+            isrc = aiOnlyMeta.isrc
+            nonLatinShown = aiOnlyMeta.nonLatinShown
+            otherNames = aiOnlyMeta.otherNames
+            tried.insert(NamePair(title: shownTitle, artist: shownArtist))
+            for o in otherNames {
+                tried.insert(NamePair(title: o.title, artist: o.artist))
+            }
+        } else {
+            // 1. Shown names
+            if let hit = try await tryFetch(shownTitle, shownArtist) { return hit }
+            try Task.checkCancellation()
+
+            nonLatinShown = Self.hasNonLatinLetter(shownTitle) || Self.hasNonLatinLetter(shownArtist)
+            var resolvedIsrc: String? = nil
+
+            // 2. Apple Music storefront alternate names (English names when shown carries non-Latin)
+            if t.provider == AppleMusicMapping.provider, nonLatinShown, let apple {
+                let pairs = await apple.alternateNames(trackId: t.id)
+                for p in pairs {
+                    recordOther(p.title, p.artist)
+                    if let hit = try await tryFetch(p.title, p.artist) { return hit }
+                }
+                try Task.checkCancellation()
+            }
+
+            // 3. Spotify native names (`Accept-Language` based on device language + ISRC country)
+            if t.provider == SpotifyMapping.provider, let spotify {
+                resolvedIsrc = await spotify.isrc(trackId: t.id)
+                try Task.checkCancellation()
+                let langs = deps.acceptLanguages(resolvedIsrc)
+                let native = await spotify.nativeNames(trackId: t.id, acceptLanguages: langs)
+                for p in native {
+                    recordOther(p.title, p.artist)
+                    if let hit = try await tryFetch(p.title, p.artist) { return hit }
+                }
+                try Task.checkCancellation()
+            }
+
+            // 4. MusicBrainz ISRC recordings
+            if resolvedIsrc == nil {
+                if t.provider == SpotifyMapping.provider {
+                    resolvedIsrc = await spotify?.isrc(trackId: t.id)
+                } else if t.provider == AppleMusicMapping.provider {
+                    resolvedIsrc = await apple?.isrc(trackId: t.id)
+                }
+                try Task.checkCancellation()
+            }
+            if let code = resolvedIsrc, !code.isEmpty {
+                do {
+                    let mbNames = try await deps.musicBrainzNames(code, ms)
+                    for p in mbNames {
+                        recordOther(p.title, p.artist)
+                        if let hit = try await tryFetch(p.title, p.artist) { return hit }
+                    }
+                } catch {
+                    if Self.isCancellation(error) || Task.isCancelled { throw CancellationError() }
+                    transientFailure = transientFailure ?? error
+                }
+                try Task.checkCancellation()
+            }
+            isrc = resolvedIsrc
+        }
+
+        // 5. Online AI release-names lookup (active song only; AI failures must not fail lyrics)
+        let allowAi = forActiveSong || activeSongUpgradeRequested.contains(k)
+        if allowAi, deps.aiHasKey(), (isrc != nil || nonLatinShown || !otherNames.isEmpty) {
+            let aiPair: NamePair?
+            if let cached = releaseNamesCache[k] {
+                aiPair = cached
+            } else {
+                do {
+                    let album = t.album.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let resolved = try await deps.aiResolveReleaseNames(
+                        t.title,
+                        t.artist,
+                        album.isEmpty ? nil : album,
+                        isrc,
+                        ms,
+                        otherNames
+                    )
+                    let mapped = resolved.map { NamePair(title: $0.title, artist: $0.artist) }
+                    if releaseNamesCache.count >= 64, let drop = releaseNamesCache.keys.first {
+                        releaseNamesCache.removeValue(forKey: drop)
+                    }
+                    releaseNamesCache[k] = mapped
+                    aiAttempted.insert(k)
+                    aiPair = mapped
+                } catch {
+                    if Self.isCancellation(error) || Task.isCancelled { throw CancellationError() }
+                    aiPair = nil
+                }
+            }
+            if let aiPair, let hit = try await tryFetch(aiPair.title, aiPair.artist) {
+                return hit
+            }
+        } else if !allowAi, transientFailure == nil {
+            nonAiExhausted[k] = NonAiFallbackMeta(isrc: isrc, nonLatinShown: nonLatinShown, otherNames: otherNames)
+        }
+
+        if let transientFailure {
+            throw transientFailure
+        }
+        return nil
     }
 
     private func loadLyrics(_ t: PlayableTrack, _ k: String, _ client: SubsonicClient) async {
@@ -202,6 +476,10 @@ final class NowPlayingData {
                 lyrics[k] = LyricsState.none
             }
         } catch {
+            if Self.isCancellation(error) || Task.isCancelled {
+                if gen == accountGeneration, lyrics[k] == .loading { lyrics[k] = nil }
+                return
+            }
             guard gen == accountGeneration else { return }
             // Offline / server error: show none for now, ask again next time.
             lyrics[k] = LyricsState.none
@@ -258,23 +536,73 @@ final class NowPlayingData {
     /// The next song's lyrics ahead of its turn (Android prefetches during the
     /// outro): its title card and first line can rise under this song's end,
     /// and they are there the moment it starts.
-    func prefetchLyrics(_ t: PlayableTrack, client: SubsonicClient?) async {
+    func prefetchLyrics(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil,
+                        spotify: SpotifySource? = nil) async {
         let k = Self.key(t)
-        guard lyrics[k] == nil else { return }
-        if let lrc = LyricsUserStore.shared.chosen(k) {
+        guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
+        if lyrics[k] == nil, let lrc = userStore.chosen(k) {
             let parsed = LrcParser.shared.parse(raw: lrc)
             if !parsed.lines.isEmpty {
                 lyrics[k] = .lines(LoadedLyrics(parsed))
-                lyricsSource[k] = LyricsUserStore.shared.chosenSource(k)
+                lyricsSource[k] = userStore.chosenSource(k)
+                lyricsRetry.remove(k)
                 return
             }
         }
         // Spotify's lyrics come from the providers too (Codex N24): the next song's are ready for the outro.
         if SpotifyEpisodes.isEpisode(t) { return }
         if t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
-            await loadProviderLyrics(t, k)
+            await loadProviderLyrics(t, k, apple: apple, spotify: spotify, forActiveSong: false)
         } else if let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC {
             await loadLyrics(t, k, client)
+        }
+    }
+
+    /// Retries a track currently marked in `lyricsRetry` (e.g., when playback resumes).
+    func retryPendingIfNeeded(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil,
+                              spotify: SpotifySource? = nil) async {
+        let k = Self.key(t)
+        guard lyricsRetry.contains(k), lyrics[k] != .loading else { return }
+        await prefetchLyrics(t, client: client, apple: apple, spotify: spotify)
+    }
+
+    /// Key for root `LyricsPrefetchHost` next-song preload: queue's next song, or Spotify's own queue.
+    static func nextPrefetchKey(_ model: AppModel) -> String? {
+        if let next = model.player.upNextTrack { return key(next) }
+        guard let own = model.player.externalTrack, own.provider == SpotifyMapping.provider else { return nil }
+        let active = model.store.spotify != nil ? 1 : 0
+        return "after:\(key(own))|\(model.spotifyQueueRevision)|\(active)"
+    }
+
+    /// Prefetches the next song's lyrics at shell scope (2 s settle + Spotify `me/player/queue` fallback).
+    func prefetchNext(model: AppModel) async {
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled else { return }
+        if let next = model.player.upNextTrack {
+            await prefetchWithRetry(next, client: model.session.client, apple: model.store.apple,
+                                    spotify: model.store.spotify)
+            return
+        }
+        guard let own = model.player.externalTrack, own.provider == SpotifyMapping.provider,
+              !SpotifyEpisodes.isEpisode(own), let spotify = model.store.spotify,
+              let entries = try? await spotify.playerQueue(), !Task.isCancelled else { return }
+        // A read taken a beat before Spotify moved on still lists this song first: what follows it is next.
+        guard let next = entries.drop(while: { $0.trackId == own.id }).first?.playable else { return }
+        await prefetchWithRetry(next, client: nil, apple: nil, spotify: spotify)
+    }
+
+    /// Runs `prefetchLyrics` with `15 s` and `30 s` backoff retries while transient errors leave `lyricsRetry` set.
+    func prefetchWithRetry(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil,
+                           spotify: SpotifySource? = nil, retryDelays: [Int] = [15, 30]) async {
+        await prefetchLyrics(t, client: client, apple: apple, spotify: spotify)
+        let k = Self.key(t)
+        for wait in retryDelays {
+            guard lyricsRetry.contains(k), !Task.isCancelled else { return }
+            if wait > 0 {
+                try? await Task.sleep(for: .seconds(wait))
+            }
+            guard !Task.isCancelled, lyricsRetry.contains(k) else { return }
+            await prefetchLyrics(t, client: client, apple: apple, spotify: spotify)
         }
     }
 
@@ -296,10 +624,10 @@ final class NowPlayingData {
         let parsed = LrcParser.shared.parse(raw: lrc)
         guard !parsed.lines.isEmpty else { return }
         let k = Self.key(t)
-        if LyricsUserStore.shared.chosen(k) != nil {
-            LyricsUserStore.shared.choose(lrc, for: k, source: source)
+        if userStore.chosen(k) != nil {
+            userStore.choose(lrc, for: k, source: source)
         } else {
-            LyricsUserStore.shared.saveAuto(lrc, source: source, for: k)
+            userStore.saveAuto(lrc, source: source, for: k)
         }
         lyricsSource[k] = source
         lyrics[k] = .lines(LoadedLyrics(parsed))
@@ -309,9 +637,11 @@ final class NowPlayingData {
         let parsed = LrcParser.shared.parse(raw: lrc)
         guard !parsed.lines.isEmpty else { return false }
         let k = Self.key(t)
-        LyricsUserStore.shared.choose(lrc, for: k, source: source)
+        userStore.choose(lrc, for: k, source: source)
         lyricsSource[k] = source
         lyricsRetry.remove(k)
+        nonAiExhausted.removeValue(forKey: k)
+        aiAttempted.remove(k)
         lyrics[k] = .lines(LoadedLyrics(parsed))
         return true
     }

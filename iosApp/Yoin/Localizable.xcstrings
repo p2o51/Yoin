@@ -10807,6 +10807,56 @@
           }
         }
       }
+    },
+    "Made For You": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为你推荐"
+          }
+        }
+      }
+    },
+    "Playlists Spotify and Apple Music make for you": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 和 Apple Music 为你做的歌单"
+          }
+        }
+      }
+    },
+    "No made for you playlists yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无为你推荐的歌单"
+          }
+        }
+      }
+    },
+    "Couldn't open the album": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开专辑"
+          }
+        }
+      }
+    },
+    "Online AI API key missing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未填写在线 AI API 密钥"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

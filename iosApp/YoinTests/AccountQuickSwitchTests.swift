@@ -43,10 +43,10 @@ final class AccountQuickSwitchTests: XCTestCase {
     }
 
     func test_should_listTheQuickSwitchTip_nearTheTop_when_readingTheCatalog() {
-        // The newest tips lead; this one stays among the first few.
+        // The newest tips lead (including 0.6.5 Online AI and Cloud sync); this one stays near the top.
         let i = Tips.all.firstIndex { $0.id == "AccountQuickSwitch" }
         XCTAssertNotNil(i)
-        XCTAssertLessThan(i ?? .max, 12)
+        XCTAssertLessThan(i ?? .max, 14)
         XCTAssertEqual(i.map { Tips.all[$0].textZhHans }, "长按头像并滑动以切换账号")
     }
 

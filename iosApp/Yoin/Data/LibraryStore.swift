@@ -1717,8 +1717,10 @@ final class LibraryStore {
         return try await client.getPlaylist(id: id).map(mapping.playlist)?.entries
     }
 
-    /// The playlist's library row, for a page whose detail is still loading.
-    func playlistSummary(_ id: String) -> LibraryItem? { playlists.first { $0.id.rawId == id } }
+    /// The playlist's library or Made For You row, for a page whose detail is still loading.
+    func playlistSummary(_ id: String) -> LibraryItem? {
+        playlists.first { $0.id.rawId == id } ?? madeForYou.first { $0.id.rawId == id }
+    }
 
     /// Playlist writes (Data/PlaylistActions.swift) edit the Library rows and
     /// the cached pages in place, ahead of the server.
@@ -2395,8 +2397,10 @@ final class LibraryStore {
                 remember(entry)
                 let rawAlbum = entry.album.id.rawId
                 let validAlbum = (!rawAlbum.isEmpty && !rawAlbum.hasPrefix("song:")) ? rawAlbum : nil
-                let name = entry.track.artist ?? (entry.album.artist.isEmpty ? nil : entry.album.artist)
-                resolved = SongLinks(albumId: validAlbum, artistId: entry.album.artistId, artistName: name)
+                let credit = entry.track.credits.first { !($0.id ?? "").isEmpty }
+                let artistId = credit?.id ?? entry.album.artistId
+                let name = credit?.name ?? entry.track.artist ?? (entry.album.artist.isEmpty ? nil : entry.album.artist)
+                resolved = SongLinks(albumId: validAlbum, artistId: artistId, artistName: name)
             } else {
                 resolved = SongLinks()
             }

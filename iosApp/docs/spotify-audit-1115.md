@@ -1,5 +1,10 @@
 # Yoin iOS · Spotify 播放问题完整清单
 
+> **2026-11-18 集成更新（`feat/ios-0.6.5-parity-and-spotify`）**：在 Build 33（`437701819`，当时已闭环 45 项，见 `docs/handoff/ios-spotify-playback-audit-2026-11-18.md`）基础上，0.6.5 Stage 1 + Stage 2 代码集成已进一步合入并补齐单元测试（待 Stage 3 iPhone Air & Mac 真机复测）：
+> - **P0 关键阻断/回归**：`#2`/`#25`/`#26`（`SpotifyRemote` 结构化 `ConnectFailure` 分流、单飞 `connectWaiters` 防回跳双连竞态、`POSIX 61` 快速走 `confirmOnWeb` 不白卡 8s）；`#49`（`apply(nil)` 连续 `204` 无条件清理胶囊与旧 `target` 修复僵尸音箱回归 + `PlayerEngine.retry()` 兜底）；`#20`（`enqueueOnSpotify` 与 `AppModel.enqueue` 在 Mac / `POSIX 61` 回退 Web API `me/player/queue`）；`#16`/`#11`（`reachedSec` 边界防误抢播、切歌/回跳状态同步、单曲循环 `repeatMode == .one` 解锁 App Remote `setRepeat(.track)`）；`#59`（`apply(_ s:)` `guard !starting` 前置防旧歌时钟污染）。
+> - **P1 / P2 修复**：`#35`（`daylist` `Playing from` App Remote 上下文 + 2s 重试）、`#14`/`#41`（`market=from_token` + `isSameSong` 匹配）、`#12`（外部插播回归队列恢复）、`#18`/`#73`（`SpotifyListeningBackfill` 持久化 `lastBackfillMs` 支持闲置/暂停回台补录）、`#46`/`#47`（Sonos 无 `id` 与 `isRestricted` 处理）、`#29`/`#30`（按账号持久化学习本机 `deviceId`）、`#67`（按账号隔离的 `SpotifyRateGate.forAccount` 在 `me/player` 限流期严格拦截）、`#34`（`spotify:local:` 最小只读展示）、`#9`（`pendingResume` Web API 消费）、`#26`/`401`（按账号 Client ID 与吊销清理）、`#36`（Now Playing 专辑/艺人经 `songLinks` 补全跳转）、`#48`（隐私会话提示）、`#61`（未知时长禁用 `WavyProgressBar` 拖拽）、`#24`/`#64`（`HomeSection.madeForYou` + App Remote `fetchMadeForYouContainers()`）、`#37`（QueueSheet 移除冲突注释，仅保留未实现直连前的非可点行现状）。
+> - **仍待确认 / 默认保持现状**：`#17`（`contextStartEnabled` 仍默认关闭，由 `-spotifyContextStart YES` 开关控制待真机稳定性验证后放开）；`#37` Spotify 队列行仍不可直接点播；iPhone Air 锁屏连播、Sonos 真实切备、Mac 桌面实测待 Stage 3 验证。
+
 ## 怎么读这份清单
 
 - **范围**：这次把 7 个方向审计里确认过的问题全部合并了。同一个原因在几个地方都出现的，算一条，各处症状都写在这条下面。合并后一共 **74 条**：P0 有 4 条，P1 有 20 条，P2 有 50 条。

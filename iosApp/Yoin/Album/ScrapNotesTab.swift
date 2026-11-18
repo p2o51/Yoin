@@ -81,7 +81,14 @@ struct ScrapNotesTab: View {
             applyDemo(notes: notes)
             if ScrapNotesDemo.mode == "loading" { return }
             #endif
-            if let playable { await NowPlayingData.shared.prefetchLyrics(playable, client: AppModel.shared.session.client) }
+            if let playable {
+                await NowPlayingData.shared.prefetchLyrics(
+                    playable,
+                    client: AppModel.shared.session.client,
+                    apple: AppModel.shared.store.apple,
+                    spotify: AppModel.shared.store.spotify
+                )
+            }
         }
     }
 

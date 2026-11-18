@@ -172,3 +172,11 @@ Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98
 | The same banner's toast | any held Spotify start | "Couldn't reach the server for …" showed beside "Open Spotify …" | no toast in the walk-through's shots | fixed: the toast is for servers |
 | A pause while a start lands (any Connect device) | unit test `SpotifyOnMacTests` (pause right after the start) | the read that showed the start landing flipped Yoin back to playing until the next read | test | fixed: that read is skipped once a held command went out |
 | A real Mac | — | — | compile only (`platform=macOS,variant=Designed for iPad`) | open: the Mac's name against Spotify's device name, `spotify:` opening the desktop app, real Spotify |
+
+## 2026-11-18 0.6.5 parity & Spotify integration (`feat/ios-0.6.5-parity-and-spotify`, iPhone 17 Pro sim)
+
+| Check / Surface | Scope & Seams | Evidence | Status |
+|---|---|---|---|
+| `:shared` KMP + `ktlintCheck` + Debug XCFramework | Merged `feat/ios-065-kmp-and-ai`, shared lyrics/transfer fixes, `LyricFetchException` propagation | `:shared:testAndroidHostTest`: 458 passed, 0 failures/skipped; `:shared:iosSimulatorArm64Test`: 461 passed, 0 failures/skipped; `ktlintCheck` & `assembleYoinSharedDebugXCFramework` passed | passed (simulator / host) |
+| Full `YoinTests` (`xcodebuild test`) | Seams 1–8: `Accept-Language` header, PR #226 lyrics fallback + `LyricFetchException` retry + active/prefetch AI gate, root `LyricsPrefetchHost` (`15s`/`30s`), `HomeSection.madeForYou` + Spotify App Remote `Made For You`, Apple Music `PlaylistRestore` 401/403/429 interrupt, `searchMore` `failureReports`, per-account `SpotifyRateGate`, Web API `enqueue` fallback, Now Playing `songLinks` navigation, `NowPlayingLyricsFallbackTests` | `YoinTests`: 1463 executed, 0 failures, 0 skipped (iPhone 17 Pro simulator) | passed (simulator unit tests) |
+| Physical iPhone Air & Mac Desktop QA | `POSIX 61` wake/confirm, lock-screen multi-track & `daylist` `Playing from`, Sonos `isRestricted`, `Made For You` App Remote containers, Handoff, Mac `AVRoutePickerView` & `enqueue` | — | open: pending Stage 3 physical device QA |

@@ -841,11 +841,8 @@ final class AppModel {
         if player.externalTrack != nil {
             guard !next, tracks.allSatisfy({ $0.provider == SpotifyMapping.provider }),
                   let spotify = playbackSystem.spotifyOutput else { done?(false); return }
-            // Spotify plays on another device (a speaker): App Remote only reaches this iPhone's Spotify,
-            // so the songs go into the active device's queue through the Web API (audit 11-15 #20;
-            // Android adds there through App Remote). This iPhone keeps App Remote.
-            if SpotifyPlayingDevice.shared.name != nil, let source = store.spotify {
-                let ids = tracks.map(\.id)
+            let ids = tracks.map(\.id)
+            if spotify.control == nil, let source = store.spotify {
                 Task { [weak self] in
                     let ok = await source.addToActiveQueue(ids)
                     if ok { self?.spotifyQueueRevision += 1 }
@@ -853,7 +850,7 @@ final class AppModel {
                 }
                 return
             }
-            spotify.enqueueOnSpotify(tracks.map(\.id)) { [weak self] ok in
+            spotify.enqueueOnSpotify(ids) { [weak self] ok in
                 if ok { self?.spotifyQueueRevision += 1 }
                 done?(ok)
             }
@@ -1086,7 +1083,8 @@ extension AppModel {
             }
         }
         let api = SpotifyWebAPI(token: { try await provider.accessToken() },
-                                refresh: { _ = try await provider.accessToken(force: true) })
+                                refresh: { _ = try await provider.accessToken(force: true) },
+                                gate: .forAccount(p.id))
         let source = SpotifySource(api: api)
         source.userId = tokens.userId
         store.spotifyAccount = (source, scope)

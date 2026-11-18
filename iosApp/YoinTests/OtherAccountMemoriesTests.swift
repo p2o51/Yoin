@@ -330,7 +330,7 @@ final class OtherAccountMemoriesTests: XCTestCase {
         let tip = try XCTUnwrap(Tips.tip("MemoriesAllAccounts"))
         XCTAssertEqual(tip.title, "Memories across accounts")
         XCTAssertEqual(tip.text, "Memories includes all your accounts, and switches to that account first when you play or go to the album")
-        XCTAssertEqual(tip.titleZhHans, "各账号的回忆")
-        XCTAssertEqual(tip.textZhHans, "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号")
+        XCTAssertEqual(tip.titleZhHans, "各账号的 Memories")
+        XCTAssertEqual(tip.textZhHans, "Memories 会显示你所有账号的记录，播放或去专辑会先切换到该账号")
     }
 }

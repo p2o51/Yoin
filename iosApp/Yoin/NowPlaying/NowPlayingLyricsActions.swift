@@ -171,27 +171,36 @@ final class LyricsActions {
     private func translateWithGemini(_ t: PlayableTrack, rows: [Int], source: [String], language: String,
                                      settings: GeminiSettings) {
         let k = NowPlayingData.key(t)
+        let ai = settings.effectiveAiSettings
+        let modelName = ai.modelId.isEmpty ? GeminiClient.model : ai.modelId
         if let cached = LyricsUserStore.shared.geminiTranslations(provider: t.provider, rawId: t.id, title: t.title,
                                                                   artist: t.artist, language: language,
-                                                                  model: GeminiClient.model, lines: source) {
+                                                                  model: modelName, lines: source) {
             apply(cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }, rows: rows, key: k,
                   language: language)
             return
         }
+        guard settings.hasKey else {
+            let msg = settings.prefs.provider == .gemini
+                ? String(localized: "Gemini API key missing")
+                : String(localized: "Online AI API key missing")
+            return toast(msg)
+        }
         let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else { return toast(String(localized: "Gemini API key missing")) }
         inFlight = .translate
-        let client = gemini()
+        var client = gemini()
+        if client.ai == nil { client.ai = ai }
+        let routedClient = client
         Task {
             defer { inFlight = nil }
             do {
-                let result = try await client.translateLyricLines(
+                let result = try await routedClient.translateLyricLines(
                     apiKey: apiKey, title: t.title.isEmpty ? String(localized: "Unknown song") : t.title,
                     artist: t.artist.isEmpty ? String(localized: "Unknown artist") : t.artist, lines: source, targetLanguage: language)
                 LyricsUserStore.shared.saveGeminiTranslations(source.indices.map { result[$0] ?? "" },
                                                               provider: t.provider, rawId: t.id, title: t.title,
                                                               artist: t.artist, language: language,
-                                                              model: GeminiClient.model, lines: source)
+                                                              model: modelName, lines: source)
                 // Saved under its own language above; shown only if that is still the target.
                 guard settings.targetLanguage == language else { return }
                 apply(result, rows: rows, key: k, language: language)
@@ -274,14 +283,24 @@ final class LyricsActions {
         let registry = registry
         Task {
             defer { inFlight = nil }
-            let hit = try? await registry.fetchSelected(providerName: match.provider, songId: match.songId)
-            let source = LyricsSource(provider: hit?.providerName ?? match.provider,
-                                      songId: hit?.providerSongId ?? match.songId)
-            if let hit, NowPlayingData.shared.applyUserLyrics(hit.lrc, for: t, source: source) {
-                reset(NowPlayingData.key(t))
-                search = Search()
-                toast(String(localized: "Lyrics applied from \(LyricsSource.label(source.provider))"))
-            } else {
+            do {
+                let hit = try await registry.fetchSelected(providerName: match.provider, songId: match.songId)
+                let source = LyricsSource(provider: hit?.providerName ?? match.provider,
+                                          songId: hit?.providerSongId ?? match.songId)
+                if let hit, NowPlayingData.shared.applyUserLyrics(hit.lrc, for: t, source: source) {
+                    reset(NowPlayingData.key(t))
+                    search = Search()
+                    toast(String(localized: "Lyrics applied from \(LyricsSource.label(source.provider))"))
+                } else {
+                    search.applyingId = nil
+                    search.errorMessage = "Couldn't apply lyrics"
+                    toast(String(localized: "Couldn't apply lyrics"))
+                }
+            } catch {
+                if error is CancellationError || (error as NSError).kotlinException is KotlinCancellationException {
+                    search.applyingId = nil
+                    return
+                }
                 search.applyingId = nil
                 search.errorMessage = "Couldn't apply lyrics"
                 toast(String(localized: "Couldn't apply lyrics"))

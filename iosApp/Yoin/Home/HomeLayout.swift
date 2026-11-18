@@ -7,10 +7,9 @@ import Observation
 /// document reads the same on both apps. iOS renders all but On Your Other
 /// Accounts, which is kept in the layout (its order and visibility ride
 /// along) and stays out of the feed and the edit tray until iOS has it.
-/// Stage 2 integration contract for the Made For You section id across iOS & Android (`HomeSection`).
-/// Stage 1 keeps `enum HomeSection` unchanged so unowned exhaustive switches compile independently.
+/// Legacy contract alias preserved for tests after promoting `.madeForYou` into `HomeSection`.
 enum MadeForYouSectionContract {
-    static let rawId = "made_for_you"
+    static let rawId = HomeSection.madeForYou.rawValue
 }
 
 enum HomeSection: String, CaseIterable, Hashable, Sendable {
@@ -23,6 +22,7 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     case otherProfiles = "other_profiles"
     case lyricHighlight = "lyric_highlight"
     case memoryGrid = "memory_grid"
+    case madeForYou = "made_for_you"
 
     var id: String { rawValue }
 
@@ -37,6 +37,7 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         case .otherProfiles: String(localized: "On Your Other Accounts")
         case .lyricHighlight: String(localized: "Lyric Cards")
         case .memoryGrid: String(localized: "All Memories")
+        case .madeForYou: String(localized: "Made For You")
         }
     }
 
@@ -52,6 +53,7 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         case .otherProfiles: String(localized: "Albums and playlists your other accounts play most")
         case .lyricHighlight: String(localized: "Lyrics picked from your songs, tap to play from that line")
         case .memoryGrid: String(localized: "Every note and score, on a grid that grows with you")
+        case .madeForYou: String(localized: "Playlists Spotify and Apple Music make for you")
         }
     }
 
@@ -67,6 +69,7 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         case .otherProfiles: String(localized: "Nothing played on your other accounts lately")
         case .lyricHighlight: String(localized: "No lyric cards yet")
         case .memoryGrid: String(localized: "No memories yet")
+        case .madeForYou: String(localized: "No made for you playlists yet")
         }
     }
 
@@ -80,7 +83,7 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     var supportedOnIOS: Bool {
         switch self {
         case .activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists,
-             .otherProfiles, .lyricHighlight, .memoryGrid: true
+             .otherProfiles, .lyricHighlight, .memoryGrid, .madeForYou: true
         }
     }
 
