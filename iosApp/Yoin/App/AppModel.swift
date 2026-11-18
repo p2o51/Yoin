@@ -73,6 +73,8 @@ final class AppModel {
     let np = NowPlayingPresentation()
     /// Home's Memories overlay (ShellOverlayUp): one reveal progress.
     let memories = MemoriesPresentation()
+    /// Home feed scroll-hide progress (`0` = bar shown, `1` = hidden) for Phone & Pad bottom bars.
+    let barScrollHide = ShellBarScrollHide()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
     var npPanel = false { didSet { noteNowPlayingSurface() } }
     /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
@@ -80,6 +82,11 @@ final class AppModel {
     @ObservationIgnored var backRecency: [ShellBackSurface] = []
     /// ⌘[ inside Now Playing: each presented player's own step back (its stage), registered while it is up.
     @ObservationIgnored var npStageBack: [NowPlayingBackSlot: NowPlayingStageBack] = [:]
+    /// ⌘F / ⌘L stage actions registered by the active Full or Panel Now Playing surface.
+    @ObservationIgnored var npKeyCommands: [NowPlayingBackSlot: NowPlayingKeyCommandTarget] = [:]
+    /// Deferred stage toggle when ⌘F or ⌘L opens Now Playing from the closed bar.
+    enum PendingNPKeyCommand { case focus, lyrics }
+    @ObservationIgnored var pendingNPKeyCommand: PendingNPKeyCommand?
     /// Home's edit mode, for ⌘[ (HomeView registers it).
     @ObservationIgnored weak var homeEdit: HomeEditController?
     @ObservationIgnored var nowPlayingNoted = false
@@ -919,10 +926,71 @@ final class AppModel {
         if s == .home, section == .home, memories.isOpen { return memories.close() }
         // A pushed page with no album to play (Settings) shows only Home in the
         // bar: it goes back to the root page, like the back button.
+        barScrollHide.show()
         withAnimation(Yoin.spatial) {
             if isDetail { path.removeAll() }
             section = s
         }
+    }
+
+    /// ⌘F: toggles cover focus inside the active Now Playing surface (opening Now Playing first if closed).
+    func toggleFocusFromKeyboard() {
+        guard !isIdle else { return }
+        if npExpanded, let target = npKeyCommands[.full] {
+            target.toggleFocus()
+        } else if isPad, npPanel, let target = npKeyCommands[.panel] {
+            target.toggleFocus()
+        } else {
+            pendingNPKeyCommand = .focus
+            if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
+        }
+    }
+
+    /// ⌘L: toggles expanded lyrics / detail panel on Now Playing (opening Now Playing first if closed).
+    func toggleLyricsFromKeyboard() {
+        guard !isIdle else { return }
+        if npExpanded, let target = npKeyCommands[.full] {
+            target.toggleLyrics()
+        } else if isPad, npPanel, let target = npKeyCommands[.panel] {
+            target.toggleLyrics()
+        } else {
+            pendingNPKeyCommand = .lyrics
+            if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
+        }
+    }
+
+    /// ← / →: skips playback position by `delta` seconds, clamped within `[0, duration]`.
+    func seekFromKeyboard(by delta: TimeInterval) {
+        guard player.currentTrack != nil else { return }
+        let current = player.progress.positionSec
+        let duration = player.progress.durationSec
+        let raw = current + delta
+        let clamped = duration > 0 ? min(max(0, raw), duration) : max(0, raw)
+        player.seek(to: clamped)
+    }
+
+    /// Marks the Spotify account revoked and clears any active Spotify playback / `externalTrack` state.
+    func markSpotifyRevoked(_ accountId: String) {
+        profiles.markSpotifyRevoked(accountId)
+        if profiles.active?.id == accountId
+            || player.externalTrack != nil
+            || player.currentTrack?.provider == SpotifyMapping.provider {
+            clearSpotifySessionState()
+        }
+    }
+
+    /// Clears stale Spotify remote/player UI state when signed out or revoked (audit P2-3).
+    func clearSpotifySessionState() {
+        store.spotifyAccount = nil
+        spotifySignIn = nil
+        AccountScope.shared.spotify = nil
+        SpotifyRemote.shared.token = nil
+        SpotifyRemote.shared.bind(account: nil)
+        playbackSystem.spotifyOutput?.control = nil
+        if player.externalTrack != nil || player.currentTrack?.provider == SpotifyMapping.provider {
+            player.stop()
+        }
+        SpotifyPlayingDevice.shared.name = nil
     }
 
     /// Resigns whatever field has the keyboard, now (not on the next update).
@@ -987,16 +1055,11 @@ extension AppModel {
     }
 
     private func syncSpotifyAccount() {
-        guard let p = profiles.active, p.service == .spotify, !profiles.needsSignIn(p),
-              let tokens = profiles.store.spotify(p.id) else {
-            if store.spotifyAccount != nil {
-                store.spotifyAccount = nil
-                spotifySignIn = nil
-                AccountScope.shared.spotify = nil
-                SpotifyRemote.shared.token = nil
-                SpotifyRemote.shared.bind(account: nil)
-                // The output stops reading me/player for an account that's no longer active.
-                playbackSystem.spotifyOutput?.control = nil
+        guard let p = self.profiles.active, p.service == .spotify, !self.profiles.needsSignIn(p),
+              let tokens = self.profiles.store.spotify(p.id) else {
+            let spotifyRevokedActive = self.profiles.active.map { $0.service == .spotify && self.profiles.needsSignIn($0) } ?? false
+            if store.spotifyAccount != nil || spotifyRevokedActive {
+                clearSpotifySessionState()
             }
             return
         }
@@ -1012,9 +1075,15 @@ extension AppModel {
         let provider = SpotifyTokenProvider(profileId: p.id, tokens: tokens, onRefreshed: { fresh in
             // One owner of the tokens in memory too (N10): a switch back reuses the refreshed ones.
             Task { @MainActor in profiles.store.updateSpotify(fresh, for: id) }
-        }) {
-            // Revoked (invalid_grant): the account asks to sign in again (N09).
-            Task { @MainActor in profiles.markSpotifyRevoked(id) }
+        }) { [weak self] in
+            // Revoked (invalid_grant): the account asks to sign in again (N09) and clears stale playback (P2-3).
+            Task { @MainActor [weak self] in
+                if let self {
+                    self.markSpotifyRevoked(id)
+                } else {
+                    profiles.markSpotifyRevoked(id)
+                }
+            }
         }
         let api = SpotifyWebAPI(token: { try await provider.accessToken() },
                                 refresh: { _ = try await provider.accessToken(force: true) })
@@ -1025,6 +1094,13 @@ extension AppModel {
         SpotifyRemote.shared.token = { try await provider.accessToken() }
         playbackSystem.spotifyOutput?.control = source
     }
+}
+
+/// Registered by the active Now Playing surface so `⌘F` / `⌘L` drive its current stage directly.
+struct NowPlayingKeyCommandTarget {
+    var token: UUID
+    var toggleFocus: @MainActor () -> Void
+    var toggleLyrics: @MainActor () -> Void
 }
 
 private struct ZoomNamespaceKey: EnvironmentKey {

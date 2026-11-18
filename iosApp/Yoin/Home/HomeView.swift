@@ -258,7 +258,11 @@ struct HomeView: View {
                 } else if !model.store.isReal {
                     HomeConnectPrompt(scheme: scheme, hasAccount: model.profiles.active != nil) { model.openSettings() }
                 } else if model.store.homePhase == .failed {
-                    RetryRow(scheme: scheme) { Task { await model.store.loadHome(force: true) } }
+                    RetryRow(
+                        scheme: scheme,
+                        message: model.store.failures["home"],
+                        details: model.store.failureReports["home"]
+                    ) { Task { await model.store.loadHome(force: true) } }
                 } else {
                     HomeSkeleton(width: contentWidth, scheme: scheme)
                 }
@@ -282,13 +286,34 @@ struct HomeView: View {
         // effect then drew as an opaque band under the bar, cutting the feed
         // off with a hard edge. It sits out while Memories is up.
         .scrollEdgeEffectHidden(memories.mounted, for: .bottom)
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
-            scroll.scrolled = y
+        .onScrollGeometryChange(for: HomeFeedScrollMetrics.self) {
+            HomeFeedScrollMetrics(
+                y: $0.contentOffset.y + $0.contentInsets.top,
+                maxY: max(0, $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom - $0.containerSize.height)
+            )
+        } action: { old, now in
+            scroll.scrolled = now.y
             // Only the crossing is written: a scroll frame mustn't re-render the shell's band.
-            if (y > 1) != model.homeScrolledUnder { model.homeScrolledUnder = y > 1 }
+            if (now.y > 1) != model.homeScrolledUnder { model.homeScrolledUnder = now.y > 1 }
+            model.barScrollHide.handleScrollOffsetChange(oldOffset: old.y, newOffset: now.y, maxOffset: now.maxY)
         }
+        .onScrollPhaseChange { oldPhase, newPhase in
+            model.barScrollHide.handleScrollPhaseChange(oldPhase: oldPhase, newPhase: newPhase)
+        }
+        .refreshable {
+            if model.store.isReal { await model.store.loadHome(force: true) }
+        }
+        .onAppear { model.barScrollHide.show() }
         // Home comes back at its top (Library in between makes a new feed), so its band starts out.
-        .onDisappear { model.homeScrolledUnder = false }
+        .onDisappear {
+            model.homeScrolledUnder = false
+            model.barScrollHide.showUnseen()
+        }
+    }
+
+    private struct HomeFeedScrollMetrics: Equatable {
+        var y: CGFloat
+        var maxY: CGFloat
     }
 
     /// The page's wash. It stays where it is while the island pushes the feed down (51 2026-11-13:
@@ -757,15 +782,7 @@ struct HomeView: View {
                             ForEach(Array(stride(from: 0, to: min(tiles.count, trackCols * 2), by: trackCols)), id: \.self) { r in
                                 HStack(spacing: tileGap) {
                                     ForEach(r..<min(r + trackCols, tiles.count), id: \.self) { i in
-                                        Button { homeTap(edit) { model.play(tiles, startAt: i) } } label: {
-                                            TrackTile(album: tiles[i].album, track: tiles[i].track)
-                                                .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
-                                                       alignment: .leading)
-                                                .contentShape(.rect)
-                                        }
-                                        .buttonStyle(PressScale())
-                                        .pointerHighlight()
-                                        .yoinDraggable { YoinDrag.song(tiles[i], model: model) }
+                                        recentTrackButton(tiles, index: i, width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols))
                                     }
                                 }
                             }
@@ -781,6 +798,25 @@ struct HomeView: View {
             .scrollIndicators(.hidden)
             .padding(.horizontal, -density.margin)
         }
+    }
+
+    @ViewBuilder
+    private func recentTrackButton(_ tiles: [PlaylistEntry], index i: Int, width: CGFloat) -> some View {
+        let entry = tiles[i]
+        let isEditing = edit.isEditing
+        Button { homeTap(edit) { model.play(tiles, startAt: i) } } label: {
+            TrackTile(album: entry.album, track: entry.track)
+                .frame(width: width, alignment: .leading)
+                .contentShape(.rect)
+                .onSecondaryClick {
+                    if !isEditing {
+                        PlaylistActions.shared.openMenu(entry, context: .library)
+                    }
+                }
+        }
+        .buttonStyle(PressScale())
+        .pointerHighlight()
+        .yoinDraggable { YoinDrag.song(entry, model: model) }
     }
 
     // MARK: Recently Played, Your Playlists (Android AlbumShelfSection, YourPlaylistsSection)
@@ -973,7 +1009,12 @@ private struct HeroCard: View {
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
-        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album, tile: tile) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.openActivity(entry, tile: tile) } }
+        ) {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
                     .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: tile)
@@ -1004,7 +1045,12 @@ private struct SmallCard: View {
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album, tile: tile) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.openActivity(entry, tile: tile) } }
+        ) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
                     EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
@@ -1044,7 +1090,12 @@ private struct WideCard: View {
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.openActivity(entry, tile: tile) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album, tile: tile) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.openActivity(entry, tile: tile) } }
+        ) {
             HStack(spacing: 12) {
                 EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
                     .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: tile)
@@ -1074,7 +1125,12 @@ private struct StripCard: View {
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.openActivity(entry) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.openActivity(entry) } }
+        ) {
             HStack(spacing: 10) {
                 HStack(spacing: 12) {
                     Text(album.title).homeType(Tokens.type.bodyMedium, .semibold).foregroundStyle(s.onSurface)
@@ -1177,7 +1233,15 @@ private struct JBICell: View {
         case let .album(album):
             let mark = marks[album.id.rawId]
             let s = scheme!
-            Button { jbiTap { model.open(album, tile: tile) } } label: {
+            SecondaryEntityButton(
+                target: .album(album),
+                onOpen: { model.open(album, tile: tile) },
+                onSecondaryIntercept: {
+                    if edit?.isEditing == true { hideOpen = true; return true }
+                    return false
+                },
+                onPrimaryTap: { jbiTap { model.open(album, tile: tile) } }
+            ) {
                 AlbumItem(album: album, size: size, subtitle: album.kindLine) {
                     // albumMemoryMarkInk: palette base, accent in dark mode.
                     if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
@@ -1191,11 +1255,26 @@ private struct JBICell: View {
             Button { jbiTap { model.play([entry]) } } label: {
                 plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
                            subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
+                    .onSecondaryClick {
+                        if edit?.isEditing == true {
+                            hideOpen = true
+                        } else {
+                            PlaylistActions.shared.openMenu(entry, context: .library)
+                        }
+                    }
             }
             .buttonStyle(PressScale())
             .yoinDraggable { YoinDrag.song(entry, model: model) }
         case let .playlist(playlist):
-            Button { jbiTap { model.openPlaylist(playlist.id.rawId) } } label: {
+            SecondaryEntityButton(
+                target: .playlist(playlist),
+                onOpen: { model.openPlaylist(playlist.id.rawId) },
+                onSecondaryIntercept: {
+                    if edit?.isEditing == true { hideOpen = true; return true }
+                    return false
+                },
+                onPrimaryTap: { jbiTap { model.openPlaylist(playlist.id.rawId) } }
+            ) {
                 plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
                            subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
             }
@@ -1381,38 +1460,65 @@ private struct SignalCard: View {
     private var content: some View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
-        Button {
-            jbiCardTap(edit, open: $hideOpen) {
-                // A memory 1×2 opens Memories stopped on its album (Android onOpenMemoryFocus);
-                // a noted track plays its song.
-                if let song = signal.song {
-                    model.play([song])
-                } else if signal.kind == .ratedAlbum {
-                    model.memories.open(focus: album.id.rawId)
-                } else {
-                    model.open(album)
+        Group {
+            if let song = signal.song {
+                Button {
+                    jbiCardTap(edit, open: $hideOpen) { model.play([song]) }
+                } label: {
+                    signalLabel(s: s, ink: ink)
+                        .onSecondaryClick {
+                            if edit?.isEditing == true {
+                                hideOpen = true
+                            } else {
+                                PlaylistActions.shared.openMenu(song, context: .library)
+                            }
+                        }
+                }
+            } else {
+                SecondaryEntityButton(
+                    target: .album(album),
+                    onOpen: { model.open(album) },
+                    onSecondaryIntercept: {
+                        if edit?.isEditing == true { hideOpen = true; return true }
+                        return false
+                    },
+                    onPrimaryTap: {
+                        jbiCardTap(edit, open: $hideOpen) {
+                            // A memory 1×2 opens Memories stopped on its album (Android onOpenMemoryFocus);
+                            // a noted track plays its song.
+                            if signal.kind == .ratedAlbum {
+                                model.memories.open(focus: album.id.rawId)
+                            } else {
+                                model.open(album)
+                            }
+                        }
+                    }
+                ) {
+                    signalLabel(s: s, ink: ink)
                 }
             }
-        } label: {
-            Group {
-                if standing {
-                    // Standing (tablet 1×2): the cover block over its copy, one column wide.
-                    VStack(alignment: .leading, spacing: 10) {
-                        coverBlock(s)
-                        ratingColumn(s, ink: ink)
-                    }
-                } else {
-                    HStack(alignment: .top, spacing: 16) {
-                        coverBlock(s)
-                        ratingColumn(s, ink: ink)
-                    }
-                }
-            }
-            .contentShape(.rect)
         }
         .buttonStyle(PressScale())
         // Dragged out as what a tap opens: the noted song, else the album.
         .yoinDraggable { signal.song.map { YoinDrag.song($0, model: model) } ?? YoinDrag.album(album, model: model) }
+    }
+
+    private func signalLabel(s: CoverScheme, ink: Color) -> some View {
+        Group {
+            if standing {
+                // Standing (tablet 1×2): the cover block over its copy, one column wide.
+                VStack(alignment: .leading, spacing: 10) {
+                    coverBlock(s)
+                    ratingColumn(s, ink: ink)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    coverBlock(s)
+                    ratingColumn(s, ink: ink)
+                }
+            }
+        }
+        .contentShape(.rect)
     }
 }
 
@@ -1449,7 +1555,12 @@ private struct AlbumMini: View {
     @Environment(\.zoomNamespace) private var zoomNS
 
     var body: some View {
-        Button { homeTap(edit) { model.open(album, tile: tile) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album, tile: tile) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.open(album, tile: tile) } }
+        ) {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
             AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6) {
@@ -1475,7 +1586,12 @@ private struct PlaylistMini: View {
     var body: some View {
         let s = scheme!
         let size = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
-        Button { homeTap(edit) { model.openPlaylist(item.id.rawId) } } label: {
+        SecondaryEntityButton(
+            target: .playlist(item),
+            onOpen: { model.openPlaylist(item.id.rawId) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.openPlaylist(item.id.rawId) } }
+        ) {
             VStack(alignment: .leading, spacing: 6) {
                 EntityBackdrop(entity: .playlist, palette: item.palette, seed: item.id.rawId.count, size: size,
                                stroke: s.primary)
@@ -1523,7 +1639,12 @@ private struct RediscoverCard: View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
         let container = cardWash(s, album.palette)
-        Button { homeTap(edit) { model.open(album) } } label: {
+        SecondaryEntityButton(
+            target: .album(album),
+            onOpen: { model.open(album) },
+            onSecondaryIntercept: { edit?.isEditing == true },
+            onPrimaryTap: { homeTap(edit) { model.open(album) } }
+        ) {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed,
                                size: Tokens.home.REDISCOVER_BACKDROP.cg, stroke: s.primary)
@@ -1631,6 +1752,11 @@ private struct RediscoverSongCard: View {
             .padding(Self.padding)
             .frame(height: Self.height)
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .onSecondaryClick {
+                if edit?.isEditing != true {
+                    PlaylistActions.shared.openMenu(entry, context: .library)
+                }
+            }
         }
         .buttonStyle(PressScale())
         .yoinDraggable { YoinDrag.song(entry, model: model) }

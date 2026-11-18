@@ -466,11 +466,25 @@ struct NowPlayingView: View, Equatable {
         .onAppear {
             guard demo == nil, npMorph?.mounted != false else { return }
             let token = backToken
-            model.npStageBack[panel ? .panel : .full] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+            let slot: NowPlayingBackSlot = panel ? .panel : .full
+            model.npStageBack[slot] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+            model.npKeyCommands[slot] = NowPlayingKeyCommandTarget(
+                token: token,
+                toggleFocus: { toggleFocusFromKeyboard() },
+                toggleLyrics: { toggleLyricsFromKeyboard() }
+            )
+            if let pending = model.pendingNPKeyCommand {
+                model.pendingNPKeyCommand = nil
+                switch pending {
+                case .focus: toggleFocusFromKeyboard()
+                case .lyrics: toggleLyricsFromKeyboard()
+                }
+            }
         }
         .onDisappear {
             let slot: NowPlayingBackSlot = panel ? .panel : .full
             if model.npStageBack[slot]?.token == backToken { model.npStageBack[slot] = nil }
+            if model.npKeyCommands[slot]?.token == backToken { model.npKeyCommands[slot] = nil }
         }
         .task(id: engineTrack.map(NowPlayingData.key)) {
             guard let t = engineTrack else { return }
@@ -1220,21 +1234,44 @@ struct NowPlayingView: View, Equatable {
     /// tertiaryContainer's on-color, as on Android.
     private var heartTinted: Bool { lab.style("heart").tintOn && !lab.neutralTint("heart") }
 
+    private var currentAboutBusy: Bool {
+        guard demo == nil else { return false }
+        let credits = engineTrack.flatMap { data.lyricCredits($0) }
+        switch aboutState(playback) {
+        case .searching(let facts), .pending(_, let facts):
+            return NowPlayingAboutView.hasSourceRows(facts: facts, credits: credits)
+        default:
+            return false
+        }
+    }
+
     // 4. Text tabs.
     private var tabs: some View {
-        HStack(spacing: Tokens.np.TAB_GAP.cg) {
-            ForEach(Array([String(localized: "Lyrics"), String(localized: "About"), String(localized: "Note")].enumerated()), id: \.offset) { i, title in
+        let busy = currentAboutBusy
+        return HStack(spacing: 0) {
+            ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
+                let i = page.rawValue
+                if page == .note, busy {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(scheme.primary)
+                        .frame(width: 24, height: 18)
+                        .padding(.leading, 6)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                }
                 let on = shownTab == i
                 Button { settlePager(on: i) } label: {
                     // CompactTextTabs: labelLarge (Bold when selected).
-                    Text(title)
+                    Text(page.title)
                         .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : nil)
                         .foregroundStyle(scheme.onSurfaceVariant.opacity(on ? 1 : 0.5))
                         .scaleEffect(x: on ? Tokens.np.TAB_SELECTED_STRETCH.cg : 1, y: 1, anchor: .leading)
                 }
                 .buttonStyle(.plain).pointerHighlight()
+                .padding(.leading, i == 0 ? 0 : (page == .note && busy ? 6 : Tokens.np.TAB_GAP.cg))
             }
         }
+        .animation(Yoin.spatial, value: busy)
         .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
     }
 
@@ -1243,9 +1280,17 @@ struct NowPlayingView: View, Equatable {
     /// the selected one primary-tinted (label as on the pills), the others
     /// primaryContainer-tinted.
     private var expandedTabs: some View {
-        GlassEffectContainer(spacing: 8) {
+        let busy = currentAboutBusy
+        return GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
+                    if page == .note, busy {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(scheme.primary)
+                            .frame(width: 28, height: NowPlayingExpanded.tabRow)
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    }
                     let on = shownTab == page.rawValue
                     Button { settlePager(on: page.rawValue) } label: {
                         Text(page.title)
@@ -1273,6 +1318,7 @@ struct NowPlayingView: View, Equatable {
                 }
             }
         }
+        .animation(Yoin.spatial, value: busy)
     }
 
     /// The text tabs at rest, the button group expanded (Android StageTabs).
@@ -1461,6 +1507,7 @@ struct NowPlayingView: View, Equatable {
         guard synced, i < times.count, engineTrack != nil else { return }
         lyricsFollow = true
         lyricsRecenterTick += 1
+        UISelectionFeedbackGenerator().selectionChanged()
         model.player.seek(to: i < 0 ? 0 : Double(times[i]) / 1000)
         glow.lineTapped()
     }
@@ -1683,9 +1730,36 @@ struct NowPlayingView: View, Equatable {
 
     /// A tab tap slides to its page on the same spring as a released swipe.
     private func settlePager(on page: Int) {
+        if tab != page {
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
         withAnimation(Yoin.spatial) {
             tab = page
             pagerDrag = 0
+        }
+    }
+
+    /// ⌘F: toggle cover focus stage cleanly.
+    private func toggleFocusFromKeyboard() {
+        withAnimation(Yoin.stageSettle) {
+            if stage == .focus {
+                stage = wide ? .expanded : .compact
+            } else {
+                tab = NowPlayingDetailPage.lyrics.rawValue
+                stage = .focus
+            }
+        }
+    }
+
+    /// ⌘L: toggle Now Playing lyrics panel/stage cleanly.
+    private func toggleLyricsFromKeyboard() {
+        withAnimation(Yoin.stageSettle) {
+            if stage == .expanded && tab == NowPlayingDetailPage.lyrics.rawValue {
+                if !wide { stage = .compact }
+            } else {
+                tab = NowPlayingDetailPage.lyrics.rawValue
+                stage = .expanded
+            }
         }
     }
 
@@ -2198,6 +2272,9 @@ struct NowPlayingView: View, Equatable {
     private func progress(_ p: PlaybackSnapshot, timesAway: Bool = false) -> some View {
         let demoAnchors = demo?.noteAnchors
         let anchorMs = demoAnchors == nil ? noteAnchorMs : []
+        let rawDuration = demo?.playhead.durationSec
+            ?? (model.player.currentTrack != nil ? model.player.progress.durationSec : Double(model.mockPlayback.track.durationSec))
+        let canScrub = demo == nil && rawDuration > 0
         // The position is read inside PlaybackPosition, so the engine's ticks
         // redraw this row only.
         return PlaybackPosition(live: npMorph?.mounted != false) { position, duration in
@@ -2217,19 +2294,19 @@ struct NowPlayingView: View, Equatable {
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
                             live: transportLive && (npMorph?.mounted != false),
                             actedScrub: demo?.scrub,
-                            onScrubbing: { touch("progress", $0) },
-                            onScrubMove: { glowScrub($0) }) { fraction in
+                            onScrubbing: { if canScrub { touch("progress", $0) } },
+                            onScrubMove: { if canScrub { glowScrub($0) } }) { fraction in
                 // A length not known yet (a Spotify song before its first state) is the bar's 1 s stand-in:
                 // the seek would land at 0-1 s (audit 11-15 #61).
-                guard model.player.currentTrack == nil || model.player.progress.durationSec > 0 else { return }
+                guard canScrub else { return }
                 model.player.seek(to: fraction * duration)
                 glowSeekReleased(fraction)
             }
                 .frame(height: 40, alignment: .bottom)
                 .glowAnchor(.progress, glow)
                 .demoTarget("progressBar")
-                // The demo phone's bar is looked at: a sideways drag on it turns the tips.
-                .allowsHitTesting(demo == nil)
+                // Disable scrubbing in demos AND when duration <= 0 (#61).
+                .allowsHitTesting(canScrub)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
             Text("-" + formatTime(max(0, Int(duration) - Int(position))))
                 .frame(minWidth: Tokens.np.TIME_LABEL_MIN_END.cg, alignment: .trailing)
@@ -2421,9 +2498,8 @@ struct NowPlayingView: View, Equatable {
     /// The title is matched to the pill's title by its leading edge; folded,
     /// it scales down to the pill's 15 pt so the glyphs line up.
     private func heroTitle(_ p: PlaybackSnapshot) -> some View {
-        Text(p.track.title)
-            .font(.gsf(36))
-            .foregroundStyle(scheme.onSurface)
+        MarqueeText(text: p.track.title, font: .gsf(36), color: scheme.onSurface,
+                    initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
             .animation(Self.heroStretchSpring) { $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading) }
             .scaleEffect(open ? 1 : Self.titleFoldScale, anchor: .leading)
             .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
@@ -2575,7 +2651,16 @@ struct NowPlayingView: View, Equatable {
                     // finger lands on its own button (the forwarding in
                     // `present()` is the fallback). A Spotify song plays in the
                     // Spotify app: its Connect devices instead (Codex N17).
-                    .overlay { if !spotifySong, demo == nil { AirPlayRoutePicker(trigger: airPlay) } }
+                    .overlay {
+                        if !spotifySong, demo == nil {
+                            GeometryReader { g in
+                                AirPlayRoutePicker(trigger: airPlay)
+                                    .frame(width: g.size.width, height: g.size.height)
+                                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            }
+                        }
+                    }
                     .glowAnchor(.devices, glow)
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
                     .glowAnchor(.write, glow)
@@ -3648,7 +3733,14 @@ extension NowPlayingView {
                 if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
             }
             // The system route picker, invisible, over the icon (as on the Devices pill).
-            .overlay { if !spotifySong { AirPlayRoutePicker(trigger: airPlay) } }
+            .overlay {
+                if !spotifySong {
+                    AirPlayRoutePicker(trigger: airPlay)
+                        .frame(width: 40, height: 40)
+                        .clipShape(.circle)
+                        .contentShape(.circle)
+                }
+            }
             wideIcon("note", label: String(localized: "Write")) { startWriting() }
         }
     }
@@ -3706,15 +3798,22 @@ extension NowPlayingView {
             .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
             .animation(Yoin.effects, value: spatialTag)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
-                Text(p.track.title)
-                    .font(.gsf(Tokens.type.headlineMedium.size.cg))
-                    .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
-                    .foregroundStyle(scheme.onSurface)
-                    .lineLimit(twoLines ? 2 : 1)
-                    .multilineTextAlignment(.leading)
-                    .animation(Self.heroStretchSpring) {
-                        $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading)
+                Group {
+                    if twoLines {
+                        Text(p.track.title)
+                            .font(.gsf(Tokens.type.headlineMedium.size.cg))
+                            .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
+                            .foregroundStyle(scheme.onSurface)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    } else {
+                        MarqueeText(text: p.track.title, font: .gsf(Tokens.type.headlineMedium.size.cg),
+                                    color: scheme.onSurface, initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
                     }
+                }
+                .animation(Self.heroStretchSpring) {
+                    $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading)
+                }
             }
         }
     }

@@ -48,13 +48,14 @@ enum Tips {
 
     /// Every tip, in the order the bubble goes through them.
     static let catalog: [Tip] = [
-        // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's keys
-        // (YoinCommands); Gemini's iOS line (.argon/ios-tips-1115).
-        Tip(id: "KeyboardShortcuts", icon: "keyboard", updated: "2026-11-15",
+        // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's wired keys
+        // in YoinCommands (Space, ←/→ seek ±5s, ⌘←/⌘→ skip, ⌘F focus cover, ⌘L lyrics, ⌘⇧P Now Playing,
+        // ⌘K search, Esc / ⌘[ back).
+        Tip(id: "KeyboardShortcuts", icon: "keyboard", updated: "2026-11-18",
             title: "Keyboard shortcuts",
-            text: "Control playback and navigate with a keyboard; hold ⌘ on iPad or check Controls and Go in the menu bar on Mac to see all shortcuts",
+            text: "Use Space to play or pause, ←/→ to skip 5s, ⌘←/⌘→ to change tracks, ⌘F for cover focus, ⌘L for lyrics, ⌘⇧P for Now Playing, ⌘K to search, and Esc or ⌘[ to go back; hold ⌘ on iPad or check Controls and Go in the menu bar on Mac",
             titleZhHans: "键盘快捷键",
-            textZhHans: "用键盘控制播放与切换页面；iPad 上按住 ⌘，或在 Mac 菜单栏的「控制」与「前往」里查看全部快捷键",
+            textZhHans: "用空格播放或暂停、←/→ 快退快进 5 秒、⌘←/⌘→ 切歌、⌘F 专注封面、⌘L 切歌词、⌘⇧P 开正在播放、⌘K 搜索、Esc 或 ⌘[ 返回；iPad 上按住 ⌘ 或在 Mac 菜单栏「控制」与「前往」查看全部快捷键",
             keyboard: true),
         // Library's pull to refresh (Android LibraryRefresh; LibraryView `.refreshable`); Android's line, which Gemini
         // kept for iOS (.argon/ios-tips-1115).
@@ -63,13 +64,24 @@ enum Tips {
             text: "Pull down at the top of Library to refresh the current view",
             titleZhHans: "刷新资料库",
             textZhHans: "在资料库顶部往下拉，刷新正在看的内容"),
-        // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
-        // the wide layout and the pixel bar), first in the list as on Android.
+        // All Memories (Home grid + page, Android #186 / #178 / #202): keep English "Memories" in Chinese copy.
         Tip(id: "MemoryLedger", icon: "edit_note", updated: "2026-11-12",
             title: "All Memories",
             text: "Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens",
-            titleZhHans: "全部回忆",
-            textZhHans: "点首页的「全部回忆」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列"),
+            titleZhHans: "全部 Memories",
+            textZhHans: "点首页的「全部 Memories」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列"),
+        // Online AI features (Settings > AI features).
+        Tip(id: "AiServices", icon: "sparkle", updated: "2026-11-18",
+            title: "Online AI",
+            text: "Choose Gemini, DeepSeek, Qwen, or a Custom service in Settings › AI features, switch between Good and Best, or tap Try a song to test it out",
+            titleZhHans: "在线 AI",
+            textZhHans: "在设置 › AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试"),
+        // Cloud sync (Settings > Cloud sync, Google Drive).
+        Tip(id: "CloudSync", icon: "cloud", updated: "2026-11-18",
+            title: "Cloud sync",
+            text: "Turn on Cloud sync in Settings to back up and sync your notes, ratings, and lyric translations across devices via Google Drive",
+            titleZhHans: "云同步",
+            textZhHans: "在设置 › 云同步开启 Google 云端硬盘同步，把笔记、评分和译文同步到其他设备"),
         // Home's Spotify pill (HomeSpotifyElsewhere.swift; Android PR #197, owner 2026-11-10); Argon's wording.
         // No swap symbol in YoinSymbols yet: the music note.
         Tip(id: "SpotifyElsewhere", icon: "music_note", updated: "2026-11-10",
@@ -77,8 +89,7 @@ enum Tips {
             text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
             titleZhHans: "切换到 Spotify",
             textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
-        // Handoff of the playing song (App/PlayingHandoff.swift; Android's ContinueOn, where it is the tablet's
-        // taskbar); Argon's iOS wording. No demo: the offer is the system's App Switcher and Dock.
+        // Handoff of the playing song (App/PlayingHandoff.swift; Android's ContinueOn).
         Tip(id: "ContinueOn", icon: "devices", updated: "2026-11-13",
             title: "Continue on another device",
             text: "With Handoff on for the same Apple ID, tap Yoin at the bottom of the App Switcher on iPhone or in the Dock on iPad and Mac to pick up where your other device left off",
@@ -90,13 +101,12 @@ enum Tips {
             text: "On devices with Apple Intelligence, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up",
             titleZhHans: "歌词卡片",
             textZhHans: "支持 Apple 智能的设备上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入"),
-        // The Memories deck deals every account's memories (Android #178); Android's own strings
-        // (home_tip_memories_all_accounts). No memory symbol in YoinSymbols on iOS yet: the note one.
+        // The Memories deck deals every account's memories (Android #178); keep English "Memories".
         Tip(id: "MemoriesAllAccounts", icon: "edit_note", updated: "2026-11-13",
             title: "Memories across accounts",
             text: "Memories includes all your accounts, and switches to that account first when you play or go to the album",
-            titleZhHans: "各账号的回忆",
-            textZhHans: "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号"),
+            titleZhHans: "各账号的 Memories",
+            textZhHans: "Memories 会显示你所有账号的记录，播放或去专辑会先切换到该账号"),
         // Yoin's Devices sheet for a Spotify song (Android SpotifySpeakers, #176; iOS SpotifyDevicesSheet /
         // SpotifyDeviceMemory). Gemini's iOS line (.argon/ios-tips-1115, 2026-11-15): Android's said More devices
         // switches to Sonos, which on iOS opens the Spotify app.
@@ -105,12 +115,12 @@ enum Tips {
             text: "In Now Playing > Devices, switch Spotify to a speaker and keep controlling it in Yoin; tap refresh to update, and recently used speakers stay in the list",
             titleZhHans: "Spotify 音箱",
             textZhHans: "正在播放 > 设备里将 Spotify 切到音箱上，继续在 Yoin 里控制；点刷新可更新，最近用过的音箱会留在列表里"),
-        // Yoin Labs (Android #189); Argon's iOS wording.
-        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
+        // Yoin Labs (Android #189): Lyric Cards + Solid Surfaces toggles.
+        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-12",
             title: "Yoin Labs",
-            text: "Experimental features are now in Settings › Yoin Labs, including the Lyric Cards toggle",
+            text: "Experimental features are now in Settings › Yoin Labs, including Lyric Cards and Solid Surfaces",
             titleZhHans: "Yoin Labs",
-            textZhHans: "实验功能现在在 设置 › Yoin Labs，歌词卡片的开关也在那里"),
+            textZhHans: "实验功能现在都在 设置 › Yoin Labs，包括歌词卡片和实色界面开关"),
         // Volume leveling (Android #139); Argon's iOS wording (the Subsonic account's page).
         Tip(id: "VolumeLeveling", icon: "equalizer", updated: "2026-11-10",
             title: "Volume leveling",

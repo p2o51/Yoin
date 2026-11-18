@@ -474,7 +474,11 @@ struct SearchView: View {
             case .playlists: r.playlists.isEmpty
             }
             if model.store.isReal && realState == .failed {
-                RetryRow(scheme: scheme, message: model.store.searchFailure) {
+                RetryRow(
+                    scheme: scheme,
+                    message: model.store.searchFailure,
+                    details: model.store.failureReports["search"]
+                ) {
                     Task { await model.store.runSearch(query, scope: scope.store) }
                 }
                     .transition(.opacity.animation(Yoin.effects))
@@ -514,7 +518,10 @@ struct SearchView: View {
                 .onAppear { Task { await model.store.loadMoreSearch(kind) } }
                 .id(model.store.search?.offsets[kind])
         case .failed:
-            RetryRow(scheme: scheme) { Task { await model.store.loadMoreSearch(kind) } }
+            RetryRow(
+                scheme: scheme,
+                details: model.store.failureReports["searchMore:\(kind.rawValue)"] ?? model.store.failureReports["search"]
+            ) { Task { await model.store.loadMoreSearch(kind) } }
                 .padding(.vertical, 12)
                 .transition(.opacity.animation(Yoin.effects))
         }
@@ -616,7 +623,11 @@ struct SearchView: View {
     /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
     /// then 8 and the album-count meta pill.
     private func artistRow(_ a: ArtistHit) -> some View {
-        Button { openArtist(a) } label: {
+        SecondaryEntityButton(
+            target: .artist(name: a.name, id: a.serverId),
+            onOpen: { openArtist(a) },
+            onPrimaryTap: { openArtist(a) }
+        ) {
             HStack(spacing: 0) {
                 EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: Tokens.library.ROW_THUMB.cg)
                 Spacer().frame(width: Tokens.library.ROW_GAP.cg)
@@ -650,7 +661,11 @@ struct SearchView: View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: columns),
                   alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             ForEach(artists) { a in
-                Button { openArtist(a) } label: {
+                SecondaryEntityButton(
+                    target: .artist(name: a.name, id: a.serverId),
+                    onOpen: { openArtist(a) },
+                    onPrimaryTap: { openArtist(a) }
+                ) {
                     VStack(alignment: .center, spacing: 0) {
                         EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: cell, stroke: scheme.primary)
                         Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
@@ -707,7 +722,7 @@ struct SearchView: View {
     }
 
     private func gridButton(_ a: Album, isArtist: Bool) -> some View {
-        Button {
+        let openAction: () -> Void = {
             if isArtist {
                 focused = false
                 withAnimation(Yoin.spatial) { model.searchActive = false }
@@ -717,7 +732,12 @@ struct SearchView: View {
                 withAnimation(Yoin.spatial) { model.searchActive = false }
                 model.open(a)
             }
-        } label: {
+        }
+        return SecondaryEntityButton(
+            target: isArtist ? .artist(name: a.artist, id: a.artistId) : .album(a),
+            onOpen: openAction,
+            onPrimaryTap: openAction
+        ) {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: a.palette, seed: a.seed, size: cell,
                                stroke: scheme.primary)
@@ -775,10 +795,17 @@ struct SearchView: View {
     private func playlistList(_ items: [LibraryItem]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(items) { p in
-                Button {
-                    withAnimation(Yoin.spatial) { model.searchActive = false }
-                    model.openPlaylist(p.id.rawId)
-                } label: {
+                SecondaryEntityButton(
+                    target: .playlist(p),
+                    onOpen: {
+                        withAnimation(Yoin.spatial) { model.searchActive = false }
+                        model.openPlaylist(p.id.rawId)
+                    },
+                    onPrimaryTap: {
+                        withAnimation(Yoin.spatial) { model.searchActive = false }
+                        model.openPlaylist(p.id.rawId)
+                    }
+                ) {
                     HStack(spacing: Tokens.library.ROW_GAP.cg) {
                         CoverArt(palette: p.palette, cornerRadius: 0, seed: 3)
                             .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)

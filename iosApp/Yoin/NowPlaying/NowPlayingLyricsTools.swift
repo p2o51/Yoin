@@ -1,3 +1,4 @@
+import CoreHaptics
 import SwiftUI
 import UIKit
 
@@ -161,13 +162,17 @@ struct ExpandedLyricsList: View {
         var rows: [Int: CGRect] = [:]
         /// The window's top on the screen (global), for the screen seat.
         var windowTop: CGFloat = 0
+        /// The window top when the line was last seated (`1pt` guard for tool-row collapse below).
+        var seatWindowTop: CGFloat?
+        /// Last settled fraction inside the clean band, used to debounce <=16pt shifts.
+        var settledSeatFraction: CGFloat?
         /// The seat waiting out its frame: cancelled by the reader's scroll and by any newer seat.
         var seating: Task<Void, Never>?
     }
     /// The window's top fade (the mask) and bottom fade (LyricsEdgeFade).
     static let fadeTop: CGFloat = 16
     static let fadeBottom: CGFloat = 64
-    static let contentSpace = "expandedLyricsContent"
+    nonisolated static let contentSpace = "expandedLyricsContent"
     /// Scrolled through its binding: a ScrollViewReader scroll asked for after the user's own
     /// scroll was dropped (the key greyed out, the list stayed put).
     @State private var position = ScrollPosition(idType: Int.self)
@@ -249,8 +254,13 @@ struct ExpandedLyricsList: View {
         offset.seating = nil
         guard follow, active >= firstSeat, active < lines.count else { return }
         let target = active
+        let currentShare = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                                   screen: Self.screenHeight, stepped: false)
+        offset.settledSeatFraction = currentShare
+        offset.seatWindowTop = offset.windowTop
         guard animated else {
-            if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
+            if let y = seatY(target, seatShare: currentShare) { position.scrollTo(y: y) }
+            else { position.scrollTo(id: target, anchor: .center) }
             return
         }
         if halt { position.scrollTo(y: offset.y) }
@@ -258,8 +268,13 @@ struct ExpandedLyricsList: View {
             // A frame for the row to take its active style (its height is the seat's input).
             try? await Task.sleep(for: .milliseconds(34))
             guard !Task.isCancelled else { return }
+            let nextShare = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                                    screen: Self.screenHeight, stepped: false)
+            offset.settledSeatFraction = nextShare
+            offset.seatWindowTop = offset.windowTop
             withAnimation(Yoin.spatial) {
-                if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
+                if let y = seatY(target, seatShare: nextShare) { position.scrollTo(y: y) }
+                else { position.scrollTo(id: target, anchor: .center) }
             }
         }
     }
@@ -268,15 +283,47 @@ struct ExpandedLyricsList: View {
     /// reshape) is read once it has held still this long.
     static let seatSettle: Duration = .milliseconds(250)
 
+    /// A settled window whose screen seat is within 16pt of where the row already sits adopts the row's place.
+    static let seatSlop: CGFloat = 16
+
+    /// Android `lyricsSettledSeat`: adopts `next` unless the active line already sits within `slop`
+    /// of it inside the clean band — keeping minor tool-row / expand-estimate deltas from gliding the line.
+    static func lyricsSettledSeat(actual: CGFloat?, next: CGFloat, band: CGFloat, slop: CGFloat = seatSlop) -> CGFloat {
+        guard let actual, band > 0, abs(next - actual) * band <= slop else { return next }
+        return actual
+    }
+
     /// Android's re-seat after the window's geometry changes: wait for it to
-    /// hold still, then glide the line to the seat the new window gives
-    /// (Android seatSettleSpec: the Standard default spatial spring).
+    /// hold still, then glide the line to the seat the new window gives unless already within `16pt`
+    /// or kept in the clear band under the same top edge (Android `20e845a18` + `bfb1c2226`).
     private func reseatWhenSettled() {
         guard follow, active >= firstSeat, active < lines.count else { return }
         offset.seating?.cancel()
         offset.seating = Task { @MainActor in
             try? await Task.sleep(for: Self.seatSettle)
-            guard !Task.isCancelled, follow, let y = seatY(active) else { return }
+            guard !Task.isCancelled, follow else { return }
+            let band = offset.viewport - Self.fadeTop - Self.fadeBottom
+            let row = offset.rows[active]
+            let rowStillClear = row.map {
+                let topInViewport = $0.minY - offset.y
+                let bottomInViewport = topInViewport + $0.height
+                return topInViewport >= Self.fadeTop && bottomInViewport <= offset.viewport - Self.fadeBottom
+            } ?? false
+            if rowStillClear, let prevTop = offset.seatWindowTop, abs(offset.windowTop - prevTop) < 1 {
+                return
+            }
+            let next = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                               screen: Self.screenHeight, stepped: false)
+            let actual: CGFloat? = if let row, band > 0, offset.settledSeatFraction != nil {
+                (row.minY - offset.y + row.height / 2 - Self.fadeTop) / band
+            } else {
+                nil
+            }
+            let share = Self.lyricsSettledSeat(actual: actual, next: next, band: band)
+            offset.settledSeatFraction = share
+            offset.seatWindowTop = offset.windowTop
+            if let actual, share == actual { return }
+            guard let y = seatY(active, seatShare: share) else { return }
             withAnimation(Yoin.standardDefaultSpatial) { position.scrollTo(y: y) }
         }
     }
@@ -289,14 +336,15 @@ struct ExpandedLyricsList: View {
 
     /// The share of the clean band (between the fades) that puts the row's centre at [screenSeat]
     /// of a [screen]-tall window, for a lyric window [window] tall whose top is [windowTop] below the
-    /// screen's top. Held between [seatMinFraction] and the band's middle; stepped to 2 % so a point
-    /// of drift never re-seats the list (Android lyricsScreenSeatFraction).
-    static func screenSeatFraction(windowTop: CGFloat, window: CGFloat, screen: CGFloat) -> CGFloat {
+    /// screen's top. Held between [seatMinFraction] and the band's middle; stepped to 2 % when `stepped`
+    /// is true (Android lyricsScreenSeatFraction).
+    static func screenSeatFraction(windowTop: CGFloat, window: CGFloat, screen: CGFloat,
+                                   stepped: Bool = true) -> CGFloat {
         let band = window - fadeTop - fadeBottom
         guard band > 0, screen > 0 else { return 0.5 }
         let raw = (screen * screenSeat - windowTop - fadeTop) / band
         let held = min(max(raw, seatMinFraction), 0.5)
-        return (held * 50).rounded() / 50
+        return stepped ? (held * 50).rounded() / 50 : held
     }
 
     /// The height of the window the app is drawn in (a split iPad window, not the whole screen).
@@ -307,12 +355,12 @@ struct ExpandedLyricsList: View {
     }
 
     /// The content offset that seats row [i]; nil before it has been laid out.
-    private func seatY(_ i: Int) -> CGFloat? {
+    private func seatY(_ i: Int, seatShare: CGFloat? = nil) -> CGFloat? {
         guard let row = offset.rows[i], offset.viewport > 0 else { return nil }
         let bandTop = Self.fadeTop
         let bandBottom = max(bandTop, offset.viewport - Self.fadeBottom)
-        let share = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
-                                            screen: Self.screenHeight)
+        let share = seatShare ?? Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                                         screen: Self.screenHeight)
         let rowTop = row.height >= bandBottom - bandTop
             ? bandTop
             : min(max(bandTop + (bandBottom - bandTop) * share - row.height / 2, bandTop), bandBottom - row.height)
@@ -874,5 +922,67 @@ nonisolated struct LyricHalftone: ViewModifier, Animatable {
                                         isEnabled: on)
             }
             .padding(-2)
+    }
+}
+
+// MARK: - CoreHaptics Plucked String
+
+/// Sensory feedback helpers for Now Playing (`CoreHaptics` plucked-string on translation toggle + safe fallback).
+@MainActor
+enum YoinHaptics {
+    private static var engine: CHHapticEngine?
+
+    /// Plays a plucked attack + decaying rings via `CoreHaptics`, falling back to soft impact feedback
+    /// when hardware haptics aren't supported (e.g. Simulator / Mac).
+    static func performPluck(opening: Bool) {
+        let strength: Float = opening ? 1.0 : 0.8
+        if CHHapticEngine.capabilitiesForHardware().supportsHaptics {
+            do {
+                let activeEngine: CHHapticEngine
+                if let existing = engine {
+                    activeEngine = existing
+                } else {
+                    let created = try CHHapticEngine()
+                    created.stoppedHandler = { _ in
+                        Task { @MainActor in YoinHaptics.engine = nil }
+                    }
+                    created.resetHandler = {
+                        Task { @MainActor in
+                            try? YoinHaptics.engine?.start()
+                        }
+                    }
+                    engine = created
+                    activeEngine = created
+                }
+                try activeEngine.start()
+                let pattern = try CHHapticPattern(events: pluckEvents(strength: strength), parameters: [])
+                let player = try activeEngine.makePlayer(with: pattern)
+                try player.start(atTime: CHHapticTimeImmediate)
+                return
+            } catch {
+                engine = nil
+            }
+        }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: CGFloat(0.7 * strength))
+    }
+
+    /// Multi-transient attack + decaying low ticks mirroring Android `composePluck`.
+    nonisolated static func pluckEvents(strength: Float) -> [CHHapticEvent] {
+        let specs: [(intensity: Float, sharpness: Float, relativeTime: TimeInterval)] = [
+            (0.42 * strength, 0.75, 0.0),
+            (0.30 * strength, 0.35, 0.022),
+            (0.18 * strength, 0.30, 0.044),
+            (0.09 * strength, 0.25, 0.078),
+        ]
+        return specs.map { spec in
+            CHHapticEvent(
+                eventType: .hapticTransient,
+                parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: spec.intensity),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: spec.sharpness),
+                ],
+                relativeTime: spec.relativeTime
+            )
+        }
     }
 }

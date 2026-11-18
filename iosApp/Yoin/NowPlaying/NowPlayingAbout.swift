@@ -89,10 +89,10 @@ extension NowPlayingData {
         case loading
         /// The server's facts (no Gemini for this song).
         case ready(SongFacts)
-        /// Gemini is being asked (Android `Loading`).
-        case searching
-        /// A key is saved and nothing is cached yet: ask now.
-        case pending(AboutSong)
+        /// Gemini is being asked (Android `Loading`), carrying any already-available server facts.
+        case searching(SongFacts? = nil)
+        /// A key is saved and nothing is cached yet: ask now, carrying any already-available server facts.
+        case pending(AboutSong, SongFacts? = nil)
         /// Gemini's rows for the song (Android `Ready`), with the server's
         /// facts beside them when it has any (Android always shows both).
         case gemini([SongAboutStore.Entry], SongFacts? = nil)
@@ -118,11 +118,11 @@ extension NowPlayingData {
             case _ where !entries.isEmpty:
                 return .gemini(entries, facts)
             case .loading:
-                return .searching
+                return .searching(facts)
             case .noKey:
                 return .noKey(facts)
             case .idle:
-                if loader.settings.hasKey, !loader.store.hasCanonical(key) { return .pending(song) }
+                if loader.settings.hasKey, !loader.store.hasCanonical(key) { return .pending(song, facts) }
                 // Asked, and Gemini found nothing: the server's facts.
                 return server
             }
@@ -153,6 +153,20 @@ struct NowPlayingAboutView: View {
     @State private var pressed = 0
     /// The lyrics' other credits are open (Android AboutReceipt `expanded`, per credits).
     @State private var allCredits = false
+    @State private var compactBoxHeight: CGFloat = 0
+    @State private var compactContentHeight: CGFloat = 0
+
+    /// Bottom fade of a compact About page taller than its window (`add8a63f5`).
+    static let compactOverflowFade: CGFloat = 40
+
+    /// Whether lyric credits or server facts already yield displayable rows before AI answers (`5145074a9`).
+    static func hasSourceRows(facts: SongFacts?, credits: SongCredits?) -> Bool {
+        !rows(entries: [], facts: facts, expanded: false, credits: credits).isEmpty
+    }
+
+    static func compactOverflows(containerHeight: CGFloat, contentHeight: CGFloat) -> Bool {
+        containerHeight > 0 && contentHeight > containerHeight + 0.5
+    }
 
     private var loader: SongAboutLoader { .shared }
 
@@ -178,12 +192,24 @@ struct NowPlayingAboutView: View {
             case .ready(let facts):
                 list(Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
-            case .searching:
-                searching.transition(.opacity)
-            case .pending(let song):
-                searching
-                    .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
-                    .transition(.opacity)
+            case .searching(let facts):
+                let sourceRows = Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits)
+                if !sourceRows.isEmpty {
+                    list(sourceRows).transition(.opacity)
+                } else {
+                    searching.transition(.opacity)
+                }
+            case .pending(let song, let facts):
+                let sourceRows = Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits)
+                Group {
+                    if !sourceRows.isEmpty {
+                        list(sourceRows)
+                    } else {
+                        searching
+                    }
+                }
+                .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
+                .transition(.opacity)
             case .gemini(let entries, let facts):
                 list(Self.rows(entries: entries, facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
@@ -372,18 +398,39 @@ struct NowPlayingAboutView: View {
     private func list(_ items: [Item], header: AnyView? = nil) -> some View {
         // The receipt ends where the review starts: the lyrics' other credits and notices go there.
         let cut = items.firstIndex { !$0.receipt } ?? items.count
-        let column = VStack(alignment: .leading, spacing: 0) {
+        let inner = VStack(alignment: .leading, spacing: 0) {
             if let header { header }
             ForEach(items[..<cut]) { item in itemView(item) }
             if expanded, let credits { creditsFoot(credits) }
             ForEach(items[cut...]) { item in itemView(item) }
-            Spacer().frame(height: bottomPadding)
         }
-        // A scroll view takes exactly the height it is given (the small
-        // window holds still; the page scrolls).
-        ScrollView(.vertical, showsIndicators: false) { column }
-            .scrollDisabled(!expanded)
-            .mask(Self.fade(top: 0, bottom: expanded ? 64 : 48))
+        if expanded {
+            let column = VStack(alignment: .leading, spacing: 0) {
+                inner
+                Spacer().frame(height: bottomPadding)
+            }
+            // A scroll view takes exactly the height it is given (the small
+            // window holds still; the page scrolls).
+            ScrollView(.vertical, showsIndicators: false) { column }
+                .mask(Self.fade(top: 0, bottom: 64))
+        } else {
+            let overflows = Self.compactOverflows(containerHeight: compactBoxHeight, contentHeight: compactContentHeight)
+            let column = inner
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compactContentHeight = $0 }
+                .frame(maxWidth: .infinity, minHeight: overflows || compactBoxHeight <= 0 ? nil : compactBoxHeight,
+                       alignment: overflows ? .topLeading : .center)
+            ScrollView(.vertical, showsIndicators: false) { column }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compactBoxHeight = $0 }
+                .scrollDisabled(true)
+                .mask {
+                    if overflows {
+                        Self.fade(top: 0, bottom: Self.compactOverflowFade)
+                    } else {
+                        Color.white
+                    }
+                }
+        }
     }
 
     /// One row: the label in primary over the value.

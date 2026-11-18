@@ -42,6 +42,16 @@ struct PhoneShell: View {
     @State private var searchResident = false
     @State private var npResident = false
 
+    private var phoneScrollHideEnabled: Bool {
+        model.section == .home
+            && model.path.isEmpty
+            && !model.npExpanded
+            && !model.searchActive
+            && !model.memories.isOpen
+            && model.homeEdit?.isEditing != true
+            && model.player.failure == nil
+    }
+
     var body: some View {
         @Bindable var model = model
         ZStack(alignment: .bottom) {
@@ -98,9 +108,13 @@ struct PhoneShell: View {
                     // Slides away under the keyboard while searching.
                     .offset(y: model.searchActive ? 140 : 0)
                     .opacity(model.searchActive ? 0 : 1)
-                    // Memories (pulled down over Home) takes the whole screen.
+                    // Memories (pulled down over Home) takes the whole screen; scrolling Home hides it smoothly.
                     .modifier(MemoriesBarRetreat(presentation: model.memories,
-                                                 active: model.section == .home && model.path.isEmpty))
+                                                 active: model.section == .home && model.path.isEmpty,
+                                                 scrollHide: model.section == .home && model.path.isEmpty ? model.barScrollHide.fraction : 0))
+                    .onChange(of: phoneScrollHideEnabled, initial: true) { _, on in
+                        model.barScrollHide.enabled = on
+                    }
             }
             // Root Home / Library have no inline keyboard inputs (Memories ignores keyboard itself),
             // and while Search is active its keyboard belongs to SearchView rather than the stack behind it.
@@ -188,14 +202,16 @@ struct PhoneShell: View {
 struct MemoriesBarRetreat: ViewModifier {
     let presentation: MemoriesPresentation
     var active: Bool
+    var scrollHide: CGFloat = 0
 
     func body(content: Content) -> some View {
-        let hide = active ? min(1, max(0, 1 - presentation.fraction)) : 0
+        let memoriesHide = active ? min(1, max(0, 1 - presentation.fraction)) : 0
+        let hide = min(1, max(memoriesHide, max(0, scrollHide)))
         // Gone for good once Memories is all the way open: an empty bar slot. The safe-area bar's own
         // container keeps taking touches in its band even with its content's hit testing off, and Memories'
         // Diary / Go to album sit in that band, so with the bar merely hidden they never got a tap
         // (51, 2026-11-16). It comes back on the first frame of the retreat.
-        if hide >= 1 {
+        if memoriesHide >= 1 {
             Color.clear.frame(height: 0)
         } else {
             content

@@ -73,6 +73,8 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.gpo.yoin
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.gpo.yoin
     info:
       path: Yoin/Info.plist
       properties:

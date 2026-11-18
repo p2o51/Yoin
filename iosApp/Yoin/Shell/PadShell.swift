@@ -143,6 +143,19 @@ private struct PadDock: View {
     /// The player is hidden while Now Playing is up as a panel beside the columns (it would be twice).
     private var showsPlayer: Bool { !model.isIdle && !model.npPanel }
 
+    private var padScrollHideEnabled: Bool {
+        model.section == .home
+            && model.path.isEmpty
+            && !model.padColumnOpen
+            && !model.searchActive
+            && !model.npExpanded
+            && !model.npPanel
+            && !model.settingsSplitShown
+            && !model.memories.isOpen
+            && model.homeEdit?.isEditing != true
+            && model.player.failure == nil
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             ShellBar(npNamespace: npNS, pad: .nav).fixedSize()
@@ -158,7 +171,11 @@ private struct PadDock: View {
         // Memories (pulled down over Home) takes the whole window, as on the phone: the dock leaves on
         // the pull itself.
         .modifier(MemoriesBarRetreat(presentation: model.memories,
-                                     active: model.section == .home && !model.searchActive))
+                                     active: model.section == .home && !model.searchActive,
+                                     scrollHide: model.section == .home && !model.searchActive ? model.barScrollHide.fraction : 0))
+        .onChange(of: padScrollHideEnabled, initial: true) { _, on in
+            model.barScrollHide.enabled = on
+        }
         .frame(maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea(.container, edges: .bottom)
         .ignoresSafeArea(.keyboard)
