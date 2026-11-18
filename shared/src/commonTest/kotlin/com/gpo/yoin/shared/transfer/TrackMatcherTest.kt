@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.transfer
 
+import com.gpo.yoin.shared.data.lyrics.traditionalToSimplified
 import com.gpo.yoin.shared.sync.testing.assertEquals
 import com.gpo.yoin.shared.sync.testing.assertTrue
 import kotlin.test.Test
@@ -139,6 +140,33 @@ class TrackMatcherTest {
         val candidate = track("t", "Midnight City (Eric Prydz Remix)", "M83", 301)
 
         assertTrue(TrackMatcher.choose(source, listOf(candidate)) is MatchDecision.Matched)
+    }
+
+    @Test
+    fun should_match_when_traditionalChineseMatchesSimplifiedTitleAndArtist() {
+        val source = track("s", "雨愛", "楊丞琳", 252)
+        val candidate = track("t", "雨爱", "杨丞琳", 252)
+
+        if (traditionalToSimplified("雨愛") == "雨爱") {
+            assertEquals("雨爱", TrackMatcher.normalizeTitle("雨愛"))
+            assertEquals("杨丞琳", TrackMatcher.normalizeArtist("楊丞琳"))
+            assertEquals(MatchDecision.Matched(candidate, MatchMethod.Search), TrackMatcher.choose(source, listOf(candidate)))
+        }
+
+        val previous = TrackMatcher.traditionalFold
+        TrackMatcher.traditionalFold = { text ->
+            text.replace('愛', '爱').replace('楊', '杨').replace('艷', '艳')
+        }
+        try {
+            assertEquals("雨爱", TrackMatcher.normalizeTitle("雨愛"))
+            assertEquals("杨丞琳", TrackMatcher.normalizeArtist("楊丞琳"))
+            assertEquals(
+                MatchDecision.Matched(candidate, MatchMethod.Search),
+                TrackMatcher.choose(source, listOf(candidate)),
+            )
+        } finally {
+            TrackMatcher.traditionalFold = previous
+        }
     }
 
     private fun track(

@@ -48,8 +48,8 @@ final class SongAboutLoader {
             phases[key] = .idle
             return
         }
-        let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else {
+        let ai = settings.effectiveAiSettings
+        guard ai.isReady else {
             phases[key] = store.entries(key).isEmpty ? .noKey : .idle
             return
         }
@@ -58,10 +58,12 @@ final class SongAboutLoader {
         phases[key] = .loading
         defer { inFlight.remove(key) }
         // Its own task: leaving the About page mustn't throw away a paid call.
-        let call = client()
+        var call = client()
+        if call.ai == nil { call.ai = ai }
+        let routed = call
         let request = Task {
-            try await call.canonicalAbout(apiKey: apiKey, title: title, artist: artist, album: album,
-                                          targetLanguage: language)
+            try await routed.canonicalAbout(apiKey: ai.apiKey, title: title, artist: artist, album: album,
+                                            targetLanguage: language)
         }
         do {
             let values = try await request.value
@@ -119,26 +121,28 @@ final class SongAboutLoader {
         guard !asked.isEmpty else { return }
         askRequestId += 1
         let id = askRequestId
-        let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else {
+        let ai = settings.effectiveAiSettings
+        guard ai.isReady else {
             askState = .error("Gemini API key missing")
             return
         }
         let language = settings.targetLanguage
         askState = .loading(title: asked, requestId: id)
-        let call = client()
+        var call = client()
+        if call.ai == nil { call.ai = ai }
+        let routed = call
         // Their own tasks: leaving the page mustn't throw away a paid call.
         Task {
-            guard let heading = try? await call.askTitle(apiKey: apiKey, title: title, artist: artist, album: album,
-                                                         question: asked, targetLanguage: language),
+            guard let heading = try? await routed.askTitle(apiKey: ai.apiKey, title: title, artist: artist, album: album,
+                                                           question: asked, targetLanguage: language),
                   case .loading(_, id) = askState else { return }
             askState = .loading(title: heading, requestId: id)
         }
         Task {
             let next: AskBarState
             do {
-                let reply = try await call.ask(apiKey: apiKey, title: title, artist: artist, album: album,
-                                               question: asked, targetLanguage: language)
+                let reply = try await routed.ask(apiKey: ai.apiKey, title: title, artist: artist, album: album,
+                                                 question: asked, targetLanguage: language)
                 store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply,
                               language: language)
                 next = .idle
@@ -176,24 +180,26 @@ final class SongAboutLoader {
     func regenerate(_ ref: SongAboutStore.Entry.Ref) async -> RegenerateResult? {
         guard !regenerating.contains(ref) else { return nil }
         guard let row = store.entry(ref), row.kind != SongAboutStore.Kind.own else { return .nothingNew }
-        let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else { return .apiKeyMissing }
+        let ai = settings.effectiveAiSettings
+        guard ai.isReady else { return .apiKeyMissing }
         let language = settings.targetLanguage
         regenerating.insert(ref)
         defer { regenerating.remove(ref) }
-        let call = client()
+        var call = client()
+        if call.ai == nil { call.ai = ai }
+        let routed = call
         // Its own task: leaving the page mustn't throw away a paid call.
         let request = Task { () throws -> (String?, String) in
             if row.kind == SongAboutStore.Kind.ask {
                 let question = row.promptText.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
                     ?? row.entryKey
-                let reply = try await call.ask(apiKey: apiKey, title: row.titleDisplay, artist: row.artistDisplay,
-                                               album: row.albumDisplay, question: question, targetLanguage: language)
+                let reply = try await routed.ask(apiKey: ai.apiKey, title: row.titleDisplay, artist: row.artistDisplay,
+                                                 album: row.albumDisplay, question: question, targetLanguage: language)
                 return (reply.title, reply.answer)
             }
-            let values = try await call.canonicalAbout(apiKey: apiKey, title: row.titleDisplay,
-                                                       artist: row.artistDisplay, album: row.albumDisplay,
-                                                       targetLanguage: language)
+            let values = try await routed.canonicalAbout(apiKey: ai.apiKey, title: row.titleDisplay,
+                                                         artist: row.artistDisplay, album: row.albumDisplay,
+                                                         targetLanguage: language)
             return (row.titleText, values.first { $0.key == row.entryKey }?.answer ?? "")
         }
         do {
@@ -258,19 +264,21 @@ final class SongAboutLoader {
                           toast: PlaylistActions = .shared) {
         let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !asked.isEmpty else { return }
-        let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else {
+        let ai = settings.effectiveAiSettings
+        guard ai.isReady else {
             toast.show(String(localized: "Gemini API key missing"))
             return
         }
         let language = settings.targetLanguage
         let pending = Asking(song: SongAboutStore.key(title: title, artist: artist, album: album), question: asked)
         asking.append(pending)
-        let call = client()
+        var call = client()
+        if call.ai == nil { call.ai = ai }
+        let routed = call
         Task {
             do {
-                let reply = try await call.ask(apiKey: apiKey, title: title, artist: artist, album: album,
-                                               question: asked, targetLanguage: language)
+                let reply = try await routed.ask(apiKey: ai.apiKey, title: title, artist: artist, album: album,
+                                                 question: asked, targetLanguage: language)
                 store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply,
                               language: language)
             } catch is CancellationError {

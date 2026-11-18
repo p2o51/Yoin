@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.data.lyrics
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -72,6 +73,7 @@ internal abstract class LyricProvider {
             val match = search(title, artist) ?: return null
             fetchNormalizedLyric(match.songId)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             currentCoroutineContext().ensureActive()
             null
         }
@@ -80,22 +82,47 @@ internal abstract class LyricProvider {
     /** 拉取指定 provider 内 song id 的歌词并规范化。 */
     suspend fun fetchNormalizedLyric(songId: String): String? {
         return try {
-            val raw = fetchLyric(songId) ?: return null
-            normalizeLyric(raw).takeIf { it.isNotEmpty() }
+            fetchNormalizedLyricOrThrow(songId)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             currentCoroutineContext().ensureActive()
             null
         }
     }
 
+    /** 拉取指定 provider 内 song id 的歌词并规范化；网络/服务异常继续向上抛出（保留取消检查）。 */
+    internal suspend fun fetchNormalizedLyricOrThrow(songId: String): String? {
+        val raw = try {
+            fetchLyric(songId)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            currentCoroutineContext().ensureActive()
+            throw e
+        } ?: return null
+        return normalizeLyric(raw).takeIf { it.isNotEmpty() }
+    }
+
     /** 拉取指定 provider 内 song id 的歌词和翻译并规范化。 */
     suspend fun fetchNormalizedLyricWithTranslation(songId: String): LyricPayload? {
         return try {
-            fetchLyricWithTranslation(songId)?.normalizedBy(this)
+            fetchNormalizedLyricWithTranslationOrThrow(songId)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             currentCoroutineContext().ensureActive()
             null
         }
+    }
+
+    /** 拉取指定 provider 内 song id 的歌词和翻译并规范化；网络/服务异常继续向上抛出（保留取消检查）。 */
+    internal suspend fun fetchNormalizedLyricWithTranslationOrThrow(songId: String): LyricPayload? {
+        val payload = try {
+            fetchLyricWithTranslation(songId)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            currentCoroutineContext().ensureActive()
+            throw e
+        } ?: return null
+        return payload.normalizedBy(this)
     }
 
     private fun LyricPayload.normalizedBy(provider: LyricProvider): LyricPayload? {

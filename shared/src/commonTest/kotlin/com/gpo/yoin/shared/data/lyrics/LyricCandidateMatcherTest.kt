@@ -416,6 +416,40 @@ class LyricCandidateMatcherTest {
         assertEquals(0, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras", durationMs = 171_172))
     }
 
+    @Test
+    fun should_ignoreOffLengthCutsInDominantPerformer_when_onlyOneCutFitsDuration() {
+        val candidates = listOf(
+            c("Pop Sound", "Kim Petras", seconds = 171),
+            c("Pop Sound (Remix)", "Kim Petras", seconds = 210),
+            c("Pop Sound (Live)", "Kim Petras", seconds = 230),
+        )
+
+        assertNull(matcher.pick(candidates, title = "Pop Sound", artist = "キム・ペトラス", durationMs = 171_000))
+    }
+
+    @Test
+    fun should_pickFittingCut_when_dominantPerformerHasOffLengthAndFittingCuts() {
+        val candidates = listOf(
+            c("Pop Sound (Live)", "Kim Petras", seconds = 230),
+            c("Pop Sound (Deluxe)", "Kim Petras", seconds = 171),
+            c("Pop Sound", "Kim Petras", seconds = 172),
+            c("Pop Sound", "Cover Band", seconds = 171),
+        )
+
+        assertEquals(2, matcher.pick(candidates, title = "Pop Sound", artist = "キム・ペトラス", durationMs = 171_500))
+    }
+
+    @Test
+    fun should_returnNull_when_leadUnverifiableCutIsOffLengthAndRunnerUpDominates() {
+        val candidates = listOf(
+            c("Pop Sound", "Original Artist", seconds = 240),
+            c("Pop Sound", "Cover Band", seconds = 171),
+            c("Pop Sound (Live)", "Cover Band", seconds = 172),
+        )
+
+        assertNull(matcher.pick(candidates, title = "Pop Sound", artist = "オリジナル", durationMs = 171_500))
+    }
+
     private fun c(title: String, vararg artists: String, album: String? = null) =
         LyricCandidateMatcher.Candidate(title = title, artists = artists.toList(), album = album)
 

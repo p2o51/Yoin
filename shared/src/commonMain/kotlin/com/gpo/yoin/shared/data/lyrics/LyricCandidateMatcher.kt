@@ -214,20 +214,21 @@ internal class LyricCandidateMatcher(
 
     private fun dominantPerformerCut(unverifiable: List<Cut>): Cut? {
         val lead = unverifiable.firstOrNull() ?: return null
-        val cutsByPerformer = unverifiable
+        val fitting = unverifiable.filterNot { it.offLength }
+        val cutsByPerformer = fitting
             .flatMap { cut -> cut.performerKeys.map { key -> key to cut } }
             .groupBy(keySelector = { it.first }, valueTransform = { it.second })
         val performer = lead.performerKeys.maxByOrNull { cutsByPerformer[it].orEmpty().size } ?: return null
-        val own = cutsByPerformer.getValue(performer)
+        val own = cutsByPerformer[performer].orEmpty()
         if (own.size < MIN_DOMINANT_CUTS) return null
-        val strongestRival = unverifiable
+        val strongestRival = fitting
             .filterNot { performer in it.performerKeys }
             .flatMap { it.performerKeys }
             .groupingBy { it }
             .eachCount()
             .values
             .maxOrNull() ?: 0
-        return if (own.size > strongestRival) own.preferred() else null
+        return if (own.size > strongestRival) own.filterNot { it.offLength }.preferred() else null
     }
 
     private fun List<Cut>.preferred(): Cut? =

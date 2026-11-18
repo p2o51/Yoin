@@ -2,8 +2,10 @@ package com.gpo.yoin.shared.data.lyrics
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 
 class LyricsRegistryTest {
@@ -362,6 +364,73 @@ class LyricsRegistryTest {
         assertEquals(false, web.seen.any { it.host.contains("dbankcloud") }, "Huawei is manual-search only")
         registry.close()
     }
+
+    @Test
+    fun should_throwLyricFetchException_when_allAutomaticProvidersFailWithHttp500() = runTest {
+        val web = FakeWeb()
+        web.on("/") { status(500) }
+        val registry = LyricsRegistry.withEngine(web.engine)
+
+        assertFailsWith<LyricFetchException> {
+            registry.autoFetch("Pop Sound", "Kim Petras", 171_172)
+        }
+        registry.close()
+    }
+
+    @Test
+    fun should_throwLyricFetchException_when_allAutomaticProvidersDisconnect() = runTest {
+        val web = FakeWeb()
+        web.on("/") { FakeReply.Disconnect }
+        val registry = LyricsRegistry.withEngine(web.engine)
+
+        assertFailsWith<LyricFetchException> {
+            registry.autoFetch("Pop Sound", "Kim Petras", 171_172)
+        }
+        registry.close()
+    }
+
+    @Test
+    fun should_returnNull_when_oneReachableProviderReturnsEmptyAndOthersFail() = runTest {
+        val web = FakeWeb()
+        web.on("/") { status(500) }
+        web.onExact("/lrclib.net/api/search") { ok("[]") }
+        val registry = LyricsRegistry.withEngine(web.engine)
+
+        assertNull(registry.autoFetch("Nonexistent Song", "Unknown Artist", 180_000))
+        registry.close()
+    }
+
+    @Test
+    fun should_throwLyricFetchException_when_searchMatchesButLyricFetchFailsWithHttp500() = runTest {
+        val web = FakeWeb()
+        web.on("/") { status(500) }
+        web.onExact("/lrclib.net/api/search") {
+            ok("""[{"id":7,"trackName":"Pop Sound","artistName":"Kim Petras","duration":171.0}]""")
+        }
+        web.onExact("/lrclib.net/api/get/7") { status(500) }
+        val registry = LyricsRegistry.withEngine(web.engine)
+
+        assertFailsWith<LyricFetchException> {
+            registry.autoFetch("Pop Sound", "Kim Petras", 171_172)
+        }
+        registry.close()
+    }
+
+    @Test
+    fun should_propagateCancellation_when_providerCancelsDuringAutoFetch() = runTest {
+        val registry = LyricsRegistry(
+            providers = listOf(
+                FakeProvider(
+                    name = "cancelling",
+                    searchFailure = CancellationException("cancelled"),
+                ),
+            ),
+        )
+
+        assertFailsWith<CancellationException> {
+            registry.autoFetch("Track", "Artist", 180_000)
+        }
+    }
 }
 
 private class FakeProvider(
@@ -374,6 +443,8 @@ private class FakeProvider(
     override val automatic: Boolean = true,
     override val nativeTranslation: NativeTranslation? = null,
     private val failure: Exception? = null,
+    private val searchFailure: Exception? = null,
+    private val fetchFailure: Exception? = null,
 ) : LyricProvider() {
 
     var searches = 0
@@ -385,6 +456,7 @@ private class FakeProvider(
     override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? {
         searches += 1
         searchedTitles += title
+        searchFailure?.let { throw it }
         return (matchesFor?.invoke(title, artist) ?: matches).firstOrNull()
     }
 
@@ -397,7 +469,10 @@ private class FakeProvider(
         return (matchesFor?.invoke(title, artist) ?: matches).take(limit)
     }
 
-    override suspend fun fetchLyric(songId: String): String? = lyrics[songId] ?: payloads[songId]?.lyric
+    override suspend fun fetchLyric(songId: String): String? {
+        fetchFailure?.let { throw it }
+        return lyrics[songId] ?: payloads[songId]?.lyric
+    }
 
     override suspend fun fetchLyricWithTranslation(songId: String): LyricPayload? =
         payloads[songId] ?: super.fetchLyricWithTranslation(songId)

@@ -3,24 +3,14 @@ import Foundation
 /// Android `GeminiService.translateLyricLines`: no search grounding, one
 /// tagged block per source line, parsed back by index.
 extension GeminiClient {
-    /// Source-line index → translation (lines Gemini left out are absent).
+    /// Source-line index → translation (lines left out are absent).
     func translateLyricLines(apiKey: String, title: String, artist: String, lines: [String],
                              targetLanguage: String) async throws -> [Int: String] {
+        let settings = resolvedAi(apiKey: apiKey)
         let prompt = Self.lyricsTranslationPrompt(title: title, artist: artist, lines: lines,
                                                   targetLanguage: targetLanguage)
-        let request = try Self.request(baseURL: baseURL, apiKey: apiKey,
-                                       body: RequestBody(contents: [.init(parts: [.init(text: prompt)])], tools: nil))
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch let error as URLError where error.code == .cancelled {
-            throw CancellationError()
-        } catch let error as URLError {
-            throw Failure(message: Self.networkMessage(error))
-        }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let raw = try Self.text(status: status, body: data, requireNonEmpty: true)
+        let raw = try await generateText(ai: settings, prompt: prompt, temperature: 0.8,
+                                         useSearch: false, timeout: 45, requireNonEmpty: true)
         let parsed = Self.parseLineTranslations(raw, lineCount: lines.count)
         guard !parsed.isEmpty else { throw Failure(message: "No usable lyric translations in Gemini response") }
         return parsed

@@ -2,6 +2,8 @@ package com.gpo.yoin.shared.transfer
 
 import com.gpo.yoin.shared.data.lyrics.normalizeNfd
 import com.gpo.yoin.shared.data.lyrics.normalizeNfkc
+import com.gpo.yoin.shared.data.lyrics.traditionalToSimplified
+import kotlin.concurrent.Volatile
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -161,12 +163,19 @@ object TrackMatcher {
     internal fun splitArtists(artist: String): List<String> =
         artist.split(ARTIST_SEPARATOR).map(String::trim).filter(String::isNotEmpty)
 
+    @Volatile
+    internal var traditionalFold: (String) -> String = ::traditionalToSimplified
+
+    internal fun foldTraditionalToSimplified(text: String): String = traditionalFold(text)
+
     /**
-     * Android: `Normalizer.normalize(text, NFKD)` then drop `\p{Mn}`. NFKD = NFD of NFKC; the marks are
-     * dropped by category, which every platform's Kotlin knows the same way.
+     * Android: `Normalizer.normalize(text, NFKD)` then drop `\p{Mn}`, plus Traditional → Simplified Han
+     * folding via [foldTraditionalToSimplified]. NFKD = NFD of NFKC; the marks are dropped by category,
+     * which every platform's Kotlin knows the same way.
      */
     private fun normalize(text: String): String {
-        val decomposed = normalizeNfd(normalizeNfkc(text))
+        val simplified = foldTraditionalToSimplified(normalizeNfkc(text))
+        val decomposed = normalizeNfd(simplified)
         val folded = buildString(decomposed.length) {
             for (char in decomposed) if (char.category != CharCategory.NON_SPACING_MARK) append(char)
         }.lowercase().replace('&', ' ')
