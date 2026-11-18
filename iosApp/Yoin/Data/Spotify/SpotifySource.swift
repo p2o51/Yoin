@@ -424,6 +424,7 @@ final class SpotifySource {
         var deviceId: String?
         var deviceName: String
         var deviceType: String = ""
+        var isPrivateSession: Bool = false
         var isPlaying: Bool
         var trackURI: String? = nil
         /// The song asked for when Spotify plays a relinked copy of it (another market's id).
@@ -442,18 +443,22 @@ final class SpotifySource {
     }
 
     private struct PlayerDTO: Decodable {
-        struct D: Decodable { let id: String?; let name: String?; let type: String? }
+        struct D: Decodable { let id: String?; let name: String?; let type: String?; let isPrivateSession: Bool? }
         struct Named: Decodable { let name: String? }
         struct Image: Decodable { let url: String?; let width: Int? }
         struct Album: Decodable { let id: String?; let name: String?; let images: [Image]? }
+        struct Show: Decodable { let id: String?; let name: String?; let publisher: String?; let images: [Image]? }
         struct Linked: Decodable { let uri: String? }
         struct I: Decodable {
             let uri: String?
+            let type: String?
             let linkedFrom: Linked?
             let durationMs: Int?
             let name: String?
             let artists: [Named]?
             let album: Album?
+            let images: [Image]?
+            let show: Show?
         }
         let device: D?
         let isPlaying: Bool?
@@ -464,20 +469,24 @@ final class SpotifySource {
     }
 
     func playerNow() async throws -> PlayerNow? {
-        let data = try await api.send("GET", "me/player")
+        let data = try await api.send("GET", "me/player", ["additional_types": "track,episode"])
         guard !data.isEmpty else { return nil }  // 204: no active device
         let r = try SpotifyWebAPI.decoder.decode(PlayerDTO.self, from: data)
         guard let d = r.device else { return nil }
+        let joinedArtists = r.item?.artists?.compactMap(\.name).joined(separator: ", ") ?? ""
+        let artists: String? = joinedArtists.isEmpty ? nil : joinedArtists
+        let images = r.item?.album?.images ?? r.item?.images ?? r.item?.show?.images
         return PlayerNow(deviceId: d.id, deviceName: d.name ?? String(localized: "another device"), deviceType: d.type ?? "",
+                         isPrivateSession: d.isPrivateSession ?? false,
                          isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri,
                          linkedFromURI: r.item?.linkedFrom?.uri, progressMs: r.progressMs ?? 0,
                          durationMs: r.item?.durationMs ?? 0, shuffle: r.shuffleState ?? false,
                          repeatState: r.repeatState ?? "off", trackName: r.item?.name,
-                         artistName: r.item?.artists?.compactMap(\.name).joined(separator: ", "),
-                         albumName: r.item?.album?.name,
+                         artistName: artists ?? r.item?.show?.publisher ?? r.item?.show?.name,
+                         albumName: r.item?.album?.name ?? r.item?.show?.name,
                          // The largest picture first (Spotify lists them biggest first; not relied on).
-                         coverURL: r.item?.album?.images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)),
-                         albumId: r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 })
+                         coverURL: images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)),
+                         albumId: r.item?.type == "episode" ? nil : r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// One song of Spotify's own queue as the queue sheet lists it.

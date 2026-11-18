@@ -792,6 +792,7 @@ extension PlayerEngine: AudioOutputEvents {
         currentIndex = index
         let item = queue[index]
         timeBaseSec = 0
+        isBuffering = false
         progress.positionSec = 0
         progress.durationSec = item.track.durationSec
         beginScrobble(item, at: 0)
@@ -839,6 +840,8 @@ extension PlayerEngine: AudioOutputEvents {
             }
             // Spotify plays: a start that didn't take is no longer what the listener sees.
             failure = nil
+            isBuffering = false
+            outputStalled = false
             isPlaying = playing
             progress.durationSec = track.durationSec
             progress.positionSec = positionSec

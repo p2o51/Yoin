@@ -140,7 +140,10 @@ struct PhoneShell: View {
             if on && !npResident { npResident = true }
         }
         .onChange(of: model.isIdle) { _, idle in
-            if idle { npResident = false }
+            if idle {
+                npResident = false
+                if model.npExpanded { model.setNowPlaying(expanded: false) }
+            }
         }
         // The plane behind a receding layer is the app surface, never black
         // (labRecede draws it too): black read as a flash at the corners.

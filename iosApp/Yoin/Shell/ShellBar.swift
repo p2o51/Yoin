@@ -584,7 +584,14 @@ struct PillContent: View {
             .lineLimit(1)
             .labContrast("miniPlayer")
             Spacer(minLength: 0)
+            if p.isBuffering, p.isPlaying, showTitle {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
         }
+        .animation(Yoin.effects, value: p.isBuffering && p.isPlaying)
         .offset(x: -Self.pushTravel * push)
         .opacity(1 - 0.9 * abs(push))
         .padding(.leading, 9)
@@ -599,7 +606,7 @@ struct PillContent: View {
             if showWash, np?.mounted != true {
                 PlaybackPosition { position, duration in
                     PillWash(positionSec: position, durationSec: duration,
-                             playing: p.isPlaying && SheetRise.shared.progress < 0.5,
+                             playing: p.isPlaying && !p.isBuffering && SheetRise.shared.progress < 0.5,
                              color: scheme.primary.opacity(lab.extra("washOpacity")),
                              amplitude: lab.extra("washAmplitude"))
                 }

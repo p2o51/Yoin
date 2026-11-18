@@ -53,6 +53,11 @@ final class PlaybackSystem {
             router.adopt(spotify)
             return true
         }
+        spotify.canAdoptPaused = { [weak router, weak spotify, weak engine = system.engine] in
+            guard let router, let spotify, let engine, engine.currentTrack == nil else { return false }
+            router.adopt(spotify)
+            return true
+        }
         let conditions = StreamQualityConditions()
         system.streamConditions = conditions
         system.engine.streamQuality = { conditions.resolvedNow() }

@@ -757,12 +757,15 @@ struct HomeView: View {
                             ForEach(Array(stride(from: 0, to: min(tiles.count, trackCols * 2), by: trackCols)), id: \.self) { r in
                                 HStack(spacing: tileGap) {
                                     ForEach(r..<min(r + trackCols, tiles.count), id: \.self) { i in
-                                        TrackTile(album: tiles[i].album, track: tiles[i].track)
-                                            .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
-                                                   alignment: .leading)
-                                            .pointerHighlight()
-                                            .yoinDraggable { YoinDrag.song(tiles[i], model: model) }
-                                            .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
+                                        Button { homeTap(edit) { model.play(tiles, startAt: i) } } label: {
+                                            TrackTile(album: tiles[i].album, track: tiles[i].track)
+                                                .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
+                                                       alignment: .leading)
+                                                .contentShape(.rect)
+                                        }
+                                        .buttonStyle(PressScale())
+                                        .pointerHighlight()
+                                        .yoinDraggable { YoinDrag.song(tiles[i], model: model) }
                                     }
                                 }
                             }

@@ -85,6 +85,12 @@ struct PadShell: View {
             }
             model.np.show(open)
         }
+        .onChange(of: model.isIdle) { _, idle in
+            if idle {
+                if model.npExpanded { model.setNowPlaying(expanded: false) }
+                if model.npPanel { withAnimation(Yoin.spatial) { model.npPanel = false } }
+            }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
         // A column opening beside the panel where the two columns no longer fit: the page stays visible and
         // the panel steps away (Android: "the page is always visible").

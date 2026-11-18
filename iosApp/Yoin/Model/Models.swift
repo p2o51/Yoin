@@ -260,6 +260,7 @@ struct PlaybackSnapshot: Sendable {
     var track: Track
     var positionSec: Int
     var isPlaying: Bool
+    var isBuffering: Bool = false
     var lyricLine: String
     var nextLyricLine: String
     var lyrics: [String] = []

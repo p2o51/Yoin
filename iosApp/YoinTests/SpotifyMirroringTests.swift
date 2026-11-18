@@ -317,6 +317,69 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
         XCTAssertTrue(engine.isPlaying)
     }
+
+    // MARK: 51's 2026-11-17 iPhone Air log regressions
+
+    func test_should_stopPollingAndDismissAdoptedSpeaker_when_meplayerAnswers204Twice() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+
+        // The remote device goes offline (204 nothing active). After two 4 s poll reads it stops polling
+        // and clears the vanished remote card instead of looping every 4 s forever.
+        MirrorStub.route = { _ in .init(status: 204, body: "") }
+        try await waitUntil(SpotifyAudioOutput.pollSec * 2 + 2) {
+            self.engine.currentTrack == nil && SpotifyPlayingDevice.shared.name == nil
+        }
+        let readsAtStop = MirrorStub.requests.filter { $0.url.path == "/v1/me/player" }.count
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.pollSec + 1.2))
+        let readsAfter = MirrorStub.requests.filter { $0.url.path == "/v1/me/player" }.count
+        // At most 1 idle 10 s watch tick may fire in 5.2 s, never another 4 s poll loop.
+        XCTAssertLessThanOrEqual(readsAfter - readsAtStop, 1)
+    }
+
+    func test_should_keepPlayingState_when_activeDeviceIsInPrivateSessionWithNullItem() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+
+        // Private session: active device, is_playing=true, item=null.
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel(playing: true, uri: nil, shuffle: false)) }
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.pollSec + 0.8))
+        XCTAssertTrue(engine.isPlaying, "private session playing with null item must not flip Yoin to paused")
+        XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
+    }
+
+    func test_should_adoptPausedSongOnThisIPhone_when_yoinIsCompletelyIdle() async throws {
+        let localPaused = #"{"device":{"id":"ip1","name":"51's iPhone","type":"Smartphone"},"is_playing":false,"progress_ms":64000,"shuffle_state":false,"repeat_state":"off","item":{"uri":"spotify:track:34h4HhkN3FD0FqIf3Pm4F6","duration_ms":200000,"name":"Paused Here","artists":[{"name":"Them"}],"album":{"name":"Theirs","images":[]}}}"#
+        MirrorStub.route = { _ in .init(status: 200, body: localPaused) }
+        spotify.adopt = { true }
+        spotify.canAdoptPaused = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Paused Here" }
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+        XCTAssertEqual(puts, [])
+    }
+
+    func test_should_recheckAfterShortDelayOnBecameActive_when_cloudStateLagsBehindAppSwitch() async throws {
+        MirrorStub.route = { _ in .init(status: 204, body: "") }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { !MirrorStub.requests.isEmpty }
+
+        // Fast switch back from Spotify: 0 s read still sees 204, 0.4 s later Spotify's cloud updates.
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(400))
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        try await waitUntil(SpotifyAudioOutput.foregroundRecheckSec + 1.5) {
+            self.engine.currentTrack?.title == "Song On Pixel"
+        }
+        XCTAssertTrue(engine.isPlaying)
+    }
 }
 
 /// Answers each request from [route] and records it.

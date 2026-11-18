@@ -85,6 +85,28 @@ final class SpotifyPlayerHTTPTests: XCTestCase {
         XCTAssertEqual(now?.isPlaying, false)
         XCTAssertNil(now?.trackURI)
     }
+
+    func test_should_requestEpisodesAndMapShowMetadata_when_spotifyPlaysAPodcastEpisode() async throws {
+        PlayerStub.route = { _ in
+            .init(status: 200, body: #"""
+            {"device":{"id":"7a3d","name":"Pixel 11 Pro","type":"Smartphone","is_private_session":true},
+             "is_playing":true,"progress_ms":42000,"shuffle_state":false,"repeat_state":"off",
+             "item":{"uri":"spotify:episode:ep99","type":"episode","duration_ms":1800000,"name":"Episode 99",
+                     "images":[{"url":"https://i.scdn.co/image/ep","width":640}],
+                     "show":{"id":"sh1","name":"Night Radio","publisher":"Studio 51"}}}
+            """#)
+        }
+        let now = try await source().playerNow()
+        let r = try XCTUnwrap(PlayerStub.requests.first)
+        XCTAssertEqual(r.url.query, "additional_types=track,episode")
+        XCTAssertEqual(now?.trackURI, "spotify:episode:ep99")
+        XCTAssertEqual(now?.trackName, "Episode 99")
+        XCTAssertEqual(now?.artistName, "Studio 51")
+        XCTAssertEqual(now?.albumName, "Night Radio")
+        XCTAssertNil(now?.albumId, "an episode has no album page id")
+        XCTAssertEqual(now?.coverURL?.absoluteString, "https://i.scdn.co/image/ep")
+        XCTAssertEqual(now?.isPrivateSession, true)
+    }
 }
 
 private final class Flag: @unchecked Sendable {

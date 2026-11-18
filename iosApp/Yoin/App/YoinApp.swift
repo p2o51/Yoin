@@ -117,6 +117,21 @@ struct RootView: View {
         #if DEBUG
         .modifier(SpotoolfyRecapDemoHost())
         .environment(model)
+        #if !targetEnvironment(simulator)
+        .overlay(alignment: .top) {
+            if LaunchConfig.silentAudio, UserDefaults.standard.string(forKey: "screen") == nil {
+                Text("SILENT QA (-silentAudio)")
+                    .font(.gsf(11, .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.red.opacity(0.88), in: .capsule)
+                    .padding(.top, 4)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        #endif
         #endif
     }
 }
