@@ -11,6 +11,7 @@ struct MarqueeText: View {
     var velocity: CGFloat = 30
     var initialDelay: Double = 2.5
     var repeatDelay: Double = 2
+    var edgeFade: CGFloat = 28
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var box: CGFloat = 0
     @State private var natural: CGFloat = 0
@@ -35,9 +36,20 @@ struct MarqueeText: View {
                                             velocity: velocity, initialDelay: initialDelay, repeatDelay: repeatDelay)
                         HStack(spacing: Self.spacing(box)) { line.fixedSize(); line.fixedSize() }
                             .offset(x: x)
+                            .frame(width: box, alignment: .leading)
+                            .clipped()
+                            .mask {
+                                if edgeFade > 0 {
+                                    LinearGradient(
+                                        stops: Self.edgeMaskStops(width: box, edgeFade: edgeFade, scrollOffset: x),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                } else {
+                                    Color.white
+                                }
+                            }
                     }
-                    .frame(width: box, alignment: .leading)
-                    .clipped()
                 } else {
                     line.lineLimit(1).frame(width: box, alignment: .leading)
                 }
@@ -48,6 +60,28 @@ struct MarqueeText: View {
     }
 
     private var line: some View { Text(text).font(font).foregroundStyle(color) }
+
+    /// Soft leading/trailing fade mask stops matching Android's 28dp edge fade (`horizontalFadeMask`).
+    static func edgeMaskStops(width: CGFloat, edgeFade: CGFloat, scrollOffset: CGFloat) -> [Gradient.Stop] {
+        guard width > 1, edgeFade > 0 else {
+            return [.init(color: .white, location: 0), .init(color: .white, location: 1)]
+        }
+        let fadeFraction = min(0.35, edgeFade / width)
+        let leadingTransparent = scrollOffset < -0.5
+        if leadingTransparent {
+            return [
+                .init(color: .clear, location: 0),
+                .init(color: .white, location: fadeFraction),
+                .init(color: .white, location: 1 - fadeFraction),
+                .init(color: .clear, location: 1),
+            ]
+        }
+        return [
+            .init(color: .white, location: 0),
+            .init(color: .white, location: 1 - fadeFraction),
+            .init(color: .clear, location: 1),
+        ]
+    }
 
     /// The gap before the copy: a third of the box (MarqueeSpacing.fractionOfContainer(1/3)).
     static func spacing(_ box: CGFloat) -> CGFloat { box / 3 }

@@ -35,7 +35,7 @@ final class NowPlayingGlow {
         // Action lights (Android ActionGlowKind).
         case favoriteOn, favoriteOff, gatherInto, ratingCommit, ratingClear
         case shuffleOn, shuffleOff, repeatAll, repeatOne, repeatOff
-        case seekRelease, noteSave, noteDelete, lyricsReveal, deviceHandoff, roomLift, coverHold, lineGlow
+        case seekRelease, noteSave, noteDelete, lyricsReveal, translationWave, deviceHandoff, roomLift, coverHold, lineGlow
         // Transport (Android NowPlayingAuroraBackground's pulses and tap dots).
         case playBurst, pauseBurst, tapDots, sideFlow, flowLight, lineBand
 
@@ -53,6 +53,7 @@ final class NowPlayingGlow {
             case .noteSave: 1.7
             case .noteDelete: 0.7
             case .lyricsReveal: 1.3
+            case .translationWave: 1.9
             case .deviceHandoff: 2.1
             case .roomLift: 0.9
             case .coverHold: 0.7
@@ -70,7 +71,7 @@ final class NowPlayingGlow {
         var isPlayMode: Bool { [.shuffleOn, .shuffleOff, .repeatAll, .repeatOne, .repeatOff].contains(self) }
 
         /// Moves across the room (a sweep, a flow, dots flying): left out under Reduce Motion.
-        var moves: Bool { [.tapDots, .sideFlow, .flowLight, .deviceHandoff, .lyricsReveal].contains(self) }
+        var moves: Bool { [.tapDots, .sideFlow, .flowLight, .deviceHandoff, .lyricsReveal, .translationWave].contains(self) }
     }
 
     /// Controls whose bounds a light starts from.
@@ -146,8 +147,9 @@ final class NowPlayingGlow {
     func glow(_ kind: Kind, at rect: CGRect?, value: Double = 0, targetY: CGFloat? = nil, area: CGRect? = nil) {
         if reduceMotion && kind.moves { return }
         let now = Date()
-        if kind.isPlayMode {
-            for i in lights.indices where lights[i].kind.isPlayMode && lights[i].retired == nil { lights[i].retired = now }
+        if kind.isPlayMode || kind == .translationWave {
+            let matches: (Kind) -> Bool = kind.isPlayMode ? { $0.isPlayMode } : { $0 == .translationWave }
+            for i in lights.indices where matches(lights[i].kind) && lights[i].retired == nil { lights[i].retired = now }
         }
         lights.append(Light(kind: kind, anchor: rect, born: now, value: value, targetY: targetY, area: area))
         if lights.count > Self.maxLights { lights.removeFirst(lights.count - Self.maxLights) }
@@ -532,6 +534,27 @@ private struct GlowPainter {
                 y += step
                 i += 1
             }
+        case .translationWave:
+            let step: CGFloat = 40
+            guard h > 0, step > 0 else { return }
+            let opening = light.value >= 0.5
+            let area = light.area.map(local)
+            let top = min(max(area?.minY ?? h * 0.3, 0), h)
+            let from = min(max(light.targetY.map(local(y:)) ?? top, top), h)
+            let color = opening ? pal.p : pal.s
+            let strength = opening ? 0.62 : 0.4
+            let bandLifeMs = 1100.0
+            let msPerPt = 0.55
+            var y = top + step * 0.5
+            while y < h + step {
+                let delay = Double(abs(y - from)) * msPerPt
+                let v = (tMs - delay) / bandLifeMs
+                if v > 0 && v < 1 {
+                    ellipse(CGPoint(x: w / 2, y: y), rx: w * 0.9, ry: step * 1.1,
+                            color, k * strength * softBell(v))
+                }
+                y += step
+            }
         case .deviceHandoff:
             if tMs < 1100 {
                 let v = tMs / 1100
@@ -785,6 +808,12 @@ private struct GlowPainter {
 
 private func bell(_ t: Double) -> Double { sin(.pi * min(max(t, 0), 1)) }
 
+/// A bell that rises quickly and lets go slowly (Android `softBell` for translation wave bands).
+private func softBell(_ t: Double) -> Double {
+    let x = min(max(t, 0), 1)
+    return x < 0.3 ? sin(.pi / 2 * (x / 0.3)) : 0.5 + 0.5 * cos(.pi * (x - 0.3) / 0.7)
+}
+
 /// Up quickly, then a long settle: a light that arrives and lets go without a bounce.
 private func swell(_ t: Double) -> Double {
     let u = min(max(t, 0), 1), peak = 0.28
@@ -847,12 +876,15 @@ struct GlowWiring: ViewModifier {
                 guard active else { return }
                 glow.setWaiting(waiting, area: lyricsArea())
             }
-            // A translation came out: each line lights once, top to bottom.
+            // Translation opened or closed: wave across the whole screen bottom + plucked-string haptic.
             .onChange(of: actions.showTranslation) { old, new in
                 guard active else { return }
-                if new.values.filter({ $0 }).count > old.values.filter({ $0 }).count {
-                    glow.glow(.lyricsReveal, at: nil, area: lyricsArea())
-                }
+                let oldCount = old.values.filter { $0 }.count
+                let newCount = new.values.filter { $0 }.count
+                guard newCount != oldCount else { return }
+                let opening = newCount > oldCount
+                glow.glow(.translationWave, at: nil, value: opening ? 1 : 0, targetY: glow.lyricsLineY, area: lyricsArea())
+                YoinHaptics.performPluck(opening: opening)
             }
             // Long-press on the cover: a ring closes in on it.
             .onChange(of: PlaylistActions.shared.menu?.id) { _, id in

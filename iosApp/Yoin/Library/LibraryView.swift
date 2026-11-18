@@ -430,13 +430,29 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
-        Button { open(item) } label: {
+        SecondaryEntityButton(
+            target: secondaryTarget(for: item),
+            onOpen: { open(item) },
+            onPrimaryTap: { open(item) }
+        ) {
             LibraryGridCellFace(item: item, side: side, scheme: scheme) { backdrop in
                 backdrop.zoomSource(item.id, zoomNS, tile: "library")
             }
         }
         .buttonStyle(PressScale())
         .modifier(GridCellDrag(item: item, ink: scheme.primary))
+    }
+
+    private func secondaryTarget(for item: LibraryItem) -> SecondaryMenuTarget {
+        switch item.kind {
+        case .album:
+            if let album = item.album { return .album(album) }
+            return .artist(name: item.title, id: nil)
+        case .playlist:
+            return .playlist(item)
+        case .artist:
+            return .artist(name: item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
+        }
     }
 
     private func open(_ item: LibraryItem) {
@@ -562,7 +578,11 @@ struct LibraryView: View {
                 .transition(.opacity.animation(Yoin.effects))
                 .onAppear { Task { await model.store.loadMoreSongs() } }
         case .failed:
-            RetryRow(scheme: scheme) { Task { await model.store.loadMoreSongs() } }
+            RetryRow(
+                scheme: scheme,
+                message: model.store.failures["songsMore"] ?? model.store.failures["songs"],
+                details: model.store.failureReports["songsMore"] ?? model.store.failureReports["songs"]
+            ) { Task { await model.store.loadMoreSongs() } }
                 .padding(.vertical, 12)
                 .transition(.opacity.animation(Yoin.effects))
         }
@@ -927,7 +947,7 @@ struct PlaylistRow: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        SecondaryEntityButton(target: .playlist(item), onOpen: action, onPrimaryTap: action) {
             HStack(spacing: Tokens.library.ROW_GAP.cg) {
                 CoverArt(palette: item.palette, cornerRadius: 0, seed: 3)
                     .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
@@ -1112,6 +1132,7 @@ private struct LibraryChipsBar: View {
 }
 
 private struct LibraryScrollerOverlay: View {
+    @Environment(AppModel.self) private var model
     var scrollState: LibraryScrollState
     var sections: [LibraryFastScroller.Section]
     var itemCount: Int
@@ -1119,6 +1140,12 @@ private struct LibraryScrollerOverlay: View {
     var scheme: CoverScheme
     var wideHeader: Bool
     var onScrollTo: (CGFloat) -> Void
+
+    /// Computes the extra bottom inset beyond what Phone/Pad shell containers already reserve.
+    static func bottomInset(isPad: Bool, bottomGroupPadding: CGFloat = Tokens.library.BOTTOM_GROUP_PADDING.cg) -> CGFloat {
+        let reserved = ShellBarMetrics.clearance + (isPad ? PadDockMetrics.extraShellClearance : 0)
+        return max(0, bottomGroupPadding - reserved)
+    }
 
     var body: some View {
         let m = scrollState.metrics
@@ -1144,10 +1171,10 @@ private struct LibraryScrollerOverlay: View {
         // Android LibraryGridFastScroller: the grid box (under the 64
         // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
         // bottom = floatingBottomGroupContentPadding 108 over the inset,
-        // less the 62 the shell already reserves for the bar.
+        // less what the Phone or Pad shell already reserves for its bar/dock.
         .padding(.top, 64 + (wideHeader ? 0 : Tokens.library.CHIP_HEIGHT.cg + 4) + Tokens.library.SCROLLER_TOP_INSET.cg
                  + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
-        .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
+        .padding(.bottom, LibraryScrollerMetrics.bottomInset(isPad: model.isPad))
     }
 }
 
@@ -1913,5 +1940,147 @@ struct LibraryMetaLine: View {
                     .foregroundStyle(scheme.onSurface.opacity(part.1 ? Tokens.metaLine.MUTED_ALPHA : 1))
             }
         }
+    }
+}
+
+/// Entity target for secondary-click / pointer context menus on albums, playlists, and artists.
+enum SecondaryMenuTarget {
+    case album(Album)
+    case playlist(LibraryItem)
+    case artist(name: String, id: String?)
+}
+
+/// Button wrapper that consumes secondary clicks inside its label (matching `SecondaryClick.swift`)
+/// and opens a context popover anchored to the item without triggering the primary tap action.
+struct SecondaryEntityButton<Label: View>: View {
+    var target: SecondaryMenuTarget
+    var onOpen: () -> Void
+    var onSecondaryIntercept: (() -> Bool)? = nil
+    var onPrimaryTap: () -> Void
+    @ViewBuilder var label: () -> Label
+
+    @State private var menuOpen = false
+
+    var body: some View {
+        Button(action: onPrimaryTap) {
+            label()
+                .onSecondaryClick {
+                    if onSecondaryIntercept?() == true { return }
+                    menuOpen = true
+                }
+        }
+        .popover(isPresented: $menuOpen, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            SecondaryEntityMenuContent(target: target, open: $menuOpen, onOpen: onOpen)
+        }
+    }
+}
+
+private struct SecondaryEntityMenuContent: View {
+    @Environment(AppModel.self) private var model
+    var target: SecondaryMenuTarget
+    @Binding var open: Bool
+    var onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch target {
+            case .album(let album):
+                menuRow(icon: "play_filled", title: String(localized: "Play")) {
+                    model.play(loading: { await albumEntries(album) })
+                }
+                menuRow(icon: "shuffle", title: String(localized: "Shuffle")) {
+                    model.play(loading: { await albumEntries(album) }, shuffle: true)
+                }
+                if model.player.externalTrack == nil {
+                    menuRow(icon: "skip_next_filled", title: String(localized: "Play next")) {
+                        Task {
+                            let entries = await albumEntries(album)
+                            await MainActor.run { model.enqueue(entries, next: true) }
+                        }
+                    }
+                }
+                menuRow(icon: "queue", title: String(localized: "Add to queue")) {
+                    Task {
+                        let entries = await albumEntries(album)
+                        await MainActor.run { model.enqueue(entries, next: false) }
+                    }
+                }
+                menuRow(icon: "album", title: String(localized: "Go to album"), action: onOpen)
+            case .playlist(let item):
+                menuRow(icon: "play_filled", title: String(localized: "Play")) {
+                    model.play(loading: { await playlistEntries(item.id.rawId) })
+                }
+                menuRow(icon: "shuffle", title: String(localized: "Shuffle")) {
+                    model.play(loading: { await playlistEntries(item.id.rawId) }, shuffle: true)
+                }
+                menuRow(icon: "queue", title: String(localized: "Add to queue")) {
+                    Task {
+                        let entries = await playlistEntries(item.id.rawId)
+                        await MainActor.run { model.enqueue(entries, next: false) }
+                    }
+                }
+                menuRow(icon: "playlist", title: String(localized: "Open"), action: onOpen)
+            case .artist(let name, let id):
+                menuRow(icon: "play_filled", title: String(localized: "Play")) {
+                    model.play(loading: { await artistEntries(name: name, id: id) })
+                }
+                menuRow(icon: "shuffle", title: String(localized: "Shuffle")) {
+                    model.play(loading: { await artistEntries(name: name, id: id) }, shuffle: true)
+                }
+                menuRow(icon: "artist", title: String(localized: "Go to artist"), action: onOpen)
+            }
+        }
+        .frame(minWidth: 200)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private func menuRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            open = false
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                YoinIcon(icon, size: 18)
+                Text(title).font(.body)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .pointerHighlight()
+    }
+
+    private func albumEntries(_ album: Album) async -> [PlaylistEntry] {
+        let full = await model.store.fullAlbum(model.resolved(album))
+        return full.tracks.map { PlaylistEntry(album: full, track: $0) }
+    }
+
+    private func playlistEntries(_ id: String) async -> [PlaylistEntry] {
+        await model.store.loadPlaylist(id)
+        return model.playlistInfo(id).entries
+    }
+
+    private func artistEntries(name: String, id: String?) async -> [PlaylistEntry] {
+        if let id, !id.isEmpty { await model.store.loadArtist(id) }
+        let page = model.artistPage(ArtistRef(name, id: id))
+        let limit = model.store.provider == MediaRef.companion.PROVIDER_SUBSONIC ? Int.max : 100
+        var out: [PlaylistEntry] = []
+        for release in page.releases where out.count < limit {
+            let full = await model.store.fullAlbum(release)
+            out += full.tracks.map { PlaylistEntry(album: full, track: $0) }
+        }
+        if out.isEmpty { return page.mostPlayed }
+        return Array(out.prefix(limit))
+    }
+}
+
+/// Shared scroller bottom inset helper exposed for unit verification.
+enum LibraryScrollerMetrics {
+    static func bottomInset(isPad: Bool, bottomGroupPadding: CGFloat = Tokens.library.BOTTOM_GROUP_PADDING.cg) -> CGFloat {
+        let reserved = ShellBarMetrics.clearance + (isPad ? PadDockMetrics.extraShellClearance : 0)
+        return max(0, bottomGroupPadding - reserved)
     }
 }

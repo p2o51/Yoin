@@ -427,7 +427,7 @@ struct ArtistDetailView: View {
     /// Year column (48, first row of each year), 56 bare cover, title over
     /// MetaLine [Latest] [kind] [N songs].
     private func releaseRow(_ r: Album, firstOfYear: Bool, latest: Bool) -> some View {
-        Button { model.open(r) } label: {
+        SecondaryEntityButton(target: .album(r), onOpen: { model.open(r) }, onPrimaryTap: { model.open(r) }) {
             HStack(spacing: 0) {
                 Text(firstOfYear ? String(r.year) : "")
                     .monospacedDigit()

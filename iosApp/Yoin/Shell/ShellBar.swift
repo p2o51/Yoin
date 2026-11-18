@@ -189,7 +189,7 @@ struct ShellBar: View {
                          sidePadding: pad == .nav ? 20 : 0, fills: model.isIdle && pad == nil, height: height)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library && pad == nil ? .all : .subviews)
+        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library ? .all : .subviews)
         .accessibilityActions {
             if s == .library { Button("Search library", action: openLibrarySearch) }
         }

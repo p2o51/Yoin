@@ -158,14 +158,18 @@ final class TipDemoTests: XCTestCase {
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
             "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
             "LibrarySearch", "Labs", "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts",
-            "KeyboardShortcuts", "LibraryRefresh", "SpotifySpeakers",
+            "KeyboardShortcuts", "LibraryRefresh", "SpotifySpeakers", "HomeScreenWidgets", "ContinueOn",
+            "AiServices", "CloudSync",
         ])
         for id in TipIllustration.scenes {
             // The catalog, not Tips.all: KeyboardShortcuts is left out on an iPhone.
             XCTAssertTrue(Tips.catalog.contains { $0.id == id }, "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
         }
-        XCTAssertFalse(TipIllustration.has("ContinueOn"))
+        XCTAssertTrue(TipIllustration.has("ContinueOn"))
+        XCTAssertTrue(TipIllustration.has("HomeScreenWidgets"))
+        XCTAssertTrue(TipIllustration.has("AiServices"))
+        XCTAssertTrue(TipIllustration.has("CloudSync"))
     }
 
     // MARK: The made-up library
@@ -325,10 +329,9 @@ final class TipDemoTests: XCTestCase {
     // MARK: Slice 3
 
     func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
-        // Every tip but Handoff's (ContinueOn: the system's offer, no Yoin card) and the widgets'
-        // (HomeScreenWidgets: the widget views live in the extension) (docs/fidelity/tips.md, Without a scene).
+        // Every catalog tip now ships with a live interactive DemoPhone scene.
         let without = Tips.catalog.map(\.id).filter { !TipIllustration.has($0) }
-        XCTAssertEqual(Set(without), ["ContinueOn", "HomeScreenWidgets"])
+        XCTAssertTrue(without.isEmpty, "Missing tip scenes: \(without)")
     }
 
     func test_should_moveToTheRecentSpeaker_when_theDevicesDemoPicksIt() {

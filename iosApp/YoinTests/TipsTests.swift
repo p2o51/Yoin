@@ -156,4 +156,25 @@ final class TipsTests: XCTestCase {
         XCTAssertEqual(tip.text, "In Now Playing > Devices, switch Spotify to a speaker and keep controlling it in Yoin; tap refresh to update, and recently used speakers stay in the list")
         XCTAssertEqual(tip.textZhHans, "正在播放 > 设备里将 Spotify 切到音箱上，继续在 Yoin 里控制；点刷新可更新，最近用过的音箱会留在列表里")
     }
+
+    func test_should_includeOnlineAiAndCloudSync_andFollowMemoriesGlossary() throws {
+        let ai = try XCTUnwrap(Tips.tip("AiServices"))
+        XCTAssertEqual(ai.titleZhHans, "在线 AI")
+        let cloud = try XCTUnwrap(Tips.tip("CloudSync"))
+        XCTAssertEqual(cloud.titleZhHans, "云同步")
+        let ledger = try XCTUnwrap(Tips.tip("MemoryLedger"))
+        XCTAssertTrue(ledger.titleZhHans.contains("Memories"))
+        XCTAssertFalse(ledger.textZhHans.contains("回忆"))
+        let across = try XCTUnwrap(Tips.tip("MemoriesAllAccounts"))
+        XCTAssertTrue(across.titleZhHans.contains("Memories"))
+        XCTAssertFalse(across.textZhHans.contains("回忆"))
+        let labs = try XCTUnwrap(Tips.tip("Labs"))
+        XCTAssertEqual(labs.updated, "2026-11-12")
+        for tip in Tips.catalog {
+            for forbidden in ["回忆", "手账", "Nowledge Mem", "国内直连"] {
+                XCTAssertFalse(tip.titleZhHans.contains(forbidden) || tip.textZhHans.contains(forbidden),
+                               "Tip \(tip.id) uses forbidden term \(forbidden)")
+            }
+        }
+    }
 }

@@ -11,15 +11,31 @@ struct YoinCommands: Commands {
         CommandMenu("Controls") {
             let p = model.player
             let idle = p.currentTrack == nil
-            Button(p.isPlaying ? "Pause" : "Play") { p.togglePlayPause() }
+            let textInputActive = TextInputFocus.shared.isActive || model.searchActive
+            Button(p.isPlaying ? "Pause" : "Play") {
+                guard !TextInputFocus.currentResponderIsTextInput(), !model.searchActive else { return }
+                p.togglePlayPause()
+            }
                 .keyboardShortcut(.space, modifiers: [])
-                .disabled(idle || model.searchActive)
+                .disabled(idle || textInputActive)
             Button(String(localized: "playback.next", defaultValue: "Next")) { p.next() }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
                 .disabled(idle)
             Button("Previous") { p.previous() }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(idle)
+            Button("Skip Forward 5 Seconds") {
+                guard !TextInputFocus.currentResponderIsTextInput(), !model.searchActive else { return }
+                model.seekFromKeyboard(by: 5)
+            }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(idle || textInputActive)
+            Button("Skip Backward 5 Seconds") {
+                guard !TextInputFocus.currentResponderIsTextInput(), !model.searchActive else { return }
+                model.seekFromKeyboard(by: -5)
+            }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(idle || textInputActive)
             Divider()
             Button(p.shuffle ? "Shuffle Off" : "Shuffle On") { p.setShuffle(!p.shuffle) }
                 .keyboardShortcut("s", modifiers: [.command, .option])
@@ -41,11 +57,19 @@ struct YoinCommands: Commands {
             Button("Now Playing") { model.toggleNowPlayingFromKeyboard() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(idle)
+            Button("Focus Cover") { model.toggleFocusFromKeyboard() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(idle)
+            Button("Lyrics") { model.toggleLyricsFromKeyboard() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(idle)
             Divider()
             Button("Search") { model.openSearch(from: .bar) }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Back") { model.backFromKeyboard() }
                 .keyboardShortcut("[", modifiers: .command)
+            Button("Dismiss") { model.backFromKeyboard() }
+                .keyboardShortcut(.escape, modifiers: [])
             Button("Settings") { model.openSettings() }
                 .keyboardShortcut(",", modifiers: .command)
         }
