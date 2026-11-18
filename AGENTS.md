@@ -6,11 +6,19 @@ This file applies to the entire repository.
 
 ## Project
 
-This repository is **Yoin**, an Android Compose music client focused on MD3 Expressive, immersive surfaces, and continuous motion. The app is multi-provider by design: Subsonic/OpenSubsonic, Spotify (Android App Remote + Web API) and Apple Music (MusicKit) all ship behind the same `MusicSource` interface.
+This repository is **Yoin**, a local-first, multi-provider music client spanning four platforms behind a shared product and design baseline:
 
-`docs/design.md` is the source of truth for UI and product decisions. If the design doc and local code disagree, follow the design doc unless the task explicitly requires a different direction.
+- **Android (`app/`)** — Kotlin + Jetpack Compose client focused on MD3 Expressive, immersive surfaces, and continuous motion (`0.6.3` / `versionCode 28` on `main`). Serves as the primary UI, motion, and behavior reference across platforms.
+- **HarmonyOS (`harmony/`)** — Flutter + ArkTS native modules in `main` (phones, foldables, and HarmonyOS 2-in-1). See [`harmony/AGENTS.md`](harmony/AGENTS.md) and [`harmony/README.md`](harmony/README.md).
+- **iOS / iPadOS & macOS (`iosApp/` + `:shared`)** — Kotlin Multiplatform `:shared` core plus SwiftUI (`iosApp/`, supporting iPhone, iPad, and iPad-on-Mac multiplatform on `main`; native `YoinMac` is frozen).
+
+All platforms share the same multi-provider model: Subsonic/OpenSubsonic, Spotify, and Apple Music sit behind `MusicSource` (and platform equivalents).
+
+`docs/design.md` is the source of truth for UI and product decisions, and [`docs/platforms.md`](docs/platforms.md) tracks 4-platform architecture, capability coverage, and parity gaps. If the design doc and local code disagree, follow the design doc unless the task explicitly requires a different direction.
 
 ## Build & Run
+
+Android (from repo root):
 
 - `./gradlew assembleDebug` builds the debug APK.
 - `./gradlew test` runs unit tests.
@@ -18,13 +26,18 @@ This repository is **Yoin**, an Android Compose music client focused on MD3 Expr
 - `./gradlew ktlintCheck` runs lint checks.
 - `./gradlew ktlintFormat` formats Kotlin sources.
 
+For HarmonyOS (`flutter analyze && flutter test`, release HAP) see [`harmony/README.md`](harmony/README.md); for iOS/macOS and `:shared` XCFramework builds on the iOS line see `iosApp/README.md` and `iosApp/docs/shared-kmp.md`.
+
 ## Tech Stack
 
-- Kotlin, Jetpack Compose. The shell (Home, Library, Now Playing, Memories) is one Activity; Settings and the detail pages are Activities of their own, and on wide windows a detail page opens in the shell's right column (Navigation 3)
-- Material 3 stable plus scoped MD3 Expressive opt-in where needed
-- Media3, MediaSession, CacheDataSource
-- Room for local persistence
-- MVVM with `ViewModel`, `StateFlow`, and `UiState` sealed hierarchies
+- **Android (`app/`)**:
+  - Kotlin, Jetpack Compose. The shell (Home, Library, Now Playing, Memories) is one Activity (`MainActivity`); Settings and the detail pages are Activities of their own, and on wide windows a detail page opens in the shell's right column (Navigation 3)
+  - Material 3 stable plus scoped MD3 Expressive opt-in where needed
+  - Media3, MediaSession, CacheDataSource
+  - Room for local persistence
+  - MVVM with `ViewModel`, `StateFlow`, and `UiState` sealed hierarchies
+- **HarmonyOS (`harmony/`)**: Flutter for OpenHarmony, Riverpod, and ArkTS native channels (`AVPlayer`, `AVSession`, continuous task, storage); see [`harmony/AGENTS.md`](harmony/AGENTS.md).
+- **iOS / iPadOS / macOS (`iosApp/` + `:shared`)**: Kotlin Multiplatform (`:shared` static `YoinShared.xcframework` for MCU, Palette, `YoinTokens`, layout/transfer/sync helpers) + SwiftUI (Liquid Glass, single-window adaptive dock and detail column); see [`docs/platforms.md`](docs/platforms.md).
 
 ## Icons
 
@@ -116,18 +129,19 @@ When adding a new table that references remote ids, always include a `provider: 
 
 ### Current landed state
 
-- `YoinRepository` is already slimmed onto `ProfileManager.activeSource`.
-- ViewModels and Composables consume `data.model.*` neutral models.
-- `PlaybackManager` branches on `PlaybackHandle` and routes a Spotify `ExternalController` to `SpotifyAppRemotePlayer`; an Apple Music one (`ControllerType.APPLE_MUSIC_KIT`) plays through the Media3 controller of `AppleMusicPlaybackService`. The `PlaybackState`carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
+- `YoinRepository` runs over `ProfileManager.activeSource` and exposes `capabilities: Flow<Set<Capability>>` and `currentCapabilities()`.
+- ViewModels and Composables consume `data.model.*` neutral models and gate provider affordances through `ServiceFeatureCatalog` / `MusicSource.capabilities` (Favorites, Library Add, Album Save, Playlist Read/Write/Import, Lyrics, Stream Quality, ReplayGain, Offline Downloads, Play Reporting). Five-star ratings are intentionally local-first (`local_ratings`) for every provider and sync via Google Drive (Subsonic also pushes server-side).
+- `PlaybackManager` branches on `PlaybackHandle` and routes a Spotify `ExternalController` to `SpotifyAppRemotePlayer`; an Apple Music one (`ControllerType.APPLE_MUSIC_KIT`) plays through the Media3 controller of `AppleMusicPlaybackService`. `PlaybackState` carries `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
 - Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`, `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`) and surface through `PlaybackManager.events` — `YoinNavHost` collects them into an actionable snackbar at the shell level.
-- `SettingsScreen` lists, switches and deletes accounts, with a deep-linkable `focusSection` entry point (`SettingsActivity.intent`). Adding or editing an account — Spotify OAuth and the runtime Spotify Client ID included — happens on that service's own page (`ui/settings/service/ServiceSetupActivity`).
+- `SpotifyMusicSource` supports library browsing, search, playlists, artist follow, album save, Made For You (`SpotifyMadeForYou` via App Remote `ContentApi`), and multi-language name lookup (`SpotifyNameLanguages` + `MusicBrainzIsrcClient`) for lyrics; `AppleMusicSource` supports catalog/library search, personal mixes (`MadeForYouKind.AppleMix`), track library add, playlist import, and storefront name resolution.
+- `SettingsScreen` lists, switches and deletes accounts, with a deep-linkable `focusSection` entry point (`SettingsActivity.intent`). Adding or editing an account — Spotify OAuth and the runtime Spotify Client ID included — happens on that service's own page (`ui/settings/service/ServiceSetupActivity`), with provider-specific playback/storage settings gated in `ProfileServiceSettings`.
 
 ### Remaining phases
 
-- Phase A (**done**) — Spotify read-only content in `SpotifyMusicSource`.
-- Phase B (**done: base**) — App Remote plumbing (connection lifecycle, typed failures, `ExternalController` dispatch, Launching / ConnectError UI states, shell snackbar actions, Client ID onboarding).
-- Phase C — capability-gated UI: hide five-star rating / lyrics tab / random-songs / favorite toggle etc. based on `source.capabilities`. Pass the active `Set<Capability>` through `PlaybackState` (or a parallel `ActiveProviderState` flow) — feature composables must not reach up to `AppContainer`.
-- Phase D — QA pass on real device. Already landed from this phase: the encrypted `ProfileCredentialsCodec`, the Spotify `invalid_grant` reconnect flow (a revoked account shows Reconnect on its card and its service page), and the removal of `LegacyViewCompat.kt` and the `server_config` write path.
+- Phase A (**done**) — Spotify Web API content & write actions in `SpotifyMusicSource`, including Made For You (`SpotifyMadeForYou`) and localized name lookup (`SpotifyNameLanguages` + `MusicBrainzIsrcClient`).
+- Phase B (**done**) — App Remote playback plumbing (`SpotifyAppRemotePlayer`, `ConnectionPhase`, typed failures, `ExternalController` dispatch, idle wake, Spotify Connect device display, shell snackbar actions, Client ID onboarding) and Apple Music MusicKit playback (`AppleMusicSource` + `AppleMusicPlaybackService`).
+- Phase C (**done in `0.6.3`**) — capability-gated UI & settings via `YoinRepository.capabilities` and `ServiceFeatureCatalog` across Now Playing, Library, Detail pages, `DetailMenu`, `TrackMenu`, `OfflineToggle`, `SessionQuickActions`, `SourceScrobbleTarget`, and `ProfileServiceSettings`.
+- Phase D (**Android core done; cross-platform parity & QA ongoing**) — `EncryptedProfileCredentialsCodec` (`noBackupFilesDir/profile_credentials/`), `FileAiProviderStore` (`noBackupFilesDir/ai_provider.json`) for non-Gemini AI v2 keys, Spotify `NeedsReconnect` / revoked-grant recovery, removal of `LegacyViewCompat.kt`, and multi-provider playlist backup & restore (`data/backup/`, `data/transfer/`). Remaining work focuses on closing 4-platform parity gaps across Android, iOS/iPadOS, macOS, and HarmonyOS (tracked in [`docs/platforms.md`](docs/platforms.md) and [`docs/integrations/provider-alignment.md`](docs/integrations/provider-alignment.md)) and real-device QA.
 
 ## Tips Follow Every Feature
 
@@ -137,6 +151,18 @@ The owner's rule (2026-11-06): a feature PR updates the in-app Tips (`HomeBubble
 - A change to what an existing tip shows moves that tip's `updated` day (it comes back unread) and refreshes its line. A wording change alone keeps the day.
 - Tip copy (title and one short line, Chinese and English) is written by Gemini/Argon on the Mac through `.argon/agy-yoin`, never by Claude. Use its words as given.
 - Ship the tip in the same PR as the feature.
+
+## Docs Follow Every Feature And Release
+
+The owner's rule (2026-11-18): documentation ships with the feature and before every release.
+
+- Any PR adding or changing user-facing features, provider behavior, settings, shortcuts, or limits MUST update the corresponding `docs/` spec (`docs/design.md`, `docs/platforms.md`, `docs/integrations/provider-alignment.md`, `docs/cloud-sync.md`, `docs/playlist-transfer.md`, `docs/i18n/zh-glossary.md`, plus `harmony/docs/` or `iosApp/docs/` when platform-specific) in the same PR.
+- If a feature ships on one platform first, log the cross-platform gap in [`docs/platforms.md`](docs/platforms.md).
+- **Every Version Release (`0.x.y`) MUST include a Documentation Sync step** before sign-off (see `.agents/skills/release-docs-sync/SKILL.md`):
+  1. `docs/` specs and the 4-platform matrix match shipped code;
+  2. `README.md` & `README.zh-CN.md` version numbers and feature bullets are updated;
+  3. `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` is updated for new terms, AI behavior, and privacy/storage facts;
+  4. `yoin-site` (`public/docs.html`, `public/zh/docs.html`, `public/privacy.html` if data flows/SDKs/AI changed, `public/changelog.html`, `public/zh/changelog.html`, `public/index.html`, `public/zh/index.html`, `public/licenses.html`, `public/zh/licenses.html`) is updated alongside Argon release notes.
 
 ## Testing
 

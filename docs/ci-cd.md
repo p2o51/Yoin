@@ -42,14 +42,41 @@ intentionally fixing existing issues, refresh the baseline:
 
 ## Cutting a release
 
-```bash
-git tag v0.5.1
-git push origin v0.5.1
-```
+Before signing off any `0.x.y` release across platforms, complete the mandatory **Documentation Sync** step in [`.agents/skills/release-docs-sync/SKILL.md`](../.agents/skills/release-docs-sync/SKILL.md) so Repo `docs/`, `README.md` / `README.zh-CN.md`, `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md`, and `yoin-site` stay aligned with the release notes.
 
-This builds a signed AAB + APK and publishes a GitHub Release. If the Play
-service-account secret is configured, the AAB is also promoted to the Play
-**internal** track.
+### 1. Android (isolated worktree signing → Google Play Closed Testing)
+
+1. Create a clean release branch and isolated worktree off `main` (for example `release/0.6.3-28` in `../Yoin-release-0.6.3`) so uncommitted files in the primary checkout cannot leak into the build.
+2. Bump `versionCode` and `versionName` in `app/build.gradle.kts`, open a PR into `main`, and confirm the **`CI gate`** check is green.
+3. Build the upload-key signed `.aab` and `.apk` locally using `~/.yoin/yoin-upload-keystore.properties` (or `YOIN_RELEASE_KEYSTORE_PROPERTIES`):
+
+   ```bash
+   export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+   export ANDROID_HOME="$HOME/Library/Android/sdk"
+   ./gradlew :app:bundleRelease :app:assembleRelease
+   ```
+
+   Verify `VERSION_CODE`, `VERSION_NAME`, and `NANO_TEST = false` on the output bundle before uploading.
+4. Generate bilingual release notes (`<en-US>` and `<zh-CN>`, ≤ 500 characters per locale for Google Play) via Argon (`.argon/agy-yoin` with `write-copy`), then upload the `.aab` to Google Play **Closed testing** (Alpha).
+
+> **GitHub Actions `Release` workflow & `RELEASE_KEYSTORE_*` secrets:** [`.github/workflows/release.yml`](../.github/workflows/release.yml) automates `.aab`/`.apk` signing, GitHub Release creation, and optional Play `internal`-track upload when a `v*` tag is pushed (`git tag v0.6.3-28 && git push origin v0.6.3-28`) or dispatched manually — **but only when all four `RELEASE_KEYSTORE_*` secrets (`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) are configured** under **Settings → Secrets and variables → Actions**. Until those secrets are populated on `p2o51/Yoin`, do not push `v*` tags expecting Actions to succeed (the workflow fails fast at secret validation); sign in the local isolated release worktree and upload artifacts manually via `gh release create` if a GitHub Release is needed.
+
+### 2. iOS / iPadOS / macOS (`iosApp/` + `:shared` → TestFlight)
+
+1. On the iOS line (`claude/project-thread-2amedi` until merged into `main`), update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `iosApp/project.yml` and regenerate the Xcode project (`cd iosApp && xcodegen generate`).
+2. Build the Release `:shared` framework (`./gradlew :shared:assembleYoinSharedReleaseXCFramework`), archive the `Yoin` scheme in Xcode (**Product → Archive**), and distribute via **TestFlight** (covering iPhone, iPad, and iPad-on-Mac multiplatform builds).
+
+### 3. HarmonyOS (`harmony/`)
+
+1. Source `~/Developer/flutter_ohos/ohos-env.sh` and verify `flutter analyze && flutter test` are green.
+2. Build the signed release HAP (`flutter build hap --release`), smoke-test on target HarmonyOS devices (`hdc -t <device-id> install -r build/ohos/hap/entry-default-signed.hap`), and ensure `harmony/docs/` matches the shipped behavior.
+
+### 4. Mandatory Repo & `yoin-site` Documentation Sync
+
+Alongside Argon's bilingual release notes:
+
+- **Repository**: verify `docs/` (`design.md`, `platforms.md`, `integrations/provider-alignment.md`, `cloud-sync.md`, `playlist-transfer.md`, `i18n/zh-glossary.md`, plus `harmony/docs/` and `iosApp/docs/`), `README.md` & `README.zh-CN.md`, and `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` reflect all shipped changes.
+- **`yoin-site`**: in an isolated `yoin-site` worktree, update `public/changelog.html` & `public/zh/changelog.html` (including `spot.js` before/after figures), `public/index.html` & `public/zh/index.html` (version chips and platform badges), `public/licenses.html` & `public/zh/licenses.html`, `public/docs.html` & `public/zh/docs.html`, and `public/privacy.html` (whenever data flows, SDKs, or AI/key storage change). Run `python3 tools/check.py`, merge the `yoin-site` PR, and deploy via `npx wrangler@4 deploy`.
 
 ### Required repository secrets
 

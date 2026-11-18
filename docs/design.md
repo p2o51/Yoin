@@ -1,10 +1,12 @@
 ## 项目定位
 
-- **产品名称**：Yoin
-- **一句话定义**：一个轻量、高颜值、动效流畅的 Android 原生 Subsonic/OpenSubsonic 音乐客户端
-- **目标用户**：自建 Navidrome/Subsonic 服务器的个人用户
-- **核心差异化**：极致流畅的操作体验与转场动效（每个交互都有连贯的 Spring 动画，零生硬跳转） + MD3 Expressive 设计语言的视觉张力
-- **替代目标**：Symfonium（功能过重、动效生硬、视觉细节粗糙）
+> 本文档为 **Yoin 0.6.3+** 的产品与视觉动效设计基准，覆盖 **Android**、**iOS & iPadOS**、**macOS**（iPad-on-Mac 多平台运行，原生 `YoinMac` 已冻结）与 **HarmonyOS** 四端，以及 **Subsonic / OpenSubsonic**（含 Navidrome）、**Spotify** 与 **Apple Music** 三类音源。四端架构差异、能力矩阵与平台限制参见 [platforms.md](platforms.md)，文档总览见 [README.md](README.md)。
+
+- **产品名称**：Yoin（源自日语「余韻」）
+- **一句话定义**：轻盈、重视情感记录（Memories）与连续弹簧动效的多音源、跨平台原生音乐客户端（Spotoolfy 架构演进接班）
+- **目标用户**：同时使用自建 Navidrome / Subsonic 服务器、Spotify 或 Apple Music，追求高质感界面动效与听歌记忆沉淀的个人听众
+- **核心差异化**：全链路弹簧物理动效（每个交互与返回均有连贯过渡，零生硬跳转）+ MD3 Expressive / Apple Liquid Glass 视觉张力 + 跨平台云同步与接力体验
+- **克制边界**：遵循 YAGNI，聚焦纯粹听歌与音乐记忆（Memories / 剪贴簿 / 笔记 / 评论），不做播客、电台社交、聊天室、内置浏览器等冗余模块
 
 ---
 
@@ -161,18 +163,17 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 ## 技术栈
 
-| 层级 | 选型 |
+> 各端具体引擎、安全存储与能力矩阵见 [platforms.md](platforms.md)。以下以主仓 Android 为基线并标注跨平台核心：
+
+| 层级 | 选型（Android 主线 + 跨平台核心） |
 | --- | --- |
-| 语言 | Kotlin |
-| UI 框架 | Jetpack Compose |
-| 设计系统 | Material 3 `1.4.x` stable + `1.5.x` alpha（Expressive 按需 opt-in） |
-| 音频播放 | Media3（ExoPlayer） |
-| 缓存 | Media3 `CacheDataSource`  • `SimpleCache`（LRU 淘汰） |
-| 形状动画 | `androidx.graphics:graphics-shapes:1.0.x` |
-| 封面取色 | AndroidX Palette API |
-| Chromecast | Media3 Cast Extension + Google Cast SDK |
-| 本地数据 | Room（本地评分、缓存元数据、播放历史） |
-| 架构 | 单 Activity + Compose Navigation，MVVM |
+| 跨平台核心（`:shared` on `main`） | KMP `:shared`（MCU `ColorSpec2025`、`YoinTokens`、Ktor `SubsonicClient`、歌词解析/匹配、Google Drive `CloudSyncCore`、`PlaylistSnapshots`/`TrackMatcher`）；HarmonyOS 在 `harmony/lib/` 做 Dart 对齐移植 |
+| 语言与 UI | Android：Kotlin + Jetpack Compose（Material 3 + Expressive opt-in，Shell 单 Activity + PushPage 分页 Activity）；iOS/macOS：Swift + SwiftUI + Metal Shader；HarmonyOS：Flutter (Dart) + ArkTS 原生插件 |
+| 图标系统 | 统一复用兄弟仓 `../yoin-symbols`（Android Gradle `includeBuild` 编译为 `YoinSymbols.*`，Apple 编译为 SF Symbolsets，应用内不自绘标准 UI 图标） |
+| 音频播放与路由 | Android：Media3 `ExoPlayer`、`SpotifyAppRemotePlayer`、`AppleMusicMedia3Player`（MusicKit Android SDK）、Google Cast SDK、LAN DLNA；Apple：`AVQueuePlayer` + `SPTAppRemote`/Connect + `MusicKit` + AirPlay；HarmonyOS：`EnginePlayer`/`AVSession` + MusicKit JS/API + `AVCastPickerHelper`/DLNA（无 Spotify） |
+| 缓存与凭据安全 | Media3 `SimpleCache`（~500 MiB）/ `CachedAudio`；Android 使用 `AndroidKeyStore` AES-GCM 存 `noBackupFilesDir/profile_credentials/` 与 `ai_provider.json`（注：Gemini Key 当前存于 Room `gemini_config`）；Apple 用 Keychain；HarmonyOS 用系统 `SecretStore` |
+| 形状与取色 | `androidx.graphics:graphics-shapes` + MCU `ColorSpec2025` / `:shared` `Palette`（带过滤 16 色主色板 + `AlbumSpectrum`） |
+| 本地数据与云同步 | Room（`profileId` + `provider` 复合隔离）/ Swift / SQLite + 可选 Google Drive `appDataFolder`（`drive.appdata`，HTTPS 传输，非端到端加密） |
 
 ---
 
@@ -229,7 +230,12 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - Memory teaser 只显示一条轻提示，点入 shell-owned Memories surface；Feed 不承载重型 Memory 卡片流
 - **气泡什么时候说、什么时候走（2026-10-11 owner 拍板，2026-10-17「上线冲刺」改节奏、加提示）**：写下新的评分、乐评或笔记后，回到首页说一次（新内容），完全展开、弹簧停稳后停 6 秒。除此之外，首页看得见、**4–5 秒没人碰就说**，说完停 **2–3 秒**飞回箭头，再没人碰又过 4–5 秒再说——每次的等待和停留都在区间里随机取，像脉冲不像节拍器；不再是「每次打开 app 最多一次」。闲聊有 35% 的概率说完不走、原地「翻译」成下一句（旧的一行往上滑出、新的一行从下面升起，位移走空间弹簧、透明度走效果弹簧，底色跟着新内容的封面色过渡），再停一轮才走，每轮最多翻一次。闲聊的内容是 Memories 和提示轮流：有记忆就记忆、提示交替（记忆按 `recall` 顺序轮，提示按 `HomeBubbleTip` 的顺序轮，轮完一圈才重复），没有记忆就只说提示。提示一条只讲一件事：一个藏起来的手势（长按首页排版、首页下拉打开 Memories、长按封面打开歌曲面板、长按专辑里的歌、播放模式按钮、笔记钉在那一秒、长按底栏资料库搜索、屏幕常亮在封面菜单里、滚动边缘），或者一个 app 的小细节（名字来自「余韻」）；左边是圆形符号块（记忆是封面），右边一到两行字；**提示是一颗普通胶囊**（owner 批注：不用向上的气泡）——没有尾巴、两端全圆，收的时候折回标题，不飞进箭头；一句记忆原地换成提示（或反过来）时，形状在空间弹簧上过渡。点记忆打开这条记忆；点「首页下拉」那条打开 Memories；点别的提示只是让它飞走。系统无障碍里把「操作时长」调得更长就按系统的来；手指按在气泡上没松开时不走，松开再算。碰屏幕任何地方（包括底栏的播放胶囊和 Home / Library 按钮）、滚动、下拉 Memories、打开 Now Playing 或详情、编辑首页、别的窗口挡在前面（账号卡片、通知栏）都会提前飞走，闲置计时也从头算；app 退到后台（STOPPED）时悄悄复位。规则是纯函数 `MemoryBubbleTurn.after`，内容在 `ui/home/HomeBubbleSay.kt`，实现在 `ui/home/HomeMemoryBubble.kt`。
 - 右上角 ⚙️ 设置入口
-- **版块与布局**：Activities、Jump Back In、Recently Added、Rediscover，顺序和开关按 profile 存（`home_layout`）。只在真的改变时写入；改回默认就删掉这一行，等于「从未定制」。定制过的用户遇到新版块时，新版块以关闭状态追加进托盘并标 "New"；没定制过的按各版块的默认开关（Rediscover 默认开、排在最后）。
+- **版块与布局（0.6.3+ 完整目录 `HomeSection`）**：完整目录按默认顺序包含 10 个区段：`activities`（动态，支持 S/M/L/XL 行数档位）、`jump_back_in`（接着听，支持行数档位）、`recently_added`（最近添加）、`rediscover`（重温，`appendEnabled = false`）、`recently_played`（最近播放）、`your_playlists`（你的播放列表）、`other_profiles`（**在你的其他资料里**）、`lyric_highlight`（**歌词卡片**，支持 1–4 张档位点选）、`memory_grid`（**全部 Memories** 日历网格）、`made_for_you`（**为你推荐**，iOS 端排期中）。顺序和开关按 profile 存（`home_layout`）。只在真的改变时写入；改回默认就删掉这一行，等于「从未定制」。定制过的用户遇到全新实验区段时按 `appendEnabled` 追加，无数据的区段自动隐藏。
+- **「为你推荐」（`made_for_you`）**：聚合 Spotify（daylist、Discover Weekly、Daily Mix、Blend 等；Web API 404 的官方编辑歌单在 Android 上连同 App Remote `SpotifyContentBrowser` 补读，最多 200 条）与 Apple Music（`v1/me/recommendations` 的 `pl.pm-…` 个人混合歌单）。不支持或无数据的音源自动不渲染。实现 `ui/home/HomeMadeForYou.kt`（HarmonyOS `home_made_for_you.dart`）。
+- **「在你的其他资料里」（`other_profiles`）**：展示用户其他已配置音乐账号最近 90 天最常听的专辑与歌单（不混入当前账号）。点按卡片会**先切换至对应账号，再立即起播**该内容。单账号用户自动隐藏。实现 `ui/home/HomeOtherProfiles.kt`（iOS `HomeOtherAccounts.swift`、HarmonyOS `home_other_profiles.dart`）。
+- **Spotify Elsewhere 胶囊**：拥有多个 Spotify 账号且当前本机未在播放时，首页回到前台会轮询其他 Spotify 账号是否在别处播放，若命中则在首页页头展示 5 秒小胶囊（头像/封面 + 曲名与歌手），点按可直接切换至该账号（Android `HomeSpotifyElsewherePill.kt`、iOS `HomeSpotifyElsewhere.swift`）。
+- **底栏随滚动隐藏（`ShellBarScrollHide`）**：主页与资料库长列表向下滑动累计超过量程（96dp，或 ≥300dp/s 快速上滑）时，底部导航/迷你播放胶囊向下顺滑让位；回滑、换页、聚焦搜索或进入编辑态时用弹簧拉回。宽屏右栏打开详情列时，底部信息条亦协同上抬避让。
+- **就地编辑拖拽叠卡（`HomeCarryStack`）**与 **Tips（`HomeBubbleTip`）**：就地编辑拾起区块拖动排序时，各区段同步压缩为带 3 张真实专辑封面的签条栈（`HomeCarryEngine` / `HomeCarryStack`）跟手换位；首页气泡提示当前收束为 Android 28 条、iOS 24 条（iPhone 23 条）、HarmonyOS 36 条（普通手机 35 条、桌面端 33 条）交互与功能演示，每一新功能 PR 必须随附对应的 Tip 更新（`HomeBubbleSay.kt`、`ui/tips/`）。
 - **页头：两行问候（2026-10-09 owner 定，原型 artifact GWEBwdavGiwS1ngqmcqTyF）**：上面一行是按时段换的小字问候（titleMedium，次要文字色：5–11 点早上好、11–13 中午好、13–18 下午好、其余晚上好；英文只有 morning / afternoon / evening，整点自动更新），下面一行是 Home（headlineMedium，比原来的 headlineLarge 小一号；手机横屏再小一号 headlineSmall），两行都用 Google Sans Flex 的圆体（ROND 100，Medium）——中文没有这个字形，落到系统字体。编辑模式里问候语跟页头图标一起淡出，Edit Home 照旧盖在 Home 上。**冷启动开场**：Yoin 标志（三臂，tertiary / primary / secondary）在标题位置依次弹开（带回弹），停一拍后转 70° 缩小淡出，问候语和 Home 依次浮上来，约 1.4 秒；每个进程只播一次（切回 Home、转屏不重播）。首页加载时会临时报「动效压力」（AdaptiveReduced），开场最多等 0.4 秒让它解除；一次加载最多报 3 秒（`HOME_LOADING_PRESSURE_MAX_MS`），挂住的加载不会让整个 app 一直停在降级动效；真正的减少动态（低内存、省电）直接显示两行字。实现 `ui/home/HomeGreetingTitle.kt`。
 - **账号切换器（2026-10-09 owner 定，参照 Play 商店的 Android 账号卡片）**：页头右上角的设置齿轮换成当前账号的头像（Settings 的 AccountAvatar，32dp；还没有账号时仍是齿轮）。点开是一张卡片（自己的 dialog 窗口，宽 min(屏宽 − 32, 420)，屏幕正中（owner 10-09 改：不放顶部）。**头像长成卡片**：一个空间弹簧 p 驱动卡片底色从页头头像的位置和圆度长到卡片的矩形（28dp 圆角），头像同时飞到卡片里 72dp 大头像的位置并放大，内容在 p 0.45–0.95 淡入，遮罩（scrim 32%）跟同一个 p 渐变；收起原路缩回头像，期间页头头像隐藏。弹窗窗口自己的变暗和进出场动画关掉，等卡片排好版、窗口画出两帧后才起弹簧（否则窗口出现前弹簧已跑完）。头像按钮不加波纹，变形本身就是反馈。减少动态：原地淡入淡出）：顶行是当前账号的服务行和关闭 ×，下面大头像（72dp）、账号名、「管理账号」描边按钮（进设置）；分段组一：其他账号（头像 + 名字 + 服务行，不可用的账号显示原因，点了进设置）和「添加账号」（进设置）；分段组二：「设置」和「编辑首页」。点其他账号即切换并收起卡片。卡片数据和设置页同一个映射（`ui/settings/ProfileCards.kt` 的 `profileCardsFlow`），两边永远一致。返回：卡片是自己的窗口（`DialogWindowPredictiveBack` 接这个窗口自己的返回），系统返回只关卡片，首页的返回桌面不受影响；预测性返回时卡片做 AOSP 预览姿态（缩向 0.9、偏向手势一侧、跟手），不擦洗变形，提交才缩回头像；点卡片外也关。实现 `ui/home/HomeAccountSwitcher.kt`。
 - **账号需要重新连接（2026-10-11 owner 拍板）**：当前账号的凭据读不出来（换机恢复没带上、密钥解不开），或 Spotify 收回了授权（invalid_grant、缺必需 scope）时，页头头像右上角挂一个小红点（M3 小徽章 6dp、error 色、1dp 页头色描边，不写字，缩放走空间弹簧、透明度走效果弹簧，读屏念「账号需要重新连接」）。红点长在头像上：卡片打开或切换的替身接管头像时，它和头像在同一帧隐藏，头像回来时原样回来；只有账号自己的状态变化才让它弹簧进出。卡片里「管理账号」前多一个「重新连接」tonal 按钮：点了先让 ProfileManager 对当前账号再读一次凭据、建一次 source、ping 一次（不切换账号，在后台线程做，期间按钮文字换成加载指示、卡片其余入口不响应）。只有服务**拒绝凭据**才算没修好（Subsonic 错误码 40–44 或 HTTP 401/403、Spotify invalid_grant 或 401/403、Apple Music 没有用户令牌或 403）；服务器没应答（离线、超时、重启中、5xx）照样发布 source，和冷启动一致，由首页和资料库自己报网络错误，不把用户送去重填一套本来正确的凭据。发布后按切换账号的方式通知一次（`musicConfigurationRevision`），资料库、Memories、桌面小组件跟着重读，首页按自己的 scope 只加载一次。成功：卡片沿 T7 的弹簧缩回头像，头像上已经没有红点；首页在快照上逐块替换，没有快照时（换机恢复）在没有 source 时读出的那一版上逐块拼接，两种情况都不闪加载样式。没修好：等卡片缩回头像，再打开这个账号的设置页（`ServiceSetupActivity` 编辑模式：Subsonic 重填、Spotify 重新授权、Apple Music 重新登录）。信号只有一个 `ProfileManager.activeNeedsReconnect`，规则 `ProfileCredentials?.needsReconnect()` 和设置页账号卡的 Reconnect / Credentials missing 同源；只读本地状态，正常情况下不多发请求、不轮询，也不加下拉或上拉刷新。**App Remote 的授权失败不算**（`SpotifyProviderStatus.AuthFailure`：没登录 Spotify 应用、没在 Spotify 应用里允许 Yoin、它的认证失败）：Yoin 自己重新授权修不好，而且它粘滞到重启，算进来就是一个消不掉的红点；所以首页不挂红点，设置页账号卡、Spotify 设置页和首页卡片里的账号行都标「登录 Spotify 应用」（Sign in to Spotify app），不叫「重新连接」。账号卡读凭据放在后台线程，Apple Music 的卡不读。
@@ -330,7 +336,14 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 
 **拟题豁免（2026-07-26 决定）**：AI 拟题（`memoryTitle`，同时复用为首页 Jump Back In memory 槽位的标题）是「不上传原文」的唯一例外——拟题 prompt 允许携带正文槽占用者（album review 或最新一条 note）的原文，并拼上专辑背景（专辑名/艺人/年份 + 本地已缓存的 Gemini About 行，不产生额外请求）。豁免仅此一处用途；旁白只收事实清单。未配置 BYOK 或生成失败时，Memories 的标题位放专辑名（动机短句 2026-10-06 已取消）；首页 JBI 仍用原来的本地 deterministic 模板（覆盖率 / 笔记数，要不要也改成动机短句见 PLAN Q6）。
 
-NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating 和非空 album review 的 Memory 才能推送到 NeoDB；单曲碎片笔记只作为本地 Memory/Review 草稿素材，不直接推 NeoDB。
+**NeoDB 同步、全部 Memories 与「别人怎么说」（2026-11 更新）**：
+
+- **NeoDB 同步边界（`NeoDBSyncService`）**：以 album 为单位；**专辑评分与非空专辑评论彼此独立触发同步**（`ratingNeedsSync || reviewNeedsSync`，不再要求两者同时具备）。通过 `ShelfMarkRequest` 更新 `ratingGrade`（Yoin 0.5–5.0 / 内部精度按 NeoDB 0–10 刻度对齐）与/或 `commentText`；并按字符码点长度自动归位（`NeoDbShortCommentMax = 360`）：
+  - **`<= 360` 字**：作为 NeoDB **短评**写入 Mark 的 `commentText`，并清除此前关联的长评；
+  - **`> 360` 字**：作为公开**长评**（`Review.body`，`visibility = 0`）发布并清空短评字段。
+  - 单曲碎片笔记不直接推送到 NeoDB。
+- **全部 Memories（`MemoryLedgerScreen` / `memory_grid`）**：收录全部已评/已写专辑。页面顶部展示统计数据与**自适应日历格点（写得越少、单格越大）**，点击任一格点可仅筛选该时间段；向下滚动时日历格点向上飞入顶栏合成为**像素条（`MemoryGridLift`）**。支持 **时间线（Timeline）/ 双列卡片（Cards）/ 可排序列表（List）** 三视图切换（平板等宽窗下时间线与卡片按 2–3 列展开）。账本包含所有账号的记忆：点按属于其他账号的专辑前会弹出一次性切换确认提示，先切过去再打开详情。
+- **NeoDB「别人怎么说」（`NeoDbVoicesScreen` / `NeoDBVoicesView`）**：无需登录 NeoDB 即可查阅；专辑页与专辑详情栏提供入口。顶部分别绘制 NeoDB 五档分布条（月相评分分布）与均值/人数、并列读取关联的 **Discogs** 与 **MusicBrainz** 外部评分；正文流按「长评铺满宽度、短评双列排布、作者折叠内容可点开」展示众人短评与长评（每页 20 条分页加载），底部外链支持跳转 **NeoDB / 豆瓣 / RYM / AOTY**。
 
 ### 🎵 Now Playing（全屏展开态）
 
@@ -374,13 +387,14 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
   - **末句拉长 = I-2（像拖长的一个音）**：从末句成为当前行（或结束前 10 秒，取较晚者）到交接，末句以左缘为原点向右拉宽，`scaleX = 1 + min(0.08, 行宽 ÷ 最长行 − 1) × p`，拉宽后一定放得下这一行；已经占满行宽的句子也至少能拉宽 3%（`LastLineStretchGutterRoom`），伸进页边留白里，只会变宽、不会被截断。**所有文字一律是整行绘制期 scaleX**，不重新排版（2026-10-05 晚 owner：拉英文时一帧一帧地抖——之前满行的拉丁文改加字距，每一级都重新排版；中文整行缩放一直是顺的，所以字距方案已删除）。拉宽用慢空间弹簧；交接时用默认空间弹簧带一点回弹收回，同时整块淡出。拉长和下一首浮现读同一个进度（`UpNextTiming.outroProgress`）：拉长从头起步，下一首歌名等这段进度过半才浮现（2026-10-08 owner：预告太抢眼）；拿不到下一首（Spotify / Apple 没有 nextTrack，浮现只在 Subsonic 上有）也照样拉长到换歌。只在展开歌词页和双栏右栏，小歌词窗没有。实现 `ui/nowplaying/LastLineStretch.kt`、`UpNextTiming.kt`。
   - **切歌脉冲 = 方案 B：顺着歌词流的一道光**：歌词是主表面时（单栏：Lyrics 页展开，或小歌词窗可见且不是一行模式；双栏：右栏在 Lyrics；横屏：展开且在 Lyrics）切歌，背景放一道光：下一首 / 自动播完从歌词列下缘外 0.25H 处升起，上一首从上缘外落下（方向按队列位置判断，和 `LyricsTrackTransition` 同一规则，光和歌词永远同向），落到新歌名卡片上；半宽 0.62W，半高 0.25H → 0.09H。位移走慢空间弹簧，亮度用快效果弹簧升起，位移过 85% 后用慢效果弹簧退掉，全程申请高帧率。双栏和横屏把光裁在歌词栏内，单栏不裁。点击、自然播完、外部控制都算；歌词页已经把这首原地交接过来时不放（那段浮现本身就是转场）。封面是主表面时，只有 3 秒内点过 NEXT / PREVIOUS 才从那个按钮起环，没有点击来源就不发，绝不复用旧坐标。播放 / 暂停的呼吸照旧：3 秒内点过 PLAY 从按钮起，耳机、通知栏从默认点（0.5W, 0.62H）起。点击记时间戳、只用一次；「上一首」只把本曲拉回开头时（还是同一首、进度回退 ≥ 1 秒），这次点击当场作废。**「上一首」各服务一致（W2，owner 2026-10-05 晚）**：播放超过 3 秒时先回到本曲开头，不到 3 秒才跳上一首——Spotify 本来如此，Subsonic / Apple Music 改走 Media3 的 `seekToPrevious()`（`maxSeekToPreviousPosition` 默认 3 秒），通知栏、耳机和 App 内按钮同一规则。Apple Music 的 PREVIOUS 命令同时表达「回到本曲开头」和「上一项」：前面有歌或本曲能 seek 就有，不只看 MusicKit 的「有没有上一项」（MusicKit 在 repeat 关时队列第一首前面没有歌，以前 Media3 因此把首曲上的 ⏮ 整个丢掉；测试反馈 2026-10，`musicKitTransportCommands`）。实现 `TransportPulse.kt`、`NowPlayingAuroraBackground.kt`。
   - **不做 QRC 逐字**（owner 2026-10-05）：歌词只到逐行高亮。
-- **操作光效（2026-11-04 owner 认可原型 v1）**：Now Playing 上每个会改变东西的操作，都让背景从按的那个控件亮一下，和播放 / 暂停、切歌、点歌词同一套材料：封面的 primary / secondary / tertiary 加细波点，平时静止，只亮 0.65–2.1 秒，跑的时候申请高帧率。「加上」光往外放，「去掉」光收回控件、更暗更短。等待（翻译）用封面色的慢扫光，只有 Gemini 用彩虹色。只打开面板、切 tab、离开页面的操作不加光。逐项：收藏 = 爱心跳两下、一圈细点往外散，取消收藏 = 暗光收回爱心；长按爱心（加歌单）和资料库按钮 = 细点收进按钮再亮一下；评分 = 按住时光沿评分条升到手指，分越高越亮，松手后一道光在那个高度横穿背景，9.5 分以上多一串细点，清空 = 光往下退；随机开 = 三种封面色转着换位、细点散开，关 = 细点排回一行；列表循环 = 一颗光绕键一圈，单曲循环 = 两圈紧环，不循环 = 环散成点落下；拖进度条 = 光跟着手指，松手处亮一下；存笔记 = 光从「写」升到当前歌词行、那行亮起，删笔记 = 那行的光缩回；翻译 = 等待时慢扫，出来后每行从上往下亮一次；换用搜到的 / 手写的歌词 = 每行亮一次；换播放设备 = 光从「设备」往下离开，再从底边回来一圈；保持亮屏 = 整个背景轻轻亮一下；长按封面 = 一圈光收到封面上；复制 / 分享歌词 = 当前行一道光。原型 `/mnt/project-files/np-light/prototype-v1.html`，实现 `ActionGlow.kt`（控件调 `NowPlayingTransportSignal.glow`，背景在 `nowPlayingAuroraBackground` 里画）。
-- **展开歌词页的焦点位（2026-10-12，工单 2：手机横屏的当前行偏下，换行和译文压到标题行上）**：当前行按它实际排出来的高度，把**行中心**放在上下渐隐之间那段清晰区的正中（`LyricsFocusFraction` = 0.5，`lyricsFocusScrollOffsetPx`，扣掉列表顶部 48dp 留白）；行比清晰区还高时，行顶贴住上渐隐的下沿，后半截进下渐隐。上下渐隐各 64dp，但每边不超过歌词窗高的 20%（手机横屏约 227dp 的歌词区约 45dp，`LyricsEdgeFadeMaxFraction`）。以前是把**行顶**放在 48dp + 38% 窗高：约 600dp 的竖屏歌词页上单行正好居中，所以一直没被发现，横屏却落在 59% 处。竖屏手机基本不变；更高的窗口（平板竖屏）当前行比以前低一点，回到正中。中途打开、目标行还没排出来时先按可见行的平均高度估算，排出来后在同一帧里改正；滑到下一行前先等一帧，让它按当前行的字重排好再算位置；滑完还差一点就用空间弹簧补完。开关翻译时当前行原地不动（按开关前的行高钉住），它自己的译文在下面展开，到下一行时再按新的行高入座。
-- **歌词来源与缓存（2026-10-05）**：
-  - **加载顺序**：用户选的歌词 → Subsonic 服务端歌词（Subsonic 账号没有用户选的行时只用服务端歌词，不走自动兜底）→ `lyrics_cache` 里 30 天内的自动行 → 自动兜底链 QQ 音乐 → 网易云 → LRCLIB，第一个返回非空 LRC 的获胜。QQ、网易云、华为挑候选都过同一个 `LyricCandidateMatcher`（2026-10-05 起网易云也走它），宁可返回 null 交给下一家，也不贴错歌。
+- **操作光效（2026-11-04 owner 认可原型 v1）**：Now Playing 上每个会改变东西的操作，都让背景从按的那个控件亮一下，和播放 / 暂停、切歌、点歌词同一套材料：封面的 primary / secondary / tertiary 加细波点，平时静止，只亮 0.65–2.1 秒，跑的时候申请高帧率。「加上」光往外放，「去掉」光收回控件、更暗更短。等待（翻译）用封面色的慢扫光，**在线 AI** 用彩虹色。只打开面板、切 tab、离开页面的操作不加光。逐项：收藏 = 爱心跳两下、一圈细点往外散，取消收藏 = 暗光收回爱心；长按爱心（加歌单）和资料库按钮 = 细点收进按钮再亮一下；评分 = 按住时光沿评分条升到手指，分越高越亮，松手后一道光在那个高度横穿背景，9.5 分以上多一串细点，清空 = 光往下退；随机开 = 三种封面色转着换位、细点散开，关 = 细点排回一行；列表循环 = 一颗光绕键一圈，单曲循环 = 两圈紧环，不循环 = 环散成点落下；拖进度条 = 光跟着手指，松手处亮一下；存笔记 = 光从「写」升到当前歌词行、那行亮起，删笔记 = 那行的光缩回；翻译 = 等待时慢扫，出来后每行从上往下亮一次；换用搜到的 / 手写的歌词 = 每行亮一次；换播放设备 = 光从「设备」往下离开，再从底边回来一圈；保持亮屏 = 整个背景轻轻亮一下；长按封面 = 一圈光收到封面上；复制 / 分享歌词 = 当前行一道光。原型 `/mnt/project-files/np-light/prototype-v1.html`，实现 `ActionGlow.kt`（控件调 `NowPlayingTransportSignal.glow`，背景在 `nowPlayingAuroraBackground` 里画）。
+- **展开歌词页的焦点位与译文波浪（2026-10-12；2026-11-16 提交 `d7d09efc0`）**：当前行按它实际排出来的高度，把**行中心**放在上下渐隐之间那段清晰区的正中（`LyricsFocusFraction` = 0.5，`lyricsFocusScrollOffsetPx`，扣掉列表顶部 48dp 留白）；行比清晰区还高时，行顶贴住上渐隐的下沿，后半截进下渐隐。上下渐隐各 64dp，但每边不超过歌词窗高的 20%（手机横屏约 227dp 的歌词区约 45dp，`LyricsEdgeFadeMaxFraction`）。以前是把**行顶**放在 48dp + 38% 窗高：约 600dp 的竖屏歌词页上单行正好居中，横屏却落在 59% 处。中途打开、目标行还没排出来时先按可见行的平均高度估算，排出来后在同一帧里改正；滑到下一行前先等一帧，让它按当前行的字重排好再算位置（settled focus seat）；滑完还差一点就用空间弹簧补完。开关翻译时当前行原地不动（按开关前的行高钉住），**其余行的译文从当前聚焦行开始依次向外一拍拍波浪展开/收起**（近乎无回弹的慢弹簧，文字从原句下方缓出），同时伴随 `YoinHaptics.performPluck(opening)` 弹拨合成触感（`PRIMITIVE_CLICK` + 衰减 `PRIMITIVE_LOW_TICK`）；`LyricsActionBar`、点句跳播、选择模式勾选项、`YoinTabGroup` 与可播曲目行亦已补全点击触感。
+- **歌词来源、多语种名称解析与缓存（2026-10-05；2026-11 扩展）**：
+  - **加载顺序**：用户选的歌词 → Subsonic 服务端歌词（Subsonic 账号没有用户选的行时只用服务端歌词，不走自动兜底）→ `lyrics_cache` 里 30 天内的自动行 → 自动兜底链 QQ 音乐 → 网易云（经 gateway）→ LRCLIB，第一个返回非空 LRC 的获胜。QQ、网易云、华为挑候选都过同一个 `LyricCandidateMatcher`（按标题、母带后缀、专辑、歌手、繁简/跨文字与时长容差严格评分），宁可返回 null 交给下一家，也不贴错歌。`LyricCreditsExtractor` 从歌词首尾抽离词曲/编曲/制作人信息注入「关于」页与专辑侧脊。
+  - **跨语言与 ISRC 别名回退（`fetchLyricUnderOtherNames`）**：非 Subsonic 曲目首轮无结果时，按以下顺序补查：① `alternateNames`（展示名含非拉丁字符时尝试服务英文名，如 Apple Music 日区 `キム・ペトラス`）；② `nativeNames`（`SpotifyNameLanguages` 按设备 `Accept-Language` 优先，再按 ISRC 国家/地区码映射 `TW→zh-TW`、`HK/MO→zh-HK`、`CN→zh-CN`、`JP→ja`、`KR→ko`、否则非英文环境尝试 `en`）；③ **`MusicBrainzIsrcClient`**（`GET /ws/2/isrc/{isrc}?fmt=json&inc=artist-credits`，遵守 1 req/1.1s 限流并校验 `±3000ms` 时长窗口）；④ **在线 AI 发行名兜底**（已配可用密钥时 `askAi = true`，按曲目缓存在 `releaseNamesByTrack`）。配合 **`AppleMusicNameRegion`**（`Off` / `Original` / `MainlandChina` / `Japan`）与 **`AppleMusicNameResolver`** 还原或统一 Apple Music 店面歌名与专辑名（Android、iOS/macOS 与 HarmonyOS 三端均已支持 `AppleMusicNameRegion`；HarmonyOS 歌词端支持 `alternateNames` 与繁简表，iOS 歌词目前使用 `:shared` `LyricsRegistry` 且尚未接入 `otherNames` 多语回退链）。
   - **华为音乐**：只在手动搜索面板出现（`automatic = false`），是网易云之后、LRCLIB 之前单独一栏，不进自动链，也从不被提议为「整套切换」的目标。只用匿名公开接口，不带 Authorization、Cookie、设备 id 或任何 token。简体中文译文写在同一行的 `^` 后面，按最后一个 `^` 拆成原文和同时间戳的译文，没有译文的行用 `//` 占位。song id 是自带解析信息的 `hw1|<contentID>|<查询提示>`：歌词地址只在进程内记住，没记住或已失效（403 / 404 / 410 / NoSuchKey）时用查询提示重搜一次、只认同一个 contentID，找不到就算没词，绝不换成同名的另一条录音。接口不可用时手动搜索提示 "Huawei Music is unavailable right now"。
-  - **自带译文**：当前歌词源自带的译文能服务目标语言（三家自带的都是简体中文，只在 AI features › Answer in 选中文时用）就直接用；不能时只提议把整套歌词换到排在它后面、自动、带译文的源（原文和译文一起换，绝不按行号拼两家）——实际效果和以前一样：QQ 提议网易云，其余走 Gemini。同一时间戳下有多行、两边行数相同时按位置配对。snackbar 写显示名（"Lyrics applied from Huawei Music"），不写原始 id。
-  - **缓存寿命**（owner 拍板：「用户选择的缓存还是不要按照天数吧，按照总大小比较好」）：`lyrics_cache` 有两种行，不改 schema。**自动行**保持 30 天 TTL，过期重新匹配，让更好的来源或 matcher 的修正还能换掉它。**用户选的行**——手写 / 粘贴（`lyricsProvider = manual`），以及在搜索面板里明确应用的任何一家、接受了的整套切换（这两种在 `lyricsProviderSongId` 前加 `user|` 前缀）——不按天数过期，重新加载时压过自动歌词，也压过 Subsonic 服务端歌词；`cachedAt` 对它们表示「最近一次用到」，读取时刷新（一天最多写一次库）。重新搜索、应用别的结果会覆盖它。**整个缓存按总大小封顶**：一首歌的占用 = 歌词 LRC 的 UTF-8 字节 + 这首歌免费的 `provider:*` 译文字节；总量超过 10 MiB 就淘汰到 9 MiB——先淘汰自动行（和没有歌词行的孤儿译文），旧的先走；再淘汰搜索里选的行，最久没用的先走；手写 / 粘贴的行计入总量但永不淘汰，刚写入的那首也不淘汰；付费的 Gemini 译文不计入、也不淘汰（云同步对它只增不删）。规则改动不清空现有缓存：旧行照自动行处理，到期自然重配。实现 `data/lyrics/LyricsCachePolicy.kt`、`LyricsCacheBudget.kt`。
+  - **自带译文**：当前歌词源自带的译文能服务目标语言（三家自带的都是简体中文，只在设置中回答语言选中文时用）就直接用；不能时只提议把整套歌词换到排在它后面、自动、带译文的源（原文和译文一起换，绝不按行号拼两家）——实际效果和以前一样：QQ 提议网易云，其余走**在线 AI** 翻译。同一时间戳下有多行、两边行数相同时按位置配对。snackbar 写显示名（"Lyrics applied from Huawei Music"），不写原始 id。
+  - **缓存寿命**（owner 拍板：「用户选择的缓存还是不要按照天数吧，按照总大小比较好」）：`lyrics_cache` 有两种行，不改 schema。**自动行**保持 30 天 TTL，过期重新匹配，让更好的来源或 matcher 的修正还能换掉它。**用户选的行**——手写 / 粘贴（`lyricsProvider = manual`），以及在搜索面板里明确应用的任何一家、接受了的整套切换（这两种在 `lyricsProviderSongId` 前加 `user|` 前缀）——不按天数过期，重新加载时压过自动歌词，也压过 Subsonic 服务端歌词；`cachedAt` 对它们表示「最近一次用到」，读取时刷新（一天最多写一次库）。重新搜索、应用别的结果会覆盖它。**整个缓存按总大小封顶**：一首歌的占用 = 歌词 LRC 的 UTF-8 字节 + 这首歌免费的 `provider:*` 译文字节；总量超过 10 MiB 就淘汰到 9 MiB——先淘汰自动行（和没有歌词行的孤儿译文），旧的先走；再淘汰搜索里选的行，最久没用的先走；手写 / 粘贴的行计入总量但永不淘汰，刚写入的那首也不淘汰；付费的在线 AI 译文不计入、也不淘汰（云同步对它只增不删）。规则改动不清空现有缓存：旧行照自动行处理，到期自然重配。实现 `data/lyrics/LyricsCachePolicy.kt`、`LyricsCacheBudget.kt`。
 - **笔记 Take Notes（方向 A，2026-10-05 owner「感觉完美」）**：
   - **笔记就是歌词行**：收起的小窗和展开的 Note 页都用共享的 `NoteLine`（`ui/component/NoteContent.kt`）：时间戳占固定 40dp 一列、等宽数字，正文跟在后面；播放头所在的那条（最近一条 ≤ 播放头的锚点笔记，和歌词同一规则）亮成 primary，颜色在绘制阶段读；没有锚点的旧笔记显示 6dp 空心点。小窗沿用强衰减和缩小、固定时间线顺序、不带排序和页头；展开页只弱衰减（0.62，播放头不在任何一条里时 0.86），**没有卡片、没有竖线、没有垃圾桶**，排序开关（时间线 / 先后）保留，「先后」模式下每行多一行小字日期；自动跟随把当前那条停在视口约 22% 处（写作时暂停），列表上 24dp、下 64dp 渐隐。写作时在锚点位置插一行虚线下划的「正在写…」（草稿属于别的歌时不显示）。点一行跳到那一刻。
   - **写作条 `NoteWriteBar`**：放在 NP 底部的 accessory 槽（Note 页底部，Wide 也一样），贴着键盘（IME insets 走 `ui/component/ImeInsets.kt`）。平时是 56dp 胶囊（surfaceContainerHigh 92%，圆角 28），左边是按秒刷新的播放头时间片，占位「记录笔记」；写的时候长成卡片（2–6 行，超出在内部滚动，圆角 28 → 20）。时间片点一下 = 对齐到现在并打一拍 tick；**不写说明文字**（2026-10-08 owner：常驻提示行很怪）：已经写了字、且播放头偏开 ≥ 2 秒时，时间片前滑出一个对齐图标（`YoinSymbols.Refresh`）；草稿属于上一首时时间片前放那首歌的小封面（Thumb 24dp）。卡片底部只有「记下」。「记下」（`JournalSavePill`）存完键盘不收，可以接着写下一句；键盘收起且草稿为空时回到胶囊。整个过程只有一个输入框实例，变形不丢焦点。手机横屏改成单行布局（「记下」在行尾，最多 3 行），写作时标签行和标题行让位。**没有底部 sheet**：`WriteNoteSheet`、`NoteComposer`、`NoteCard` 已删除；点 Write 胶囊切到 Note 页并展开，等页面落定（展开过半到 90%）才弹键盘，这个请求 2 秒内没兑现就作废；单列里键盘起来时歌名让位，歌名和歌手改成小字出现在顶栏封面旁；Wide 左栏的 Write 切到 Note 标签并聚焦。
@@ -388,12 +402,13 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
   - **长按一条笔记** → `YoinDropdownMenu`：「对齐到现在 · m:ss」/「删除」。删除后这条立刻从两个窗格和进度条刻度上消失，原位变成「已删除 · 撤销」一行；5 秒后、或删下一条、或 NP 退出时才真的删库，撤销还原的是同一行、不新建。撤销做成列表里原位的一行，不用 snackbar。
   - **草稿**在开始写的那一刻（聚焦空草稿，或写下第一个字）绑定到当时的曲目和时间锚点，直到存下、清空或明确对齐为止——写到一半切歌，存下的笔记仍归原来那首、带原来的锚点。草稿按账号分开：切换账号时丢弃。
 
-### 🔊 后台播放与系统集成
+### 🔊 后台播放、输出设备与跨端接力
 
-- **MediaSession + Media3** — 后台持续播放，系统媒体控件联动
-- **通知栏控制** — 显示封面、歌曲信息、播放/暂停/上一曲/下一曲按钮
-- **蓝牙/耳机按键响应** — 通过 MediaSession 自动支持
-- **Audio Focus** — 正确处理与其他 App 的音频焦点争抢
+- **媒体会话与原生引擎**：Android 使用 Media3 + `PlaybackService`（MusicKit Android 另由 `AppleMusicPlaybackService` 桥接）；Apple 使用 `AVQueuePlayer` + `MusicKit` + `SPTAppRemote`/Connect；HarmonyOS 使用 ArkTS `PlaybackEngine` + `AVSession` 与 API 21+ 多任务并发后台保活（`ContinuousTasks.ets`）。
+- **投播与外部扬声器**：Android 支持 Google Cast（**注意：Google Cast SDK 会作为播放能力一部分向 Google 发送匿名使用与性能统计**）与局域网 DLNA；iOS/macOS 使用 AirPlay；HarmonyOS 使用系统 `AVCastPickerHelper` 与 DLNA。
+- **空间音频（Spatial Audio）**：Android 通过 `SpatialAudio.kt` 以 `SPATIALIZATION_BEHAVIOR_AUTO` 将多声道交给系统 `Spatializer`（可在 `设置 › 播放音质` 开关并查看实际设备支持状态）；iOS 通过 `SpatialAudioMonitor` 监测输出通路。
+- **跨设备接力（Continue On / Handoff / 应用接续）**：完整协议与 TCP 暂停反控频道规范见 [continue-on.md](continue-on.md)。
+- **桌面与系统微件**：Glance `PlayWidget` / `MemoryWidget`（Android）、WidgetKit + ActivityKit 实时活动（iOS/macOS）、FormKit `PlayCard` / `MemoryCard` 1×2 / 2×2 / 2×4 服务卡片与下载 Live View（HarmonyOS）。
 - **跨源播放实验（2026-10-20）** — 目前仅有 DUMP 权限保护的 debug 原型，没有产品入口、歌单持久化或跨源输出承诺。优先验证 Apple Music → 受控 Subsonic 音源 → Apple Music；每项持有明确的来源账号，不切换浏览账号来交接。旧后端必须由新鲜原生状态确认停止后才能启动下游；不确定或超时即停止调度。MusicKit 的单项结束回调还包含 Stop / Skip，只有归属于本次队列、无主动中断且有真实曲尾进度的最终项终止，才映射 Media3 `STATE_ENDED`；循环播放不走此终态。首次起播与显式恢复位置分别确认。Spotify 先独立验证真实 MediaSession / 前台服务的连接寿命，WakeLock 只作限时对照，不用伪造播放状态保活。
 
 ### 📚 Library
@@ -467,7 +482,15 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 缓存管理（容量限制、清除）
 - 主题偏好
 - 关于 / 版本信息；关于的第一行“重新引导”再跑一遍首次引导（2026-10-09）；当前账号导入过 Spotoolfy 时，关于里多一行“Spotoolfy 回顾”，打开同一个回顾页，最后一页是“完成”（2026-10-15，D15）
-- 动效 › 滚动边缘（2026-10-09 起是整页，不再是下拉菜单）：一种样式一张卡，卡上是这种样式真的在滚的小图 + 一段说明，最下面一句说明底栏和状态栏不受影响；`SettingsFeatureActivity` 的 `ScrollEdge`，大屏在右栏打开；小图的封面列数随宽度增加（每列约 112dp，3–8 列），不拉宽封面
+- 动效 / 外观 › **滚动边缘（`ScrollEdge`）**（2026-10-09 起是整页，不再是下拉菜单）：一种样式一张卡，卡上是这种样式真的在滚的小图 + 一段说明，最下面一句说明底栏和状态栏不受影响；`SettingsFeatureActivity` 的 `ScrollEdge`，大屏在右栏打开；小图的封面列数随宽度增加（每列约 112dp，3–8 列），不拉宽封面
+- 外观 › **屏幕圆角（`ScreenCorners`，Android & HarmonyOS）**：允许在 `0–64 dp` 滑块调节或还原「跟随屏幕显示圆角」（Android 通过 `Display.getRoundedCorner()` 读取，无报告兜底 `28 dp`；**按设备本地保存、不上云同步**），让 Now Playing 升降、Memories 收退与预测性返回缩放卡缘严丝合缝贴合屏幕玻璃；调节微步触发 `performFrequentTick()`。iOS/macOS 由系统屏幕容器统一管理，不单独暴露该设置。
+- 账号 › **音量平衡（`Volume leveling` / ReplayGain）**：仅对 **Subsonic / OpenSubsonic** 账号开放（Spotify 与 Apple Music 由官方客户端/SDK 自行处理故隐藏）：支持 `Off`、`By track`、`By album`（音轨或专辑 ReplayGain 标签叠加 Pre-amp 与防削波峰值上限）。iOS/macOS 端受 `AVAudioMix` 音量上限 `1.0` 限制，正增益仅播放至满幅 `0 dB`，超响音轨正常衰减。
+- **在线 AI v2（`设置 › 功能 › 在线 AI`，Android + HarmonyOS；iOS/macOS 目前为 Gemini v1）**：
+  - **可选模型服务（`AiProvider`）**：① **Gemini**（`gemini-3.1-flash-lite` Good / `gemini-3.5-flash-lite` Best，自带 Google 搜索）；② **DeepSeek**（`deepseek-flash`，Good 1 次搜索 / Best 2 次搜索，走 `/v1/tools/search`）；③ **千问 Qwen**（`qwen-flash`，仅 Good 单档，`enable_search + forced_search`）；④ **自定义服务**（`AiApiFormat.OpenAi` `/chat/completions` 或 `Anthropic` `/messages`，支持自填 Base URL、手动或拉取 `/models` 列表、思考强度 `Off/Low/Medium/High`）。
+  - **外部搜索与评测**：自定义服务可挂接 **DeepSeek Search**、**Exa**（`api.exa.ai/search`）、**Tavily**（`api.tavily.com/search` advanced+chunks）、**Brave**（`res/v1/llm/context`，403/404/422 自动回退 `res/v1/web/search`）、**火山/豆包搜索**（`open.feedcoopapi.com/search_api/web_search`）或关闭搜索；设置页内嵌约 500 首实测参考表（`AiTierBenchmark`），并支持「**拿一首歌试试**」（从最近 `6` 首播放里选曲现场试跑并展示耗时与效果）。
+  - **密钥安全**：Android 上 DeepSeek/千问/自定义/搜索密钥存于 `noBackupFilesDir/ai_provider.json`（`FileAiProviderStore`），不进 Android 备份；Gemini Key 当前位于主库 `gemini_config` 表；iOS 存于 Keychain；HarmonyOS 全量存于系统 `SecretStore`。**所有 AI 密钥均不参与 Google Drive 云同步**。
+- **设备端 AI 与歌词卡片（`lyric_highlight`）**：Android 依赖系统 **Gemini Nano** 后台挑句（低电量/压力时让路，`NanoDiagnostics` 提供测试面板）；iOS/macOS 使用 **Apple Intelligence**（`LanguageModelSession`）；HarmonyOS 由用户分享/保存歌词图片卡时自选句子收录（无本地 LLM 依赖）。
+- **硬件键盘快捷键与桌面指针交互**：Android `ShellShortcuts` 提供 12 组 `Ctrl`/`Alt` 快捷键（避开 Android 系统占用 `Meta`）；HarmonyOS `desktop_shortcuts.dart` 覆盖全部 12 组并扩展桌面快捷键（`Ctrl+L` 正在播放面板 ⇄ 全窗、`Ctrl+F` 正在播放聚焦、`←/→` 快退/快进 5 秒、`Esc` 返回/退出搜索、`Shift+F10`/`Menu` 上下文菜单，注 `Ctrl+K` 为资料库搜索）及鼠标悬停/右键菜单；iPadOS/macOS 通过 `YoinCommands` 提供 `⌘` 键与 Mac 菜单栏指令，`PointerHover` 在 Mac 端以 `.brightness()` 呈现悬停反馈并开启间接触控板右键（`SecondaryClick`）。
 
 #### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
 
@@ -482,7 +505,7 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。Subsonic 的「测试」连上后，状态行下面多一行服务器自报的名称和版本（OpenSubsonic 的 `type` 加 `serverVersion`，如 Navidrome 0.64.2，onSurfaceVariant，和状态文字左对齐）；纯 Subsonic 服务器不报，就只有状态行。
 - 返回：二级页是无共享 chrome 的全屏目的地 → Pattern A 原生跨 Activity 预测性返回，零 back 代码；新账号的切换由 Settings 在自己的 scope 里执行（二级页经 ActivityResult 回传 id）。
 - Apple Music 是可切换的正式 Profile：二级页通过开发者 Token 服务和 MusicKit 授权创建或重新连接加密账号。2026-09-29 已在 Pixel Tablet 订阅账号验证整曲与系统媒体控制；重新授权、删除和蓝牙硬件仍须分别验证。2026-10-01 的目录 / 资料库搜索和 + 加入资料库实现复用现有页面；+ 与喜爱心形分开，必须通过个人资料库关系查询确认后才显示稳定勾选。HTTP 202 只显示待确认，不能当成完成，新加入流程的真机验证须单独记录。
-- **云同步（2026-10-04，v1）**：Storage 组第一行「Cloud sync」（单色 Devices 图标，摘要 Off / On · Synced … / Paused · Reconnect Google…），打开 `CloudSyncActivity`（Pattern A，大屏在右栏打开、左栏行高亮）。可选、默认关闭、本地优先：存进用户自己 Google Drive 的 appDataFolder，只申请 `drive.appdata`。同步笔记 / 评分 / 专辑长评 / 首页布局 / 少量设置 / 付费 AI 歌词翻译，凭据与 API Key 永不出设备。关闭页 = 一句定位 + What you get（≤4）+ Good to know（如实说明不是端到端加密、占用户存储、服务器地址和用户名会同步）+ 按钮；开启页 = 状态 + Google 账号 + 每个音乐账号的同步状态 + Drive 里有本机没有的账号 + 设备 + 「在本设备关闭」/「删除云端数据」。产品规则和存储格式以 `docs/cloud-sync.md` 为准。
+- **云同步（0.6.3+ 多端互通）**：Storage 组第一行「Cloud sync」（单色 Devices 图标，摘要 Off / On · Synced … / Paused · Reconnect Google…），打开 `CloudSyncActivity`（Pattern A，大屏在右栏打开、左栏行高亮）。可选、默认关闭、本地优先：存进用户自己 Google Drive 的 appDataFolder，只申请 `drive.appdata`。同步笔记 / 评分 / 专辑长评 / 首页布局 / 歌单备份 / 少量设置 / **在线 AI** 歌词翻译与关于问答，凭据与 API Key 永不上传云同步。关闭页 = 一句定位 + What you get（≤4）+ Good to know（如实说明不是端到端加密、占用户存储、服务器地址和用户名会同步）+ 按钮；开启页 = 状态 + Google 账号 + 每个音乐账号的同步状态 + Drive 里有本机没有的账号 + 设备 + 「在本设备关闭」/「删除云端数据」。四端兼容格式（Android `yoin-state` + `artifacts`、iOS/macOS `:shared` `CloudSyncCore`、HarmonyOS `SyncEngine`）以 `docs/cloud-sync.md` 为准。
 - Apple Music 能力依据：[MusicKit](https://developer.apple.com/musickit/)、[添加资料库](https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library)、[喜爱限制](https://support.apple.com/en-us/111118)。接入时重新核验。
 
 ---
@@ -626,9 +649,9 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 
 Apple Music connection creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library songs, albums, artists and read-only playlists, with distinct catalog and personal-library search scopes. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. The separate library-add control uses the exact authenticated catalog-song → library relationship; it displays a stable checkmark only after membership is confirmed and preserves an unconfirmed HTTP 202 as pending. Membership never becomes a favorite heart. Unsupported favorite mutation, library removal, playlist editing, Cast and offline caching remain hidden. Imported tracks without a catalog playback ID are dimmed with a "?" badge on the cover whose tap expands the reason inline; they never enter the MusicKit queue. The same goes for a library song whose `catalog` relationship Apple answers empty although its play parameters still name a catalog id (a song pulled from, or never in, the account's storefront; 2026-10-12 device QA): MusicKit's catalog request leaves such an id out of the queue without an error and reads the start index in the shorter list, so a Songs tap with eight of them above it started the song eight rows down. It keeps that catalog id as its identity, is marked `appleMusicCatalogUnavailable`, and plays nowhere in Yoin (a tap on it shows the localized "Unable to play this song"; an import, which Apple also answers with an empty `catalog` but which names no catalog id, is never marked so and keeps the import refusal); a debug build logs `YoinMusicKitQueue` when a prepared queue comes back shorter than asked or starts on another song. Since 2026-10-02 a library album opens as its full catalog album (Spotify parity): every catalog track is listed and the ones already in the user's library carry the check from `TrackLibraryButton`, which replaces the heart slot for Apple Music; tapping an unchecked row control adds that song. A row's membership comes with the album's own read (`include[songs]=albums,artists,library`: each song's own `library` relationship; after a 400 the album is read once more without it, and only when that read answers does the source stop asking for it; a 400 that read gets as well was never about the songs' `library`, so the album falls back as before and later albums still ask); the user's copy of the album marks the rows whose song carries none. Apple can leave the album's `library` relationship out while the library holds some of its songs (POP DELIVERY, 2026-10-11 device QA: every row showed + though アルキメデス was added), so when neither answers a row is left unconfirmed (`appleMusicLibraryChecked=false`): it draws + but never records "not added" over a check known from elsewhere. Library albums Apple cannot match to the catalog keep their library tracklist. Subscribed playback was verified on Pixel Tablet on 2026-09-29; these new search/library writes require their own current device verification, and reauthorization, deletion and Bluetooth hardware remain open.
 
-### Spotify 心形状态（2026-10-10，P4）
+### Spotify 心形状态（2026-10-10，P4；0.6.3+ 补充）
 
-Spotify 的「已喜欢」= Liked Songs（Yoin 的爱心就是它）。已保存镜像（`/me/tracks` 读最新 200 首，6-21 的决定不变）装不下主人约 3000 首的库，所以心形另有一层按账号隔离的状态：
+Spotify 的「已喜欢」= Liked Songs（Yoin 的爱心就是它）。由于本地同步镜像（`SpotifyLibrarySyncCoordinator` 缓存最新 200 条；完整 Web API 分页在 `SpotifyApiClient` 上限 `2,000`，iOS `SpotifySource` 默认 `300`）仍可能装不下更大的曲库，心形另有一层按账号隔离的状态（各服务完整能力与限制另见 [platforms.md](platforms.md) 与 [integrations/provider-alignment.md](integrations/provider-alignment.md)）：
 
 - **读取入口**：`YoinRepository.observeFavoriteStates`（Now Playing 和专辑行的心形都读它）。通知栏快捷按钮（`SessionQuickActions`）和 Library 仍直接读 `favoriteOverrides` 加曲目自带标记：下面这层状态只有 Spotify 会写入，而快捷按钮只挂在 Subsonic 和 Apple Music 的媒体会话上，Library 的行也不画心形，所以两者看到的一致。优先级：正在进行的写入 > 刚落地的本地写（60 秒宽限内） > 远端确认和镜像行（比时间戳，新的胜出；本地写在宽限之后也按「写入时间 + 60 秒」参加比较） > 曲目自带的 `isStarred`。取消喜欢记成明确的 false，队列里的旧副本翻不回来。只存在内存里，切账号清空，晚到的结果丢弃。
 - **Now Playing**：由 app 级单例 `PlaybackManager` 在当前曲目变化时查一次（warm-connect 接管也算），不放进各 Activity 的 Now Playing VM。先走 App Remote `UserApi.getLibraryState`（本机 IPC，不占 Web API 配额）；只有它在换歌时出错，且这首歌停留超过 0.8 秒，才回退到 Web API contains。之后的 PlayerState 事件（暂停、拖动、回到前台后的重连）至多每 30 秒重查一次，只走 App Remote，不发后台 Web API 请求。只查 `spotify:track:`，播客单集和本地文件跳过。
