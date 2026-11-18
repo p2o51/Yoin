@@ -26,8 +26,13 @@ final class SpotifyListeningBackfill {
         var coverURL: URL?
     }
 
-    /// When Yoin left the front with a Spotify song playing; nil otherwise.
-    private var awayAt: Int64?
+    /// Minimum delay between recently-played backfill checks per scope (skips App Remote wake bounces).
+    nonisolated static let minGapMs: Int64 = 15_000
+
+    /// When Yoin left the front with a real Spotify account active, keyed by historyScope.
+    private var awayAtByScope: [String: Int64] = [:]
+    private var lastAttemptByScope: [String: Int64] = [:]
+    private var inFlightScopes: Set<String> = []
     private var observers: [NSObjectProtocol] = []
 
     func start(model: AppModel) {
@@ -42,18 +47,39 @@ final class SpotifyListeningBackfill {
     }
 
     private func leftFront(_ model: AppModel) {
-        guard awayAt == nil, !LaunchConfig.silentAudio, model.store.spotify != nil, model.player.isPlaying,
-              model.player.currentTrack?.provider == SpotifyMapping.provider else { return }
-        awayAt = Int64(Date().timeIntervalSince1970 * 1000)
+        let store = model.store
+        guard !LaunchConfig.silentAudio, store.spotify != nil, store.isReal,
+              store.provider == SpotifyMapping.provider else { return }
+        let scope = store.historyScope
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        if awayAtByScope[scope] == nil {
+            awayAtByScope[scope] = nowMs
+        }
+        if Self.loadLastBackfillMs(scope: scope) == nil {
+            Self.saveLastBackfillMs(nowMs, scope: scope)
+        }
     }
 
     private func backInFront(_ model: AppModel) {
-        guard let since = awayAt else { return }
-        awayAt = nil
         let store = model.store
-        guard let source = store.spotify, store.isReal, store.provider == SpotifyMapping.provider else { return }
+        guard !LaunchConfig.silentAudio, let source = store.spotify, store.isReal,
+              store.provider == SpotifyMapping.provider else { return }
         let scope = store.historyScope
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let awayAt = awayAtByScope.removeValue(forKey: scope)
+        let persisted = Self.loadLastBackfillMs(scope: scope)
+        if persisted == nil {
+            Self.saveLastBackfillMs(nowMs, scope: scope)
+        }
+        guard !inFlightScopes.contains(scope),
+              let since = Self.resolveSinceMs(nowMs: nowMs, awayAt: awayAt,
+                                              lastAttemptMs: lastAttemptByScope[scope],
+                                              persistedMs: persisted) else { return }
+        lastAttemptByScope[scope] = nowMs
+        inFlightScopes.insert(scope)
         Task {
+            defer { self.inFlightScopes.remove(scope) }
+            guard await source.api.gate.remaining() == 0 else { return }
             let page: SpotifyDTO.RecentlyPlayed
             do {
                 page = try await source.api.get("me/player/recently-played", ["limit": "50", "after": String(since)],
@@ -65,9 +91,10 @@ final class SpotifyListeningBackfill {
             // Another account (or none) by the time it answered: not its history.
             guard store.spotify === source, store.historyScope == scope else { return }
             let provider = SpotifyMapping.provider
+            let heard = Self.heard(page.items)
             let existing = store.history.plays.filter { $0.scope == scope && $0.provider == provider }
                 .map { (songId: $0.songId, startedAt: $0.startedAt) }
-            let missing = Self.missing(Self.heard(page.items), after: since, existing: existing)
+            let missing = Self.missing(heard, after: since, existing: existing)
             for h in missing {
                 let id = store.history.recordPlay(scope: scope, provider: provider, songId: h.songId, albumId: h.albumId,
                                                   artistId: h.artistId, title: h.title, album: h.album, artist: h.artist,
@@ -75,8 +102,37 @@ final class SpotifyListeningBackfill {
                                                   durationSec: h.durationSec, at: h.playedAt)
                 store.history.markListened(playId: id, listenedSec: 0, completed: true)
             }
+            let watermark = max(persisted ?? 0, heard.last?.playedAt ?? since)
+            Self.saveLastBackfillMs(watermark, scope: scope)
             if !missing.isEmpty { PlayTrace.log("SP backfill recorded \(missing.count)") }
         }
+    }
+
+    nonisolated static func watermarkKey(scope: String) -> String {
+        "spotifyBackfillLastMs.\(scope)"
+    }
+
+    nonisolated static func loadLastBackfillMs(scope: String, defaults: UserDefaults = .standard) -> Int64? {
+        guard !scope.isEmpty, let raw = defaults.object(forKey: watermarkKey(scope: scope)) as? NSNumber else { return nil }
+        let val = raw.int64Value
+        return val > 0 ? val : nil
+    }
+
+    nonisolated static func saveLastBackfillMs(_ ms: Int64, scope: String, defaults: UserDefaults = .standard) {
+        guard !scope.isEmpty, ms > 0 else { return }
+        defaults.set(NSNumber(value: ms), forKey: watermarkKey(scope: scope))
+    }
+
+    nonisolated static func resolveSinceMs(nowMs: Int64, awayAt: Int64?, lastAttemptMs: Int64?,
+                                           persistedMs: Int64?, minGapMs: Int64 = minGapMs) -> Int64? {
+        if let lastAttemptMs, nowMs - lastAttemptMs < minGapMs { return nil }
+        if let awayAt, let persistedMs {
+            return min(awayAt, persistedMs)
+        }
+        if let awayAt {
+            return (nowMs - awayAt >= minGapMs) ? awayAt : nil
+        }
+        return persistedMs
     }
 
     /// recently-played's songs (an episode or a local file is no song), oldest first.

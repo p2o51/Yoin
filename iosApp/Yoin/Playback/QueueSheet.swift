@@ -33,6 +33,7 @@ struct QueueSheet: View {
     @State private var spotifyQueueRetry = 0
     /// Bumps when Yoin comes back to the front (a change made in the Spotify app shows then).
     @State private var spotifyQueueForeground = 0
+    @State private var menuTarget: QueueMenuTarget?
 
     /// Spotify plays a song that isn't the queue's: the sheet shows Spotify's queue, not Yoin's parked one.
     private var spotifysOwn: PlayableTrack? {
@@ -41,10 +42,26 @@ struct QueueSheet: View {
     }
 
     var body: some View {
-        if let own = spotifysOwn {
-            spotifyList(own)
-        } else {
-            queueList
+        Group {
+            if let own = spotifysOwn {
+                spotifyList(own)
+            } else {
+                queueList
+            }
+        }
+        .sheet(item: $menuTarget, onDismiss: {
+            PlaylistActions.shared.flushPendingAdd()
+            if PlaylistActions.shared.adding != nil {
+                model.queueSheetOpen = false
+            }
+        }) { target in
+            TrackMenuSheet(track: target.entry, context: target.context)
+                .environment(model)
+                .reportsSheetRise()
+                .ySolidSheet()
+        }
+        .onChange(of: model.path) { _, _ in
+            model.queueSheetOpen = false
         }
     }
 
@@ -124,6 +141,7 @@ struct QueueSheet: View {
                 .listRowSeparator(.hidden)
             sectionLabel(String(localized: "Now playing"))
             spotifyRow(title: own.title, artist: own.artist, cover: own.coverURL, current: true)
+                .onSecondaryClick { openMenu(for: own, current: true) }
             if let parked = engine.currentItem {
                 // The parked song and what follows it: a tap plays the queue again from there.
                 let start = (engine.currentIndex ?? -1) + 1
@@ -141,6 +159,7 @@ struct QueueSheet: View {
                 // A song can be queued twice: a row is its place and its song.
                 ForEach(entries, id: \.rowKey) { e in
                     spotifyRow(title: e.title, artist: e.artist, cover: e.coverURL, current: false)
+                        .onSecondaryClick { openMenu(for: e) }
                 }
             case .loaded:
                 emptyLabel(String(localized: "Nothing up next"))
@@ -149,8 +168,8 @@ struct QueueSheet: View {
             }
         }
         .modifier(SheetChrome())
-        // Read again when Spotify moves to another song, after an Add to queue, on Retry, and every few
-        // seconds while the sheet is open.
+        // No timed re-read while the sheet is open (see spotifyQueue): reads again when Spotify moves to
+        // another song, after an Add to queue, on Retry, and when Yoin returns to the front.
         .task(id: SpotifyQueueKey(song: own.id, revision: model.spotifyQueueRevision, retry: spotifyQueueRetry,
                                   foreground: spotifyQueueForeground)) {
             if spotifyQueueSong != own.id {
@@ -372,6 +391,7 @@ struct QueueSheet: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain).pointerHighlight()
+        .onSecondaryClick { openMenu(for: item.track, current: current) }
         .yoinDropTarget(in: Rectangle(), ink: scheme.primary) { YoinDrag.queue($0, before: current ? nil : item.id, model: model) }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
@@ -379,6 +399,33 @@ struct QueueSheet: View {
         .moveDisabled(current)
         .accessibilityHint(current ? (engine.isPlaying ? String(localized: "Playing") : String(localized: "Paused")) : String(localized: "Plays this song"))
     }
+
+    private func openMenu(for track: PlayableTrack, current: Bool) {
+        guard !track.id.hasPrefix("spotify:local:") else { return }
+        let album = model.store.albumForPlaying(track) ?? AppModel.album(for: track, library: model.library)
+        let entry = PlaylistEntry(album: album, track: AppModel.track(for: track))
+        menuTarget = QueueMenuTarget(entry: entry, context: current ? .nowPlaying : .library)
+    }
+
+    private func openMenu(for entry: SpotifySource.QueueEntry) {
+        guard entry.uri.hasPrefix("spotify:track:") else { return }
+        let trackId = String(entry.uri.dropFirst("spotify:track:".count))
+        guard !trackId.isEmpty else { return }
+        let playable = PlayableTrack(
+            id: trackId, provider: SpotifyMapping.provider,
+            title: entry.title, artist: entry.artist,
+            album: "", albumId: nil, durationSec: 0,
+            streamURL: SpotifyAudioOutput.streamURL(trackId: trackId),
+            coverURL: entry.coverURL
+        )
+        openMenu(for: playable, current: false)
+    }
+}
+
+private struct QueueMenuTarget: Identifiable {
+    let id = UUID()
+    let entry: PlaylistEntry
+    let context: TrackMenuContext
 }
 
 /// What the queue sheet holds of Spotify's own queue.

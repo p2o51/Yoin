@@ -13,37 +13,84 @@ final class AirPlayRouteTrigger {
             AVAudioOutput.log.error("route picker: not mounted")
             return
         }
-        guard let button = Self.firstButton(in: picker) else {
-            AVAudioOutput.log.error("route picker: no button in \(String(describing: picker.subviews), privacy: .public)")
+        guard let control = Self.firstControl(in: picker) else {
+            AVAudioOutput.log.error("route picker: no control in \(String(describing: picker.subviews), privacy: .public)")
             return
         }
-        AVAudioOutput.log.info("route picker: present \(String(describing: type(of: button)), privacy: .public) menu=\(button.showsMenuAsPrimaryAction) targets=\(button.allTargets.count) events=\(button.allControlEvents.rawValue)")
-        button.sendActions(for: .touchUpInside)
-        button.sendActions(for: .primaryActionTriggered)
+        AVAudioOutput.log.info("route picker: present \(String(describing: type(of: control)), privacy: .public) menu=\(control.showsMenuAsPrimaryAction) targets=\(control.allTargets.count) events=\(control.allControlEvents.rawValue)")
+        control.sendActions(for: .touchUpInside)
+        control.sendActions(for: .primaryActionTriggered)
     }
 
-    /// The picker's button sits a level or two down, depending on the OS.
-    private static func firstButton(in view: UIView) -> UIButton? {
+    /// Finds the picker's internal button (`UIButton` first, falling back to any `UIControl` such as
+    /// private Mac/iPad-on-Mac route controls).
+    static func firstControl(in view: UIView) -> UIControl? {
+        if let button = firstSubview(of: UIButton.self, in: view) { return button }
+        return firstSubview(of: UIControl.self, in: view)
+    }
+
+    private static func firstSubview<T: UIView>(of type: T.Type, in view: UIView) -> T? {
         for sub in view.subviews {
-            if let b = sub as? UIButton { return b }
-            if let b = firstButton(in: sub) { return b }
+            if let match = sub as? T { return match }
+            if let match = firstSubview(of: type, in: sub) { return match }
         }
         return nil
+    }
+}
+
+final class AirPlayRouteContainerView: UIView {
+    let picker: AVRoutePickerView = {
+        let view = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        view.prioritizesVideoDevices = false
+        view.alpha = 0.011
+        return view
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame.isEmpty ? CGRect(x: 0, y: 0, width: 44, height: 44) : frame)
+        backgroundColor = .clear
+        isUserInteractionEnabled = true
+        addSubview(picker)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        picker.frame = bounds
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let w = size.width.isFinite && size.width > 0 ? max(size.width, 44) : 44
+        let h = size.height.isFinite && size.height > 0 ? max(size.height, 44) : 44
+        return CGSize(width: w, height: h)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, self.bounds.contains(point) else { return nil }
+        let pickerPoint = convert(point, to: picker)
+        if let hit = picker.hitTest(pickerPoint, with: event) { return hit }
+        return AirPlayRouteTrigger.firstControl(in: picker) ?? picker
     }
 }
 
 struct AirPlayRoutePicker: UIViewRepresentable {
     var trigger: AirPlayRouteTrigger
 
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let view = AVRoutePickerView(frame: .zero)
-        view.prioritizesVideoDevices = false
-        view.alpha = 0.011
-        trigger.picker = view
-        return view
+    func makeUIView(context: Context) -> AirPlayRouteContainerView {
+        let container = AirPlayRouteContainerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        trigger.picker = container.picker
+        return container
     }
 
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {
-        trigger.picker = view
+    func updateUIView(_ container: AirPlayRouteContainerView, context: Context) {
+        trigger.picker = container.picker
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: AirPlayRouteContainerView, context: Context) -> CGSize? {
+        let w = max(proposal.width ?? 44, 44)
+        let h = max(proposal.height ?? 44, 44)
+        return CGSize(width: w, height: h)
     }
 }
