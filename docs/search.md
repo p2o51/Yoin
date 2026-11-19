@@ -77,9 +77,13 @@ A note's value is inseparable from the second it was pinned to, so:
 
 ## Ordering and caps
 
-- **Per-type caps on the All page**: songs 5, albums 3, memories 2, notes 2, artists 3,
-  playlists 3 — each followed by "show all". `SEARCH_ALL_ROWS_PER_TYPE = 40` stays as the
-  per-type page size behind "show all", not as the All page's size.
+- **Per-type caps on the All page**: songs 5, albums 3, memories 2, notes 2, playlists 3 —
+  each followed by "show all". `SEARCH_ALL_ROWS_PER_TYPE = 40` stays as the per-type page
+  size behind "show all", not as the All page's size.
+- **Artists: the cap follows the form, and the form is not settled.** Three rows if artists
+  stay a vertical list; up to eight in a single-row horizontal strip if the prototype's
+  compact form is chosen. Decide the form first, then take its number — a cap written before
+  the form would only have to change again.
 - **Sections are ordered by hit strength, not by a fixed list.** An exact or prefix title
   hit floats its section up; a query that looks like a name floats artists/albums; otherwise
   songs lead. "Songs first" is the default, not a rule.
