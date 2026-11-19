@@ -91,6 +91,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -208,6 +209,7 @@ import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -5521,6 +5523,11 @@ internal fun CompactBottomHero(
                     },
                 )
             }
+            val titlePlayingStretchScale = if (LocalMotionProfile.current == MotionProfile.AdaptiveReduced) {
+                1.01f
+            } else {
+                1.03f
+            }
             if (oneLine && stackable) {
                 HeroRowToStack(
                     stacking = stacking.coerceIn(0f, 1f),
@@ -5538,6 +5545,7 @@ internal fun CompactBottomHero(
                                 style = MaterialTheme.typography.displaySmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 stretchScale = titleStretchScale,
+                                overflowStretchScale = titlePlayingStretchScale,
                             )
                         }
                     },
@@ -5563,7 +5571,7 @@ internal fun CompactBottomHero(
                 val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
                 fun titleGrowthPx(): Float {
                     val grown = titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f
-                    return titleWidthPx * grown.coerceAtLeast(0f)
+                    return ceil(titleWidthPx * grown.coerceAtLeast(0f))
                 }
                 fun rowFreePx(): Float = (rowWidthPx - titleWidthPx - gapPx - artistWidthPx).coerceAtLeast(0f)
                 Row(
@@ -5603,6 +5611,7 @@ internal fun CompactBottomHero(
                             style = MaterialTheme.typography.displaySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             stretchScale = titleStretchScale,
+                            overflowStretchScale = titlePlayingStretchScale,
                         )
                     }
                     Box(
@@ -5647,6 +5656,7 @@ internal fun CompactBottomHero(
                             style = MaterialTheme.typography.displaySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             stretchScale = titleStretchScale,
+                            overflowStretchScale = titlePlayingStretchScale,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -5675,17 +5685,18 @@ private fun HeroRowToStack(
     artist: @Composable () -> Unit,
     tags: @Composable () -> Unit,
 ) {
-    // From layout to draw: the artist's ride on the title's growth, and
-    // whether the title overflows the row (it marquees there).
-    val ridePx = remember { floatArrayOf(0f) }
-    val titleScrolls = remember { booleanArrayOf(false) }
+    // Snapshot states (not plain arrays): drawWithContent and graphicsLayer
+    // must observe ridePx / titleScrolls so animating titleStretchScale updates
+    // the clip edge even when titleP's own layout size doesn't change.
+    val ridePx = remember { mutableFloatStateOf(0f) }
+    val titleScrolls = remember { mutableStateOf(false) }
     val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val titleClip = Modifier
         .graphicsLayer {
             // A scrolling title takes its new width at the glide's middle,
             // which starts its marquee over: it fades through there, so the
             // restart never shows as a jump.
-            if (titleScrolls[0]) alpha = abs(1f - 2f * stacking)
+            if (titleScrolls.value) alpha = abs(1f - 2f * stacking)
         }
         .drawWithContent {
             if (!ltr) {
@@ -5693,7 +5704,7 @@ private fun HeroRowToStack(
                 return@drawWithContent
             }
             // The row clips the grown title at the artist; the stack lets it run.
-            val end = size.width + ridePx[0] + size.width * stacking
+            val end = size.width + ridePx.floatValue + size.width * stacking
             clipRect(left = -size.width, top = -size.height, right = end, bottom = size.height * 2f) {
                 this@drawWithContent.drawContent()
             }
@@ -5731,7 +5742,7 @@ private fun HeroRowToStack(
         val titleP = titleM.first().measure(
             Constraints(maxWidth = if (stacking < 0.5f) titleRowMax else stackWidth),
         )
-        titleScrolls[0] = titleP.width >= titleRowMax
+        titleScrolls.value = titleP.width >= titleRowMax
 
         fun baseline(p: Placeable): Int =
             p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
@@ -5739,8 +5750,8 @@ private fun HeroRowToStack(
         // riding the title's growth into the row's free end.
         val titleRowW = minOf(titleP.width, titleRowMax)
         val rowFree = (width - titleRowW - gap - artistRowW).coerceAtLeast(0)
-        val ride = if (ltr) minOf(titleRowW * titleGrowth(), rowFree.toFloat()) else 0f
-        ridePx[0] = ride
+        val ride = if (ltr) minOf(ceil(titleRowW * titleGrowth()), rowFree.toFloat()) else 0f
+        ridePx.floatValue = ride
         val rowArtistX = titleRowW + gap + ride.roundToInt()
         val rowArtistY = baseline(titleP) - baseline(artistP)
         // Stack: the artist line (centred with its tags), 2dp, the title.
@@ -6269,68 +6280,102 @@ internal fun AlbumCover(
 }
 
 @Composable
-private fun NowPlayingMarqueeTitle(
+internal fun NowPlayingMarqueeTitle(
     text: String,
     style: androidx.compose.ui.text.TextStyle,
     color: androidx.compose.ui.graphics.Color,
     stretchScale: Float,
     modifier: Modifier = Modifier,
+    overflowStretchScale: Float = 1f,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val textMeasurer = rememberTextMeasurer()
         val density = LocalDensity.current
-        val availableWidthPx = with(density) { maxWidth.roundToPx() }
-        val shouldMarquee = remember(text, style, availableWidthPx) {
-            if (availableWidthPx <= 0) {
+        val layoutDirection = LocalLayoutDirection.current
+        val availableWidthPx = constraints.maxWidth
+        val effectiveOverflowScale = overflowStretchScale.coerceAtLeast(1f)
+        val shouldMarquee = remember(
+            text,
+            style,
+            availableWidthPx,
+            effectiveOverflowScale,
+            textMeasurer,
+            density,
+            layoutDirection,
+        ) {
+            if (availableWidthPx <= 0 || availableWidthPx == Constraints.Infinity) {
                 false
             } else {
-                textMeasurer.measure(
+                val measuredWidthPx = textMeasurer.measure(
                     text = AnnotatedString(text),
                     style = style,
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Clip,
                     constraints = Constraints(maxWidth = Constraints.Infinity),
-                ).size.width > availableWidthPx
+                ).size.width
+                ceil(measuredWidthPx * effectiveOverflowScale).toInt() > availableWidthPx
             }
         }
+        val originX = if (layoutDirection == LayoutDirection.Ltr) 0f else 1f
 
-        Box(
-            // A title that fits wraps its text, so a one-row hero can set the
-            // artist right after it; the caller's modifier decides the width.
-            modifier = if (shouldMarquee) {
-                Modifier
+        if (shouldMarquee) {
+            Box(
+                modifier = Modifier
                     .fillMaxWidth()
                     .clipToBounds()
                     .horizontalFadeMask(edgeWidth = 28.dp)
-            } else {
-                Modifier
-            },
-        ) {
-            Text(
-                text = text,
-                style = style,
-                color = color,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier
-                    .graphicsLayer {
-                        scaleX = stretchScale
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                    .then(
-                        if (shouldMarquee) {
-                            Modifier.basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                repeatDelayMillis = 2000,
-                                initialDelayMillis = 1500,
-                            )
-                        } else {
-                            Modifier
-                        },
+                    .basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        repeatDelayMillis = 2000,
+                        initialDelayMillis = 1500,
                     ),
-            )
+            ) {
+                Text(
+                    text = text,
+                    style = style,
+                    color = color,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val scaledWidth = ceil(placeable.width * effectiveOverflowScale).toInt()
+                            val baseline = placeable[FirstBaseline]
+                            val alignmentLines: Map<AlignmentLine, Int> =
+                                if (baseline != AlignmentLine.Unspecified) {
+                                    mapOf<AlignmentLine, Int>(FirstBaseline to baseline)
+                                } else {
+                                    emptyMap()
+                                }
+                            layout(scaledWidth, placeable.height, alignmentLines = alignmentLines) {
+                                placeable.placeRelative(0, 0)
+                            }
+                        }
+                        .graphicsLayer {
+                            scaleX = stretchScale
+                            transformOrigin = TransformOrigin(originX, 0.5f)
+                        },
+                )
+            }
+        } else {
+            // A title that fits wraps its text, so a one-row hero can set the
+            // artist right after it; the caller's modifier decides the width.
+            Box {
+                Text(
+                    text = text,
+                    style = style,
+                    color = color,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = stretchScale
+                        transformOrigin = TransformOrigin(originX, 0.5f)
+                    },
+                )
+            }
         }
     }
 }
