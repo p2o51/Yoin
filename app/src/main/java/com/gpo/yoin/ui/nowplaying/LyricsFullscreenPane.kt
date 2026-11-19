@@ -82,6 +82,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 
 /**
  * Fullscreen Lyrics viewer. Unlike the compact [com.gpo.yoin.ui.component.LyricsDisplay]
@@ -514,6 +515,8 @@ private fun LyricsFullscreenList(
             }
     }
     val seat = if (seatFraction.isNaN()) LyricsFocusFraction else seatFraction
+    var translationWaveActive by remember(trackKey) { mutableStateOf(false) }
+    var lineGlideActive by remember(trackKey) { mutableStateOf(false) }
     LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, focusItem, seatFraction) {
         if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
         // Wait for the first read of the screen (the first layout) so the
@@ -541,6 +544,72 @@ private fun LyricsFullscreenList(
             val measured = offsetPx()
             if (measured != estimated) listState.scrollToItem(target, measured)
         }
+
+        // Smoothly glide a visible row by anchoring every frame directly to
+        // `target` (requestScrollToItem). Unlike LazyColumn's pixel-delta
+        // animateScrollToItem — which gets pushed downward when rows above
+        // `target` expand during a translation wave and then teleports with
+        // snapToItem at the end — anchoring on `target` keeps the glide immune
+        // to height changes in rows above it.
+        suspend fun glideToTarget() {
+            lineGlideActive = true
+            try {
+                val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
+                if (visible != null) {
+                    val startOffset = -visible.offset
+                    val endOffset = offsetPx()
+                    if (abs(endOffset - startOffset) > 1) {
+                        val anim = Animatable(startOffset.toFloat())
+                        anim.animateTo(
+                            targetValue = endOffset.toFloat(),
+                            animationSpec = seatSettleSpec,
+                        ) {
+                            if (listState.isScrollInProgress) return@animateTo
+                            listState.requestScrollToItem(target, value.roundToInt())
+                        }
+                    }
+                } else {
+                    listState.animateScrollToItem(target, offsetPx())
+                }
+            } finally {
+                lineGlideActive = false
+            }
+            // If a translation wave is still changing row heights, let the wave
+            // loop hold this row steady until sizes settle before fine-seating.
+            if (translationWaveActive) {
+                snapshotFlow { translationWaveActive }.first { !it }
+            }
+            val rest = if (handOver) {
+                null
+            } else {
+                listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, liveSeat, songEndItem, songEndTailPx)
+            }
+            if (rest != null && rest != 0 &&
+                (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
+            ) {
+                lineGlideActive = true
+                try {
+                    val row = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
+                    if (row != null) {
+                        val startOffset = -row.offset
+                        val endOffset = startOffset + rest
+                        val anim = Animatable(startOffset.toFloat())
+                        anim.animateTo(
+                            targetValue = endOffset.toFloat(),
+                            animationSpec = seatSettleSpec,
+                        ) {
+                            if (listState.isScrollInProgress) return@animateTo
+                            listState.requestScrollToItem(target, value.roundToInt())
+                        }
+                    } else {
+                        listState.animateScrollBy(rest.toFloat(), seatSettleSpec)
+                    }
+                } finally {
+                    lineGlideActive = false
+                }
+            }
+        }
+
         var firstAnchor = true
         // The window's top when the line was last seated: a resize that keeps
         // it (the window only grew or shrank below) leaves the row where it is.
@@ -560,19 +629,7 @@ private fun LyricsFullscreenList(
                         // One frame first: the row's size is the seat's input,
                         // and it is laid out in its active style only now.
                         withFrameNanos { }
-                        listState.animateScrollToItem(target, offsetPx())
-                        // A row that was off screen glided to an estimate:
-                        // the rest of the way on the same family of spring.
-                        val rest = if (handOver) {
-                            null
-                        } else {
-                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, liveSeat, songEndItem, songEndTailPx)
-                        }
-                        if (rest != null && rest != 0 &&
-                            (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
-                        ) {
-                            listState.animateScrollBy(rest.toFloat(), seatSettleSpec)
-                        }
+                        glideToTarget()
                         seatTop = windowGeometry.topPx
                     }
                     // Actual window/keyboard resizes still keep the line
@@ -658,46 +715,71 @@ private fun LyricsFullscreenList(
         // would read as settled. Driven by frameNanos so Compose's test clock works.
         var waveStartNanos = -1L
         val waveSpanNanos = (TranslationWaveMaxRows * TranslationWaveStepMs + TranslationWaveSettleSlackMs) * 1_000_000L
-        while (true) {
-            var abortWave = false
-            var waveElapsedNanos = 0L
-            val signature = withFrameNanos { frameNanos ->
-                if (!latestAutoScroll || latestFocusItem < 0) {
-                    abortWave = true
-                    return@withFrameNanos 0L
-                }
-                if (waveStartNanos < 0L) waveStartNanos = frameNanos
-                waveElapsedNanos = frameNanos - waveStartNanos
-                val info = listState.layoutInfo
-                if (info.viewportSize.height > 0) {
-                    val focus = latestFocusItem
-                    if (pinnedItem < 0) {
-                        pinnedItem = focus
-                        pinnedOffset = if (focus == latestUpNextHeaderIndex) {
-                            0
-                        } else {
-                            info.lyricsFocusScrollOffsetPx(
-                                focus,
-                                latestEdgeFadePx,
-                                latestSeat,
-                                latestSongEndItem,
-                                latestSongEndTailPx,
-                            )
-                        }
-                    } else if (focus != pinnedItem) {
-                        // A line advance started a glide to the new row; stop re-pinning
-                        // the previous row so requestScrollToItem does not cancel it.
+        val maxWaveNanos = 2_500_000_000L
+        translationWaveActive = true
+        try {
+            while (true) {
+                var abortWave = false
+                var waveElapsedNanos = 0L
+                val signature = withFrameNanos { frameNanos ->
+                    if (!latestAutoScroll || latestFocusItem < 0) {
                         abortWave = true
                         return@withFrameNanos 0L
                     }
-                    listState.requestScrollToItem(pinnedItem, pinnedOffset)
+                    if (waveStartNanos < 0L) waveStartNanos = frameNanos
+                    waveElapsedNanos = frameNanos - waveStartNanos
+                    val info = listState.layoutInfo
+                    if (info.viewportSize.height > 0) {
+                        val focus = latestFocusItem
+                        // Never cancel an active glide or user drag with requestScrollToItem;
+                        // wait for it to finish, then re-pin at its actual settled offset for
+                        // any remaining wave frames.
+                        if (listState.isScrollInProgress || lineGlideActive) {
+                            pinnedItem = -1
+                        } else {
+                            val currentRow = info.visibleItemsInfo.firstOrNull { it.index == focus }
+                            if (pinnedItem != focus) {
+                                pinnedItem = focus
+                                // Pin the focus row at its ACTUAL current screen position
+                                // (-row.offset) rather than recomputing the centered seat
+                                // from stale pre-toggle heights or end-clamp geometry.
+                                pinnedOffset = if (currentRow != null) {
+                                    -currentRow.offset
+                                } else if (focus == latestUpNextHeaderIndex) {
+                                    0
+                                } else {
+                                    info.lyricsFocusScrollOffsetPx(
+                                        focus,
+                                        latestEdgeFadePx,
+                                        latestSeat,
+                                        latestSongEndItem,
+                                        latestSongEndTailPx,
+                                    )
+                                }
+                            } else if (currentRow != null) {
+                                val actualOffset = -currentRow.offset
+                                // If the previous frame hit the list's scroll bounds (e.g.
+                                // collapsing translations near the song's end), adopt the
+                                // clamped offset smoothly instead of snapping back later.
+                                if ((pinnedOffset > actualOffset && !listState.canScrollForward) ||
+                                    (pinnedOffset < actualOffset && !listState.canScrollBackward)
+                                ) {
+                                    pinnedOffset = actualOffset
+                                }
+                            }
+                            listState.requestScrollToItem(pinnedItem, pinnedOffset)
+                        }
+                    }
+                    info.visibleItemsInfo.fold(0L) { acc, item -> acc * 31 + item.size }
                 }
-                info.visibleItemsInfo.fold(0L) { acc, item -> acc * 31 + item.size }
+                if (abortWave) break
+                stableFrames = if (signature == lastSignature) stableFrames + 1 else 0
+                lastSignature = signature
+                if (waveElapsedNanos >= maxWaveNanos) break
+                if (stableFrames >= TranslationSettleFrames && waveElapsedNanos >= waveSpanNanos) break
             }
-            if (abortWave) break
-            stableFrames = if (signature == lastSignature) stableFrames + 1 else 0
-            lastSignature = signature
-            if (stableFrames >= TranslationSettleFrames && waveElapsedNanos >= waveSpanNanos) break
+        } finally {
+            translationWaveActive = false
         }
     }
 

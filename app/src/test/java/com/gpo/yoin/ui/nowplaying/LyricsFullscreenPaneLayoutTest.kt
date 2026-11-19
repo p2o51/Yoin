@@ -232,4 +232,220 @@ class LyricsFullscreenPaneLayoutTest {
         val line9Center = (line9.top + tr9.bottom).value / 2f
         assertEquals("next line glides to the focus seat", seatCenter, line9Center, 4f)
     }
+
+    @Test
+    fun should_notJumpFocusLine_when_togglingTranslationOnAndOffRepeatedly() {
+        val translated = (0 until 20).map {
+            LyricLine(startMs = 10_000L + it * 5_000L, text = "Current line $it", translation = "Translation $it")
+        }
+        var showTranslation by mutableStateOf(false)
+        rule.setContent {
+            YoinTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LyricsFullscreenPane(
+                        lyrics = translated,
+                        positionMs = { 50_000L }, // line 8 (mid-song)
+                        loading = false,
+                        showTranslation = showTranslation,
+                        autoScrollEnabled = true,
+                        recenterRequestKey = 0,
+                        onUserScroll = {},
+                        onSeekToMs = {},
+                        trackKey = "toggle-repeat",
+                        songTitle = "First Song",
+                        artist = "Night QA Band",
+                        durationMs = duration,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        val initialTop = rule.onNodeWithText("Current line 8").getBoundsInRoot().top.value
+
+        fun sampleMaxDriftDuringToggle(next: Boolean): Pair<Float, Float> {
+            var maxDrift = 0f
+            var maxStep = 0f
+            var prev = rule.onNodeWithText("Current line 8").getBoundsInRoot().top.value
+            rule.mainClock.autoAdvance = false
+            rule.runOnIdle { showTranslation = next }
+            repeat(80) {
+                rule.mainClock.advanceTimeByFrame()
+                val now = rule.onNodeWithText("Current line 8").getBoundsInRoot().top.value
+                maxDrift = maxOf(maxDrift, kotlin.math.abs(now - initialTop))
+                maxStep = maxOf(maxStep, kotlin.math.abs(now - prev))
+                prev = now
+            }
+            rule.mainClock.autoAdvance = true
+            rule.mainClock.advanceTimeBy(1_500L)
+            rule.waitForIdle()
+            val settled = rule.onNodeWithText("Current line 8").getBoundsInRoot().top.value
+            maxDrift = maxOf(maxDrift, kotlin.math.abs(settled - initialTop))
+            return maxDrift to maxStep
+        }
+
+        val (driftOn, stepOn) = sampleMaxDriftDuringToggle(true)
+        val (driftOff, stepOff) = sampleMaxDriftDuringToggle(false)
+        val (driftOn2, stepOn2) = sampleMaxDriftDuringToggle(true)
+
+        assertTrue("toggle ON drifted ${driftOn}dp (max step ${stepOn}dp)", driftOn <= 3f && stepOn <= 3f)
+        assertTrue("toggle OFF drifted ${driftOff}dp (max step ${stepOff}dp)", driftOff <= 3f && stepOff <= 3f)
+        assertTrue("second toggle ON drifted ${driftOn2}dp (max step ${stepOn2}dp)", driftOn2 <= 3f && stepOn2 <= 3f)
+    }
+
+    @Test
+    fun should_notSnapJump_when_togglingTranslationNearEndOfSong() {
+        val translated = (0 until 20).map {
+            LyricLine(startMs = 10_000L + it * 5_000L, text = "Current line $it", translation = "Translation $it")
+        }
+        var showTranslation by mutableStateOf(true)
+        rule.setContent {
+            YoinTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LyricsFullscreenPane(
+                        lyrics = translated,
+                        positionMs = { 80_000L }, // line 14 (near end, like Adam)
+                        loading = false,
+                        showTranslation = showTranslation,
+                        autoScrollEnabled = true,
+                        recenterRequestKey = 0,
+                        onUserScroll = {},
+                        onSeekToMs = {},
+                        trackKey = "toggle-near-end",
+                        songTitle = "First Song",
+                        artist = "Night QA Band",
+                        durationMs = duration,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+
+        fun sampleMaxSingleFrameJump(next: Boolean): Float {
+            var maxStep = 0f
+            var prev = rule.onNodeWithText("Current line 14").getBoundsInRoot().top.value
+            rule.mainClock.autoAdvance = false
+            rule.runOnIdle { showTranslation = next }
+            repeat(80) {
+                rule.mainClock.advanceTimeByFrame()
+                val now = rule.onNodeWithText("Current line 14").getBoundsInRoot().top.value
+                maxStep = maxOf(maxStep, kotlin.math.abs(now - prev))
+                prev = now
+            }
+            rule.mainClock.autoAdvance = true
+            rule.mainClock.advanceTimeBy(1_500L)
+            rule.waitForIdle()
+            return maxStep
+        }
+
+        val stepOff = sampleMaxSingleFrameJump(false)
+        val stepOn = sampleMaxSingleFrameJump(true)
+        assertTrue("collapse near end had single-frame jump ${stepOff}dp", stepOff <= 8f)
+        assertTrue("expand near end had single-frame jump ${stepOn}dp", stepOn <= 8f)
+    }
+
+    @Test
+    fun should_keepGlidingAndLandCleanly_when_togglingTranslationMidLineAdvance() {
+        val translated = (0 until 20).map {
+            LyricLine(startMs = 10_000L + it * 5_000L, text = "Current line $it", translation = "Translation $it")
+        }
+        var showTranslation by mutableStateOf(false)
+        var position by mutableLongStateOf(50_000L) // line 8
+        rule.setContent {
+            YoinTheme {
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    LyricsFullscreenPane(
+                        lyrics = translated,
+                        positionMs = { position },
+                        loading = false,
+                        showTranslation = showTranslation,
+                        autoScrollEnabled = true,
+                        recenterRequestKey = 0,
+                        onUserScroll = {},
+                        onSeekToMs = {},
+                        trackKey = "toggle-mid-glide",
+                        songTitle = "First Song",
+                        artist = "Night QA Band",
+                        durationMs = duration,
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        val line8Before = rule.onNodeWithText("Current line 8").getBoundsInRoot()
+        val seatCenter = (line8Before.top + line8Before.bottom).value / 2f
+
+        // Advance playhead so animateScrollToItem starts gliding, then toggle translation mid-glide.
+        rule.mainClock.autoAdvance = false
+        rule.runOnIdle { position = 55_000L } // line 9
+        repeat(4) { rule.mainClock.advanceTimeByFrame() }
+        rule.runOnIdle { showTranslation = true }
+        var maxStep = 0f
+        var prev = rule.onNodeWithText("Current line 9").getBoundsInRoot().top.value
+        val trace = mutableListOf("init=$prev")
+        repeat(80) { frame ->
+            rule.mainClock.advanceTimeByFrame()
+            val now = rule.onNodeWithText("Current line 9").getBoundsInRoot().top.value
+            val delta = kotlin.math.abs(now - prev)
+            if (delta > 1f) trace.add("f$frame:$prev->$now(d=$delta)")
+            maxStep = maxOf(maxStep, delta)
+            prev = now
+        }
+        rule.mainClock.autoAdvance = true
+        rule.mainClock.advanceTimeBy(2_000L)
+        rule.waitForIdle()
+
+        val line9 = rule.onNodeWithText("Current line 9").getBoundsInRoot()
+        val tr9 = rule.onNodeWithText("Translation 9").getBoundsInRoot()
+        assertTrue(tr9.bottom - tr9.top > 0.dp)
+        assertTrue("mid-glide translation toggle had jump ${maxStep}dp trace=$trace", maxStep <= 16f)
+        val line9Center = (line9.top + tr9.bottom).value / 2f
+        assertEquals("line 9 lands on the focus seat", seatCenter, line9Center, 6f)
+    }
+
+    @Test
+    fun should_centerOnPlayingLine_when_reenteringExpandedLyricsAfterScrollingAway() {
+        var expandedMounted by mutableStateOf(true)
+        var autoScroll by mutableStateOf(true)
+        val position = 80_000L // line 14 (far below row 0)
+        rule.setContent {
+            YoinTheme {
+                androidx.compose.runtime.LaunchedEffect(expandedMounted) {
+                    if (!expandedMounted) autoScroll = true
+                }
+                Box(Modifier.size(360.dp, 640.dp)) {
+                    if (expandedMounted) {
+                        LyricsFullscreenPane(
+                            lyrics = current,
+                            positionMs = { position },
+                            loading = false,
+                            showTranslation = false,
+                            autoScrollEnabled = autoScroll,
+                            recenterRequestKey = 0,
+                            onUserScroll = { autoScroll = false },
+                            onSeekToMs = {},
+                            trackKey = "reenter-song",
+                            songTitle = "First Song",
+                            artist = "Night QA Band",
+                            durationMs = duration,
+                        )
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val firstCenter = rule.onNodeWithText("Current line 14").getBoundsInRoot()
+        assertTrue(firstCenter.top > 0.dp && firstCenter.bottom < 640.dp)
+
+        // Simulate user manually scrolling away, leaving Expanded, then re-entering Expanded.
+        rule.runOnIdle { autoScroll = false }
+        rule.waitForIdle()
+        rule.runOnIdle { expandedMounted = false }
+        rule.waitForIdle()
+        rule.runOnIdle { expandedMounted = true }
+        rule.waitForIdle()
+
+        assertTrue("auto-scroll restored on re-entry", autoScroll)
+        val reentered = rule.onNodeWithText("Current line 14").getBoundsInRoot()
+        assertEquals("re-entering expanded lyrics seats active line", firstCenter.top.value, reentered.top.value, 2f)
+    }
 }
