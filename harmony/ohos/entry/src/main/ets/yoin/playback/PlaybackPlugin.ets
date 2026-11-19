@@ -127,6 +127,14 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
         case 'setRemote':
           host.session.setRemote(call.argument('state'));
           break;
+        case 'setLyric': {
+          const id: Any = call.argument('id');
+          if (typeof id === 'string') {
+            const lyric: Any = call.argument('lyric');
+            host.session.setLyric(id as string, typeof lyric === 'string' ? lyric as string : null);
+          }
+          break;
+        }
         default:
           result.notImplemented();
           return;

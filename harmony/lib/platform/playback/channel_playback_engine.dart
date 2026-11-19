@@ -16,7 +16,7 @@ import 'playback_engine.dart';
 /// The event channel carries an envelope: `{type: 'state', …}` (or no type,
 /// the pre-v1 shape) is an [EngineState]; `{type: 'command' | 'openNowPlaying'}`
 /// is an [EngineEvent].
-final class ChannelPlaybackEngine implements QueuePlaybackEngine, RemoteSessionMirror {
+final class ChannelPlaybackEngine implements QueuePlaybackEngine, RemoteSessionMirror, SystemLyricsMirror {
   ChannelPlaybackEngine({
     MethodChannel methods = const MethodChannel(methodChannelName),
     EventChannel events = const EventChannel(eventChannelName),
@@ -179,4 +179,8 @@ final class ChannelPlaybackEngine implements QueuePlaybackEngine, RemoteSessionM
   @override
   Future<void> setRemoteSession(RemoteSessionState? state) =>
       _methods.invokeMethod<void>('setRemote', {'state': state?.toMap()});
+
+  @override
+  Future<void> setLyric(String id, String? lyric) =>
+      _methods.invokeMethod<void>('setLyric', {'id': id, 'lyric': lyric});
 }

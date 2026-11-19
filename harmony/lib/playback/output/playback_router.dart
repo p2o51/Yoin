@@ -90,7 +90,7 @@ final class OutputTransferException implements Exception {
 /// DlnaMedia3Player turns into ±1.
 const dlnaVolumeKeyStep = 1;
 
-class PlaybackRouter implements QueuePlaybackEngine {
+class PlaybackRouter implements QueuePlaybackEngine, SystemLyricsMirror {
   PlaybackRouter(
     this.native, {
     DlnaManager? dlna,
@@ -639,6 +639,13 @@ class PlaybackRouter implements QueuePlaybackEngine {
   /// The session heart stays on the phone's session, whoever plays.
   @override
   Future<void> setFavorite(String id, bool? favorite) => native.setFavorite(id, favorite);
+
+  /// Synced lock-screen lyrics stay on the phone's session, whoever plays.
+  @override
+  Future<void> setLyric(String id, String? lyric) => switch (native) {
+    final SystemLyricsMirror mirror => mirror.setLyric(id, lyric),
+    _ => Future.value(),
+  };
 
   /// A renderer plays the file as it is; the gains wait for the phone.
   @override

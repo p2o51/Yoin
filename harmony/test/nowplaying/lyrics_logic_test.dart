@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/lyrics/lrc_parser.dart';
 import 'package:yoin/data/model/model.dart';
@@ -255,6 +257,33 @@ void main() {
     test('should_pickLast_when_pastEnd', () => expect(activeLyricIndex(rows, 99999), 2));
     test('should_skipUntimed_when_mixed', () {
       expect(activeLyricIndex(const [LyricRow('x'), LyricRow('y', startMs: 0)], 10), 1);
+    });
+  });
+
+  group('formatSystemLrc', () {
+    test('should_formatTimedRowsWithCrLf_when_synced', () {
+      const sheet = LyricSheet([
+        LyricRow('intro'),
+        LyricRow('第一句', startMs: 1250),
+        LyricRow('second\nline', startMs: 65430),
+      ]);
+      expect(formatSystemLrc(sheet), '[00:01.25]第一句\r\n[01:05.43]second line');
+    });
+
+    test('should_returnNull_when_unsyncedOrEmpty', () {
+      expect(formatSystemLrc(LyricSheet.empty), isNull);
+      expect(formatSystemLrc(const LyricSheet([LyricRow('plain only'), LyricRow('   ', startMs: 500)])), isNull);
+    });
+
+    test('should_truncateCleanlyAtByteLimit_when_lrcExceeds40KiB', () {
+      final rows = [
+        for (var i = 0; i < 600; i++) LyricRow('中文歌词第$i行测试长度填充字符ABCDEFGHIJKLMNOPQRSTUVWXYZ', startMs: i * 1000),
+      ];
+      final lrc = formatSystemLrc(LyricSheet(rows));
+      expect(lrc, isNotNull);
+      expect(utf8.encode(lrc!).length, lessThanOrEqualTo(harmonyMaxSystemLyricBytes));
+      expect(lrc.endsWith('\r\n'), isFalse);
+      expect(lrc.split('\r\n').last, startsWith('['));
     });
   });
 }
