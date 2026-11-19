@@ -47,6 +47,9 @@ export class SystemSession {
   private metadataId: string | null = null;
   private metadataDurationMs: number | null = null;
   private metadataHasImage: boolean = false;
+  private metadataLyric: string | null = null;
+  private lyricId: string | null = null;
+  private lyricText: string | null = null;
   private artwork: ArtworkLoader = new ArtworkLoader();
   /** The cover decoded for [artworkForId], waiting to be set. */
   private artworkForId: string | null = null;
@@ -292,6 +295,20 @@ export class SystemSession {
     }
   }
 
+  /** Synced LRC text for [id]; null clears stale lock-screen lyrics if already sent. */
+  setLyric(id: string, lyric: string | null): void {
+    const normalized = lyric !== null && lyric.length > 0 ? lyric : null;
+    if (this.lyricId === id && this.lyricText === normalized) {
+      return;
+    }
+    this.lyricId = id;
+    this.lyricText = normalized;
+    hilog.info(DOMAIN, TAG, 'lyric updated: id=%{public}s len=%{public}d', id, normalized !== null ? normalized.length : 0);
+    if (this.currentItem()?.id === id) {
+      this.offer(this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot());
+    }
+  }
+
   private async syncMetadata(session: avSession.AVSession, s: EngineSnapshot): Promise<void> {
     const item = this.currentItem();
     if (item === null) {
@@ -299,14 +316,36 @@ export class SystemSession {
     }
     const newItem = item.id !== this.metadataId;
     const artworkReady = this.artworkForId === item.id && this.artworkPixelMap !== null && !this.metadataHasImage;
-    if (!newItem && s.durationMs === this.metadataDurationMs && !artworkReady) {
+    const desiredLyric = this.lyricId === item.id ? this.lyricText : null;
+    const lyricChanged = newItem ? desiredLyric !== null : desiredLyric !== this.metadataLyric;
+    if (!newItem && s.durationMs === this.metadataDurationMs && !artworkReady && !lyricChanged) {
       return;
     }
     if (newItem) {
       this.artworkForId = null;
       this.artworkPixelMap = null;
       this.metadataHasImage = false;
+      this.metadataLyric = null;
+      if (this.lyricId !== item.id) {
+        this.lyricText = null;
+      }
     }
+    const pixelMap = this.artworkForId === item.id ? this.artworkPixelMap : null;
+    const clearLyric = !newItem && this.metadataLyric !== null && desiredLyric === null;
+    const metadata = this.buildMetadata(item, s.durationMs, pixelMap, desiredLyric, clearLyric);
+    // Title and progress go up at once; the cover follows when decoded.
+    await session.setAVMetadata(metadata);
+    this.metadataId = item.id;
+    this.metadataDurationMs = s.durationMs;
+    this.metadataHasImage = pixelMap !== null;
+    this.metadataLyric = desiredLyric;
+    if (newItem && item.artworkUri !== undefined) {
+      this.fetchArtwork(item.id, item.artworkUri);
+    }
+  }
+
+  private buildMetadata(item: QueueItem, durationMs: number | null,
+    mediaImage: image.PixelMap | string | null, lyric: string | null, clearLyric: boolean): avSession.AVMetadata {
     const metadata: avSession.AVMetadata = { assetId: item.id, title: item.title };
     if (item.artist !== undefined) {
       metadata.artist = item.artist;
@@ -314,21 +353,18 @@ export class SystemSession {
     if (item.album !== undefined) {
       metadata.album = item.album;
     }
-    if (s.durationMs !== null) {
-      metadata.duration = s.durationMs;
+    if (durationMs !== null) {
+      metadata.duration = durationMs;
     }
-    const pixelMap = this.artworkForId === item.id ? this.artworkPixelMap : null;
-    if (pixelMap !== null) {
-      metadata.mediaImage = pixelMap;
+    if (mediaImage !== null) {
+      metadata.mediaImage = mediaImage;
     }
-    // Title and progress go up at once; the cover follows when decoded.
-    await session.setAVMetadata(metadata);
-    this.metadataId = item.id;
-    this.metadataDurationMs = s.durationMs;
-    this.metadataHasImage = pixelMap !== null;
-    if (newItem && item.artworkUri !== undefined) {
-      this.fetchArtwork(item.id, item.artworkUri);
+    if (lyric !== null) {
+      metadata.lyric = lyric;
+    } else if (clearLyric) {
+      metadata.lyric = '';
     }
+    return metadata;
   }
 
   private fetchArtwork(id: string, url: string): void {
@@ -354,16 +390,8 @@ export class SystemSession {
     if (session === null || item === null || item.id !== id) {
       return;
     }
-    const metadata: avSession.AVMetadata = { assetId: item.id, title: item.title, mediaImage: url };
-    if (item.artist !== undefined) {
-      metadata.artist = item.artist;
-    }
-    if (item.album !== undefined) {
-      metadata.album = item.album;
-    }
-    if (this.metadataDurationMs !== null) {
-      metadata.duration = this.metadataDurationMs;
-    }
+    const desiredLyric = this.lyricId === item.id ? this.lyricText : null;
+    const metadata = this.buildMetadata(item, this.metadataDurationMs, url, desiredLyric, false);
     session.setAVMetadata(metadata).catch((e: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'url artwork failed: %{public}s', describe(e));
     });
@@ -440,6 +468,7 @@ export class SystemSession {
     this.metadataId = null;
     this.metadataDurationMs = null;
     this.metadataHasImage = false;
+    this.metadataLyric = null;
     this.artworkForId = null;
     this.artworkPixelMap = null;
     this.stateKey = '';
@@ -452,6 +481,8 @@ export class SystemSession {
   private async destroySession(): Promise<void> {
     const session = this.session;
     this.session = null;
+    this.lyricId = null;
+    this.lyricText = null;
     this.resetSessionState();
     this.artwork.clear();
     if (session !== null) {

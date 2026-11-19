@@ -461,6 +461,14 @@ abstract interface class QueuePlaybackEngine implements PlaybackEngine {
   Future<EngineSnapshot?> snapshot();
 }
 
+/// A native session that can show synced LRC lyrics (HarmonyOS AVSession
+/// `AVMetadata.lyric`, displayed on the Lock Screen / 播控中心). Kept apart from
+/// [PlaybackEngine] / [QueuePlaybackEngine] so existing test fakes keep working.
+abstract interface class SystemLyricsMirror {
+  /// Updates the system session's synced LRC [lyric] for track [id]; null clears it.
+  Future<void> setLyric(String id, String? lyric);
+}
+
 int? _int(Object? v) => switch (v) {
       final int i => i,
       final double d => d.round(),

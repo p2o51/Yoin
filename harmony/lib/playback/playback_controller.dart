@@ -7,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
+import '../data/lyrics/lyrics_repository.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
+import '../nowplaying/lyrics_logic.dart';
 import '../offline/offline_providers.dart';
 import '../offline/stream_cache_providers.dart';
 import '../platform/playback/playback_engine.dart';
@@ -96,6 +98,7 @@ final class _Entry {
 class PlaybackController extends Notifier<NowPlayingState> {
   StreamSubscription<EngineState>? _engineStates;
   StreamSubscription<EngineEvent>? _engineEvents;
+  StreamSubscription<String>? _lyricChanges;
   AppLifecycleListener? _lifecycle;
   late ScrobbleReporter _scrobbles;
   final _notices = StreamController<PlaybackNotice>.broadcast();
@@ -177,6 +180,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
       _engineEvents = engine.events.listen(_onEngineEvent, onError: (Object e) => _log('engine events: $e'));
       _rehydrating = _rehydrate();
     }
+    if (engine is SystemLyricsMirror) {
+      _lyricChanges = _lyricsRepository?.changes.listen(_onLyricsChanged);
+    }
     ref.listen(activeSourceProvider, (_, next) {
       if (next.hasValue) _onSourceChanged();
     }, fireImmediately: true);
@@ -205,6 +211,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
     ref.onDispose(() {
       _engineStates?.cancel();
       _engineEvents?.cancel();
+      _lyricChanges?.cancel();
       _lifecycle?.dispose();
       _scrobbles.dispose();
       _notices.close();
@@ -668,7 +675,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
         ));
     _recordPlayIfDue();
     _scrobbles.update(_scrobbleSnapshot());
-    if (!e.tick) _syncSessionHeart();
+    if (!e.tick) {
+      _syncSessionHeart();
+      _syncSessionLyrics();
+    }
   }
 
   void _onEngineEvent(EngineEvent event) {
@@ -822,6 +832,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       await disconnect();
     }
     if (profileId != null) _scrobbles.flush(profileId).ignore();
+    _syncSessionLyrics();
   }
 
   void _onResume() => _flushActive();
@@ -830,6 +841,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
   void _flushActive() {
     final profileId = _activeProfileId;
     if (profileId != null) _scrobbles.flush(profileId).ignore();
+    _syncSessionLyrics();
   }
 
   void _onLifecycle(AppLifecycleState next) {
@@ -1089,6 +1101,57 @@ class PlaybackController extends Notifier<NowPlayingState> {
   }
 
   String? _sessionHeartKey;
+  String? _sessionLyricsKey;
+  int _sessionLyricsGen = 0;
+
+  LyricsRepository? get _lyricsRepository {
+    try {
+      return ref.read(lyricsRepositoryProvider);
+    } catch (_) {
+      return null; // Tests without storage or lyrics setup.
+    }
+  }
+
+  void _onLyricsChanged(String songKey) {
+    if (state.current?.id.toString() != songKey) return;
+    _sessionLyricsKey = null;
+    _syncSessionLyrics(force: true);
+  }
+
+  /// Syncs the active track's timed LRC lyrics to the native AVSession
+  /// (`AVMetadata.lyric`) so the Lock Screen and Control Center scroll them.
+  void _syncSessionLyrics({bool force = false}) {
+    final mirror = switch (_engine) {
+      final SystemLyricsMirror m => m,
+      _ => null,
+    };
+    final track = state.current;
+    final source = ref.read(activeSourceProvider).value;
+    if (mirror == null || track == null || source == null) return;
+    final repo = _lyricsRepository;
+    if (repo == null) return;
+    final key = '${track.id}|${source.provider}';
+    if (!force && key == _sessionLyricsKey) return;
+    _sessionLyricsKey = key;
+    final generation = ++_sessionLyricsGen;
+    unawaited(() async {
+      LoadedLyrics? loaded;
+      try {
+        loaded = await repo.getLoadedLyrics(track, source);
+      } catch (e) {
+        _log('session lyrics load failed: ${e.runtimeType}');
+        return;
+      }
+      if (!ref.mounted || generation != _sessionLyricsGen) return;
+      if (state.current?.id != track.id) return;
+      final lrc = loaded == null ? null : formatSystemLrc(loaded.sheet);
+      try {
+        await mirror.setLyric(track.id.toString(), lrc);
+      } catch (e) {
+        _log('session lyrics not set: ${e.runtimeType}');
+      }
+    }());
+  }
 
   Future<void> _restartAt(int index) async {
     final tracks = [for (final e in _entries) e.track];
@@ -1103,6 +1166,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
     _lastRecordedTrackId = null;
     _lastEngine = null;
     _sessionHeartKey = null;
+    _sessionLyricsKey = null;
+    _sessionLyricsGen++;
     _scrobbles.update(null);
   }
 

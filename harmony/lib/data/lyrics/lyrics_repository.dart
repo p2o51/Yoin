@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -111,6 +112,20 @@ class LyricsRepository {
   final AiService _ai;
   final NetEaseTranslator? _netEase;
   final int Function() _clock;
+  final StreamController<String> _changes = StreamController<String>.broadcast();
+  final Map<String, Future<LoadedLyrics?>> _inFlightLoads = {};
+
+  /// Emits a song key (`MediaId.toString()`) when user-chosen lyrics are saved
+  /// via [applyLyrics] or [applySwitch].
+  Stream<String> get changes => _changes.stream;
+
+  void dispose() {
+    if (!_changes.isClosed) _changes.close();
+  }
+
+  void _notifyChanged(String songKey) {
+    if (!_changes.isClosed) _changes.add(songKey);
+  }
 
   /// The `lyricsProvider` of Subsonic server lyrics (not a registry provider: no translation of its own).
   static const String subsonicProvider = MediaId.providerSubsonic;
@@ -121,7 +136,28 @@ class LyricsRepository {
   /// cached. With Subsonic and no pick, only the server's lyrics count — no
   /// fallback — and the server's failure is thrown. The fallback needs a title and an artist; when the shown names
   /// find nothing, see [_fetchUnderAlternateNames].
-  Future<LoadedLyrics?> getLoadedLyrics(Track track, MusicSource source) async {
+  Future<LoadedLyrics?> getLoadedLyrics(Track track, MusicSource source) {
+    final loadKey = '${track.id}|${source.provider}';
+    final existing = _inFlightLoads[loadKey];
+    if (existing != null) return existing;
+    final future = _runTrackedLoad(loadKey, track, source);
+    _inFlightLoads[loadKey] = future;
+    return future;
+  }
+
+  Future<LoadedLyrics?> _runTrackedLoad(
+    String loadKey,
+    Track track,
+    MusicSource source,
+  ) async {
+    try {
+      return await _loadLyrics(track, source);
+    } finally {
+      _inFlightLoads.remove(loadKey);
+    }
+  }
+
+  Future<LoadedLyrics?> _loadLyrics(Track track, MusicSource source) async {
     final key = track.id.toString();
     final now = _clock();
     final cached = await _readCache(key);
@@ -205,13 +241,18 @@ class LyricsRepository {
     final trimmed = rawLrc.trim();
     if (trimmed.isEmpty) return null;
     final songId = provider == LyricsCachePolicy.manualProvider ? null : providerSongId;
-    await _write(track.id.toString(), provider, songId, trimmed, userChosen: true);
+    final key = track.id.toString();
+    await _write(key, provider, songId, trimmed, userChosen: true);
+    _notifyChanged(key);
     return LoadedLyrics(sheet: lyricSheetOf(LrcParser.parse(trimmed)), providerName: provider, providerSongId: songId);
   }
 
   /// The user took the switch: this set is theirs and won't be swapped back by the fallback after 30 days.
-  Future<void> applySwitch(Track track, LyricsSwitchOffer offer) =>
-      _write(track.id.toString(), offer.providerName, offer.providerSongId, offer.rawLrc, userChosen: true);
+  Future<void> applySwitch(Track track, LyricsSwitchOffer offer) async {
+    final key = track.id.toString();
+    await _write(key, offer.providerName, offer.providerSongId, offer.rawLrc, userChosen: true);
+    _notifyChanged(key);
+  }
 
   /// The Translate key's lookup for [sheet] (YoinRepository.translateLyrics):
   /// lines already in the target language → said so; the lyrics source's
@@ -564,8 +605,8 @@ final lyricsRegistryProvider = Provider<LyricsProviderRegistry>((ref) => LyricsP
 /// The Search key's search over the same registry.
 final lyricsSearchProvider = Provider<LyricsSearch>((ref) => LyricsSearch(registry: ref.watch(lyricsRegistryProvider)));
 
-final lyricsRepositoryProvider = Provider<LyricsRepository>(
-  (ref) => LyricsRepository(
+final lyricsRepositoryProvider = Provider<LyricsRepository>((ref) {
+  final repo = LyricsRepository(
     registry: ref.watch(lyricsRegistryProvider),
     cache: ref.watch(lyricsCacheStoreProvider),
     aiSettings: () async {
@@ -577,5 +618,7 @@ final lyricsRepositoryProvider = Provider<LyricsRepository>(
     },
     ai: ref.watch(aiServiceProvider),
     netEaseTranslator: ref.watch(netEaseTranslatorProvider),
-  ),
-);
+  );
+  ref.onDispose(repo.dispose);
+  return repo;
+});

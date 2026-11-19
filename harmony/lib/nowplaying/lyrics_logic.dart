@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
+import '../data/lyrics/lrc_parser.dart';
 import '../data/model/model.dart';
 
 /// One line as Now Playing shows it; [startMs] is null for unsynced text.
@@ -94,6 +97,34 @@ int activeLyricIndex(List<LyricRow> rows, int positionMs) {
     active = i;
   }
   return active;
+}
+
+/// HarmonyOS `AVMetadata.lyric` / `singleLyricText` UTF-8 size cap (40 KiB).
+const int harmonyMaxSystemLyricBytes = 40960;
+
+/// Formats [sheet]'s timed rows as standard LRC (`[mm:ss.xx]text\r\n`) within
+/// [maxBytes] UTF-8 bytes for HarmonyOS AVSession (`AVMetadata.lyric`). Returns
+/// null when [sheet] has no timed rows or even the first timed row overflows.
+String? formatSystemLrc(LyricSheet sheet, {int maxBytes = harmonyMaxSystemLyricBytes}) {
+  if (maxBytes <= 0 || sheet.isEmpty) return null;
+  final out = StringBuffer();
+  var usedBytes = 0;
+  var count = 0;
+  for (final row in sheet.rows) {
+    final start = row.startMs;
+    if (start == null) continue;
+    final text = row.text.trim().replaceAll(RegExp(r'[\r\n]+'), ' ');
+    if (text.isEmpty) continue;
+    final line = '${LrcParser.timestamp(start)}$text';
+    final prefix = count > 0 ? '\r\n' : '';
+    final chunkBytes = utf8.encode('$prefix$line').length;
+    if (usedBytes + chunkBytes > maxBytes) break;
+    out.write(prefix);
+    out.write(line);
+    usedBytes += chunkBytes;
+    count++;
+  }
+  return count == 0 ? null : out.toString();
 }
 
 /// What [LyricCreditsExtractor.scan] took: the positions to drop and the
