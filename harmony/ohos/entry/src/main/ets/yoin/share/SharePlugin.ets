@@ -126,7 +126,7 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
     const path = `${dir}/${SHARE_PREFIX}${Date.now()}.png`;
     const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.WRITE_ONLY);
     try {
-      fileIo.writeSync(file.fd, bytes.buffer as ArrayBuffer);
+      fileIo.writeSync(file.fd, sliceBytes(bytes));
     } finally {
       fileIo.closeSync(file);
     }
@@ -239,7 +239,7 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
       }
       const target = fileIo.openSync(targets[0], fileIo.OpenMode.READ_WRITE);
       try {
-        fileIo.writeSync(target.fd, bytes.buffer as ArrayBuffer);
+        fileIo.writeSync(target.fd, sliceBytes(bytes));
       } finally {
         fileIo.closeSync(target);
       }
@@ -249,4 +249,12 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
       return false;
     }
   }
+}
+
+/**
+ * Extracts only the view's slice from a [Uint8Array]. StandardMethodCodec often returns a subarray view over the
+ * shared method-call envelope buffer, so writing `bytes.buffer` directly leaks surrounding envelope bytes into the PNG.
+ */
+export function sliceBytes(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }

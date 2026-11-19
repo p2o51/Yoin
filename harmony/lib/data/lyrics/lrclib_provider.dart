@@ -37,7 +37,7 @@ class LrclibLyricsProvider extends LyricProvider {
 
   /// LRCLIB asks for an identifiable User-Agent (Android sends the same).
   static const Map<String, String> _headers = {
-    'user-agent': 'Yoin/0.1.0 (https://github.com/p2o51/Yoin)',
+    'user-agent': 'Yoin/0.6.5 (https://github.com/p2o51/Yoin)',
     'accept': 'application/json',
   };
 

@@ -128,6 +128,18 @@ void main() {
       expect(yoinVersionName, version.group(1));
       // Cloud sync writes the build number into every file it uploads.
       expect(yoinVersionCode, int.parse(version.group(2) ?? '1'));
+
+      final appJson = File('ohos/AppScope/app.json5').readAsStringSync();
+      expect(appJson, contains('"versionName": "$yoinVersionName"'));
+      expect(appJson, contains('"vendor": "p2o51"'));
+      expect(appJson, contains('"icon": "\$media:layered_image"'));
+      expect(File('ohos/AppScope/resources/base/element/string.json').readAsStringSync(), contains('"value": "Yoin"'));
+      expect(
+        File('ohos/entry/src/main/resources/base/element/string.json').readAsStringSync(),
+        contains('"value": "Yoin"'),
+      );
+      expect(File('ohos/AppScope/resources/base/media/layered_image.json').existsSync(), isTrue);
+      expect(File('ohos/entry/src/main/resources/base/media/layered_image.json').existsSync(), isTrue);
     });
 
     testWidgets('should_openLicenseText_when_componentTapped', (tester) async {

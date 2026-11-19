@@ -48,7 +48,7 @@ class HuaweiLyricsProvider extends LyricProvider {
   static final Uri searchUrl = Uri.parse(
     'https://api-drcn.music.dbankcloud.cn/music-search-service/v10/service/fuzzysearch',
   );
-  static const String userAgent = 'Yoin/0.1.0 (https://github.com/p2o51/Yoin)';
+  static const String userAgent = 'Yoin/0.6.5 (https://github.com/p2o51/Yoin)';
   static const String _contentTypeSong = '1';
   static const String _successCode = '000000';
   static const String _noSuchKey = '<Code>NoSuchKey</Code>';

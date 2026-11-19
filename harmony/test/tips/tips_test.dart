@@ -24,6 +24,7 @@ import 'package:yoin/ui/component/seam/seam_style.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/detail/detail_track_rows.dart' show TrackCountLine;
 import 'package:yoin/detail/reshape_scaffold.dart' show DetailBarHeader;
+import 'package:yoin/shell/bar_suppression.dart';
 import 'package:yoin/shell/yoin_section.dart';
 import 'package:yoin/settings/tips.dart';
 import 'package:yoin/shell/yoin_bottom_bar.dart';
@@ -169,6 +170,17 @@ void main() {
       expect(find.text('2 / 3'), findsOneWidget);
       final container = ProviderScope.containerOf(tester.element(find.byType(TipScreen)));
       expect(container.read(tipReadProvider), {HomeBubbleTip.name});
+    });
+
+    testWidgets('should_suppressChromeBar_when_tipScreenIsOpen', (tester) async {
+      const tips = [HomeBubbleTip.name];
+      await pumpPage(tester, tips, HomeBubbleTip.name);
+      final container = ProviderScope.containerOf(tester.element(find.byType(TipScreen)));
+      expect(container.read(barSuppressedProvider), isTrue);
+      await tester.tap(find.text('Done'));
+      await frames(tester, const Duration(seconds: 1));
+      expect(find.byType(TipScreen), findsNothing);
+      expect(container.read(barSuppressedProvider), isFalse);
     });
 
     testWidgets('should_closeThePage_when_doneOnTheLastUnreadTip', (tester) async {

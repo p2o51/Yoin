@@ -8,6 +8,7 @@ import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/detail/detail_page.dart';
 import 'package:yoin/memories/ledger/memory_grid_view.dart';
 import 'package:yoin/memories/ledger/memory_ledger_home_card.dart';
 import 'package:yoin/memories/ledger/memory_ledger_screen.dart';
@@ -158,6 +159,9 @@ void main() {
     expect(gridOpacity().opacity, 0);
     final bar = tester.widget<AppBar>(find.byType(AppBar));
     expect(bar.systemOverlayStyle!.statusBarIconBrightness, Brightness.light);
+    final formedBack = tester.widget<DetailBackButton>(find.byType(DetailBackButton));
+    expect(formedBack.content!.toARGB32(), Colors.white.toARGB32());
+    expect(formedBack.container!.toARGB32(), Colors.black.withValues(alpha: 0.28).toARGB32());
     await tester.drag(find.byType(ListView), const Offset(0, 800));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));

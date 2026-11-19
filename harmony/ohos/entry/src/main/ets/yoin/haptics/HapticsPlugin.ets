@@ -173,16 +173,13 @@ export default class YoinHapticsPlugin implements FlutterPlugin, MethodCallHandl
       const duration = readNumber(map, 'duration', 0);
       try {
         if (duration > 0) {
+          const clampedDuration = clamp(Math.round(duration), 1, 5000);
           const param: vibrator.ContinuousParam = { intensity: intensity, frequency: frequency };
-          if (map.get('rise') === true) {
-            // swells from nothing to full over the event
-            param.points = [
-              { time: 0, intensity: 0 },
-              { time: Math.round(duration / 2), intensity: 0.5 },
-              { time: duration, intensity: 1 },
-            ];
+          if (map.get('rise') === true && clampedDuration >= 3) {
+            // HarmonyOS VibratorPatternBuilder requires 4–16 curve points; swell from 0 to full over the event.
+            param.points = riseCurvePoints(clampedDuration);
           }
-          builder.addContinuousEvent(at, clamp(duration, 1, 5000), param);
+          builder.addContinuousEvent(at, clampedDuration, param);
         } else {
           const param: vibrator.TransientParam = { intensity: intensity, frequency: frequency };
           builder.addTransientEvent(at, param);
@@ -214,4 +211,14 @@ function readNumber(map: Map<Any, Any>, key: string, fallback: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/** 4-point monotonic swell curve required by HarmonyOS `VibratorPatternBuilder.addContinuousEvent` (4–16 points). */
+export function riseCurvePoints(durationMs: number): vibrator.VibratorCurvePoint[] {
+  return [
+    { time: 0, intensity: 0 },
+    { time: Math.round(durationMs / 3), intensity: 0.33 },
+    { time: Math.round((durationMs * 2) / 3), intensity: 0.67 },
+    { time: durationMs, intensity: 1 },
+  ];
 }

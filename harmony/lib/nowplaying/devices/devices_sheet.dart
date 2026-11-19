@@ -102,7 +102,7 @@ class _DevicesSheetState extends ConsumerState<DevicesSheet> {
 /// What the Devices sheet shows, without its state: the title and subtitle
 /// with the refresh button, then the message and the rows (a pull refreshes).
 /// The Tips demo plays it with devices of its own.
-class DevicesSheetBody extends StatelessWidget {
+class DevicesSheetBody extends StatefulWidget {
   const DevicesSheetBody({super.key, required this.state, required this.onRefresh, required this.onSelect});
 
   final DevicesSheetState state;
@@ -110,13 +110,39 @@ class DevicesSheetBody extends StatelessWidget {
   final ValueChanged<YoinDevice> onSelect;
 
   @override
+  State<DevicesSheetBody> createState() => _DevicesSheetBodyState();
+}
+
+class _DevicesSheetBodyState extends State<DevicesSheetBody> {
+  /// True only while a user-initiated pull-to-refresh is in flight, so the
+  /// initial auto-refresh on open and taps on the header refresh button show
+  /// only the header spinner instead of dropping the pull indicator over "This device".
+  bool _pulledRefresh = false;
+
+  @override
+  void didUpdateWidget(DevicesSheetBody old) {
+    super.didUpdateWidget(old);
+    if (!widget.state.loading && _pulledRefresh) {
+      _pulledRefresh = false;
+    }
+  }
+
+  void _onPullRefresh() {
+    setState(() => _pulledRefresh = true);
+    widget.onRefresh();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
     final strings = DevicesStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final navBottom = MediaQuery.paddingOf(context).bottom;
     final error = state.error;
     final emptyText = state.isSubsonic ? strings.emptySubsonic : strings.emptyOther;
+    final pullRefreshing = _pulledRefresh && state.loading;
+    final headerSpinning = state.loading && !pullRefreshing;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -152,13 +178,13 @@ class DevicesSheetBody extends StatelessWidget {
               IconButton(
                 key: const ValueKey('devices-refresh'),
                 tooltip: strings.cdRefresh,
-                onPressed: state.loading ? null : onRefresh,
+                onPressed: state.loading ? null : widget.onRefresh,
                 icon: SizedBox.square(
                   dimension: 24,
                   child: SpringCrossFade(
-                    childKey: state.loading,
+                    childKey: headerSpinning,
                     child: Center(
-                      child: state.loading
+                      child: headerSpinning
                           ? const SizedBox.square(
                               dimension: SheetTokens.deviceSpinner,
                               child: CircularProgressIndicator(strokeWidth: SheetTokens.deviceSpinnerStroke),
@@ -173,8 +199,8 @@ class DevicesSheetBody extends StatelessWidget {
         ),
         Flexible(
           child: YoinPullToRefresh(
-            refreshing: state.loading,
-            onRefresh: onRefresh,
+            refreshing: pullRefreshing,
+            onRefresh: _onPullRefresh,
             child: ListView(
               shrinkWrap: true,
               physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
@@ -217,7 +243,7 @@ class DevicesSheetBody extends StatelessWidget {
                     key: ValueKey('device-${state.devices[i].id}'),
                     device: state.devices[i],
                     busy: state.busyDeviceId == state.devices[i].id,
-                    onTap: () => onSelect(state.devices[i]),
+                    onTap: () => widget.onSelect(state.devices[i]),
                   ),
                 ],
               ],
