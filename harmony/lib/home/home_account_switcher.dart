@@ -216,10 +216,14 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     _fanAnchor = rect;
     _hover.value = -1;
     _holding.value = true;
-    _fan ??= OverlayEntry(
-      builder: (_) => _AccountFan(anchor: _fanAnchor!, accounts: _fanAccounts, hover: _hover, holding: _holding, onGone: _dropFan),
-    );
-    Overlay.of(context, rootOverlay: true).insert(_fan!);
+    if (_fan == null) {
+      _fan = OverlayEntry(
+        builder: (_) => _AccountFan(anchor: _fanAnchor!, accounts: _fanAccounts, hover: _hover, holding: _holding, onGone: _dropFan),
+      );
+      Overlay.of(context, rootOverlay: true).insert(_fan!);
+    } else {
+      _fan!.markNeedsBuild();
+    }
   }
 
   void _dropFan() {

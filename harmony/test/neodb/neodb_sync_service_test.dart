@@ -240,6 +240,16 @@ void main() {
     expect(row.ratingNeedsSync, isTrue);
   });
 
+  test('should_preserveLocalDecimalRating_when_remoteIntegerMatchesRounded', () async {
+    await memory.setAlbumRating(_album.id, 8.7, nowMs: 1);
+    await memory.markRatingPushed(_album.id, sentRating: 8.7);
+    neodb.mark = {'shelf_type': 'complete', 'rating_grade': 9};
+
+    final row = await service.pullAlbum('p1', _album);
+
+    expect(row!.rating, 8.7);
+  });
+
   test('should_writeNothing_when_bothSidesEmpty', () async {
     expect(await service.pullAlbum('p1', _album), isNull);
     expect(await memory.albumRatingRow(_album.id), isNull);

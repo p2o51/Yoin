@@ -89,8 +89,8 @@ class NowPlayingStrings {
   /// np_msg_already_language; [language] is the "Answer in" setting's name, as Android passes it.
   String msgAlreadyLanguage(String language) => _zh ? '歌词似乎已经是 $language' : 'Lyrics already appear to be $language';
 
-  /// Android shows the repository's raw error here ("Failed to translate lyrics", English only).
-  String get msgTranslateFailed => 'Failed to translate lyrics';
+  /// Fallback when lyric translation fails without a provider-specific message.
+  String get msgTranslateFailed => _zh ? '翻译歌词失败' : 'Failed to translate lyrics';
   String get msgApiKeyMissing => _zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
   String get msgSwitch => _zh ? '切换' : 'Switch'; // np_msg_switch
 

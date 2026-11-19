@@ -10857,6 +10857,236 @@
           }
         }
       }
+    },
+    "Create an app at developer.spotify.com, check Web API and iOS, and register these redirect URIs:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 developer.spotify.com 创建应用，勾选 Web API 和 iOS，并登记以下重定向 URI："
+          }
+        }
+      }
+    },
+    "APIs used: Web API & iOS": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需勾选的 API：Web API 和 iOS"
+          }
+        }
+      }
+    },
+    "Sign in & create app": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录并创建应用"
+          }
+        }
+      }
+    },
+    "Sign in with Spotify, then tap Create app.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 Spotify 账号，然后点击 Create app。"
+          }
+        }
+      }
+    },
+    "Name your app": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写应用名称"
+          }
+        }
+      }
+    },
+    "Enter Yoin as the app name and add a short description.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用名称填 Yoin，简介随意填一句即可。"
+          }
+        }
+      }
+    },
+    "Copy Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 Yoin"
+          }
+        }
+      }
+    },
+    "Add login Redirect URI": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加登录重定向 URI"
+          }
+        }
+      }
+    },
+    "Paste the first Redirect URI and tap Add.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴第一个重定向 URI，然后点击 Add。"
+          }
+        }
+      }
+    },
+    "Copy login URI": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制登录 URI"
+          }
+        }
+      }
+    },
+    "Add playback Redirect URI": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加播放重定向 URI"
+          }
+        }
+      }
+    },
+    "Paste the second Redirect URI for Spotify App Remote and tap Add.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴第二个用于 Spotify App Remote 的重定向 URI，然后点击 Add。"
+          }
+        }
+      }
+    },
+    "Copy playback URI": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制播放 URI"
+          }
+        }
+      }
+    },
+    "Select Web API & iOS": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾选 Web API 与 iOS"
+          }
+        }
+      }
+    },
+    "Check Web API and iOS, then add the iOS Bundle ID below.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾选 Web API 和 iOS，并填入下方的 iOS Bundle ID。"
+          }
+        }
+      }
+    },
+    "Check Web API and iOS under Which API/SDKs are you planning to use?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 API/SDK 选项中勾选 Web API 和 iOS。"
+          }
+        }
+      }
+    },
+    "Copy Bundle ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 Bundle ID"
+          }
+        }
+      }
+    },
+    "Save & copy Client ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存并复制 Client ID"
+          }
+        }
+      }
+    },
+    "Agree and tap Save, open Settings, copy your Client ID, then tap Done.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意条款并点 Save，进入 Settings 复制 Client ID，然后点完成返回。"
+          }
+        }
+      }
+    },
+    "Open in Safari": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Safari 中打开"
+          }
+        }
+      }
+    },
+    "Expand guide": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开引导"
+          }
+        }
+      }
+    },
+    "Collapse guide": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起引导"
+          }
+        }
+      }
+    },
+    "Previous step": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一步"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

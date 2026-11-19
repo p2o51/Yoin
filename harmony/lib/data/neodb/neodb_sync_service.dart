@@ -133,9 +133,12 @@ class NeoDbSyncService {
     final store = _memory(profileId);
     final existing = await store.albumRatingRow(album.id);
 
+    final remoteGrade = remote?.ratingGrade;
     final double mergedRating = existing?.ratingNeedsSync == true
         ? existing!.rating
-        : (remote?.ratingGrade?.toDouble() ?? existing?.rating ?? 0);
+        : (remoteGrade != null && existing != null && existing.rating > 0 && existing.rating.round() == remoteGrade)
+            ? existing.rating
+            : (remoteGrade?.toDouble() ?? existing?.rating ?? 0);
 
     ReviewResponse? review;
     try {

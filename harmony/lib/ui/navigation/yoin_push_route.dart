@@ -55,21 +55,23 @@ class YoinPushRoute<T> extends PageRoute<T> {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) =>
-      AnimatedBuilder(
-        animation: Listenable.merge([animation, secondaryAnimation]),
-        child: child,
-        builder: (context, child) {
-          final enter = animation.value;
-          final cover = secondaryAnimation.value;
-          final rtl = Directionality.of(context) == TextDirection.rtl ? -1.0 : 1.0;
-          // Incoming: from +96 to 0, fading in over the first 60 %. Covered: to −96, fading out.
-          final dx = rtl * (travel * (1 - enter) - travel * cover);
-          final opacity = (enter / 0.6).clamp(0.0, 1.0) * (1 - (cover / 0.6).clamp(0.0, 1.0));
-          return Transform.translate(
-            offset: Offset(dx, 0),
-            child: Opacity(opacity: opacity, child: child),
-          );
-        },
-      );
+  ) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return AnimatedBuilder(
+      animation: Listenable.merge([animation, secondaryAnimation]),
+      child: child,
+      builder: (context, child) {
+        final enter = animation.value;
+        final cover = secondaryAnimation.value;
+        final rtl = Directionality.of(context) == TextDirection.rtl ? -1.0 : 1.0;
+        // Incoming: from +96 to 0, fading in over the first 60 %. Covered: to −96, fading out.
+        final dx = rtl * (travel * (1 - enter) - travel * cover);
+        final opacity = (enter / 0.6).clamp(0.0, 1.0) * (1 - (cover / 0.6).clamp(0.0, 1.0));
+        return Transform.translate(
+          offset: Offset(dx, 0),
+          child: Opacity(opacity: opacity, child: child),
+        );
+      },
+    );
+  }
 }

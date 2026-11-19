@@ -16,6 +16,7 @@ class LibraryStrings {
   static const zhHans = LibraryStrings._(true);
 
   String get title => zh ? '资料库' : 'Library'; // library_title
+  String get connectAccountPrompt => zh ? '连接音乐账号' : 'Connect an account';
   String get errorLoadLibrary => zh ? '无法加载资料库' : 'Failed to load library'; // library_error_load_library
   String get errorRetry => zh ? '重试' : 'Retry'; // library_error_retry
   String get errorSettings => zh ? '设置' : 'Settings'; // library_error_settings

@@ -505,6 +505,7 @@ struct LandingSpotifyScene: View {
     @Environment(\.openURL) private var openURL
     @State private var clientId = LandingSpotifyScene.savedClientId
     @State private var urisOpen = false
+    @State private var showSpotifyGuide = false
     @State private var working = false
     @State private var error: String?
     @State private var shakes = 0
@@ -537,7 +538,7 @@ struct LandingSpotifyScene: View {
                         .foregroundStyle(scheme.onSurfaceVariant)
                     Button {
                         focused = false
-                        if let url = URL(string: "https://developer.spotify.com/dashboard") { openURL(url) }
+                        showSpotifyGuide = true
                     } label: {
                         Text("Open Spotify for Developers")
                             .yoinRole(Tokens.type.labelLarge)
@@ -551,13 +552,23 @@ struct LandingSpotifyScene: View {
                     .padding(.top, 8)
                 }
                 GuideStep(number: 2, title: String(localized: "Paste the Client ID"), scheme: scheme) {
-                    LandingField(label: String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
-                                 text: $clientId, focused: focused, scheme: scheme)
-                        .focused($focused)
-                        .submitLabel(.go)
-                        .onSubmit(connect)
-                        .modifier(ShakeOnRefuse(trigger: shakes))
-                        .padding(.top, 6)
+                    HStack(alignment: .center, spacing: 8) {
+                        LandingField(label: String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
+                                     text: $clientId, focused: focused, scheme: scheme)
+                            .focused($focused)
+                            .submitLabel(.go)
+                            .onSubmit(connect)
+                            .modifier(ShakeOnRefuse(trigger: shakes))
+                        PasteButton(payloadType: String.self) { items in
+                            if let raw = items.first {
+                                let extracted = SpotifyClientIdExtractor.extract(from: raw)
+                                if !extracted.isEmpty { clientId = extracted }
+                            }
+                        }
+                        .labelStyle(.titleAndIcon)
+                        .tint(scheme.primary)
+                    }
+                    .padding(.top, 6)
                 }
                 redirectUris
             }
@@ -576,6 +587,9 @@ struct LandingSpotifyScene: View {
         .animation(Yoin.spatial, value: urisOpen)
         .animation(Yoin.spatial, value: importedLine)
         .onChange(of: clientId) { if error != nil { error = nil } }
+        .sheet(isPresented: $showSpotifyGuide) {
+            SpotifyDeveloperGuideSheet()
+        }
     }
 
     /// What the dashboard asks for, folded away, one value per row.
@@ -599,9 +613,13 @@ struct LandingSpotifyScene: View {
             .accessibilityAddTraits(.isButton)
             if urisOpen {
                 VStack(alignment: .leading, spacing: 6) {
+                    Text("APIs used: Web API & iOS")
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.onSurfaceVariant)
                     Text("Redirect URIs")
                         .yoinRole(Tokens.type.labelMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
+                        .padding(.top, 4)
                     CopyRow(value: SpotifyConfig.redirectURI, scheme: scheme)
                     CopyRow(value: SpotifyConfig.appRemoteRedirectURI, scheme: scheme)
                     if let bundle = Bundle.main.bundleIdentifier {

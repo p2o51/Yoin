@@ -118,14 +118,18 @@ class PlaylistBackupStore {
     final loaded = _rows;
     if (loaded != null) return Future.value(loaded);
     return _loading ??= () async {
-      final rows = <String, PlaylistBackupRow>{};
-      for (final text in await _storage.readAll()) {
-        try {
-          final row = PlaylistBackupRow.tryParse(jsonDecode(text));
-          if (row != null) rows[row.id] = row;
-        } catch (_) {}
+      try {
+        final rows = <String, PlaylistBackupRow>{};
+        for (final text in await _storage.readAll()) {
+          try {
+            final row = PlaylistBackupRow.tryParse(jsonDecode(text));
+            if (row != null) rows[row.id] = row;
+          } catch (_) {}
+        }
+        return _rows = rows;
+      } finally {
+        _loading = null;
       }
-      return _rows = rows;
     }();
   }
 

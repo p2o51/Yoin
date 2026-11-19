@@ -259,7 +259,12 @@ class _PopToggleState extends State<PopToggle> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(PopToggle old) {
     super.didUpdateWidget(old);
-    _on.animateTo(widget.on ? 1 : 0);
+    final target = widget.on ? 1.0 : 0.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _on.snapTo(target);
+    } else {
+      _on.animateTo(target);
+    }
   }
 
   @override
@@ -272,6 +277,10 @@ class _PopToggleState extends State<PopToggle> with TickerProviderStateMixin {
   Future<void> _tap() async {
     final target = !widget.on;
     widget.onToggle();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scale.value = 1;
+      return;
+    }
     // The pop is the one place a short linear tween is allowed.
     await _scale.animateTo(target ? 1.25 : 1.15, duration: const Duration(milliseconds: 90), curve: Curves.linear);
     if (!mounted) return;
