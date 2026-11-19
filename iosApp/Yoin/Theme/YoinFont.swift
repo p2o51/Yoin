@@ -4,6 +4,144 @@ import SwiftUI
 import UIKit
 import YoinShared
 
+/// Preferred CJK fallback script for Google Sans Flex (a Latin-only typeface).
+///
+/// Without an explicit `kCTFontCascadeListAttribute`, CoreText falls back through
+/// `Locale.preferredLanguages` one character at a time. When a user runs Yoin in
+/// Simplified Chinese UI on a device whose primary system language is Japanese
+/// (`ja > zh-Hant > zh-Hans`), CoreText slices every Chinese string into alternating
+/// runs of Hiragino Sans, PingFang TC, and PingFang SC — producing mixed glyph shapes
+/// and weights, and causing SwiftUI text animations to drop runs mid-transition.
+enum YoinCJKScript: String, Hashable, Sendable {
+    /// Follows the app's resolved UI localization (`Bundle.main.preferredLocalizations`)
+    /// before consulting `Locale.preferredLanguages`.
+    case appDefault
+    case simplifiedChinese
+    case traditionalChinese
+    case japanese
+
+    /// Resolves `.appDefault` to a concrete CJK script.
+    func resolved(
+        bundleLocalizations: [String] = Bundle.main.preferredLocalizations,
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> YoinCJKScript {
+        guard self == .appDefault else { return self }
+        return Self.resolvedAppDefault(bundleLocalizations: bundleLocalizations,
+                                       preferredLanguages: preferredLanguages)
+    }
+
+    static func resolvedAppDefault(
+        bundleLocalizations: [String] = Bundle.main.preferredLocalizations,
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> YoinCJKScript {
+        if let loc = bundleLocalizations.first, let matched = script(forLanguageTag: loc) {
+            return matched
+        }
+        for lang in preferredLanguages {
+            if let matched = script(forLanguageTag: lang) {
+                return matched
+            }
+        }
+        return .simplifiedChinese
+    }
+
+    static func script(forLanguageTag tag: String) -> YoinCJKScript? {
+        let lower = tag.lowercased().replacingOccurrences(of: "_", with: "-")
+        if lower.hasPrefix("ja") { return .japanese }
+        if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw")
+            || lower.hasPrefix("zh-hk") || lower.hasPrefix("zh-mo") {
+            return .traditionalChinese
+        }
+        if lower.hasPrefix("zh") { return .simplifiedChinese }
+        return nil
+    }
+
+    /// Detects the best CJK script for song lyrics, translations, or metadata.
+    static func detect(
+        for text: String,
+        fallback: YoinCJKScript = .appDefault,
+        bundleLocalizations: [String] = Bundle.main.preferredLocalizations,
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> YoinCJKScript {
+        detect(forLines: [text], fallback: fallback,
+               bundleLocalizations: bundleLocalizations,
+               preferredLanguages: preferredLanguages)
+    }
+
+    /// Detects the best CJK script across multiple lines (e.g. a full lyric sheet).
+    static func detect(
+        forLines lines: [String],
+        fallback: YoinCJKScript = .appDefault,
+        bundleLocalizations: [String] = Bundle.main.preferredLocalizations,
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> YoinCJKScript {
+        let resolvedFallback = fallback.resolved(bundleLocalizations: bundleLocalizations,
+                                                 preferredLanguages: preferredLanguages)
+        var kanaCount = 0
+        var hanScalars: [Unicode.Scalar] = []
+        hanScalars.reserveCapacity(128)
+        let maxHanSample = 128
+
+        outer: for line in lines {
+            for scalar in line.unicodeScalars {
+                let v = scalar.value
+                // Hiragana + Katakana (excluding punctuation such as U+30FB middle dot).
+                if (0x3041...0x3096).contains(v)
+                    || (0x30A1...0x30FA).contains(v)
+                    || v == 0x30FC
+                    || (0x31F0...0x31FF).contains(v)
+                    || (0xFF66...0xFF9D).contains(v) {
+                    kanaCount += 1
+                    if kanaCount >= 4 { break outer }
+                } else if (0x4E00...0x9FFF).contains(v)
+                    || (0x3400...0x4DBF).contains(v)
+                    || (0xF900...0xFAFF).contains(v)
+                    || (0x20000...0x2EBEF).contains(v) {
+                    if hanScalars.count < maxHanSample {
+                        hanScalars.append(scalar)
+                    }
+                }
+            }
+        }
+
+        let hanCount = hanScalars.count
+        if kanaCount > 0, hanCount == 0 || kanaCount >= 3 || kanaCount * 4 >= hanCount {
+            return .japanese
+        }
+        guard hanCount > 0 else { return resolvedFallback }
+
+        let sample = String(String.UnicodeScalarView(hanScalars))
+        let toSimplified = sample.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? sample
+        let toTraditional = sample.applyingTransform(StringTransform("Simplified-Traditional"), reverse: false) ?? sample
+
+        var tradOnly = 0
+        var simpOnly = 0
+        let sampleChars = Array(sample)
+        let simpChars = Array(toSimplified)
+        let tradChars = Array(toTraditional)
+        for i in sampleChars.indices {
+            if i < simpChars.count, sampleChars[i] != simpChars[i] { tradOnly += 1 }
+            if i < tradChars.count, sampleChars[i] != tradChars[i] { simpOnly += 1 }
+        }
+
+        if simpOnly > tradOnly { return .simplifiedChinese }
+        if tradOnly > simpOnly { return .traditionalChinese }
+        if kanaCount > 0 { return .japanese }
+
+        // Multi-line Hanzi-only lyrics with zero Kana are Chinese even if fallback was Japanese.
+        let nonEmptyLines = lines.reduce(0) { $0 + ($1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1) }
+        if resolvedFallback == .japanese, nonEmptyLines >= 4 {
+            for lang in preferredLanguages {
+                if let matched = script(forLanguageTag: lang), matched != .japanese {
+                    return matched
+                }
+            }
+            return .simplifiedChinese
+        }
+        return resolvedFallback
+    }
+}
+
 /// Google Sans Flex through its variable axes, like Android's
 /// `GoogleSansFlexRounded` (Type.kt) and `GrooveType` (Memories emblem).
 ///
@@ -20,11 +158,13 @@ enum YoinFont {
     }
 
     private struct CacheKey: Hashable, Sendable {
+        let isStatic: Bool
         let sizeQ: Int
         let weightQ: Int
         let widthQ: Int
         let roundQ: Int
         let opticalSizeQ: Int
+        let script: YoinCJKScript
         let textStyleRaw: String
         let preferredContentSizeCategoryRaw: String
     }
@@ -40,7 +180,7 @@ enum YoinFont {
     }
 
     private static let cache = OSAllocatedUnfairLock<CacheState>(initialState: CacheState())
-    private static let maxCacheEntries = 512
+    private static let maxCacheEntries = 1024
 
     private static func quantize(_ value: CGFloat) -> Int {
         guard value.isFinite else { return 0 }
@@ -55,6 +195,99 @@ enum YoinFont {
         Thread.isMainThread
             ? MainActor.assumeIsolated { UIApplication.shared.preferredContentSizeCategory.rawValue }
             : nil
+    }
+
+    private static func uiTextStyle(for style: Font.TextStyle) -> UIFont.TextStyle {
+        switch style {
+        case .largeTitle: .largeTitle
+        case .title: .title1
+        case .title2: .title2
+        case .title3: .title3
+        case .headline: .headline
+        case .subheadline: .subheadline
+        case .body: .body
+        case .callout: .callout
+        case .footnote: .footnote
+        case .caption: .caption1
+        case .caption2: .caption2
+        @unknown default: .body
+        }
+    }
+
+    private static func staticPostScriptName(for weight: Font.Weight) -> String {
+        if weight == .medium {
+            "GoogleSansFlex-Medium"
+        } else if weight == .semibold {
+            "GoogleSansFlex-SemiBold"
+        } else if weight == .bold || weight == .heavy || weight == .black {
+            "GoogleSansFlex-Bold"
+        } else {
+            "GoogleSansFlex-Regular"
+        }
+    }
+
+    private static func numericWeight(for weight: Font.Weight) -> CGFloat {
+        if weight == .medium {
+            500
+        } else if weight == .semibold {
+            600
+        } else if weight == .bold || weight == .heavy || weight == .black {
+            700
+        } else {
+            400
+        }
+    }
+
+    private static func firstAvailableFont(_ candidates: [String]) -> String? {
+        for name in candidates where UIFont(name: name, size: 12) != nil {
+            return name
+        }
+        return nil
+    }
+
+    private static func cascadeFontNames(for script: YoinCJKScript, weight: CGFloat) -> [String] {
+        let sc: [String]
+        let tc: [String]
+        let jp: [String]
+        let kr: [String]
+        switch weight {
+        case ..<450:
+            sc = ["PingFangSC-Regular"]
+            tc = ["PingFangTC-Regular"]
+            jp = ["HiraginoSans-W3", "HiraginoSans-W4"]
+            kr = ["AppleSDGothicNeo-Regular"]
+        case ..<550:
+            sc = ["PingFangSC-Medium", "PingFangSC-Regular"]
+            tc = ["PingFangTC-Medium", "PingFangTC-Regular"]
+            jp = ["HiraginoSans-W5", "HiraginoSans-W6", "HiraginoSans-W3"]
+            kr = ["AppleSDGothicNeo-Medium", "AppleSDGothicNeo-Regular"]
+        case ..<650:
+            sc = ["PingFangSC-Semibold", "PingFangSC-Medium", "PingFangSC-Regular"]
+            tc = ["PingFangTC-Semibold", "PingFangTC-Medium", "PingFangTC-Regular"]
+            jp = ["HiraginoSans-W6", "HiraginoSans-W7", "HiraginoSans-W3"]
+            kr = ["AppleSDGothicNeo-SemiBold", "AppleSDGothicNeo-Medium", "AppleSDGothicNeo-Regular"]
+        default:
+            sc = ["PingFangSC-Semibold", "PingFangSC-Medium", "PingFangSC-Regular"]
+            tc = ["PingFangTC-Semibold", "PingFangTC-Medium", "PingFangTC-Regular"]
+            jp = ["HiraginoSans-W7", "HiraginoSans-W6", "HiraginoSans-W3"]
+            kr = ["AppleSDGothicNeo-Bold", "AppleSDGothicNeo-SemiBold", "AppleSDGothicNeo-Regular"]
+        }
+        let ordered: [[String]] = switch script.resolved() {
+        case .simplifiedChinese, .appDefault: [sc, tc, jp, kr]
+        case .traditionalChinese: [tc, sc, jp, kr]
+        case .japanese: [jp, sc, tc, kr]
+        }
+        return ordered.compactMap(firstAvailableFont)
+    }
+
+    private static func cascadeDescriptor(for script: YoinCJKScript, weight: CGFloat) -> CTFontDescriptor? {
+        let descriptors: [CTFontDescriptor] = cascadeFontNames(for: script, weight: weight).map { name in
+            CTFontDescriptorCreateWithNameAndSize(name as CFString, 0)
+        }
+        guard !descriptors.isEmpty else { return nil }
+        return CTFontDescriptorCreateWithAttributes([
+            kCTFontCascadeListAttribute: descriptors
+        ] as CFDictionary)
     }
 
     /// The variable file as a CGFont. Not a descriptor from
@@ -87,21 +320,24 @@ enum YoinFont {
         return out
     }()
 
-    static func uiFont(size: CGFloat, _ axes: Axes) -> UIFont {
+    static func uiFont(size: CGFloat, _ axes: Axes, script: YoinCJKScript = .appDefault) -> UIFont {
+        let resolvedScript = script.resolved()
         let opsz = clampedOpticalSize(for: size, explicit: axes.opticalSize)
         let key = CacheKey(
+            isStatic: false,
             sizeQ: quantize(size),
             weightQ: quantize(axes.weight),
             widthQ: quantize(axes.width),
             roundQ: quantize(axes.round),
             opticalSizeQ: quantize(opsz),
+            script: resolvedScript,
             textStyleRaw: "",
             preferredContentSizeCategoryRaw: ""
         )
         if let hit = cache.withLock({ $0.entries[key] }) {
             return hit.uiFont
         }
-        let built = makeUIFont(size: size, axes: axes, opticalSize: opsz)
+        let built = makeUIFont(size: size, axes: axes, opticalSize: opsz, script: resolvedScript)
         let pair = CachedFont(uiFont: built, font: Font(built))
         cache.withLock { state in
             if state.entries.count >= maxCacheEntries { state.entries.removeAll(keepingCapacity: true) }
@@ -110,10 +346,10 @@ enum YoinFont {
         return built
     }
 
-    private static func makeUIFont(size: CGFloat, axes: Axes, opticalSize: CGFloat) -> UIFont {
+    private static func makeUIFont(size: CGFloat, axes: Axes, opticalSize: CGFloat, script: YoinCJKScript) -> UIFont {
         guard let base else {
             assertionFailure("Google Sans Flex variable font missing from the bundle")
-            return UIFont(name: "GoogleSansFlex-Regular", size: size) ?? .systemFont(ofSize: size)
+            return staticUIFont(size: size, weight: .regular, script: script)
         }
         let values: [String: CGFloat] = [
             "wght": axes.weight,
@@ -126,7 +362,82 @@ enum YoinFont {
             if let name = axisNames[tag] { variations[name] = NSNumber(value: Double(value)) }
         }
         let instance = base.copy(withVariations: variations as CFDictionary) ?? base
-        return CTFontCreateWithGraphicsFont(instance, size, nil, nil) as UIFont
+        let descriptor = cascadeDescriptor(for: script, weight: axes.weight)
+        return CTFontCreateWithGraphicsFont(instance, size, nil, descriptor) as UIFont
+    }
+
+    /// Static Google Sans Flex face with an explicit CJK cascade list attached.
+    static func staticUIFont(size: CGFloat, weight: Font.Weight = .regular,
+                             script: YoinCJKScript = .appDefault) -> UIFont {
+        let resolvedScript = script.resolved()
+        let numeric = numericWeight(for: weight)
+        let key = CacheKey(
+            isStatic: true,
+            sizeQ: quantize(size),
+            weightQ: quantize(numeric),
+            widthQ: 0,
+            roundQ: 0,
+            opticalSizeQ: 0,
+            script: resolvedScript,
+            textStyleRaw: "",
+            preferredContentSizeCategoryRaw: ""
+        )
+        if let hit = cache.withLock({ $0.entries[key] }) {
+            return hit.uiFont
+        }
+        let psName = staticPostScriptName(for: weight)
+        let baseFont = CTFontCreateWithName(psName as CFString, size, nil)
+        let built: UIFont
+        if let descriptor = cascadeDescriptor(for: resolvedScript, weight: numeric) {
+            built = CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor) as UIFont
+        } else {
+            built = baseFont as UIFont
+        }
+        let pair = CachedFont(uiFont: built, font: Font(built))
+        cache.withLock { state in
+            if state.entries.count >= maxCacheEntries { state.entries.removeAll(keepingCapacity: true) }
+            state.entries[key] = pair
+        }
+        return built
+    }
+
+    /// Dynamic-Type-scaled static Google Sans Flex face with CJK cascade list.
+    static func staticFont(size: CGFloat, weight: Font.Weight = .regular,
+                           relativeTo style: Font.TextStyle = .body,
+                           script: YoinCJKScript = .appDefault) -> Font {
+        let resolvedScript = script.resolved()
+        let numeric = numericWeight(for: weight)
+        let uiStyle = uiTextStyle(for: style)
+        let mainRaw = mainThreadCategoryRaw()
+        let sizeQ = quantize(size)
+        let weightQ = quantize(numeric)
+        let lookup: (hit: CachedFont?, key: CacheKey) = cache.withLock { state in
+            let categoryRaw = mainRaw ?? state.lastCategoryRaw
+            if let mainRaw, state.lastCategoryRaw != mainRaw { state.lastCategoryRaw = mainRaw }
+            let key = CacheKey(
+                isStatic: true,
+                sizeQ: sizeQ,
+                weightQ: weightQ,
+                widthQ: 0,
+                roundQ: 0,
+                opticalSizeQ: 0,
+                script: resolvedScript,
+                textStyleRaw: uiStyle.rawValue,
+                preferredContentSizeCategoryRaw: categoryRaw
+            )
+            return (state.entries[key], key)
+        }
+        if let hit = lookup.hit { return hit.font }
+
+        let scaled = UIFontMetrics(forTextStyle: uiStyle).scaledValue(for: size)
+        let ui = staticUIFont(size: scaled, weight: weight, script: resolvedScript)
+        let font = Font(ui)
+        let pair = CachedFont(uiFont: ui, font: font)
+        cache.withLock { state in
+            if state.entries.count >= maxCacheEntries { state.entries.removeAll(keepingCapacity: true) }
+            state.entries[lookup.key] = pair
+        }
+        return font
     }
 
     /// Launch self-check: logs which Google Sans Flex faces resolve, and
@@ -148,7 +459,9 @@ enum YoinFont {
     /// instance built at it: `UIFontMetrics.scaledFont(for:)` rebuilds the font from its
     /// descriptor, a lookup by name that this unregistered instance doesn't answer, so on an
     /// iPhone whose text size isn't the default the text fell back to the system font.
-    static func font(size: CGFloat, _ axes: Axes, relativeTo style: UIFont.TextStyle = .body) -> Font {
+    static func font(size: CGFloat, _ axes: Axes, relativeTo style: UIFont.TextStyle = .body,
+                     script: YoinCJKScript = .appDefault) -> Font {
+        let resolvedScript = script.resolved()
         let mainRaw = mainThreadCategoryRaw()
         let opsz = clampedOpticalSize(for: size, explicit: axes.opticalSize)
         let sizeQ = quantize(size)
@@ -160,11 +473,13 @@ enum YoinFont {
             let categoryRaw = mainRaw ?? state.lastCategoryRaw
             if let mainRaw, state.lastCategoryRaw != mainRaw { state.lastCategoryRaw = mainRaw }
             let key = CacheKey(
+                isStatic: false,
                 sizeQ: sizeQ,
                 weightQ: weightQ,
                 widthQ: widthQ,
                 roundQ: roundQ,
                 opticalSizeQ: opszQ,
+                script: resolvedScript,
                 textStyleRaw: style.rawValue,
                 preferredContentSizeCategoryRaw: categoryRaw
             )
@@ -176,7 +491,7 @@ enum YoinFont {
         var a = axes
         // Optical size follows the designed size, as before scaling.
         if a.opticalSize == nil { a.opticalSize = size }
-        let ui = uiFont(size: scaled, a)
+        let ui = uiFont(size: scaled, a, script: resolvedScript)
         let font = Font(ui)
         let pair = CachedFont(uiFont: ui, font: font)
         cache.withLock { state in
@@ -187,9 +502,11 @@ enum YoinFont {
     }
 
     /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600) (YoinTokens.Typography).
-    static func rounded(_ size: CGFloat, semibold: Bool = false, relativeTo style: UIFont.TextStyle = .body) -> Font {
+    static func rounded(_ size: CGFloat, semibold: Bool = false, relativeTo style: UIFont.TextStyle = .body,
+                        script: YoinCJKScript = .appDefault) -> Font {
         let t = semibold ? Tokens.type.roundedSemiBold : Tokens.type.roundedMedium
-        return font(size: size, Axes(weight: CGFloat(t.weight), width: t.width.cg, round: t.round.cg), relativeTo: style)
+        return font(size: size, Axes(weight: CGFloat(t.weight), width: t.width.cg, round: t.round.cg),
+                    relativeTo: style, script: script)
     }
 
     /// Android `GrooveType.score`: wght 690 (album rating) / 640 (average),

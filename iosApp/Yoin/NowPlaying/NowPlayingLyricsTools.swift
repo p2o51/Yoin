@@ -52,11 +52,16 @@ struct LyricKeyRow: View {
     private func keyButton(_ key: LyricKey, index: Int, width: CGFloat) -> some View {
         let lab = GlassLab.shared
         let shape = RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
-        // The pills' ink: onPrimary in light, white in dark (neutral preset: onSurface).
-        // World: the keys float over the lyrics (NP's floating chrome), neutral
-        // glass with on-surface ink; only an emphasized key takes the accent.
+        // The pills' ink: neutral glass uses onSurface; opaque / dense accent surfaces
+        // (including dark + Solid Surfaces and World's dense accent) use onPrimary so
+        // dark-mode Tone 80 primary fills never get white ink; thin dark glass keeps white.
         let neutral = lab.oneAccentPerLayer ? !key.emphasized : lab.neutralTint("npPills")
-        let ink = neutral ? scheme.onSurface : colorScheme == .dark ? Color.white : scheme.onPrimary
+        let surfaceId = lab.oneAccentPerLayer ? "npFloating" : "npPills"
+        let accentStrength: Double = lab.oneAccentPerLayer ? (key.emphasized ? 1.2 : 0.6) : (key.emphasized ? 1.5 : 1)
+        let ink: Color = neutral
+            ? scheme.onSurface
+            : (lab.usesAccentOnColor(surfaceId, dark: colorScheme == .dark, strength: accentStrength)
+                ? scheme.onPrimary : Color.white)
         let live = key.enabled || key.busy
         return Button {
             if key.enabled, !key.busy { key.action() }
@@ -64,7 +69,7 @@ struct LyricKeyRow: View {
             YoinIcon(key.icon, size: 24)
                 .symbolEffect(.pulse, options: .repeating, isActive: key.busy)
                 .foregroundStyle(ink.opacity(live ? 1 : 0.38))
-                .labContrast("transportPrimary")
+                .labContrast(key.emphasized ? "transportPrimary" : "npPills")
                 .frame(width: width, height: size)
                 .contentShape(shape)
                 .modifier(LyricKeyGlass(emphasized: key.emphasized, scheme: scheme, shape: shape))
@@ -178,6 +183,8 @@ struct ExpandedLyricsList: View {
     @State private var position = ScrollPosition(idType: Int.self)
 
     var body: some View {
+        let lyricScript = YoinCJKScript.detect(forLines: lines)
+        let translationScript = YoinCJKScript.detect(forLines: translations.compactMap { $0 })
         VStack(alignment: .leading, spacing: 0) {
             if selecting {
                 // Select mode's caption, in its own band above the list.
@@ -192,13 +199,15 @@ struct ExpandedLyricsList: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 4) {
                         if let track = headerTrack {
-                            header(track).id(Self.headerRow)
+                            let headerScript = YoinCJKScript.detect(forLines: [track.title, track.artist],
+                                                                    fallback: lyricScript)
+                            header(track, script: headerScript).id(Self.headerRow)
                                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: {
                                     offset.rows[Self.headerRow] = $0
                                 }
                         }
                         ForEach(lines.indices, id: \.self) { i in
-                            row(i).id(i)
+                            row(i, lyricScript: lyricScript, translationScript: translationScript).id(i)
                                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { offset.rows[i] = $0 }
                         }
                         Color.clear.frame(height: 96)
@@ -381,35 +390,36 @@ struct ExpandedLyricsList: View {
 
     /// Title over artist: lit while nothing is sung yet, never picked in Select, and a tap (outside Select)
     /// goes back to the start and follows again.
-    private func header(_ track: PlayableTrack) -> some View {
+    private func header(_ track: PlayableTrack, script: YoinCJKScript) -> some View {
         let lit = !selecting && active == Self.headerRow
         let ink = lit ? scheme.primary : scheme.onSurfaceVariant
         return VStack(alignment: .leading, spacing: 2) {
             Text(track.title)
-                .font(lit ? YoinFont.rounded(24, semibold: true) : .gsf(24, .medium))
+                .font(lit ? YoinFont.rounded(24, semibold: true, script: script)
+                      : .gsf(24, .medium, script: script))
                 .tracking(0)
-                .foregroundStyle(ink)
+                .contentTransition(.identity)
+                .animation(Yoin.effects) { $0.foregroundStyle(ink) }
             if !track.artist.isEmpty {
                 Text(track.artist)
-                    .font(.gsf(16, lit ? .medium : .regular))
+                    .font(.gsf(16, lit ? .medium : .regular, script: script))
                     .tracking(0)
-                    .foregroundStyle(ink.opacity(lit ? 0.82 : 0.7))
+                    .contentTransition(.identity)
+                    .animation(Yoin.effects) { $0.foregroundStyle(ink.opacity(lit ? 0.82 : 0.7)) }
             }
         }
-        .scaleEffect(lit ? 1 : 0.96, anchor: .leading)
-        .opacity(lit ? 1 : selecting ? 0.42 : 0.62)
+        .animation(Yoin.spatial) { $0.scaleEffect(lit ? 1 : 0.96, anchor: .leading) }
+        .animation(Yoin.effects) { $0.opacity(lit ? 1 : selecting ? 0.42 : 0.62) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Self.rowInset)
         .padding(.vertical, 6)
         .contentShape(.rect)
         .onTapGesture { if !selecting { onTap(Self.headerRow) } }
-        .animation(Yoin.effects, value: lit)
-        .animation(Yoin.spatial, value: lit)
         .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
-    private func row(_ i: Int) -> some View {
+    private func row(_ i: Int, lyricScript: YoinCJKScript, translationScript: YoinCJKScript) -> some View {
         let picked = selecting && selected.contains(i)
         let isActive = !selecting && i == active
         let playingInSelect = selecting && i == active
@@ -426,26 +436,32 @@ struct ExpandedLyricsList: View {
         let translation = i < translations.count ? translations[i] : nil
         let text = lines[i]
         let dots = halftone && !selecting ? LyricHalftone.radius(line: i, active: active) : LyricHalftone.solid
+        // Scope animations to colour, opacity, scale and selection fill only — never `.font`.
+        // An unscoped `.animation(..., value: isActive)` on the row animates the swap between
+        // static and variable CTFonts and drops CJK glyph runs mid-transition on iOS.
         VStack(alignment: .leading, spacing: 0) {
             Text(text.isEmpty ? " " : text)
-                .font(emphasized ? YoinFont.rounded(24, semibold: true) : .gsf(24, .medium))
+                .font(emphasized ? YoinFont.rounded(24, semibold: true, script: lyricScript)
+                      : .gsf(24, .medium, script: lyricScript))
                 .tracking(0)
                 .lineSpacing(4)
-                .foregroundStyle(ink)
+                .contentTransition(.identity)
+                .animation(Yoin.effects) { $0.foregroundStyle(ink) }
             if let translation, !translation.isEmpty {
                 Text(translation)
-                    .font(.gsf(16, emphasized ? .medium : .regular))
+                    .font(.gsf(16, emphasized ? .medium : .regular, script: translationScript))
                     .tracking(0)
-                    .foregroundStyle(ink.opacity(emphasized ? 0.82 : 0.7))
+                    .contentTransition(.identity)
+                    .animation(Yoin.effects) { $0.foregroundStyle(ink.opacity(emphasized ? 0.82 : 0.7)) }
                     .padding(.top, 4)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .scaleEffect(emphasized ? 1 : 0.96, anchor: .leading)
+        .animation(Yoin.spatial) { $0.scaleEffect(emphasized ? 1 : 0.96, anchor: .leading) }
         // Focus's halftone (Android lyricHalftone): solid → this line's dots.
         .modifier(LyricHalftone(radius: dots, space: Self.contentSpace))
         .animation(Yoin.effects, value: dots)
-        .opacity(alpha)
+        .animation(Yoin.effects) { $0.opacity(alpha) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Self.rowInset)
         .padding(.vertical, 6)
@@ -454,14 +470,12 @@ struct ExpandedLyricsList: View {
                                    bottomTrailingRadius: runBottom ? 16 : 4, topTrailingRadius: runTop ? 16 : 4,
                                    style: .continuous)
                 .fill(scheme.primaryContainer.opacity(picked ? 1 : 0))
+                .animation(Yoin.effects, value: picked)
         }
         // A pointer over a line (it seeks, or picks in Select): the hovered state layer, off on a picked line.
         .hoverLayer(in: RoundedRectangle(cornerRadius: 16, style: .continuous), ink: scheme.onSurface, enabled: !picked)
         .contentShape(.rect)
         .onTapGesture { onTap(i) }
-        .animation(Yoin.effects, value: picked)
-        .animation(Yoin.effects, value: isActive)
-        .animation(Yoin.spatial, value: emphasized)
         .animation(Yoin.spatial, value: translation)
         .accessibilityAddTraits(selecting ? .isButton : [])
         .accessibilityAddTraits(picked ? .isSelected : [])
@@ -698,21 +712,24 @@ struct LyricsShareCard: View {
 
     var body: some View {
         let c = tone.colors(scheme)
+        let lyricScript = YoinCJKScript.detect(forLines: snapshot.lines)
+        let translationScript = YoinCJKScript.detect(forLines: snapshot.translations.compactMap { $0 })
+        let creditScript = YoinCJKScript.detect(forLines: [snapshot.title, snapshot.artist], fallback: lyricScript)
         VStack(alignment: .leading, spacing: 6) {
             ForEach(snapshot.lines.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.lines[i])
-                        .font(YoinFont.rounded(22, semibold: true))
+                        .font(YoinFont.rounded(22, semibold: true, script: lyricScript))
                         .foregroundStyle(c.content)
                     if let t = snapshot.translations[i], !t.isEmpty {
-                        Text(t).font(.gsf(15)).foregroundStyle(c.content.opacity(0.75))
+                        Text(t).font(.gsf(15, script: translationScript)).foregroundStyle(c.content.opacity(0.75))
                     }
                 }
                 .padding(.top, snapshot.passageStarts.contains(i) ? 14 : 0)
             }
             if let credit = LyricsRules.credit(title: snapshot.title, artist: snapshot.artist) {
                 Text("— \(credit)")
-                    .font(.gsf(13, .medium)).tracking(0.1)
+                    .font(.gsf(13, .medium, script: creditScript)).tracking(0.1)
                     .foregroundStyle(c.content.opacity(0.7))
                     .padding(.top, 18)
             }

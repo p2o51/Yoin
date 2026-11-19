@@ -327,15 +327,18 @@ struct OneLineLyricLine: View, Equatable {
     var primary: Color
     /// The line's index (-1 before the first): with the text, what makes a change.
     var key: Int = 0
+    var script: YoinCJKScript = .appDefault
 
     /// A sixth of the 32 pt row (Android slideInVertically { it / 6 }).
     static let rise: CGFloat = 32 / 6
 
     var body: some View {
+        let resolvedScript = script == .appDefault ? YoinCJKScript.detect(for: text) : script
         ZStack(alignment: .leading) {
             Text(text)
-                .font(YoinFont.rounded(16, semibold: true))
+                .font(YoinFont.rounded(16, semibold: true, script: resolvedScript))
                 .tracking(0)
+                .contentTransition(.identity)
                 .foregroundStyle(primary)
                 .lineLimit(1)
                 .padding(.vertical, 4)

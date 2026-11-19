@@ -301,16 +301,18 @@ struct NowPlayingAboutView: View {
     /// glass (51, 2026-11-04: every Ask Gemini control is glass). With a
     /// visible capsule, the capsule (not the text) lines up with the page edge.
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let surfaceId = GlassLab.shared.oneAccentPerLayer ? "npFloating" : "npPills"
+        let ink = GlassLab.shared.usesAccentOnColor(surfaceId, dark: colorScheme == .dark)
+            ? scheme.onPrimary : Color.white
+        return Button(action: action) {
             Text(title)
                 .yoinRole(Tokens.type.labelLarge)
-                .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
+                .foregroundStyle(ink)
                 .labContrast("transportPrimary")
                 .padding(.horizontal, 12)
                 .frame(minHeight: 40)
                 // World: the pills went neutral glass; these keep the accent.
-                .npPillGlass(GlassLab.shared.oneAccentPerLayer ? "npFloating" : "npPills",
-                             tint: scheme.primary, in: Capsule())
+                .npPillGlass(surfaceId, tint: scheme.primary, in: Capsule())
                 .contentShape(.capsule)
         }
         .buttonStyle(PressScale())
@@ -590,9 +592,12 @@ struct AskGeminiBar: View {
         .accessibilityAddTraits(loading ? [] : .isButton)
     }
 
-    /// On the glass: onPrimaryContainer in light, white in dark (the NP
-    /// pills' rule; dark onPrimaryContainer sinks into the tinted glass).
-    private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
+    /// On solid/opaque containers (or in light mode): onPrimaryContainer;
+    /// on thin dark glass: white so the label doesn't sink into the glass.
+    private var onGlass: Color {
+        GlassLab.shared.usesContainerOnColor("npFloating", dark: colorScheme == .dark)
+            ? scheme.onPrimaryContainer : .white
+    }
 
     private func label(_ text: String, color: Color) -> some View {
         Text(text)
@@ -625,8 +630,11 @@ struct AskGeminiField: View {
 
     static let height: CGFloat = 252
 
-    /// As on the bar: white in dark.
-    private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
+    /// As on the bar: onPrimaryContainer on solid/light, white on thin dark glass.
+    private var onGlass: Color {
+        GlassLab.shared.usesContainerOnColor("npFloating", dark: colorScheme == .dark)
+            ? scheme.onPrimaryContainer : .white
+    }
     private var showsPrompts: Bool { text.isEmpty && !prompts.isEmpty }
 
     var body: some View {

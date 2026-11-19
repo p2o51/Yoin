@@ -1179,8 +1179,8 @@ struct NowPlayingView: View, Equatable {
                 // fill (like PAUSE carries primary) and the glyph stays
                 // legible on it in both modes; unliked, plain glass.
                 .foregroundStyle(favorite
-                                 ? (colorScheme == .dark && !lab.denseAccent(surface, dark: true)
-                                    ? Color.white : scheme.onTertiary)
+                                 ? (lab.usesAccentOnColor(surface, dark: colorScheme == .dark)
+                                    ? scheme.onTertiary : Color.white)
                                  : (heartTinted ? scheme.onTertiaryContainer : scheme.onSurfaceVariant))
                 .labContrast(surface)
                 .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
@@ -1285,24 +1285,27 @@ struct NowPlayingView: View, Equatable {
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
                     }
                     let on = shownTab == page.rawValue
+                    let dark = colorScheme == .dark
+                    let tabInk: Color = if !on && lab.oneAccentPerLayer {
+                        scheme.onSurface
+                    } else if on {
+                        lab.usesAccentOnColor("npFloating", dark: dark) ? scheme.onPrimary : Color.white
+                    } else {
+                        lab.usesContainerOnColor("npFloating", dark: dark) ? scheme.onPrimaryContainer : Color.white
+                    }
                     Button { settlePager(on: page.rawValue) } label: {
                         Text(page.title)
                             .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
-                            // Dark: white on both (the pills' rule; the container
-                            // on-colors sink into the tinted glass).
-                            // World: one accent per layer, the others neutral glass.
-                            .foregroundStyle(!on && lab.oneAccentPerLayer ? scheme.onSurface
-                                             : colorScheme == .dark ? Color.white
-                                             : on ? scheme.onPrimary : scheme.onPrimaryContainer)
+                            .foregroundStyle(tabInk)
                             .labContrast(on ? "transportPrimary" : "npPills")
                             .frame(maxWidth: .infinity)
                             .frame(height: NowPlayingExpanded.tabRow)
-                            // The unselected thinner, so the selection reads in light too.
+                            // The unselected thinner on glass so selection reads in light too; solid keeps opaque roles.
                             .npPillGlass("npFloating",
                                          tint: on ? scheme.primary
                                              : lab.oneAccentPerLayer ? scheme.surfaceContainerHighest
                                              : scheme.primaryContainer,
-                                         strength: on ? 1 : 0.6, in: Capsule())
+                                         strength: on || GlassLab.solidSurfaces ? 1 : 0.6, in: Capsule())
                             .contentShape(.capsule)
                             .animation(Yoin.effects, value: on)
                     }
@@ -1923,18 +1926,22 @@ struct NowPlayingView: View, Equatable {
     private func lyricPreview(_ p: PlaybackSnapshot) -> some View {
         if let t = engineTrack {
             if case .lines(let loaded) = data.lyricsState(t), loaded.synced {
+                let lyricScript = YoinCJKScript.detect(forLines: loaded.lines)
                 PlaybackPosition(live: npMorph?.mounted != false) { position, _ in
                     let i = loaded.activeIndex(positionSec: position)
                     OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
-                                     ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
+                                     ? loaded.lines[i] : t.title, primary: scheme.primary, key: i,
+                                     script: lyricScript)
                         .equatable()
                 }
             } else {
-                OneLineLyricLine(text: t.title, primary: scheme.primary)
+                OneLineLyricLine(text: t.title, primary: scheme.primary,
+                                 script: YoinCJKScript.detect(forLines: [t.title, t.artist]))
             }
         } else {
             OneLineLyricLine(text: p.lyrics.indices.contains(p.activeLyric) ? p.lyrics[p.activeLyric] : p.track.title,
-                             primary: scheme.primary, key: p.activeLyric)
+                             primary: scheme.primary, key: p.activeLyric,
+                             script: YoinCJKScript.detect(forLines: p.lyrics))
         }
     }
 
@@ -1958,10 +1965,12 @@ struct NowPlayingView: View, Equatable {
                 // The one-line row (Android OneLineLyricRow): the line replaced
                 // in place, never a list scrolled through a 32 pt slot.
                 lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
+                    let lyricScript = YoinCJKScript.detect(forLines: loaded.lines)
                     PlaybackPosition(live: npMorph?.mounted != false) { position, _ in
                         let i = loaded.activeIndex(positionSec: position)
                         OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
-                                         ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
+                                         ? loaded.lines[i] : t.title, primary: scheme.primary, key: i,
+                                         script: lyricScript)
                             .equatable()
                             .padding(.top, anchor - 4)
                     }
@@ -2284,7 +2293,7 @@ struct NowPlayingView: View, Equatable {
                             duration: duration, isPlaying: p.isPlaying && !p.isBuffering,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
                             noteAnchors: anchors,
-                            noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
+                            noteInk: scheme.onPrimary,
                             live: transportLive && (npMorph?.mounted != false),
                             actedScrub: demo?.scrub,
                             onScrubbing: { if canScrub { touch("progress", $0) } },
@@ -2330,7 +2339,7 @@ struct NowPlayingView: View, Equatable {
     @ViewBuilder
     private func playPauseLabel(playing: Bool, buffering: Bool = false, pressed: Bool) -> some View {
         let stretch: CGFloat = pressed ? 1.10 : (playing ? 1.06 : 0.97)
-        let ink = colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true) ? Color.white : scheme.onPrimary
+        let ink = lab.usesAccentOnColor("transportPrimary", dark: colorScheme == .dark) ? scheme.onPrimary : Color.white
         Group {
             if buffering && playing {
                 ProgressView()
@@ -2491,8 +2500,9 @@ struct NowPlayingView: View, Equatable {
     /// The title is matched to the pill's title by its leading edge; folded,
     /// it scales down to the pill's 15 pt so the glyphs line up.
     private func heroTitle(_ p: PlaybackSnapshot) -> some View {
-        MarqueeText(text: p.track.title, font: .gsf(36), color: scheme.onSurface,
-                    initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
+        let script = YoinCJKScript.detect(forLines: [p.track.title, p.track.artist ?? ""])
+        return MarqueeText(text: p.track.title, font: .gsf(36, script: script), color: scheme.onSurface,
+                           initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
             .animation(Self.heroStretchSpring) { $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading) }
             .scaleEffect(open ? 1 : Self.titleFoldScale, anchor: .leading)
             .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
@@ -2719,7 +2729,7 @@ struct NowPlayingView: View, Equatable {
     private var pillInk: Color {
         lab.neutralTint("npPills") ? scheme.onSurface
             : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
-            : colorScheme == .dark && !GlassLab.solidSurfaces ? Color.white : scheme.onPrimary
+            : lab.usesAccentOnColor("npPills", dark: colorScheme == .dark) ? scheme.onPrimary : Color.white
     }
 
     private func pill(_ icon: String, _ title: String, shape: AnyShape, dropsToQueue: Bool = false,
@@ -3287,7 +3297,7 @@ extension View {
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * strength)) : base
-                yGlassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+                yGlassEffect(st.interactive ? tinted.interactive() : tinted, solid: tint.opacity(strength), in: shape)
             case .none, .material:
                 background(shape.fill(tint.opacity(strength)))
             }
@@ -3842,16 +3852,18 @@ extension NowPlayingView {
             .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
             .animation(Yoin.effects, value: spatialTag)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
+                let titleScript = YoinCJKScript.detect(forLines: [p.track.title, p.track.artist ?? ""])
                 Group {
                     if twoLines {
                         Text(p.track.title)
-                            .font(.gsf(Tokens.type.headlineMedium.size.cg))
+                            .font(.gsf(Tokens.type.headlineMedium.size.cg, script: titleScript))
                             .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
                             .foregroundStyle(scheme.onSurface)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     } else {
-                        MarqueeText(text: p.track.title, font: .gsf(Tokens.type.headlineMedium.size.cg),
+                        MarqueeText(text: p.track.title,
+                                    font: .gsf(Tokens.type.headlineMedium.size.cg, script: titleScript),
                                     color: scheme.onSurface, initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
                     }
                 }

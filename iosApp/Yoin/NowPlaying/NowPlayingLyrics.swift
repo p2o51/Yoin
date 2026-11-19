@@ -77,6 +77,8 @@ private struct LyricLinesBody: View {
         let nextAlpha = next == nil ? 0 : handing ? 1 : UpNextTiming.revealAlpha * ease
         let nextRise = handing ? 0 : (1 - ease) * Self.rise
         let block: Double = handing ? 0 : 1
+        let lyricScript = YoinCJKScript.detect(forLines: lines)
+        let nextScript = next.map { YoinCJKScript.detect(forLines: [$0.title, $0.firstLine]) } ?? .appDefault
         VStack(alignment: .leading, spacing: Self.spacing) {
             ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                 let d = abs(i - shown)
@@ -88,8 +90,10 @@ private struct LyricLinesBody: View {
                 // in primary, else bodyMedium (14/20) onSurfaceVariant;
                 // each line in its role's line box, 4 above and below.
                 Text(line)
-                    .font(isActive ? YoinFont.rounded(16, semibold: true) : .gsf(14))
+                    .font(isActive ? YoinFont.rounded(16, semibold: true, script: lyricScript)
+                          : .gsf(14, script: lyricScript))
                     .tracking(0)
+                    .contentTransition(.identity)
                     .lineLimit(wraps ? nil : 1)
                     .lineSpacing(YoinType.lineSpacing(size: isActive ? 16 : 14,
                                                       lineHeight: isActive ? Tokens.type.bodyLarge.lineHeight.cg
@@ -126,8 +130,9 @@ private struct LyricLinesBody: View {
                     .animation(Yoin.slowEffects) { $0.opacity(nextAlpha * block) }
                     .animation(Yoin.slowSpatial) { $0.offset(y: nextRise) }
                 Text(next.firstLine)
-                    .font(.gsf(14))
+                    .font(.gsf(14, script: nextScript))
                     .tracking(0)
+                    .contentTransition(.identity)
                     .lineLimit(wraps ? nil : 1)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: Tokens.type.bodyMedium.lineHeight.cg)
@@ -199,11 +204,12 @@ struct UnsyncedLyricsView: View {
     var onSurfaceVariant: Color
 
     var body: some View {
+        let lyricScript = YoinCJKScript.detect(forLines: lines)
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     Text(line.isEmpty ? " " : line)
-                        .font(.gsf(14))
+                        .font(.gsf(14, script: lyricScript))
                         .tracking(0)
                         .foregroundStyle(onSurfaceVariant)
                         .padding(.vertical, 4)

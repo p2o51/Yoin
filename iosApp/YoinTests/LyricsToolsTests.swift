@@ -1,3 +1,5 @@
+import CoreText
+import SwiftUI
 import XCTest
 import YoinShared
 @testable import Yoin
@@ -213,5 +215,179 @@ final class LyricsToolsTests: XCTestCase {
         XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: -400, window: 400, screen: 800), 0.5, accuracy: 0.001)
         // Nothing known: the middle, as before.
         XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: 0, window: 400, screen: 0), 0.5, accuracy: 0.001)
+    }
+
+    // MARK: CJK fallback script & CoreText cascade (Bug 3)
+
+    func test_should_preferAppLocalizationOverJapaneseSystemLanguage_when_resolvingAppDefaultScript() {
+        // 51's exact device setup: system language ja > zh-Hant-TW > zh-Hans > en,
+        // while Yoin's bundle resolves to zh-Hans UI.
+        let script = YoinCJKScript.resolvedAppDefault(
+            bundleLocalizations: ["zh-Hans"],
+            preferredLanguages: ["ja-JP", "zh-Hant-TW", "zh-Hans-CN", "en-US"]
+        )
+        XCTAssertEqual(script, .simplifiedChinese)
+
+        // English UI falls back to the user's preferred CJK language.
+        XCTAssertEqual(
+            YoinCJKScript.resolvedAppDefault(
+                bundleLocalizations: ["en"],
+                preferredLanguages: ["en-US", "ja-JP", "zh-Hans-CN"]
+            ),
+            .japanese
+        )
+        XCTAssertEqual(
+            YoinCJKScript.resolvedAppDefault(
+                bundleLocalizations: ["en"],
+                preferredLanguages: ["en-US", "zh-Hant-TW"]
+            ),
+            .traditionalChinese
+        )
+    }
+
+    func test_should_detectLyricCJKScriptAccurately_acrossChineseAndJapanese() {
+        let jpFirst = ["ja-JP", "zh-Hant-TW", "zh-Hans-CN", "en-US"]
+        // Simplified Chinese lyrics (from 51's recording) even under ja-primary system.
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                forLines: ["我不问 我不吵 我没情绪", "我不知道你为什么离开", "记忆里的画面那么清晰"],
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .simplifiedChinese
+        )
+        // Simplified Chinese lyrics even when app UI is English + system primary is Japanese.
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                forLines: ["我不问 我不吵 我没情绪", "动听的旋律"],
+                bundleLocalizations: ["en"],
+                preferredLanguages: jpFirst
+            ),
+            .simplifiedChinese
+        )
+        // Traditional Chinese title/artist & lyrics.
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                forLines: ["羅大佑，音樂工廠", "時間都去哪兒了"],
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .traditionalChinese
+        )
+        // Japanese lyrics (Kana + Kanji) and pure Katakana artist.
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                forLines: ["沈むように溶けてゆくように", "二人だけの空が広がる夜に"],
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .japanese
+        )
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                for: "カーリー・レイ・ジェプセン",
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .japanese
+        )
+        // Neutral Hanzi with Chinese app UI stays Simplified Chinese (never leaks to Japanese).
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                for: "海上花",
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .simplifiedChinese
+        )
+        // Chinese lyrics with a single decorative "の" stay Simplified Chinese.
+        XCTAssertEqual(
+            YoinCJKScript.detect(
+                forLines: ["最爱の你", "我不知道为什么记忆这么清晰", "我不问我不吵我没情绪"],
+                bundleLocalizations: ["zh-Hans"],
+                preferredLanguages: jpFirst
+            ),
+            .simplifiedChinese
+        )
+    }
+
+    func test_should_resolveUniformCJKCascadeFont_forVariableAndStaticGoogleSansFlex() {
+        func resolvedFamily(_ font: UIFont, for sample: String) -> String {
+            let ct = CTFontCreateForString(font as CTFont, sample as CFString, CFRange(location: 0, length: sample.utf16.count))
+            return CTFontCopyPostScriptName(ct) as String
+        }
+
+        // Variable rounded font (active lyric line): preserves Google Sans Flex for Latin
+        // and maps BOTH shared Hanzi ("我") and Simplified-only ("问") to PingFangSC.
+        let varSC = YoinFont.uiFont(size: 24, YoinFont.Axes(weight: 600, round: 100), script: .simplifiedChinese)
+        XCTAssertTrue(varSC.familyName.contains("Google Sans"), "got \(varSC.familyName)")
+        XCTAssertTrue(resolvedFamily(varSC, for: "A").contains("GoogleSansFlex"), "got \(resolvedFamily(varSC, for: "A"))")
+        let varSCWo = resolvedFamily(varSC, for: "我")
+        let varSCWen = resolvedFamily(varSC, for: "问")
+        XCTAssertTrue(varSCWo.hasPrefix("PingFangSC"), "expected PingFangSC for 我, got \(varSCWo)")
+        XCTAssertEqual(varSCWo, varSCWen, "all Simplified Chinese glyphs must resolve to the exact same face")
+
+        // Static font (inactive lyric line / UI text): same guarantee!
+        let staticSC = YoinFont.staticUIFont(size: 24, weight: .medium, script: .simplifiedChinese)
+        XCTAssertTrue(resolvedFamily(staticSC, for: "A").contains("GoogleSansFlex"))
+        let staticSCWo = resolvedFamily(staticSC, for: "我")
+        let staticSCWen = resolvedFamily(staticSC, for: "问")
+        XCTAssertTrue(staticSCWo.hasPrefix("PingFangSC"), "expected PingFangSC for 我, got \(staticSCWo)")
+        XCTAssertEqual(staticSCWo, staticSCWen)
+
+        // Traditional Chinese resolves to PingFangTC.
+        let varTC = YoinFont.uiFont(size: 24, YoinFont.Axes(weight: 600, round: 100), script: .traditionalChinese)
+        XCTAssertTrue(resolvedFamily(varTC, for: "我").hasPrefix("PingFangTC"))
+        XCTAssertTrue(resolvedFamily(varTC, for: "樂").hasPrefix("PingFangTC"))
+
+        // Japanese resolves to HiraginoSans.
+        let varJP = YoinFont.uiFont(size: 24, YoinFont.Axes(weight: 600, round: 100), script: .japanese)
+        XCTAssertTrue(resolvedFamily(varJP, for: "私").hasPrefix("HiraginoSans"))
+        XCTAssertTrue(resolvedFamily(varJP, for: "お").hasPrefix("HiraginoSans"))
+    }
+
+    // MARK: Dark mode + Solid Surfaces contrast (Bug 1)
+
+    @MainActor
+    func test_should_useOnPrimaryAndOnPrimaryContainer_when_solidSurfacesOrDenseDarkAccent() {
+        let lab = GlassLab.shared
+        let savedSolid = lab.solidSurfaces
+        let savedPreset = lab.preset
+        defer {
+            lab.solidSurfaces = savedSolid
+            lab.apply(savedPreset)
+        }
+
+        // Solid Surfaces + Dark mode: opaque M3 primary (Tone 80 light cream) MUST use onPrimary,
+        // and opaque primaryContainer (Tone 30 dark) MUST use onPrimaryContainer.
+        lab.apply(.world)
+        lab.solidSurfaces = true
+        XCTAssertTrue(lab.usesAccentOnColor("npFloating", dark: true))
+        XCTAssertTrue(lab.usesAccentOnColor("npPills", dark: true))
+        XCTAssertTrue(lab.usesAccentOnColor("transportPrimary", dark: true))
+        XCTAssertTrue(lab.usesContainerOnColor("npFloating", dark: true))
+
+        // Light mode always uses scheme on* colors regardless of glass preset.
+        lab.solidSurfaces = false
+        lab.apply(.balanced)
+        XCTAssertTrue(lab.usesAccentOnColor("npPills", dark: false))
+        XCTAssertTrue(lab.usesContainerOnColor("npFloating", dark: false))
+
+        // Balanced dark translucent glass (tintOpacity 0.55 < 0.75) keeps white ink.
+        XCTAssertFalse(lab.usesAccentOnColor("npPills", dark: true))
+        XCTAssertFalse(lab.usesContainerOnColor("npFloating", dark: true))
+        // Emphasized key (1.5x strength -> dense >= 0.75) uses onPrimary.
+        XCTAssertTrue(lab.usesAccentOnColor("npPills", dark: true, strength: 1.5))
+
+        // World dark dense accent (npFloating 0.78 * 1.12 = 0.87 >= 0.75) uses onPrimary.
+        lab.apply(.world)
+        XCTAssertTrue(lab.usesAccentOnColor("npFloating", dark: true))
+        // World dark translucent container still keeps white when not solid.
+        XCTAssertFalse(lab.usesContainerOnColor("npFloating", dark: true))
+
+        // Apple HIG (variant == .none) is opaque, so dark uses on* colors.
+        lab.apply(.appleHIG)
+        XCTAssertTrue(lab.usesAccentOnColor("npPills", dark: true))
+        XCTAssertTrue(lab.usesContainerOnColor("npFloating", dark: true))
     }
 }
