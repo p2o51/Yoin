@@ -172,10 +172,25 @@ function wantsNowPlaying(want: Want): boolean {
   return params !== undefined && params[YOIN_ACTION_KEY] === YOIN_ACTION_OPEN_NOW_PLAYING
 }
 
-/** QA launches (scripts/device.sh) pass yoinQaSilent=true: play muted. Any other launch restores normal sound. */
+/**
+ * QA launches (scripts/device.sh, including --release HAP installs) pass yoinQaSilent=true so nighttime runs stay muted.
+ * Only a launcher icon launch (action.system.home) or an explicit yoinQaSilent=false clears it, so mid-QA notifications,
+ * desktop cards, or bare `aa start` won't accidentally unmute the device.
+ */
 function applyQaFlags(want: Want): void {
   const params = want.parameters
-  const silent = params !== undefined && params['yoinQaSilent'] === true
-  setQaSilent(silent)
-  hilog.info(0x5901, 'YoinAbility', 'launch want: action=%{public}s qaSilent=%{public}s', want.action ?? '-', `${silent}`)
+  if (params !== undefined && params['yoinQaSilent'] === true) {
+    setQaSilent(true)
+  } else if ((params !== undefined && params['yoinQaSilent'] === false) || isHomeScreenLaunch(want)) {
+    // Explicit unmute (SOUND=1) or opened from its launcher icon: a person is listening.
+    setQaSilent(false)
+  }
+}
+
+/** The launcher starts the main ability with the home action / entity (module.json5 skills). */
+function isHomeScreenLaunch(want: Want): boolean {
+  const entities = want.entities ?? []
+  const home = want.action === 'action.system.home' || entities.indexOf('entity.system.home') >= 0
+  hilog.info(0x5901, 'YoinAbility', 'launch want: action=%{public}s home=%{public}s', want.action ?? '-', `${home}`)
+  return home
 }

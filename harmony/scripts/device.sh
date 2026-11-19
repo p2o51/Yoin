@@ -15,7 +15,7 @@ source "$HOME/Developer/flutter_ohos/ohos-env.sh"
 DEVICE="${DEVICE:-5ZGYD25B20051376}"
 BUNDLE=com.gpo.yoin
 # QA launches play muted (night rule). SOUND=1 scripts/device.sh launch for audible playback.
-QA_PARAMS=(); [ "${SOUND:-0}" = 1 ] || QA_PARAMS=(--pb yoinQaSilent true)
+QA_PARAMS=(--pb yoinQaSilent false); [ "${SOUND:-0}" = 1 ] || QA_PARAMS=(--pb yoinQaSilent true)
 SHOTS="${SHOTS:-/tmp/yoin-harmony-shots}"
 h() { hdc -t "$DEVICE" "$@"; }
 case "${1:-}" in
