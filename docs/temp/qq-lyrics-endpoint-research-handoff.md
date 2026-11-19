@@ -1,5 +1,12 @@
 # QQ Music Lyrics Endpoint Research Handoff
 
+> **Superseded (2026-11-19).** The question this handoff asks — how to get QQ
+> translations reliably — is answered in
+> [`docs/integrations/qq-lyrics.md`](../integrations/qq-lyrics.md): the gateway route
+> `GetPlayLyricInfo` returns the translation only when the request carries `trans: 1`,
+> and `songMID` alone is enough. The "Background" and "What Has Already Been Tested"
+> sections below describe the legacy web route, which is no longer the primary source.
+
 ## Background
 
 Yoin currently fetches QQ Music lyrics through the same path ported from
