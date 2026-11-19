@@ -121,13 +121,16 @@ struct HomeLyricCardsSection: View {
             HStack(spacing: 8) {
                 Spacer()
                 if status == .unsupported {
-                    Button("Got it") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .yGlassButtonStyle().controlSize(.small)
+                    introButton(String(localized: "Got it"), prominent: false, scheme: s) {
+                        withAnimation(Yoin.spatial) { store.introSeen = true }
+                    }
                 } else {
-                    Button("Not now") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .yGlassButtonStyle().controlSize(.small)
-                    Button("Turn on") { withAnimation(Yoin.spatial) { processor.setOptedIn(true) } }
-                        .yGlassButtonStyle(prominent: true).controlSize(.small)
+                    introButton(String(localized: "Not now"), prominent: false, scheme: s) {
+                        withAnimation(Yoin.spatial) { store.introSeen = true }
+                    }
+                    introButton(String(localized: "Turn on"), prominent: true, scheme: s) {
+                        withAnimation(Yoin.spatial) { processor.setOptedIn(true) }
+                    }
                 }
             }
         }
@@ -136,6 +139,21 @@ struct HomeLyricCardsSection: View {
         .frame(maxWidth: 560, alignment: .leading)
         .background(s.surfaceContainerLow, in: .rect(cornerRadius: 24))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    /// Crisp Material capsule inside the opaque intro card (avoids `.buttonStyle(.glass)` lens blur on cards).
+    private func introButton(_ title: String, prominent: Bool, scheme: CoverScheme,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(prominent ? scheme.onPrimary : scheme.onSecondaryContainer)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 32)
+                .background(prominent ? scheme.primary : scheme.secondaryContainer, in: Capsule())
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
     }
 }
 

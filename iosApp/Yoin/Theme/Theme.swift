@@ -67,19 +67,13 @@ enum Yoin {
 }
 
 extension Font {
-    /// Google Sans Flex, bundled from the Android app's res/font.
-    static func gsf(_ size: CGFloat, _ weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
-        let name: String
-        if weight == .medium {
-            name = "GoogleSansFlex-Medium"
-        } else if weight == .semibold {
-            name = "GoogleSansFlex-SemiBold"
-        } else if weight == .bold || weight == .heavy || weight == .black {
-            name = "GoogleSansFlex-Bold"
-        } else {
-            name = "GoogleSansFlex-Regular"
-        }
-        return .custom(name, size: size, relativeTo: style)
+    /// Google Sans Flex, bundled from the Android app's res/font, with an explicit
+    /// CoreText CJK cascade list so Chinese / Japanese characters render uniformly
+    /// regardless of the device's system language order.
+    static func gsf(_ size: CGFloat, _ weight: Font.Weight = .regular,
+                    relativeTo style: Font.TextStyle = .body,
+                    script: YoinCJKScript = .appDefault) -> Font {
+        YoinFont.staticFont(size: size, weight: weight, relativeTo: style, script: script)
     }
 }
 

@@ -465,6 +465,32 @@ final class GlassLab {
         style(id).tintOn && !neutralTint(id) && tintOpacity(id, dark: dark) >= 0.75
     }
 
+    /// Whether ink on an accented surface (`primary`, `tertiary`, …) should take
+    /// the scheme's `on*` role instead of white.
+    ///
+    /// In Material 3 dark mode, `primary` is a light tone (Tone 80) and `onPrimary`
+    /// is dark (Tone 20). On thin translucent glass (`Balanced` 0.55), the dark room
+    /// underneath lowers luminance enough that white reads better; once the surface
+    /// is opaque (`solidSurfaces` or `variant == .none`) or dense (`≥ 0.75`, e.g.
+    /// `World`'s `npFloating` / `PAUSE`), white turns unreadable pale-on-pale and
+    /// `onPrimary` is required.
+    func usesAccentOnColor(_ id: String, dark: Bool, strength: Double = 1) -> Bool {
+        guard dark else { return true }
+        if solidSurfaces { return true }
+        let st = style(id)
+        if st.variant == .none { return true }
+        guard st.tintOn, !neutralTint(id) else { return false }
+        return min(1, tintOpacity(id, dark: true) * strength) >= 0.75
+    }
+
+    /// Whether ink on a container-tinted surface (`primaryContainer`) should take
+    /// `onPrimaryContainer` instead of white. Solid / opaque containers always use
+    /// the Material 3 `onPrimaryContainer` role; thin dark glass keeps white.
+    func usesContainerOnColor(_ id: String, dark: Bool) -> Bool {
+        guard dark else { return true }
+        return solidSurfaces || style(id).variant == .none
+    }
+
     /// The surface is tinted with a neutral surface role (Gemini's floors):
     /// its ink is on-surface, not the accent's on-color.
     func neutralTint(_ id: String) -> Bool {

@@ -412,7 +412,7 @@ public struct WavyProgressBar: View {
             .font(.gsf(Tokens.type.labelLarge.size.cg, Font.Weight(gsf: Tokens.type.labelLarge.weight)))
             .tracking(Tokens.type.labelLarge.letterSpacing.cg)
             .monospacedDigit()
-            .foregroundStyle(onNote ? noteInk : Color.primary)
+            .foregroundStyle(onNote || GlassLab.solidSurfaces ? noteInk : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .yGlassEffect(.regular.tint(tint.opacity(onNote ? 0.9 : 0.35)), solid: tint, in: .capsule)

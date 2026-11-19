@@ -83,11 +83,9 @@ struct LabsBody: View {
             }
             HStack(spacing: 10) {
                 if status == .notEnabled || status == .notReady {
-                    Button("Open Settings", action: onOpenSettings)
-                        .yGlassButtonStyle(prominent: true)
+                    actionButton(String(localized: "Open Settings"), prominent: true, action: onOpenSettings)
                 }
-                Button("Check again", action: onCheckAgain)
-                    .yGlassButtonStyle()
+                actionButton(String(localized: "Check again"), prominent: false, action: onCheckAgain)
             }
             Text("Managed and downloaded by the system. Yoin reads lyrics on this device only while open, offline.")
                 .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
@@ -129,6 +127,22 @@ struct LabsBody: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(row, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    /// Crisp Material capsule inside the opaque `row` card: Liquid Glass `.buttonStyle(.glass)`
+    /// is meant for floating chrome, and on an opaque light card its refraction/vibrancy lens
+    /// smears small CJK labels ("重新检查").
+    private func actionButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(prominent ? app.onPrimary : app.onSecondaryContainer)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 36)
+                .background(prominent ? app.primary : app.secondaryContainer, in: Capsule())
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
