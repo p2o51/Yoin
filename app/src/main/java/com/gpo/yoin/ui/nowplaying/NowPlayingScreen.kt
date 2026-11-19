@@ -1636,6 +1636,18 @@ private fun CompactPlayingContent(
             selectingLines = lyricsSelection.active,
         )
         LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+        // Once the expanded Lyrics pane leaves composition (back to Compact/Focus, or
+        // paged away to Note where HorizontalPager discards page 0's LazyListState),
+        // restore auto-scroll so re-entering expanded Lyrics lands on the playing line
+        // instead of stalling at item 0.
+        val expandedMounted = stageMode == NowPlayingStageMode.Expanded ||
+            detailProgress > HiddenLayerVisibilityThreshold
+        LaunchedEffect(expandedMounted) {
+            if (!expandedMounted) lyricsAutoScroll = true
+        }
+        LaunchedEffect(pagerState.settledPage) {
+            if (pagerState.settledPage == NowPlayingDetailPage.Note.ordinal) lyricsAutoScroll = true
+        }
         // Select mode lives on the expanded Lyrics page; leaving it leaves the mode.
         LyricsSelectionHost(
             state = state,
@@ -2641,6 +2653,9 @@ private fun WidePlayingContent(
     // Auto-immersive (断点交接 §3.2), same rule as the single column: the
     // lyric tools step away after LyricToolsIdleMs without a touch while
     // synced lyrics play.
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage == NowPlayingDetailPage.Note.ordinal) lyricsAutoScroll = true
+    }
     val lyricToolsIdle = rememberLyricToolsIdleState()
     val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
     val idleEligible = lyricToolsIdleEligible(
@@ -3369,6 +3384,13 @@ private fun LandscapePlayingContent(
         selectingLines = lyricsSelection.active,
     )
     LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    val expandedMounted = expanded || detailProgress > HiddenLayerVisibilityThreshold
+    LaunchedEffect(expandedMounted) {
+        if (!expandedMounted) lyricsAutoScroll = true
+    }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage == NowPlayingDetailPage.Note.ordinal) lyricsAutoScroll = true
+    }
     val lyricToolsAlpha by animateFloatAsState(
         targetValue = if (lyricToolsIdle.idle) 0f else 1f,
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
