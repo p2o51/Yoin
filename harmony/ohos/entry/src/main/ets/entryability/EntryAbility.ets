@@ -172,21 +172,10 @@ function wantsNowPlaying(want: Want): boolean {
   return params !== undefined && params[YOIN_ACTION_KEY] === YOIN_ACTION_OPEN_NOW_PLAYING
 }
 
-/** QA launches (scripts/device.sh) pass yoinQaSilent=true: play muted. Absent = normal sound. */
+/** QA launches (scripts/device.sh) pass yoinQaSilent=true: play muted. Any other launch restores normal sound. */
 function applyQaFlags(want: Want): void {
   const params = want.parameters
-  if (params !== undefined && params['yoinQaSilent'] === true) {
-    setQaSilent(true)
-  } else if (isHomeScreenLaunch(want)) {
-    // Opened from its icon: a person is listening, whatever an earlier QA launch in this process set.
-    setQaSilent(false)
-  }
-}
-
-/** The launcher starts the main ability with the home action / entity (module.json5 skills). */
-function isHomeScreenLaunch(want: Want): boolean {
-  const entities = want.entities ?? []
-  const home = want.action === 'action.system.home' || entities.indexOf('entity.system.home') >= 0
-  hilog.info(0x5901, 'YoinAbility', 'launch want: action=%{public}s home=%{public}s', want.action ?? '-', `${home}`)
-  return home
+  const silent = params !== undefined && params['yoinQaSilent'] === true
+  setQaSilent(silent)
+  hilog.info(0x5901, 'YoinAbility', 'launch want: action=%{public}s qaSilent=%{public}s', want.action ?? '-', `${silent}`)
 }

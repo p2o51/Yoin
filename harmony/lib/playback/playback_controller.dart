@@ -122,6 +122,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
   MediaId? _lastRecordedTrackId;
   EngineState? _lastEngine;
   Future<void>? _rehydrating;
+  int? _seekHoldTargetMs;
+  int _seekHoldUntilMs = 0;
   final Map<MediaId, int> _ratingWrites = {};
   int _entrySeq = 0;
 
@@ -311,7 +313,14 @@ class PlaybackController extends Notifier<NowPlayingState> {
       _log('play failed: ${e.runtimeType}', st);
       _trace.log('play failed ${tracks[start].id.rawId} ${e.runtimeType}: ${PlayTrace.maskHosts(_traceMessage(e))}');
       if (_current(generation)) {
-        _publish(state.copyWith(phase: PlaybackPhase.error, isPlaying: false, errorKind: PlaybackErrorKind.playFailed));
+        _publish(
+          state.copyWith(
+            phase: PlaybackPhase.error,
+            isPlaying: false,
+            playWhenReady: false,
+            errorKind: PlaybackErrorKind.playFailed,
+          ),
+        );
       }
     }
   }
@@ -346,8 +355,11 @@ class PlaybackController extends Notifier<NowPlayingState> {
   /// Resume (PLAY). At the end of the queue the engine restarts from the
   /// first item of the play order; after an error it reloads the current item.
   Future<void> play() async {
-    if (state.phase == PlaybackPhase.idle && _entries.isNotEmpty && state.index >= 0) {
-      // The native queue is gone (host released): start it again where we were.
+    if ((state.phase == PlaybackPhase.idle ||
+            (state.phase == PlaybackPhase.error && state.errorKind == PlaybackErrorKind.playFailed)) &&
+        _entries.isNotEmpty &&
+        state.index >= 0) {
+      // The native queue is gone (host released) or initial start failed before reaching the engine: restart here.
       _trace.log('resume $_backend (restart at ${state.index})');
       return _restartAt(state.index);
     }
@@ -388,8 +400,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
     final duration = state.effectiveDurationMs;
     final target = positionMs < 0 ? 0 : (duration != null && duration > 0 && positionMs > duration ? duration : positionMs);
     _trace.log('seek $target $_backend');
-    // Show the new position at once; the engine's next sample confirms it.
+    // Show the new position at once; hold off stale in-flight 1 s ticks until seekDone arrives.
     final now = _clock.wallMs();
+    _seekHoldTargetMs = target;
+    _seekHoldUntilMs = now + 1200;
     _publish(state.copyWith(positionMs: target, sampledAtMs: now));
     final head = ref.read(playheadProvider);
     ref.read(playheadProvider.notifier).update(Playhead(
@@ -634,12 +648,26 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
     final prev = state;
     final sameEntry = index == prev.index && _entryIdAt(index) == prev.currentEntryId;
-    final expected = prev.positionAt(e.sampledAtMs);
+    final seekHold = _seekHoldTargetMs;
+    final ignoreStaleSeekTick =
+        sameEntry &&
+        e.tick &&
+        seekHold != null &&
+        _clock.wallMs() < _seekHoldUntilMs &&
+        (e.positionMs - seekHold).abs() > PlaybackPositionPolicy.snapMs;
+    if (!sameEntry || !e.tick || !ignoreStaleSeekTick) {
+      if (!sameEntry || !e.tick || (seekHold != null && _clock.wallMs() >= _seekHoldUntilMs)) {
+        _seekHoldTargetMs = null;
+      }
+    }
+    final incomingPositionMs = ignoreStaleSeekTick ? prev.positionMs : e.positionMs;
+    final incomingSampledAtMs = ignoreStaleSeekTick ? prev.sampledAtMs : e.sampledAtMs;
+    final expected = prev.positionAt(incomingSampledAtMs);
     final snap = !sameEntry ||
         prev.isPlaying != e.isPlaying ||
         prev.phase != e.phase ||
         prev.repeatPlays != e.repeatPlays ||
-        (e.positionMs - expected).abs() > PlaybackPositionPolicy.snapMs;
+        (incomingPositionMs - expected).abs() > PlaybackPositionPolicy.snapMs;
     final queueTracks = _entries.isEmpty ? const <Track>[] : prev.queue;
 
     var next = prev.copyWith(
@@ -648,8 +676,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
       phase: index < 0 ? PlaybackPhase.idle : e.phase,
       isPlaying: index >= 0 && e.isPlaying,
       playWhenReady: index >= 0 && playWhenReady,
-      positionMs: snap ? e.positionMs : prev.positionMs,
-      sampledAtMs: snap ? e.sampledAtMs : prev.sampledAtMs,
+      positionMs: snap ? incomingPositionMs : prev.positionMs,
+      sampledAtMs: snap ? incomingSampledAtMs : prev.sampledAtMs,
       durationMs: duration,
       clearDuration: duration == null,
       repeat: _preferredMode.repeat,
@@ -668,8 +696,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
     _publish(_derive(base: next));
     ref.read(playheadProvider.notifier).update(Playhead(
           entryId: _entryIdAt(index),
-          positionMs: e.positionMs,
-          sampledAtMs: e.sampledAtMs,
+          positionMs: incomingPositionMs,
+          sampledAtMs: incomingSampledAtMs,
           isPlaying: e.isPlaying,
           durationMs: duration,
         ));

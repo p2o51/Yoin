@@ -392,5 +392,25 @@ void main() {
       expect(tools.idle.idle, isFalse);
       await _settle(tester);
     });
+
+    testWidgets('should_resetAutoFollow_when_reenteringExpandedStage', (tester) async {
+      final c = await _pumpExpanded(tester);
+      // Scroll away so auto-follow turns off and the Recenter button becomes active.
+      await tester.drag(find.byType(Scrollable).last, const Offset(0, -300));
+      await _settle(tester);
+      _tools(tester).idle.onInteraction();
+      await tester.pump();
+      expect(_enabled(tester, 'lyrics-tool-recenter'), isTrue, reason: 'scrolling away disables auto-follow');
+
+      // Collapse back to compact and re-enter expanded: auto-follow must re-enable automatically.
+      c.handleBack();
+      await _settle(tester);
+      expect(c.stage, NowPlayingStage.compact);
+      c.expandStage();
+      await _settle(tester);
+      _tools(tester).idle.onInteraction();
+      await tester.pump();
+      expect(_enabled(tester, 'lyrics-tool-recenter'), isFalse, reason: 're-entering Expanded resets auto-follow');
+    });
   });
 }

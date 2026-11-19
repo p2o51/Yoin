@@ -9,26 +9,55 @@ import '../model/model.dart';
 /// later, where every lyric enters Now Playing (`lyricSheetOf`).
 abstract final class LrcParser {
   static final RegExp _timestamp = RegExp(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
+  static final RegExp _leadingTimestamp = RegExp(r'^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
+  static final RegExp _wordTimestamp = RegExp(r'<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>');
   static final RegExp _metadataTag = RegExp(r'^\[[a-zA-Z]+:[^\]]*\]$');
+  static final RegExp _offsetTag = RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]$', caseSensitive: false);
 
   static Lyrics parse(String raw) {
     final synced = <LyricLine>[];
+    var offsetMs = 0;
     for (final rawLine in raw.split('\n')) {
       final line = rawLine.trim();
       if (line.isEmpty) continue;
+      final offsetMatch = _offsetTag.firstMatch(line);
+      if (offsetMatch != null) {
+        offsetMs = int.tryParse(offsetMatch[1]!) ?? 0;
+        continue;
+      }
       if (_metadataTag.hasMatch(line) && !_timestamp.hasMatch(line)) continue;
-      final matches = _timestamp.allMatches(line).toList();
-      if (matches.isEmpty) continue;
-      final text = line.substring(matches.last.end).trim();
+
+      // Consume only consecutive leading timestamps as line prefixes; inline timestamps
+      // (and enhanced word-by-word `<mm:ss.xx>` tags) are stripped without truncating earlier words.
+      final starts = <int>[];
+      var cursor = 0;
+      while (cursor < line.length) {
+        final m = _leadingTimestamp.firstMatch(line.substring(cursor));
+        if (m == null) break;
+        final ms = _ms(m);
+        if (ms != null) starts.add(ms);
+        cursor += m.end;
+      }
+      if (starts.isEmpty) continue;
+      final text = line
+          .substring(cursor)
+          .replaceAll(_timestamp, '')
+          .replaceAll(_wordTimestamp, '')
+          .trim();
       if (text.isEmpty) continue;
-      for (final m in matches) {
-        final start = _ms(m);
-        if (start != null) synced.add(LyricLine(start, text));
+      for (final start in starts) {
+        synced.add(LyricLine(start, text));
       }
     }
     if (synced.isEmpty) return UnsyncedLyrics(raw.trim());
-    synced.sort((a, b) => a.startMs.compareTo(b.startMs));
-    return SyncedLyrics(synced);
+    final adjusted = offsetMs == 0
+        ? synced
+        : [
+            for (final line in synced)
+              LyricLine(line.startMs > offsetMs ? line.startMs - offsetMs : 0, line.text),
+          ];
+    adjusted.sort((a, b) => a.startMs.compareTo(b.startMs));
+    return SyncedLyrics(adjusted);
   }
 
   static int? _ms(RegExpMatch m) {

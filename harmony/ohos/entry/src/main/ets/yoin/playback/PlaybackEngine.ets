@@ -159,9 +159,12 @@ export class PlaybackEngine {
   private released: boolean = false;
   /** Another app asked us to duck (shared focus); every volume set meanwhile is ducked too. */
   private ducked: boolean = false;
+  /** While a seek is in flight, hold [lastPositionMs] until onSeekDone so emit() never reports stale currentTime(). */
+  private seekingUntilMs: number = 0;
+  private readonly onQaSilent = (): void => this.reapplyVolume();
 
   constructor() {
-    qaSilentListeners.push(() => this.reapplyVolume());
+    qaSilentListeners.push(this.onQaSilent);
   }
 
   /**
@@ -276,7 +279,8 @@ export class PlaybackEngine {
 
   /** True while the user wants sound (the host keeps the process for this). */
   isActive(): boolean {
-    return this.items.length > 0 && (this.playWhenReady || this.playing);
+    return this.items.length > 0 &&
+      (this.playing || (this.playWhenReady && (this.phase === 'loading' || this.phase === 'ready')));
   }
 
   snapshot(tick?: boolean): EngineSnapshot {
@@ -503,6 +507,7 @@ export class PlaybackEngine {
       if (wasEnded) {
         this.phase = 'ready';
       }
+      this.seekingUntilMs = Date.now() + 1200;
       p.seek(target);
       if (wasEnded && this.playWhenReady && canPlay(p.state())) {
         resumed = true;
@@ -584,6 +589,10 @@ export class PlaybackEngine {
 
   /** Process teardown: stops and frees every player. */
   release(): void {
+    const idx = qaSilentListeners.indexOf(this.onQaSilent);
+    if (idx >= 0) {
+      qaSilentListeners.splice(idx, 1);
+    }
     this.stop();
     this.released = true;
     this.enqueue(async (): Promise<void> => {
@@ -927,6 +936,7 @@ export class PlaybackEngine {
       },
       onSeekDone: (time: number) => {
         if (current() !== null && this.isSourceCurrent() && this.phase !== 'loading') {
+          this.seekingUntilMs = 0;
           this.lastPositionMs = time;
           this.emit();
         }
@@ -1111,6 +1121,9 @@ export class PlaybackEngine {
   }
 
   private readPosition(): number {
+    if (this.seekingUntilMs > Date.now()) {
+      return this.lastPositionMs;
+    }
     const p = this.player;
     if (p !== null && this.isSourceCurrent() && this.phase !== 'loading' && this.phase !== 'ended' &&
       canSeek(p.state())) {

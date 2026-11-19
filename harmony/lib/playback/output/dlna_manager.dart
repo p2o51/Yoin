@@ -82,6 +82,27 @@ class DlnaManager {
       throw const DlnaGroupException();
     }
     final old = connectedDevice.value;
+    if (old != null && old.id == target.id && player.hasDevice) {
+      // Already connected to this coordinator: refresh the queue in place rather than
+      // constructing a second transport (RemoteQueueEngine.connect rejects a new instance).
+      try {
+        await player.startQueue(
+          items,
+          revision: revision,
+          startIndex: index,
+          startPositionMs: positionMs,
+          playWhenReady: playWhenReady,
+          repeat: repeat,
+          shuffle: shuffle,
+        );
+        error.value = null;
+        return;
+      } catch (_) {
+        await _recoverFailedConnection(target);
+        if (error.value != DlnaError.stopUnconfirmed) error.value = DlnaError.playback;
+        throw const DlnaCommandException('Connect');
+      }
+    }
     if (old != null && old.id != target.id) {
       try {
         await player.disconnect(stopRemote: true);

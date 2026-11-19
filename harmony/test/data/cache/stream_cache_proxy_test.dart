@@ -16,6 +16,7 @@ class _Server {
   final ranges = <String?>[];
   int fullGets = 0;
   String contentType = 'audio/mpeg';
+  bool unknownLength = false;
 
   /// Bytes sent before a whole-song answer waits for [release]; null sends it all.
   int? holdAfter;
@@ -35,9 +36,11 @@ class _Server {
       ranges.add(range);
       final response = request.response;
       response.headers.set(HttpHeaders.contentTypeHeader, contentType);
-      response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (!unknownLength) {
+        response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      }
       try {
-        if (range != null) {
+        if (range != null && !unknownLength) {
           final m = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(range)!;
           final start = int.parse(m.group(1)!);
           final end = m.group(2)!.isEmpty ? body.length - 1 : int.parse(m.group(2)!);
@@ -49,7 +52,9 @@ class _Server {
           return;
         }
         fullGets++;
-        response.contentLength = body.length;
+        if (!unknownLength) {
+          response.contentLength = body.length;
+        }
         final hold = holdAfter;
         if (hold == null) {
           response.add(body);
@@ -273,5 +278,19 @@ void main() {
     expect(body, server.body);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(cache.sizeBytes, 0);
+  });
+
+  test('should_reuseRunningFetchWithoutDuplicateTranscode_when_unknownLengthGetsZeroRange', () async {
+    server.unknownLength = true;
+    server.holdAfter = 16 * 1024;
+    final address = proxy.addressFor(source())!;
+    final req = get(address, range: 'bytes=0-');
+    await until(() => server.fullGets == 1);
+    server.release();
+    final (status, _, body) = await req;
+    expect(status, HttpStatus.ok);
+    expect(body, server.body);
+    expect(server.fullGets, 1, reason: 'open-ended Range: bytes=0- must reuse the single fetch');
+    await until(() => cache.sizeBytes == server.body.length);
   });
 }

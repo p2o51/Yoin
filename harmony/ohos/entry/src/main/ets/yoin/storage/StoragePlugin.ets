@@ -19,6 +19,9 @@ const PREFS_NAME = 'yoin_prefs';
 /** Re-fetchable caches (lyrics and their translations, ~10 MiB): their own file, so a settings write never
  *  flushes them and a cache write never flushes the settings. */
 const CACHE_PREFS_NAME = 'yoin_cache';
+/** HarmonyOS Asset Store Kit rejects SECRET payloads outside 1..1024 bytes with 401. */
+const ASSET_MAX_BYTES = 1024;
+const CHUNK_MANIFEST_PREFIX = '__yoin_chunks_v1__:';
 
 /**
  * Serves `yoin/storage` for Dart's `ChannelKeyValueStore` / `ChannelSecretStore`: plain values in a Preferences
@@ -115,7 +118,12 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
     if (context === null) {
       return Promise.reject(new Error('storage plugin is not attached'));
     }
-    const opened = preferences.getPreferences(context, name);
+    const opened = preferences.getPreferences(context, name).catch((e: BusinessError) => {
+      if (this.prefs.get(name) === opened) {
+        this.prefs.delete(name);
+      }
+      throw e as Error;
+    });
     this.prefs.set(name, opened);
     return opened;
   }
@@ -142,9 +150,9 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
 
   // ---- Asset Store ----
 
-  private async secretRead(key: string): Promise<string | null> {
+  private async queryRaw(aliasKey: string): Promise<Uint8Array | null> {
     const query: asset.AssetMap = new Map();
-    query.set(asset.Tag.ALIAS, utf8(key));
+    query.set(asset.Tag.ALIAS, utf8(aliasKey));
     query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
     let found: Array<asset.AssetMap>;
     try {
@@ -159,25 +167,15 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
       return null;
     }
     const secret = found[0].get(asset.Tag.SECRET);
-    return secret instanceof Uint8Array ? fromUtf8(secret as Uint8Array) : null;
+    return secret instanceof Uint8Array ? secret as Uint8Array : null;
   }
 
-  private async secretWrite(key: string, value: string | null): Promise<string | null> {
+  private async putRaw(aliasKey: string, payload: Uint8Array): Promise<void> {
     const alias: asset.AssetMap = new Map();
-    alias.set(asset.Tag.ALIAS, utf8(key));
-    if (value === null) {
-      try {
-        await asset.remove(alias);
-      } catch (e) {
-        if ((e as BusinessError).code !== asset.ErrorCode.NOT_FOUND) {
-          throw e as Error;
-        }
-      }
-      return null;
-    }
+    alias.set(asset.Tag.ALIAS, utf8(aliasKey));
     const attrs: asset.AssetMap = new Map();
-    attrs.set(asset.Tag.ALIAS, utf8(key));
-    attrs.set(asset.Tag.SECRET, utf8(value));
+    attrs.set(asset.Tag.ALIAS, utf8(aliasKey));
+    attrs.set(asset.Tag.SECRET, payload);
     attrs.set(asset.Tag.ACCESSIBILITY, asset.Accessibility.DEVICE_FIRST_UNLOCKED);
     try {
       await asset.add(attrs);
@@ -186,11 +184,118 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
         throw e as Error;
       }
       const update: asset.AssetMap = new Map();
-      update.set(asset.Tag.SECRET, utf8(value));
+      update.set(asset.Tag.SECRET, payload);
       await asset.update(alias, update);
+    }
+  }
+
+  private async removeRaw(aliasKey: string): Promise<void> {
+    const alias: asset.AssetMap = new Map();
+    alias.set(asset.Tag.ALIAS, utf8(aliasKey));
+    try {
+      await asset.remove(alias);
+    } catch (e) {
+      if ((e as BusinessError).code !== asset.ErrorCode.NOT_FOUND) {
+        throw e as Error;
+      }
+    }
+  }
+
+  private async existingChunkCount(key: string): Promise<number> {
+    const raw = await this.queryRaw(key);
+    if (raw === null) {
+      return 0;
+    }
+    return parseChunkCount(fromUtf8(raw)) ?? 0;
+  }
+
+  private async secretRead(key: string): Promise<string | null> {
+    const raw = await this.queryRaw(key);
+    if (raw === null) {
+      return null;
+    }
+    const text = fromUtf8(raw);
+    const count = parseChunkCount(text);
+    if (count === null) {
+      return text;
+    }
+    const chunks: Uint8Array[] = [];
+    for (let i = 0; i < count; i++) {
+      const part = await this.queryRaw(chunkAlias(key, i));
+      if (part === null) {
+        return null;
+      }
+      chunks.push(part);
+    }
+    return fromUtf8(joinSecretChunks(chunks));
+  }
+
+  private async secretWrite(key: string, value: string | null): Promise<string | null> {
+    const prevChunks = await this.existingChunkCount(key);
+    // Asset Store rejects 0-byte secrets with 401; treat empty strings as deletion.
+    if (value === null || value.length === 0) {
+      await this.removeRaw(key);
+      for (let i = 0; i < prevChunks; i++) {
+        await this.removeRaw(chunkAlias(key, i));
+      }
+      return null;
+    }
+    const bytes = utf8(value);
+    if (bytes.byteLength <= ASSET_MAX_BYTES) {
+      await this.putRaw(key, bytes);
+      for (let i = 0; i < prevChunks; i++) {
+        await this.removeRaw(chunkAlias(key, i));
+      }
+      return null;
+    }
+    const chunks = splitSecretChunks(bytes, ASSET_MAX_BYTES);
+    for (let i = 0; i < chunks.length; i++) {
+      await this.putRaw(chunkAlias(key, i), chunks[i]);
+    }
+    await this.putRaw(key, utf8(`${CHUNK_MANIFEST_PREFIX}${chunks.length}`));
+    for (let i = chunks.length; i < prevChunks; i++) {
+      await this.removeRaw(chunkAlias(key, i));
     }
     return null;
   }
+}
+
+function chunkAlias(key: string, index: number): string {
+  return `${key}::chunk:${index}`;
+}
+
+export function parseChunkCount(text: string): number | null {
+  if (!text.startsWith(CHUNK_MANIFEST_PREFIX)) {
+    return null;
+  }
+  const n = Number(text.substring(CHUNK_MANIFEST_PREFIX.length));
+  if (!Number.isInteger(n) || n <= 0) {
+    return null;
+  }
+  return n;
+}
+
+export function splitSecretChunks(bytes: Uint8Array, maxBytes: number = ASSET_MAX_BYTES): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += maxBytes) {
+    const end = Math.min(offset + maxBytes, bytes.byteLength);
+    chunks.push(bytes.slice(offset, end));
+  }
+  return chunks;
+}
+
+export function joinSecretChunks(chunks: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    total += chunks[i].byteLength;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    out.set(chunks[i], offset);
+    offset += chunks[i].byteLength;
+  }
+  return out;
 }
 
 function utf8(text: string): Uint8Array {

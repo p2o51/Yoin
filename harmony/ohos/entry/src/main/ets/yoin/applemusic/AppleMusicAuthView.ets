@@ -26,17 +26,23 @@ const AUTH_URL = 'https://yoin.gojyuplus.com/applemusic/signin';
  * Every method hands straight to [AppleMusicAuthHost]; no token is logged.
  */
 class AuthBridge {
+  attemptId: number = 0;
+
   onToken(musicUserToken: string, storefront: string): void {
     if (typeof musicUserToken === 'string' && musicUserToken.length > 0) {
-      AppleMusicAuthHost.resolve(musicUserToken, typeof storefront === 'string' && storefront.length > 0 ? storefront : 'us');
+      AppleMusicAuthHost.resolve(
+        musicUserToken,
+        typeof storefront === 'string' && storefront.length > 0 ? storefront : 'us',
+        this.attemptId,
+      );
     } else {
-      AppleMusicAuthHost.reject('auth_failed', 'Sign-in returned no token');
+      AppleMusicAuthHost.reject('auth_failed', 'Sign-in returned no token', this.attemptId);
     }
   }
 
   onError(code: string, _message: string): void {
     const mapped = code === 'page_failed' || code === 'developer_token' ? code : 'auth_failed';
-    AppleMusicAuthHost.reject(mapped, 'Sign-in did not finish');
+    AppleMusicAuthHost.reject(mapped, 'Sign-in did not finish', this.attemptId);
   }
 
   onReady(): void {
@@ -76,7 +82,7 @@ class PopupParams {
 @Builder
 function popupWebBuilder(params: PopupParams) {
   Column() {
-    Web({ src: '', controller: params.controller })
+    Web({ src: '', controller: params.controller, incognitoMode: true })
       .javaScriptAccess(true)
       .domStorageAccess(true)
       .imageAccess(true)
@@ -88,14 +94,6 @@ function popupWebBuilder(params: PopupParams) {
       })
       .onPageEnd((event) => {
         hilog.info(DOMAIN, TAG, 'popup page end: %{public}s', hostOf(event?.url ?? ''));
-        // Diagnostics only: does the window still know its opener?
-        try {
-          params.controller.runJavaScript('String(!!window.opener)')
-            .then((hasOpener: string) => hilog.info(DOMAIN, TAG, 'popup opener: %{public}s', hasOpener))
-            .catch(() => hilog.info(DOMAIN, TAG, 'popup opener: unknown'));
-        } catch (e) {
-          hilog.info(DOMAIN, TAG, 'popup opener: unknown');
-        }
       })
       .onErrorReceive((event) => {
         if (event?.request?.isMainFrame()) {
@@ -146,26 +144,34 @@ export struct AppleMusicAuthView {
   private developerToken: string = '';
   private pageLoaded: boolean = false;
   private injected: boolean = false;
+  private attemptId: number = 0;
 
   aboutToAppear(): void {
+    const attempt = AppleMusicAuthHost.currentAttempt();
+    this.attemptId = attempt;
+    this.bridge.attemptId = attempt;
     const endpoint = AppStorage.get<string>(AM_AUTH_ENDPOINT) ?? '';
-    if (endpoint.length === 0) {
-      AppleMusicAuthHost.reject('developer_token', 'No token service configured');
+    if (endpoint.length === 0 || !endpoint.startsWith('https://')) {
+      AppleMusicAuthHost.reject('developer_token', 'No secure token service configured', attempt);
       return;
     }
     AppleMusicAuthHost.fetchDeveloperToken(endpoint)
       .then((token: string) => {
+        if (attempt !== this.attemptId || attempt !== AppleMusicAuthHost.currentAttempt()) {
+          return;
+        }
         this.developerToken = token;
         this.injectIfReady();
       })
-      .catch((e: BusinessError | Error) => {
+      .catch((_e: BusinessError | Error) => {
         hilog.warn(DOMAIN, TAG, 'developer token failed');
-        AppleMusicAuthHost.reject('developer_token', 'The developer-token service is unavailable');
+        AppleMusicAuthHost.reject('developer_token', 'The developer-token service is unavailable', attempt);
       });
   }
 
   aboutToDisappear(): void {
     this.closePopup();
+    clearAuthWebData();
   }
 
   private injectIfReady(): void {
@@ -178,7 +184,7 @@ export struct AppleMusicAuthView {
       // The token goes in as a JSON string argument, never in the page URL.
       this.controller.runJavaScript(`window.__yoinStartAuth(${JSON.stringify(this.developerToken)})`);
     } catch (e) {
-      AppleMusicAuthHost.reject('page_failed', 'Could not start sign-in');
+      AppleMusicAuthHost.reject('page_failed', 'Could not start sign-in', this.attemptId);
     }
   }
 
@@ -210,8 +216,8 @@ export struct AppleMusicAuthView {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      // The MusicKit page.
-      Web({ src: AUTH_URL, controller: this.controller })
+      // The MusicKit page (incognito so Apple ID cookies and Music User Tokens never persist on disk).
+      Web({ src: AUTH_URL, controller: this.controller, incognitoMode: true })
         .javaScriptAccess(true)
         .domStorageAccess(true)
         .imageAccess(true)
@@ -242,7 +248,10 @@ export struct AppleMusicAuthView {
           response.setResponseIsReady(true);
           return response;
         })
-        .onPageEnd(() => {
+        .onPageEnd((event) => {
+          if (event?.url !== AUTH_URL) {
+            return;
+          }
           this.pageLoaded = true;
           this.injectIfReady();
         })
@@ -250,7 +259,7 @@ export struct AppleMusicAuthView {
           // Only the main frame's own failure is fatal; sub-resource errors are ignored.
           if (event?.request?.isMainFrame()) {
             hilog.warn(DOMAIN, TAG, 'page load error: %{public}d', event?.error?.getErrorCode() ?? -1);
-            AppleMusicAuthHost.reject('page_failed', 'The sign-in page could not load');
+            AppleMusicAuthHost.reject('page_failed', 'The sign-in page could not load', this.attemptId);
           }
         })
         .onWindowNew((event) => this.openPopup(event))
@@ -284,5 +293,19 @@ export struct AppleMusicAuthView {
     .width('100%')
     .height('100%')
     .backgroundColor(Color.White)
+  }
+}
+
+/** Clears incognito cookies and web storage once sign-in finishes or is dismissed. */
+function clearAuthWebData(): void {
+  try {
+    webview.WebCookieManager.clearAllCookiesSync(true);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'clear incognito cookies failed');
+  }
+  try {
+    webview.WebStorage.deleteAllData(true);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'clear incognito web storage failed');
   }
 }

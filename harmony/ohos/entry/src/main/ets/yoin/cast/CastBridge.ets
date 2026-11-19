@@ -35,6 +35,8 @@ export class CastBridge {
   private failed: boolean = false;
   private ended: boolean = false;
   private itemSeq: number = 0;
+  /** Monotonic sequence for outputDeviceChange events so stale async controller resolves cannot overwrite newer state. */
+  private outputSeq: number = 0;
 
   static shared(): CastBridge {
     if (CastBridge.instance === null) {
@@ -103,6 +105,7 @@ export class CastBridge {
   }
 
   private onOutput(state: avSession.ConnectionState, info: avSession.OutputDeviceInfo): void {
+    const seq = ++this.outputSeq;
     const device: avSession.DeviceInfo | undefined = info.devices.length > 0 ? info.devices[0] : undefined;
     const remote = device !== undefined && device.castCategory === avSession.AVCastCategory.CATEGORY_REMOTE;
     const map: Map<string, Any> = new Map();
@@ -113,7 +116,15 @@ export class CastBridge {
     const deviceId = device !== undefined ? device.deviceId : '';
     if (remote && state === avSession.ConnectionState.STATE_CONNECTED) {
       // The controller first, then Dart hears of it (its first castLoad needs the controller).
-      this.ensureController(deviceId).then(() => this.publish(map));
+      this.ensureController(deviceId, seq).then((ready: boolean) => {
+        if (seq !== this.outputSeq) {
+          return;
+        }
+        if (!ready) {
+          map.set('state', 'disconnected');
+        }
+        this.publish(map);
+      });
       return;
     }
     if (!remote || state === avSession.ConnectionState.STATE_DISCONNECTED) {
@@ -130,14 +141,23 @@ export class CastBridge {
     }
   }
 
-  private async ensureController(deviceId: string): Promise<void> {
+  private async ensureController(deviceId: string, seq: number): Promise<boolean> {
     const session = this.session;
-    if (session === null || (this.controller !== null && this.controllerFor === deviceId)) {
-      return;
+    if (session === null) {
+      return false;
+    }
+    if (this.controller !== null && this.controllerFor === deviceId) {
+      return true;
     }
     this.releaseController();
     try {
       const controller = await session.getAVCastController();
+      if (seq !== this.outputSeq || this.session !== session) {
+        controller.release().catch((e: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, 'stale controller release failed: %{public}s', JSON.stringify(e));
+        });
+        return false;
+      }
       this.controller = controller;
       this.controllerFor = deviceId;
       controller.on('playbackStateChange', 'all', (state: avSession.AVPlaybackState) => {
@@ -153,10 +173,12 @@ export class CastBridge {
         hilog.warn(DOMAIN, TAG, 'cast error: %{public}s', JSON.stringify(e));
         this.failed = true;
       });
+      return true;
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'no cast controller: %{public}s', JSON.stringify(e));
       this.controller = null;
       this.controllerFor = '';
+      return false;
     }
   }
 
@@ -282,7 +304,7 @@ export class CastBridge {
     }
     const position = state?.position;
     if (position !== undefined) {
-      const elapsed = playing ? Math.max(0, Date.now() - position.updateTime) : 0;
+      const elapsed = playing && position.updateTime > 0 ? Math.max(0, Date.now() - position.updateTime) : 0;
       map.set('positionMs', Math.max(0, Math.floor(position.elapsedTime + elapsed)));
     } else if (this.pending !== null) {
       map.set('positionMs', this.pending.description?.startPosition ?? 0);
