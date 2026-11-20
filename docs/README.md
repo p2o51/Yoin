@@ -59,6 +59,12 @@ Yoin/
 | [spotoolfy-migration.md](spotoolfy-migration.md) | Spotoolfy export/archive migration path into Yoin | Current |
 | [integrations/spotoolfy-export-format.md](integrations/spotoolfy-export-format.md) | Export schema specification from Spotoolfy | Reference |
 
+### Search & memories
+
+| Document | Scope | Status |
+| :--- | :--- | :--- |
+| [search.md](search.md) | What library search may return: Memories and notes as results, cross-account ledger scope (`#178`), per-type caps, ordering and badges | Current (2026-11-19) |
+
 ### Providers, Terminology & Operations
 
 | Document | Scope | Status |
