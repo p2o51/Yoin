@@ -74,10 +74,10 @@ description: Step-by-step workflow for synchronizing documentation, facts/terms 
 
 | 目标文件 | 同步内容 | 备注 |
 | --- | --- | --- |
-| `public/changelog.html`<br>`public/zh/changelog.html` | 新增版本区块、移动 `Latest / 最新` 标签、一句话 `.sum`、脱敏测试者致谢、新增 `public/spot.js` + `changelog.css` 前后对比草图 | 保持精简，不写成操作说明书 |
+| `public/changelog.html`<br>`public/zh/changelog.html` | 新增版本区块、移动 `Latest / 最新` 标签、一句话 `.sum`、脱敏测试者致谢、**必带** `public/spot.js` + `changelog.css` 前后对比画圈草图（`<figure class="spot" data-set="...">` + `data-spot`） | 保持精简，不写成操作说明书 |
 | `public/index.html`<br>`public/zh/index.html` | 更新 Hero 与页脚两处 `a.ver` 版本胶囊、四端状态徽标及对应功能亮点 | 首页文案风格见 `yoin-site/AGENTS.md` |
 | `public/licenses.html`<br>`public/zh/licenses.html` | 更新页脚 `a.ver` 版本胶囊；如本版引入新开源库或字体则补充列表 | 与应用内开源许可页保持一致 |
-| `public/docs.html`<br>`public/zh/docs.html` | **承接所有从更新日志精简下沉的具体规则**：表单字段、可选参数/档位、支持的服务列表、平台差异、额度/数量限制、快捷键列表与故障排查 | 对应 `write-copy` 输出的文档同步清单 |
+| `public/docs.html`<br>`public/zh/docs.html` | **承接所有从更新日志精简下沉的具体规则**：表单字段、可选参数/档位、支持的服务列表、平台差异、额度/数量限制、快捷键列表与故障排查 | 对应 `write-copy` 输出的文档同步清单；中文遵循 `write-copy`，英文准确表达中文功能点即可 |
 | `public/privacy.html` | **仅当**本版新增或修改了数据流向、第三方 SDK、联网请求、AI 服务商/外接搜索或密钥存储位置时更新 | 法律文本，改动须经 51 确认 |
 
 如果当前任务仅有权修改 `Yoin` 仓库而不能直接改动 `yoin-site`，必须在输出中附带一份按上述文件拆分的 **`yoin-site` 待同步清单**。
@@ -91,7 +91,17 @@ python3 -m http.server 4611 --directory public
 
 ---
 
-## 6. 完成签核检查表
+## 6. 版本录屏、Drive 归档与商店文案留档（51 于 2026-11-21 定）
+
+1. **版本对比录屏**：每次发版必录一版对比上一版的更新录屏，重点录 UI 改动页面（手机/平板哪个改了 UI 就录哪个，**默认录手机**）。
+2. **录屏按页命名备份到 Google Drive**：按页面分别起好语义化文件名，整理存进 Google Drive：`我的云端硬盘 › 01 项目 › Yoin › Yoin recordings › <版本号>/`。
+3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须使用 HTML/SVG 前后对比画框/画圈（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。
+4. **商店文案直接发进 `#yoin` 发版线程**：每次发版时把 **Google Play** 与 **App Store Connect** 的发布说明直接发到 `#yoin` 对应的发版线程里（App Store Connect 受限制可简写如 `bug fix` 等）；此后所有发版相关内容均集中在该发版线程内留存与跟进。
+5. **双语文案标准**：中文文案严格遵循 `write-copy` 技能；英文按中文功能点自然准确翻译即可，不必过度打磨修辞。
+
+---
+
+## 7. 完成签核检查表
 
 发布或合并前确认以下各项全部满足：
 
@@ -100,5 +110,7 @@ python3 -m http.server 4611 --directory public
 - [ ] 新增手势 / 快捷键 / 隐藏入口已同步更新 Tips
 - [ ] （发版时）`README.md` 与 `README.zh-CN.md` 版本号及亮点已对齐
 - [ ] `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` 已同步最新事实、术语与密钥/隐私边界
-- [ ] `yoin-site`（`docs.html`、`zh/docs.html`、`changelog.html`、`zh/changelog.html`、`index.html`、`zh/index.html`、`licenses.html`、`zh/licenses.html`，以及必要时的 `privacy.html`）已同步或已输出清晰的待同步清单，且 `python3 tools/check.py` 通过
+- [ ] （发版时）已录制版本改动对比录屏（默认手机），按页面命名放进 Google Drive `01 项目/Yoin/Yoin recordings/`
+- [ ] （发版时）Google Play 与 App Store Connect 更新文案已发进 `#yoin` 发版线程
+- [ ] `yoin-site`（`docs.html`、`zh/docs.html`、`changelog.html`、`zh/changelog.html` 含 `spot.js` 画圈前后对比图、`index.html`、`zh/index.html`、`licenses.html`、`zh/licenses.html`，以及必要时的 `privacy.html`）已同步或已输出清晰的待同步清单，且 `python3 tools/check.py` 通过
 - [ ] 全文未出现禁用术语（绝对“零追踪”声明、`Nowledge Mem`、`nmem`、`回忆`、`手账`、`国内直连`）
