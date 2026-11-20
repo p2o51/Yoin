@@ -25,7 +25,7 @@ Yoin/
 │   ├── ci-cd.md                   # Signing, versioning & release automation
 │   ├── privacy-policy-draft.md    # Privacy policy reference (2026-11-13 draft)
 │   ├── i18n/zh-glossary.md        # Canonical Simplified Chinese UI terminology & copy bounds
-│   ├── integrations/              # Provider alignment, Apple Music Android & export specs
+│   ├── integrations/              # Provider alignment, Apple Music Android, QQ lyrics & HarmonyOS Spotify specs
 │   └── perf/yoinperf-logging.md   # YoinPerf trace logging guide
 ├── harmony/
 │   ├── README.md, AGENTS.md       # HarmonyOS Flutter + ArkTS structure & rules
@@ -65,6 +65,8 @@ Yoin/
 | :--- | :--- | :--- |
 | [integrations/provider-alignment.md](integrations/provider-alignment.md) | Subsonic/OpenSubsonic × Spotify × Apple Music 0.6.3 capability matrix across all 4 platforms + historical 2026-10-01 audit appendix | Current (0.6.3+) |
 | [integrations/apple-music.md](integrations/apple-music.md) | Android MusicKit SDK setup, 2-RT album open, RELRO 16 KB & large catalog ID ASM fixes, JavaCPP guard | Current |
+| [integrations/qq-lyrics.md](integrations/qq-lyrics.md) | QQ Music lyric lookup: `GetPlayLyricInfo` returns the translation only with `trans: 1`, and `songMID` alone is enough | Current (2026-11-19) |
+| [integrations/spotify-harmonyos.md](integrations/spotify-harmonyos.md) | Spotify on HarmonyOS through the Android compatibility container: launch want, Web API control, what does not work | Current (2026-11-19) |
 | [i18n/zh-glossary.md](i18n/zh-glossary.md) | Canonical 2026-11-18 Simplified Chinese glossary, UI navigation labels, forbidden terms & factual/privacy copy rules | Current (2026-11-18) |
 | [ci-cd.md](ci-cd.md) | Build variants, signing secrets, release tags & workflow automation | Current |
 | [privacy-policy-draft.md](privacy-policy-draft.md) | Privacy policy baseline (2026-11-13); live website updates are tracked against `yoin-site` | Reference |
