@@ -93,6 +93,13 @@ import java.util.concurrent.TimeUnit
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class AppContainer(private val context: Context) {
 
+    /** Whose turn Home's memory 1×2s are: the next each app start or return after half an hour away. */
+    val jbiMemoryTurn: com.gpo.yoin.ui.home.JbiMemoryTurn by lazy {
+        com.gpo.yoin.ui.home.JbiMemoryTurn(context.getSharedPreferences("yoin_home_jbi", Context.MODE_PRIVATE)).also { turn ->
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(turn)
+        }
+    }
+
     private val applicationScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

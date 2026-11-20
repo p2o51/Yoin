@@ -115,6 +115,9 @@ class HomeViewModel(
     private val snapshotStore: HomeSnapshotStore? = null,
     // Where a snapshot and its account's layout are read ([readSnapshot]).
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // Whose turn Jump Back In's memory 1×2s are (AppContainer.jbiMemoryTurn): the next each app start or
+    // return after half an hour away; a new turn rebuilds the memory cards in their same slots.
+    private val jbiMemoryTurn: StateFlow<Long> = MutableStateFlow(0L),
     // Jump Back In cards hidden for a while from edit mode (HomeJbiHidden.kt).
     private val jbiHiddenStore: JbiHiddenStore = JbiHiddenStore.InMemory(),
     // YoinRepository.playlistRenames: a playlist renamed on its page reaches
@@ -1675,11 +1678,15 @@ class HomeViewModel(
     private fun observeMemorySignals() {
         viewModelScope.launch {
             // A replay re-sends the latest tick ([replaySignalTickMissedByLoad]).
+            var builtTurn = jbiMemoryTurn.value
             combine(
                 repository.observeMemorySignalStamp().debounce(RECENT_HISTORY_DEBOUNCE_MS),
-                signalTickReplays
-            ) { stamp, _ -> stamp }
+                signalTickReplays,
+                jbiMemoryTurn,
+            ) { stamp, _, _ -> stamp }
                 .collectLatest { stamp ->
+                    // A new turn (the app came back after a while) deals the memory cards again.
+                    val newTurn = jbiMemoryTurn.value != builtTurn
                     // The tick belongs to the scope it started in; if that
                     // moves while it builds, it is dropped, never "kept".
                     val providerId = repository.currentProviderId()
@@ -1695,12 +1702,15 @@ class HomeViewModel(
                     if (activeLoad?.signalsPending == scopeKey) return@collectLatest
                     // Nothing moved since the last build read this stamp — the
                     // first tick replays the one the load itself just built on.
-                    if (signalStamps[scopeKey] == stamp) return@collectLatest
+                    if (!newTurn && signalStamps[scopeKey] == stamp) return@collectLatest
                     // Live splices keep the grid's memory album while it still
-                    // qualifies — writing on it shouldn't reshuffle the grid.
+                    // qualifies — writing on it shouldn't reshuffle the grid;
+                    // a new turn is exactly when it should change.
                     val shownMemoryAlbum = currentContent.widgetGrid
                         .firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
                         ?.let(::memoryCardAlbumId)
+                        ?.takeUnless { newTurn }
+                    builtTurn = jbiMemoryTurn.value
                     val signals = loadMemorySignals(preferJbiRawAlbumId = shownMemoryAlbum?.rawId)
                     val refreshedGrid = refreshWidgetGridSignalCards(currentContent.widgetGrid, signals)
                     if (!matchesCurrentScope(providerId, profileId) || contentScopeKey != scopeKey) {
@@ -2184,6 +2194,8 @@ class HomeViewModel(
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
             count = 1 + JBI_EXTRA_MEMORY_CARDS,
+            turn = jbiMemoryTurn.value,
+            recentlyPlayedBefore = nowMillis() - JBI_RECENT_PLAY_MS,
         ).map { candidate -> toMemoryCard(candidate) }
         return MemorySignals(
             pill = pill,
@@ -2230,7 +2242,10 @@ class HomeViewModel(
         // The album's own score wins over the track average, as on the album page.
         val manualRating = candidate.albumRating?.takeIf { it > 0f }
         val rating = manualRating ?: candidate.averageSongRating
-        val score = formatMemoryScore(rating)
+        // A notes-only memory (owner 2026-11-20: no score needed to take a turn) shows no score, not "N/A",
+        // and its note count where the score's basis would be.
+        val score = rating?.let(::formatMemoryScore)
+        val notesOnly = rating == null && !hasReview && candidate.noteCount > 0
         val (basisDate, trackBasis) = memoryCardBasis(
             hasReview = hasReview,
             hasManualRating = manualRating != null,
@@ -2253,17 +2268,18 @@ class HomeViewModel(
             coverArtUrl = candidate.coverArtUrl,
             coverKey = candidate.coverArtKey,
             ratingText = score,
-            ratingUnavailable = score == "N/A",
+            ratingUnavailable = false,
             ratingBasis = basis,
-            ratingBasisText = if (trackBasis) {
-                UiText.Res(
+            ratingBasisText = when {
+                trackBasis -> UiText.Res(
                     R.string.home_widget_basis_tracks,
                     listOf(candidate.ratedTrackCount, candidate.totalTracks),
                 )
-            } else {
-                null
+                // A notes-only memory: what it holds, where a score would be.
+                notesOnly -> UiText.Plural(R.plurals.home_rediscover_notes, candidate.noteCount, listOf(candidate.noteCount))
+                else -> null
             },
-            ratingBasisDateMillis = basisDate,
+            ratingBasisDateMillis = basisDate.takeUnless { notesOnly },
             // Only a written title (the user's or the AI's): the bare album name is already the card's title.
             comment = resolvedTitle?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }?.text,
             commentIsHeadline = true,
@@ -2537,6 +2553,7 @@ class HomeViewModel(
                 switchingState = container.profileManager.switchingState,
                 snapshotStore = container.homeSnapshotStore,
                 jbiHiddenStore = container.jbiHiddenStore,
+                jbiMemoryTurn = container.jbiMemoryTurn.turn,
                 playlistRenames = container.repository.playlistRenames,
                 playlistDeletions = container.playlistDeletions.state,
             ) as T
@@ -2551,6 +2568,9 @@ class HomeViewModel(
         // columns take — 10 columns × 3 rows at XL (D1 row presets) less the
         // two signal cards is the deepest, 26 covers (HomeRowPresets.kt).
         private const val GRID_MAX_COMPACTS = 28
+
+        // A memory played this recently sits out its turn (it's on the Recently Played shelf anyway).
+        private const val JBI_RECENT_PLAY_MS = 2 * 60 * 60 * 1000L
 
         // Wide cards past the memory and the note 1×2 (owner 2026-10-13: a
         // shelf pulled longer keeps its memories and notes coming): the
@@ -2823,55 +2843,64 @@ internal fun memoryCardBasis(
 }
 
 /**
- * The grid's memory 1×2 keeps the owner's recipe — the strongest memory with
- * a review, else with any rating — but prefers a different album than the
- * header pill already shows; the same album only when nothing else qualifies.
- * [preferRawAlbumId] (the album a live splice already shows) wins while it
- * still qualifies, so a write on it updates the card in place instead of
- * swapping albums under the user.
- */
-internal fun pickJbiMemoryCandidate(
-    candidates: List<AlbumMemoryCandidate>,
-    avoidRawAlbumId: String?,
-    preferRawAlbumId: String? = null,
-): AlbumMemoryCandidate? {
-    fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
-    fun AlbumMemoryCandidate.qualifies(): Boolean =
-        hasAlbumReview || albumRating != null || averageSongRating != null
-    fun pick(pool: List<AlbumMemoryCandidate>): AlbumMemoryCandidate? =
-        pool.firstOrNull { it.hasAlbumReview }
-            ?: pool.firstOrNull { it.albumRating != null || it.averageSongRating != null }
-    if (preferRawAlbumId != null) {
-        candidates.firstOrNull { it.rawAlbumId() == preferRawAlbumId && it.qualifies() }
-            ?.let { return it }
-    }
-    val others = candidates.filterNot { candidate -> candidate.rawAlbumId() == avoidRawAlbumId }
-    return pick(others) ?: pick(candidates)
-}
-
-/**
- * Up to [count] memory 1×2s for Jump Back In: [pickJbiMemoryCandidate]'s pick
- * first (what the default shelf shows), then the other qualifying albums —
- * reviewed ones before rated ones, each in [candidates]' order — never the
- * header's latest memory ([avoidRawAlbumId]) among the extras.
+ * The memories Jump Back In's 1×2s show, in their fixed slots: every memory in [candidates] takes a turn —
+ * scored or not (owner 2026-11-20) — the next ones each new [turn] (AppContainer.jbiMemoryTurn), the same
+ * within one. The order is a deck shuffled anew each round, so every memory comes up once a round and no
+ * round runs like the last. Never the header's latest memory ([avoidRawAlbumId]) nor an album played
+ * since [recentlyPlayedBefore] while others remain; the album already shown ([preferRawAlbumId]) stays
+ * first while it is a memory, so writing on it doesn't reshuffle the grid.
  */
 internal fun pickJbiMemoryCandidates(
     candidates: List<AlbumMemoryCandidate>,
     avoidRawAlbumId: String?,
     preferRawAlbumId: String? = null,
     count: Int = 1,
+    turn: Long = 0L,
+    recentlyPlayedBefore: Long? = null,
 ): List<AlbumMemoryCandidate> {
-    val first = pickJbiMemoryCandidate(candidates, avoidRawAlbumId, preferRawAlbumId) ?: return emptyList()
-    if (count <= 1) return listOf(first)
     fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
-    val firstAlbum = first.rawAlbumId()
-    val rest = candidates.filter { candidate ->
-        val raw = candidate.rawAlbumId()
-        raw != firstAlbum && raw != avoidRawAlbumId &&
-            (candidate.hasAlbumReview || candidate.albumRating != null || candidate.averageSongRating != null)
-    }.distinctBy { it.rawAlbumId() }
-    val (reviewed, rated) = rest.partition { it.hasAlbumReview }
-    return listOf(first) + (reviewed + rated).take(count - 1)
+    val all = candidates.distinctBy { it.rawAlbumId() }.sortedBy { it.rawAlbumId() }
+    if (all.isEmpty() || count <= 0) return emptyList()
+    val fresh = all.filterNot { candidate ->
+        candidate.rawAlbumId() == avoidRawAlbumId ||
+            (recentlyPlayedBefore != null && (candidate.lastPlayedAt ?: Long.MIN_VALUE) >= recentlyPlayedBefore)
+    }
+    val pool = fresh.ifEmpty { all.filterNot { it.rawAlbumId() == avoidRawAlbumId }.ifEmpty { all } }
+    val deck = jbiDeck(pool, turn)
+    val start = Math.floorMod(turn, pool.size.toLong()).toInt()
+    val dealt = List(minOf(count, pool.size)) { i -> deck[(start + i) % deck.size] }
+    val kept = preferRawAlbumId?.let { id -> all.firstOrNull { it.rawAlbumId() == id } } ?: return dealt
+    return (listOf(kept) + dealt.filterNot { it.rawAlbumId() == preferRawAlbumId }).take(count)
+}
+
+/** [pickJbiMemoryCandidates]' first: the main 1×2's memory. */
+internal fun pickJbiMemoryCandidate(
+    candidates: List<AlbumMemoryCandidate>,
+    avoidRawAlbumId: String?,
+    preferRawAlbumId: String? = null,
+    turn: Long = 0L,
+    recentlyPlayedBefore: Long? = null,
+): AlbumMemoryCandidate? =
+    pickJbiMemoryCandidates(candidates, avoidRawAlbumId, preferRawAlbumId, 1, turn, recentlyPlayedBefore).firstOrNull()
+
+/**
+ * [pool] (in a stable order) shuffled for the round [turn] falls in: the same on every device and every
+ * refresh of that round (a seeded Fisher–Yates over the albums' ids, never their hash codes' iteration
+ * order), a new order each round.
+ */
+private fun jbiDeck(pool: List<AlbumMemoryCandidate>, turn: Long): List<AlbumMemoryCandidate> {
+    val round = Math.floorDiv(turn, pool.size.toLong())
+    var seed = round * 6364136223846793005L + 1442695040888963407L
+    pool.forEach { candidate -> candidate.albumId.forEach { c -> seed = seed * 31 + c.code } }
+    val deck = pool.toMutableList()
+    for (i in deck.lastIndex downTo 1) {
+        seed = seed * 6364136223846793005L + 1442695040888963407L
+        val j = Math.floorMod(seed ushr 33, (i + 1).toLong()).toInt()
+        val tmp = deck[i]
+        deck[i] = deck[j]
+        deck[j] = tmp
+    }
+    return deck
 }
 
 /** [layout]'s appended-hidden sections whose ids aren't in [seenIds], in layout order. */

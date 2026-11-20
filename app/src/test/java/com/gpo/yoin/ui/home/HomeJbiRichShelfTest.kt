@@ -210,7 +210,7 @@ class HomeJbiRichShelfTest {
     )
 
     @Test
-    fun should_putTheDefaultPickFirstThenReviewedThenRated_when_pickingSeveralMemories() {
+    fun should_dealDistinctMemoriesIntoTheSlots_when_pickingSeveralMemories() {
         val candidates = listOf(
             candidate("a"),
             candidate("b", review = true),
@@ -219,11 +219,40 @@ class HomeJbiRichShelfTest {
             candidate("e", rating = null),
             candidate("latest", review = true),
         )
-        val one = pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest")
-        val picks = pickJbiMemoryCandidates(candidates, avoidRawAlbumId = "latest", count = 4)
-        assertEquals(one, picks.first())
-        assertEquals(listOf("b", "d", "a", "c"), picks.map { it.albumId })
-        assertEquals(listOf("b"), pickJbiMemoryCandidates(candidates, "latest", count = 1).map { it.albumId })
+        val picks = pickJbiMemoryCandidates(candidates, avoidRawAlbumId = "latest", count = 4, turn = 1)
+        assertEquals(4, picks.size)
+        assertEquals(4, picks.map { it.albumId }.toSet().size)
+        assertTrue(picks.none { it.albumId == "latest" })
+        assertEquals(picks.first(), pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = 1))
+    }
+
+    @Test
+    fun should_takeTurnsEachOpening_when_severalMemoriesQualify_scoredOrNot() {
+        val candidates = listOf(
+            candidate("a"),
+            candidate("b", review = true),
+            candidate("c"),
+            candidate("e", rating = null),
+            candidate("latest", review = true),
+        )
+        // One round: each memory, scored or not, leads once; never the header's latest.
+        val round = (0L..3L).map { turn -> pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = turn)?.albumId }
+        assertEquals(setOf("a", "b", "c", "e"), round.toSet())
+        // The same within one turn.
+        assertEquals(
+            pickJbiMemoryCandidate(candidates, "latest", turn = 20_000L),
+            pickJbiMemoryCandidate(candidates, "latest", turn = 20_000L),
+        )
+    }
+
+    @Test
+    fun should_skipARecentlyPlayedMemory_when_othersRemain() {
+        val candidates = listOf(candidate("played", lastPlayedAt = 9_000L), candidate("quiet", lastPlayedAt = 1_000L))
+        (0L..5L).forEach { turn ->
+            assertEquals("quiet", pickJbiMemoryCandidate(candidates, null, turn = turn, recentlyPlayedBefore = 5_000L)?.albumId)
+        }
+        // Alone, it still shows.
+        assertEquals("played", pickJbiMemoryCandidate(listOf(candidates[0]), null, recentlyPlayedBefore = 5_000L)?.albumId)
     }
 
     @Test

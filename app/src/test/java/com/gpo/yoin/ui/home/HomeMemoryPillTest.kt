@@ -171,12 +171,21 @@ class HomeMemoryPillTest {
     }
 
     @Test
-    fun should_dropShownJbiAlbum_when_itNoLongerQualifies() {
+    fun should_keepShownJbiAlbum_when_itHasOnlyNotes() {
         val unrated = candidate("shown", albumRating = null, averageSongRating = null, noteCount = 3)
         val rated = candidate("rated", albumRating = 7f)
         assertEquals(
-            "rated",
+            "shown",
             pickJbiMemoryCandidate(listOf(unrated, rated), avoidRawAlbumId = null, preferRawAlbumId = "shown")?.albumId,
+        )
+    }
+
+    @Test
+    fun should_dropShownJbiAlbum_when_itIsNoLongerAMemory() {
+        val rated = candidate("rated", albumRating = 7f)
+        assertEquals(
+            "rated",
+            pickJbiMemoryCandidate(listOf(rated), avoidRawAlbumId = null, preferRawAlbumId = "gone")?.albumId,
         )
     }
 
@@ -187,10 +196,10 @@ class HomeMemoryPillTest {
     }
 
     @Test
-    fun should_skipUnscoredMemoryForJbiCard_when_itHasNoRatingOrReview() {
-        // Eligible by notes alone → no score to show on the 1×2.
+    fun should_pickUnscoredMemoryForJbiCard_when_itHasOnlyNotes() {
+        // Owner 2026-11-20: a memory takes its turn scored or not (its card then shows no score).
         val notesOnly = candidate("notes", albumRating = null, averageSongRating = null, noteCount = 4)
-        assertNull(pickJbiMemoryCandidate(listOf(notesOnly), avoidRawAlbumId = null))
+        assertEquals("notes", pickJbiMemoryCandidate(listOf(notesOnly), avoidRawAlbumId = null)?.albumId)
     }
 
     private fun candidate(
