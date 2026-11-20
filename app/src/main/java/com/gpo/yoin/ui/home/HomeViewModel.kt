@@ -2233,7 +2233,8 @@ class HomeViewModel(
         // The album's own score wins over the track average, as on the album page.
         val manualRating = candidate.albumRating?.takeIf { it > 0f }
         val rating = manualRating ?: candidate.averageSongRating
-        val score = formatMemoryScore(rating)
+        // A notes-only memory (owner 2026-11-20: no score needed to take a turn) shows no score, not "N/A".
+        val score = rating?.let(::formatMemoryScore)
         val (basisDate, trackBasis) = memoryCardBasis(
             hasReview = hasReview,
             hasManualRating = manualRating != null,
@@ -2256,7 +2257,7 @@ class HomeViewModel(
             coverArtUrl = candidate.coverArtUrl,
             coverKey = candidate.coverArtKey,
             ratingText = score,
-            ratingUnavailable = score == "N/A",
+            ratingUnavailable = false,
             ratingBasis = basis,
             ratingBasisText = if (trackBasis) {
                 UiText.Res(
@@ -2827,11 +2828,11 @@ internal fun memoryCardBasis(
 }
 
 /**
- * The memory Jump Back In's first 1×2 shows. Every qualifying memory (a review, an album score or a
- * track average) takes a turn, the next one each time the app opens ([turn], owner 2026-11-20:
+ * The memory Jump Back In's first 1×2 shows. Every memory in [candidates] takes a turn — scored or not
+ * (owner 2026-11-20: "也不应该限制评分了"), a notes-only one shows its card without a score — the next one each time the app opens ([turn], owner 2026-11-20:
  * "每次打开都是同一张专辑…不能每天打开都是同一张"); within one opening it stays, so a refresh never
- * jumps. Never the header's latest memory ([avoidRawAlbumId]) while another qualifies; the album
- * already shown ([preferRawAlbumId]) stays while it qualifies, so writing on it doesn't reshuffle the grid.
+ * jumps. Never the header's latest memory ([avoidRawAlbumId]) while there is another; the album
+ * already shown ([preferRawAlbumId]) stays while it is a memory, so writing on it doesn't reshuffle the grid.
  */
 internal fun pickJbiMemoryCandidate(
     candidates: List<AlbumMemoryCandidate>,
@@ -2840,14 +2841,12 @@ internal fun pickJbiMemoryCandidate(
     turn: Long = 0L,
 ): AlbumMemoryCandidate? {
     fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
-    fun AlbumMemoryCandidate.qualifies(): Boolean =
-        hasAlbumReview || albumRating != null || averageSongRating != null
     if (preferRawAlbumId != null) {
-        candidates.firstOrNull { it.rawAlbumId() == preferRawAlbumId && it.qualifies() }
-            ?.let { return it }
+        candidates.firstOrNull { it.rawAlbumId() == preferRawAlbumId }?.let { return it }
     }
-    // A stable order that doesn't follow recent activity, so the turn really moves on.
-    val qualifying = candidates.filter { it.qualifies() }.distinctBy { it.rawAlbumId() }.sortedBy { it.rawAlbumId() }
+    // Any memory the pool holds (it is memory-eligible already). A stable order that doesn't follow
+    // recent activity, so the turn really moves on.
+    val qualifying = candidates.distinctBy { it.rawAlbumId() }.sortedBy { it.rawAlbumId() }
     val pool = qualifying.filterNot { it.rawAlbumId() == avoidRawAlbumId }.ifEmpty { qualifying }
     if (pool.isEmpty()) return null
     return pool[Math.floorMod(turn, pool.size.toLong()).toInt()]
@@ -2855,8 +2854,8 @@ internal fun pickJbiMemoryCandidate(
 
 /**
  * Up to [count] memory 1×2s for Jump Back In: [pickJbiMemoryCandidate]'s pick
- * first (what the default shelf shows), then the other qualifying albums —
- * reviewed ones before rated ones, each in [candidates]' order — never the
+ * first (what the default shelf shows), then the other memories —
+ * reviewed ones first, each in [candidates]' order — never the
  * header's latest memory ([avoidRawAlbumId]) among the extras.
  */
 internal fun pickJbiMemoryCandidates(
@@ -2872,11 +2871,10 @@ internal fun pickJbiMemoryCandidates(
     val firstAlbum = first.rawAlbumId()
     val rest = candidates.filter { candidate ->
         val raw = candidate.rawAlbumId()
-        raw != firstAlbum && raw != avoidRawAlbumId &&
-            (candidate.hasAlbumReview || candidate.albumRating != null || candidate.averageSongRating != null)
+        raw != firstAlbum && raw != avoidRawAlbumId
     }.distinctBy { it.rawAlbumId() }
-    val (reviewed, rated) = rest.partition { it.hasAlbumReview }
-    return listOf(first) + (reviewed + rated).take(count - 1)
+    val (reviewed, others) = rest.partition { it.hasAlbumReview }
+    return listOf(first) + (reviewed + others).take(count - 1)
 }
 
 /** [layout]'s appended-hidden sections whose ids aren't in [seenIds], in layout order. */

@@ -227,7 +227,7 @@ class HomeJbiRichShelfTest {
     }
 
     @Test
-    fun should_takeTurnsEachOpening_when_severalMemoriesQualify() {
+    fun should_takeTurnsEachOpening_when_severalMemoriesQualify_scoredOrNot() {
         val candidates = listOf(
             candidate("a"),
             candidate("b", review = true),
@@ -235,10 +235,10 @@ class HomeJbiRichShelfTest {
             candidate("e", rating = null),
             candidate("latest", review = true),
         )
-        // Each opening the next qualifying memory; the same within one; never the header's latest.
+        // Each opening the next memory, scored or not; the same within one; never the header's latest.
         assertEquals(
-            listOf("a", "b", "c", "a"),
-            (0L..3L).map { turn -> pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = turn)?.albumId },
+            listOf("a", "b", "c", "e", "a"),
+            (0L..4L).map { turn -> pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = turn)?.albumId },
         )
         assertEquals(
             pickJbiMemoryCandidate(candidates, "latest", turn = 20_000L),
