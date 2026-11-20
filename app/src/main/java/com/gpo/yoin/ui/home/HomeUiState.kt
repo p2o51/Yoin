@@ -82,8 +82,11 @@ sealed interface HomeWidgetTarget {
 
     data class PlaySong(val song: Track) : HomeWidgetTarget
 
-    /** Open the Memories deck (the pull-down attic) stopped on this memory. */
-    data class MemoryFocus(val sessionId: Long) : HomeWidgetTarget
+    /**
+     * A memory's 1×2. Opens its album on the scrapbook (owner 2026-11-20, #Yoin:#18: "点开 album memory
+     * 应该进入剪贴簿"); without an [albumId], the Memories deck stopped on [sessionId] as before.
+     */
+    data class MemoryFocus(val sessionId: Long, val albumId: MediaId? = null) : HomeWidgetTarget
 }
 
 /**

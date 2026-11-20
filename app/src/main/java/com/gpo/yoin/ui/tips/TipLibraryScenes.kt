@@ -1,5 +1,27 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.library.SearchTileActions
+import com.gpo.yoin.ui.library.SearchAllTiles
+import com.gpo.yoin.data.search.fragment
+import com.gpo.yoin.data.search.buildSearchPage
+import com.gpo.yoin.data.search.SearchScore
+import com.gpo.yoin.data.search.SearchQuery
+import com.gpo.yoin.data.search.SearchPage
+import com.gpo.yoin.data.search.SearchFragment
+import com.gpo.yoin.data.search.NoteSearchHit
+import com.gpo.yoin.data.search.MemorySearchMatches
+import com.gpo.yoin.data.search.MemorySearchHit
+import com.gpo.yoin.data.search.MemoryHitField
+import com.gpo.yoin.data.search.MemoryAttachment
+import com.gpo.yoin.data.search.MatchTier
+import com.gpo.yoin.data.search.MatchStrength
+import com.gpo.yoin.data.search.LedgerMarkKind
+import com.gpo.yoin.data.search.LedgerMark
+import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.memory.MemoryLedgerAlbum
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.wrapContentSize
@@ -796,3 +818,135 @@ internal fun keycapTrayHeightPx(
 private val KeycapGap = 12.dp
 private val KeycapInnerGap = 4.dp
 private val KeycapMinSize = 40.dp
+
+
+/**
+ * Search finds what you wrote (#Yoin:#18): "light" typed, the songs and albums come up as Home's tiles —
+ * a note on Lanterns and a review of Golden Hour beside their covers, the hit inked like a marker pen.
+ */
+@Composable
+internal fun MemorySearchDemo(playing: Boolean) {
+    val word = "light"
+    var typed by remember { mutableStateOf(0) }
+    val covers = demoCoverUrls()
+    val page = remember(covers) { memorySearchDemoPage(word, covers) }
+    DemoPhone(playing = playing, script = {
+        typed = 0
+        delay(500)
+        repeat(word.length) {
+            delay(140)
+            typed++
+        }
+        delay(3_200)
+    }) {
+        Surface(color = SearchBarDefaults.colors().containerColor, modifier = Modifier.matchParentSize()) {
+            Column(modifier = Modifier.statusBarsPadding()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(SearchBarDefaults.InputFieldHeight + 16.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(imageVector = YoinSymbols.Back, contentDescription = null, modifier = Modifier.padding(12.dp))
+                    Text(
+                        text = word.take(typed),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = typed == word.length,
+                    enter = YoinMotion.fadeIn(YoinMotionRole.Standard),
+                    exit = YoinMotion.fadeOut(YoinMotionRole.Standard),
+                ) {
+                    SearchAllTiles(
+                        page = page,
+                        query = SearchQuery(word),
+                        providerName = null,
+                        listState = rememberLazyListState(),
+                        actions = MemorySearchDemoActions,
+                        coverArtUrlBuilder = null,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val MemorySearchDemoActions = SearchTileActions(
+    onSong = {},
+    onSongLongClick = null,
+    onNote = { _, _ -> },
+    onAlbum = { _, _ -> },
+    onLedgerAlbum = {},
+    onArtist = {},
+    onPlaylist = {},
+    onShowAll = {},
+)
+
+private fun memorySearchDemoPage(word: String, covers: List<String>): SearchPage {
+    val query = SearchQuery(word)
+    val profile = "tip"
+    fun album(index: Int) = DemoAlbums[index].let { demo ->
+        Album(
+            id = MediaId.subsonic("tip-album-$index"),
+            name = demo.name,
+            artist = demo.artist,
+            artistId = null,
+            coverArt = CoverRef.Url(covers[index]),
+            songCount = 10,
+            durationSec = null,
+            year = 2024,
+            genre = null,
+        )
+    }
+    val harbour = album(0)
+    val golden = album(4)
+    val night = album(3)
+    val tracks = listOf(
+        demoTrack(0, DemoAlbums[0], covers[0]),
+        demoTrack(7, DemoAlbums[4], covers[4]),
+        demoTrack(5, DemoAlbums[1], covers[1]),
+    )
+    val noteText = "The light through the blinds, right here"
+    val note = NoteSearchHit(
+        entryId = "tip-note",
+        profileId = profile,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        songId = tracks[2].id.rawId,
+        trackTitle = tracks[2].title,
+        album = null,
+        positionMs = 84_000L,
+        fragment = query.fragment(query.match(noteText)) ?: SearchFragment(noteText, IntRange.EMPTY),
+        score = SearchScore(MatchTier.Body, MatchStrength.WordPrefix),
+        at = 0L,
+        isOtherAccount = false,
+    )
+    val reviewText = "Late summer, the last light on the water"
+    val ledgerGolden = MemoryLedgerAlbum(profile, MediaId.PROVIDER_SUBSONIC, golden.id.rawId, golden.name, golden.artist.orEmpty(), null)
+    val memory = MemorySearchHit(
+        album = ledgerGolden,
+        field = MemoryHitField.Review,
+        entryId = "tip-review",
+        fragment = query.fragment(query.match(reviewText)) ?: SearchFragment(reviewText, IntRange.EMPTY),
+        score = SearchScore(MatchTier.Body, MatchStrength.WordPrefix),
+        title = "Summer's end",
+        albumScore = 8.8f,
+        lastAt = 0L,
+        isOtherAccount = false,
+        mark = LedgerMark(LedgerMarkKind.AlbumRating, 8.8f, 2),
+    )
+    val attachments = mapOf(
+        golden.id to MemoryAttachment(ledgerGolden.key, "Summer's end", 8.8f, 0L, LedgerMark(LedgerMarkKind.AlbumRating, 8.8f, 2)),
+        harbour.id to MemoryAttachment("tip|subsonic|${harbour.id.rawId}", null, null, 0L, LedgerMark(LedgerMarkKind.NotesOnly, null, 3)),
+    )
+    return buildSearchPage(
+        query = query,
+        results = SearchResults(tracks = tracks, albums = listOf(harbour, golden, night)),
+        memories = MemorySearchMatches(memories = listOf(memory), notes = listOf(note)),
+        attachments = attachments,
+        activeProfileId = profile,
+    )
+}

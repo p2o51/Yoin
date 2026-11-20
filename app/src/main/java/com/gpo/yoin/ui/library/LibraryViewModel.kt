@@ -15,6 +15,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.search.MemorySearchSource
+import com.gpo.yoin.data.search.MemorySearchMatches
+import com.gpo.yoin.data.search.MemoryAttachment
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
@@ -91,6 +94,8 @@ class LibraryViewModel(
     private val albumsReadCeiling: Int = ALBUMS_READ_CEILING,
     /** Playlists being deleted, and deleted ([PlaylistDeletions]; [observePlaylistDeletions]). */
     private val playlistDeletions: StateFlow<PlaylistDeletions.State> = MutableStateFlow(PlaylistDeletions.State()),
+    /** The listener's notes and memories, searched beside the service (#Yoin:#18); null = not searched. */
+    private val memorySearch: MemorySearchSource? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -1389,6 +1394,8 @@ class LibraryViewModel(
                                 searchResults = null,
                                 isSearching = false,
                                 searchError = null,
+                                searchMemories = MemorySearchMatches.Empty,
+                                searchMemoryAttachments = emptyMap(),
                             )
                         }
                         return@collectLatest
@@ -1397,11 +1404,27 @@ class LibraryViewModel(
                     val generation = libraryDataGeneration
                     val profileId = repository.currentProfileId()
                     searchMoreJob?.cancel()
-                    updateContent { copy(isSearching = true, searchError = null, searchPaging = emptyMap()) }
+                    // The ledger is local: its hits land before the service answers.
+                    val memories = searchMemories(query, profileId)
+                    updateContent {
+                        copy(
+                            isSearching = true,
+                            searchError = null,
+                            searchPaging = emptyMap(),
+                            searchMemories = if (searchQuery == query) memories else searchMemories,
+                            searchProfileId = profileId,
+                            searchProviderName = when (repository.currentProviderId()) {
+                                MediaId.PROVIDER_SPOTIFY -> "Spotify"
+                                MediaId.PROVIDER_APPLE_MUSIC -> "Apple Music"
+                                else -> null
+                            },
+                        )
+                    }
                     try {
                         val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
                         if (!isDataLoadCurrent(generation, profileId)) return@collectLatest
+                        val attachments = memoryAttachments(results.albums, profileId)
                         updateContent {
                             if (
                                 searchQuery != query ||
@@ -1413,6 +1436,7 @@ class LibraryViewModel(
                                     searchResults = results,
                                     isSearching = false,
                                     searchError = null,
+                                    searchMemoryAttachments = attachments,
                                 )
                             }
                         }
@@ -1441,6 +1465,31 @@ class LibraryViewModel(
                         }
                     }
                 }
+        }
+    }
+
+    /** The ledger's hits for [query]; nothing when it can't be read (search goes on without them). */
+    private suspend fun searchMemories(query: String, profileId: String?): MemorySearchMatches {
+        val source = memorySearch ?: return MemorySearchMatches.Empty
+        return try {
+            source.search(query, profileId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Memory search failed", e)
+            MemorySearchMatches.Empty
+        }
+    }
+
+    private suspend fun memoryAttachments(albums: List<Album>, profileId: String?): Map<MediaId, MemoryAttachment> {
+        val source = memorySearch ?: return emptyMap()
+        return try {
+            source.attachments(albums, profileId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Memory attachments failed", e)
+            emptyMap()
         }
     }
 
@@ -2415,6 +2464,10 @@ class LibraryViewModel(
                 recentsSource = container.libraryRecentsSource,
                 openStore = container.libraryOpenStore,
                 playlistDeletions = container.playlistDeletions.state,
+                memorySearch = MemorySearchSource(
+                    dao = container.database.memoryLedgerDao(),
+                    profileIds = { container.profileManager.profiles.first().mapTo(HashSet()) { it.id } },
+                ),
             ) as T
     }
 

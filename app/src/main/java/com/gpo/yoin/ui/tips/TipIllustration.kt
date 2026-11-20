@@ -59,6 +59,7 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.MemorySearch -> MemorySearchDemo(playing)
             HomeBubbleTip.KeyboardShortcuts -> KeyboardShortcutsDemo(playing)
             HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
             HomeBubbleTip.HomeScreenWidgets -> HomeScreenWidgetsDemo(playing)

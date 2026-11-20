@@ -58,9 +58,10 @@ class LibrarySearchFilterTest {
         assertEquals(
             listOf(
                 LibrarySearchFilter.All,
-                LibrarySearchFilter.Artists,
+                LibrarySearchFilter.Songs,
                 LibrarySearchFilter.Albums,
-                LibrarySearchFilter.Songs
+                LibrarySearchFilter.Memories,
+                LibrarySearchFilter.Artists
             ),
             searchFiltersFor(ServiceFeatureCatalog.subsonic.capabilities, LibrarySearchScope.CurrentLibrary)
         )

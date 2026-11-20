@@ -6,6 +6,8 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.search.MemoryAttachment
+import com.gpo.yoin.data.search.MemorySearchMatches
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.common.UiText
@@ -53,6 +55,17 @@ sealed interface LibraryUiState {
          * has more exactly when [searchResults] says so ([SearchResults.more]).
          */
         val searchPaging: Map<SearchResultType, LibrarySongsMore> = emptyMap(),
+        /**
+         * What the query met in the listener's own notes and memories, every account's (#178): local, so
+         * it lands before the service answers. Empty for a blank query.
+         */
+        val searchMemories: MemorySearchMatches = MemorySearchMatches.Empty,
+        /** The memories kept on [searchResults]' albums in the account in use, by album id. */
+        val searchMemoryAttachments: Map<MediaId, MemoryAttachment> = emptyMap(),
+        /** The account in use when the search ran: whose notes join their songs' tiles. */
+        val searchProfileId: String? = null,
+        /** The service searched, by name ("Spotify"): the "less relevant" line's; null hides that line. */
+        val searchProviderName: String? = null,
         /** Type chips for the active provider and [searchScope] ([searchFiltersFor]). */
         val availableSearchFilters: List<LibrarySearchFilter> = LibrarySearchFilter.entries,
         /**

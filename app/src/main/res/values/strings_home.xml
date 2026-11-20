@@ -241,6 +241,8 @@
     <string name="home_tip_play_modes">Tap to switch shuffle and repeat; long-press to split them and toggle repeat off</string>
     <string name="home_tip_note_moments_title">Notes pin the second</string>
     <string name="home_tip_note_moments">Notes written in Now Playing stay pinned to that exact second</string>
+    <string name="home_tip_memory_search_title">Search your Memories</string>
+    <string name="home_tip_memory_search">Library search finds your notes and Memories too</string>
     <string name="home_tip_library_search_title">Quick search</string>
     <string name="home_tip_library_search">Long-press Library in the bar to search right away</string>
     <string name="home_tip_library_refresh_title">Refresh Library</string>

@@ -46,6 +46,7 @@ internal enum class HomeBubbleTip(
     private val symbol: () -> ImageVector,
     private val minSdk: Int = 0,
 ) {
+    MemorySearch(R.string.home_tip_memory_search_title, R.string.home_tip_memory_search, day(2026, 11, 20), { YoinSymbols.Search }),
     KeyboardShortcuts(R.string.home_tip_keyboard_shortcuts_title, R.string.home_tip_keyboard_shortcuts, day(2026, 11, 13), { YoinSymbols.Keyboard }),
     VolumeLeveling(R.string.home_tip_volume_leveling_title, R.string.home_tip_volume_leveling, day(2026, 11, 13), { YoinSymbols.VolumeUp }),
     HomeScreenWidgets(R.string.home_tip_widgets_title, R.string.home_tip_widgets, day(2026, 11, 13), { YoinSymbols.Library }),

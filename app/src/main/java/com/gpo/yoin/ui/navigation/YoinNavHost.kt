@@ -1,5 +1,10 @@
 package com.gpo.yoin.ui.navigation
 
+import com.gpo.yoin.ui.memories.MemoryOtherProfile
+import com.gpo.yoin.ui.library.seekWhenCurrent
+import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
+import com.gpo.yoin.data.search.NoteSearchHit
+import com.gpo.yoin.data.memory.MemoryLedgerAlbum
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -1067,6 +1072,45 @@ private fun YoinShell(
     // Home's account switcher. A switch begun there that fails puts Home's
     // feed back on its own (HomeViewModel) and says so here, once.
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    // Library search's memories and notes (#Yoin:#18): another account's switches there first, behind
+    // the one-off notice the Memories deck and the ledger use.
+    val searchSwitchGate = rememberMemorySwitchGate()
+    val searchProfiles by app.container.profileManager.profiles.collectAsState(initial = emptyList())
+    val openInAccount: (profileId: String, subject: String, open: () -> Unit) -> Unit = { profileId, subject, open ->
+        val owner = searchProfiles.firstOrNull { it.id == profileId }
+        if (owner == null || profileId == app.container.profileManager.activeProfileId.value) {
+            open()
+        } else {
+            searchSwitchGate.request(MemoryOtherProfile(owner.id, owner.displayName), subject, opensAlbum = true) {
+                accountSwitcher.switchTo(owner.id, onLanded = open)
+            }
+        }
+    }
+    val openSearchLedgerAlbum: (MemoryLedgerAlbum) -> Unit = { album ->
+        openInAccount(album.profileId, album.name) {
+            ScrapbookFocusRequest.requestAlbum(album.mediaId.toString())
+            navigateToAlbumFromShell(album.mediaId.toString(), null)
+        }
+    }
+    val openSearchNote: (NoteSearchHit, Track?) -> Unit = { note, track ->
+        if (track != null) {
+            app.container.playSearchResults(listOf(track), 0)
+            note.positionMs?.let { position ->
+                shellScope.launch { app.container.playbackManager.seekWhenCurrent(track.id.rawId, position) }
+            }
+        } else {
+            val album = note.album
+            val songId = note.songId
+            val provider = note.provider
+            if (album != null) {
+                openInAccount(note.profileId, note.trackTitle ?: album.name) {
+                    if (songId != null && provider != null) ScrapbookFocusRequest.request(MediaId(provider, songId).toString())
+                    navigateToAlbumFromShell(album.mediaId.toString(), null)
+                }
+            }
+        }
+    }
+    MemorySwitchNotice(searchSwitchGate)
     // Home's On Your Other Accounts shelf: a tap switches here, then plays.
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
     // Home's 「歌词一句」: the Gemini Nano lyric line, on devices that have Nano.
@@ -1455,6 +1499,8 @@ private fun YoinShell(
                             },
                             onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
                             onSearchSongClick = { _, queue, index -> app.container.playSearchResults(queue, index) },
+                            onSearchNoteClick = openSearchNote,
+                            onSearchLedgerAlbumClick = openSearchLedgerAlbum,
                             onSongLongClick = { song, leave -> librarySongMenu = song to leave },
                             accountSwitcher = accountSwitcher,
                             modifier = Modifier

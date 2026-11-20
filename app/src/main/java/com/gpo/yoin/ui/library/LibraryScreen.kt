@@ -122,6 +122,15 @@ import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: LibraryScreen consumes a
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.symbols.YoinSymbols
+import androidx.compose.ui.platform.LocalConfiguration
+import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
+import com.gpo.yoin.data.memory.MemoryLedgerAlbum
+import com.gpo.yoin.data.search.buildSearchPage
+import com.gpo.yoin.data.search.SearchSection
+import com.gpo.yoin.data.search.SearchQuery
+import com.gpo.yoin.data.search.NoteSearchHit
+import com.gpo.yoin.data.search.MemoryAttachment
+import com.gpo.yoin.data.search.MemorySearchMatches
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.CopyDiagnosticsButton
@@ -285,6 +294,10 @@ fun LibraryScreen(
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // A note found by search: its song from where the note was written ([track] = the song returned, if any).
+    onSearchNoteClick: (note: NoteSearchHit, track: Track?) -> Unit = { _, track -> track?.let(onSongClick) },
+    // A memory found by search on an album only the ledger knows (perhaps another account's): its scrapbook.
+    onSearchLedgerAlbumClick: (MemoryLedgerAlbum) -> Unit = {},
     // [leave]: run before the song's menu opens another page (Wide search collapses first, as a result tap does).
     onSongLongClick: (song: Track, leave: () -> Unit) -> Unit = { _, _ -> },
     // The Wide shell opens results as its detail column, BEHIND the
@@ -423,6 +436,8 @@ fun LibraryScreen(
                 onFavoriteSongClick = onFavoriteSongClick,
                 onSongsListClick = onSongsListClick,
                 onSearchSongClick = onSearchSongClick,
+                onSearchNoteClick = onSearchNoteClick,
+                onSearchLedgerAlbumClick = onSearchLedgerAlbumClick,
                 onSongLongClick = onSongLongClick,
                 collapseSearchOnOpen = collapseSearchOnOpen,
                 onAddSongToLibrary = viewModel::addSongToLibrary,
@@ -487,6 +502,10 @@ fun LibraryContent(
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // A note found by search: its song from where the note was written ([track] = the song returned, if any).
+    onSearchNoteClick: (note: NoteSearchHit, track: Track?) -> Unit = { _, track -> track?.let(onSongClick) },
+    // A memory found by search on an album only the ledger knows (perhaps another account's): its scrapbook.
+    onSearchLedgerAlbumClick: (MemoryLedgerAlbum) -> Unit = {},
     collapseSearchOnOpen: Boolean = false,
     onSongLongClick: (song: Track, leave: () -> Unit) -> Unit = { _, _ -> },
     onAddSongToLibrary: (Track) -> Unit = {},
@@ -597,6 +616,8 @@ fun LibraryContent(
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
                             onSearchSongClick = onSearchSongClick,
+                            onSearchNoteClick = onSearchNoteClick,
+                            onSearchLedgerAlbumClick = onSearchLedgerAlbumClick,
                             onSongLongClick = onSongLongClick,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
@@ -644,6 +665,8 @@ private fun LibraryContentBody(
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
+    onSearchNoteClick: (note: NoteSearchHit, track: Track?) -> Unit,
+    onSearchLedgerAlbumClick: (MemoryLedgerAlbum) -> Unit,
     onSongLongClick: (song: Track, leave: () -> Unit) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
@@ -1103,6 +1126,17 @@ private fun LibraryContentBody(
             onSongLongClick = { song -> onSongLongClick(song, leaveSearch) },
             onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
+            memories = state.searchMemories,
+            memoryAttachments = state.searchMemoryAttachments,
+            profileId = state.searchProfileId,
+            providerName = state.searchProviderName,
+            onNoteClick = { note, track -> leaveSearch(); onSearchNoteClick(note, track) },
+            onMemoryAlbumClick = { albumId ->
+                ScrapbookFocusRequest.requestAlbum(albumId)
+                fromSearch(onSearchAlbumClick)(albumId)
+            },
+            onLedgerAlbumClick = { album -> leaveSearch(); onSearchLedgerAlbumClick(album) },
+            onShowAll = onSearchFilterSelected,
             // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
             // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
             // fillMaxWidth)。
@@ -1225,6 +1259,7 @@ private fun LibrarySearchFilter.chipLabel(): String = when (this) {
     LibrarySearchFilter.Albums -> stringResource(R.string.library_search_section_albums)
     LibrarySearchFilter.Songs -> stringResource(R.string.library_search_section_songs)
     LibrarySearchFilter.Playlists -> stringResource(R.string.library_search_section_playlists)
+    LibrarySearchFilter.Memories -> stringResource(R.string.library_search_filter_memories)
 }
 
 // Wide 桌面头排的搜索 pill 宽度上限(mockup 360px 直译;M3 搜索栏本身的
@@ -2452,9 +2487,20 @@ private fun SearchResultsContent(
     onAddSongToLibrary: (Track) -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
+    // The listener's notes and memories the query met (#Yoin:#18): merged into All, listed under Memories.
+    memories: MemorySearchMatches = MemorySearchMatches.Empty,
+    memoryAttachments: Map<MediaId, MemoryAttachment> = emptyMap(),
+    profileId: String? = null,
+    // The service's name, for "N less relevant from Spotify"; null hides that line.
+    providerName: String? = null,
+    onNoteClick: (note: NoteSearchHit, track: Track?) -> Unit = { _, _ -> },
+    onMemoryAlbumClick: (albumId: String) -> Unit = onAlbumClick,
+    onLedgerAlbumClick: (MemoryLedgerAlbum) -> Unit = {},
+    onShowAll: (LibrarySearchFilter) -> Unit = {},
 ) {
     val haptics = rememberYoinHaptics()
-    if (isSearching) {
+    // The ledger answers first: its hits show while the service is still searching.
+    if (isSearching && memories.isEmpty) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -2497,7 +2543,8 @@ private fun SearchResultsContent(
         return
     }
 
-    if (searchResults == null) return
+    if (searchResults == null && memories.isEmpty) return
+    val results = searchResults ?: SearchResults()
 
     val songRow: @Composable (Track, Modifier) -> Unit = { song, rowModifier ->
         SearchSongRow(
@@ -2511,7 +2558,7 @@ private fun SearchResultsContent(
             feedback = libraryActionFeedback[song.id],
             onClick = {
                 // Plays on through the songs found, as a list does, not just this one.
-                val songs = searchResults.tracks
+                val songs = results.tracks
                 onSongClick(song, songs, songs.indexOfFirst { it.id == song.id })
             },
             onLongClick = onSongLongClick?.let { open -> { open(song) } },
@@ -2531,20 +2578,61 @@ private fun SearchResultsContent(
         label = "searchFilter",
         modifier = modifier.fillMaxSize()
     ) { shownFilter ->
-        val shown = searchResults.shownFor(shownFilter)
+        val shown = results.shownFor(shownFilter)
         // Only the type the chips show now reads more; one fading out keeps its foot still.
         val shownMore = if (shownFilter == filter) more else LibrarySongsMore.None
-        when {
-            shown.isEmpty -> EmptyState(message = stringResource(R.string.library_empty_search))
-            shownFilter == LibrarySearchFilter.All -> SearchAllResults(
-                searchResults = shown,
-                listState = scrollMemory.listState(resultsQuery, resultsScope, shownFilter),
-                onArtistClick = onArtistClick,
-                onAlbumClick = onAlbumClick,
-                onPlaylistClick = onPlaylistClick,
-                coverArtUrlBuilder = coverArtUrlBuilder,
-                songRow = songRow
+        val query = remember(resultsQuery) { SearchQuery(resultsQuery) }
+        val page = remember(query, results, memories, memoryAttachments, profileId) {
+            buildSearchPage(query, results, memories, memoryAttachments, profileId)
+        }
+        val actions = remember(results, onSongClick, onAlbumClick, onMemoryAlbumClick, onLedgerAlbumClick, onNoteClick) {
+            SearchTileActions(
+                onSong = { song ->
+                    val songs = results.tracks
+                    onSongClick(song, songs, songs.indexOfFirst { it.id == song.id }.coerceAtLeast(0))
+                },
+                onSongLongClick = onSongLongClick,
+                onNote = onNoteClick,
+                onAlbum = { album, memory ->
+                    if (memory != null) onMemoryAlbumClick(album.id.toString()) else onAlbumClick(album.id.toString())
+                },
+                onLedgerAlbum = onLedgerAlbumClick,
+                onArtist = { onArtistClick(it.id.toString()) },
+                onPlaylist = { onPlaylistClick(it.id.toString()) },
+                onShowAll = { section ->
+                    onShowAll(
+                        when (section) {
+                            SearchSection.Songs -> LibrarySearchFilter.Songs
+                            SearchSection.Albums -> LibrarySearchFilter.Albums
+                            SearchSection.Artists -> LibrarySearchFilter.Artists
+                            SearchSection.Playlists -> LibrarySearchFilter.Playlists
+                        },
+                    )
+                },
             )
+        }
+        when {
+            shownFilter == LibrarySearchFilter.Memories -> SearchMemoriesList(
+                page = page,
+                query = query,
+                listState = scrollMemory.listState(resultsQuery, resultsScope, shownFilter),
+                actions = actions,
+                coverArtUrlBuilder = coverArtUrlBuilder,
+                bottomReserve = SearchResultsBottomReserve,
+            )
+            shownFilter == LibrarySearchFilter.All && page.isEmpty ->
+                EmptyState(message = stringResource(R.string.library_empty_search))
+            shownFilter == LibrarySearchFilter.All -> SearchAllTiles(
+                page = page,
+                query = query,
+                providerName = providerName,
+                listState = scrollMemory.listState(resultsQuery, resultsScope, shownFilter),
+                actions = actions,
+                coverArtUrlBuilder = coverArtUrlBuilder,
+                columns = searchTileColumns(),
+                bottomReserve = SearchResultsBottomReserve,
+            )
+            shown.isEmpty -> EmptyState(message = stringResource(R.string.library_empty_search))
             shownFilter == LibrarySearchFilter.Artists || shownFilter == LibrarySearchFilter.Albums ->
                 SearchResultsGrid(
                     results = shown,
@@ -2567,6 +2655,16 @@ private fun SearchResultsContent(
             )
         }
     }
+}
+
+/** The All page's tile columns: Home's three on a phone, the Library grid's count wider. */
+@Composable
+private fun searchTileColumns(): Int {
+    val windowInfo = LocalYoinWindowInfo.current
+    if (windowInfo.layoutMode == LayoutMode.Compact && !windowInfo.isCompactHeight) return 3
+    val width = LocalConfiguration.current.screenWidthDp.dp
+    val minimum = if (windowInfo.isCompactHeight) LibraryGridLandscapeMinSize else LibraryGridMinSize
+    return ((width - 32.dp + 12.dp) / (minimum + 12.dp)).toInt().coerceIn(3, 8)
 }
 
 /** Every type, sectioned: artists, albums, playlists, then songs. */

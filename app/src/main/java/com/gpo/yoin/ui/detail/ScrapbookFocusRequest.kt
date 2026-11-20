@@ -14,6 +14,9 @@ import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
  *
  * Now Playing's About ("Manage in Scrapbook", owner 2026-11-02) adds the row to [Pending.edit]:
  * page 2 then opens the song's sheet with that row's editor.
+ *
+ * Library search and Home open an album's memory the same way, on no particular song
+ * ([requestAlbum], owner 2026-11-20 #Yoin:#18): the album page that is that album moves to page 2.
  */
 internal object ScrapbookFocusRequest {
     @Immutable
@@ -28,6 +31,31 @@ internal object ScrapbookFocusRequest {
 
     fun request(songId: String, edit: AlbumScrapbookAboutRef? = null) {
         state.value = Pending(songId, SystemClock.elapsedRealtime(), edit)
+    }
+
+    @Immutable
+    data class PendingAlbum(val albumId: String, val atMillis: Long)
+
+    private val albumState = mutableStateOf<PendingAlbum?>(null)
+
+    /** The album-level request waiting to be taken, if any (a snapshot read). */
+    val pendingAlbum: PendingAlbum? get() = albumState.value
+
+    /** Page 2 of the album [albumId] (a [com.gpo.yoin.data.model.MediaId] string), on no particular song. */
+    fun requestAlbum(albumId: String) {
+        albumState.value = PendingAlbum(albumId, SystemClock.elapsedRealtime())
+    }
+
+    /** Takes the album-level request when it is for [albumId] and still fresh. */
+    fun takeForAlbum(albumId: String): Boolean {
+        val request = albumState.value ?: return false
+        if (SystemClock.elapsedRealtime() - request.atMillis > FreshForMs) {
+            albumState.value = null
+            return false
+        }
+        if (request.albumId != albumId) return false
+        albumState.value = null
+        return true
     }
 
     /** Takes the request when it is for one of [songIds] and still fresh; null otherwise. */
