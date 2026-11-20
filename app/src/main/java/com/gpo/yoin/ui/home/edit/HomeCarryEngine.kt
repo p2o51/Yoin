@@ -13,7 +13,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Density
-import com.gpo.yoin.ui.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
 import kotlin.math.abs
 import kotlin.math.sign
@@ -45,12 +44,6 @@ internal interface CarryHost {
 
     /** Scrolls the dropped block under its slot, then waits for a layout in [order]. */
     suspend fun anchorAndAwaitLayout(dropped: HomeSection, order: List<HomeSection>, slotTop: Float)
-
-    /** The feed lays out in two columns: a carry may pair blocks side by side (HomeCarrySide.kt). */
-    fun twoColumn(): Boolean = false
-
-    /** Two columns: the pairs laid out side by side now, left → right. */
-    fun pairs(): Map<HomeSection, HomeSection> = emptyMap()
 }
 
 /**
@@ -66,37 +59,11 @@ internal class CarrySession(
     val metrics: StripMetrics,
     starts: Map<HomeSection, StripStart>,
     lastY: Float,
-    /** Two columns: the pairs at fold start (left → right), the carried block's own included. */
-    val origPairs: Map<HomeSection, HomeSection> = emptyMap(),
-    pairs: Map<HomeSection, HomeSection> = emptyMap(),
-    /** Side drops are on (two columns). */
-    val twoColumn: Boolean = false,
-    lastX: Float = Float.NaN,
 ) {
-    /** The live order; the carried strip sits in row [k]. */
+    /** The live order; the carried strip sits at [k]. */
     var ids: List<HomeSection> by mutableStateOf(orig)
 
-    /** The live pairs, left → right: the strips' rows are [ids] with these side by side. */
-    var pairs: Map<HomeSection, HomeSection> by mutableStateOf(pairs)
-
-    /** Beside another block: the carried strip's lane (Left or Right). Null between rows. */
-    var side: StripLane? by mutableStateOf(null)
-
-    private var rowsFor: Pair<List<HomeSection>, Map<HomeSection, HomeSection>>? = null
-    private var rowsCache: List<HomeFeedRow> = emptyList()
-
-    /** The strips' rows (one slot each): every section its own row in one column. */
-    val rows: List<HomeFeedRow>
-        get() {
-            val key = ids to pairs
-            if (rowsFor != key) {
-                rowsCache = carryRows(key.first, key.second)
-                rowsFor = key
-            }
-            return rowsCache
-        }
-
-    var k: Int by mutableIntStateOf(carryRowIndexOf(carried, carryRows(orig, pairs)))
+    var k: Int by mutableIntStateOf(orig.indexOf(carried))
 
     /** B_i: where each strip flies from, re-read from the feed after the anchor. */
     var starts: Map<HomeSection, StripStart> by mutableStateOf(starts)
@@ -108,22 +75,14 @@ internal class CarrySession(
 
     internal var dragOffset = 0f
     internal var lastY = lastY
-    internal var lastX = lastX
     internal var wasOver = false
-
-    /** The way the last swap went (+1 down): resting between rows, the row it passed is the one to pair with. */
-    internal var lastSwapDir = 0
 
     val count: Int get() = orig.size
 
-    /** Rows in the stack now: fewer than [count] while blocks are paired. */
-    val rowCount: Int get() = rows.size
+    val changed: Boolean get() = ids != orig
 
-    val changed: Boolean get() = ids != orig || pairs != origPairs
-
-    /** [offset] from slot [k] runs past the first or last slot (between rows only). */
-    internal fun isOver(offset: Float): Boolean =
-        side == null && ((k == 0 && offset < 0f) || (k == rowCount - 1 && offset > 0f))
+    /** [offset] from slot [k] runs past the first or last slot. */
+    internal fun isOver(offset: Float): Boolean = (k == 0 && offset < 0f) || (k == count - 1 && offset > 0f)
 }
 
 /**
@@ -142,8 +101,6 @@ internal class HomeCarryEngine(
     private val commitOrder: (List<HomeSection>) -> Boolean,
     private val finishDeferredExit: (HomeEditExitReason) -> Unit,
     private val uptimeMs: () -> Long = { SystemClock.uptimeMillis() },
-    /** Two columns: a drop writes the order and the pairs together (one Undo step). */
-    private val commitArrangement: ((List<HomeSection>, Map<HomeSection, HomeSection>) -> Boolean)? = null,
 ) {
     // ── Lift (§2.3 step 5, §2.4) ──────────────────────────────────────────
 
@@ -233,37 +190,11 @@ internal class HomeCarryEngine(
     /** The released strip's offset from its slot while it settles. */
     val settleY = Animatable(0f)
 
-    /** The released strip's sideways offset from its lane while it settles (two columns). */
-    val settleX = Animatable(0f)
-
-    /** The drop hole's left edge and width in Box px: a full slot, or the half beside a block. Draw only. */
-    val holeX = Animatable(0f)
-    val holeW = Animatable(0f)
-
-    /** The side-drop indicator: 1 while the carried strip pairs with a block. Draw only. */
-    val sideIndicator = Animatable(0f)
-
-    /** The finger's x in Box px, set by the gesture before each event (side drops read it). */
-    var fingerX: Float = Float.NaN
-
     // Make-way offsets. Plain state, not Animatables: a swap's snap must land
     // in the move event itself, even while the neighbour is still in flight.
     private val stripOffsets: Map<HomeSection, MutableFloatState> =
         HomeSection.entries.associateWith { mutableFloatStateOf(0f) }
     private val stripJobs = HashMap<HomeSection, Job>()
-
-    // Each strip's lane across the column, px: full, or the left or right half. Springs when a pair forms or splits.
-    private val laneLefts: Map<HomeSection, MutableFloatState> =
-        HomeSection.entries.associateWith { mutableFloatStateOf(0f) }
-    private val laneWidths: Map<HomeSection, MutableFloatState> =
-        HomeSection.entries.associateWith { mutableFloatStateOf(0f) }
-    private val laneJobs = HashMap<HomeSection, Job>()
-    private val stripGapPx = with(density) { HomeEditTokens.StripGap.toPx() }
-
-    /** A strip's lane left edge and width (px). Draw and placement. */
-    fun laneLeft(section: HomeSection): Float = laneLefts.getValue(section).floatValue
-
-    fun laneWidth(section: HomeSection): Float = laneWidths.getValue(section).floatValue
 
     /** A neighbour's make-way offset (§4.6). Draw and placement. */
     fun stripOffset(section: HomeSection): Float = stripOffsets.getValue(section).floatValue
@@ -285,8 +216,6 @@ internal class HomeCarryEngine(
 
     private var foldJob: Job? = null
     private var holeJob: Job? = null
-    private var holeLaneJob: Job? = null
-    private var indicatorJob: Job? = null
 
     // Settle, then commit, anchor, unfold and finish. Cancelled by a re-grab, so the commit never runs.
     private var settleJob: Job? = null
@@ -304,23 +233,11 @@ internal class HomeCarryEngine(
         val carried = liftSection ?: return
         if (session != null) return
         val ids = host.displayedOrder()
-        if (carried !in ids) return
-        // Two columns: the strips keep the feed's pairs; the carried block comes out of its own.
-        val twoColumn = host.twoColumn()
-        val origPairs = if (twoColumn) carryHalves(carryRows(ids, host.pairs())) else emptyMap()
-        val origRows = carryRows(ids, origPairs)
-        // A half lifted with the finger still on its own side stays beside its partner until it leaves.
-        val origLane = carryLaneOf(carried, origRows)
-        val zone = if (twoColumn) carryEdgeZone(fingerX, host.contentLeft(), host.contentWidth(), origLane) else null
-        val keepPair = origLane != StripLane.Full && zone == origLane
-        val split = carryUnpair(origPairs, carried)
-        val pairs = if (keepPair) origPairs else split
-        val rows = carryRows(ids, pairs)
-        val k = carryRowIndexOf(carried, rows)
+        val k = ids.indexOf(carried)
+        if (k < 0) return
         val safe = host.safeArea()
         val metrics = stripMetrics(
-            // Room for the most rows the carry can make: the carried block on a row of its own.
-            count = carryRows(ids, split).size,
+            count = ids.size,
             carriedIndex = k,
             fingerY = fingerY,
             safeTop = safe.top,
@@ -328,43 +245,14 @@ internal class HomeCarryEngine(
             contentLeft = host.contentLeft(),
             contentWidth = host.contentWidth(),
             density = density,
-            fullWidth = twoColumn,
         )
         ids.forEach(::settleStrip)
-        // Lanes start where the feed has them and spring to the strips' (a lifted half's partner widens).
-        ids.forEach { section ->
-            snapLane(section, laneRect(carryLaneOf(section, origRows), metrics))
-            val live = carryLaneOf(section, rows)
-            if (live != carryLaneOf(section, origRows)) animateLane(section, laneRect(live, metrics))
-        }
         holeJob?.cancel()
         holeJob = scope.launchNow { holeY.snapTo(metrics.slotY(k)) }
-        holeLaneJob?.cancel()
-        val holeLane = laneRect(if (keepPair) origLane else StripLane.Full, metrics)
-        holeLaneJob = scope.launchNow {
-            holeX.snapTo(holeLane.first)
-            holeW.snapTo(holeLane.second)
-        }
-        indicatorJob?.cancel()
-        indicatorJob = scope.launchNow {
-            sideIndicator.snapTo(0f)
-            if (keepPair) sideIndicator.animateTo(1f, specs.liftTint)
-        }
-        scope.launchNow { settleX.snapTo(0f) }
         velocity.reset()
         velocity.add(uptimeMs, fingerY)
         pendingExit = null
-        session = CarrySession(
-            carried = carried,
-            orig = ids,
-            metrics = metrics,
-            starts = startsFor(host, ids, metrics),
-            lastY = fingerY,
-            origPairs = origPairs,
-            pairs = pairs,
-            twoColumn = twoColumn,
-            lastX = fingerX,
-        ).also { if (keepPair) it.side = origLane }
+        session = CarrySession(carried, ids, metrics, startsFor(host, ids, metrics), lastY = fingerY)
         foldJob = scope.launchNow { fold.animateTo(1f, specs.fold) }
         motion.carryActive = true
         motion.placeholdersAboveOpen = true
@@ -376,7 +264,6 @@ internal class HomeCarryEngine(
      */
     fun provisionalMetrics(count: Int): StripMetrics? {
         val host = host ?: return null
-        val twoColumn = host.twoColumn()
         val safe = host.safeArea()
         return stripMetrics(
             count = count,
@@ -387,7 +274,6 @@ internal class HomeCarryEngine(
             contentLeft = host.contentLeft(),
             contentWidth = host.contentWidth(),
             density = density,
-            fullWidth = twoColumn,
         )
     }
 
@@ -397,14 +283,10 @@ internal class HomeCarryEngine(
         if (s.phase != CarryPhase.Drag) return
         s.dragOffset += y - s.lastY
         s.lastY = y
-        if (!fingerX.isNaN()) s.lastX = fingerX
         velocity.add(uptimeMs, y)
-        if (s.side == null) {
-            val half = s.metrics.pitch / 2f
-            while (s.dragOffset > half && s.k < s.rowCount - 1) swap(s, 1)
-            while (s.dragOffset < -half && s.k > 0) swap(s, -1)
-        }
-        updateSide(s)
+        val half = s.metrics.pitch / 2f
+        while (s.dragOffset > half && s.k < s.count - 1) swap(s, 1)
+        while (s.dragOffset < -half && s.k > 0) swap(s, -1)
         val over = s.isOver(s.dragOffset)
         s.display = if (over) sign(s.dragOffset) * rubber(abs(s.dragOffset), density) else s.dragOffset
         val overNow = over && abs(s.dragOffset) > overHapticPx
@@ -429,18 +311,12 @@ internal class HomeCarryEngine(
         val v = if (cancelled) 0f else velocity.velocity(uptimeMs)
         // Where the strip shows now, read before a fling moves its slot.
         val shownY = s.metrics.slotY(s.k) + s.display
-        // A fling projects between rows only: beside a block the drop is where it shows.
-        if (s.side == null && abs(v) > flingVelocity) {
+        if (abs(v) > flingVelocity) {
             val dir = if (v > 0f) 1 else -1
-            if ((dir > 0 && s.k < s.rowCount - 1) || (dir < 0 && s.k > 0)) swap(s, dir)
+            if ((dir > 0 && s.k < s.count - 1) || (dir < 0 && s.k > 0)) swap(s, dir)
         }
         val from = shownY - s.metrics.slotY(s.k)
-        val fromX = liveX(s)
         settleJob = scope.launchNow {
-            launchNow {
-                settleX.snapTo(fromX)
-                settleX.animateTo(0f, specs.settlePx)
-            }
             settleY.snapTo(from)
             settleY.animateTo(0f, specs.settlePx, initialVelocity = v)
             commitAndUnfold(s)
@@ -457,8 +333,7 @@ internal class HomeCarryEngine(
         val m = s.metrics
         val settle = settleY.value
         val top = m.slotY(s.k) + settle
-        val left = laneLeft(s.carried) + settleX.value
-        val inside = position.x >= left && position.x <= left + laneWidth(s.carried) &&
+        val inside = position.x >= m.left && position.x <= m.left + m.width &&
             position.y >= top - regrabSlopPx && position.y <= top + m.height + regrabSlopPx
         if (!inside) return false
         settleJob?.cancel()
@@ -467,10 +342,8 @@ internal class HomeCarryEngine(
         s.dragOffset = if (over) sign(settle) * unrubber(abs(settle), density) else settle
         s.display = settle
         s.lastY = position.y
-        s.lastX = position.x
         s.wasOver = over && abs(s.dragOffset) > overHapticPx
         s.phase = CarryPhase.Drag
-        scope.launchNow { settleX.snapTo(0f) }
         velocity.reset()
         velocity.add(uptimeMs, position.y)
         animateHole(m.slotY(s.k))
@@ -497,25 +370,19 @@ internal class HomeCarryEngine(
     fun abortNow() {
         val s = session ?: return
         // In Unfold the order is already committed.
-        if (s.phase != CarryPhase.Unfold && s.changed) commit(s)
+        if (s.phase != CarryPhase.Unfold && s.changed) commitOrder(s.ids)
         settleJob?.cancel()
         settleJob = null
         foldJob?.cancel()
         foldJob = null
         holeJob?.cancel()
         holeJob = null
-        holeLaneJob?.cancel()
-        indicatorJob?.cancel()
         HomeSection.entries.forEach(::settleStrip)
-        laneJobs.values.forEach(Job::cancel)
-        laneJobs.clear()
         pendingExit = null
         session = null
         scope.launchNow { fold.snapTo(0f) }
         scope.launchNow { settleY.snapTo(0f) }
-        scope.launchNow { settleX.snapTo(0f) }
         scope.launchNow { holeY.snapTo(0f) }
-        scope.launchNow { sideIndicator.snapTo(0f) }
         snapLiftToRest()
         motion.carryActive = false
     }
@@ -523,7 +390,7 @@ internal class HomeCarryEngine(
     /** The strip frame of [section] at the current fold (§4.4). Draw and placement only. */
     fun frameFor(section: HomeSection): StripFrame? {
         val s = session ?: return null
-        val index = carryRowIndexOf(section, s.rows)
+        val index = s.ids.indexOf(section)
         val start = s.starts[section]
         if (index < 0 || start == null) return null
         val carried = section == s.carried
@@ -531,11 +398,6 @@ internal class HomeCarryEngine(
             !carried -> stripOffset(section)
             s.phase == CarryPhase.Drag -> s.display
             else -> settleY.value
-        }
-        val offsetX = when {
-            !carried -> 0f
-            s.phase == CarryPhase.Drag -> liveX(s)
-            else -> settleX.value
         }
         return stripFrame(
             start = start,
@@ -545,8 +407,6 @@ internal class HomeCarryEngine(
             carried = carried,
             lift = lift.value,
             density = density,
-            slotLeft = laneLeft(section) + offsetX,
-            slotWidth = laneWidth(section),
         )
     }
 
@@ -555,143 +415,16 @@ internal class HomeCarryEngine(
     private fun swap(s: CarrySession, dir: Int) {
         val k = s.k
         val j = k + dir
-        val neighbour = s.rows.getOrNull(j) ?: return
-        s.ids = carrySwapRow(s.ids, s.pairs, s.carried, dir)
-        // A pair makes way as one row.
-        neighbour.sections().forEach { makeWay(it, dir * s.metrics.pitch) }
+        val ids = s.ids.toMutableList()
+        val neighbour = ids[j]
+        ids[j] = ids[k]
+        ids[k] = neighbour
+        s.ids = ids
+        makeWay(neighbour, dir * s.metrics.pitch)
         s.k = j
         s.dragOffset -= dir * s.metrics.pitch
-        s.lastSwapDir = dir
         animateHole(s.metrics.slotY(j))
         feedback.segmentTick()
-    }
-
-    // ── Side drops (two columns, HomeCarrySide.kt) ─────────────────────────
-
-    /** The finger in an edge zone pairs the carried strip with the row under it; in the middle, between rows. */
-    private fun updateSide(s: CarrySession) {
-        if (!s.twoColumn) return
-        val m = s.metrics
-        val zone = carryEdgeZone(s.lastX, m.left, m.width, s.side)
-        if (zone == null) {
-            if (s.side != null) leaveSide(s)
-            return
-        }
-        val current = s.side
-        if (current == null) {
-            val candidate = carrySideCandidate(s.k, s.rowCount, s.dragOffset, m.pitch, s.lastSwapDir) ?: return
-            val target = carryRows(s.ids - s.carried, s.pairs).getOrNull(candidate) as? HomeFeedRow.Full ?: return
-            enterSide(s, target.section, zone)
-            return
-        }
-        val top = m.slotY(s.k) + s.dragOffset
-        val at = carryRowAt(top + m.height / 2f, m.top, m.pitch, stripGapPx, s.rowCount)
-        val row = s.rows[at]
-        when {
-            at == s.k -> {
-                if (zone != current) {
-                    val partner = row.sections().first { it != s.carried }
-                    enterSide(s, partner, zone)
-                }
-            }
-            row is HomeFeedRow.Full && carrySideAllowed(row, s.carried) -> enterSide(s, row.section, zone)
-            else -> leaveSide(s)
-        }
-    }
-
-    private fun enterSide(s: CarrySession, target: HomeSection, side: StripLane) {
-        val top = s.metrics.slotY(s.k) + s.dragOffset
-        val arrangement = carryPlaceBeside(s.ids, s.pairs, s.carried, target, side)
-        rearrange(s, arrangement)
-        s.side = side
-        s.dragOffset = top - s.metrics.slotY(s.k)
-        animateHoleLane(laneRect(side, s.metrics))
-        indicatorJob = scope.launchNow { sideIndicator.animateTo(1f, specs.liftTint) }
-        feedback.segmentTick()
-    }
-
-    private fun leaveSide(s: CarrySession) {
-        val m = s.metrics
-        val top = m.slotY(s.k) + s.dragOffset
-        val rest = carryRows(s.ids - s.carried, carryUnpair(s.pairs, s.carried))
-        // The block it was beside keeps row k: above it, or below it (a right half, or leaning down).
-        val gap = carryLeaveGap(s.k, s.dragOffset, m.pitch, s.side ?: StripLane.Full, rest.size)
-        rearrange(s, carryInsertRow(s.ids, s.pairs, s.carried, gap))
-        s.side = null
-        s.dragOffset = top - m.slotY(s.k)
-        animateHoleLane(laneRect(StripLane.Full, m))
-        indicatorJob = scope.launchNow { sideIndicator.animateTo(0f, specs.liftTint) }
-        feedback.segmentTick()
-    }
-
-    // The new rows: every other strip that changes row keeps its place on screen and makes way;
-    // every lane that changes springs; the hole follows the carried strip.
-    private fun rearrange(s: CarrySession, next: CarryArrangement) {
-        val before = s.rows
-        s.ids = next.ids
-        s.pairs = next.pairs
-        val after = s.rows
-        for (section in s.ids) {
-            if (section != s.carried) {
-                val from = carryRowIndexOf(section, before)
-                val to = carryRowIndexOf(section, after)
-                if (from >= 0 && from != to) makeWay(section, (from - to) * s.metrics.pitch)
-            }
-            val lane = carryLaneOf(section, after)
-            if (lane != carryLaneOf(section, before)) animateLane(section, laneRect(lane, s.metrics))
-        }
-        s.k = carryRowIndexOf(s.carried, after)
-        animateHole(s.metrics.slotY(s.k))
-    }
-
-    /**
-     * The carried strip's sideways offset while dragged. It keeps to its lane
-     * (the lanes themselves show where it will land), so this is 0; the
-     * settle and re-grab read it as the one place a sideways offset comes from.
-     */
-    @Suppress("UNUSED_PARAMETER")
-    private fun liveX(s: CarrySession): Float = 0f
-
-    private fun laneRect(lane: StripLane, m: StripMetrics): Pair<Float, Float> {
-        val half = (m.width - stripGapPx) / 2f
-        return when (lane) {
-            StripLane.Full -> m.left to m.width
-            StripLane.Left -> m.left to half
-            StripLane.Right -> m.left + half + stripGapPx to half
-        }
-    }
-
-    private fun snapLane(section: HomeSection, rect: Pair<Float, Float>) {
-        laneJobs.remove(section)?.cancel()
-        laneLefts.getValue(section).floatValue = rect.first
-        laneWidths.getValue(section).floatValue = rect.second
-    }
-
-    private fun animateLane(section: HomeSection, rect: Pair<Float, Float>) {
-        laneJobs.remove(section)?.cancel()
-        val left = laneLefts.getValue(section)
-        val width = laneWidths.getValue(section)
-        val fromLeft = left.floatValue
-        val fromWidth = width.floatValue
-        laneJobs[section] = scope.launchNow {
-            animate(0f, 1f, animationSpec = specs.fold) { t, _ ->
-                left.floatValue = fromLeft + (rect.first - fromLeft) * t
-                width.floatValue = fromWidth + (rect.second - fromWidth) * t
-            }
-        }
-    }
-
-    private fun animateHoleLane(rect: Pair<Float, Float>) {
-        holeLaneJob?.cancel()
-        holeLaneJob = scope.launchNow {
-            launchNow { holeX.animateTo(rect.first, specs.holePx) }
-            holeW.animateTo(rect.second, specs.holePx)
-        }
-    }
-
-    private fun commit(s: CarrySession): Boolean {
-        val arrangement = commitArrangement
-        return if (s.twoColumn && arrangement != null) arrangement(s.ids, s.pairs) else commitOrder(s.ids)
     }
 
     private fun makeWay(section: HomeSection, by: Float) {
@@ -724,16 +457,13 @@ internal class HomeCarryEngine(
     // B_i from the new layout, and unfold with the lift falling alongside.
     private suspend fun commitAndUnfold(s: CarrySession) {
         s.phase = CarryPhase.Unfold
-        val changed = s.changed && commit(s)
+        val changed = s.changed && commitOrder(s.ids)
         host?.let { host ->
-            // A dropped right half anchors by its row, which the feed keys by its left half.
-            val anchor = s.rows.getOrNull(s.k)?.first ?: s.carried
-            host.anchorAndAwaitLayout(anchor, s.ids, s.metrics.slotY(s.k))
+            host.anchorAndAwaitLayout(s.carried, s.ids, s.metrics.slotY(s.k))
             s.starts = startsFor(host, s.ids, s.metrics)
         }
         liftJob = scope.launchNow { lift.animateTo(0f, specs.liftDown) }
         tintJob = scope.launchNow { liftTint.animateTo(0f, specs.liftTint) }
-        indicatorJob = scope.launchNow { sideIndicator.animateTo(0f, specs.liftTint) }
         fold.animateTo(0f, specs.fold)
         finish(s, changed)
     }
@@ -760,7 +490,3 @@ internal class HomeCarryEngine(
         }
     }
 }
-
-/** The pairs of [rows], left → right. */
-internal fun carryHalves(rows: List<HomeFeedRow>): Map<HomeSection, HomeSection> =
-    rows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }

@@ -208,42 +208,9 @@ internal fun kickInitialVelocity(amplitude: Float, sign: Int, running: Boolean, 
 
 // ── Hit testing ───────────────────────────────────────────────────────────
 
-/**
- * A section's vertical extent in Box px. [bleeds]: a full-width shelf that takes touches in the margins too.
- * [left] / [right]: half of a two-column row, its column's x extent (null = the content's whole width).
- */
+/** A section's vertical extent in Box px. [bleeds]: a full-width shelf that takes touches in the margins too. */
 @Immutable
-internal data class SectionBand(
-    val id: HomeSection,
-    val top: Float,
-    val bottom: Float,
-    val bleeds: Boolean,
-    val left: Float? = null,
-    val right: Float? = null,
-)
-
-/**
- * [bands] with every two-column pair split in two: the band of a row's left
- * half ([pairs], left → right, only pairs laid out side by side) becomes its
- * column and its partner's, [gap] apart across [contentLeft]..[contentRight]. Pure.
- */
-internal fun splitPairBands(
-    bands: List<SectionBand>,
-    pairs: Map<HomeSection, HomeSection>,
-    contentLeft: Float,
-    contentRight: Float,
-    gap: Float,
-): List<SectionBand> {
-    if (pairs.isEmpty()) return bands
-    val half = (contentRight - contentLeft - gap) / 2f
-    return bands.flatMap { band ->
-        val right = pairs[band.id] ?: return@flatMap listOf(band)
-        listOf(
-            band.copy(bleeds = false, left = contentLeft, right = contentLeft + half),
-            band.copy(id = right, bleeds = false, left = contentRight - half, right = contentRight),
-        )
-    }
-}
+internal data class SectionBand(val id: HomeSection, val top: Float, val bottom: Float, val bleeds: Boolean)
 
 /** The band nearest to [y] (distance 0 inside); the first wins a tie. −1 when there are none. */
 internal fun nearestSectionIndex(y: Float, bands: List<SectionBand>): Int {
@@ -280,11 +247,9 @@ internal fun resolveSectionAt(
     val padH = if (editing) outsetH else 0f
     val padV = if (editing) outsetV else 0f
     return bands.firstOrNull { band ->
-        val left = band.left ?: contentLeft
-        val right = band.right ?: contentRight
         y >= band.top - padV &&
             y <= band.bottom + padV &&
-            (band.bleeds || x >= left - padH && x <= right + padH)
+            (band.bleeds || x >= contentLeft - padH && x <= contentRight + padH)
     }
 }
 
@@ -319,8 +284,6 @@ internal fun stripMetrics(
     contentLeft: Float,
     contentWidth: Float,
     density: Density,
-    /** Two columns: the strips span the whole content, so their halves sit over the feed's. */
-    fullWidth: Boolean = false,
 ): StripMetrics = with(density) {
     val n = count.coerceAtLeast(1)
     val gap = HomeEditTokens.StripGap.toPx()
@@ -337,7 +300,7 @@ internal fun stripMetrics(
         pitch = pitch,
         stackHeight = stackHeight,
         left = contentLeft,
-        width = if (fullWidth) contentWidth else min(contentWidth, HomeEditTokens.StripMaxW.toPx()),
+        width = min(contentWidth, HomeEditTokens.StripMaxW.toPx()),
         top = top,
         coverSize = (height - HomeEditTokens.StripCoverInset.toPx())
             .coerceIn(HomeEditTokens.StripCoverMin.toPx(), HomeEditTokens.StripCoverMax.toPx()),
@@ -401,11 +364,8 @@ internal fun stripFrame(
     carried: Boolean,
     lift: Float,
     density: Density,
-    /** The slot's lane across the column (two columns: a half beside another strip). */
-    slotLeft: Float = metrics.left,
-    slotWidth: Float = metrics.width,
 ): StripFrame {
-    var slot = Rect(slotLeft, slotTop, slotLeft + slotWidth, slotTop + metrics.height)
+    var slot = Rect(metrics.left, slotTop, metrics.left + metrics.width, slotTop + metrics.height)
     if (carried) {
         val grow = LiftScale * lift / 2f
         slot = Rect(
@@ -430,12 +390,8 @@ internal fun stripFrame(
 }
 
 /** The drop hole at [holeY]: slot-sized, under every strip. */
-internal fun holeRect(
-    metrics: StripMetrics,
-    holeY: Float,
-    left: Float = metrics.left,
-    width: Float = metrics.width,
-): Rect = Rect(left, holeY, left + width, holeY + metrics.height)
+internal fun holeRect(metrics: StripMetrics, holeY: Float): Rect =
+    Rect(metrics.left, holeY, metrics.left + metrics.width, holeY + metrics.height)
 
 /** Feed sections fade out as the strips fold in: the exact complement of the strip plates. */
 internal fun feedFoldAlpha(fold: Float): Float = 1f - smoothstep(0f, FoldPlateEnd, fold)

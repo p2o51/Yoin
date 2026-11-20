@@ -150,9 +150,6 @@ internal fun HomeCarryStack(
     val liftedPlate = scheme.surfaceContainerHighest
     val hole = scheme.secondaryContainer
     val holeRadius = with(LocalDensity.current) { HomeEditTokens.PlateRadius.toPx() }
-    val indicator = scheme.primary
-    val indicatorWidth = with(LocalDensity.current) { HomeEditTokens.SideIndicatorWidth.toPx() }
-    val stripGap = with(LocalDensity.current) { HomeEditTokens.StripGap.toPx() }
     // One list per section for as long as [covers] holds: a new order must not hand the labels new lists.
     val coverCache = remember(covers) { HashMap<HomeSection, List<StripCover>>() }
     val coversOf = { section: HomeSection ->
@@ -168,24 +165,8 @@ internal fun HomeCarryStack(
                 val fold = engine.fold.value
                 val holeA = HomeEditTokens.HoleAlpha * holeAlpha(fold)
                 if (holeA > 0f) {
-                    val holeW = engine.holeW.value.takeIf { it > 0f } ?: live.metrics.width
-                    val holeX = if (engine.holeW.value > 0f) engine.holeX.value else live.metrics.left
-                    val rect = holeRect(live.metrics, engine.holeY.value, holeX, holeW)
+                    val rect = holeRect(live.metrics, engine.holeY.value)
                     drawRoundRect(hole, rect.topLeft, rect.size, CornerRadius(holeRadius), alpha = holeA)
-                    // Beside a block: a bar on the edge the carried strip will share with it.
-                    val bar = engine.sideIndicator.value * holeAlpha(fold)
-                    val side = live.side
-                    if (bar > 0f && side != null) {
-                        val barW = indicatorWidth
-                        val x = if (side == StripLane.Right) rect.left - stripGap / 2f else rect.right + stripGap / 2f
-                        drawRoundRect(
-                            indicator,
-                            Offset(x - barW / 2f, rect.top),
-                            Size(barW, rect.height),
-                            CornerRadius(barW / 2f),
-                            alpha = bar.coerceIn(0f, 1f),
-                        )
-                    }
                 }
                 for (section in live.ids) {
                     if (section == live.carried) continue
@@ -275,10 +256,7 @@ private fun StripLabel(
     val coverSize = with(LocalDensity.current) { size.coverSize.toDp() }
     Row(
         modifier = Modifier
-            .stripSized(
-                width = { engine.session?.let { engine.laneWidth(section).takeIf { w -> w > 0f } } ?: size.width },
-                height = size.height,
-            ) { if (engine.session?.carried == section) CarriedLabelZ else 0f }
+            .stripSized(size.width, size.height) { if (engine.session?.carried == section) CarriedLabelZ else 0f }
             .graphicsLayer {
                 val frame = engine.frameFor(section)
                 translationX = frame?.labelOffset?.x ?: 0f
@@ -371,13 +349,9 @@ private class StripRectShape(private val rect: Rect, private val radius: Float) 
  * layer moves it. [zIndex] is read as it is placed, so the carried label
  * rises above the others without recomposing.
  */
-private fun Modifier.stripSized(
-    width: () -> Float,
-    height: Float,
-    zIndex: () -> Float,
-): Modifier = layout { measurable, constraints ->
+private fun Modifier.stripSized(width: Float, height: Float, zIndex: () -> Float): Modifier = layout { measurable, constraints ->
     val placeable = measurable.measure(
-        Constraints.fixed(width().roundToInt().coerceAtLeast(0), height.roundToInt().coerceAtLeast(0)),
+        Constraints.fixed(width.roundToInt().coerceAtLeast(0), height.roundToInt().coerceAtLeast(0)),
     )
     layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0, zIndex()) }
 }
@@ -400,9 +374,6 @@ internal class LazyListCarryHost(
     private val safe: () -> HomeEditSafeArea,
     private val plateOutsetPx: () -> Size,
     private val density: Density,
-    /** Two columns: the pairs laid out side by side, left → right; null in one column. */
-    private val feedPairs: () -> Map<HomeSection, HomeSection>? = { null },
-    private val columnGapPx: Float = 0f,
 ) : CarryHost {
     // Last laid-out height per item key: the anchor's clamp needs the blocks above the dropped one.
     private val heights = HashMap<Any, Int>()
@@ -414,27 +385,17 @@ internal class LazyListCarryHost(
 
     override fun displayedOrder(): List<HomeSection> = order()
 
-    override fun twoColumn(): Boolean = feedPairs() != null
-
-    override fun pairs(): Map<HomeSection, HomeSection> = feedPairs().orEmpty()
-
     override fun plateRect(section: HomeSection): Rect? {
         val info = listState.layoutInfo
-        // A right half lives in its left partner's row item.
-        val pairs = feedPairs().orEmpty()
-        val leftOf = pairs.entries.firstOrNull { it.value == section }?.key
-        val key = carryItemKey(leftOf ?: section)
+        val key = carryItemKey(section)
         val item = info.visibleItemsInfo.firstOrNull { it.key == key } ?: return null
         val top = (item.offset - info.viewportStartOffset).toFloat()
         val outset = plateOutsetPx()
-        val width = contentWidth()
-        val half = (width - columnGapPx) / 2f
-        val left = contentLeft() + if (leftOf != null) half + columnGapPx else 0f
-        val cell = if (leftOf != null || section in pairs) half else width
+        val left = contentLeft()
         return Rect(
             left = left - outset.width,
             top = top - outset.height,
-            right = left + cell + outset.width,
+            right = left + contentWidth() + outset.width,
             bottom = top + item.size + outset.height,
         )
     }
@@ -509,16 +470,13 @@ internal fun rememberLazyListCarryHost(
     emittedKeys: () -> List<Any>,
     safeArea: () -> HomeEditSafeArea,
     plateOutsetPx: () -> Size,
-    pairs: () -> Map<HomeSection, HomeSection>? = { null },
-    columnGapPx: Float = 0f,
 ): LazyListCarryHost {
     val density = LocalDensity.current
-    val currentPairs by rememberUpdatedState(pairs)
     val currentOrder by rememberUpdatedState(order)
     val currentKeys by rememberUpdatedState(emittedKeys)
     val currentSafe by rememberUpdatedState(safeArea)
     val currentOutset by rememberUpdatedState(plateOutsetPx)
-    val host = remember(listState, feedFrame, density, columnGapPx) {
+    val host = remember(listState, feedFrame, density) {
         LazyListCarryHost(
             listState = listState,
             feedFrame = feedFrame,
@@ -527,8 +485,6 @@ internal fun rememberLazyListCarryHost(
             safe = { currentSafe() },
             plateOutsetPx = { currentOutset() },
             density = density,
-            feedPairs = { currentPairs() },
-            columnGapPx = columnGapPx,
         )
     }
     LaunchedEffect(host) { host.trackHeights() }

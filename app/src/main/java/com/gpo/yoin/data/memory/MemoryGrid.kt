@@ -82,11 +82,6 @@ fun buildMemoryGrid(
     zone: ZoneId,
     firstDayOfWeek: DayOfWeek = DayOfWeek.MONDAY,
     scale: MemoryGridScale? = null,
-    /**
-     * How many months, weeks (a week's cells) or weeks (a day's columns) back to show; null: the
-     * scale's own (6–12 months, 26 weeks, 17 weeks). A wide Home column shows further back.
-     */
-    periods: Int? = null,
 ): MemoryGrid {
     val dated = entries.map { it.localDate(zone) to it }
     val lookbackStart = today.minusDays((MemoryGrid.LOOKBACK_DAYS - 1).toLong())
@@ -96,13 +91,12 @@ fun buildMemoryGrid(
         MemoryGridScale.Month -> {
             val now = YearMonth.from(today)
             val oldest = dated.minOfOrNull { (day, _) -> day }?.let(YearMonth::from) ?: now
-            val back = periods?.coerceAtLeast(1) ?: (oldest.until(now, java.time.temporal.ChronoUnit.MONTHS).toInt() + 1)
+            val back = (oldest.until(now, java.time.temporal.ChronoUnit.MONTHS).toInt() + 1)
                 .coerceIn(MemoryGrid.MIN_MONTHS, MemoryGrid.MAX_MONTHS)
             (back - 1 downTo 0).map { ago -> now.minusMonths(ago.toLong()).let { it.atDay(1)..it.atEndOfMonth() } }
         }
         MemoryGridScale.Week, MemoryGridScale.Day -> {
-            val weeks = periods?.coerceAtLeast(1)
-                ?: if (chosen == MemoryGridScale.Week) MemoryGrid.WEEKS else MemoryGrid.DAY_WEEKS
+            val weeks = if (chosen == MemoryGridScale.Week) MemoryGrid.WEEKS else MemoryGrid.DAY_WEEKS
             val thisWeek = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
             val first = thisWeek.minusWeeks((weeks - 1).toLong())
             if (chosen == MemoryGridScale.Week) {

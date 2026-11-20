@@ -95,21 +95,12 @@ internal class HomeEditHitTester(
     private val plateOutsetPx: () -> Size,
     private val editing: () -> Boolean,
     private val isHiding: (HomeSection) -> Boolean = { false },
-    /** Two columns: the pairs laid out side by side (left → right) and the gap between them, px. */
-    private val pairs: () -> Map<HomeSection, HomeSection> = { emptyMap() },
-    private val columnGapPx: Float = 0f,
 ) {
     fun hitTest(positionInBox: Offset): HomeEditHit {
         if (targets.isExcluded(positionInBox)) return HomeEditHit.Excluded
         val layoutInfo = listState.layoutInfo
+        val bands = homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, isHiding)
         val content = contentBounds()
-        val bands = splitPairBands(
-            homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, isHiding),
-            pairs(),
-            content.start,
-            content.endInclusive,
-            columnGapPx,
-        )
         val editing = editing()
         return resolveHomeEditHit(
             position = positionInBox,
@@ -156,15 +147,11 @@ internal fun resolveHomeEditHit(
     editing: Boolean,
     handle: HomeSection? = null,
 ): HomeEditHit {
-    fun SectionBand.block(): HomeEditHit.Block {
-        val left = left ?: contentLeft
-        val right = right ?: contentRight
-        return HomeEditHit.Block(
-            section = id,
-            local = Offset(position.x - left, position.y - top),
-            size = Size((right - left).coerceAtLeast(0f), bottom - top),
-        )
-    }
+    fun SectionBand.block() = HomeEditHit.Block(
+        section = id,
+        local = Offset(position.x - contentLeft, position.y - top),
+        size = Size((contentRight - contentLeft).coerceAtLeast(0f), bottom - top),
+    )
     if (handle != null) {
         bands.firstOrNull { it.id == handle }?.block()?.let { return HomeEditHit.Handle(handle, it.local, it.size) }
     }
@@ -743,8 +730,6 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
             executor.run(actions, machine)
         }
 
-        // The carry reads the finger's x for side drops (two columns).
-        deps.engine.fingerX = down.position.x
         step(
             HomeEditGestureEvent.Down(
                 hit = deps.hitTester.hitTest(down.position),
@@ -788,10 +773,7 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
                         // Consumed before the Initial pass reached us: a system cancel, or an ancestor took it.
                         change.isConsumed -> step(HomeEditGestureEvent.Cancel(t))
                         !change.pressed -> step(HomeEditGestureEvent.Up(t))
-                        change.positionChanged() -> {
-                            deps.engine.fingerX = change.position.x
-                            step(HomeEditGestureEvent.Move(change.position, t))
-                        }
+                        change.positionChanged() -> step(HomeEditGestureEvent.Move(change.position, t))
                     }
                     if (consuming) change.consume()
                 }
