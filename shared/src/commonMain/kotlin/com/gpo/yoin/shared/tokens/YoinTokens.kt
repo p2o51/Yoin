@@ -397,6 +397,17 @@ object YoinTokens {
         /** SectionHeader: padding above / below. */
         const val SECTION_HEADER_TOP = 18.0
         const val SECTION_HEADER_BOTTOM = 6.0
+
+        /**
+         * The All page's rows per type before its "show all" (docs/search.md, "Ordering and caps").
+         * Counts, not lengths. Artists have none yet: their number follows their form (a list or a
+         * one-row strip), which is still to be chosen.
+         */
+        const val ALL_SONGS_PREVIEW = 5
+        const val ALL_ALBUMS_PREVIEW = 3
+        const val ALL_MEMORIES_PREVIEW = 2
+        const val ALL_NOTES_PREVIEW = 2
+        const val ALL_PLAYLISTS_PREVIEW = 3
     }
 
     /**
