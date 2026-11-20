@@ -219,11 +219,31 @@ class HomeJbiRichShelfTest {
             candidate("e", rating = null),
             candidate("latest", review = true),
         )
-        val one = pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest")
-        val picks = pickJbiMemoryCandidates(candidates, avoidRawAlbumId = "latest", count = 4)
+        val one = pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = 1)
+        val picks = pickJbiMemoryCandidates(candidates, avoidRawAlbumId = "latest", count = 4, turn = 1)
         assertEquals(one, picks.first())
         assertEquals(listOf("b", "d", "a", "c"), picks.map { it.albumId })
-        assertEquals(listOf("b"), pickJbiMemoryCandidates(candidates, "latest", count = 1).map { it.albumId })
+        assertEquals(listOf("b"), pickJbiMemoryCandidates(candidates, "latest", count = 1, turn = 1).map { it.albumId })
+    }
+
+    @Test
+    fun should_takeTurnsEachOpening_when_severalMemoriesQualify() {
+        val candidates = listOf(
+            candidate("a"),
+            candidate("b", review = true),
+            candidate("c"),
+            candidate("e", rating = null),
+            candidate("latest", review = true),
+        )
+        // Each opening the next qualifying memory; the same within one; never the header's latest.
+        assertEquals(
+            listOf("a", "b", "c", "a"),
+            (0L..3L).map { turn -> pickJbiMemoryCandidate(candidates, avoidRawAlbumId = "latest", turn = turn)?.albumId },
+        )
+        assertEquals(
+            pickJbiMemoryCandidate(candidates, "latest", turn = 20_000L),
+            pickJbiMemoryCandidate(candidates, "latest", turn = 20_000L),
+        )
     }
 
     @Test

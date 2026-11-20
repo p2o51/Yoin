@@ -115,6 +115,8 @@ class HomeViewModel(
     private val snapshotStore: HomeSnapshotStore? = null,
     // Where a snapshot and its account's layout are read ([readSnapshot]).
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // Whose turn Jump Back In's memory 1×2 is (AppContainer.jbiMemoryTurn): one more each time the app opens.
+    private val jbiMemoryTurn: Long = 0L,
     // Jump Back In cards hidden for a while from edit mode (HomeJbiHidden.kt).
     private val jbiHiddenStore: JbiHiddenStore = JbiHiddenStore.InMemory(),
     // YoinRepository.playlistRenames: a playlist renamed on its page reaches
@@ -2184,6 +2186,7 @@ class HomeViewModel(
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
             count = 1 + JBI_EXTRA_MEMORY_CARDS,
+            turn = jbiMemoryTurn,
         ).map { candidate -> toMemoryCard(candidate) }
         return MemorySignals(
             pill = pill,
@@ -2537,6 +2540,7 @@ class HomeViewModel(
                 switchingState = container.profileManager.switchingState,
                 snapshotStore = container.homeSnapshotStore,
                 jbiHiddenStore = container.jbiHiddenStore,
+                jbiMemoryTurn = container.jbiMemoryTurn,
                 playlistRenames = container.repository.playlistRenames,
                 playlistDeletions = container.playlistDeletions.state,
             ) as T
@@ -2823,30 +2827,30 @@ internal fun memoryCardBasis(
 }
 
 /**
- * The grid's memory 1×2 keeps the owner's recipe — the strongest memory with
- * a review, else with any rating — but prefers a different album than the
- * header pill already shows; the same album only when nothing else qualifies.
- * [preferRawAlbumId] (the album a live splice already shows) wins while it
- * still qualifies, so a write on it updates the card in place instead of
- * swapping albums under the user.
+ * The memory Jump Back In's first 1×2 shows. Every qualifying memory (a review, an album score or a
+ * track average) takes a turn, the next one each time the app opens ([turn], owner 2026-11-20:
+ * "每次打开都是同一张专辑…不能每天打开都是同一张"); within one opening it stays, so a refresh never
+ * jumps. Never the header's latest memory ([avoidRawAlbumId]) while another qualifies; the album
+ * already shown ([preferRawAlbumId]) stays while it qualifies, so writing on it doesn't reshuffle the grid.
  */
 internal fun pickJbiMemoryCandidate(
     candidates: List<AlbumMemoryCandidate>,
     avoidRawAlbumId: String?,
     preferRawAlbumId: String? = null,
+    turn: Long = 0L,
 ): AlbumMemoryCandidate? {
     fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
     fun AlbumMemoryCandidate.qualifies(): Boolean =
         hasAlbumReview || albumRating != null || averageSongRating != null
-    fun pick(pool: List<AlbumMemoryCandidate>): AlbumMemoryCandidate? =
-        pool.firstOrNull { it.hasAlbumReview }
-            ?: pool.firstOrNull { it.albumRating != null || it.averageSongRating != null }
     if (preferRawAlbumId != null) {
         candidates.firstOrNull { it.rawAlbumId() == preferRawAlbumId && it.qualifies() }
             ?.let { return it }
     }
-    val others = candidates.filterNot { candidate -> candidate.rawAlbumId() == avoidRawAlbumId }
-    return pick(others) ?: pick(candidates)
+    // A stable order that doesn't follow recent activity, so the turn really moves on.
+    val qualifying = candidates.filter { it.qualifies() }.distinctBy { it.rawAlbumId() }.sortedBy { it.rawAlbumId() }
+    val pool = qualifying.filterNot { it.rawAlbumId() == avoidRawAlbumId }.ifEmpty { qualifying }
+    if (pool.isEmpty()) return null
+    return pool[Math.floorMod(turn, pool.size.toLong()).toInt()]
 }
 
 /**
@@ -2860,8 +2864,9 @@ internal fun pickJbiMemoryCandidates(
     avoidRawAlbumId: String?,
     preferRawAlbumId: String? = null,
     count: Int = 1,
+    turn: Long = 0L,
 ): List<AlbumMemoryCandidate> {
-    val first = pickJbiMemoryCandidate(candidates, avoidRawAlbumId, preferRawAlbumId) ?: return emptyList()
+    val first = pickJbiMemoryCandidate(candidates, avoidRawAlbumId, preferRawAlbumId, turn) ?: return emptyList()
     if (count <= 1) return listOf(first)
     fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
     val firstAlbum = first.rawAlbumId()
