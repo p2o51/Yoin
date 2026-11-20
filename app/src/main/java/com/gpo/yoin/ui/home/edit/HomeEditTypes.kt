@@ -30,9 +30,6 @@ enum class HomeEditChangeKind {
 
     /** A section's row preset (the resize handle, its keyboard keys, TalkBack). */
     Rows,
-
-    /** A section turned half or full width in two columns (the handle's horizontal axis). */
-    Span,
 }
 
 /** One applied layout edit, handed to the Home layer so it can animate it. [serial] increases per change. */

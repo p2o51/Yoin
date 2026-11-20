@@ -1230,36 +1230,7 @@ private class SeamPrintNode :
     }
 }
 
-/**
- * A sideways seam text fades against (Home's paging half-column shelves): the
- * front lines of the tide on its left and right edges, in root px, while it
- * shows; text fades in over [SideSeamLines.band] past each line.
- */
-internal fun interface SeamSideEdges {
-    /** The lines now, or null when the shelf rests on a page (no line, no fade). Read in draw. */
-    fun lines(): SideSeamLines?
-}
-
-/** Root x of the left and right lines, and the fade band past them, px. */
-internal class SideSeamLines(val left: Float, val right: Float, val band: Float)
-
-/** The sideways seam text in this subtree fades against; null almost everywhere. */
-internal val LocalSeamSideEdges = androidx.compose.runtime.staticCompositionLocalOf<SeamSideEdges?> { null }
-
-private class SeamFadeNode(var fontSize: TextUnit) : SeamNode(), CompositionLocalConsumerModifierNode {
-    private fun sideEdges(): SeamSideEdges? = currentValueOf(LocalSeamSideEdges)
-
-    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
-        super.onGloballyPositioned(coordinates)
-        // A paging shelf moves its text sideways, far from any top seam: redraw against its lines.
-        if (sideEdges() != null) {
-            sideLeft = coordinates.positionInRoot().x
-            invalidateDraw()
-        }
-    }
-
-    private var sideLeft = 0f
-
+private class SeamFadeNode(var fontSize: TextUnit) : SeamNode() {
     private val paint = Paint()
     private var host: SeamPrintNode? = null
     var liftedLayer: GraphicsLayer? = null
@@ -1334,46 +1305,22 @@ private class SeamFadeNode(var fontSize: TextUnit) : SeamNode(), CompositionLoca
     }
 
     private fun ContentDrawScope.drawFaded(fade: TextFade?) {
-        val side = sideEdges()?.lines()?.takeIf {
-            // Only text the band reaches.
-            sideLeft < it.left + it.band || sideLeft + size.width > it.right - it.band
-        }
-        if (fade == null && side == null) {
+        if (fade == null) {
             drawContent()
             return
         }
-        val bounds = fade?.bounds ?: Rect(-size.width, -size.height, size.width * 2f, size.height * 2f)
-        drawIntoCanvas { it.saveLayer(bounds, paint) }
+        drawIntoCanvas { it.saveLayer(fade.bounds, paint) }
         drawContent()
-        if (fade != null) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colorStops = TextFadeStops,
-                    startY = fade.seam,
-                    endY = fade.seam + fade.length,
-                ),
-                topLeft = fade.bounds.topLeft,
-                size = fade.bounds.size,
-                blendMode = BlendMode.DstIn,
-            )
-        }
-        if (side != null) {
-            // The sideways seam: clear before each line, then 1 − (1 − x′)² over the band past it.
-            val left = side.left - sideLeft
-            val right = side.right - sideLeft
-            drawRect(
-                brush = Brush.horizontalGradient(colorStops = TextFadeStops, startX = left, endX = left + side.band),
-                topLeft = bounds.topLeft,
-                size = bounds.size,
-                blendMode = BlendMode.DstIn,
-            )
-            drawRect(
-                brush = Brush.horizontalGradient(colorStops = TextFadeStops, startX = right, endX = right - side.band),
-                topLeft = bounds.topLeft,
-                size = bounds.size,
-                blendMode = BlendMode.DstIn,
-            )
-        }
+        drawRect(
+            brush = Brush.verticalGradient(
+                colorStops = TextFadeStops,
+                startY = fade.seam,
+                endY = fade.seam + fade.length,
+            ),
+            topLeft = fade.bounds.topLeft,
+            size = fade.bounds.size,
+            blendMode = BlendMode.DstIn,
+        )
         drawIntoCanvas { it.restore() }
     }
 }

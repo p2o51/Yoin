@@ -135,9 +135,6 @@ internal object HomeEditTokens {
     val StripMaxH = 64.dp
     val StripMaxW = 560.dp
 
-    /** The side-drop bar between a block and the half the carried strip will take (two columns). */
-    val SideIndicatorWidth = 4.dp
-
     /** Cover edge = strip height − this, clamped to [StripCoverMin]..[StripCoverMax]. */
     val StripCoverInset = 24.dp
     val StripCoverMin = 24.dp

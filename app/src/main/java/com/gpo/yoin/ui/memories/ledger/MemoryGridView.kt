@@ -121,12 +121,8 @@ internal fun MemoryGridView(
     albumColors: Map<String, LedgerAlbumColors>? = null,
     // Where the grid's squares are, for the page's lift into the top bar.
     lift: MemoryGridLift? = null,
-    // Home's two columns: every cell of [grid] in this many columns (a month's quads, a week's cells, a
-    // day's weeks), the cell size following the width it is given. Null: the placement's own layout.
-    columns: Int? = null,
 ) {
     val cells = when {
-        columns != null -> grid.cells
         grid.scale == MemoryGridScale.Month && placement == MemoryGridPlacement.Home -> grid.cells.takeLast(6)
         else -> grid.cells
     }
@@ -141,7 +137,7 @@ internal fun MemoryGridView(
             offset = offset,
             paint = paint,
             outline = outline,
-            columns = columns ?: if (placement == MemoryGridPlacement.Home) 6 else 4,
+            columns = if (placement == MemoryGridPlacement.Home) 6 else 4,
             selected = selected,
             onCellClick = onCellClick,
             caption = monthCaption,
@@ -152,7 +148,7 @@ internal fun MemoryGridView(
             val week = grid.scale == MemoryGridScale.Week
             CellWall(
                 cells = cells,
-                columns = columns ?: if (week) 13 else 17,
+                columns = if (week) 13 else 17,
                 rows = if (week) 2 else 7,
                 columnMajor = !week,
                 gap = if (week) 5.dp else 3.dp,
