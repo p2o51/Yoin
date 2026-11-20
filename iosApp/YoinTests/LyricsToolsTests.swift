@@ -390,4 +390,81 @@ final class LyricsToolsTests: XCTestCase {
         XCTAssertTrue(lab.usesAccentOnColor("npPills", dark: true))
         XCTAssertTrue(lab.usesContainerOnColor("npFloating", dark: true))
     }
+
+    // MARK: Translation toggle re-seat (iphone17pro ticket)
+
+    func test_should_reseatActiveLine_when_translationsExpandAboveWhileFollowing() {
+        let viewport: CGFloat = 520
+        let seatShare: CGFloat = 0.4
+        // 30 lines before translation: 44pt each + 4pt spacing, starting at y=48.
+        var preRows: [Int: CGRect] = [:]
+        for i in 0..<30 {
+            preRows[i] = CGRect(x: 0, y: 48 + CGFloat(i) * 48, width: 360, height: 44)
+        }
+        let preHeight: CGFloat = 48 + 30 * 48 + 144
+        let preY = ExpandedLyricsList.seatOffset(for: 25, rows: preRows, viewport: viewport,
+                                                 contentHeight: preHeight, seatShare: seatShare)!
+
+        // Translations toggle ON: each line grows by +26pt (70pt tall + 4pt spacing = 74pt stride).
+        var postRows: [Int: CGRect] = [:]
+        for i in 0..<30 {
+            postRows[i] = CGRect(x: 0, y: 48 + CGFloat(i) * 74, width: 360, height: 70)
+        }
+        let postHeight: CGFloat = 48 + 30 * 74 + 144
+
+        // Without re-seating, keeping preY shoves row 25 completely past the bottom of the 520pt viewport.
+        XCTAssertGreaterThan(postRows[25]!.minY - preY, viewport)
+
+        let postY = ExpandedLyricsList.translationReseatOffset(
+            follow: true,
+            active: 25,
+            firstSeat: 0,
+            lineCount: 30,
+            anchor: ExpandedLyricsList.viewportAnchor(rows: preRows, contentOffsetY: preY),
+            rows: postRows,
+            viewport: viewport,
+            contentHeight: postHeight,
+            seatShare: seatShare
+        )
+        XCTAssertNotNil(postY)
+        // Active line 25 is cleanly re-seated inside the clean band [16, 520 - 64].
+        let visualTop = postRows[25]!.minY - postY!
+        let visualBottom = postRows[25]!.maxY - postY!
+        XCTAssertGreaterThanOrEqual(visualTop, ExpandedLyricsList.fadeTop)
+        XCTAssertLessThanOrEqual(visualBottom, viewport - ExpandedLyricsList.fadeBottom)
+    }
+
+    func test_should_preserveReadingAnchor_when_translationsToggleWhileManualBrowsing() {
+        let viewport: CGFloat = 520
+        var preRows: [Int: CGRect] = [:]
+        for i in 0..<30 {
+            preRows[i] = CGRect(x: 0, y: 48 + CGFloat(i) * 48, width: 360, height: 44)
+        }
+        // User manually scrolled so line 8 (minY=432, maxY=476) is the first visible line past fadeTop (420+16=436).
+        let manualY: CGFloat = 420
+        let anchor = ExpandedLyricsList.viewportAnchor(rows: preRows, contentOffsetY: manualY)
+        XCTAssertEqual(anchor?.row, 8)
+
+        // Translations turn ON: every row grows by +26pt.
+        var postRows: [Int: CGRect] = [:]
+        for i in 0..<30 {
+            postRows[i] = CGRect(x: 0, y: 48 + CGFloat(i) * 74, width: 360, height: 70)
+        }
+        let postHeight: CGFloat = 48 + 30 * 74 + 144
+
+        let postY = ExpandedLyricsList.translationReseatOffset(
+            follow: false,
+            active: 25,
+            firstSeat: 0,
+            lineCount: 30,
+            anchor: anchor,
+            rows: postRows,
+            viewport: viewport,
+            contentHeight: postHeight,
+            seatShare: 0.4
+        )
+        XCTAssertNotNil(postY)
+        // Line 8 stays at the exact same visual Y in the viewport (does not jump to active line 25).
+        XCTAssertEqual(postRows[8]!.minY - postY!, anchor!.visualTop, accuracy: 0.001)
+    }
 }

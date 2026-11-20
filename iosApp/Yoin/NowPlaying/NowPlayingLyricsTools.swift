@@ -239,6 +239,11 @@ struct ExpandedLyricsList: View {
                 }
                 .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
                 .onAppear { seat(animated: false) }
+                .onChange(of: lines) { _, _ in
+                    offset.rows.removeAll(keepingCapacity: true)
+                    seat(animated: false)
+                }
+                .onChange(of: translations) { _, _ in reseatForTranslations() }
                 .onChange(of: active) { _, line in
                     seat(animated: true)
                     onActiveLine?(line)
@@ -363,18 +368,102 @@ struct ExpandedLyricsList: View {
         return window?.bounds.height ?? 0
     }
 
-    /// The content offset that seats row [i]; nil before it has been laid out.
-    private func seatY(_ i: Int, seatShare: CGFloat? = nil) -> CGFloat? {
-        guard let row = offset.rows[i], offset.viewport > 0 else { return nil }
-        let bandTop = Self.fadeTop
-        let bandBottom = max(bandTop, offset.viewport - Self.fadeBottom)
-        let share = seatShare ?? Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
-                                                         screen: Self.screenHeight)
+    /// Captures the reader's visual reading anchor before a layout shift (e.g. toggling translations while
+    /// manual-browsing): the first row whose bottom extends past the top fade and its visual Y in the viewport.
+    struct ViewportAnchor: Equatable, Sendable {
+        let row: Int
+        let visualTop: CGFloat
+    }
+
+    static func viewportAnchor(rows: [Int: CGRect], contentOffsetY: CGFloat, fadeTop: CGFloat = fadeTop) -> ViewportAnchor? {
+        let cutoff = contentOffsetY + fadeTop
+        let visible = rows
+            .filter { $0.value.maxY > cutoff }
+            .min { $0.value.minY < $1.value.minY }
+        guard let (id, rect) = visible else { return nil }
+        return ViewportAnchor(row: id, visualTop: rect.minY - contentOffsetY)
+    }
+
+    /// Pure target content offset for seating row `i` at `seatShare` inside the clean band between edge fades.
+    static func seatOffset(for i: Int, rows: [Int: CGRect], viewport: CGFloat, contentHeight: CGFloat,
+                           seatShare: CGFloat) -> CGFloat? {
+        guard let row = rows[i], viewport > 0 else { return nil }
+        let bandTop = fadeTop
+        let bandBottom = max(bandTop, viewport - fadeBottom)
         let rowTop = row.height >= bandBottom - bandTop
             ? bandTop
-            : min(max(bandTop + (bandBottom - bandTop) * share - row.height / 2, bandTop), bandBottom - row.height)
-        let maxY = max(0, offset.contentHeight - offset.viewport)
+            : min(max(bandTop + (bandBottom - bandTop) * seatShare - row.height / 2, bandTop), bandBottom - row.height)
+        let maxY = max(0, contentHeight - viewport)
         return min(max(row.minY - rowTop, 0), maxY)
+    }
+
+    /// Target content offset after row heights change due to toggling translations:
+    /// - Following (`follow == true`): re-seats the active line in the clean band so expanding lines above never push it off-screen.
+    /// - Manual browse (`follow == false`): keeps `anchor` at its pre-toggle visual position in the viewport.
+    static func translationReseatOffset(
+        follow: Bool,
+        active: Int,
+        firstSeat: Int,
+        lineCount: Int,
+        anchor: ViewportAnchor?,
+        rows: [Int: CGRect],
+        viewport: CGFloat,
+        contentHeight: CGFloat,
+        seatShare: CGFloat
+    ) -> CGFloat? {
+        guard viewport > 0 else { return nil }
+        if follow {
+            guard active >= firstSeat, active < lineCount else { return nil }
+            return seatOffset(for: active, rows: rows, viewport: viewport, contentHeight: contentHeight, seatShare: seatShare)
+        }
+        guard let anchor, let row = rows[anchor.row] else { return nil }
+        let maxY = max(0, contentHeight - viewport)
+        return min(max(row.minY - anchor.visualTop, 0), maxY)
+    }
+
+    /// Re-seats after translations toggle on/off so expanding or collapsing lines above the active row
+    /// never pushes the highlighted line out of view (while `lyricsFollow` stays true and Recenter stays disabled).
+    private func reseatForTranslations() {
+        let anchor = Self.viewportAnchor(rows: offset.rows, contentOffsetY: offset.y)
+        let target = active
+        let keepFollowing = follow
+        offset.seating?.cancel()
+        offset.seating = Task { @MainActor in
+            // Wait ~3 frames for VStack + onGeometryChange / onScrollGeometryChange to report post-toggle frames.
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            let nextShare = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                                    screen: Self.screenHeight, stepped: false)
+            if let y = Self.translationReseatOffset(
+                follow: keepFollowing,
+                active: target,
+                firstSeat: firstSeat,
+                lineCount: lines.count,
+                anchor: anchor,
+                rows: offset.rows,
+                viewport: offset.viewport,
+                contentHeight: offset.contentHeight,
+                seatShare: nextShare
+            ) {
+                if keepFollowing {
+                    offset.settledSeatFraction = nextShare
+                    offset.seatWindowTop = offset.windowTop
+                    withAnimation(Yoin.spatial) { position.scrollTo(y: y) }
+                } else {
+                    position.scrollTo(y: y)
+                }
+            } else if keepFollowing, target >= firstSeat, target < lines.count {
+                withAnimation(Yoin.spatial) { position.scrollTo(id: target, anchor: .center) }
+            }
+        }
+    }
+
+    /// The content offset that seats row [i]; nil before it has been laid out.
+    private func seatY(_ i: Int, seatShare: CGFloat? = nil) -> CGFloat? {
+        let share = seatShare ?? Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                                         screen: Self.screenHeight)
+        return Self.seatOffset(for: i, rows: offset.rows, viewport: offset.viewport,
+                               contentHeight: offset.contentHeight, seatShare: share)
     }
 
     /// The title row's id: before the first line, as its index (-1) says (audit 11-15 #62, Android
