@@ -12,7 +12,7 @@
 ## 2. 产品概况（0.6.3 基线）
 
 - **定位与四端平台**：Spotoolfy 的原生重写续作，本地优先、多音源设计。
-  - **Android（`app/`）**：采用 Jetpack Compose 与 Material 3 Expressive 构建，已在 Google Play 封闭测试发布 **0.6.3（`versionCode 29`）**，需 Android 8.0（API 26）及以上，适配手机、折叠屏（如 Pixel Fold、Galaxy Z Fold）、平板与 Googlebook。
+  - **Android（`app/`）**：采用 Jetpack Compose 与 Material 3 Expressive 构建，已在 Google Play 封闭测试发布 **0.6.3（`versionCode 30`）**，需 Android 8.0（API 26）及以上，适配手机、折叠屏（如 Pixel Fold、Galaxy Z Fold）、平板与 Googlebook。
   - **iOS / iPadOS 与 macOS（`iosApp/` + `:shared`）**：基于 Kotlin Multiplatform `:shared` 核心与 SwiftUI（Liquid Glass、iPad 双角浮动胶囊与详情列/侧栏、单窗口模式；**0.6.3 Build 35**，并通过 iPad-on-Mac 多平台形态运行于 Mac），已在 `main` 分支合入与 `:shared`/Spotify 的对齐修复（原生 `YoinMac` 线已冻结），iPad 适配问题仍在持续完善。
   - **鸿蒙（`harmony/`）**：Flutter UI + ArkTS 原生模块，已合入 `main` 分支，适配华为手机、折叠屏（含 Pura X 外屏）与鸿蒙电脑（HarmonyOS 7 / API 26），处于开发与真机测试阶段（注：鸿蒙端暂不支持 Spotify App Remote SDK，且 ArkWeb 不支持 EME DRM，见 `docs/integrations/spotify-harmonyos.md`）。
 - **多账号与多音源**：

@@ -18,6 +18,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- CHANGE_WIFI_MULTICAST_STATE implies android.hardware.wifi and Apple MusicKit's bundled
+         auth activities declare screenOrientation="portrait"; keep both optional so tablets,
+         desktop, Chromebook and Android XR devices remain eligible on Google Play. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+
     <queries>
         <package android:name="com.apple.android.music" />
         <!-- The landing's Spotoolfy step opens it when installed (docs/spotoolfy-migration.md §5.2). -->
