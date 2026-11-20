@@ -54,6 +54,18 @@ the container rather than only in Spotify's cloud state.
 - **Reaching into the container.** There is no root, `/data` is unreadable, and the
   container's package manager is not visible to `bm dump -a`, so Yoin cannot inspect or
   drive the Android side directly.
+- **Spotify Web Playback SDK inside ArkWeb.** Measured on a Mate 70 Air (OpenHarmony 7.0,
+  ArkWeb 7.0.0.111, HuaweiBrowser 6.1.9.351): with a genuine secure context
+  (`window.isSecureContext === true`), `com.widevine.alpha`, `com.microsoft.playready`
+  and even `org.w3.clearkey` all reject with `NotSupportedError`. The EME API exists but
+  no CDM is registered, so the SDK cannot initialise — and Spotify asks for Widevine
+  specifically, never WisePlay. Do not offer "Web Playback SDK" in setup guidance; this
+  provider path is Connect-control only.
+
+  A trap worth recording: `navigator.requestMediaKeySystemAccess` is a `[SecureContext]`
+  API, so on a plain `http://<lan-ip>` page it is simply *undefined* — which reads
+  exactly like "unsupported". Always probe EME from `https://` or `127.0.0.1` (a `hdc
+  rport` forward is enough) and print `window.isSecureContext` on the page.
 
 ## Device identity
 
