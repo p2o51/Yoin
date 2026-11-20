@@ -150,16 +150,23 @@ class CloudSyncManager implements CloudSyncController {
     await _runCycle();
   });
 
-  /// The app went to the background: upload what's waiting.
+  /// The app went to the background: flush any debounced local capture and upload what's waiting.
   void onAppBackground() => _launch(() async {
     if (!_initialized || !_isEnabled()) return;
+    if (_debounce != null) {
+      _debounce?.cancel();
+      _debounce = null;
+      await _runLocalCapture();
+    }
     if (_engine().hasPendingChanges()) await _runCycle();
   });
 
   @override
   Future<void> ensureInitialized() {
     if (_initialized) return Future.value();
-    return _initializing ??= _initialize();
+    return _initializing ??= _initialize().whenComplete(() {
+      _initializing = null;
+    });
   }
 
   Future<void> _initialize() async {

@@ -163,7 +163,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  bool get _wide => YoinWindowInfo.of(context).layoutMode == LayoutMode.wide;
+  bool get _wide {
+    final window = YoinWindowInfo.of(context);
+    return !window.isCompactHeight && window.layoutMode == LayoutMode.wide;
+  }
 
   /// The listed account's provider (its page follows it); null when not listed.
   String? _providerOf(String profileId) => switch (ref.read(settingsViewModelProvider)) {

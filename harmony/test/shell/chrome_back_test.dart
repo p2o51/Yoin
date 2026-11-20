@@ -225,4 +225,22 @@ void main() {
     await tester.pump();
     expect(legacy, 1);
   });
+
+  testWidgets('should_rebindToNewTopRoute_when_attachCalledAfterPush', (tester) async {
+    await pumpApp(tester);
+    var hits = 0;
+    final entry = ChromeBackEntry(() => hits++, owns: () => true, priority: ChromeBackPriority.nowPlaying);
+    addTearDown(entry.dispose);
+    entry.attach(nav.currentState!);
+
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => const Text('settings')));
+    await tester.pumpAndSettle();
+    // Re-attaching must move the entry onto the newly pushed route so back reaches it first.
+    entry.attach(nav.currentState!);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(hits, 1);
+    expect(find.text('settings'), findsOneWidget);
+  });
 }

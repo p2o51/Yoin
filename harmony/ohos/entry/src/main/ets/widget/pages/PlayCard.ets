@@ -287,7 +287,7 @@ struct PlayCard {
           .height('100%')
           .aspectRatio(1)
           .onClick(() => this.open(item))
-        }, (item: CardItem) => item.id)
+        }, (item: CardItem) => `${item.id}|${item.image}|${item.title}|${item.subtitle}`)
       }
       .width('100%')
       .layoutWeight(1)

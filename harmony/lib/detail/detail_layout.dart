@@ -31,8 +31,12 @@ enum DetailLayout {
 /// The layout for [window] (the page's own container: a column reads its
 /// column's width). [hasShort]: the page has a Short portrait (the Album).
 /// Tabletop stays on the Compact path.
+/// Minimum width for the landscape side-by-side detail layout: a 1:1 outer screen
+/// (e.g. Pura X at 360×360) has height < 480 but cannot fit the 352 dp landscape cover band.
+const double _minLandscapeDetailWidth = 520;
+
 DetailLayout resolveDetailLayout(YoinWindowInfo window, {bool hasShort = false, double fontScale = 1}) {
-  if (window.isCompactHeight) return DetailLayout.landscape;
+  if (window.isCompactHeight && window.width >= _minLandscapeDetailWidth) return DetailLayout.landscape;
   return switch (window.layoutMode) {
     LayoutMode.wide => DetailLayout.wide,
     LayoutMode.medium => DetailLayout.medium,

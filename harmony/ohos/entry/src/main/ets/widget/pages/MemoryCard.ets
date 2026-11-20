@@ -292,7 +292,7 @@ struct MemoryCard {
       Row() {
         ForEach(this.items.slice(0, 4), (item: MemoryItem) => {
           this.TimelineItem(item)
-        }, (item: MemoryItem) => item.session)
+        }, (item: MemoryItem) => `${item.session}|${item.image}|${item.score}|${item.lastHeard}`)
       }
       .width('100%')
       .justifyContent(this.items.length > 2 ? FlexAlign.SpaceBetween : FlexAlign.SpaceAround)

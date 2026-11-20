@@ -1519,17 +1519,45 @@ class _FeedCarryHost implements CarryHost {
 }
 
 /// The feed's sections (or tray) under the fold: drawn, or skipped once the wash covers them (feedFoldShown).
-class _FoldGate extends StatelessWidget {
+class _FoldGate extends StatefulWidget {
   const _FoldGate({required this.fold, required this.sliver});
 
   final CarrySpring fold;
   final Widget sliver;
 
   @override
+  State<_FoldGate> createState() => _FoldGateState();
+}
+
+class _FoldGateState extends State<_FoldGate> {
+  late _FoldShown _shown;
+
+  @override
+  void initState() {
+    super.initState();
+    _shown = _FoldShown(widget.fold);
+  }
+
+  @override
+  void didUpdateWidget(_FoldGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.fold, widget.fold)) {
+      _shown.dispose();
+      _shown = _FoldShown(widget.fold);
+    }
+  }
+
+  @override
+  void dispose() {
+    _shown.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-    valueListenable: _FoldShown(fold),
+    valueListenable: _shown,
     builder: (context, shown, child) => _SliverPaintGate(shown: shown, sliver: child!),
-    child: sliver,
+    child: widget.sliver,
   );
 }
 

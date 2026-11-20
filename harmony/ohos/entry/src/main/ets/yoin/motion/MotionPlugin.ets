@@ -47,6 +47,7 @@ export default class YoinMotionPlugin implements FlutterPlugin, MethodCallHandle
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     this.channel = new MethodChannel(binding.getBinaryMessenger(), CHANNEL);
     this.channel.setMethodCallHandler(this);
+    this.read();
     this.watch();
   }
 
@@ -66,10 +67,14 @@ export default class YoinMotionPlugin implements FlutterPlugin, MethodCallHandle
 
   /** The settings now. */
   private read(): Map<string, Any> {
+    const reduce = YoinMotionPlugin.animationReduce();
+    const scale = this.animatorDurationScale();
+    const save = YoinMotionPlugin.powerSave();
+    AppStorage.setOrCreate('yoinReducedMotion', reduce || scale === 0 || save);
     const map: Map<string, Any> = new Map();
-    map.set('animationReduce', YoinMotionPlugin.animationReduce());
-    map.set('animatorDurationScale', this.animatorDurationScale());
-    map.set('powerSave', YoinMotionPlugin.powerSave());
+    map.set('animationReduce', reduce);
+    map.set('animatorDurationScale', scale);
+    map.set('powerSave', save);
     return map;
   }
 

@@ -211,12 +211,18 @@ class GoogleOAuth implements GoogleSyncAuthorizer {
     final uri = request.uri;
     final params = uri.queryParameters;
     final ours = params['state'] == state && (params.containsKey('code') || params.containsKey('error'));
-    request.response
-      ..statusCode = ours ? HttpStatus.ok : HttpStatus.notFound
-      ..headers.contentType = ContentType.html;
-    if (ours) request.response.write(_returnPage);
-    await request.response.close();
+    // Complete before writing the browser page: if the browser disconnects while switching back to Yoin,
+    // the authorization code must never be lost or throw an unhandled zone error.
     if (ours && !waiting.isCompleted) waiting.complete(uri);
+    try {
+      request.response
+        ..statusCode = ours ? HttpStatus.ok : HttpStatus.notFound
+        ..headers.contentType = ContentType.html;
+      if (ours) request.response.write(_returnPage);
+      await request.response.close();
+    } catch (_) {
+      // Browser already closed the loopback socket after sending the redirect.
+    }
   }
 
   /// The page the browser shows once Google sent it back: nothing to do but

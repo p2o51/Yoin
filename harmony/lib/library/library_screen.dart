@@ -298,11 +298,12 @@ class _ConnectPrompt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = YoinStrings.of(context);
+    final libraryStrings = LibraryStrings.of(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Subsonic', style: Theme.of(context).textTheme.titleMedium),
+          Text(libraryStrings.connectAccountPrompt, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
           FilledButton.tonalIcon(
             style: FilledButton.styleFrom(shape: const StadiumBorder(), minimumSize: const Size(0, 56)),

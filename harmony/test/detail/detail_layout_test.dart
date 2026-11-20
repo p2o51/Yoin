@@ -53,6 +53,12 @@ void main() {
       const tabletop = YoinWindowInfo(700, 800, isTabletop: true);
       expect(resolveDetailLayout(tabletop), DetailLayout.compact);
     });
+
+    test('should_notEnterLandscape_when_squareOuterScreenLikePuraX', () {
+      const puraX = YoinWindowInfo(360, 360);
+      expect(resolveDetailLayout(puraX, hasShort: true), DetailLayout.short);
+      expect(resolveDetailLayout(puraX, hasShort: false), DetailLayout.compact);
+    });
   });
 
   group('albumHeroFitsPortrait', () {

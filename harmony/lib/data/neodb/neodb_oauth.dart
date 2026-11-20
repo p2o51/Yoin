@@ -169,12 +169,16 @@ class NeoDbOAuth {
         uri.path == callbackPath &&
         params['state'] == state &&
         (params.containsKey('code') || params.containsKey('error'));
-    request.response
-      ..statusCode = ours ? HttpStatus.ok : HttpStatus.notFound
-      ..headers.contentType = ContentType.html;
-    if (ours) request.response.write(_returnPage);
-    await request.response.close();
     if (ours && !waiting.isCompleted) waiting.complete(uri);
+    try {
+      request.response
+        ..statusCode = ours ? HttpStatus.ok : HttpStatus.notFound
+        ..headers.contentType = ContentType.html;
+      if (ours) request.response.write(_returnPage);
+      await request.response.close();
+    } catch (_) {
+      // Browser already closed the loopback socket after sending the redirect.
+    }
   }
 
   /// The browser's page once NeoDB sent it back (the one cloud sync shows).

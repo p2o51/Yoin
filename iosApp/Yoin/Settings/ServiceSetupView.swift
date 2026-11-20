@@ -35,6 +35,7 @@ struct ServiceSetupView: View {
     @State private var clientId = SpotifyConfig.clientId ?? ""
     /// Android SpotifyDeveloperGroup: a one-time developer chore, open by itself only while it blocks.
     @State private var clientIdOpen = (SpotifyConfig.clientId ?? "").isEmpty
+    @State private var showSpotifyGuide = false
     @FocusState private var focus: Field?
 
     private enum TestResult: Equatable { case testing, reachable, failed(String) }
@@ -684,10 +685,24 @@ struct ServiceSetupView: View {
             .accessibilityValue(clientIdOpen ? String(localized: "Expanded") : String(localized: "Collapsed"))
             if clientIdOpen {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Create an app at developer.spotify.com and register these redirect URIs:")
+                    Text("Create an app at developer.spotify.com, check Web API and iOS, and register these redirect URIs:")
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        focus = nil
+                        showSpotifyGuide = true
+                    } label: {
+                        Text("Open Spotify for Developers")
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(app.onSecondaryContainer)
+                            .padding(.horizontal, 18)
+                            .frame(minHeight: 40)
+                            .background(app.secondaryContainer, in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(PressScale())
+                    .padding(.vertical, 2)
                     CopyRow(value: SpotifyConfig.redirectURI, scheme: app)
                     CopyRow(value: SpotifyConfig.appRemoteRedirectURI, scheme: app)
                     // App Remote also needs the app's iOS bundle ID on the Spotify app (as the welcome guide lists it).
@@ -698,11 +713,21 @@ struct ServiceSetupView: View {
                             .padding(.top, 4)
                         CopyRow(value: bundle, scheme: app)
                     }
-                    field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
-                          text: $clientId, field: .clientId)
-                        // The field brings a row's own inset; here it lines up with the copy rows.
-                        .padding(.horizontal, -16)
-                        .padding(.top, 2)
+                    HStack(alignment: .center, spacing: 8) {
+                        field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
+                              text: $clientId, field: .clientId)
+                            // The field brings a row's own inset; here it lines up with the copy rows.
+                            .padding(.leading, -16)
+                        PasteButton(payloadType: String.self) { items in
+                            if let raw = items.first {
+                                let extracted = SpotifyClientIdExtractor.extract(from: raw)
+                                if !extracted.isEmpty { clientId = extracted }
+                            }
+                        }
+                        .labelStyle(.titleAndIcon)
+                        .tint(app.primary)
+                    }
+                    .padding(.top, 2)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -710,6 +735,9 @@ struct ServiceSetupView: View {
             }
         }
         .clipped()
+        .sheet(isPresented: $showSpotifyGuide) {
+            SpotifyDeveloperGuideSheet()
+        }
     }
 
     private func infoRow(_ label: String, _ value: String?, ink: Color? = nil) -> some View {

@@ -108,9 +108,8 @@ class ChromeBackEntry extends PopEntry<Object?> {
   /// (Android: a shell back owner other than None).
   static bool get anyTakesBack => _unarbitrated.isNotEmpty || _arbitrated.any((e) => e.owns!());
 
-  /// Registers on [navigator]'s top route (no-op if already attached).
+  /// Registers on [navigator]'s top route (rebinds if already attached to a covered route).
   void attach(NavigatorState navigator) {
-    if (_route != null) return;
     ModalRoute<Object?>? top;
     // popUntil with a predicate true at the top route pops nothing: it is
     // the public way to read the current route.
@@ -119,7 +118,8 @@ class ChromeBackEntry extends PopEntry<Object?> {
       return true;
     });
     final route = top;
-    if (route == null) return;
+    if (route == null || identical(_route, route)) return;
+    if (_route != null) detach();
     route.registerPopEntry(this);
     _route = route;
     (owns != null ? _arbitrated : _unarbitrated).add(this);
