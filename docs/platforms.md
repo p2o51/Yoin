@@ -2,7 +2,7 @@
 
 Yoin runs natively across **four operating systems** — **Android**, **iOS & iPadOS**, **macOS** (iPad-on-Mac multiplatform), and **HarmonyOS** — backed by three music providers (**Subsonic / OpenSubsonic**, **Spotify**, and **Apple Music**).
 
-> **Branch Note:** All four platforms — `app/` (Android `0.6.3+`), `harmony/` (HarmonyOS), `shared/` (KMP), and `iosApp/` (`0.6.5` parity & Spotify fixes) — are unified on `main`. Native `YoinMac` is **frozen**; macOS ships via the iPadOS multiplatform target ("Designed for iPad", `Platform.current.isMac`).
+> **Branch Note:** All four platforms — `app/` (Android `0.6.3`), `harmony/` (HarmonyOS), `shared/` (KMP), and `iosApp/` (`0.6.3`, `:shared` parity & Spotify fixes) — are unified on `main`. Native `YoinMac` is **frozen**; macOS ships via the iPadOS multiplatform target ("Designed for iPad", `Platform.current.isMac`).
 
 ---
 
@@ -72,7 +72,7 @@ See [cloud-sync.md](cloud-sync.md) for schema and conflict rules. Across all pla
 ### Adaptive Windowing, Keyboard Shortcuts & Desktop Input
 
 - **Adaptive Layout**: Follow [adaptive-principles.md](adaptive-principles.md).
-  - Android: `MainActivity` adapts from compact handset to medium/expanded foldable/tablet with 2-column detail panes (`ui/navigation/pane/`), `feedUnits` (`N`) density, and edge-bleed shelves.
+  - Android: `MainActivity` adapts from compact handset to medium/expanded foldable/tablet with 2-column detail panes (`ui/navigation/pane/`), `feedUnits` (`N`) density, edge-bleed shelves, and a two-column unit-height Home grid (`HomeGridUnits`, side-by-side layout in Edit Home, shelf page arrows).
   - iPadOS / macOS: `PadShell` supports 2-column / 3-column layouts with a draggable column split handle (`iosApp/docs/ipad.md`). Single-scene on iOS/Mac (`UIApplicationSupportsMultipleScenes: false`).
   - HarmonyOS: Responsive Dart shell + `PosturePlugin.ets` (fold posture) & `WindowPlugin.ets` + desktop/Windows development runner (`harmony/docs/windows.md`).
 - **Keyboard Shortcuts & Pointer**:
@@ -111,7 +111,7 @@ Legend: **Shipped** | **Partial** (scoped difference noted) | **Planned / Absent
 | **Continue On / Handoff** | Android 17+ (`ContinueOnPauseServer` + card) | Apple Handoff (`com.gpo.yoin.playing`) | Apple Handoff | HarmonyOS 应用接续 (`ContinueOnPlugin.ets` + TCP pause channel) |
 | **Widgets & Service Cards** | Glance `PlayWidget` & `MemoryWidget` | WidgetKit `PlayWidgetView` & `MemoryWidgetView` | Same WidgetKit targets | FormKit `PlayCard.ets` & `MemoryCard.ets` (`1×2`, `2×2`, `2×4`) |
 | **Screen Corners & Scroll Edge** | `ScreenCorners` (0–64 dp slider + device display detection) + `ScrollEdge` | **Absent** (system handles corners/edges via iOS Liquid Glass / standard scroll) | **Absent** | `ScreenCornerControl` (for devices/emulators) + `ScrollEdge` |
-| **Tips (`HomeBubbleTip`)** | 28 tips (with interactive real-component demos) | **26 tips** on iPad/Mac (**25** on iPhone; includes `AiServices` & `CloudSync`; 100% live `DemoPhone` coverage; omits Android `ScreenCorners`, `ScrollEdge`, `SettingsRegrouped`) | Same as iOS iPad (`26` tips) | **36** entries in `home_bubble_tips.dart` (`available()` returns **36** on foldable, **35** on non-foldable, **33** on desktop; omits Spotify-only & Nano-only tips; covers Cast/DLNA and user-picked `LyricHighlight`) |
+| **Tips (`HomeBubbleTip`)** | 29 tips (with interactive real-component demos, including `MemorySearch`) | **26 tips** on iPad/Mac (**25** on iPhone; includes `AiServices` & `CloudSync`; 100% live `DemoPhone` coverage; omits Android `ScreenCorners`, `ScrollEdge`, `SettingsRegrouped`) | Same as iOS iPad (`26` tips) | **36** entries in `home_bubble_tips.dart` (`available()` returns **36** on foldable, **35** on non-foldable, **33** on desktop; omits Spotify-only & Nano-only tips; covers Cast/DLNA and user-picked `LyricHighlight`) |
 
 ---
 

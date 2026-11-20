@@ -107,7 +107,7 @@ flowchart TD
 ## 平台状态
 
 - **Android (`0.6.3`)**：正在 Google Play 封闭测试（需 Android 8.0+），前往 [yoin.gojyuplus.com/zh/](https://yoin.gojyuplus.com/zh/) 约两分钟即可加入。
-- **iOS 与 iPadOS (`0.6.0`)**：开发中，首个版本已具备多账号播放、Memories、全部 Memories、基于 Apple Intelligence 的歌词卡片、iPad 分栏布局及与 Android 互通的 Google Drive 同步。
+- **iOS 与 iPadOS (`0.6.3`)**：开发中，已具备多账号播放、Memories、全部 Memories、基于 Apple Intelligence 的歌词卡片、iPad 分栏布局及与 Android 互通的 Google Drive 同步。
 - **鸿蒙 (`harmony/`)**：原生鸿蒙版本正在开发中，适配鸿蒙手机与二合一 PC。
 
 ## 构建
