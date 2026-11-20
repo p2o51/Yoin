@@ -50,6 +50,13 @@ interface MemoryLedgerDao {
     @Query("SELECT * FROM album_memory_titles")
     suspend fun titles(): List<AlbumMemoryTitle>
 
+    /** The AI's titles for album memories, every account's: what search matches when the listener gave none. */
+    @Query(
+        "SELECT profileId, provider, entityId AS albumId, title FROM memory_copy_cache " +
+            "WHERE entityType = '" + MemoryCopyCache.ENTITY_ALBUM + "' AND title IS NOT NULL AND title != ''",
+    )
+    suspend fun aiTitles(): List<LedgerAiTitleRow>
+
     /** What Yoin's own plays know about each album: its name, artist and cover, from the latest play. */
     @Query(
         "SELECT profileId, provider, albumId, album AS albumName, artist, coverArtId, MAX(playedAt) AS playedAt " +
@@ -88,6 +95,14 @@ data class LedgerTrackRatingRow(
     val linkedAlbumId: String?,
     /** The song's name, when Yoin played it or a note names it. */
     val title: String? = null,
+)
+
+data class LedgerAiTitleRow(
+    val profileId: String,
+    val provider: String,
+    /** As stored: [com.gpo.yoin.data.model.MediaId.storedRawId] turns it into the raw id. */
+    val albumId: String,
+    val title: String,
 )
 
 data class LedgerAlbumFactRow(
