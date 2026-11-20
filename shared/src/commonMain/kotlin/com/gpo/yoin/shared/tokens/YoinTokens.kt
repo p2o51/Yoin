@@ -399,15 +399,12 @@ object YoinTokens {
         const val SECTION_HEADER_BOTTOM = 6.0
 
         /**
-         * The All page's rows per type before its "show all" (docs/search.md, "Ordering and caps").
-         * Counts, not lengths. Artists have none yet: their number follows their form (a list or a
-         * one-row strip), which is still to be chosen.
+         * The All page (owner 2026-11-20, #Yoin:#18): each section shows at most this many rows of
+         * Home-style tiles, of which at most [ALL_MAX_WIDE] are 1×2 (a note or memory beside its
+         * cover); the rest wait behind the section's "show all". Counts, not lengths.
          */
-        const val ALL_SONGS_PREVIEW = 5
-        const val ALL_ALBUMS_PREVIEW = 3
-        const val ALL_MEMORIES_PREVIEW = 2
-        const val ALL_NOTES_PREVIEW = 2
-        const val ALL_PLAYLISTS_PREVIEW = 3
+        const val ALL_MAX_ROWS = 4
+        const val ALL_MAX_WIDE = 3
     }
 
     /**

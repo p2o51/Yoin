@@ -131,14 +131,15 @@ class MemorySearchTest {
     }
 
     @Test
-    fun `song notes and track scores don't make an album a memory`() {
+    fun `song notes and track scores aren't a memory to search, yet they mark the cover as on Home`() {
         val a = album(active, "a1", "Peter Pan")
         val entries = listOf(
             entry("n1", MemoryLedgerKind.SongNote, a, "note", trackTitle = "x"),
             entry("r1", MemoryLedgerKind.TrackRating, a, score = 9f),
         )
         assertTrue(search(entries, "peter").memories.isEmpty())
-        assertTrue(memoryAttachments(listOf(remoteAlbum("a1", "Peter Pan")), entries, active).isEmpty())
+        val mark = memoryAttachments(listOf(remoteAlbum("a1", "Peter Pan")), entries, active).values.single().mark
+        assertEquals(LedgerMark(LedgerMarkKind.TrackAverage, 9f, 1), mark)
     }
 
     @Test

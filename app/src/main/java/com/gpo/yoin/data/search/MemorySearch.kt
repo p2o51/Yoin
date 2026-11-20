@@ -28,6 +28,23 @@ enum class MemoryHitField(val tier: MatchTier) {
     AlbumNote(MatchTier.Body),
 }
 
+/** What kind of mark an album's cover wears (Home's rule, HomeAlbumMemoryMark.kt): your score, else your tracks' average, else notes. */
+enum class LedgerMarkKind { AlbumRating, TrackAverage, NotesOnly }
+
+/** An album's memory mark: what [com.gpo.yoin.ui.home.HomeAlbumMemoryMark] draws. Reviews and titles alone wear none. */
+data class LedgerMark(val kind: LedgerMarkKind, val score: Float?, val noteCount: Int)
+
+/** The mark for one album's ledger [entries] (any kinds), or null when nothing on it earns one. */
+fun ledgerMarkOf(entries: List<MemoryLedgerEntry>): LedgerMark? {
+    val notes = entries.count { it.kind == MemoryLedgerKind.AlbumNote || it.kind == MemoryLedgerKind.SongNote }
+    entries.filter { it.kind == MemoryLedgerKind.AlbumRating }.maxByOrNull { it.at }?.score?.let {
+        return LedgerMark(LedgerMarkKind.AlbumRating, it, notes)
+    }
+    val tracks = entries.filter { it.kind == MemoryLedgerKind.TrackRating }.mapNotNull { it.score }
+    if (tracks.isNotEmpty()) return LedgerMark(LedgerMarkKind.TrackAverage, tracks.average().toFloat(), notes)
+    return if (notes > 0) LedgerMark(LedgerMarkKind.NotesOnly, null, notes) else null
+}
+
 /** An album memory the query met: one row per album in one account, at its best hit. */
 data class MemorySearchHit(
     val album: MemoryLedgerAlbum,
@@ -45,6 +62,8 @@ data class MemorySearchHit(
     val lastAt: Long,
     /** Kept on an account other than the one in use: what earns a source badge. */
     val isOtherAccount: Boolean,
+    /** The cover's memory mark. */
+    val mark: LedgerMark? = null,
 )
 
 /** A song note the query met. Opening it plays the song from [positionMs]. */
@@ -94,6 +113,8 @@ data class MemoryAttachment(
     val title: String?,
     val albumScore: Float?,
     val lastAt: Long,
+    /** The cover's memory mark; null when only a review or title is kept (they wear none, as on Home). */
+    val mark: LedgerMark? = null,
 )
 
 /** The ledger kinds that make an album a memory: any writing, or an album score. A song's score alone doesn't. */
@@ -115,19 +136,21 @@ fun searchMemoryLedger(
     if (query.isBlank || entries.isEmpty()) return MemorySearchMatches.Empty
 
     val byAlbum = LinkedHashMap<String, MutableList<MemoryLedgerEntry>>()
+    val everything = HashMap<String, MutableList<MemoryLedgerEntry>>()
     val notes = ArrayList<NoteSearchHit>()
     for (entry in entries) {
         if (entry.kind == MemoryLedgerKind.SongNote) {
             noteHit(entry, query, activeProfileId)?.let(notes::add)
         }
         val album = entry.album ?: continue
+        everything.getOrPut(album.key) { ArrayList() } += entry
         if (entry.makesMemory && entry.kind != MemoryLedgerKind.SongNote) {
             byAlbum.getOrPut(album.key) { ArrayList() } += entry
         }
     }
 
-    val memories = byAlbum.values.mapNotNull { albumEntries ->
-        memoryHit(albumEntries, query, activeProfileId, aiTitles)
+    val memories = byAlbum.mapNotNull { (key, albumEntries) ->
+        memoryHit(albumEntries, query, activeProfileId, aiTitles)?.copy(mark = ledgerMarkOf(everything[key].orEmpty()))
     }
     return MemorySearchMatches(
         memories = memories.sortedWith(
@@ -239,21 +262,29 @@ fun memoryAttachments(
     if (activeProfileId == null || albums.isEmpty()) return emptyMap()
     val wanted = albums.associateBy { ledgerAlbumKey(activeProfileId, it.id.provider, it.id.rawId) }
     val found = HashMap<String, MutableList<MemoryLedgerEntry>>()
+    val everything = HashMap<String, MutableList<MemoryLedgerEntry>>()
     entries.forEach { entry ->
         val key = entry.album?.key ?: return@forEach
-        if (key in wanted && entry.makesMemory && entry.kind != MemoryLedgerKind.SongNote) {
+        if (key !in wanted) return@forEach
+        everything.getOrPut(key) { ArrayList() } += entry
+        if (entry.makesMemory && entry.kind != MemoryLedgerKind.SongNote) {
             found.getOrPut(key) { ArrayList() } += entry
         }
     }
-    return found.mapNotNull { (key, kept) ->
+    // A memory, or anything that marks the cover on Home (a song's note or score counts there).
+    return everything.mapNotNull { (key, all) ->
         val album = wanted[key] ?: return@mapNotNull null
+        val kept = found[key].orEmpty()
+        val mark = ledgerMarkOf(all)
+        if (kept.isEmpty() && mark == null) return@mapNotNull null
         val title = kept.filter { it.kind == MemoryLedgerKind.Title }.maxByOrNull { it.at }?.text
             ?: aiTitles[key]
         album.id to MemoryAttachment(
             albumKey = key,
             title = title?.takeIf { it.isNotBlank() },
             albumScore = kept.filter { it.kind == MemoryLedgerKind.AlbumRating }.maxByOrNull { it.at }?.score,
-            lastAt = kept.maxOf { it.at },
+            lastAt = all.maxOf { it.at },
+            mark = mark,
         )
     }.toMap()
 }
