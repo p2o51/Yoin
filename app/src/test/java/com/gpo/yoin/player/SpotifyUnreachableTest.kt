@@ -289,6 +289,59 @@ class SpotifyUnreachableTest {
         assertEquals(SpotifyConnectFailure.SpotifyAsleep, snapshots.last().connectionFailure)
     }
 
+    // 51's OPPO tablet, 11-20: Spotify woken from a long sleep answered only after the wake
+    // grace; Yoin had stopped trying and never showed what the user then played in Spotify.
+    @Test
+    fun should_showWhatSpotifyPlays_when_theWokenSpotifyAnswersOnlyAfterTheGrace() = playerTest {
+        val player = hintShown()
+        player.onHostStop()
+        runCurrent()
+        player.onHostStart(context)
+        advanceTimeBy(SPOTIFY_WAKE_GRACE_MS + 2_000)
+        runCurrent()
+        assertEquals(SpotifyConnectFailure.SpotifyAsleep, snapshots.last().connectionFailure)
+
+        appRemote.initialState = state(uri = "spotify:track:theirs", paused = false)
+        appRemote.answers = true
+        advanceTimeBy(10_000)
+        runCurrent()
+
+        assertEquals(MediaId.spotify("theirs"), snapshots.last().currentTrack?.id)
+        assertNull(snapshots.last().pendingTrack)
+        assertEquals(0, webStarts)
+        assertEquals(1, spotifyLaunches)
+    }
+
+    @Test
+    fun should_notConnect_when_yoinIsOffScreenWhileTheStartIsHeld() = playerTest {
+        val player = hintShown()
+        player.onHostStop()
+        runCurrent()
+        val before = appRemote.connects
+
+        appRemote.answers = true
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        assertEquals(before, appRemote.connects)
+    }
+
+    @Test
+    fun should_stopTrying_when_spotifyNeverAnswersAfterTheHint() = playerTest {
+        val player = hintShown()
+        player.onHostStop()
+        runCurrent()
+        player.onHostStart(context)
+        val before = appRemote.connects
+
+        advanceTimeBy(10 * 60_000)
+        runCurrent()
+
+        val tried = appRemote.connects - before
+        assertTrue("tried $tried times", tried in 3..(SPOTIFY_HELD_RETRY_MAX + 4))
+        assertEquals(SpotifyConnectFailure.SpotifyAsleep, snapshots.last().connectionFailure)
+    }
+
     @Test
     fun should_dropTheHeldSong_when_spotifyCouldntBeOpenedAndTheHintWasDismissed() = playerTest {
         spotifyOpenable = false

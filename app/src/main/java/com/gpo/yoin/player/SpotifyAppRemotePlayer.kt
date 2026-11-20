@@ -309,6 +309,9 @@ internal class SpotifyAppRemotePlayer(
      */
     private var wakingSpotify: Boolean = false
 
+    /** Connects tried for a held start since it was held or Yoin came back ([scheduleHeldRetry]). */
+    private var heldRetries: Int = 0
+
     /**
      * The other device Spotify plays on while App Remote isn't connected: Yoin drives it
      * through the Web API ([connectWeb]) and polls its state ([webPollJob]). Null otherwise.
@@ -333,6 +336,7 @@ internal class SpotifyAppRemotePlayer(
             parked = false
             dropHeldStart()
         }
+        if (parked) heldRetries = 0 // back on screen: the held start gets a fresh round of tries
         if (wantsConnection) {
             connectIfPossible()
             if (pendingOperations.isNotEmpty()) armUnreachableWatch()
@@ -1100,8 +1104,9 @@ internal class SpotifyAppRemotePlayer(
         connectJob = scope.launch {
             // Host resume / retry path: if the previous attempt ended in
             // Error, move back to Connecting so UI doesn't render a stuck
-            // error while we try again.
-            if (lastSnapshot.connectionPhase == ConnectionPhase.Error) {
+            // error while we try again. Not for a held start's quiet retries
+            // ([scheduleHeldRetry]): its hint stays up until Spotify answers.
+            if (lastSnapshot.connectionPhase == ConnectionPhase.Error && !parked) {
                 publish(
                     lastSnapshot.copy(
                         connectionPhase = ConnectionPhase.Connecting,
@@ -1111,9 +1116,19 @@ internal class SpotifyAppRemotePlayer(
                 )
             }
             runCatching {
-                connect(context, clientId)
+                // While Spotify wakes or a start is held, one attempt may not hang (the SDK
+                // waits ~30 s): a slow or stuck connect counts as "not answering yet", and the
+                // next one is tried ([scheduleHeldRetry]); a connect that hung used to block
+                // every later one (OPPO, 11-20).
+                if (wakingSpotify || parked) {
+                    withTimeoutOrNull(SPOTIFY_CONNECT_ATTEMPT_TIMEOUT_MS) { connect(context, clientId) }
+                        ?: throw SpotifyDisconnectedException()
+                } else {
+                    connect(context, clientId)
+                }
             }.onSuccess { connected ->
                 Log.d(tag, "connectIfPossible: connected")
+                heldRetries = 0
                 unreachableWatch?.cancel()
                 unreachableWatch = null
                 wakingSpotify = false
@@ -1439,6 +1454,12 @@ internal class SpotifyAppRemotePlayer(
                 }
                 return
             }
+            // Already said (the start is held): keep trying while Yoin is on screen, so a
+            // Spotify that answers late is still reached and shows what it plays.
+            if (parked) {
+                scheduleHeldRetry()
+                return
+            }
             reportUnreachable()
             return
         }
@@ -1542,7 +1563,10 @@ internal class SpotifyAppRemotePlayer(
         // here used to leave nothing that could ever connect while a start was held.
         // Said again for the start already held (the woken Spotify still didn't answer): the
         // user's opening Spotify for it still counts.
-        if (!parked) openedForStart = false
+        if (!parked) {
+            openedForStart = false
+            heldRetries = 0
+        }
         parked = true
         // Spotify was opened and still didn't answer within the grace: the next tap may open it again.
         val wasWaking = wakingSpotify
@@ -1572,6 +1596,25 @@ internal class SpotifyAppRemotePlayer(
                 }
                 publishError(SpotifyConnectFailure.SpotifyAsleep, message)
             }
+        }
+        // Nothing left trying to connect (the waking retries were cut above): keep trying.
+        if (connectJob?.isActive != true) scheduleHeldRetry()
+    }
+
+    /**
+     * One more connect for the held start, with backoff, while Yoin is on screen and the
+     * start is still held: Spotify woken from a long sleep can take far longer than the wake
+     * grace to answer App Remote (51's OPPO tablet, 11-20), and nothing tried again after it.
+     * Ends after [SPOTIFY_HELD_RETRY_MAX] tries; a new tap or Yoin coming back starts over.
+     */
+    private fun scheduleHeldRetry() {
+        if (!parked || hostContext == null || heldRetries >= SPOTIFY_HELD_RETRY_MAX) return
+        val wait = heldRetryDelay(heldRetries++)
+        Log.d(tag, "scheduleHeldRetry: try ${heldRetries} in ${wait}ms")
+        retryJob?.cancel()
+        retryJob = scope.launch {
+            delay(wait)
+            if (parked && hostContext != null && remote?.isConnected != true) connectIfPossible()
         }
     }
 
@@ -2018,6 +2061,15 @@ internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 1_500L
  * before saying it's asleep: after a long sleep, its first App Remote connection takes seconds.
  */
 internal const val SPOTIFY_WAKE_GRACE_MS = 8_000L
+
+/** One App Remote connect, while Spotify wakes or a start is held, before it counts as "not answering yet". */
+internal const val SPOTIFY_CONNECT_ATTEMPT_TIMEOUT_MS = 4_000L
+
+/** Connects tried for a held start after the hint (about 45 s with [heldRetryDelay]). */
+internal const val SPOTIFY_HELD_RETRY_MAX = 14
+
+/** Backoff between connects for a held start: 0.8 s, 1.6 s, then every 3.2 s. */
+internal fun heldRetryDelay(attempt: Int): Long = (800L shl attempt.coerceAtMost(2))
 
 /** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
 internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L
