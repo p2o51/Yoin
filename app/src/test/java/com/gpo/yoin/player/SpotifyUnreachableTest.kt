@@ -14,6 +14,7 @@ import com.spotify.android.appremote.api.PlayerApi
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.NotLoggedInException
 import com.spotify.android.appremote.api.error.SpotifyDisconnectedException
+import com.spotify.android.appremote.api.error.UserNotAuthorizedException
 import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.ErrorCallback
 import com.spotify.protocol.client.Subscription
@@ -310,6 +311,41 @@ class SpotifyUnreachableTest {
         assertNull(snapshots.last().pendingTrack)
         assertEquals(0, webStarts)
         assertEquals(1, spotifyLaunches)
+    }
+
+    // Rebecca's review of #278: the user opens Spotify by hand (not from the hint), plays a
+    // song there and comes back; the woken Spotify's first connect is a spurious not-authorized.
+    @Test
+    fun should_showWhatSpotifyPlays_when_theUserOpenedSpotifyThemselvesAndItRefusesOnce() = playerTest {
+        spotifyOpenable = false
+        val player = hintShown()
+        player.onHostStop()
+        runCurrent()
+
+        appRemote.failWith = UserNotAuthorizedException("not authorized", null)
+        player.onHostStart(context)
+        runCurrent()
+        appRemote.failWith = null
+        appRemote.answers = true
+        appRemote.initialState = state(uri = "spotify:track:theirs", paused = false)
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(MediaId.spotify("theirs"), snapshots.last().currentTrack?.id)
+        assertEquals(0, webStarts)
+    }
+
+    // A first connect that never answers (the SDK waits ~30 s) no longer holds up the tries.
+    @Test
+    fun should_keepTrying_when_theFirstConnectHangs() = playerTest {
+        val player = hintShown()
+        val before = appRemote.connects
+
+        advanceTimeBy(6_000)
+        runCurrent()
+
+        assertTrue("tried ${appRemote.connects - before}", appRemote.connects - before >= 1)
+        player.onHostStop()
     }
 
     @Test
