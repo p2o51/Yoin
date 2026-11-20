@@ -93,15 +93,11 @@ import java.util.concurrent.TimeUnit
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class AppContainer(private val context: Context) {
 
-    /**
-     * Which turn Home's memory 1×2 is on: one more every time the app starts, kept on this device, so each
-     * opening shows the next memory (owner 2026-11-20, #Yoin:5f7233e7: "不能每天打开都是同一张").
-     */
-    val jbiMemoryTurn: Long by lazy {
-        val prefs = context.getSharedPreferences("yoin_home_jbi", Context.MODE_PRIVATE)
-        val turn = prefs.getLong("memory_turn", 0L) + 1L
-        prefs.edit().putLong("memory_turn", turn).apply()
-        turn
+    /** Whose turn Home's memory 1×2s are: the next each app start or return after half an hour away. */
+    val jbiMemoryTurn: com.gpo.yoin.ui.home.JbiMemoryTurn by lazy {
+        com.gpo.yoin.ui.home.JbiMemoryTurn(context.getSharedPreferences("yoin_home_jbi", Context.MODE_PRIVATE)).also { turn ->
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(turn)
+        }
     }
 
     private val applicationScope =
