@@ -22,7 +22,7 @@
   - **评分、笔记、搜索与 Memories**：0.1 精度滑动评分（含填充边缘分色与删号时清理待发服务器队列）、锚定到秒的时间戳笔记、专辑「剪贴簿」、专辑 Memories 与「全部 Memories」总账；**资料库搜索支持跨全部已登录账号搜索 Memories 与笔记**（「全部」页按卡片铺排并可点按跳至剪贴簿或从笔记对应秒数起播）；NeoDB 同步（评分与评论可独立同步，区分短评与长评）与「别人怎么说」（含 Discogs / MusicBrainz 公开评分展示）。
   - **歌词与本地化匹配**：逐行同步歌词与「聚焦」模式、制作人员（Credits）解析、多源查词（自动与手动查词涵盖 QQ 音乐、Spotoolfy 网易云网关、LRCLIB，手动搜索含华为音乐）；支持 Spotify 多语种原名（`Accept-Language`）+ MusicBrainz ISRC 反查与 Apple Music 店面区域/英文原名匹配，并支持整首歌词翻译（0.6.3 含底部柔和光波、逐行轻缓展开与拨弦触感）。
   - **在线 AI v2 与端侧 AI**（「设置 › 功能 › 在线 AI」）：在线模型支持 **Gemini**（默认 3.1 Flash-Lite，可选 3.5 Flash-Lite + Google 搜索）、**DeepSeek**、**通义千问（Qwen）**，以及 **自定义服务（OpenAI 与 Anthropic 兼容接口）**；自定义/外接搜索支持 **DeepSeek、Exa、Tavily、Brave、火山引擎豆包（Doubao）** 或关闭搜索；支持从最近播放的 6 首歌中「拿一首歌试试」、歌曲「关于」与 Ask 问答收入专辑「剪贴簿」。端侧 AI 支持 Android Gemini Nano（「歌词一句」与诊断页面）及 iOS Apple Intelligence 歌词要点。
-  - **迁移、备份、同步与桌面体验**：**歌单云端备份与恢复**（跨服务匹配与逐首审阅）、Spotoolfy 导入迁移、模块化主页（大屏支持双栏等高网格与并排编排，带条形栈编辑与首页隐藏底栏、「接着听」Memories 卡片随冷启动轮换）、桌面微件（Play / Memory）、预测性返回手势、键盘快捷键与指针悬停、屏幕圆角适配，以及 Google Drive `appDataFolder` 跨设备同步（含歌单备份同步）。
+  - **迁移、备份、同步与桌面体验**：**歌单云端备份与恢复**（跨服务匹配与逐首审阅）、Spotoolfy 导入迁移、模块化主页（带条形栈编辑与首页隐藏底栏、「接着听」Memories 卡片随冷启动轮换）、桌面微件（Play / Memory）、预测性返回手势、键盘快捷键与指针悬停、屏幕圆角适配，以及 Google Drive `appDataFolder` 跨设备同步（含歌单备份同步）。
 
 ## 3. 事实边界与准确表述
 
