@@ -461,7 +461,14 @@ struct NowPlayingView: View, Equatable {
         }
         .onChange(of: stage) { _, s in if s != .expanded { leaveLyricsSelect(follow: true) } }
         .onChange(of: stage) { old, s in if s == .expanded, old != .expanded { expandedFromFocus = old == .focus } }
-        .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
+        .onChange(of: tab) { _, t in
+            if t != NowPlayingDetailPage.lyrics.rawValue {
+                leaveLyricsSelect(follow: false)
+            } else if !lyricsFollow {
+                lyricsFollow = true
+                lyricsRecenterTick += 1
+            }
+        }
         // ⌘[ steps back inside this player before the shell closes it (AppModel.backFromKeyboard).
         .onAppear {
             guard demo == nil, npMorph?.mounted != false else { return }
