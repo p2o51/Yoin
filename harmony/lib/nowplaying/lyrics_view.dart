@@ -274,7 +274,10 @@ class _LyricsList extends StatefulWidget {
 
 class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
-  late final AnimationController _glide = AnimationController.unbounded(vsync: this)..addListener(_onGlide);
+  late final AnimationController _glide = AnimationController.unbounded(vsync: this)
+    ..addListener(_onGlide)
+    ..addStatusListener(_onGlideStatus);
+  bool _pendingReseat = false;
 
   /// Entrance: slides in from height / 12 and fades (song change, loaded).
   late final SpringValue _enter = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
@@ -433,6 +436,11 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         oldWidget.durationMs != widget.durationMs) {
       _recomputeOutro();
       _evaluateOutro();
+    }
+    if (oldWidget.showTranslation != widget.showTranslation && _full && _following) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _seat(animate: true);
+      });
     }
   }
 
@@ -650,11 +658,27 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     _glide.animateWith(SpringSimulation(YoinSprings.standardDefaultSpatial, _scroll.offset, target, 0));
   }
 
+  void _onGlideStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _pendingReseat) {
+      _pendingReseat = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_glide.isAnimating) _seat(animate: false);
+      });
+    }
+  }
+
   /// The content changed size (re-wrapped to a new width, a line's type
-  /// stepped): re-seat at once unless a glide is already on its way.
+  /// stepped, or translations expanded/collapsed): re-seat at once, or retarget
+  /// an active glide so line changes colliding with translation springs never stall off-target.
   bool _onContentResized(SizeChangedLayoutNotification n) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_glide.isAnimating) _seat(animate: false);
+      if (!mounted) return;
+      if (_glide.isAnimating) {
+        _pendingReseat = true;
+        _seat(animate: true);
+      } else {
+        _seat(animate: false);
+      }
     });
     return true;
   }
@@ -696,6 +720,9 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final selected = _selection?.selected ?? const <int>{};
     final hasHeader = full && (widget.title?.trim().isNotEmpty ?? false);
 
+    final textLocale = cjkLocaleForLines(rows.map((r) => r.text));
+    final secondaryLocale = full ? cjkLocaleForLines(rows.map((r) => r.translation ?? '')) : null;
+
     Widget row(int index, LyricRow line) {
       final key = _rowKeys.putIfAbsent(index, GlobalKey.new);
       final int distance = focus == -2 ? 99 : (index - focus).abs();
@@ -720,6 +747,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         playingInSelect: selecting && active,
         secondary: full ? line.translation : null,
         showSecondary: widget.showTranslation,
+        textLocale: textLocale,
+        secondaryLocale: secondaryLocale,
       );
       if (!full) return child;
       return GestureDetector(
@@ -1103,9 +1132,13 @@ class _LyricLineView extends StatefulWidget {
     this.runTop = true,
     this.runBottom = true,
     this.playingInSelect = false,
+    this.textLocale,
+    this.secondaryLocale,
   });
 
   final String text;
+  final Locale? textLocale;
+  final Locale? secondaryLocale;
   final bool active;
   final int distance;
 
@@ -1350,7 +1383,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
         final s = _scale.value;
         final lit = Color.lerp(colors.onSurfaceVariant, colors.primary, _on.value.clamp(0.0, 1.0))!;
         final color = Color.lerp(lit, colors.onPrimaryContainer, _picked.value.clamp(0.0, 1.0))!;
-        final line = Text(widget.text, style: style.copyWith(color: color));
+        final line = Text(widget.text, locale: widget.textLocale, style: style.copyWith(color: color));
         // Focus prints the row through its dots, its translation too (inside
         // the row's own scale, as Android's layer).
         Widget dotted(Widget row) => focusAnim == null
@@ -1385,6 +1418,7 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
                           padding: const EdgeInsets.only(top: LyricsPaneMetrics.secondaryGap),
                           child: Text(
                             secondary,
+                            locale: widget.secondaryLocale,
                             style: secondaryBase
                                 .merge(
                                   gsf(
@@ -1436,4 +1470,18 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
       },
     );
   }
+}
+
+final RegExp _kanaRe = RegExp(r'[\u3040-\u309F\u30A0-\u30FF]');
+final RegExp _hangulRe = RegExp(r'[\uAC00-\uD7AF\u1100-\u11FF]');
+
+/// Detects Japanese or Korean script across [lines] so Han glyphs render with
+/// the matching regional font instead of falling back to SC glyphs beside kana.
+Locale? cjkLocaleForLines(Iterable<String> lines) {
+  var hasHangul = false;
+  for (final line in lines) {
+    if (_kanaRe.hasMatch(line)) return const Locale('ja');
+    if (!hasHangul && _hangulRe.hasMatch(line)) hasHangul = true;
+  }
+  return hasHangul ? const Locale('ko') : null;
 }

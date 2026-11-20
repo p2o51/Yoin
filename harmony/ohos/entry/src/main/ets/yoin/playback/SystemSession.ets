@@ -66,6 +66,12 @@ export class SystemSession {
   private launchAgent: WantAgent | null = null;
   private pending: EngineSnapshot | null = null;
   private pumping: boolean = false;
+  /** Bumped on every rebind; an in-flight createAVSession for an older context is discarded. */
+  private contextEpoch: number = 0;
+  /** Old ability contexts queued for serialized retirement inside [pump]. */
+  private retireQueue: Array<common.UIAbilityContext> = [];
+  /** Set by the 10-minute paused timer so background stop runs serially inside [pump]. */
+  private pendingPausedStop: boolean = false;
   private remote: RemoteView | null = null;
   /** The continuous task's mode while it runs: AUDIO_PLAYBACK here, MULTI_DEVICE_CONNECTION while casting. */
   private backgroundMode: backgroundTaskManager.BackgroundMode = backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK;
@@ -156,8 +162,9 @@ export class SystemSession {
     }
     const old = this.context;
     this.context = context;
+    this.contextEpoch++;
     this.launchAgent = null;
-    this.retire(old);
+    this.retireQueue.push(old);
     this.offer(this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot());
   }
 
@@ -168,7 +175,7 @@ export class SystemSession {
     this.offer(new EngineSnapshot());
   }
 
-  private retire(old: common.UIAbilityContext): void {
+  private async retire(old: common.UIAbilityContext): Promise<void> {
     const session = this.session;
     const wasRunning = this.backgroundRunning;
     const task = this.audioTask;
@@ -178,14 +185,18 @@ export class SystemSession {
     this.resetSessionState();
     if (session !== null) {
       CastBridge.shared().detachSession(session);
-      session.destroy().catch((e: BusinessError) => {
-        hilog.warn(DOMAIN, TAG, 'old session destroy failed: %{public}s', describe(e));
-      });
+      try {
+        await session.destroy();
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'old session destroy failed: %{public}s', describe(e as BusinessError));
+      }
     }
     if (wasRunning && task !== null) {
-      ContinuousTasks.stop(old, task).catch((e: BusinessError) => {
-        hilog.warn(DOMAIN, TAG, 'old task stop failed: %{public}s', describe(e));
-      });
+      try {
+        await ContinuousTasks.stop(old, task);
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'old task stop failed: %{public}s', describe(e as BusinessError));
+      }
     }
   }
 
@@ -198,7 +209,21 @@ export class SystemSession {
 
   private async pump(): Promise<void> {
     this.pumping = true;
-    while (this.pending !== null) {
+    while (this.pending !== null || this.retireQueue.length > 0 || this.pendingPausedStop) {
+      while (this.retireQueue.length > 0) {
+        const old = this.retireQueue.shift()!;
+        await this.retire(old);
+      }
+      if (this.pendingPausedStop) {
+        this.pendingPausedStop = false;
+        const now = this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot();
+        if (!now.isPlaying && !now.playWhenReady) {
+          await this.stopBackground();
+        }
+      }
+      if (this.pending === null) {
+        continue;
+      }
       const s: EngineSnapshot = this.pending;
       this.pending = null;
       try {
@@ -228,7 +253,9 @@ export class SystemSession {
     if (this.session !== null) {
       return this.session;
     }
+    const epoch = this.contextEpoch;
     const session = await avSession.createAVSession(this.context, 'Yoin', 'audio');
+    let activated = false;
     try {
       session.on('play', () => this.key('play', () => this.engine.play()));
       session.on('pause', () => this.key('pause', () => this.engine.pause()));
@@ -242,33 +269,37 @@ export class SystemSession {
         const next = nextLoopMode(mode);
         this.key('playMode', () => this.applyLoopMode(next), loopModeValue(next));
       });
-    } catch (e) {
-      // A half-wired session would ignore the user's keys: drop it and retry on the next snapshot.
-      session.destroy().catch((err: BusinessError) => {
-        hilog.warn(DOMAIN, TAG, 'session destroy failed: %{public}s', describe(err));
-      });
-      throw e as Error;
+      try {
+        await session.setSupportedLoopModes([
+          avSession.LoopMode.LOOP_MODE_SEQUENCE,
+          avSession.LoopMode.LOOP_MODE_SINGLE,
+          avSession.LoopMode.LOOP_MODE_LIST,
+          avSession.LoopMode.LOOP_MODE_SHUFFLE
+        ]);
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'setSupportedLoopModes failed: %{public}s', describe(e as BusinessError));
+      }
+      try {
+        await session.setLaunchAbility(await this.getLaunchAgent());
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'setLaunchAbility failed: %{public}s', describe(e as BusinessError));
+      }
+      await session.activate();
+      if (epoch !== this.contextEpoch) {
+        throw new Error('ability context rebound during session activation');
+      }
+      this.session = session;
+      activated = true;
+      // Where the session plays (speaker, Bluetooth, a cast device) and the cast controller behind a remote one.
+      CastBridge.shared().attachSession(session);
+      return session;
+    } finally {
+      if (!activated) {
+        session.destroy().catch((err: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, 'session destroy failed: %{public}s', describe(err));
+        });
+      }
     }
-    this.session = session;
-    try {
-      await session.setSupportedLoopModes([
-        avSession.LoopMode.LOOP_MODE_SEQUENCE,
-        avSession.LoopMode.LOOP_MODE_SINGLE,
-        avSession.LoopMode.LOOP_MODE_LIST,
-        avSession.LoopMode.LOOP_MODE_SHUFFLE
-      ]);
-    } catch (e) {
-      hilog.warn(DOMAIN, TAG, 'setSupportedLoopModes failed: %{public}s', describe(e as BusinessError));
-    }
-    try {
-      await session.setLaunchAbility(await this.getLaunchAgent());
-    } catch (e) {
-      hilog.warn(DOMAIN, TAG, 'setLaunchAbility failed: %{public}s', describe(e as BusinessError));
-    }
-    await session.activate();
-    // Where the session plays (speaker, Bluetooth, a cast device) and the cast controller behind a remote one.
-    CastBridge.shared().attachSession(session);
-    return session;
   }
 
   /** The system's loop button (one axis) mapped back onto repeat × shuffle; the engine echoes it to Dart. */
@@ -420,7 +451,8 @@ export class SystemSession {
     const state = toPlaybackState(s);
     const key = `${state.state}|${s.index}|${state.loopMode}|${state.isFavorite}|${s.durationMs}|${s.currentId}`;
     const expected = this.lastPlaying ? this.lastElapsedMs + (s.sampledAtMs - this.lastUpdateMs) : this.lastElapsedMs;
-    const drifted = Math.abs(s.positionMs - expected) > POSITION_DRIFT_MS;
+    // Non-tick updates (including short seeks <= 1.5s) always refresh the lock-screen position.
+    const drifted = !s.tick || Math.abs(s.positionMs - expected) > POSITION_DRIFT_MS;
     if (key === this.stateKey && !drifted) {
       return;
     }
@@ -449,9 +481,9 @@ export class SystemSession {
     } else if (this.backgroundRunning && this.pausedTimer === -1) {
       this.pausedTimer = setTimeout(() => {
         this.pausedTimer = -1;
-        const now = this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot();
-        if (!now.isPlaying && !now.playWhenReady) {
-          this.stopBackground();
+        this.pendingPausedStop = true;
+        if (!this.pumping) {
+          this.pump();
         }
       }, PAUSED_TASK_TIMEOUT_MS);
     }

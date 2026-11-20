@@ -29,6 +29,13 @@ export interface AppleAuthToken {
  */
 export class AppleMusicAuthHost {
   private static pending: MethodResult | null = null;
+  private static attemptSeq: number = 0;
+  private static activeAttempt: number = 0;
+
+  /** Identifier of the currently active sign-in attempt (0 when none). */
+  static currentAttempt(): number {
+    return AppleMusicAuthHost.activeAttempt;
+  }
 
   /** Starts a sign-in for [endpoint], showing the overlay. One at a time. */
   static start(endpoint: string, result: MethodResult): void {
@@ -36,6 +43,7 @@ export class AppleMusicAuthHost {
       result.error('busy', 'A sign-in is already in progress', null);
       return;
     }
+    AppleMusicAuthHost.activeAttempt = ++AppleMusicAuthHost.attemptSeq;
     AppleMusicAuthHost.pending = result;
     AppStorage.setOrCreate(AM_AUTH_ENDPOINT, endpoint);
     AppStorage.setOrCreate(AM_AUTH_ACTIVE, true);
@@ -43,7 +51,10 @@ export class AppleMusicAuthHost {
   }
 
   /** The user signed in: hand the token back to Dart and hide the overlay. */
-  static resolve(musicUserToken: string, storefront: string): void {
+  static resolve(musicUserToken: string, storefront: string, attemptId?: number): void {
+    if (attemptId !== undefined && attemptId !== AppleMusicAuthHost.activeAttempt) {
+      return;
+    }
     const result = AppleMusicAuthHost.finish();
     if (result === null) {
       return;
@@ -58,7 +69,10 @@ export class AppleMusicAuthHost {
    * failure codes (`cancelled`, `auth_failed`, `page_failed`, `developer_token`).
    * [message] is kept short and never carries a token.
    */
-  static reject(code: string, message: string): void {
+  static reject(code: string, message: string, attemptId?: number): void {
+    if (attemptId !== undefined && attemptId !== AppleMusicAuthHost.activeAttempt) {
+      return;
+    }
     const result = AppleMusicAuthHost.finish();
     if (result === null) {
       return;
@@ -81,6 +95,7 @@ export class AppleMusicAuthHost {
   private static finish(): MethodResult | null {
     const result = AppleMusicAuthHost.pending;
     AppleMusicAuthHost.pending = null;
+    AppleMusicAuthHost.activeAttempt = 0;
     AppStorage.setOrCreate(AM_AUTH_ACTIVE, false);
     AppStorage.setOrCreate(AM_AUTH_ENDPOINT, '');
     return result;

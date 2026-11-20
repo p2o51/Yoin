@@ -622,6 +622,46 @@ void main() {
         expect((s.context as PlaylistPlaybackContext).name, 'Road', reason: 'PLAYING FROM survives the rebuild');
         expect(host.calls.where((x) => !x.startsWith('setFavorite')), isEmpty, reason: 'rehydration never restarts playback');
       });
+
+      test('should_clearPlayWhenReadyAndAllowPlayRetry_when_startQueueFails', () async {
+        // Start with an active queue, then fail a new start so the controller lands in playFailed.
+        await ctl().playTracks(playbackTracks(2));
+        await echo(0);
+        source = _ThrowingSource();
+        c.invalidate(activeSourceProvider);
+        await c.read(activeSourceProvider.future);
+        await ctl().playTracks(playbackTracks(2, prefix: 'b'));
+        expect(st().phase, PlaybackPhase.error);
+        expect(st().errorKind, PlaybackErrorKind.playFailed);
+        expect(st().playWhenReady, isFalse);
+
+        // Once the source recovers, tapping Play retries via startQueue instead of sending a bare resume.
+        source = PlaybackFakeSource();
+        c.invalidate(activeSourceProvider);
+        await c.read(activeSourceProvider.future);
+        engine.calls.clear();
+        await ctl().play();
+        expect(engine.calls, contains('startQueue'));
+        expect(st().playWhenReady, isTrue);
+      });
+
+      test('should_holdSeekPositionAcrossStaleTick_untilConfirmedOrExpired', () async {
+        await ctl().playTracks(playbackTracks(2));
+        await echo(0, position: 10000, sampledAt: clock.wall);
+        clock.wall += 500;
+        await ctl().seekTo(60000);
+        expect(st().positionMs, 60000);
+
+        // A stale 1s periodic tick from before the native seek finishes must not bounce backwards.
+        clock.wall += 200;
+        await echo(0, position: 11000, sampledAt: clock.wall, tick: true);
+        expect(st().positionMs, 60000);
+
+        // A non-tick state event (native seekDone confirmation) clears the hold immediately.
+        clock.wall += 200;
+        await echo(0, position: 62500, sampledAt: clock.wall, tick: false);
+        expect(st().positionMs, 62500);
+      });
     });
   });
 }

@@ -172,13 +172,17 @@ function wantsNowPlaying(want: Want): boolean {
   return params !== undefined && params[YOIN_ACTION_KEY] === YOIN_ACTION_OPEN_NOW_PLAYING
 }
 
-/** QA launches (scripts/device.sh) pass yoinQaSilent=true: play muted. Absent = normal sound. */
+/**
+ * QA launches (scripts/device.sh, including --release HAP installs) pass yoinQaSilent=true so nighttime runs stay muted.
+ * Only a launcher icon launch (action.system.home) or an explicit yoinQaSilent=false clears it, so mid-QA notifications,
+ * desktop cards, or bare `aa start` won't accidentally unmute the device.
+ */
 function applyQaFlags(want: Want): void {
   const params = want.parameters
   if (params !== undefined && params['yoinQaSilent'] === true) {
     setQaSilent(true)
-  } else if (isHomeScreenLaunch(want)) {
-    // Opened from its icon: a person is listening, whatever an earlier QA launch in this process set.
+  } else if ((params !== undefined && params['yoinQaSilent'] === false) || isHomeScreenLaunch(want)) {
+    // Explicit unmute (SOUND=1) or opened from its launcher icon: a person is listening.
     setQaSilent(false)
   }
 }

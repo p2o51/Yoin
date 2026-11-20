@@ -217,5 +217,26 @@ void main() {
       expect(manager.error.value, DlnaError.stopUnconfirmed);
       expect(manager.connectedDevice.value?.id, 'uuid:a');
     });
+
+    test('should_reuseExistingTransport_when_reconnectingToTheSameSpeaker', () async {
+      final device = _device('uuid:a');
+      await connect(device);
+      renderers['uuid:a']!.calls.clear();
+
+      await manager.connect(
+        device,
+        [streamItem(1), streamItem(0)],
+        index: 0,
+        positionMs: 0,
+        playWhenReady: true,
+        repeat: EngineRepeat.all,
+        shuffle: false,
+        revision: 2,
+      );
+
+      expect(manager.connectedDevice.value?.id, 'uuid:a');
+      expect(manager.error.value, isNull);
+      expect(renderers['uuid:a']!.calls, ['stop', 'load:subsonic:t1', 'play']);
+    });
   });
 }

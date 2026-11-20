@@ -248,13 +248,15 @@ class StreamCacheProxy {
         return;
       }
       final total = fetch.total;
-      if (range != null && total == null) {
-        // No length (a transcode): only the server can answer a range.
+      final openStartUnknownTotal = range != null && total == null && range.start == 0 && range.end == null;
+      if (range != null && total == null && !openStartUnknownTotal) {
+        // No length (a transcode) with a mid-song range: only the server can answer it.
         await _passThrough(request, source, range);
         return;
       }
-      final span = range?.resolve(total!);
-      if (range != null && span == null) {
+      final serveAsRange = range != null && !openStartUnknownTotal;
+      final span = serveAsRange ? range.resolve(total!) : null;
+      if (serveAsRange && span == null) {
         await _unsatisfiable(response, total!);
         return;
       }
@@ -279,7 +281,7 @@ class StreamCacheProxy {
         return;
       }
       try {
-        _head(response, range: range != null, start: start, end: end, total: total, contentType: fetch.contentType);
+        _head(response, range: serveAsRange, start: start, end: end, total: total, contentType: fetch.contentType);
         if (request.method == 'HEAD') {
           await response.close();
           return;
@@ -432,26 +434,33 @@ class StreamCacheProxy {
     source.headers.forEach(upstreamRequest.headers.set);
     if (range != null) upstreamRequest.headers.set(HttpHeaders.rangeHeader, range.header);
     final upstream = await upstreamRequest.close().timeout(connectTimeout);
-    response.statusCode = upstream.statusCode;
-    for (final name in const [
-      HttpHeaders.contentTypeHeader,
-      HttpHeaders.contentRangeHeader,
-      HttpHeaders.acceptRangesHeader,
-    ]) {
-      final value = upstream.headers.value(name);
-      if (value != null) response.headers.set(name, value);
-    }
-    if (upstream.contentLength >= 0) response.contentLength = upstream.contentLength;
-    if (request.method == 'HEAD') {
-      _drain(upstream);
-      await response.close();
-      return;
-    }
-    final body = await _Body.open(response);
+    var streamHandedOff = false;
     try {
-      await body.addStream(upstream.timeout(stallTimeout));
+      response.statusCode = upstream.statusCode;
+      for (final name in const [
+        HttpHeaders.contentTypeHeader,
+        HttpHeaders.contentRangeHeader,
+        HttpHeaders.acceptRangesHeader,
+      ]) {
+        final value = upstream.headers.value(name);
+        if (value != null) response.headers.set(name, value);
+      }
+      if (upstream.contentLength >= 0) response.contentLength = upstream.contentLength;
+      if (request.method == 'HEAD') {
+        _drain(upstream);
+        streamHandedOff = true;
+        await response.close();
+        return;
+      }
+      final body = await _Body.open(response);
+      try {
+        streamHandedOff = true;
+        await body.addStream(upstream.timeout(stallTimeout));
+      } finally {
+        await body.close();
+      }
     } finally {
-      await body.close();
+      if (!streamHandedOff) _drain(upstream);
     }
   }
 
@@ -600,16 +609,27 @@ final class _Body {
   }
 
   /// Sends [stream] until it ends, [limit] bytes have gone, or the player
-  /// hangs up (each stops reading it).
+  /// hangs up (cancelling the upstream subscription immediately instead of waiting for stallTimeout).
   Future<void> addStream(Stream<List<int>> stream, {int? limit}) async {
     var left = limit;
-    await for (final chunk in stream) {
-      if (left != null && chunk.length >= left) {
-        if (left > 0) await add(chunk.sublist(0, left));
-        break;
+    final iter = StreamIterator<List<int>>(stream);
+    try {
+      while (!gone) {
+        final hasNext = await Future.any<bool?>([
+          iter.moveNext(),
+          hungUp.then<bool?>((_) => null),
+        ]);
+        if (hasNext != true || gone) break;
+        final chunk = iter.current;
+        if (left != null && chunk.length >= left) {
+          if (left > 0) await add(chunk.sublist(0, left));
+          break;
+        }
+        if (!await add(chunk)) break;
+        if (left != null) left -= chunk.length;
       }
-      if (!await add(chunk)) break;
-      if (left != null) left -= chunk.length;
+    } finally {
+      unawaited(iter.cancel().catchError((_) {}));
     }
   }
 

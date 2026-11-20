@@ -25,7 +25,18 @@
   </style>
   <!-- MusicKit JS v3 from Apple's CDN. The developer token is injected from
        ArkTS (never in this page's URL) and MusicKit is configured below. -->
-  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" data-web-components></script>
+  <script>
+    window.__yoinMusicKitFailed = false;
+    window.__yoinOnMusicKitError = function () {
+      window.__yoinMusicKitFailed = true;
+      try {
+        if (window.yoinAuthBridge && window.yoinAuthBridge.onError) {
+          window.yoinAuthBridge.onError('page_failed', 'musickit cdn failed');
+        }
+      } catch (e) {}
+    };
+  </script>
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" data-web-components onerror="window.__yoinOnMusicKitError()"></script>
 </head>
 <body>
   <div id="status">Loading Apple Music…</div>
@@ -121,14 +132,25 @@
       window.__yoinStartAuth = async function (token) {
         developerToken = token;
         try {
+          if (window.__yoinMusicKitFailed) {
+            throw new Error('musickit cdn failed');
+          }
           if (!window.MusicKit) {
-            await new Promise(function (resolve) {
-              document.addEventListener('musickitloaded', resolve, { once: true });
+            await new Promise(function (resolve, reject) {
+              var timer = setTimeout(function () {
+                document.removeEventListener('musickitloaded', onLoaded);
+                reject(new Error('musickit load timeout'));
+              }, 20000);
+              function onLoaded() {
+                clearTimeout(timer);
+                resolve();
+              }
+              document.addEventListener('musickitloaded', onLoaded, { once: true });
             });
           }
           await MusicKit.configure({
             developerToken: developerToken,
-            app: { name: APP_NAME, build: '1.0.0', icon: 'https://yoin.gojyuplus.com/apple-touch-icon.png' }
+            app: { name: APP_NAME, build: '0.6.5', icon: 'https://yoin.gojyuplus.com/apple-touch-icon.png' }
           });
           nameTheApp(MusicKit.getInstance());
           musicReady = true;

@@ -667,9 +667,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     return true;
   }
 
-  /// Back to Compact (or the player closing) ends the writing.
+  /// Back to Compact (or the player closing) ends the writing; entering Expanded
+  /// resets lyric auto-follow even when a rapid re-entry skipped unmounting _LyricsList.
   void _onStage() {
-    if (widget.controller.stage != NowPlayingStage.expanded && _notes.focused) _notes.focus.unfocus();
+    if (widget.controller.stage == NowPlayingStage.expanded) {
+      if (!_autoFollow.value) _autoFollow.value = true;
+    } else if (_notes.focused) {
+      _notes.focus.unfocus();
+    }
   }
 
   /// The Write pill's keyboard waits for the page to land: the stage (nearly)
@@ -692,6 +697,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       // Leaving the Note page puts the pen down; leaving About folds the Ask bar.
       if (page != NowPlayingDetailPage.note && _notes.focused) _notes.focus.unfocus();
       if (page != NowPlayingDetailPage.about) ref.read(nowPlayingAboutProvider.notifier).onAskCollapse();
+      // Returning to Lyrics from About / Note resumes following the playhead (Android #263).
+      if (page == NowPlayingDetailPage.lyrics && !_autoFollow.value) _autoFollow.value = true;
       setState(() => _pageTarget = page);
     }
     // Landing on About asks for the song's About once (nothing when it is cached).

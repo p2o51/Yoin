@@ -26,6 +26,7 @@ ThemeData yoinTheme(Brightness brightness, {Color seed = yoinSeed}) {
 }
 
 const String _family = 'GoogleSansFlex';
+const List<String> _cjkFallback = ['HarmonyOS Sans SC', 'HarmonyOS Sans', 'sans-serif'];
 
 /// Google Sans Flex at one weight, with opsz following the size (Type.kt).
 TextStyle gsf(
@@ -38,6 +39,7 @@ TextStyle gsf(
   final opsz = size.clamp(TypeTokens.opticalSizeMin, TypeTokens.opticalSizeMax);
   return TextStyle(
     fontFamily: _family,
+    fontFamilyFallback: _cjkFallback,
     fontSize: size,
     height: height,
     fontWeight: FontWeight.values.firstWhere(
