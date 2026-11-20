@@ -2285,7 +2285,7 @@ class HomeViewModel(
             commentIsHeadline = true,
             commentSerif = resolvedTitle?.isSerif ?: false,
             expanded = true,
-            target = HomeWidgetTarget.MemoryFocus(candidate.sessionId),
+            target = HomeWidgetTarget.MemoryFocus(candidate.sessionId, MediaId(candidate.provider, rawAlbumId)),
         )
         return card to albumId
     }

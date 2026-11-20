@@ -116,7 +116,7 @@ class HomeSnapshotMappingTest {
                 commentIsHeadline = true,
                 commentSerif = false,
                 expanded = true,
-                target = HomeWidgetTarget.MemoryFocus(42L),
+                target = HomeWidgetTarget.MemoryFocus(42L, MediaId("subsonic", "al-2")),
                 coverKey = "al-2",
                 version = "Deluxe"
             ),

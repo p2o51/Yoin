@@ -134,7 +134,8 @@ private fun HomeCardDto.toCard(coverArtUrl: String?): HomeWidgetCard {
         HomeCardTargetDto.ALBUM -> HomeWidgetTarget.AlbumDetail(requireNotNull(target.id))
         HomeCardTargetDto.PLAYLIST -> HomeWidgetTarget.PlaylistDetail(requireNotNull(target.id))
         HomeCardTargetDto.SONG -> HomeWidgetTarget.PlaySong(requireNotNull(target.song).toDomain())
-        HomeCardTargetDto.MEMORY -> HomeWidgetTarget.MemoryFocus(requireNotNull(target.sessionId))
+        // The album rides in the card's stable id ("grid-memory:<provider>:<raw>"), so the snapshot needn't carry it.
+        HomeCardTargetDto.MEMORY -> HomeWidgetTarget.MemoryFocus(requireNotNull(target.sessionId), memoryCardAlbum(stableId))
         else -> throw IllegalArgumentException("Unknown card target ${target.kind}")
     }
     return HomeWidgetCard(

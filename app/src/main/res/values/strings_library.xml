@@ -47,6 +47,12 @@
     <string name="library_search_section_songs">Songs</string>
     <string name="library_search_section_playlists">Playlists</string>
     <string name="library_search_filter_all">All</string>
+    <string name="library_search_filter_memories">Memories</string>
+    <string name="library_search_show_all">Show all</string>
+    <string name="library_search_folded">%1$d less relevant from %2$s</string>
+    <string name="library_search_your_note">Your note</string>
+    <string name="library_search_your_memory">Your memory</string>
+    <string name="library_search_no_memories">Nothing you\'ve written matches.</string>
     <string name="library_search_added">Added to library</string>
 
     <string name="library_error_load_library">Failed to load library</string>

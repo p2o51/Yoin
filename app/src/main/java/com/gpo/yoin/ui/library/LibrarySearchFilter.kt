@@ -7,8 +7,11 @@ import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.source.Capability
 
-/** What the search surface lists: every type ([All]), or one type alone. */
-enum class LibrarySearchFilter { All, Artists, Albums, Songs, Playlists }
+/**
+ * What the search surface lists: every type ([All]), one type alone, or [Memories]: the listener's own
+ * notes and memories the query met (#Yoin:#18). Declared in chip order.
+ */
+enum class LibrarySearchFilter { All, Songs, Albums, Memories, Artists, Playlists }
 
 /**
  * Most rows of each type the All list shows. The remote searches return
@@ -57,12 +60,14 @@ internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults 
     LibrarySearchFilter.Albums -> SearchResults(albums = albums)
     LibrarySearchFilter.Songs -> SearchResults(tracks = tracks)
     LibrarySearchFilter.Playlists -> SearchResults(playlists = playlists)
+    // Memories come from the ledger, not the service ([com.gpo.yoin.data.search.SearchPage.memories]).
+    LibrarySearchFilter.Memories -> SearchResults()
 }
 
 /** The one type this filter lists; null for [LibrarySearchFilter.All]. */
 internal val LibrarySearchFilter.resultType: SearchResultType?
     get() = when (this) {
-        LibrarySearchFilter.All -> null
+        LibrarySearchFilter.All, LibrarySearchFilter.Memories -> null
         LibrarySearchFilter.Artists -> SearchResultType.Artists
         LibrarySearchFilter.Albums -> SearchResultType.Albums
         LibrarySearchFilter.Songs -> SearchResultType.Tracks

@@ -472,6 +472,14 @@ private fun AlbumDetailContent(
             viewInScrapbook(request.songId)
         }
     }
+    // An album's memory opened from Library search or Home: page 2, on no particular song.
+    val pendingAlbumFocus = ScrapbookFocusRequest.pendingAlbum
+    LaunchedEffect(pendingAlbumFocus, hasScrapbook, content.albumId) {
+        if (pendingAlbumFocus == null || !hasScrapbook) return@LaunchedEffect
+        if (ScrapbookFocusRequest.takeForAlbum(content.albumId)) {
+            pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
+        }
+    }
 
     // Back always finishes the Activity (native cross-Activity predictive back):
     // the pulled-up track list is NOT a back stop, so one back press leaves the

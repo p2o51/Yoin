@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import android.os.SystemClock
@@ -520,7 +521,15 @@ internal fun HomeEditorialContent(
                 is HomeWidgetTarget.AlbumDetail -> onAlbumClickState.value(target.albumId, null)
                 is HomeWidgetTarget.PlaylistDetail -> onPlaylistClickState.value(target.playlistId)
                 is HomeWidgetTarget.PlaySong -> onSongClickState.value(target.song)
-                is HomeWidgetTarget.MemoryFocus -> onOpenMemoryFocusState.value(target.sessionId)
+                is HomeWidgetTarget.MemoryFocus -> {
+                    val album = target.albumId
+                    if (album != null) {
+                        ScrapbookFocusRequest.requestAlbum(album.toString())
+                        onAlbumClickState.value(album.toString(), null)
+                    } else {
+                        onOpenMemoryFocusState.value(target.sessionId)
+                    }
+                }
             }
         }
     }
