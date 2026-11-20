@@ -76,6 +76,12 @@
     <string name="home_edit_move_up">Move up</string>
     <string name="home_edit_move_down">Move down</string>
     <string name="home_edit_more_rows">More rows</string>
+    <string name="home_shelf_previous_page">Previous page</string>
+    <string name="home_shelf_next_page">Next page</string>
+    <string name="home_edit_half_width">Half width</string>
+    <string name="home_edit_full_width">Full width</string>
+    <string name="home_edit_place_beside_previous">Place beside previous</string>
+    <string name="home_edit_make_full_width">Make full width</string>
     <string name="home_edit_fewer_rows">Fewer rows</string>
     <string name="home_edit_hide">Hide</string>
     <string name="home_cd_section_index">Section %1$d of %2$d</string>

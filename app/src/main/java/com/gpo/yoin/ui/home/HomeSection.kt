@@ -229,27 +229,58 @@ data class HomeSectionState(
     val enabled: Boolean,
     val rows: HomeRowPreset = HomeRowPreset.Default,
     val extras: JsonObject? = null,
+    /**
+     * Half of a two-column row on a large screen (`"span":"half"`). Always one
+     * of a pair: two adjacent halves in the enabled order ([HomeLayout.normalizedSpans]).
+     * Below the two-column width it stacks like any section, the flag kept.
+     */
+    val half: Boolean = false,
+    /**
+     * [rows] was chosen, not defaulted: stored even at [HomeRowPreset.Default]. Two columns read
+     * an unchosen preset as the section's own default unit count ([homeSectionUnits]).
+     */
+    val rowsSet: Boolean = false,
+    /**
+     * Two columns' unit count for a section whose row preset already means something else (「歌词一句」:
+     * its preset is its card count). Stored as `"units"`; null = its default.
+     */
+    val units: Int? = null,
 ) {
-    /** The settings bag to persist: [extras] plus `rows` unless it is the default; null when empty. */
+    /** The settings bag to persist: [extras] plus `rows` when chosen (or not the default), `span` when half; null when empty. */
     fun config(): JsonObject? {
         val bag = LinkedHashMap(extras.orEmpty())
-        if (rows != HomeRowPreset.Default) bag[RowsKey] = JsonPrimitive(rows.key)
+        if (rowsSet || rows != HomeRowPreset.Default) bag[RowsKey] = JsonPrimitive(rows.key)
+        if (half) bag[SpanKey] = JsonPrimitive(SpanHalf)
+        units?.let { bag[UnitsKey] = JsonPrimitive(it) }
         return bag.takeIf { it.isNotEmpty() }?.let(::JsonObject)
     }
 
     companion object {
         internal const val RowsKey = "rows"
+        internal const val SpanKey = "span"
+        internal const val SpanHalf = "half"
+        internal const val UnitsKey = "units"
 
-        /** [pref] as a state: a readable `rows` becomes [rows], everything else stays in [extras]. */
+        /**
+         * [pref] as a state: a readable `rows` becomes [rows], `"span":"half"` becomes [half],
+         * everything else stays in [extras] (a span value this build can't read included).
+         */
         internal fun fromPref(section: HomeSection, pref: HomeSectionPref): HomeSectionState {
             val config = pref.config
             val rows = (config?.get(RowsKey) as? JsonPrimitive)?.contentOrNull?.let(HomeRowPreset::fromKey)
-            val extras = if (rows != null && config != null) config.filterKeys { it != RowsKey } else config
+            val half = (config?.get(SpanKey) as? JsonPrimitive)?.contentOrNull == SpanHalf
+            val units = (config?.get(UnitsKey) as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+            val extras = config?.filterKeys { key ->
+                !(key == RowsKey && rows != null) && !(key == SpanKey && half) && !(key == UnitsKey && units != null)
+            }
             return HomeSectionState(
                 section = section,
                 enabled = pref.enabled,
                 rows = rows ?: HomeRowPreset.Default,
                 extras = extras?.takeIf { it.isNotEmpty() }?.let(::JsonObject),
+                half = half,
+                rowsSet = rows != null,
+                units = units,
             )
         }
     }
@@ -285,15 +316,181 @@ data class HomeLayout(
     val isDefault: Boolean
         get() = sections == Default.sections
 
+    /** The large-screen default ([WideDefault]): what a never-customized profile shows in two columns. */
+    val isWideDefault: Boolean
+        get() = sections == WideDefault.sections
+
+    /** Either default: a write of this clears the row back to "never customized". */
+    val isAnyDefault: Boolean
+        get() = isDefault || isWideDefault
+
+    /**
+     * What the feed shows at its width: in two columns a never-customized layout
+     * ([isDefault]) is [WideDefault]; anything else is shown as stored.
+     */
+    fun forTwoColumn(twoColumn: Boolean): HomeLayout =
+        if (twoColumn && isDefault) WideDefault.copy(retained = retained, newSections = newSections) else this
+
+    /** The default this width resets to. */
+    fun isDefaultFor(twoColumn: Boolean): Boolean = if (twoColumn) isWideDefault else isDefault
+
+    /** The pairs of the enabled order, left → right (see [homeSpanPairs]). */
+    val pairs: Map<HomeSection, HomeSection>
+        get() = homeSpanPairs(sections.filter { it.enabled }.map { it.section to it.half })
+
+    /** [section]'s partner in its pair, either side; null when it is full width. */
+    fun partnerOf(section: HomeSection): HomeSection? {
+        val pairs = pairs
+        return pairs[section] ?: pairs.entries.firstOrNull { it.value == section }?.key
+    }
+
+    /**
+     * Every half flag that isn't one of a pair cleared: disabled sections are
+     * full, and in the enabled order halves pair two by two ([homeSpanPairs]);
+     * a half left over is full. `this` when nothing changes.
+     */
+    fun normalizedSpans(): HomeLayout {
+        val paired = pairs.flatMap { listOf(it.key, it.value) }.toSet()
+        if (sections.none { it.half && it.section !in paired }) return this
+        return copy(sections = sections.map { if (it.half && it.section !in paired) it.copy(half = false) else it })
+    }
+
+    /**
+     * [section] (full width) becomes the left half of a pair with the row after
+     * it: a full section joins it, or a pair gives up its first member (the
+     * other one becomes full). `this` when [section] is already half, hidden,
+     * or last.
+     */
+    fun withHalf(section: HomeSection): HomeLayout {
+        val enabled = enabledSections
+        val index = enabled.indexOf(section)
+        if (index < 0 || partnerOf(section) != null) return this
+        val next = enabled.getOrNull(index + 1) ?: return this
+        val nextPartner = pairs[next]
+        val halves = setOf(section, next)
+        return copy(
+            sections = sections.map { state ->
+                when (state.section) {
+                    in halves -> state.copy(half = true)
+                    nextPartner -> state.copy(half = false)
+                    else -> state
+                }
+            },
+        ).normalizedSpans()
+    }
+
+    /**
+     * [section] (one of a pair) becomes full width, and so does its partner,
+     * which takes its own row right after it: a right half moves ahead of its
+     * old left partner. `this` when [section] is already full.
+     */
+    fun withFull(section: HomeSection): HomeLayout {
+        val partner = partnerOf(section) ?: return this
+        val unpaired = copy(
+            sections = sections.map { if (it.section == section || it.section == partner) it.copy(half = false) else it },
+        )
+        val isRight = pairs[partner] == section
+        if (!isRight) return unpaired
+        val order = enabledSections.toMutableList()
+        val left = order.indexOf(partner)
+        order[left] = section
+        order[left + 1] = partner
+        return unpaired.withFullEnabledOrder(order)
+    }
+
     /** Known sections in order (with their settings bags), then the [retained] ids. */
     fun toPrefs(): List<HomeSectionPref> =
         sections.map { HomeSectionPref(id = it.section.id, enabled = it.enabled, config = it.config()) } + retained
+
+    /**
+     * [section] (full width) becomes the right half beside the enabled section
+     * before it, which must be full width too (TalkBack's "Place beside
+     * previous"). `this` when either is already half, or [section] is first or hidden.
+     */
+    fun withBesidePrevious(section: HomeSection): HomeLayout {
+        val enabled = enabledSections
+        val index = enabled.indexOf(section)
+        if (index < 1 || partnerOf(section) != null) return this
+        val previous = enabled[index - 1]
+        if (partnerOf(previous) != null) return this
+        return copy(
+            sections = sections.map { state ->
+                if (state.section == section || state.section == previous) state.copy(half = true) else state
+            },
+        ).normalizedSpans()
+    }
+
+    /**
+     * A two-column carry's drop: the enabled order [order] (as
+     * [withEnabledOrder] takes it) with exactly [pairs] (left → right, each
+     * pair adjacent in [order]) as halves, every other section full. Sections
+     * in [unseen], and their stored partners, keep their flags. `this` when
+     * nothing changes.
+     */
+    fun withArrangement(
+        order: List<HomeSection>,
+        pairs: Map<HomeSection, HomeSection>,
+        unseen: Set<HomeSection> = emptySet(),
+    ): HomeLayout {
+        val halves = pairs.keys + pairs.values
+        val keep = unseen + unseen.mapNotNull(::partnerOf)
+        val spanned = copy(
+            sections = sections.map { state ->
+                if (!state.enabled || state.section in keep) state else state.copy(half = state.section in halves)
+            },
+        )
+        val result = spanned.withEnabledOrder(order, unseen).normalizedSpans()
+        return if (result.sameSectionsAs(this)) this else result
+    }
+
+    /** [section]'s own unit count in two columns ([homeSectionUnits]); its default when it is not in this layout. */
+    fun unitsOf(section: HomeSection): Int =
+        sections.firstOrNull { it.section == section }?.let(::homeSectionUnits) ?: section.defaultUnits
+
+    /** The unit count [row] shows in two columns: a pair takes its left half's, held in both ranges. */
+    internal fun unitsOf(row: HomeFeedRow): Int {
+        val byId = sections.associateBy { it.section }
+        return when (row) {
+            is HomeFeedRow.Full -> byId[row.section]?.let(::homeSectionUnits) ?: row.section.defaultUnits
+            is HomeFeedRow.Halves -> {
+                val left = byId[row.left] ?: return row.left.defaultUnits
+                homeRowUnits(left, byId[row.right])
+            }
+        }
+    }
+
+    /**
+     * [section]'s row at [units] in two columns: the section and, when it is one
+     * of a pair ([pairs]), its partner, held in the overlap of both ranges. Any
+     * section takes it, not only those with phone presets; stored as the row
+     * preset (S–XL = 1–4). `this` when nothing changes.
+     */
+    fun withUnits(section: HomeSection, units: Int, pairs: Map<HomeSection, HomeSection> = this.pairs): HomeLayout {
+        val partner = pairs[section] ?: pairs.entries.firstOrNull { it.value == section }?.key
+        val range = homeRowUnitRange(section, partner)
+        val preset = homeUnitsPreset(units.coerceIn(range))
+        val row = setOfNotNull(section, partner)
+        val count = preset.units
+        fun HomeSectionState.withCount(): HomeSectionState =
+            if (this.section.unitsOwnKey) copy(units = count) else copy(rows = preset, rowsSet = true)
+        if (sections.none { it.section in row && it.withCount() != it }) return this
+        return copy(
+            sections = sections.map { state -> if (state.section in row) state.withCount() else state },
+        )
+    }
 
     /** Same order, visibility and rows (and settings bags). */
     fun sameSectionsAs(other: HomeLayout): Boolean = sections == other.sections
 
     /** The catalog arrangement — rows back to their defaults too — keeping [retained]. */
     fun reset(): HomeLayout = if (isDefault) this else Default.copy(retained = retained)
+
+    /** [reset] to this width's default: [WideDefault] in two columns. */
+    fun reset(twoColumn: Boolean): HomeLayout = when {
+        !twoColumn -> reset()
+        isWideDefault -> this
+        else -> WideDefault.copy(retained = retained)
+    }
 
     /** [section]'s row preset ([HomeRowPreset.Default] when it is not in this layout). */
     fun rowsOf(section: HomeSection): HomeRowPreset =
@@ -304,7 +501,8 @@ data class HomeLayout(
         if (!section.takesPresets || sections.none { it.section == section && it.rows != rows }) return this
         return copy(
             sections = sections.map { state ->
-                if (state.section == section) state.copy(rows = rows) else state
+                // The phone's resize back to L clears it, as before; two columns choose through [withUnits].
+                if (state.section == section) state.copy(rows = rows, rowsSet = rows != HomeRowPreset.Default) else state
             },
         )
     }
@@ -313,9 +511,10 @@ data class HomeLayout(
         if (sections.none { it.section == section && it.enabled != enabled }) return this
         return copy(
             sections = sections.map { state ->
-                if (state.section == section) state.copy(enabled = enabled) else state
+                // A hidden section leaves its pair: it comes back full width.
+                if (state.section == section) state.copy(enabled = enabled, half = false) else state
             },
-        )
+        ).normalizedSpans()
     }
 
     /**
@@ -351,7 +550,7 @@ data class HomeLayout(
             sections = sections.map { state ->
                 if (state.enabled) byStateSection.getValue(next.next()) else state
             },
-        )
+        ).normalizedSpans()
     }
 
     /** Move [section] to [toEnabledIndex] in the enabled order (clamped). */
@@ -374,6 +573,37 @@ data class HomeLayout(
         val Default: HomeLayout = HomeLayout(
             HomeSection.entries.map { HomeSectionState(it, it.defaultEnabled) },
         )
+
+        /**
+         * The large-screen default (owner 2026-11-16): Activities | Jump Back In,
+         * All Memories, Made For You, Lyric Cards | Recently Added, Recently
+         * Played, Your Playlists | Rediscover, then the other accounts. Shown in
+         * two columns to a profile that never customized ([forTwoColumn]).
+         */
+        val WideDefault: HomeLayout = run {
+            val halves = setOf(
+                HomeSection.Activities,
+                HomeSection.JumpBackIn,
+                HomeSection.LyricHighlight,
+                HomeSection.RecentlyAdded,
+                HomeSection.YourPlaylists,
+                HomeSection.Rediscover,
+            )
+            val order = listOf(
+                HomeSection.Activities,
+                HomeSection.JumpBackIn,
+                HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
+                HomeSection.LyricHighlight,
+                HomeSection.RecentlyAdded,
+                HomeSection.RecentlyPlayed,
+                HomeSection.YourPlaylists,
+                HomeSection.Rediscover,
+                HomeSection.OtherProfiles,
+            )
+            val ordered = order + HomeSection.entries.filterNot { it in order }
+            HomeLayout(ordered.map { HomeSectionState(it, it.defaultEnabled, half = it in halves) })
+        }
 
         // Ids of sections that were removed from the catalog: dropped, never retained.
         private val RetiredSectionIds = setOf("memory_teaser", "memories")
@@ -410,7 +640,71 @@ data class HomeLayout(
                 sections = ordered,
                 retained = retained,
                 newSections = appended.filterNot { it.appendEnabled }.toSet(),
-            )
+            ).normalizedSpans()
         }
     }
+}
+
+/**
+ * The pairs of an enabled order given as (section, half): halves pair two by
+ * two in order, a full section in between breaks the run, and a half left
+ * over pairs with nothing. Left → right. Pure.
+ */
+internal fun homeSpanPairs(order: List<Pair<HomeSection, Boolean>>): Map<HomeSection, HomeSection> {
+    val pairs = LinkedHashMap<HomeSection, HomeSection>()
+    var open: HomeSection? = null
+    for ((section, half) in order) {
+        open = when {
+            !half -> null
+            open == null -> section
+            else -> {
+                pairs[open] = section
+                null
+            }
+        }
+    }
+    return pairs
+}
+
+/** One row of the feed: a full-width section, or two halves side by side. */
+@androidx.compose.runtime.Immutable
+internal sealed interface HomeFeedRow {
+    val first: HomeSection
+
+    data class Full(val section: HomeSection) : HomeFeedRow {
+        override val first: HomeSection get() = section
+    }
+
+    data class Halves(val left: HomeSection, val right: HomeSection) : HomeFeedRow {
+        override val first: HomeSection get() = left
+    }
+}
+
+/**
+ * The feed's rows for the sections it [displayed], in order. In [twoColumn] a
+ * left half whose partner ([pairs], left → right) is displayed right after it
+ * shares its row; a half whose partner isn't shown (nothing to show, or this
+ * device can't) is full width until it is back. One column: every section is
+ * its own row. Pure.
+ */
+internal fun homeFeedRows(
+    displayed: List<HomeSection>,
+    pairs: Map<HomeSection, HomeSection>,
+    twoColumn: Boolean,
+): List<HomeFeedRow> {
+    if (!twoColumn) return displayed.map { HomeFeedRow.Full(it) }
+    val rows = ArrayList<HomeFeedRow>(displayed.size)
+    var i = 0
+    while (i < displayed.size) {
+        val section = displayed[i]
+        val right = pairs[section]
+        if (right != null && displayed.getOrNull(i + 1) == right) {
+            rows += HomeFeedRow.Halves(section, right)
+            i += 2
+        } else {
+            rows += HomeFeedRow.Full(section)
+            i++
+        }
+    }
+    return rows
 }

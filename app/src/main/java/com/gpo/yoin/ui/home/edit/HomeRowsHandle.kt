@@ -79,8 +79,8 @@ private data class RowsHandleKey(val section: HomeSection)
 internal fun BoxScope.HomeRowsHandleSlot(
     section: HomeSection,
     deps: HomeEditDeps,
-    track: HomeRowsTrack,
-    engine: HomeRowsEngine,
+    track: HomeRowsTrack?,
+    engine: HomeRowsEngine?,
     itemSpacing: Dp,
 ) {
     val motion = deps.motion
@@ -89,18 +89,32 @@ internal fun BoxScope.HomeRowsHandleSlot(
     val shown by remember(section, deps) {
         derivedStateOf { motion.ripple(section) > BadgeComposeAt || press.charge.value > BadgePrepareCharge }
     }
-    if (!shown || track.stopCount < 2) return
-    HomeRowsHandle(section, deps, track, engine, itemSpacing)
+    val rows = track != null && engine != null && track.stopCount >= 2
+    // Two columns: the horizontal axis (span), on every section.
+    val span = deps.span != null && deps.controller.twoColumn
+    if (!shown || (!rows && !span)) return
+    HomeRowsHandle(section, deps, if (rows) track else null, if (rows) engine else null, itemSpacing)
 }
 
 @Composable
 private fun BoxScope.HomeRowsHandle(
     section: HomeSection,
     deps: HomeEditDeps,
-    track: HomeRowsTrack,
-    engine: HomeRowsEngine,
+    track: HomeRowsTrack?,
+    engine: HomeRowsEngine?,
     itemSpacing: Dp,
 ) {
+    val spanDrag = deps.span?.takeIf { deps.controller.twoColumn }
+    // Two columns: the vertical axis is the row's grid unit count (HomeGridUnits.kt), not the phone's row presets.
+    val unitDrag = deps.units?.takeIf { deps.controller.twoColumn }
+    val rowsEngine = engine.takeIf { unitDrag == null }
+    val hot = track?.hot ?: remember { androidx.compose.animation.core.Animatable(0f) }
+    val pulse = track?.pulse ?: remember { androidx.compose.animation.core.Animatable(1f) }
+    val spanHeld = (spanDrag != null && spanDrag.section == section && spanDrag.dragging) ||
+        (unitDrag != null && unitDrag.section == section && unitDrag.dragging)
+    LaunchedEffect(spanHeld) {
+        if (track == null || !track.dragging) hot.animateTo(if (spanHeld) 1f else 0f, deps.specs.liftTint)
+    }
     val controller = deps.controller
     val motion = deps.motion
     val look = deps.plate
@@ -112,7 +126,7 @@ private fun BoxScope.HomeRowsHandle(
     val hovered by hoverSource.collectIsHoveredAsState()
     val hoverTarget = if (hovered && controller.isEditing) HomeRowsTokens.HoverHot else 0f
     LaunchedEffect(hoverTarget) {
-        if (!track.dragging) track.hot.animateTo(hoverTarget, deps.specs.liftTint)
+        if (track?.dragging != true && !spanHeld) hot.animateTo(hoverTarget, deps.specs.liftTint)
     }
     Box(Modifier.matchParentSize()) {
         Box(
@@ -140,12 +154,22 @@ private fun BoxScope.HomeRowsHandle(
                 .seamDissolve()
                 .hoverable(hoverSource)
                 .then(if (controller.isEditing) Modifier.pointerHoverIcon(VerticalResizePointer) else Modifier)
-                .pointerInput(section, engine) {
+                .pointerInput(section, rowsEngine, spanDrag, unitDrag) {
+                    val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         if (!motion.inputEditing) return@awaitEachGesture
-                        val startY = coordinates.rootY(down.position) ?: return@awaitEachGesture
-                        if (!engine.grab(section, startY, down.uptimeMillis)) return@awaitEachGesture
+                        val start = coordinates.root(down.position) ?: return@awaitEachGesture
+                        val vertical = rowsEngine != null || unitDrag != null
+                        val place = spanDrag?.info?.invoke(section)
+                        if (!vertical && place == null) return@awaitEachGesture
+                        fun grabVertical(y: Float, uptime: Long): Boolean =
+                            unitDrag?.grab(section, y) ?: (rowsEngine?.grab(section, y, uptime) == true)
+                        // One column (or a section that can't pair): today's vertical drag, grabbed at once.
+                        var axis: HomeHandleAxis? = if (place == null) HomeHandleAxis.Vertical else null
+                        if (axis == HomeHandleAxis.Vertical && !grabVertical(start.y, down.uptimeMillis)) {
+                            return@awaitEachGesture
+                        }
                         down.consume()
                         motion.pointerDown = true
                         var released = false
@@ -158,16 +182,57 @@ private fun BoxScope.HomeRowsHandle(
                                 if (change.changedToUp() || !change.pressed) {
                                     change.consume()
                                     released = true
-                                    engine.release(cancelled = false, uptime = change.uptimeMillis)
+                                    when (axis) {
+                                        HomeHandleAxis.Vertical ->
+                                            unitDrag?.release(cancelled = false)
+                                                ?: rowsEngine?.release(cancelled = false, uptime = change.uptimeMillis)
+                                        HomeHandleAxis.Horizontal -> spanDrag?.release(cancelled = false)
+                                        null -> Unit
+                                    }
                                     break
                                 }
-                                if (change.positionChanged()) {
-                                    coordinates.rootY(change.position)?.let { engine.dragTo(it, change.uptimeMillis) }
-                                    change.consume()
+                                if (!change.positionChanged()) continue
+                                change.consume()
+                                val at = coordinates.root(change.position) ?: continue
+                                if (axis == null) {
+                                    // The first direction the drag takes locks it.
+                                    axis = homeHandleAxis(at.x - start.x, at.y - start.y, slop, horizontal = true)
+                                    when (axis) {
+                                        HomeHandleAxis.Horizontal -> spanDrag!!.grab(
+                                            section = section,
+                                            span = place!!.span,
+                                            fingerX = start.x,
+                                            currentPx = place.currentPx,
+                                            halfPx = place.halfPx,
+                                            fullPx = place.fullPx,
+                                            hasNext = place.hasNext,
+                                        )
+                                        HomeHandleAxis.Vertical ->
+                                            if (!grabVertical(start.y, change.uptimeMillis)) {
+                                                // No rows here: a vertical drag on this handle does nothing.
+                                                axis = HomeHandleAxis.Vertical
+                                                released = true
+                                                break
+                                            }
+                                        null -> continue
+                                    }
+                                }
+                                when (axis) {
+                                    HomeHandleAxis.Vertical ->
+                                        unitDrag?.dragTo(at.y) ?: rowsEngine?.dragTo(at.y, change.uptimeMillis)
+                                    HomeHandleAxis.Horizontal -> spanDrag?.dragTo(at.x)
+                                    null -> Unit
                                 }
                             }
                         } finally {
-                            if (!released) engine.release(cancelled = true)
+                            if (!released) {
+                                when (axis) {
+                                    HomeHandleAxis.Vertical ->
+                                        unitDrag?.release(cancelled = true) ?: rowsEngine?.release(cancelled = true)
+                                    HomeHandleAxis.Horizontal -> spanDrag?.release(cancelled = true)
+                                    null -> Unit
+                                }
+                            }
                             motion.pointerDown = false
                             motion.touch()
                         }
@@ -176,8 +241,10 @@ private fun BoxScope.HomeRowsHandle(
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionUp -> engine.step(section, -1)
-                        Key.DirectionDown -> engine.step(section, 1)
+                        Key.DirectionUp -> unitDrag?.step(section, -1) ?: (rowsEngine?.step(section, -1) == true)
+                        Key.DirectionDown -> unitDrag?.step(section, 1) ?: (rowsEngine?.step(section, 1) == true)
+                        Key.DirectionLeft -> spanDrag?.key(section, left = true) == true
+                        Key.DirectionRight -> spanDrag?.key(section, left = false) == true
                         else -> false
                     }
                 }
@@ -186,9 +253,9 @@ private fun BoxScope.HomeRowsHandle(
                 .clearAndSetSemantics { },
         ) {
             HomeRowsGlyph(
-                color = { lerp(rest, held, track.hot.value.coerceIn(0f, 1f)) },
+                color = { lerp(rest, held, hot.value.coerceIn(0f, 1f)) },
                 scale = {
-                    (1f + HomeRowsTokens.HeldScale * track.hot.value.coerceIn(0f, 1f)) * track.pulse.value
+                    (1f + HomeRowsTokens.HeldScale * hot.value.coerceIn(0f, 1f)) * pulse.value
                 },
                 modifier = Modifier.padding(
                     start = HomeRowsTokens.HandleCornerInTouch - HomeRowsTokens.HandleGlyph,
@@ -243,8 +310,10 @@ internal fun HomeRowsGlyph(color: () -> Color, scale: () -> Float, modifier: Mod
 private class HandleCoordinates {
     var value: LayoutCoordinates? = null
 
-    fun rootY(local: androidx.compose.ui.geometry.Offset): Float? =
-        value?.takeIf { it.isAttached }?.localToRoot(local)?.y
+    fun rootY(local: androidx.compose.ui.geometry.Offset): Float? = root(local)?.y
+
+    fun root(local: androidx.compose.ui.geometry.Offset): androidx.compose.ui.geometry.Offset? =
+        value?.takeIf { it.isAttached }?.localToRoot(local)
 }
 
 // Ripple progress above which the handle composes, as the badges (port sheet §2.6).

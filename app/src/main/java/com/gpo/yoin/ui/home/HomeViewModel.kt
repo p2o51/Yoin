@@ -362,7 +362,8 @@ class HomeViewModel(
         val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return
         val next = if (layout.retained.isEmpty()) layout.copy(retained = homeLayout.value.retained) else layout
         viewModelScope.launch {
-            if (next.isDefault && next.retained.isEmpty()) {
+            // Either default (the phone's, or the two-column one a large screen shows) is "never customized".
+            if (next.isAnyDefault && next.retained.isEmpty()) {
                 homeLayoutStore.clearLayout(profileId)
             } else {
                 homeLayoutStore.setLayout(profileId, next.toPrefs())

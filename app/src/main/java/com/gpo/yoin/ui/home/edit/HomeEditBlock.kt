@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -92,6 +93,12 @@ import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
+import com.gpo.yoin.ui.home.lyricCards
+import com.gpo.yoin.ui.home.HomeRowPreset
+import com.gpo.yoin.ui.home.LocalHomeGridHeight
+import com.gpo.yoin.ui.home.homeGridBox
 import com.gpo.yoin.ui.home.HomeSectionTitle
 import com.gpo.yoin.ui.home.RediscoverPlaceholderText
 import com.gpo.yoin.ui.home.placeholderRes
@@ -113,6 +120,10 @@ internal class HomeEditDeps(
     val plate: HomePlateLook = HomePlateLook.Default,
     /** The row resize (HomeRowsResize.kt); null in previews and tests that don't need it. */
     val rows: HomeRowsEngine? = null,
+    /** Two columns' span drag (HomeSpanResize.kt); null in previews, tests and one column. */
+    val span: HomeSpanDrag? = null,
+    /** Two columns' unit drag (HomeGridUnits.kt): the handle's vertical axis there. */
+    val units: com.gpo.yoin.ui.home.HomeUnitDrag? = null,
 )
 
 /**
@@ -197,8 +208,14 @@ internal fun HomeEditBlock(
     // Rows (D1): the preset's row count on this screen, and the steps it has.
     val resizable = rowsTrack != null && !placeholder && !wholeBlockWiggle && rowsTrack.stopCount > 1
     val rowCount = if (resizable) rowsTrack?.rowCounts?.getOrNull(rowsTrack.restStop) else null
-    val canMoreRows = resizable && rowsEngine?.canStep(section, 1) == true
-    val canFewerRows = resizable && rowsEngine?.canStep(section, -1) == true
+    // Two columns: the unit count instead (HomeGridUnits.kt), for every section with content.
+    val unitDrag = deps.units?.takeIf { controller.twoColumn && !placeholder }
+    val canMoreRows = if (unitDrag != null) unitDrag.canStep(section, 1) else resizable && rowsEngine?.canStep(section, 1) == true
+    val canFewerRows = if (unitDrag != null) {
+        unitDrag.canStep(section, -1)
+    } else {
+        resizable && rowsEngine?.canStep(section, -1) == true
+    }
     val resources = LocalContext.current.resources
     val sectionState = if (rowCount != null) {
         resources.getString(
@@ -215,6 +232,19 @@ internal fun HomeEditBlock(
     val moreRowsLabel = stringResource(R.string.home_edit_more_rows)
     val fewerRowsLabel = stringResource(R.string.home_edit_fewer_rows)
     val hideLabel = stringResource(R.string.home_edit_hide)
+    // Two columns: pairing is reachable without a drag (beside the block before, or back to a full row).
+    val besideLabel = stringResource(R.string.home_edit_place_beside_previous)
+    val fullLabel = stringResource(R.string.home_edit_make_full_width)
+    // Derived by value: an edit elsewhere that leaves this block's span as it is recomposes nothing here.
+    val isHalf by remember(controller, section) {
+        derivedStateOf { controller.twoColumn && controller.draft?.partnerOf(section) != null }
+    }
+    val canBeside by remember(controller, section) {
+        derivedStateOf {
+            val draft = controller.draft
+            controller.twoColumn && draft != null && draft.withBesidePrevious(section) !== draft
+        }
+    }
     // Remembered: a new semantics block on every recomposition would be a semantics change each time.
     val talkBack = remember(
         editing,
@@ -231,6 +261,10 @@ internal fun HomeEditBlock(
         moreRowsLabel,
         fewerRowsLabel,
         hideLabel,
+        besideLabel,
+        fullLabel,
+        isHalf,
+        canBeside,
     ) {
         if (editing) {
             Modifier.semantics(mergeDescendants = true) {
@@ -241,10 +275,24 @@ internal fun HomeEditBlock(
                     if (displayIndex < displayCount - 1) {
                         add(CustomAccessibilityAction(moveDownLabel) { controller.move(section, 1) })
                     }
-                    if (canMoreRows) add(CustomAccessibilityAction(moreRowsLabel) { rowsEngine?.step(section, 1) == true })
-                    if (canFewerRows) {
-                        add(CustomAccessibilityAction(fewerRowsLabel) { rowsEngine?.step(section, -1) == true })
+                    if (canMoreRows) {
+                        add(
+                            CustomAccessibilityAction(moreRowsLabel) {
+                                unitDrag?.step(section, 1) ?: (rowsEngine?.step(section, 1) == true)
+                            },
+                        )
                     }
+                    if (canFewerRows) {
+                        add(
+                            CustomAccessibilityAction(fewerRowsLabel) {
+                                unitDrag?.step(section, -1) ?: (rowsEngine?.step(section, -1) == true)
+                            },
+                        )
+                    }
+                    if (canBeside) {
+                        add(CustomAccessibilityAction(besideLabel) { controller.placeBesidePrevious(section) })
+                    }
+                    if (isHalf) add(CustomAccessibilityAction(fullLabel) { controller.setFull(section) })
                     add(CustomAccessibilityAction(hideLabel) { controller.hide(section) })
                 }
             }
@@ -303,6 +351,8 @@ internal fun HomeEditBlock(
         Box(
             Modifier
                 .fillMaxWidth()
+                // Two columns: exactly the row's grid height, the content cut off below it.
+                .homeGridBox(LocalHomeGridHeight.current)
                 .homeEditContentInset(cardScope)
                 .onPlaced { blockContent.coordinates = it },
         ) {
@@ -319,12 +369,16 @@ internal fun HomeEditBlock(
             handleHover = { handleHover.value },
             contentInset = cardScope::contentInset,
         )
-        if (rowsTrack != null && rowsEngine != null && !placeholder && !wholeBlockWiggle) {
+        // The ⌟: rows (vertical) where the section takes presets; in two columns every section's
+        // also drags sideways to turn half or full width (HomeSpanResize.kt). Lyric Cards keeps its dots.
+        // Two columns: 「歌词一句」's ⌟ is the unit count like every section's; its card count moves to a menu.
+        val spanHandle = deps.span != null && controller.twoColumn
+        if (!placeholder && !wholeBlockWiggle && ((rowsTrack != null && rowsEngine != null) || spanHandle)) {
             HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
         }
         // 「歌词一句」 takes its card count from its own dots, not the row resize.
         if (section == HomeSection.LyricHighlight && !placeholder && !wholeBlockWiggle) {
-            HomeLyricCountHandleSlot(deps, itemSpacing)
+            if (controller.twoColumn) HomeLyricCountMenu(deps) else HomeLyricCountHandleSlot(deps, itemSpacing)
         }
     }
 }
@@ -775,10 +829,14 @@ private fun BoxScope.HomeEditBadges(
 @Composable
 private fun HomeEditPlaceholder(section: HomeSection, modifier: Modifier = Modifier) {
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    // Two columns: the whole row's height (its partner's), so a pair's plates match.
+    val grid = LocalHomeGridHeight.current
     ExpressiveSectionPanel(
         modifier = modifier
             .fillMaxWidth()
-            .height(HomeEditTokens.PlaceholderHeight * fontScale)
+            .then(
+                if (grid != null) Modifier.fillMaxHeight() else Modifier.height(HomeEditTokens.PlaceholderHeight * fontScale),
+            )
             .seamDissolve(),
     ) {
         Column(
@@ -930,3 +988,34 @@ private fun HomeEditBlockEditPreview() = PreviewBlock(progress = 1f, editing = t
 @Preview(name = "Block · placeholder", showBackground = true, widthDp = 360)
 @Composable
 private fun HomeEditBlockPlaceholderPreview() = PreviewBlock(progress = 1f, editing = true, placeholder = true)
+
+/**
+ * Two columns: 「歌词一句」's card count (2–4) as a menu. Editing, a tap on one of its cards opens it at the
+ * block's top end (the phone keeps its dots handle).
+ */
+@Composable
+private fun BoxScope.HomeLyricCountMenu(deps: HomeEditDeps) {
+    val motion = deps.motion
+    val controller = deps.controller
+    val open = motion.cardTap?.section == HomeSection.LyricHighlight && controller.isEditing
+    Box(Modifier.align(Alignment.TopEnd)) {
+        YoinDropdownMenu(expanded = open, onDismissRequest = motion::clearCardTap) {
+            val current = controller.draft?.rowsOf(HomeSection.LyricHighlight)?.lyricCards
+            listOf(HomeRowPreset.S, HomeRowPreset.M, HomeRowPreset.L).forEach { preset ->
+                val count = preset.lyricCards
+                YoinDropdownMenuItem(
+                    text = androidx.compose.ui.res.pluralStringResource(R.plurals.home_edit_lyric_cards, count, count),
+                    trailingIcon = if (count == current) {
+                        { androidx.compose.material3.Icon(com.gpo.yoin.symbols.YoinSymbols.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        motion.clearCardTap()
+                        controller.setLyricCount(preset)
+                    },
+                )
+            }
+        }
+    }
+}

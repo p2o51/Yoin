@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
@@ -127,18 +129,32 @@ internal fun HomeSectionTitle(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = GoogleSansFlex,
-            fontSize = 18.sp,
-        ),
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier
-            .homeEditSectionTitle()
-            .seamFade(),
-    )
+    val title = @Composable { m: Modifier ->
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = GoogleSansFlex,
+                fontSize = 18.sp,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = m
+                .homeEditSectionTitle()
+                .seamFade(),
+        )
+    }
+    // Two columns: every title sits on the centre line of the same 40dp row (HomeGridTokens.TitleRow),
+    // so the two halves of a row line up.
+    if (LocalHomeGridHeight.current != null) {
+        Box(
+            modifier = modifier.heightIn(min = HomeGridTokens.TitleRow),
+            contentAlignment = Alignment.CenterStart,
+        ) { title(Modifier) }
+    } else {
+        title(modifier)
+    }
 }
 
 /**
@@ -166,6 +182,22 @@ internal fun HomeWidgetGridSection(
     onHideCard: ((HomeWidgetCard, JbiHideSpan) -> Unit)? = null,
 ) {
     if (cards.isEmpty()) return
+    // Two columns (HomeGridUnits.kt): one aligned row of covers a unit, no stagger, the row count from
+    // the units alone (never the window's height). The phone keeps its stagger below.
+    val grid = LocalHomeGridHeight.current
+    if (grid != null) {
+        JbiUnitSection(
+            title = title,
+            cards = cards,
+            units = grid.units.coerceIn(HomeSection.JumpBackIn.unitRange),
+            extractBackdropColors = extractBackdropColors,
+            onCardClick = onCardClick,
+            memoryMarks = memoryMarks,
+            onHideCard = onHideCard,
+            modifier = modifier,
+        )
+        return
+    }
     // Columns and path follow the container (HomeFeedDensity: jbiGridSpec) —
     // not LayoutMode: panes of 3+ feed units get as many phone-sized cover
     // columns as fit. Phones (≤ 2 units) and a landscape handset keep the
@@ -271,6 +303,72 @@ internal fun HomeWidgetGridSection(
                                 places = places,
                             )
                         }
+                    }
+                }
+            }
+            if (onHideCard != null) {
+                JbiHideBubble(
+                    cards = cards,
+                    places = places,
+                    onHide = onHideCard,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Jump Back In on the grid: the title row, then [units] rows of covers
+ * (U − 44 square, two caption lines under), as many columns as fit
+ * ([homeGridColumns]), a signal card two columns wide. Cards past the last
+ * row wait for a larger count.
+ */
+@Composable
+private fun JbiUnitSection(
+    title: String,
+    cards: List<HomeWidgetCard>,
+    units: Int,
+    extractBackdropColors: Boolean,
+    onCardClick: (HomeWidgetTarget) -> Unit,
+    memoryMarks: Map<String, HomeAlbumMemoryMark>,
+    onHideCard: ((HomeWidgetCard, JbiHideSpan) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val places = remember { JbiCardPlaces() }
+    Column(modifier = modifier) {
+        HomeSectionTitle(text = title)
+        Box {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val cover = homeGridCoverDp().dp
+                val columns = homeGridColumns(maxWidth.value)
+                val cells = remember(cards, columns, units) {
+                    homeGridPack(cards.map { if (it.expanded) 2 else 1 }, columns, units)
+                }
+                val coverRequestPx = with(LocalDensity.current) { cover.roundToPx() }
+                HomeGridCells(cells = cells, columns = columns, gap = HomeGridTokens.ColumnGap) { cell ->
+                    val card = cards[cell.index]
+                    val cardModifier = Modifier
+                        .homeEditCard(cell.index)
+                        .jbiCardPlace(places, cell.index, card.stableId)
+                    if (card.expanded) {
+                        WidgetCard12(
+                            card = card,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onCardClick(card.target) },
+                            modifier = cardModifier,
+                            coverRequestPx = coverRequestPx,
+                        )
+                    } else {
+                        WidgetCoverBlock(
+                            card = card,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onCardClick(card.target) },
+                            modifier = cardModifier,
+                            artworkModifier = Modifier.size(cover),
+                            artworkRequestSizePx = coverRequestPx,
+                            memoryMark = card.albumMemoryMark(memoryMarks),
+                        )
                     }
                 }
             }

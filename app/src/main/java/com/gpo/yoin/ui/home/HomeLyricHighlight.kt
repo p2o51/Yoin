@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -325,7 +328,26 @@ internal fun LyricHighlightSection(
 ) {
     val editCardScope = LocalHomeEditCardScope.current
     val shown = cards.take(count.coerceIn(1, 4))
+    // Two columns (HomeGridUnits.kt): the unit card on a paging shelf under the shared title row.
+    val grid = LocalHomeGridHeight.current
+    if (grid != null && frame != null) {
+        LyricUnitSection(
+            cards = shown,
+            units = grid.units.coerceIn(HomeSection.LyricHighlight.unitRange),
+            frame = frame,
+            buildCoverArtUrl = buildCoverArtUrl,
+            extractBackdropColors = extractBackdropColors,
+            onPlay = onPlay,
+            scrollEnabled = shelfScrollEnabled,
+            modifier = modifier,
+        )
+        return
+    }
     val single = shown.size <= 1
+    // Half a two-column row (large-screen Home): the shelf stays in its column, one whole card a page.
+    val half = LocalHomeColumn.current.half
+    @Suppress("NAME_SHADOWING")
+    val frame = if (half) null else frame
     // The column's width is the content width either way (the shelf itself may bleed past it).
     val columnWidth = remember { mutableIntStateOf(0) }
     Column(
@@ -356,7 +378,7 @@ internal fun LyricHighlightSection(
                     },
                 ),
             contentPadding = sidePadding,
-            pageSize = remember(single) { LyricPageSize({ columnWidth.intValue }, single) },
+            pageSize = remember(single, half) { LyricPageSize({ columnWidth.intValue }, single || half) },
             beyondViewportPageCount = 3,
             pageSpacing = LyricCardGap,
             verticalAlignment = Alignment.Top,
@@ -447,6 +469,12 @@ internal fun LyricHighlightIntroCard(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Two columns: the shared title row, then the card sized to the row's units without clipping.
+    val grid = LocalHomeGridHeight.current
+    if (grid != null) {
+        LyricIntroUnits(intro, grid.units.coerceIn(HomeSection.LyricHighlight.unitRange), onOptIn, onDismiss, modifier)
+        return
+    }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(
             shape = YoinContainerShapes.Card,
@@ -644,3 +672,264 @@ private val LyricHighlightSelector.Bucket.labelRes: Int?
         LyricHighlightSelector.Bucket.FRESH -> null
         LyricHighlightSelector.Bucket.USER -> R.string.home_lyric_kind_user
     }
+
+// ── Two columns (HomeGridUnits.kt) ─────────────────────────────────────────
+
+/** The lyric lines a unit card shows at [units]: what fits under the song line (and the tag), 2–3 at 1 unit, 4–6 at 2. Pure. */
+internal fun lyricUnitLines(units: Int, hasTag: Boolean): Int {
+    val box = homeGridContentDp(units)
+    val above = LyricUnitSongLineDp + LyricUnitGapDp + if (hasTag) LyricUnitTagDp + LyricUnitGapDp else 0f
+    val fit = kotlin.math.floor((box - 2 * LyricCardPadding.value - above) / LyricUnitLineDp).toInt()
+    return if (units <= 1) fit.coerceIn(2, 3) else fit.coerceIn(4, 6)
+}
+
+/** Cards a page shows: one in a half, two side by side in a full row. Pure. */
+internal fun lyricUnitPerPage(half: Boolean): Int = if (half) 1 else 2
+
+/** Pages [cards] fill at [perPage]. Pure. */
+internal fun lyricUnitPages(cards: Int, perPage: Int): Int = if (cards <= 0) 0 else (cards + perPage - 1) / perPage
+
+private const val LyricUnitSongLineDp = 20f
+private const val LyricUnitTagDp = 18f
+private const val LyricUnitGapDp = 8f
+private const val LyricUnitLineDp = 24f
+
+@Composable
+private fun LyricUnitSection(
+    cards: List<HomeLyricHighlight>,
+    units: Int,
+    frame: HomeFeedFrame,
+    buildCoverArtUrl: (String) -> String,
+    extractBackdropColors: Boolean,
+    onPlay: (HomeLyricHighlight) -> Unit,
+    scrollEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val half = LocalHomeColumn.current.half
+    val perPage = lyricUnitPerPage(half)
+    val height = homeGridContentDp(units).dp
+    HomeShelf(
+        title = stringResource(HomeSection.LyricHighlight.titleRes),
+        frame = frame,
+        scrollEnabled = scrollEnabled,
+        cardWidth = 0.dp,
+        perPage = perPage,
+        cardCount = cards.size,
+        pagedFull = true,
+        modifier = modifier,
+    ) { pageWidth ->
+        val width = homeShelfCardWidth(pageWidth ?: 0.dp, perPage)
+        items(count = cards.size, key = { cards[it].songId.rawId + ":" + cards[it].startMs }) { index ->
+            val card = cards[index]
+            LyricUnitCard(
+                card = card,
+                units = units,
+                coverArtUrl = remember(card.coverKey, buildCoverArtUrl) {
+                    when (val ref = CoverRef.fromStorageKey(card.coverKey)) {
+                        null -> null
+                        is CoverRef.Url -> ref.url
+                        is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
+                    }
+                },
+                extractBackdropColors = extractBackdropColors,
+                onPlay = { onPlay(card) },
+                modifier = Modifier
+                    .width(width)
+                    .height(height)
+                    .homeEditCard(index),
+            )
+        }
+    }
+}
+
+/**
+ * The unit card (Jump Back In's wide-card skeleton): the cover, a square the box's full height, then the
+ * song on one line, how it has been heard, and the passage in the sans face, as many lines as fit.
+ */
+@Composable
+private fun LyricUnitCard(
+    card: HomeLyricHighlight,
+    units: Int,
+    coverArtUrl: String?,
+    extractBackdropColors: Boolean,
+    onPlay: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(coverArtUrl, extractBackdropColors)
+    val tag = card.kind?.labelRes
+    Surface(
+        modifier = modifier.elasticPress(interactionSource),
+        shape = YoinContainerShapes.Card,
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClickLabel = stringResource(R.string.home_lyric_play_from_line),
+                    onClick = onPlay,
+                ),
+        ) {
+            com.gpo.yoin.ui.component.ExpressiveMediaArtwork(
+                model = coverArtUrl,
+                contentDescription = card.title,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(1f),
+                shape = YoinContainerShapes.Card,
+                fallbackIcon = com.gpo.yoin.symbols.YoinSymbols.Album,
+                interactionSource = interactionSource,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(LyricCardPadding),
+                verticalArrangement = Arrangement.spacedBy(LyricUnitGapDp.dp),
+            ) {
+                // The song: its title, then its artist, on one line.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = card.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.content,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (card.artist.isNotBlank()) {
+                        Text(
+                            text = card.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.contentMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
+                tag?.let { label ->
+                    Text(
+                        text = stringResource(label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.ink,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    text = card.text,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 17.sp,
+                        lineHeight = LyricUnitLineDp.sp,
+                    ),
+                    color = colors.content,
+                    maxLines = lyricUnitLines(units, hasTag = tag != null),
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The intro on the grid: at 1 unit its words beside the buttons (the first paragraph, two lines at most), at 2
+ * every paragraph (two lines each) with the buttons at the bottom end. Nothing is cut mid-line.
+ */
+@Composable
+private fun LyricIntroUnits(
+    intro: LyricHighlightIntro,
+    units: Int,
+    onOptIn: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val body = when (intro) {
+        is LyricHighlightIntro.Supported -> listOf(
+            stringResource(R.string.home_lyric_intro_nano),
+            stringResource(if (intro.ready) R.string.home_lyric_intro_ready else R.string.home_lyric_intro_download),
+            stringResource(R.string.home_lyric_intro_picks),
+        )
+        LyricHighlightIntro.Unsupported -> listOf(
+            stringResource(R.string.home_lyric_intro_unsupported),
+            stringResource(R.string.home_lyric_intro_picks),
+        )
+    }
+    val buttons: @Composable () -> Unit = {
+        when (intro) {
+            is LyricHighlightIntro.Supported -> {
+                TextButton(onClick = onDismiss, enabled = homeEditInteractive()) {
+                    Text(stringResource(R.string.home_lyric_intro_not_now))
+                }
+                Button(onClick = onOptIn, enabled = homeEditInteractive()) {
+                    Text(stringResource(R.string.home_lyric_intro_turn_on))
+                }
+            }
+            LyricHighlightIntro.Unsupported -> Button(onClick = onDismiss, enabled = homeEditInteractive()) {
+                Text(stringResource(R.string.home_lyric_intro_got_it))
+            }
+        }
+    }
+    Column(modifier = modifier) {
+        HomeGridTitleRow(title = stringResource(HomeSection.LyricHighlight.titleRes))
+        Surface(
+            shape = YoinContainerShapes.Card,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(homeGridContentDp(units).dp),
+        ) {
+            val words: @Composable (Modifier, Int) -> Unit = { m, paragraphs ->
+                Column(m, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.home_lyric_intro_badge),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = stringResource(R.string.home_lyric_intro_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    body.take(paragraphs).forEach { paragraph ->
+                        Text(
+                            text = paragraph,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            if (units <= 1) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    words(Modifier.weight(1f), 1)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { buttons() }
+                }
+            } else {
+                Column(Modifier.padding(20.dp)) {
+                    words(Modifier.weight(1f), body.size)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    ) { buttons() }
+                }
+            }
+        }
+    }
+}
