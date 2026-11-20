@@ -95,9 +95,10 @@ python3 -m http.server 4611 --directory public
 
 1. **版本对比录屏**：每次发版必录一版对比上一版的更新录屏，重点录 UI 改动页面（手机/平板哪个改了 UI 就录哪个，**默认录手机**）。
 2. **录屏按页命名备份到 Google Drive**：按页面分别起好语义化文件名，整理存进 Google Drive：`我的云端硬盘 › 01 项目 › Yoin › Yoin recordings › <版本号>/`。
-3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须使用 HTML/SVG 前后对比画框/画圈（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。
+3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须使用 HTML/SVG 前后对比画框/画圈（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。（可直接依据真机对比截图/录屏绘制，不强依赖 Figma 专业版；Drive 录屏本身兼作设计存档。）
 4. **商店文案直接发进 `#yoin` 发版线程**：每次发版时把 **Google Play** 与 **App Store Connect** 的发布说明直接发到 `#yoin` 对应的发版线程里（App Store Connect 受限制可简写如 `bug fix` 等）；此后所有发版相关内容均集中在该发版线程内留存与跟进。
 5. **双语文案标准**：中文文案严格遵循 `write-copy` 技能；英文按中文功能点自然准确翻译即可，不必过度打磨修辞。
+6. **视觉 Artifacts 备份原则**：迭代中的 Raft Artifacts 直接在 `#yoin` 发给 51 审阅；**只有好看/经 51 定稿的视觉类 Artifacts 才需要在末尾传一份到 Notion 备份**，普通决策/评审 Artifacts 过完直接归档即可。
 
 ---
 
