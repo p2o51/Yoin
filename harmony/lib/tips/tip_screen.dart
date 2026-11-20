@@ -21,6 +21,7 @@ import '../nowplaying/haptics.dart';
 import '../settings/settings_metrics.dart';
 import '../settings/sync/cloud_sync_texts.dart' show fixedSyncDate;
 import '../settings/tips.dart';
+import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
@@ -131,82 +132,84 @@ class _TipScreenState extends ConsumerState<TipScreen> with TickerProviderStateM
     final current = _tips[_current];
     final nextUnread = nextUnreadTip(current, read, _tips);
     final padding = MediaQuery.paddingOf(context);
-    return Scaffold(
-      backgroundColor: colors.surface,
-      body: Padding(
-        padding: EdgeInsets.only(
-          left: padding.left,
-          top: padding.top,
-          right: padding.right,
-          // A window with no navigation bar still keeps the buttons off its rounded edge.
-          bottom: math.max(padding.bottom, TipTokens.bottomFloor),
-        ),
-        child: Column(
-          children: [
-            SizedBox(
-              height: TipTokens.barHeight,
-              child: Row(
-                children: [
-                  const Padding(
-                    padding: EdgeInsetsDirectional.only(start: SettingsMetrics.backStart),
-                    child: DetailBackButton(),
-                  ),
-                  const Spacer(),
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(end: TipTokens.positionEnd),
-                    child: Text(
-                      strings.position(_current + 1, _tips.length),
-                      style: Theme.of(context).textTheme.labelLarge!.copyWith(color: colors.onSurfaceVariant),
+    return ChromeBarSuppression(
+      child: Scaffold(
+        backgroundColor: colors.surface,
+        body: Padding(
+          padding: EdgeInsets.only(
+            left: padding.left,
+            top: padding.top,
+            right: padding.right,
+            // A window with no navigation bar still keeps the buttons off its rounded edge.
+            bottom: math.max(padding.bottom, TipTokens.bottomFloor),
+          ),
+          child: Column(
+            children: [
+              SizedBox(
+                height: TipTokens.barHeight,
+                child: Row(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsetsDirectional.only(start: SettingsMetrics.backStart),
+                      child: DetailBackButton(),
+                    ),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: TipTokens.positionEnd),
+                      child: Text(
+                        strings.position(_current + 1, _tips.length),
+                        style: Theme.of(context).textTheme.labelLarge!.copyWith(color: colors.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: PageView.builder(
+                    controller: _pager,
+                    itemCount: _tips.length,
+                    itemBuilder: (context, page) => ValueListenableBuilder<int>(
+                      valueListenable: _settled,
+                      builder: (context, settled, _) =>
+                          _TipPage(tip: _tips[page], page: page, pager: _pager, playing: settled == page),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-            Expanded(
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onScroll,
-                child: PageView.builder(
-                  controller: _pager,
-                  itemCount: _tips.length,
-                  itemBuilder: (context, page) => ValueListenableBuilder<int>(
-                    valueListenable: _settled,
-                    builder: (context, settled, _) =>
-                        _TipPage(tip: _tips[page], page: page, pager: _pager, playing: settled == page),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: TipTokens.proseMaxWidth),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: TipTokens.buttonsPaddingH,
+                      vertical: TipTokens.buttonsPaddingV,
+                    ),
+                    child: Row(
+                      children: [
+                        _ReadToggle(
+                          checked: read.contains(current),
+                          label: strings.read,
+                          onChanged: (checked) {
+                            YoinHaptics.click();
+                            ref.read(tipReadProvider.notifier).setRead(current, checked);
+                          },
+                        ),
+                        const SizedBox(width: TipTokens.buttonGap),
+                        const Spacer(),
+                        _NextButton(
+                          label: nextUnread == null ? strings.done : strings.next,
+                          chevron: nextUnread != null,
+                          onTap: () => _next(current, nextUnread),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: TipTokens.proseMaxWidth),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: TipTokens.buttonsPaddingH,
-                    vertical: TipTokens.buttonsPaddingV,
-                  ),
-                  child: Row(
-                    children: [
-                      _ReadToggle(
-                        checked: read.contains(current),
-                        label: strings.read,
-                        onChanged: (checked) {
-                          YoinHaptics.click();
-                          ref.read(tipReadProvider.notifier).setRead(current, checked);
-                        },
-                      ),
-                      const SizedBox(width: TipTokens.buttonGap),
-                      const Spacer(),
-                      _NextButton(
-                        label: nextUnread == null ? strings.done : strings.next,
-                        chevron: nextUnread != null,
-                        onTap: () => _next(current, nextUnread),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

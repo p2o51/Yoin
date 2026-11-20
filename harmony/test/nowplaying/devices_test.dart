@@ -12,6 +12,7 @@ import 'package:yoin/playback/output/dlna_client.dart';
 import 'package:yoin/playback/output/output_providers.dart';
 import 'package:yoin/playback/output/playback_router.dart';
 import 'package:yoin/theme/tokens.dart';
+import 'package:yoin/ui/component/yoin_loading_indicator.dart';
 
 import '../playback/output/output_fakes.dart';
 import '../support/fake_music_source.dart';
@@ -259,6 +260,29 @@ void main() {
       expect(find.text('未投播'), findsOneWidget);
       expect(find.text('此设备、投播与 DLNA'), findsOneWidget);
       expect(find.text('同一 Wi-Fi'), findsOneWidget);
+    });
+
+    testWidgets('should_notOverlayPullIndicator_when_loadingWithoutPull', (tester) async {
+      const device = YoinDevice(id: 'local', kind: DeviceKind.local, name: '', isActive: true, isSelectable: false);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DevicesSheetBody(
+              state: const DevicesSheetState(
+                providerId: MediaId.providerSubsonic,
+                devices: [device],
+                loading: true,
+              ),
+              onRefresh: () {},
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      // Header refresh button shows the single spinner; pull-to-refresh overlay must not drop over "This device".
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(YoinLoadingIndicator), findsNothing);
     });
 
     testWidgets('should_closeTheSheet_when_theSongChanges', (tester) async {

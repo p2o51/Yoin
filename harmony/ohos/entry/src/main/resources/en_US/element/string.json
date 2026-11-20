@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "Yoin music player"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "Yoin main entry ability"
     },
     {
       "name": "EntryAbility_label",
-      "value": "yoin"
+      "value": "Yoin"
     },
     {
       "name": "card_play_label",

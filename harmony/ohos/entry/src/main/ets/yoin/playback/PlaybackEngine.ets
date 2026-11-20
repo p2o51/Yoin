@@ -848,7 +848,7 @@ export class PlaybackEngine {
     if (p === this.spare && this.preloadItem !== null) {
       hilog.warn(DOMAIN, TAG, 'preload error: %{public}s', describe(e));
       this.note('preload error', describe(e));
-      if (this.preloadItem.viaCache()) {
+      if (p instanceof AvEnginePlayer && p.openedViaCache()) {
         // Loaded again when it starts, from the server.
         this.preloadItem.cacheBypassed = true;
       }
@@ -1121,7 +1121,8 @@ export class PlaybackEngine {
 
   private fail(e: BusinessError): void {
     const item = this.currentItem();
-    if (item !== null && item.viaCache()) {
+    const p = this.player;
+    if (item !== null && p instanceof AvEnginePlayer && p.openedViaCache()) {
       // The stream cache failed (its server gone with the Flutter engine, or it could not reach the server):
       // the same item again from the server, where it was (Android FLAG_IGNORE_CACHE_ON_ERROR).
       hilog.warn(DOMAIN, TAG, 'stream cache failed, streaming directly: %{public}s', describe(e));

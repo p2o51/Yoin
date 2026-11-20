@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "模块描述"
+      "value": "Yoin 音乐播放器"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "Yoin 主界面入口"
     },
     {
       "name": "EntryAbility_label",
-      "value": "yoin"
+      "value": "Yoin"
     },
     {
       "name": "card_play_label",

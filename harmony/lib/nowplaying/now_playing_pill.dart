@@ -214,8 +214,9 @@ class _NowPlayingPillState extends ConsumerState<NowPlayingPill> with TickerProv
                             ),
                             const SizedBox(width: PillMetrics.gap),
                             Expanded(
-                              child: Builder(
-                                builder: (context) {
+                              child: AnimatedBuilder(
+                                animation: _presence.animation,
+                                builder: (context, _) {
                                   final content = Color.lerp(
                                     colors.onSurfaceVariant,
                                     colors.onPrimaryContainer,

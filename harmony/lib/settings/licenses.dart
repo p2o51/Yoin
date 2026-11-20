@@ -19,7 +19,7 @@ import 'settings_strings.dart';
 
 /// The app's version name. Keep equal to pubspec.yaml's `version` (the build
 /// writes that into the HAP; a test checks the two agree).
-const yoinVersionName = '0.1.0';
+const yoinVersionName = '0.6.5';
 
 /// The build number after the `+` in pubspec.yaml's `version`. Cloud sync
 /// writes it into every file it uploads (Android's versionCode field).

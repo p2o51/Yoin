@@ -480,10 +480,13 @@ class _LedgerBar extends StatelessWidget implements PreferredSizeWidget {
         padding: const EdgeInsetsDirectional.only(start: SettingsMetrics.backStart, end: SettingsMetrics.backEnd),
         child: AnimatedBuilder(
           animation: white,
-          builder: (context, _) => DetailBackButton(
-            container: colors.surfaceContainerHighest,
-            content: Color.lerp(colors.onSurface, Colors.white, white.value.clamp(0.0, 1.0)),
-          ),
+          builder: (context, _) {
+            final t = white.value.clamp(0.0, 1.0);
+            return DetailBackButton(
+              container: Color.lerp(colors.surfaceContainerHighest, Colors.black.withValues(alpha: 0.28), t),
+              content: Color.lerp(colors.onSurface, Colors.white, t),
+            );
+          },
         ),
       ),
       title: AnimatedBuilder(

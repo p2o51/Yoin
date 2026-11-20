@@ -59,11 +59,16 @@ export class DecodedFormat {
 /** Makes a player that reports to [events]. */
 export type EnginePlayerFactory = (events: EnginePlayerEvents) => Promise<EnginePlayer>;
 
+/** Which source an [AvEnginePlayer] actually opened on its last [setSource] call. */
+export type OpenedSource = 'none' | 'file' | 'cache' | 'stream';
+
 /** The system AVPlayer as an [EnginePlayer]: every call and event passes straight through. */
 export class AvEnginePlayer implements EnginePlayer {
   private readonly p: media.AVPlayer;
   /** The downloaded file the player reads now; closed when the source changes or the player goes. */
   private file: fs.File | null = null;
+  /** Which backing source the player actually opened, so error fallback does not rely on live epoch state. */
+  private sourceKind: OpenedSource = 'none';
 
   constructor(p: media.AVPlayer, events: EnginePlayerEvents) {
     this.p = p;
@@ -103,6 +108,7 @@ export class AvEnginePlayer implements EnginePlayer {
 
   async setSource(item: QueueItem): Promise<void> {
     this.closeFile();
+    this.sourceKind = 'none';
     const local = item.localUri;
     if (local !== undefined && local.startsWith(FILE_SCHEME)) {
       // A downloaded song plays from its file, with no network (AVPlayer takes a local file as a descriptor).
@@ -115,6 +121,7 @@ export class AvEnginePlayer implements EnginePlayer {
       }
       if (file !== null) {
         this.file = file;
+        this.sourceKind = 'file';
         const src: media.AVFileDescriptor = { fd: file.fd };
         this.p.fdSrc = src;
         return;
@@ -122,10 +129,13 @@ export class AvEnginePlayer implements EnginePlayer {
     }
     if (item.viaCache()) {
       // Dart's stream cache: it adds the server's headers itself.
+      this.sourceKind = 'cache';
       this.p.url = item.streamUri();
     } else if (item.headerCount > 0) {
+      this.sourceKind = 'stream';
       await this.p.setMediaSource(media.createMediaSourceWithUrl(item.uri, item.headers));
     } else {
+      this.sourceKind = 'stream';
       this.p.url = item.uri;
     }
   }
@@ -155,11 +165,13 @@ export class AvEnginePlayer implements EnginePlayer {
   async reset(): Promise<void> {
     await this.p.reset();
     this.closeFile();
+    this.sourceKind = 'none';
   }
 
   async release(): Promise<void> {
     await this.p.release();
     this.closeFile();
+    this.sourceKind = 'none';
   }
 
   private closeFile(): void {
@@ -188,7 +200,12 @@ export class AvEnginePlayer implements EnginePlayer {
 
   /** Whether the source set last is the downloaded file (not the stream). */
   openedFile(): boolean {
-    return this.file !== null;
+    return this.sourceKind === 'file';
+  }
+
+  /** Whether the source set last was Dart's loopback stream cache (independent of [StreamCacheEpoch]). */
+  openedViaCache(): boolean {
+    return this.sourceKind === 'cache';
   }
 
   /** The audio track as the decoder describes it; null when it lists none (prepared / playing / paused only). */
