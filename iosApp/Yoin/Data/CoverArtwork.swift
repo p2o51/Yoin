@@ -78,16 +78,18 @@ final class CoverArtwork: @unchecked Sendable {
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "covers")
 
     func slot(_ ref: CoverRef) -> Slot {
-        slots.withLock { all in
-            if let s = all[ref.key] { return s }
+        if let existing = slots.withLock({ $0[ref.key] }) {
+            return existing
+        }
+        // Read the tiny 14-byte persisted color sidecar outside the lock so
+        // previously seen covers paint with their true album colors on Frame 1
+        // without holding the unfair lock across disk I/O.
+        let sidecar = Self.file(for: ref.key).appendingPathExtension("colors")
+        let persisted = (try? Data(contentsOf: sidecar)).flatMap(Self.decodeColors)
+        return slots.withLock { all in
+            if let existing = all[ref.key] { return existing }
             let s = Slot()
-            // Read the tiny 14-byte persisted color sidecar synchronously so
-            // previously seen covers paint with their true album colors on Frame 1
-            // instead of flashing hash-colored placeholders on cold start.
-            let sidecar = Self.file(for: ref.key).appendingPathExtension("colors")
-            if let data = try? Data(contentsOf: sidecar), let persisted = Self.decodeColors(data) {
-                s.colors = persisted
-            }
+            s.colors = persisted
             all[ref.key] = s
             return s
         }

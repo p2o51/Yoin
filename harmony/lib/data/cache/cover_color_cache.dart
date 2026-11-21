@@ -113,6 +113,10 @@ class CoverColorStore {
       _trim();
     } catch (_) {
       // Corrupt or unreadable cache file: start fresh cleanly.
+    } finally {
+      if (_file != null && _dirty) {
+        _scheduleFlush();
+      }
     }
   }
 
@@ -155,8 +159,8 @@ class CoverColorStore {
   }
 
   void _scheduleFlush() {
-    if (_file == null) return;
     _dirty = true;
+    if (_file == null) return;
     _flushTimer ??= Timer(flushDelay, () {
       _flushTimer = null;
       unawaited(flushNow());

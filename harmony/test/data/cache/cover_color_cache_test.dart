@@ -61,4 +61,20 @@ void main() {
     );
     expect(firstFrameScheme, isNotNull, reason: 'cached cover seed must apply synchronously on Frame 1');
   });
+
+  test('should_flushColorsAddedBeforeLoadCompletes_when_loadFinishes', () async {
+    final dir = await Directory.systemTemp.createTemp('yoin_cover_color_preload_');
+    addTearDown(() => dir.delete(recursive: true));
+
+    final store = CoverColorStore(directory: () async => dir, flushDelay: const Duration(milliseconds: 10));
+    const url = 'https://music.example/rest/getCoverArt.view?id=al-preload&size=400&t=x&s=y';
+    // Computed before load() resolves (_file is still null).
+    store.putSeed(url, 0xFF3366CC);
+    await store.load();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final reloaded = CoverColorStore(directory: () async => dir);
+    await reloaded.load();
+    expect(reloaded.get(url)?.seedArgb, 0xFF3366CC);
+  });
 }
