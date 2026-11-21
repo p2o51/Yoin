@@ -163,6 +163,9 @@ internal fun HomeCarryStack(
         modifier
             .fillMaxSize()
             .clearAndSetSemantics {}
+            // Its own layer: the hole and plates re-record here alone, not the page layer
+            // they sit in (the feed's seam viewport and wash with them) on every frame they move.
+            .graphicsLayer {}
             .drawBehind {
                 val live = engine.session ?: return@drawBehind
                 val fold = engine.fold.value
@@ -205,6 +208,8 @@ internal fun HomeCarryStack(
             Modifier
                 .matchParentSize()
                 .zIndex(CarriedPlateZ)
+                // Its own layer: a drag move re-records this one plate, not every strip's.
+                .graphicsLayer {}
                 .drawBehind {
                     val carried = engine.session?.carried ?: return@drawBehind
                     val frame = engine.frameFor(carried) ?: return@drawBehind
