@@ -81,6 +81,13 @@ final class CoverArtwork: @unchecked Sendable {
         slots.withLock { all in
             if let s = all[ref.key] { return s }
             let s = Slot()
+            // Read the tiny 14-byte persisted color sidecar synchronously so
+            // previously seen covers paint with their true album colors on Frame 1
+            // instead of flashing hash-colored placeholders on cold start.
+            let sidecar = Self.file(for: ref.key).appendingPathExtension("colors")
+            if let data = try? Data(contentsOf: sidecar), let persisted = Self.decodeColors(data) {
+                s.colors = persisted
+            }
             all[ref.key] = s
             return s
         }
@@ -105,18 +112,29 @@ final class CoverArtwork: @unchecked Sendable {
         let task = Task { @MainActor in
             defer { tasks[ref.key] = nil }
             guard let result = await Self.fetch(ref) else { return }
-            let apply = {
+            let hadColors = slot.colors != nil
+            let applyImage = {
                 slot.image = result.image
                 slot.cardImage = result.cardImage
+            }
+            let applyColors = {
                 if slot.colors != result.colors {
                     slot.colors = result.colors
                 }
             }
             if result.fromDisk {
-                apply()
+                applyImage()
+                if hadColors || result.colors == nil {
+                    applyColors()
+                } else {
+                    // Legacy cached image without a .colors sidecar yet: glide
+                    // the newly extracted color in rather than snapping abruptly.
+                    withAnimation(Yoin.effects) { applyColors() }
+                }
             } else {
                 withAnimation(Yoin.effects) {
-                    apply()
+                    applyImage()
+                    applyColors()
                 }
             }
             trimMemory()
@@ -227,7 +245,7 @@ final class CoverArtwork: @unchecked Sendable {
         return UIImage(cgImage: small)
     }
 
-    private static func encodeColors(_ colors: Colors) -> Data {
+    static func encodeColors(_ colors: Colors) -> Data {
         var data = Data(capacity: 14)
         data.append(0x59)
         var flags: UInt8 = 0
@@ -244,7 +262,7 @@ final class CoverArtwork: @unchecked Sendable {
         return data
     }
 
-    private static func decodeColors(_ data: Data) -> Colors? {
+    static func decodeColors(_ data: Data) -> Colors? {
         guard data.count == 14, data[0] == 0x59 else { return nil }
         let flags = data[1]
         func readU32(at offset: Int) -> Int {
@@ -260,22 +278,38 @@ final class CoverArtwork: @unchecked Sendable {
         return Colors(seedArgb: seed, lightArgb: light, darkArgb: dark)
     }
 
-    /// The image drawn at Android's 200 px, through `CoverSeed.swatches`.
+    /// The image drawn once at Android's 200 px directly into an RGBA buffer, through `CoverSeed.swatches`.
     static func colors(of image: UIImage) -> Colors? {
         guard let cg = image.cgImage else { return nil }
         let side = CoverSeed.bitmapSizePx
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                  space: space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                                      | CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
-        // Aspect fill, like the square cover views.
-        let w = CGFloat(cg.width), h = CGFloat(cg.height), s = CGFloat(side)
-        let scale = max(s / w, s / h)
-        ctx.draw(cg, in: CGRect(x: (s - w * scale) / 2, y: (s - h * scale) / 2, width: w * scale, height: h * scale))
-        guard let small = ctx.makeImage(), let (pixels, pw, ph) = CoverSeed.argbPixels(of: small),
-              let sw = CoverSeed.swatches(pixels: pixels, width: pw, height: ph) else { return nil }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var rgba = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn: Bool = rgba.withUnsafeMutableBytes { buffer in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return false }
+            ctx.interpolationQuality = .medium
+            // Aspect fill, like the square cover views.
+            let w = CGFloat(cg.width), h = CGFloat(cg.height), s = CGFloat(side)
+            let scale = max(s / w, s / h)
+            ctx.draw(cg, in: CGRect(x: (s - w * scale) / 2, y: (s - h * scale) / 2, width: w * scale, height: h * scale))
+            return true
+        }
+        guard drawn else { return nil }
+        var pixels = [UInt32](repeating: 0, count: side * side)
+        for i in 0..<(side * side) {
+            var r = UInt32(rgba[i * 4]), g = UInt32(rgba[i * 4 + 1]), b = UInt32(rgba[i * 4 + 2])
+            let a = UInt32(rgba[i * 4 + 3])
+            if a > 0 && a < 255 {
+                r = min(255, (r * 255 + a / 2) / a)
+                g = min(255, (g * 255 + a / 2) / a)
+                b = min(255, (b * 255 + a / 2) / a)
+            }
+            pixels[i] = (a << 24) | (r << 16) | (g << 8) | b
+        }
+        guard let sw = CoverSeed.swatches(pixels: pixels, width: side, height: side) else { return nil }
         return Colors(seedArgb: sw.seed, lightArgb: sw.light, darkArgb: sw.dark)
     }
 }

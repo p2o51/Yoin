@@ -6,7 +6,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import com.gpo.yoin.ui.theme.CoverSeedExtractor
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -165,5 +168,75 @@ class ExpressiveBackdropPaletteTest {
         assertTrue(inBackdropHueFamily(Color(0xFFE2C27A), Color(0xFF6E6E6E)))
         // red and magenta wrap around 0°/360°
         assertTrue(inBackdropHueFamily(Color(0xFFD02040), Color(0xFFD03020)))
+    }
+
+    @Test
+    fun should_share_backdrop_cache_across_subsonic_salt_rotations() {
+        ExpressiveBackdropPaletteCache.clearForTest()
+        val urlA = "https://music.example/rest/getCoverArt.view?id=al-42&size=400&u=51&t=aaa&s=salt1&v=1.16.1&c=Yoin"
+        val urlB = "https://music.example/rest/getCoverArt.view?id=al-42&size=400&u=51&t=bbb&s=salt2&v=1.16.1&c=Yoin"
+        val colors = ExpressiveBackdropColors(
+            baseColor = Color(0xFF183888),
+            accentColor = Color(0xFF8888E0),
+            isResolvedFromPalette = true,
+        )
+        ExpressiveBackdropPaletteCache.put(urlA, colors)
+        assertEquals(colors, ExpressiveBackdropPaletteCache.get(urlB))
+    }
+
+    @Test
+    fun should_deduplicate_concurrent_loads_and_recover_when_leader_cancels() = runTest {
+        ExpressiveBackdropPaletteCache.clearForTest()
+        val model = "https://music.example/rest/getCoverArt.view?id=al-99&size=400&u=51&t=aaa&s=salt1&v=1.16.1&c=Yoin"
+        val siblingModel = "https://music.example/rest/getCoverArt.view?id=al-99&size=400&u=51&t=bbb&s=salt2&v=1.16.1&c=Yoin"
+        val expected = ExpressiveBackdropColors(
+            baseColor = Color(0xFF224466),
+            accentColor = Color(0xFF6688AA),
+            isResolvedFromPalette = true,
+        )
+
+        // 1. Concurrent callers share a single decode.
+        val gate = CompletableDeferred<Unit>()
+        val calls = AtomicInteger(0)
+        val first = async {
+            ExpressiveBackdropPaletteCache.dedupeLoad(model) {
+                calls.incrementAndGet()
+                gate.await()
+                expected
+            }
+        }
+        val second = async {
+            ExpressiveBackdropPaletteCache.dedupeLoad(siblingModel) {
+                calls.incrementAndGet()
+                expected
+            }
+        }
+        testScheduler.runCurrent()
+        gate.complete(Unit)
+        assertEquals(expected, first.await())
+        assertEquals(expected, second.await())
+        assertEquals(1, calls.get())
+
+        // 2. If the leader cancels mid-flight, a waiting caller transparently takes over.
+        ExpressiveBackdropPaletteCache.clearForTest()
+        val cancelGate = CompletableDeferred<Unit>()
+        val takeoverCalls = AtomicInteger(0)
+        val leader = async {
+            ExpressiveBackdropPaletteCache.dedupeLoad(model) {
+                takeoverCalls.incrementAndGet()
+                cancelGate.await()
+                expected
+            }
+        }
+        val waiter = async {
+            ExpressiveBackdropPaletteCache.dedupeLoad(siblingModel) {
+                takeoverCalls.incrementAndGet()
+                expected
+            }
+        }
+        testScheduler.runCurrent()
+        leader.cancel()
+        assertEquals(expected, waiter.await())
+        assertEquals(2, takeoverCalls.get())
     }
 }
