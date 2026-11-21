@@ -75,10 +75,27 @@ class SeamBarField extends ChangeNotifier {
   /// Reduced motion: the presence snaps instead of fading.
   bool reduced = false;
 
-  /// Field presence, 0..1: follows [attached] and [shown] on the effects spring
-  /// (whole or none within the spring's settling tolerance).
+  /// Live visibility (0..1) while scroll-hide or Memories slides and fades the
+  /// bar out of the window. Multiplied into [reveal] so the bottom halftone
+  /// field leaves in lockstep with the bar instead of sticking once [Opacity]
+  /// reaches 0 and stops repainting [SeamBarSource].
+  double get visibility => _visibility;
+  double _visibility = 1;
+  set visibility(double value) {
+    final clamped = value.clamp(0.0, 1.0);
+    if ((clamped - _visibility).abs() < 0.0005 && (clamped == 0 || clamped == 1 ? clamped == _visibility : true)) return;
+    _visibility = clamped;
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      _changed();
+    } else if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
+  /// Field presence, 0..1: follows [attached] and [shown] on the effects spring,
+  /// scaled by the bar's live [visibility] (scroll-hide / Memories hide).
   double get reveal {
-    final v = _reveal.value;
+    final v = _reveal.value * _visibility;
     return v >= 0.999 ? 1 : (v <= 0.001 ? 0 : v);
   }
 

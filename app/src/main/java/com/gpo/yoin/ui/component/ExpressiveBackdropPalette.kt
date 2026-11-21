@@ -21,12 +21,15 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.shared.palette.Palette
 import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -50,7 +53,7 @@ internal data class ExpressiveBackdropColors(
     val isResolvedFromPalette: Boolean = false,
 )
 
-private const val BackdropPaletteCacheSize = 96
+private const val BackdropPaletteCacheSize = 256
 
 /** The unfiltered read's colour count — only for covers the seed pass finds no colour in. */
 private const val BackdropFallbackColorCount = 12
@@ -68,13 +71,62 @@ internal const val BackdropAccentGreyBelow = 0.12f
 /** With no swatch in the base's family, the accent is the toned base lifted by this much lightness. */
 private const val BackdropAccentLift = 0.18f
 
-private object ExpressiveBackdropPaletteCache {
-    private val cache = LruCache<String, ExpressiveBackdropColors>(BackdropPaletteCacheSize)
+private class BackdropLeaderCancelledException : Exception()
 
-    fun get(model: String): ExpressiveBackdropColors? = cache.get(model)
+internal object ExpressiveBackdropPaletteCache {
+    private val cache = LruCache<String, ExpressiveBackdropColors>(BackdropPaletteCacheSize)
+    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<ExpressiveBackdropColors?>>()
+
+    fun normalize(model: String): String = SubsonicCacheKey.of(model) ?: model
+
+    fun get(model: String): ExpressiveBackdropColors? = cache.get(normalize(model))
 
     fun put(model: String, colors: ExpressiveBackdropColors) {
-        cache.put(model, colors)
+        cache.put(normalize(model), colors)
+    }
+
+    internal fun clearForTest() {
+        cache.evictAll()
+        inFlight.clear()
+    }
+
+    suspend fun dedupeLoad(
+        model: String,
+        loader: suspend () -> ExpressiveBackdropColors?,
+    ): ExpressiveBackdropColors? {
+        val key = normalize(model)
+        while (true) {
+            cache.get(key)?.let { return it }
+            val mine = CompletableDeferred<ExpressiveBackdropColors?>()
+            val existing = inFlight.putIfAbsent(key, mine)
+            if (existing != null) {
+                return try {
+                    existing.await()
+                } catch (_: BackdropLeaderCancelledException) {
+                    // The leader card scrolled away and cancelled; this caller is still active.
+                    continue
+                }
+            }
+            return try {
+                val loaded = loader()
+                if (loaded != null) {
+                    cache.put(key, loaded)
+                }
+                inFlight.remove(key, mine)
+                mine.complete(loaded)
+                loaded
+            } catch (cancellation: CancellationException) {
+                inFlight.remove(key, mine)
+                mine.completeExceptionally(BackdropLeaderCancelledException())
+                throw cancellation
+            } catch (t: Throwable) {
+                inFlight.remove(key, mine)
+                mine.completeExceptionally(t)
+                throw t
+            } finally {
+                inFlight.remove(key, mine)
+            }
+        }
     }
 }
 
@@ -224,17 +276,19 @@ internal fun rememberBackdropColorsLoadedBy(
  * null when it has none, a [BackdropReadException] when it can't be read.
  */
 private suspend fun loadBackdropColors(context: Context, model: String): ExpressiveBackdropColors? =
-    withContext(Dispatchers.IO) {
-        val request = ImageRequest.Builder(context)
-            .data(model)
-            .size(Size(CoverSeedExtractor.BitmapSizePx, CoverSeedExtractor.BitmapSizePx))
-            .allowHardware(false)
-            .build()
-        // App-wide singleton (YoinApplication is the factory) — palette pixel
-        // reads stay safe because allowHardware(false) is set per-request.
-        when (val result = SingletonImageLoader.get(context).execute(request)) {
-            is SuccessResult -> extractBackdropColors(result.image.toBitmap())
-            is ErrorResult -> throw BackdropReadException(result.throwable)
+    ExpressiveBackdropPaletteCache.dedupeLoad(model) {
+        withContext(Dispatchers.IO) {
+            val request = ImageRequest.Builder(context)
+                .data(model)
+                .size(Size(CoverSeedExtractor.BitmapSizePx, CoverSeedExtractor.BitmapSizePx))
+                .allowHardware(false)
+                .build()
+            // App-wide singleton (YoinApplication is the factory) — palette pixel
+            // reads stay safe because allowHardware(false) is set per-request.
+            when (val result = SingletonImageLoader.get(context).execute(request)) {
+                is SuccessResult -> extractBackdropColors(result.image.toBitmap())
+                is ErrorResult -> throw BackdropReadException(result.throwable)
+            }
         }
     }
 

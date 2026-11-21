@@ -17,6 +17,24 @@ class MemoriesRevealHandle {
   /// 0 = the bar shows, 1 = Memories is fully open (the bar has left with it).
   final ValueNotifier<double> barHide = ValueNotifier(0);
 
+  /// Pointers that started on a header control (such as the account switcher)
+  /// or while its hold-to-fan menu owns the touch: [MemoriesPullDetector]
+  /// leaves them alone so sliding down from the switcher never pulls Memories.
+  final Set<int> _suppressedPointers = {};
+  bool _pullSuppressed = false;
+
+  /// Suppresses Memories pull for [pointer] until it lifts or cancels.
+  void suppressPullForPointer(int pointer) => _suppressedPointers.add(pointer);
+
+  /// Releases pointer-scoped pull suppression when [pointer] ends.
+  void releasePullForPointer(int pointer) => _suppressedPointers.remove(pointer);
+
+  /// Suppresses Memories pull while an exclusive gesture (like account fan) runs.
+  void setPullSuppressed(bool suppressed) => _pullSuppressed = suppressed;
+
+  /// Whether [MemoriesPullDetector] must ignore [pointer].
+  bool isPullSuppressed(int pointer) => _pullSuppressed || _suppressedPointers.contains(pointer);
+
   /// The open deck's back (diary → card first); null = the reveal closes.
   VoidCallback? deckBack;
 

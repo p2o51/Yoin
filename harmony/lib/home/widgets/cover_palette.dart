@@ -6,6 +6,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../data/cache/cover_cache.dart';
+import '../../data/cache/cover_color_cache.dart';
 import '../../theme/motion.dart';
 import '../../ui/component/artwork_retry.dart';
 
@@ -29,20 +31,52 @@ final class BackdropColors {
 /// TODO(harmony): Now Playing needs the same extractor (CoverSeedExtractor);
 /// move this to lib/ui once that area agrees on one service.
 class CoverPaletteCache {
-  CoverPaletteCache({this.capacity = 96});
+  CoverPaletteCache({this.capacity = 256, CoverColorStore? persistent}) : _persistent = persistent;
 
   static final CoverPaletteCache instance = CoverPaletteCache();
 
   final int capacity;
+  final CoverColorStore? _persistent;
   final LinkedHashMap<String, BackdropColors?> _entries = LinkedHashMap();
   final Map<String, Future<BackdropColors?>> _inFlight = {};
 
-  bool contains(String key) => _entries.containsKey(key);
+  CoverColorStore? get _disk => _persistent ?? (identical(this, instance) ? CoverColorStore.instance : null);
+
+  static String _norm(String key) => coverCacheKey(key);
+
+  bool contains(String key) {
+    final k = _norm(key);
+    if (_entries.containsKey(k)) return true;
+    final stored = _disk?.get(k);
+    if (stored != null && stored.hasBackdrop) {
+      _putMemory(k, BackdropColors(Color(stored.baseArgb!), Color(stored.accentArgb!)));
+      return true;
+    }
+    return false;
+  }
 
   BackdropColors? peek(String key) {
-    final value = _entries.remove(key);
-    if (value != null || _entries.length < capacity) _entries[key] = value;
-    return value;
+    final k = _norm(key);
+    if (_entries.containsKey(k)) {
+      final value = _entries.remove(k);
+      _entries[k] = value;
+      return value;
+    }
+    final stored = _disk?.get(k);
+    if (stored != null && stored.hasBackdrop) {
+      final colors = BackdropColors(Color(stored.baseArgb!), Color(stored.accentArgb!));
+      _putMemory(k, colors);
+      return colors;
+    }
+    return null;
+  }
+
+  void _putMemory(String k, BackdropColors? colors) {
+    _entries.remove(k);
+    _entries[k] = colors;
+    while (_entries.length > capacity) {
+      _entries.remove(_entries.keys.first);
+    }
   }
 
   /// Colours for [image]; null when it can't be read. A cover with no usable
@@ -50,18 +84,19 @@ class CoverPaletteCache {
   /// hears why, and the next call reads it again (an [ArtworkReadRetry]
   /// decides when, like failed artwork).
   Future<BackdropColors?> colorsFor(String key, ImageProvider image, {ValueChanged<Object>? onLoadFailed}) {
-    if (_entries.containsKey(key)) return SynchronousFuture(peek(key));
-    final read = _inFlight[key] ??= _extract(image).then(
+    final k = _norm(key);
+    if (contains(k)) return SynchronousFuture(peek(k));
+    final read = _inFlight[k] ??= _extract(image).then(
       (colors) {
-        _inFlight.remove(key);
-        _entries[key] = colors;
-        while (_entries.length > capacity) {
-          _entries.remove(_entries.keys.first);
+        _inFlight.remove(k);
+        _putMemory(k, colors);
+        if (colors != null) {
+          _disk?.putBackdrop(k, colors.base.toARGB32(), colors.accent.toARGB32());
         }
         return colors;
       },
       onError: (Object error) {
-        _inFlight.remove(key);
+        _inFlight.remove(k);
         throw error;
       },
     );
@@ -297,7 +332,10 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
     // Create eagerly: a lazy field first read in dispose() would build a ticker on a dead element.
     _t;
     final key = widget.cacheKey;
-    if (key != null && _cache.contains(key)) _to = _pick(_cache.peek(key));
+    if (key != null && _cache.contains(key)) {
+      _to = _pick(_cache.peek(key));
+      _requested = key;
+    }
   }
 
   @override

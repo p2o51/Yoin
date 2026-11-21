@@ -101,4 +101,91 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(reveal.fraction, 1);
   });
+
+  testWidgets('should_notPullMemories_when_touchStartsOnSuppressedControl', (tester) async {
+    final scroll = ScrollController();
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    late MemoriesRevealController reveal;
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Scaffold(
+            body: MemoriesPullDetector(
+              scroll: scroll,
+              child: _SuppressedHeaderHost(
+                scroll: scroll,
+                onReveal: (r) => reveal = r,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    // Start touch on the top-right account control and slide straight down.
+    final gesture = await tester.startGesture(const Offset(360, 40));
+    await tester.pump(const Duration(milliseconds: 550));
+    for (var moved = 0.0; moved < 460; moved += 10) {
+      await gesture.moveBy(const Offset(0, 10));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(reveal.fraction, 1, reason: 'sliding down from the account control must not pull Memories');
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(reveal.fraction, 1);
+
+    // Subsequent pull on the feed itself still opens Memories normally.
+    await slowPull(tester, 460);
+    expect(reveal.fraction, lessThan(0.01));
+  });
+}
+
+class _SuppressedHeaderHost extends ConsumerStatefulWidget {
+  const _SuppressedHeaderHost({required this.scroll, required this.onReveal});
+  final ScrollController scroll;
+  final void Function(MemoriesRevealController) onReveal;
+
+  @override
+  ConsumerState<_SuppressedHeaderHost> createState() => _SuppressedHeaderHostState();
+}
+
+class _SuppressedHeaderHostState extends ConsumerState<_SuppressedHeaderHost> with TickerProviderStateMixin {
+  late final MemoriesRevealController _reveal = MemoriesRevealController(vsync: this);
+  late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    _handle.attach(_reveal);
+    widget.onReveal(_reveal);
+  }
+
+  @override
+  void dispose() {
+    _handle.detach(_reveal);
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    controller: widget.scroll,
+    children: [
+      Align(
+        alignment: Alignment.topRight,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (e) => _handle.suppressPullForPointer(e.pointer),
+          onPointerUp: (e) => _handle.releasePullForPointer(e.pointer),
+          onPointerCancel: (e) => _handle.releasePullForPointer(e.pointer),
+          child: const SizedBox(width: 80, height: 80),
+        ),
+      ),
+      for (var i = 0; i < 30; i++) SizedBox(height: 80, child: Text('Row $i')),
+    ],
+  );
 }
