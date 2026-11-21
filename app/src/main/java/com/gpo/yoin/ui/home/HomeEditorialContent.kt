@@ -22,7 +22,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -2636,7 +2635,7 @@ private fun ActivitySmallCard(
 /**
  * The two-column grid's one-unit Activities card: the artwork (an artist's
  * circle, an album's bun) as large as the card allows, the title under it and
- * the type and time on one muted line. Same wash and print as the small card.
+ * the type and time on two muted lines. Same wash and print as the small card.
  */
 @Composable
 private fun ActivityPosterCard(
@@ -2666,7 +2665,8 @@ private fun ActivityPosterCard(
                 .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
+            // The largest centred square the space allows, whichever way the cell runs.
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -2678,9 +2678,7 @@ private fun ActivityPosterCard(
                     contentDescription = entry.title,
                     extractBackdropColors = extractBackdropColors,
                     interactionSource = interactionSource,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .aspectRatio(1f, matchHeightConstraintsFirst = true),
+                    modifier = Modifier.size(minOf(maxWidth, maxHeight)),
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -2698,17 +2696,20 @@ private fun ActivityPosterCard(
                     .fillMaxWidth()
                     .seamFade(),
             )
-            Text(
-                text = "${entry.typeLabel} · ${entry.timeAgo}",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .seamFade(),
-            )
+            // Type and time as two plain lines, no separator dot (as on the small card).
+            listOf(entry.typeLabel, entry.timeAgo).forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.contentMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .seamFade(),
+                )
+            }
         }
     }
 }

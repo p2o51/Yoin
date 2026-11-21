@@ -2322,9 +2322,12 @@ class HomeViewModel(
         val rating = guardedOrNull { repository.getRating(trackId).first()?.rating }
         val recentPlay = guardedOrNull { repository.getMostRecentPlay(trackId) }
         // No play in Yoin (noted from a list, or the play row has no cover):
-        // the song's album cover, so the card isn't a bare note glyph.
+        // the song's album cover from disk, so the card isn't a bare note
+        // glyph. This runs in the local tier, so no network here: a miss
+        // fetches the album in the background and the next Home load has it.
         val coverRef = CoverRef.fromStorageKey(recentPlay?.coverArtId)
             ?: guardedOrNull { repository.coverForTrack(trackId) }
+                .also { found -> if (found == null) warmTrackCover(trackId) }
         val song = Track(
             id = trackId,
             title = note.title,
@@ -2361,6 +2364,13 @@ class HomeViewModel(
             target = HomeWidgetTarget.PlaySong(song),
         )
         return card to trackId
+    }
+
+    /** Reads a noted song's album off the network once, so its cover is on disk for the next Home load. */
+    private fun warmTrackCover(trackId: MediaId) {
+        viewModelScope.launch {
+            runCatching { repository.coverForTrack(trackId, allowNetwork = true) }
+        }
     }
 
     private suspend fun loadGridTracks(): List<Track> =
