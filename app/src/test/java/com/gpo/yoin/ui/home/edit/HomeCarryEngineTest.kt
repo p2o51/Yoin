@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.snapshots.SnapshotStateObserver
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Density
@@ -158,6 +159,62 @@ class HomeCarryEngineTest {
         assertEquals(600f, frame.rect.center.y, .01f)
         assertEquals(ContentLeft + ContentWidth / 2f, frame.rect.center.x, .01f)
         assertTrue(frame.shadowAlpha > .99f)
+    }
+
+    @Test
+    fun should_hideFeed_exactlyWhileStripsCoverIt() = runEditClockTest { scope ->
+        val rig = rig(scope)
+        assertFalse(rig.engine.feedHidden)
+        rig.carry(JumpBackIn, fingerY = 600f)
+        var hiddenFrames = 0
+        frames(800) {
+            // The blocks' layers draw at feedFoldShown: hidden means they draw nothing.
+            assertEquals(feedFoldShown(rig.engine.fold.value) == 0f, rig.engine.feedHidden)
+            if (rig.engine.feedHidden) hiddenFrames++
+        }
+        assertTrue(rig.engine.feedHidden)
+        assertTrue(hiddenFrames > 0)
+
+        rig.engine.release(cancelled = false, uptimeMs = rig.now())
+        untilFinished(rig)
+        assertFalse(rig.engine.feedHidden)
+    }
+
+    @Test
+    fun should_tellFeedHiddenReadersOnlyWhenItFlips() = runEditClockTest { scope ->
+        val rig = rig(scope)
+        // A layer's or draw's observer, as Compose UI runs them: told of a change, it reads again.
+        val observer = SnapshotStateObserver { it() }
+        observer.start()
+        var told = 0
+        val tells = mutableListOf<Float>()
+        var stale = false
+        // One callback instance, as a layer keeps: the observer keys its reads by it.
+        val onChanged: (Unit) -> Unit = { stale = true }
+        fun observe() = observer.observeReads(Unit, onChanged) { rig.engine.feedHidden }
+        observe()
+        try {
+            rig.carry(JumpBackIn, fingerY = 600f)
+            var foldFrames = 0
+            var lastFold = rig.engine.fold.value
+            frames(800) {
+                if (rig.engine.fold.value != lastFold) foldFrames++
+                lastFold = rig.engine.fold.value
+                if (stale) {
+                    tells += rig.engine.fold.value
+                    told++
+                    stale = false
+                    observe()
+                }
+            }
+            // The fold ran for many frames; its readers heard of the flip (and the
+            // observer's one re-read of the derived value just after it), not of each frame.
+            assertTrue(foldFrames > 5)
+            assertTrue("told at folds $tells over $foldFrames fold frames", told in 1..2)
+            assertTrue(tells.all { feedFoldShown(it) == 0f })
+        } finally {
+            observer.stop()
+        }
     }
 
     @Test

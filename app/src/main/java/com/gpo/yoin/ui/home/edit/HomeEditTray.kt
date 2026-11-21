@@ -80,7 +80,7 @@ internal fun LazyListScope.homeEditTrayItems(
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
                 .zIndex(TrayZIndex)
-                .graphicsLayer { alpha = motion.trayAlpha.value * feedFoldShown(engine.fold.value) }
+                .graphicsLayer { alpha = if (engine.feedHidden) 0f else motion.trayAlpha.value }
                 // With the rows' tuck this leaves 12dp under the title, as in a section.
                 .padding(bottom = TrayHeadGap - TrayRowGap),
             verticalArrangement = Arrangement.spacedBy(TrayHeadGap),
@@ -113,7 +113,7 @@ internal fun LazyListScope.homeEditTrayItems(
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
                 .zIndex(TrayZIndex)
-                .graphicsLayer { alpha = motion.trayAlpha.value * feedFoldShown(engine.fold.value) },
+                .graphicsLayer { alpha = if (engine.feedHidden) 0f else motion.trayAlpha.value },
             contentAlignment = Alignment.Center,
         ) {
             TextButton(
@@ -225,7 +225,7 @@ private fun HomeEditTrayRow(
             .fillMaxWidth()
             .height(TrayRowHeight * fontScale)
             .graphicsLayer {
-                alpha = motion.trayAlpha.value * motion.rowAlpha(section) * feedFoldShown(engine.fold.value)
+                alpha = if (engine.feedHidden) 0f else motion.trayAlpha.value * motion.rowAlpha(section)
             }
             .homeEditExclusion(deps.targets, TrayRowKey(section))
             .seamDissolve()

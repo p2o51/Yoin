@@ -181,6 +181,7 @@ internal fun HomeEditBlock(
                 // The block being resized holds still under its handle.
                 gain * (rowsTrack?.wiggleGain?.value?.coerceIn(0f, 1f) ?: 1f)
             },
+            feedHidden = { engine.feedHidden },
             plate = look,
             rows = rowsTrack,
             rowsEngine = rowsEngine,
@@ -336,7 +337,8 @@ internal fun HomeEditBlock(
                 if (size.width > 0f && size.height > 0f) {
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
-                alpha = motion.hideAlpha(section) * feedFoldShown(engine.fold.value)
+                // The fold's on/off, not its value: every block's layer re-runs on the flip, not each fold frame.
+                alpha = if (engine.feedHidden) 0f else motion.hideAlpha(section)
             }
             .then(wiggle)
             .hoverable(hoverSource)

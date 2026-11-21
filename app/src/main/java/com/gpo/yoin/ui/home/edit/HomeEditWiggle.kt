@@ -65,6 +65,11 @@ internal class HomeEditCardScope(
     val safeArea: () -> HomeEditSafeArea,
     /** 1 − lift while this section is lifted, 0 under its strip, else 1. */
     val liftGain: () -> Float,
+    /**
+     * The block draws nothing (the carry's strips cover the feed): its cards stand
+     * still without reading the clock, so the hidden feed takes no frames. Draw only.
+     */
+    val feedHidden: () -> Boolean = { false },
     /** The edit-mode plate (HomePlateVariant.kt); the shipped V1 unless the debug harness says otherwise. */
     val plate: HomePlateLook = HomePlateLook.Default,
     /** This section's row resize (HomeRowsResize.kt); null for a section without presets, or outside Home. */
@@ -239,6 +244,8 @@ private class HomeEditBlockWiggleNode(
  */
 internal fun HomeEditCardScope.cardWiggleDeg(index: Int, size: Size, topInBlock: Float, density: Density): Float {
     if (motion.style.target != HomeWiggleTarget.Card) return 0f
+    // Before any clock read: a hidden card must not redraw every frame of a carry.
+    if (feedHidden()) return 0f
     val envelope = motion.envelope.value
     val blockKick = motion.blockKick(section)
     val cardKick = motion.cardKick(section, index)
@@ -261,6 +268,7 @@ internal fun HomeEditCardScope.cardWiggleDeg(index: Int, size: Size, topInBlock:
  * band on the plate. Cheap at rest, like [cardWiggleDeg].
  */
 internal fun HomeEditCardScope.blockWiggleDeg(size: Size, plate: () -> Size, density: Density): Float {
+    if (feedHidden()) return 0f
     val envelope = motion.envelope.value
     val kick = motion.blockKick(section)
     if (envelope <= HomeEditTokens.SwayFloor && kick == 0f) return 0f

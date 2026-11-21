@@ -55,7 +55,11 @@ class HomeEditWiggleTest {
     private var safeReads = 0
     private var entered = 0
 
-    private fun TestScope.cardScope(scope: CoroutineScope, top: Float = 600f): HomeEditCardScope {
+    private fun TestScope.cardScope(
+        scope: CoroutineScope,
+        top: Float = 600f,
+        feedHidden: () -> Boolean = { false },
+    ): HomeEditCardScope {
         val motion = HomeEditMotion(
             scope = scope,
             specs = specs,
@@ -81,6 +85,7 @@ class HomeEditWiggleTest {
                 HomeEditSafeArea(top = 100f, bottom = 2_000f)
             },
             liftGain = { 1f },
+            feedHidden = feedHidden,
         )
     }
 
@@ -108,6 +113,43 @@ class HomeEditWiggleTest {
         assertNotEquals(0f, cardScope.cardWiggleDeg(0, card, topInBlock = 0f, density), 0f)
         assertTrue(layoutReads > 0)
         assertTrue(safeReads > 0)
+    }
+
+    @Test
+    fun should_standStillWithoutReadingClock_when_feedHidden() = runEditClockTest { scope ->
+        var hidden = false
+        val cardScope = cardScope(scope, feedHidden = { hidden })
+        editing = true
+        cardScope.motion.touch()
+        cardScope.motion.impulse(HomeSection.JumpBackIn, 1f)
+        frames(48)
+        val visibleReads = mutableSetOf<Any>()
+        val visibleDeg = Snapshot.observe(readObserver = { visibleReads += it }) {
+            cardScope.cardWiggleDeg(0, card, topInBlock = 0f, density)
+        }
+        assertNotEquals(0f, visibleDeg, 0f)
+        // Swaying, a card redraws on every tick of the clock.
+        assertTrue(cardScope.motion.swayT in visibleReads)
+
+        // Under the carry's strips: straight, and no read a clock tick would redraw it for.
+        hidden = true
+        val layoutBefore = layoutReads
+        val safeBefore = safeReads
+        val reads = mutableSetOf<Any>()
+        val (cardDeg, blockDeg) = Snapshot.observe(readObserver = { reads += it }) {
+            cardScope.cardWiggleDeg(0, card, topInBlock = 0f, density) to
+                cardScope.blockWiggleDeg(card, { card }, density)
+        }
+        assertEquals(0f, cardDeg, 0f)
+        assertEquals(0f, blockDeg, 0f)
+        assertTrue("the hidden card read the sway clock", cardScope.motion.swayT !in reads)
+        assertEquals(layoutBefore, layoutReads)
+        assertEquals(safeBefore, safeReads)
+
+        // Uncovered again, it sways where the clock has got to.
+        hidden = false
+        frames(16)
+        assertNotEquals(0f, cardScope.cardWiggleDeg(0, card, topInBlock = 0f, density), 0f)
     }
 
     @Test

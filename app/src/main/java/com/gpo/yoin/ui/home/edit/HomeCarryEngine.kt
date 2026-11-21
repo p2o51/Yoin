@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -226,6 +227,16 @@ internal class HomeCarryEngine(
 
     /** Feed ⇄ strips, overshooting on purpose (§4.4). Draw and placement. */
     val fold = Animatable(0f)
+
+    // Derived: a layer or draw that reads it is invalidated when it flips, not on every fold frame.
+    private val feedHiddenState = derivedStateOf { feedFoldShown(fold.value) == 0f }
+
+    /**
+     * The strips cover the feed: its blocks and tray draw at alpha 0 (`feedFoldShown`), so
+     * nothing in them needs a frame: their wiggle stops reading the clock until it flips back.
+     * Layer and draw only.
+     */
+    val feedHidden: Boolean get() = feedHiddenState.value
 
     /** The drop hole's top in Box px. Draw only. */
     val holeY = Animatable(0f)
