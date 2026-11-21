@@ -89,6 +89,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
 
   /// Home's feed scrolls the bar away (ShellBarScrollHide); its settle runs on this chrome's ticker.
   late final ShellBarScrollHide _scrollHide = ref.read(shellBarScrollHideProvider);
+  late final MemoriesRevealHandle _memoriesReveal = ref.read(memoriesRevealHandleProvider);
   AppLifecycleListener? _lifecycle;
 
   @override
@@ -101,7 +102,11 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     );
     _controller.addListener(_syncBack);
     DetailPaneController.columnOpen.addListener(_syncPanelFloor);
+    DetailPaneController.columnOpen.addListener(_syncSeamBarVisibility);
+    _scrollHide.fraction.addListener(_syncSeamBarVisibility);
+    _memoriesReveal.barHide.addListener(_syncSeamBarVisibility);
     _syncPanelFloor();
+    _syncSeamBarVisibility();
     _scrollHide.attach(this);
     // Nothing of the window on screen: the bar comes back unseen (YoinNavHost
     // ON_STOP showUnseen). Android's ON_RESUME show is for a detail Activity
@@ -121,6 +126,9 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   void dispose() {
     _backOrder.unbindNowPlaying();
     _lifecycle?.dispose();
+    _scrollHide.fraction.removeListener(_syncSeamBarVisibility);
+    _memoriesReveal.barHide.removeListener(_syncSeamBarVisibility);
+    DetailPaneController.columnOpen.removeListener(_syncSeamBarVisibility);
     _scrollHide.detach(this);
     _controller.removeListener(_syncBack);
     DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
@@ -150,9 +158,22 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   }
 
   /// The field fades as Now Playing starts to rise and grows back once it has
-  /// collapsed (OverlayChromeVisibility), and leaves with the bar when a
-  /// bar-less page sends it away (its bounds stop following it while it travels).
-  void _syncSeamBar() => _seamBar.shown = !_controller.expanded && !ref.read(barSuppressedProvider);
+  /// collapsed (OverlayChromeVisibility), stays on when the side panel leaves
+  /// the nav bar visible, and leaves with the bar when a bar-less page sends it away.
+  void _syncSeamBar() =>
+      _seamBar.shown = (!_controller.expanded || _controller.panelOpen) && !ref.read(barSuppressedProvider);
+
+  /// Couples the bottom halftone field's live visibility to scroll-hide and
+  /// Memories reveal: when scrolling up hides the bottom bar / Now Playing pill,
+  /// the halftone fades out with the bar and drops to 0 once hidden.
+  void _syncSeamBarVisibility() {
+    final edge = _form == ShellChromeForm.edgeSplit;
+    final columnOpen = DetailPaneController.columnOpen.value;
+    final memories = columnOpen ? 0.0 : _memoriesReveal.barHide.value;
+    final scrolled = edge ? 0.0 : _scrollHide.fraction.value;
+    final hide = 1 - (1 - memories) * (1 - scrolled);
+    _seamBar.visibility = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
+  }
 
   /// Opening or closing the player moves it in the back order, and so does
   /// going further into it: the stage leaving Compact (lyrics, focus) makes
@@ -278,6 +299,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     if (form != _form) {
       _form = form;
       _syncScrollHide();
+      _syncSeamBarVisibility();
     }
     // Local ratings live from app start, not from the first player open:
     // pending ratings are resent when an account becomes active and on

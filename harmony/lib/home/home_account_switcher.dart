@@ -32,6 +32,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../app/providers.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
+import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/haptics.dart';
 import '../settings/account_identity.dart';
 import '../settings/account_reconnect.dart';
@@ -168,8 +169,17 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     return box.localToGlobal(Offset.zero) & box.size;
   }
 
+  late final MemoriesRevealHandle _memoriesReveal;
+
+  @override
+  void initState() {
+    super.initState();
+    _memoriesReveal = ref.read(memoriesRevealHandleProvider);
+  }
+
   @override
   void dispose() {
+    _memoriesReveal.setPullSuppressed(false);
     _card?.remove();
     _fan?.remove();
     _hover.dispose();
@@ -216,6 +226,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     _fanAnchor = rect;
     _hover.value = -1;
     _holding.value = true;
+    _memoriesReveal.setPullSuppressed(true);
     if (_fan == null) {
       _fan = OverlayEntry(
         builder: (_) => _AccountFan(anchor: _fanAnchor!, accounts: _fanAccounts, hover: _hover, holding: _holding, onGone: _dropFan),
@@ -248,6 +259,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
   void _endFan() {
     final chosen = _hover.value >= 0 && _hover.value < _fanAccounts.length ? _fanAccounts[_hover.value] : null;
     _holding.value = false;
+    _memoriesReveal.setPullSuppressed(false);
     _hover.value = -1;
     if (chosen == null) return;
     YoinHaptics.confirm();
@@ -295,17 +307,29 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
       },
       excludeSemantics: true,
       // Mouse / keyboard: hover layer, click cursor, focus ring, Enter.
-      child: YoinHover(
-        onTap: () => _openCard(accounts),
-        focusStadium: true,
-        child: GestureDetector(
-          key: _anchor,
-          behavior: HitTestBehavior.opaque,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        // Any touch starting on the account switcher belongs to tap/hold-to-fan,
+        // never to Home's top-pull into Memories.
+        onPointerDown: (e) => _memoriesReveal.suppressPullForPointer(e.pointer),
+        onPointerUp: (e) => _memoriesReveal.releasePullForPointer(e.pointer),
+        onPointerCancel: (e) => _memoriesReveal.releasePullForPointer(e.pointer),
+        child: YoinHover(
           onTap: () => _openCard(accounts),
-          onLongPressStart: others.isEmpty ? null : (_) => _startFan(others),
-          onLongPressMoveUpdate: others.isEmpty ? null : (d) => _moveFan(d.globalPosition),
-          onLongPressEnd: others.isEmpty ? null : (_) => _endFan(),
-          onLongPressCancel: others.isEmpty ? null : () => _holding.value = false,
+          focusStadium: true,
+          child: GestureDetector(
+            key: _anchor,
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openCard(accounts),
+            onLongPressStart: others.isEmpty ? null : (_) => _startFan(others),
+            onLongPressMoveUpdate: others.isEmpty ? null : (d) => _moveFan(d.globalPosition),
+            onLongPressEnd: others.isEmpty ? null : (_) => _endFan(),
+            onLongPressCancel: others.isEmpty
+                ? null
+                : () {
+                    _holding.value = false;
+                    _memoriesReveal.setPullSuppressed(false);
+                  },
           child: SizedBox.square(
             dimension: HomeHeaderMetrics.touchBox,
             child: Center(
@@ -326,6 +350,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
           ),
         ),
       ),
+    ),
     );
   }
 }

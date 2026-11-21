@@ -38,7 +38,9 @@ class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
 
   void _down(PointerDownEvent e) {
     if (_pointer != null || !widget.enabled) return;
-    final reveal = ref.read(memoriesRevealHandleProvider).controller;
+    final handle = ref.read(memoriesRevealHandleProvider);
+    if (handle.isPullSuppressed(e.pointer)) return;
+    final reveal = handle.controller;
     if (reveal == null || reveal.ownsBack) return;
     _pointer = e.pointer;
     // A fresh tracker per touch: no sample from the last gesture leaks into this release.
@@ -53,10 +55,19 @@ class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
 
   void _move(PointerMoveEvent e) {
     if (e.pointer != _pointer || !mounted) return;
-    _velocity.addPosition(e.timeStamp, e.position);
-    final reveal = ref.read(memoriesRevealHandleProvider).controller;
-    if (reveal == null) return;
+    final handle = ref.read(memoriesRevealHandleProvider);
+    final reveal = handle.controller;
     final height = context.size?.height ?? 800;
+    if (handle.isPullSuppressed(e.pointer)) {
+      _pointer = null;
+      if (_pulling) {
+        _pulling = false;
+        reveal?.settle(0, height);
+      }
+      return;
+    }
+    _velocity.addPosition(e.timeStamp, e.position);
+    if (reveal == null) return;
     if (!_decided) {
       _travel += e.delta;
       if (_travel.distance < kTouchSlop) return;
@@ -85,6 +96,7 @@ class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
   }
 
   void _up(PointerEvent e) {
+    if (mounted) ref.read(memoriesRevealHandleProvider).releasePullForPointer(e.pointer);
     if (e.pointer != _pointer) return;
     _pointer = null;
     if (!mounted) return;
