@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -107,6 +108,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -2381,6 +2383,7 @@ private fun ActivityUnitRows(
                         extractBackdropColors = extractBackdropColors,
                         onClick = onClick,
                         modifier = editCard,
+                        poster = true,
                     )
                 }
             }
@@ -2549,7 +2552,14 @@ private fun ActivitySmallCard(
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // The grid's one-unit card (owner 2026-11-20: a 48dp face in a tall,
+    // narrow card read as empty): the artwork takes the card, title under it.
+    poster: Boolean = false,
 ) {
+    if (poster) {
+        ActivityPosterCard(entry, extractBackdropColors, onClick, modifier)
+        return
+    }
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
@@ -2618,6 +2628,86 @@ private fun ActivitySmallCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.seamFade(),
+            )
+        }
+    }
+}
+
+/**
+ * The two-column grid's one-unit Activities card: the artwork (an artist's
+ * circle, an album's bun) as large as the card allows, the title under it and
+ * the type and time on one muted line. Same wash and print as the small card.
+ */
+@Composable
+private fun ActivityPosterCard(
+    entry: HomeMomentEntry,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
+    Surface(
+        modifier = modifier
+            .elasticPress(interactionSource)
+            .seamDissolve(),
+        shape = YoinContainerShapes.Card,
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClick = onClick,
+                )
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                WidgetBackdropArtwork(
+                    model = entry.coverArtUrl,
+                    kind = widgetShapeKindForActivity(entry.entityType),
+                    contentDescription = entry.title,
+                    extractBackdropColors = extractBackdropColors,
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(1f, matchHeightConstraintsFirst = true),
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 17.sp,
+                ),
+                color = colors.content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .seamFade(),
+            )
+            Text(
+                text = "${entry.typeLabel} · ${entry.timeAgo}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.contentMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .seamFade(),
             )
         }
     }

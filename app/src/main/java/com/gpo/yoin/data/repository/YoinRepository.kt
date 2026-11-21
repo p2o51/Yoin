@@ -2447,6 +2447,21 @@ class YoinRepository(
     suspend fun getCachedAlbumFor(profileId: String, id: MediaId): Album? =
         runCatching { detailCacheStore?.readAlbum(profileId, id.toString())?.value() }.getOrNull()
 
+    /**
+     * A cover for [trackId] when its play history has none (a song noted or
+     * rated without playing in Yoin): the album track_album_links ties it to,
+     * from the disk cache first, then the network. Null when no album is known.
+     */
+    suspend fun coverForTrack(trackId: MediaId): CoverRef? {
+        val profileId = activeProfileId.value ?: return null
+        val link = runCatching {
+            database.trackAlbumLinkDao().get(profileId, trackId.provider, trackId.rawId)
+        }.getOrNull() ?: return null
+        val albumId = MediaId(trackId.provider, link.albumId)
+        getCachedAlbumFor(profileId, albumId)?.coverArt?.let { return it }
+        return runCatching { getAlbum(albumId) }.getOrNull()?.coverArt
+    }
+
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
         getAlbumMemoryCandidates(limit = 1).firstOrNull()
 

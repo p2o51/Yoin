@@ -2321,7 +2321,10 @@ class HomeViewModel(
         val trackId = MediaId(note.provider, note.trackId)
         val rating = guardedOrNull { repository.getRating(trackId).first()?.rating }
         val recentPlay = guardedOrNull { repository.getMostRecentPlay(trackId) }
+        // No play in Yoin (noted from a list, or the play row has no cover):
+        // the song's album cover, so the card isn't a bare note glyph.
         val coverRef = CoverRef.fromStorageKey(recentPlay?.coverArtId)
+            ?: guardedOrNull { repository.coverForTrack(trackId) }
         val song = Track(
             id = trackId,
             title = note.title,
@@ -2339,7 +2342,8 @@ class HomeViewModel(
         )
         val score = formatMemoryScore(rating)
         val (subtitle, subtitleText) = singleSubtitle(note.artist)
-        val (coverArtUrl, coverKey) = cardCover(coverRef)
+        // Subsonic serves a song's own id as cover art too: the last stand-in.
+        val (coverArtUrl, coverKey) = cardCover(coverRef, subsonicFallback = trackId)
         val card = HomeWidgetCard(
             stableId = "grid-note:${note.id}",
             entityType = MemoryEntityType.SONG,
