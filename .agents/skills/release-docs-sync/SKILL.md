@@ -98,7 +98,11 @@ python3 -m http.server 4611 --directory public
 3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须使用 HTML/SVG 前后对比画框/画圈（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。（可直接依据真机对比截图/录屏绘制，不强依赖 Figma 专业版；Drive 录屏本身兼作设计存档。）
 4. **商店文案直接发进 `#yoin` 发版线程**：每次发版时把 **Google Play** 与 **App Store Connect** 的发布说明直接发到 `#yoin` 对应的发版线程里（App Store Connect 受限制可简写如 `bug fix` 等）；此后所有发版相关内容均集中在该发版线程内留存与跟进。
 5. **双语文案标准**：中文文案严格遵循 `write-copy` 技能；英文按中文功能点自然准确翻译即可，不必过度打磨修辞。
-6. **视觉 Artifacts 备份原则**：迭代中的 Raft Artifacts 直接在 `#yoin` 发给 51 审阅；**只有好看/经 51 定稿的视觉类 Artifacts 才需要在末尾传一份到 Notion 备份**，普通决策/评审 Artifacts 过完直接归档即可。
+6. **Notion 结构化枢纽与发版文档工厂（2026-11-21 落地）**：
+   - **版本库枢纽（`https://app.notion.com/p/7eb24ad125a04c62979dc362480ddda2`）**：以「**发版文档工厂清单**」视图追踪每一版（自 `Yoin 0.6.4 (31)` 起试点），一版一行，集中关联 PR、Drive 录屏、官网更新、商店文案、复测工单（`Bug 反馈、收集`）、设计存档与公文包，**5 项发版检查勾选框全勾齐才算发完**。只备好 PR 与材料，**不自动部署官网、不自动送审商店**。
+   - **设计存档库（`https://app.notion.com/p/41fd1115e9218142a97bd75733897972`）**：迭代中的 Raft Artifacts 直接在 `#yoin` 审阅；**只有好看/经 51 定稿的视觉类 Artifacts、发版前后对比录屏与截图才需要在末尾传一份到设计存档库备份**（关联对应版本与「设计细节档案」），普通决策/评审 Artifacts 过完直接归档即可。
+   - **公文包（`https://app.notion.com/p/1bfd1115e92183a98a0b81c4b7c25704`）**：AI 发版/调研产出补齐「版本」关联与「类型：发版 / 交接」。
+   - **Yoin 主页活页现状（`https://app.notion.com/p/7fdd1115e9218385a1f501b2c7c4d170`）**：不再新写一次性交接快照；谁合并发版 PR 或打新包，顺手更新顶部「当前状态」表。
 
 ---
 
@@ -113,5 +117,6 @@ python3 -m http.server 4611 --directory public
 - [ ] `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` 已同步最新事实、术语与密钥/隐私边界
 - [ ] （发版时）已录制版本改动对比录屏（默认手机），按页面命名放进 Google Drive `01 项目/Yoin/Yoin recordings/`
 - [ ] （发版时）Google Play 与 App Store Connect 更新文案已发进 `#yoin` 发版线程
+- [ ] （发版时）Notion「版本库」对应版本行 5 项发版检查勾选框已全勾齐，Yoin 主页「当前状态」已顺手刷新，定稿视觉 Artifact / 对比录屏已存入「设计存档」
 - [ ] `yoin-site`（`docs.html`、`zh/docs.html`、`changelog.html`、`zh/changelog.html` 含 `spot.js` 画圈前后对比图、`index.html`、`zh/index.html`、`licenses.html`、`zh/licenses.html`，以及必要时的 `privacy.html`）已同步或已输出清晰的待同步清单，且 `python3 tools/check.py` 通过
 - [ ] 全文未出现禁用术语（绝对“零追踪”声明、`Nowledge Mem`、`nmem`、`回忆`、`手账`、`国内直连`）
