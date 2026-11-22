@@ -80,6 +80,26 @@ class NoteBacklinksTest {
     }
 
     @Test
+    fun should_matchByNameWithinSpotifyAndAppleMusic_butNotWithinSubsonic() {
+        val apple = BacklinkTarget.Album(MediaId("applemusic", "1440"), "Titanic Rising", "Weyes Blood")
+        val spotifyTrack = BacklinkTarget.Track(MediaId.spotify("sp-andromeda"), "Andromeda", "Weyes Blood")
+        val writings = listOf(
+            // a library id against the catalogue id
+            songNoteWriting("library", "t-1", link(MentionKind.Album, "applemusic", "library:l.x", "Titanic Rising", "Weyes Blood"), at = 1L),
+            // a reissue's track id, same song
+            songNoteWriting("reissue", "t-2", link(MentionKind.Track, "spotify", "sp-reissue", "Andromeda", "Weyes Blood"), at = 2L),
+        )
+        assertEquals(listOf("library"), findBacklinks(writings, apple).map { (it.source as BacklinkSource.SongNote).noteId })
+        assertEquals(listOf("reissue"), findBacklinks(writings, spotifyTrack).map { (it.source as BacklinkSource.SongNote).noteId })
+
+        // Subsonic: another id on the same server is another item, whatever its name.
+        val subsonic = listOf(
+            songNoteWriting("same-name", "t-3", link(MentionKind.Album, sub, "al-other", "Titanic Rising", "Weyes Blood"), at = 3L),
+        )
+        assertTrue(findBacklinks(subsonic, titanic).isEmpty())
+    }
+
+    @Test
     fun should_leaveOutWritingsOnTheAlbumItself() {
         val mention = link(MentionKind.Album, sub, "al-weyes", "Titanic Rising")
         val writings = listOf(

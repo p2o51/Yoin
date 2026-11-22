@@ -20,8 +20,9 @@ import kotlinx.coroutines.flow.flowOn
 
 /*
  * 被提及 (backlinks, notes revamp): for an album, a track or an artist, every song note, album note and album
- * review of the same account that mentions it, newest first. Matching follows MentionResolver: a mention on
- * the target's own provider counts by id; one on another provider by name (MentionMatcher). A track mention
+ * review of the same account that mentions it, newest first. A mention on the target's own provider counts
+ * by id (and, on Spotify / Apple Music, by name when the id differs); one on another provider by name
+ * (MentionMatcher). A track mention
  * counts toward its album; writings on the album itself (its review, its album notes, its tracks' notes)
  * are left out — they are already on that page.
  */
@@ -107,30 +108,39 @@ fun findBacklinks(writings: List<BacklinkWriting>, target: BacklinkTarget): List
         .sortedWith(compareByDescending<NoteBacklink> { it.at }.thenBy { it.source.toString() })
         .toList()
 
-/** Whether [mention] points at this target: by id on the target's provider, by name on any other. */
+/**
+ * Whether [mention] points at this target: by id on the target's provider, by name on any other. On Spotify
+ * and Apple Music a same-service mention whose id differs may still be this item (an Apple Music `library:`
+ * id against a catalogue id, a deluxe or regional reissue), so names are compared there too; a Subsonic id
+ * is the server's own and stays id-only. (Tapping a mention, MentionResolver, stays id-first.)
+ */
 fun BacklinkTarget.isMentionedBy(mention: NoteMention): Boolean {
     val sameProvider = mention.provider == id.provider
-    return when (this) {
+    val idMatches = sameProvider && when (this) {
         is BacklinkTarget.Album -> when (mention.kind) {
-            MentionKind.Album -> if (sameProvider) {
-                mention.id == id.rawId
-            } else {
-                MentionMatcher.namesMatchAlbum(mention, title, artist)
-            }
-            MentionKind.Track -> if (sameProvider) {
-                tracks.any { it.id.provider == mention.provider && it.id.rawId == mention.id }
-            } else {
-                MentionMatcher.trackMentionOnAlbum(mention, title, artist) ||
-                    tracks.any { MentionMatcher.namesMatchTrack(mention, it.title, it.artist ?: artist, title) }
-            }
+            MentionKind.Album -> mention.id == id.rawId
+            MentionKind.Track -> tracks.any { it.id.provider == mention.provider && it.id.rawId == mention.id }
             MentionKind.Artist -> false
         }
-        is BacklinkTarget.Track -> mention.kind == MentionKind.Track &&
-            if (sameProvider) mention.id == id.rawId else MentionMatcher.namesMatchTrack(mention, title, artist, album)
-        is BacklinkTarget.Artist -> mention.kind == MentionKind.Artist &&
-            if (sameProvider) mention.id == id.rawId else MentionMatcher.namesMatchArtist(mention, name)
+        is BacklinkTarget.Track -> mention.kind == MentionKind.Track && mention.id == id.rawId
+        is BacklinkTarget.Artist -> mention.kind == MentionKind.Artist && mention.id == id.rawId
+    }
+    if (idMatches) return true
+    if (sameProvider && id.provider !in BacklinkNameMatchedServices) return false
+    return when (this) {
+        is BacklinkTarget.Album -> when (mention.kind) {
+            MentionKind.Album -> MentionMatcher.namesMatchAlbum(mention, title, artist)
+            MentionKind.Track -> MentionMatcher.trackMentionOnAlbum(mention, title, artist) ||
+                tracks.any { MentionMatcher.namesMatchTrack(mention, it.title, it.artist ?: artist, title) }
+            MentionKind.Artist -> false
+        }
+        is BacklinkTarget.Track -> MentionMatcher.namesMatchTrack(mention, title, artist, album)
+        is BacklinkTarget.Artist -> MentionMatcher.namesMatchArtist(mention, name)
     }
 }
+
+/** Services whose same-service mentions with another id are also matched by name (catalogue vs library ids, reissues). */
+internal val BacklinkNameMatchedServices: Set<String> = setOf(MediaId.PROVIDER_SPOTIFY, MediaId.PROVIDER_APPLE_MUSIC)
 
 /** A writing that already sits on the target's own page. */
 private fun BacklinkTarget.owns(source: BacklinkSource): Boolean = when (this) {
