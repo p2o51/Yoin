@@ -44,6 +44,12 @@ class CloudDataViewsTest {
         },
     )
 
+    private fun translation(track: String, language: String) = buildJsonObject {
+        put("trackProvider", "subsonic")
+        put("trackRawId", track)
+        put("targetLanguage", language)
+    }
+
     private fun albumRating(scope: String, album: String, rating: Double, ts: Long = 5L) = record(
         SyncKinds.ALBUM_RATING,
         scope,
@@ -71,7 +77,9 @@ class CloudDataViewsTest {
             albumReview("s-a", "al1", "great"),
             albumReview("s-a", "al2", "fine"),
             note("s-b", "n9", "t9"),
-            record(SyncKinds.LYRICS_TRANSLATION, SyncFormat.GLOBAL_SCOPE, "x", payload = buildJsonObject { put("trackProvider", "subsonic") }),
+            // Two models translated the same song into the same language: one translation, as the browser lists it.
+            record(SyncKinds.LYRICS_TRANSLATION, SyncFormat.GLOBAL_SCOPE, "x1", payload = translation("t1", "zh-Hans")),
+            record(SyncKinds.LYRICS_TRANSLATION, SyncFormat.GLOBAL_SCOPE, "x2", payload = translation("t1", "zh-Hans")),
             record(SyncKinds.SONG_ABOUT, SyncFormat.GLOBAL_SCOPE, "y", payload = buildJsonObject { put("titleDisplay", "A") }),
         )
 

@@ -48,7 +48,11 @@ sealed interface BackupUiState {
         val choices: Map<String, ImportTarget>,
         /** Cloud sync is on here: "merge into Google Drive", else "into this device". */
         val intoCloud: Boolean,
-    ) : BackupUiState
+    ) : BackupUiState {
+        /** Something would be imported: an account not skipped, or global data. */
+        val canImport: Boolean
+            get() = choices.values.any { it != ImportTarget.Skip } || plan.globalCounts.values.sum() > 0
+    }
 
     data class Importing(val review: Review) : BackupUiState
 
@@ -131,6 +135,7 @@ class BackupViewModel(
 
     fun confirmImport() {
         val review = _state.value as? BackupUiState.Review ?: return
+        if (!review.canImport) return
         _state.value = BackupUiState.Importing(review)
         viewModelScope.launch {
             _state.value = withContext(NonCancellable) {

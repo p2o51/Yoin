@@ -34,6 +34,11 @@ data class TransferArgs(
     val sourceProfileId: String? = null,
     val sourceCloudScope: String? = null,
     val targetProfileId: String? = null,
+    /**
+     * The cloud source's service, when the entry knows it (the previous account of a re-sign-in): used if the
+     * replica doesn't describe [sourceCloudScope] yet, so the target list still tells a same-service copy.
+     */
+    val sourceProvider: String? = null,
 )
 
 enum class TransferStep { Loading, Source, Target, Summary, Matching, Review, Copying, Done, Failed }
@@ -72,6 +77,10 @@ data class TransferUiState(
     val result: TransferResult? = null,
     val removeCard: Boolean = false,
     val cleaned: Boolean = false,
+    /** Removing the source's cloud data right now. */
+    val cleaning: Boolean = false,
+    /** Done was confirmed: the card removal (if any) is running, the flow closes after it. */
+    val finishing: Boolean = false,
     val failure: TransferFailure? = null,
     /** Cloud sync is on here: the done page offers removing the source's cloud data. */
     val cloudSyncOn: Boolean = false,
@@ -107,6 +116,10 @@ data class TransferUiState(
 
     /** Songs whose data the run will copy: the direct ones plus the checked rows. */
     val songsToCopy: Int get() = directSongs + rows.count { it.checked }
+
+    /** The review's copy button has something to copy: a song's data, or an album matched by its songs or by search. */
+    val canCopyReviewed: Boolean
+        get() = songsToCopy > 0 || plan?.albums?.any { it.status == MatchStatus.Matched || it.status == MatchStatus.Picked } == true
 
     /** Steps in this flow, for the "Step n of m" line: the review only when something needs matching. */
     val stepCount: Int get() = if (draft != null && !needsMatching) 4 else 5
@@ -237,7 +250,13 @@ class TransferViewModel(
                     accounts += TransferAccountUi(
                         key = cloudKey(scope),
                         source = source,
-                        account = TransferAccount(scope, "unknown", cloudRows[scope]?.displayName ?: scope, null, null),
+                        account = TransferAccount(
+                            scope,
+                            args.sourceProvider ?: cloudRows[scope]?.provider ?: UNKNOWN_PROVIDER,
+                            cloudRows[scope]?.displayName ?: scope,
+                            null,
+                            null,
+                        ),
                         counts = summary?.scopes?.get(scope),
                         cloudOnly = true,
                     )
@@ -437,10 +456,11 @@ class TransferViewModel(
         val state = _state.value
         val source = state.source ?: return
         val scope = source.account.scope
-        if (state.cleaned || !BackupFormat.isSyncScope(scope)) return
+        if (state.cleaned || state.cleaning || !BackupFormat.isSyncScope(scope)) return
+        _state.update { it.copy(cleaning = true) }
         viewModelScope.launch {
             val ok = runCatching { controller.removeAccountFromCloud(scope) }.getOrElse { Result.failure(it) }.isSuccess
-            if (ok) _state.update { it.copy(cleaned = true) }
+            _state.update { it.copy(cleaning = false, cleaned = it.cleaned || ok) }
             _events.trySend(
                 TransferEvent.Message(
                     if (ok) TransferMessage.Cleaned(source.account.displayName) else TransferMessage.CleanFailed(source.account.displayName),
@@ -449,9 +469,11 @@ class TransferViewModel(
         }
     }
 
-    /** Done: remove the source's card if asked, then close. */
+    /** Done: remove the source's card if asked, then close. Runs once, however often Done or Back is pressed. */
     fun finish() {
         val state = _state.value
+        if (state.finishing) return
+        _state.value = state.copy(finishing = true)
         val source = state.source
         val profileId = source?.account?.localProfileId
         viewModelScope.launch {
@@ -474,6 +496,8 @@ class TransferViewModel(
     }
 
     companion object {
+        private const val UNKNOWN_PROVIDER = "unknown"
+
         fun localKey(profileId: String) = "local:$profileId"
 
         fun cloudKey(scope: String) = "cloud:$scope"

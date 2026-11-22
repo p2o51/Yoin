@@ -142,7 +142,7 @@ object CloudDataViews {
             scopes = byScope,
             global = CloudGlobalCounts(
                 playlistBackups = global.count { it.kind == SyncKinds.PLAYLIST_BACKUP },
-                translations = global.count { it.kind == SyncKinds.LYRICS_TRANSLATION },
+                translations = translationKeys(global).size,
                 songAbout = global.count { it.kind == SyncKinds.SONG_ABOUT },
             ),
         )
@@ -214,6 +214,17 @@ object CloudDataViews {
             titles = titles.sortedByDescending { it.updatedAt },
         )
     }
+
+    /** One entry per song and language (several models may have translated the same song): what both views count. */
+    private fun translationKeys(global: List<WireRecord>): Set<Pair<String, String>> = global
+        .filter { it.kind == SyncKinds.LYRICS_TRANSLATION }
+        .mapNotNull { record ->
+            val p = record.payload ?: return@mapNotNull null
+            val provider = p.requiredString("trackProvider") ?: return@mapNotNull null
+            val rawId = p.requiredString("trackRawId") ?: return@mapNotNull null
+            "$provider:$rawId" to p.requiredString("targetLanguage").orEmpty()
+        }
+        .toSet()
 
     /** The global scope's playlist backups, translations and song About entries, newest first. */
     fun global(records: List<WireRecord>): CloudGlobalContent {

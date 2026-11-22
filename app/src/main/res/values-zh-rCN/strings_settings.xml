@@ -460,7 +460,7 @@
     <string name="settings_sync_list_last">%1$s和%2$s</string>
     <string name="settings_sync_changed_choose">选择处理方式</string>
     <string name="settings_sync_changed_title">已登录为另一个 %1$s 账号</string>
-    <string name="settings_sync_changed_body">这张卡片原本同步的是 %1$s 原账号的数据，当前登录为另一个账号。同步已暂停，请选择处理方式：</string>
+    <string name="settings_sync_changed_body">这张卡片原本同步的是「%1$s」的数据，现已登录为另一个账号。同步已暂停，请选择处理方式：</string>
     <string name="settings_sync_changed_keep_summary">仍同步到原账号的云端数据</string>
     <string name="settings_sync_changed_fresh_summary">清除此设备上的旧数据并作为新账号同步，云端数据保留</string>
     <string name="settings_sync_changed_transfer">转移原账号的 Memories</string>
@@ -541,6 +541,7 @@
     <string name="settings_sync_done">完成</string>
     <string name="settings_sync_busy">正在进行，请稍候</string>
     <string name="settings_sync_import_reading">正在校验备份</string>
+    <string name="settings_sync_import_review">核对导入内容</string>
     <string name="settings_sync_import_info">备份信息</string>
     <string name="settings_sync_import_exported">导出时间</string>
     <string name="settings_sync_import_this_device">此设备</string>
@@ -550,7 +551,7 @@
     <string name="settings_sync_import_merge_into">合并到 %1$s</string>
     <string name="settings_sync_import_same_account">合并到此设备上的同一账号</string>
     <string name="settings_sync_import_cloud_only_note">此设备未登录该账号，数据将保留在云端，登录后自动关联</string>
-    <string name="settings_sync_import_choose">导入到哪里？</string>
+    <string name="settings_sync_import_choose">选择导入目标</string>
     <string name="settings_sync_import_keep_cloud">仅留在云端</string>
     <string name="settings_sync_import_skip">跳过</string>
     <string name="settings_sync_import_purged_note">此账号已从云端移除，只能导入到此设备上的账号，或跳过。</string>
@@ -567,7 +568,7 @@
     <string name="settings_sync_import_confirm">合并导入</string>
     <string name="settings_sync_import_running">正在导入</string>
     <string name="settings_sync_import_done">已导入</string>
-    <string name="settings_sync_import_done_summary">数据已合并到%1$s，下次同步时将推送到其他设备。</string>
+    <string name="settings_sync_import_done_summary">数据已合并到 %1$s，下次同步时将推送到其他设备。</string>
     <string name="settings_sync_import_done_summary_local">数据已合并到此设备。</string>
     <string name="settings_sync_import_written">已导入</string>
     <string name="settings_sync_import_skipped">已跳过</string>
@@ -591,6 +592,8 @@
     <string name="settings_xfer_step_summary">确认内容</string>
     <string name="settings_xfer_step_review">核对曲目</string>
     <string name="settings_xfer_step_copy">复制</string>
+    <string name="settings_xfer_head_source">选择来源账号</string>
+    <string name="settings_xfer_head_target">选择目标账号</string>
     <string name="settings_xfer_source_group">来源账号</string>
     <string name="settings_xfer_target_group">目标账号</string>
     <string name="settings_xfer_from">从 %1$s</string>

@@ -144,16 +144,34 @@ private fun LocationOption(
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
-    SettingsItem(
-        icon = icon,
-        title = title,
-        summaryContent = {
-            Box(modifier = Modifier.padding(bottom = 2.dp)) { pill() }
-            if (meta.isNotEmpty()) MetaLine(groups = meta, style = MaterialTheme.typography.bodyMedium)
-        },
-        onClick = onClick,
-        trailing = { RadioMark(selected = selected, enabled = enabled) },
-    )
+    val row: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 72.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.gpo.yoin.ui.settings.SettingsRowIcon(icon)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // The badge sits by the name, as on the account and device rows.
+                TitleWithPill(title = title, pill = pill)
+                if (meta.isNotEmpty()) MetaLine(groups = meta, style = MaterialTheme.typography.bodyMedium)
+            }
+            RadioMark(selected = selected, enabled = enabled)
+        }
+    }
+    if (onClick == null) {
+        Box(modifier = Modifier.fillMaxWidth()) { row() }
+    } else {
+        androidx.compose.material3.Surface(
+            onClick = onClick,
+            shape = com.gpo.yoin.ui.settings.LocalSettingsRowShape.current,
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            modifier = Modifier.fillMaxWidth().handPointer(),
+        ) { row() }
+    }
 }
 
 @Composable
@@ -221,6 +239,7 @@ internal fun BackupPage(
                     FlowButtons(
                         primary = stringResource(R.string.settings_sync_import_confirm),
                         onPrimary = onConfirmImport,
+                        primaryEnabled = state.canImport,
                         secondary = stringResource(R.string.settings_sync_import_cancel),
                         onSecondary = onDone,
                     )
@@ -422,7 +441,7 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
     val manifest = state.plan.backup.manifest
     val resources = androidx.compose.ui.platform.LocalContext.current.resources
     Column(verticalArrangement = Arrangement.spacedBy(SyncGroupGap)) {
-        SyncHeadline(crumb = null, headline = stringResource(R.string.settings_sync_import_title), lead = state.fileName, small = true)
+        SyncHeadline(crumb = null, headline = stringResource(R.string.settings_sync_import_review), lead = state.fileName, small = true)
         SettingsGroup(title = stringResource(R.string.settings_sync_import_info)) {
             item {
                 SettingsItem(

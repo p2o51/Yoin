@@ -13,6 +13,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -755,8 +756,24 @@ internal fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean
             modifier = Modifier
                 .size(36.dp)
                 .graphicsLayer { rotationZ = 40f * progress.value }
-                .background(container, remember(morph, progress) { MorphProgressShape(morph) { progress.value } }),
+                .background(container, remember(morph, progress) { MorphProgressShape(morph) { progress.value } })
+                // Not found: a quiet fill vanishes on a dark card; a hairline ring keeps the mark readable.
+                .then(
+                    if (status == ReviewStatus.NotFound) {
+                        Modifier.border(1.dp, colors.outline.copy(alpha = 0.6f), CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
         )
+        if (status == ReviewStatus.NotFound && !checked) {
+            Icon(
+                YoinSymbols.Close,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
         if (checked) {
             Icon(
                 YoinSymbols.Check,

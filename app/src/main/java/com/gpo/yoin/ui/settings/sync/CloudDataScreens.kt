@@ -238,7 +238,8 @@ private fun DeviceFilesRow(
                         }
                     }
                 } else {
-                    Spacer(Modifier.width(12.dp))
+                    // This device has no menu: hold its place so every row's chevron lines up.
+                    Spacer(Modifier.width(48.dp))
                 }
             }
         }
@@ -335,6 +336,7 @@ internal fun CloudAccountPage(
     onBack: () -> Unit,
     onTransfer: () -> Unit,
     onRemove: () -> Unit,
+    onRetry: () -> Unit = {},
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val haptics = rememberYoinHaptics()
@@ -416,7 +418,7 @@ internal fun CloudAccountPage(
         Spacer(Modifier.height(12.dp))
         when (content) {
             CloudDataLoad.Loading -> LoadingRow(stringResource(R.string.settings_sync_loading))
-            CloudDataLoad.Failed -> FailedPanel(stringResource(R.string.settings_sync_files_failed)) {}
+            CloudDataLoad.Failed -> FailedPanel(stringResource(R.string.settings_sync_files_failed), onRetry)
             is CloudDataLoad.Ready -> {
                 val data = content.value
                 val q = query.trim()
@@ -584,6 +586,7 @@ internal fun CloudGlobalPage(
     content: CloudDataLoad<CloudGlobalContent>,
     now: Long,
     onBack: () -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var tab by rememberSaveable { mutableStateOf(GlobalTab.Backups) }
@@ -598,7 +601,7 @@ internal fun CloudGlobalPage(
         Spacer(Modifier.height(12.dp))
         when (content) {
             CloudDataLoad.Loading -> LoadingRow(stringResource(R.string.settings_sync_loading))
-            CloudDataLoad.Failed -> FailedPanel(stringResource(R.string.settings_sync_files_failed)) {}
+            CloudDataLoad.Failed -> FailedPanel(stringResource(R.string.settings_sync_files_failed), onRetry)
             is CloudDataLoad.Ready -> {
                 val data = content.value
                 val q = query.trim()

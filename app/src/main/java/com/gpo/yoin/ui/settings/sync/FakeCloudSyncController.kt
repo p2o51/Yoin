@@ -63,6 +63,9 @@ class FakeCloudSyncController(
 
     var removeAccountResult: Result<Unit> = Result.success(Unit)
 
+    /** Where [startFreshAccount] leaves the profile (start fresh may be put off, or need a sign-in). */
+    var startFreshStatus: SyncAccountStatus = SyncAccountStatus.Syncing
+
     /** What the read-only 云端数据 views answer. */
     var filesResult: Result<List<CloudDeviceFiles>> = Result.success(CloudSyncSamples.files(clock()))
     var summaryResult: CloudDataSummary = CloudSyncSamples.summary
@@ -136,7 +139,7 @@ class FakeCloudSyncController(
 
     override fun startFreshAccount(localProfileId: String) {
         _calls += "startFreshAccount($localProfileId)"
-        setAccountStatus(localProfileId, SyncAccountStatus.Syncing)
+        setAccountStatus(localProfileId, startFreshStatus)
     }
 
     override fun removeDevice(deviceId: String) {

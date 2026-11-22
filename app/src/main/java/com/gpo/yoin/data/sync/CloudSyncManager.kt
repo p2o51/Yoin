@@ -773,8 +773,9 @@ class CloudSyncManager(
         runCatching {
             ensureInitialized()
             check(isEnabled()) { "Cloud sync is off." }
+            // The Drive listing runs outside the sync lock (network); the replica's file table only under it.
             val files = transport.list()
-            val known = dao.remoteFiles().associate { it.deviceId to it.deviceName }
+            val known = mutex.withLock { dao.remoteFiles().associate { it.deviceId to it.deviceName } }
             CloudDataViews.deviceFiles(
                 files = files,
                 thisDeviceId = deviceId(),

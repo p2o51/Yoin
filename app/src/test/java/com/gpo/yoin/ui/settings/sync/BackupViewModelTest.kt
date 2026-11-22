@@ -117,4 +117,17 @@ class BackupViewModelTest {
         viewModel.confirmImport()
         assertEquals(ImportTarget.Skip, ops.importedWith?.get("s-nav"))
     }
+
+    @Test
+    fun should_haveNothingToImport_when_everyAccountIsSkippedAndThereIsNoGlobalData() = runTest {
+        ops.readResult = Result.success(TransferSamples.importPlan().copy(globalCounts = emptyMap()))
+        viewModel.read("yoin-backup.zip") { ByteArrayInputStream(ByteArray(0)) }
+        listOf("s-nav", "sp-old", "am-gone").forEach { viewModel.choose(it, ImportTarget.Skip) }
+
+        val review = viewModel.state.value as BackupUiState.Review
+        assertFalse(review.canImport)
+        viewModel.confirmImport()
+        assertTrue(viewModel.state.value is BackupUiState.Review)
+        assertFalse("import" in ops.calls)
+    }
 }

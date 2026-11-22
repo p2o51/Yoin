@@ -255,17 +255,22 @@ class CloudSyncViewModel(
         _preparingTransfer.value = localProfileId
         controller.startFreshAccount(localProfileId)
         actionScope.launch {
-            val switched = withTimeoutOrNull(START_FRESH_TIMEOUT_MS) {
+            // The first state after start fresh went through (or was put off: still paused after the timeout).
+            val after = withTimeoutOrNull(START_FRESH_TIMEOUT_MS) {
                 state.first { current ->
                     val now = current.accounts.firstOrNull { it.localProfileId == localProfileId }
                     now == null || now.status != SyncAccountStatus.AccountChanged
                 }
             }
+            val now = after?.accounts?.firstOrNull { it.localProfileId == localProfileId }
             _preparingTransfer.value = null
-            // Start fresh put off (changes of the old account not uploaded yet): copying now would mix the two.
+            // Only once this profile syncs as the new account: copying while it is still paused (start fresh put
+            // off, its old changes not uploaded), gone, or waiting on a sign-in would mix the two accounts.
             _events.trySend(
-                if (switched != null) {
-                    CloudSyncEvent.OpenTransfer(TransferArgs(sourceCloudScope = previous, targetProfileId = localProfileId))
+                if (now != null && now.status == SyncAccountStatus.Syncing) {
+                    CloudSyncEvent.OpenTransfer(
+                        TransferArgs(sourceCloudScope = previous, targetProfileId = localProfileId, sourceProvider = row.provider),
+                    )
                 } else {
                     CloudSyncEvent.ShowMessage(
                         resources?.getString(R.string.settings_sync_changed_transfer_failed)

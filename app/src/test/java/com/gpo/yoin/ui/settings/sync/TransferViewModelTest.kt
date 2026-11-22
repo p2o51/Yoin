@@ -247,4 +247,71 @@ class TransferViewModelTest {
         assertEquals(1, rerun.directSongs)
         assertEquals(1, rerun.songsToCopy)
     }
+
+    @Test
+    fun should_removeTheCardOnce_when_doneIsPressedTwice() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val slowOps = object : MemoriesOps by ops {
+            override suspend fun removeProfile(profileId: String) {
+                gate.await()
+                ops.removeProfile(profileId)
+            }
+        }
+        val vm = TransferViewModel(slowOps, controller, TransferArgs(sourceProfileId = "sp", targetProfileId = "nav"))
+        vm.start()
+        vm.setRemoveCard(true)
+
+        vm.finish()
+        vm.finish()
+        assertTrue(vm.back())
+        assertTrue(vm.state.value.finishing)
+        gate.complete(Unit)
+
+        assertEquals(listOf("sp"), ops.removedProfiles)
+    }
+
+    @Test
+    fun should_removeFromTheCloudOnce_when_cleanupIsConfirmedTwice() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var removals = 0
+        val slowController = object : com.gpo.yoin.data.sync.CloudSyncController by controller {
+            override suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit> {
+                removals++
+                gate.await()
+                return Result.success(Unit)
+            }
+        }
+        val vm = TransferViewModel(ops, slowController, TransferArgs(sourceCloudScope = "sp-old", targetProfileId = "sp"))
+        vm.start()
+
+        vm.cleanSource()
+        assertTrue(vm.state.value.cleaning)
+        vm.cleanSource()
+        gate.complete(Unit)
+
+        assertEquals(1, removals)
+        assertTrue(vm.state.value.cleaned)
+        assertFalse(vm.state.value.cleaning)
+    }
+
+    @Test
+    fun should_keepTheServiceOfAPresetCloudSource_whenTheListDoesntNameIt() {
+        val vm = viewModel(TransferArgs(sourceCloudScope = "sp-previous", targetProfileId = "sp", sourceProvider = "spotify"))
+        val state = vm.state.value
+        assertEquals("spotify", state.source?.account?.provider)
+        assertEquals(TransferKind.Direct, transferKindOf(state.source!!.account, state.target!!.account))
+    }
+
+    @Test
+    fun should_notOfferCopying_when_theReviewLeavesNothingToCopy() = runTest {
+        ops.draft = TransferSamples::unmatchedDraft
+        val vm = viewModel(TransferArgs(sourceProfileId = "nav", targetProfileId = "am"))
+        vm.start()
+        assertTrue(vm.state.value.canCopyReviewed)
+
+        vm.setChecked(position = 0, checked = false)
+
+        assertEquals(0, vm.state.value.songsToCopy)
+        assertFalse(vm.state.value.canCopyReviewed)
+    }
 }

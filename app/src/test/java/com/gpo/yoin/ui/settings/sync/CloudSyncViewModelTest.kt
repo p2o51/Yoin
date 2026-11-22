@@ -232,7 +232,9 @@ class CloudSyncViewModelTest {
         viewModel.events.test {
             viewModel.transferFromPreviousAccount("p1")
             assertEquals(
-                CloudSyncEvent.OpenTransfer(TransferArgs(sourceCloudScope = "s-9a8b7c", targetProfileId = "p1")),
+                CloudSyncEvent.OpenTransfer(
+                    TransferArgs(sourceCloudScope = "s-9a8b7c", targetProfileId = "p1", sourceProvider = "subsonic"),
+                ),
                 awaitItem(),
             )
         }
@@ -246,5 +248,16 @@ class CloudSyncViewModelTest {
         viewModel.refreshCloudData()
         assertEquals(212, viewModel.summary.value?.scopes?.get("sp-old")?.notes)
         assertEquals(3, viewModel.files.value?.size)
+    }
+
+    @Test
+    fun should_notOpenTheTransfer_when_theProfileDoesntSyncAsTheNewAccount() = runTest {
+        fake.setState(CloudSyncSamples.accountChanged(0L))
+        fake.startFreshStatus = com.gpo.yoin.data.sync.SyncAccountStatus.NeedsReconnect
+        viewModel.events.test {
+            viewModel.transferFromPreviousAccount("p1")
+            assertEquals(CloudSyncEvent.ShowMessage("Couldn't switch to the new account yet"), awaitItem())
+        }
+        assertEquals(null, viewModel.preparingTransfer.value)
     }
 }

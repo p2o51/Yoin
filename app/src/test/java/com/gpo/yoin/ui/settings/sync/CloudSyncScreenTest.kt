@@ -166,7 +166,7 @@ class CloudSyncScreenTest {
     @Test
     fun should_dropStartFreshDialog_when_theAccountIsNoLongerChanged() {
         val fake = showScreen(CloudSyncSamples.accountChanged(now))
-        rule.onNodeWithText("Choose what to do").performScrollTo().performClick()
+        rule.onNodeWithText("Choose how to proceed").performScrollTo().performClick()
         rule.onNodeWithText("Start fresh as new account").performScrollTo().performClick()
         rule.onNodeWithText("Start fresh as this account?").assertIsDisplayed()
 
@@ -251,7 +251,7 @@ class CloudSyncScreenTest {
             }
         }
 
-        rule.onNodeWithText("Choose what to do").performScrollTo().performClick()
+        rule.onNodeWithText("Choose how to proceed").performScrollTo().performClick()
         rule.onNodeWithText("Transfer Memories from previous account").performScrollTo().performClick()
 
         assertEquals("p1", transferFrom)

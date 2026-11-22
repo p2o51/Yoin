@@ -491,9 +491,9 @@
     <string name="settings_sync_remove_failed">Couldn\'t remove %1$s from the cloud. Check your connection and try again.</string>
     <string name="settings_sync_list_separator">,\u0020</string>
     <string name="settings_sync_list_last">%1$s and %2$s</string>
-    <string name="settings_sync_changed_choose">Choose what to do</string>
+    <string name="settings_sync_changed_choose">Choose how to proceed</string>
     <string name="settings_sync_changed_title">Signed in to a different %1$s account</string>
-    <string name="settings_sync_changed_body">This card used to sync the data of %1$s\'s previous account. It\'s now signed in to a different one, so syncing is paused. Choose what to do:</string>
+    <string name="settings_sync_changed_body">This card previously synced data for %1$s, and is now signed in to a different account. Syncing is paused. Choose how to proceed:</string>
     <string name="settings_sync_changed_keep_summary">Keep syncing to the previous account\'s cloud data</string>
     <string name="settings_sync_changed_fresh_summary">Clear the old data on this device and sync as a new account; the cloud data stays</string>
     <string name="settings_sync_changed_transfer">Transfer Memories from previous account</string>
@@ -574,6 +574,7 @@
     <string name="settings_sync_done">Done</string>
     <string name="settings_sync_busy">Working on it…</string>
     <string name="settings_sync_import_reading">Verifying backup</string>
+    <string name="settings_sync_import_review">Review import</string>
     <string name="settings_sync_import_info">Backup info</string>
     <string name="settings_sync_import_exported">Exported</string>
     <string name="settings_sync_import_this_device">This device</string>
@@ -583,7 +584,7 @@
     <string name="settings_sync_import_merge_into">Merge into %1$s</string>
     <string name="settings_sync_import_same_account">Merges into the same account on this device</string>
     <string name="settings_sync_import_cloud_only_note">Not signed in on this device: the data stays in the cloud and links up when you sign in</string>
-    <string name="settings_sync_import_choose">Where should this account go?</string>
+    <string name="settings_sync_import_choose">Import destination</string>
     <string name="settings_sync_import_keep_cloud">Keep in the cloud only</string>
     <string name="settings_sync_import_skip">Skip</string>
     <string name="settings_sync_import_purged_note">This account was removed from the cloud. Import it into an account on this device, or skip it.</string>
@@ -624,6 +625,8 @@
     <string name="settings_xfer_step_summary">Review summary</string>
     <string name="settings_xfer_step_review">Match tracks</string>
     <string name="settings_xfer_step_copy">Copy</string>
+    <string name="settings_xfer_head_source">Choose source account</string>
+    <string name="settings_xfer_head_target">Choose target account</string>
     <string name="settings_xfer_source_group">Source account</string>
     <string name="settings_xfer_target_group">Target account</string>
     <string name="settings_xfer_from">From %1$s</string>

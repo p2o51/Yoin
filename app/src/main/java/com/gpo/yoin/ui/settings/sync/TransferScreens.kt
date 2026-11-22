@@ -256,15 +256,15 @@ private fun footerFor(
             FlowButtons(
                 primary = stringResource(R.string.settings_xfer_start_copy),
                 onPrimary = actions.copy,
-                primaryEnabled = state.songsToCopy > 0 || state.remainingItems > 0,
-                badge = state.songsToCopy,
+                primaryEnabled = state.canCopyReviewed,
+                badge = state.songsToCopy.takeIf { it > 0 },
                 secondary = stringResource(R.string.settings_xfer_cancel),
                 onSecondary = onCancel,
             )
         }
     }
     TransferStep.Done -> {
-        { FlowButtons(primary = stringResource(R.string.settings_sync_done), onPrimary = actions.finish) }
+        { FlowButtons(primary = stringResource(R.string.settings_sync_done), onPrimary = actions.finish, primaryEnabled = !state.finishing) }
     }
     TransferStep.Failed -> {
         { FlowButtons(primary = stringResource(R.string.settings_sync_done), onPrimary = actions.cancel) }
@@ -303,19 +303,15 @@ private fun StepBar(state: TransferUiState, step: TransferStep) {
     }
 }
 
+/** A step's heading: what this step asks for (the bar already says 转移 Memories). */
 @Composable
-private fun FlowHead() {
-    SyncHeadline(
-        crumb = null,
-        headline = stringResource(R.string.settings_xfer_title),
-        lead = stringResource(R.string.settings_xfer_summary),
-        small = true,
-    )
+private fun FlowHead(titleRes: Int) {
+    SyncHeadline(crumb = null, headline = stringResource(titleRes), lead = null, small = true)
 }
 
 @Composable
 private fun SourceStep(state: TransferUiState, actions: TransferActions) {
-    FlowHead()
+    FlowHead(R.string.settings_xfer_head_source)
     SettingsGroup(title = stringResource(R.string.settings_xfer_source_group)) {
         state.sources.forEach { account ->
             item(key = account.key, paintsOwnSegment = true) {
@@ -328,7 +324,7 @@ private fun SourceStep(state: TransferUiState, actions: TransferActions) {
 @Composable
 private fun TargetStep(state: TransferUiState, actions: TransferActions) {
     val source = state.source ?: return
-    FlowHead()
+    FlowHead(R.string.settings_xfer_head_target)
     Column(verticalArrangement = Arrangement.spacedBy(SyncGroupGap)) {
         SettingsSegments {
             item {
@@ -643,12 +639,22 @@ private fun PairSide(account: TransferAccountUi, modifier: Modifier) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            if (account.cloudOnly) stringResource(R.string.settings_sync_cloud_only) else account.hint ?: serviceNameOf(account.account.provider),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
+        val service = serviceNameOf(account.account.provider)
+        // No "Apple Music / Apple Music": the service only when the name doesn't already say it.
+        val subtitle = when {
+            account.cloudOnly -> stringResource(R.string.settings_sync_cloud_only)
+            account.hint != null -> account.hint
+            account.account.displayName.equals(service, ignoreCase = true) -> null
+            else -> service
+        }
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
@@ -882,7 +888,7 @@ private fun DoneStep(state: TransferUiState, actions: TransferActions, onClean: 
         )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val local = source.account.localProfileId != null
-            val cleanable = state.cloudSyncOn && !state.cleaned && BackupFormat.isSyncScope(source.account.scope)
+            val cleanable = state.cloudSyncOn && !state.cleaned && !state.cleaning && BackupFormat.isSyncScope(source.account.scope)
             if (local || cleanable) {
                 SettingsSegments {
                     if (local) {

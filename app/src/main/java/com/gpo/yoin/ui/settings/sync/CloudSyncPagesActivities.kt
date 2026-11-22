@@ -80,12 +80,13 @@ class CloudDataActivity : ComponentActivity() {
                             onBack = ::finish,
                             onTransfer = { startActivity(MemoriesTransferActivity.intent(context, transferArgsFor(page.account))) },
                             onRemove = viewModel::removeAccount,
+                            onRetry = viewModel::load,
                             snackbarHostState = snackbar,
                         )
                     }
                     CloudDataPage.Global -> {
                         val content by viewModel.global.collectAsState()
-                        CloudGlobalPage(content = content, now = now, onBack = ::finish)
+                        CloudGlobalPage(content = content, now = now, onBack = ::finish, onRetry = viewModel::load)
                     }
                 }
             }
@@ -251,6 +252,7 @@ class MemoriesTransferActivity : ComponentActivity() {
             sourceProfileId = intent.getStringExtra(EXTRA_SOURCE_PROFILE),
             sourceCloudScope = intent.getStringExtra(EXTRA_SOURCE_CLOUD),
             targetProfileId = intent.getStringExtra(EXTRA_TARGET_PROFILE),
+            sourceProvider = intent.getStringExtra(EXTRA_SOURCE_PROVIDER),
         )
         setContent {
             YoinActivityRoot {
@@ -314,11 +316,13 @@ class MemoriesTransferActivity : ComponentActivity() {
         private const val EXTRA_SOURCE_PROFILE = "sourceProfile"
         private const val EXTRA_SOURCE_CLOUD = "sourceCloud"
         private const val EXTRA_TARGET_PROFILE = "targetProfile"
+        private const val EXTRA_SOURCE_PROVIDER = "sourceProvider"
 
         fun intent(context: Context, args: TransferArgs = TransferArgs()): Intent =
             Intent(context, MemoriesTransferActivity::class.java)
                 .putExtra(EXTRA_SOURCE_PROFILE, args.sourceProfileId)
                 .putExtra(EXTRA_SOURCE_CLOUD, args.sourceCloudScope)
                 .putExtra(EXTRA_TARGET_PROFILE, args.targetProfileId)
+                .putExtra(EXTRA_SOURCE_PROVIDER, args.sourceProvider)
     }
 }
