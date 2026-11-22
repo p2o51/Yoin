@@ -2014,21 +2014,11 @@ private fun ActivityBento(
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Two columns (HomeGridUnits.kt): one row of cards a unit, every card exactly a unit tall.
+    // Two columns (HomeGridUnits.kt): the phone's bento for the column's
+    // width, its rows following the cell's units (owner 2026-11-22: unit-tall
+    // cards read as tall empty slabs; the column takes the phone's look).
     val grid = LocalHomeGridHeight.current
-    if (grid != null) {
-        ActivityUnitRows(
-            hero = hero,
-            candidates = candidates,
-            units = grid.units.coerceIn(HomeSection.Activities.unitRange),
-            heroFootnoteExtra = heroFootnoteExtra,
-            heroVersion = heroVersion,
-            extractBackdropColors = extractBackdropColors,
-            onEntryClick = onEntryClick,
-            modifier = modifier,
-        )
-        return
-    }
+    val rowsPreset = grid?.let { homeUnitsPreset(it.units.coerceIn(HomeSection.Activities.unitRange)) } ?: preset
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2050,7 +2040,7 @@ private fun ActivityBento(
         // changes inside one composition update in place (contentKey), and so
         // does a row preset.
         AnimatedContent(
-            targetState = BentoContent(spec, hero, candidates, preset),
+            targetState = BentoContent(spec, hero, candidates, rowsPreset),
             contentKey = { it.spec },
             transitionSpec = {
                 // A width class change (the column or the panel moving, a
