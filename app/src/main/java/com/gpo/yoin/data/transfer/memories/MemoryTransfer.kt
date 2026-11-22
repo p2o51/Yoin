@@ -49,9 +49,11 @@ class MemoryTransfer(
         target: TransferAccount,
         catalog: MemoryCatalog?,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        /** The ledger's entries, when the caller read them already (under the sync lock); else [ledger] is read. */
+        previous: Map<String, String>? = null,
     ): TransferPlan {
         val targetProfile = requireNotNull(target.localProfileId) { "Memories are copied into a local profile" }
-        val done = ledger.read(source.scope, targetProfile)
+        val done = previous ?: ledger.read(source.scope, targetProfile)
         fun pending(key: String) = done[key]?.startsWith(TransferLedger.COPIED) != true
         val pendingItems = pendingItems(items, ::pending)
 
@@ -60,7 +62,8 @@ class MemoryTransfer(
         pendingItems.trackRatings.forEach { trackRefs += it.track }
         pendingItems.trackAlbumLinks.forEach { trackRefs += it.track }
         val needTracks = trackRefs.filterNot { compatible(source, target, it) }
-        val needAlbums = pendingItems.albums.filterNot { compatible(source, target, it) }
+        val linkAlbums = pendingItems.trackAlbumLinks.map { SourceRef(it.track.provider, it.albumId) }
+        val needAlbums = (pendingItems.albums + linkAlbums).distinct().filterNot { compatible(source, target, it) }
         val total = needTracks.size + needAlbums.size
         var progress = 0
 
@@ -589,11 +592,9 @@ class MemoryTransfer(
             for (link in items.trackAlbumLinks) {
                 val ledgerKey = "link:${link.track}"
                 val track = trackTarget(link.track)
-                val album = if (compatible(source, target, link.track)) {
-                    runCatching { MediaId(link.track.provider, link.albumId) }.getOrNull()
-                } else {
-                    trackMatches[link.track]?.chosen?.albumId ?: albumTarget(SourceRef(link.track.provider, link.albumId))
-                }
+                // The album side is mapped on its own: a catalog song can sit on a library-only album id.
+                val album = trackMatches[link.track]?.chosen?.albumId
+                    ?: albumTarget(SourceRef(link.track.provider, link.albumId))
                 if (track == null || album == null || album.provider != track.provider) {
                     unmatched.trackAlbumLinks++
                     entries[ledgerKey] = TransferLedger.UNMATCHED
@@ -728,13 +729,17 @@ class MemoryTransfer(
             if (ref.provider != target.provider) return false
             return when (ref.provider) {
                 MediaId.PROVIDER_SPOTIFY -> true
-                MediaId.PROVIDER_APPLE_MUSIC -> !ref.id.startsWith("library:")
+                MediaId.PROVIDER_APPLE_MUSIC -> !isAppleLibraryId(ref.id)
                 MediaId.PROVIDER_SUBSONIC ->
                     source.provider == target.provider && source.serverKey != null &&
                         source.serverKey.equals(target.serverKey, ignoreCase = true)
                 else -> source.scope == target.scope
             }
         }
+
+        /** Apple Music library ids ("library:…", or a bare "i." / "l." resource id) are per listener. */
+        fun isAppleLibraryId(id: String): Boolean =
+            id.startsWith("library:") || id.startsWith("i.") || id.startsWith("l.")
 
         internal fun trackKey(ref: SourceRef) = "track:$ref"
 

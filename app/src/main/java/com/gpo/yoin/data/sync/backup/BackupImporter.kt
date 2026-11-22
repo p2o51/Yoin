@@ -15,6 +15,7 @@ import com.gpo.yoin.data.sync.SyncBindingEntity
 import com.gpo.yoin.data.sync.SyncDao
 import com.gpo.yoin.data.sync.SyncFormat
 import com.gpo.yoin.data.sync.SyncKinds
+import com.gpo.yoin.data.sync.SyncMetaKeys
 import com.gpo.yoin.data.sync.WireRecord
 import com.gpo.yoin.data.sync.adapters.requiredLong
 import com.gpo.yoin.data.sync.adapters.requiredString
@@ -49,8 +50,13 @@ data class ImportAccountPlan(
     val sameAccount: Boolean,
     /** Profiles of the same service the user may pick instead. */
     val options: List<ImportProfileOption>,
-    /** [ImportTarget.CloudOnly] is possible: a sync scope and a replica on this device. */
+    /** [ImportTarget.CloudOnly] is possible: a sync scope, a replica on this device, and not [wasPurged]. */
     val cloudOnlyPossible: Boolean,
+    /**
+     * The account was removed from the cloud here (a scope purge marker): a cloud-only import would be refused
+     * record by record, so it isn't offered. The UI offers "import into a local account" or "resume sync first".
+     */
+    val wasPurged: Boolean = false,
 )
 
 /** What an import would do; [apply] it with the user's choices. */
@@ -77,6 +83,8 @@ data class ImportCounts(
     val tombstones: Int = 0,
     /** Kinds or payloads this version can't apply, or declined by a policy (e.g. a setting). */
     val skipped: Int = 0,
+    /** Kinds whose local table couldn't be read: nothing of them was written. */
+    val failedKinds: Set<String> = emptySet(),
 ) {
     operator fun plus(other: ImportCounts) = ImportCounts(
         written + other.written,
@@ -85,6 +93,7 @@ data class ImportCounts(
         keptBoth + other.keptBoth,
         tombstones + other.tombstones,
         skipped + other.skipped,
+        failedKinds + other.failedKinds,
     )
 }
 
@@ -93,6 +102,8 @@ data class ImportResult(
     val global: ImportCounts,
     /** Records merged into the sync replica for cloud-only accounts (new or newer versions). */
     val cloudOnlyMerged: Int,
+    /** Accounts asked to go cloud-only that can't (removed from the cloud, no replica, not a sync scope). */
+    val cloudOnlyRefused: List<String> = emptyList(),
 ) {
     val changed: Boolean get() = cloudOnlyMerged > 0 || global.written > 0 || byScope.values.any { it.written + it.keptBoth > 0 }
 }
@@ -129,6 +140,9 @@ class BackupImporter(
         val scopeOfProfile = locals.associate { profile ->
             profile.id to AccountScopes.of(profile, runCatching { decodeCredentials(profile) }.getOrNull(), replica)
         }
+        val purged = replica?.metaWithPrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX).orEmpty()
+            .filter { it.key.startsWith(SyncMetaKeys.PURGED_SCOPE_PREFIX) }
+            .mapTo(HashSet()) { it.key.removePrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX) }
         val taken = HashSet<String>()
         val plans = accounts.map { account ->
             val match = locals.firstOrNull { profile ->
@@ -138,7 +152,8 @@ class BackupImporter(
                     )
             }
             match?.let { taken += it.id }
-            val cloudOnlyPossible = replica != null && BackupFormat.isSyncScope(account.scope)
+            val wasPurged = account.scope in purged
+            val cloudOnlyPossible = replica != null && BackupFormat.isSyncScope(account.scope) && !wasPurged
             ImportAccountPlan(
                 account = account,
                 counts = live.filter { it.scope == account.scope }.groupingBy { it.kind }.eachCount().toSortedMap(),
@@ -151,6 +166,7 @@ class BackupImporter(
                 options = locals.filter { it.provider == account.provider }
                     .map { ImportProfileOption(it.id, it.provider, it.displayName) },
                 cloudOnlyPossible = cloudOnlyPossible,
+                wasPurged = wasPurged,
             )
         }
         return ImportPlan(
@@ -181,6 +197,7 @@ class BackupImporter(
         )
         val results = LinkedHashMap<String, ImportCounts>()
         val cloudOnly = ArrayList<WireRecord>()
+        val refusedCloudOnly = ArrayList<String>()
         val locals = profiles().associateBy { it.id }
         for (account in plan.accounts) {
             val scope = account.account.scope
@@ -200,7 +217,10 @@ class BackupImporter(
                     )
                 }
                 ImportTarget.CloudOnly -> {
-                    if (replica == null || engine == null || !BackupFormat.isSyncScope(scope)) continue
+                    if (replica == null || engine == null || !account.cloudOnlyPossible) {
+                        refusedCloudOnly += scope
+                        continue
+                    }
                     // A local profile already syncing this scope would take these through the domain instead.
                     if (replica.bindingForScope(scope) != null) continue
                     cloudOnly += byScope[scope].orEmpty().filter { it.kind !in BackupKinds.ALL }
@@ -229,7 +249,7 @@ class BackupImporter(
             val result = engine.mergeImported(plan.backup.snapshot.copy(records = cloudOnly))
             merged = result.inserted + result.replaced + result.keptBoth
         }
-        return ImportResult(results, global, merged)
+        return ImportResult(results, global, merged, refusedCloudOnly)
     }
 
     /** Merges [records] (one scope, or the global scope with [profileId] null) into the domain. */
@@ -244,6 +264,7 @@ class BackupImporter(
     ): ImportCounts {
         var counts = ImportCounts()
         val rowsByKind = HashMap<String, MutableMap<String, DomainRow>>()
+        val failedKinds = HashSet<String>()
         for (record in records.sortedWith(compareBy({ it.kind }, { it.key }))) {
             if (record.deleted) {
                 counts += ImportCounts(tombstones = 1)
@@ -266,15 +287,19 @@ class BackupImporter(
                 counts += ImportCounts(skipped = 1)
                 continue
             }
-            val rows = rowsByKind.getOrPut(adapter.kind) {
-                try {
-                    adapter.readAll(profileId).associateByTo(HashMap()) { it.key }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // Never write into a table that can't be read: the guard hashes would all be wrong.
-                    null
-                } ?: HashMap()
+            if (adapter.kind in failedKinds) {
+                counts += ImportCounts(skipped = 1)
+                continue
+            }
+            val rows = rowsByKind[adapter.kind] ?: try {
+                adapter.readAll(profileId).associateByTo(HashMap()) { it.key }.also { rowsByKind[adapter.kind] = it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Never write into a table that can't be read: the guard hashes would all be wrong.
+                failedKinds += adapter.kind
+                counts += ImportCounts(skipped = 1, failedKinds = setOf(adapter.kind))
+                continue
             }
             counts += try {
                 mergeRecord(adapter, record, payload, projection, rows, profileId, srcScope, dstScope, replicaScope, replica, label)
@@ -303,7 +328,9 @@ class BackupImporter(
         var key = record.key
         if (adapter.kind == SyncKinds.SONG_NOTE && profileId != null && key !in rows) {
             val owner = db.syncDomainDao().noteById(key)
-            if (owner != null && owner.profileId != profileId) key = MigrationIds.derive(srcScope, record.key, dstScope)
+            if (needsCopyId(owner?.profileId, profileId, srcScope, dstScope)) {
+                key = MigrationIds.derive(srcScope, record.key, dstScope)
+            }
         }
         val local = rows[key]
         val hash = CanonicalJson.hash(projection)
@@ -364,7 +391,7 @@ class BackupImporter(
                 val note = albumNoteOf(record.key, profileId, payload) ?: return ImportCounts(skipped = 1)
                 var id = note.id
                 var existing = dao.albumNoteById(id)
-                if (existing != null && existing.profileId != profileId) {
+                if (needsCopyId(existing?.profileId, profileId, srcScope, dstScope)) {
                     id = MigrationIds.derive(srcScope, note.id, dstScope)
                     existing = dao.albumNoteById(id)
                 }
@@ -434,6 +461,17 @@ class BackupImporter(
     }
 
     internal companion object {
+        /**
+         * A note goes in under a [MigrationIds] copy id unless it is already this profile's own: when its id
+         * belongs to another profile here, or when it comes from another account (a different scope) — the
+         * same account's notes keep their ids, so syncing and re-importing find them.
+         */
+        fun needsCopyId(ownerProfileId: String?, profileId: String, srcScope: String, dstScope: String): Boolean = when {
+            ownerProfileId == profileId -> false
+            ownerProfileId != null -> true
+            else -> srcScope != dstScope
+        }
+
         /** The text field of the one KEEP_BOTH_TEXT kind (album_review). */
         const val TEXT_FIELD = "review"
 

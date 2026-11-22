@@ -404,7 +404,7 @@ class SyncEngine(
                     continue
                 }
                 val base = if (state.pending) state.pendingPrev else record?.version
-                val version = stamped(scope, maxOf(now, (record?.ts ?: Long.MIN_VALUE) + 1))
+                val version = stamped(kind, scope, row.key, maxOf(now, (record?.ts ?: Long.MIN_VALUE) + 1))
                 val edited = mergedPayload(adapter, record, row.projection)
                 // The domain never showed the replica's version (merged this cycle before capture, or an apply
                 // skipped as CHANGED_LOCALLY): the edit is concurrent with it, so text kinds keep both.
@@ -447,7 +447,7 @@ class SyncEngine(
             }
 
             // (c) brand new row
-            val version = stamped(scope, row.rowTs ?: now)
+            val version = stamped(kind, scope, row.key, row.rowTs ?: now)
             val payload = adapter.decoratePayload(row.projection, name)
             dao.upsertRecord(localRecord(adapter, scope, row.key, version, null, payload))
             dao.upsertLocalState(localState(kind, scope, row.key, boundProfileId, hash, version, pending = true, null))
@@ -524,7 +524,7 @@ class SyncEngine(
                 loserTs = if (localWinsLww) record.ts else candidateTs,
             )
             if (merged != null) {
-                val version = stamped(scope, maxOf(candidateTs, record.ts) + 1)
+                val version = stamped(kind, scope, row.key, maxOf(candidateTs, record.ts) + 1)
                 dao.upsertRecord(localRecord(adapter, scope, row.key, version, record.version, merged))
                 // applied = null: the next apply writes the merged text over the local row (guarded by its hash).
                 dao.upsertLocalState(
@@ -539,7 +539,7 @@ class SyncEngine(
         if (canWin) {
             val meaninglessTombstone = record.deleted && !adapter.propagatesDeletes
             val ts = if (meaninglessTombstone) maxOf(candidateTs, record.ts + 1) else candidateTs
-            val version = stamped(scope, ts)
+            val version = stamped(kind, scope, row.key, ts)
             val payload = adapter.decoratePayload(mergedPayload(adapter, record, row.projection), name)
             dao.upsertRecord(localRecord(adapter, scope, row.key, version, record.version, payload))
             dao.upsertLocalState(
@@ -591,7 +591,7 @@ class SyncEngine(
         now: Long,
     ) {
         val base = if (state.pending) state.pendingPrev else record.version
-        val version = stamped(record.scope, maxOf(now, record.ts + 1))
+        val version = stamped(record.kind, record.scope, record.key, maxOf(now, record.ts + 1))
         dao.upsertRecord(
             SyncRecordEntity(
                 kind = record.kind,
@@ -938,9 +938,13 @@ class SyncEngine(
     /** Purges known when the current capture started (the engine is single-threaded by contract). */
     private var purgeFloors: Map<String, Long> = emptyMap()
 
-    /** A new local version of [scope] at [ts], moved after the scope's purge epoch if it has one. */
-    private fun stamped(scope: String, ts: Long): RecordVersion {
-        val epoch = purgeFloors[scope]
+    /**
+     * A new local version of a record at [ts], moved after its purge epoch if it has one. The epoch is the
+     * one of the scope the record is purged with ([purgeScopeOf]): an account descriptor (global, key = the
+     * account's scope) follows its account, or a resumed account's descriptor would stay refused.
+     */
+    private fun stamped(kind: String, scope: String, key: String, ts: Long): RecordVersion {
+        val epoch = purgeFloors[purgeScopeOf(kind, scope, key)]
         return RecordVersion(if (epoch != null && ts <= epoch) epoch + 1 else ts, deviceId)
     }
 

@@ -173,6 +173,52 @@ class BackupImportTest {
         assertEquals(1, plan.needsChoice.size)
 
         tablet.importer().apply(plan, choices = mapOf(scope to ImportTarget.IntoProfile(bob)))
-        assertEquals(1, tablet.db.syncDomainDao().notesForProfile(bob).size)
+        val note = tablet.db.syncDomainDao().notesForProfile(bob).single()
+        // Another account's notes never keep their ids, even when the original isn't on this device.
+        assertEquals(MigrationIds.derive(scope, "n1", BackupTestDevice.scopeOf(url, "bob")), note.id)
+        assertEquals(MigrationIds.derive(scope, "an1", BackupTestDevice.scopeOf(url, "bob")), tablet.db.syncDomainDao().albumNotesForProfile(bob).single().id)
+    }
+
+    @Test
+    fun should_writeNothingOfAKind_when_itsTableCantBeRead() = runTest {
+        val backup = seedPhone()
+        val t = tablet.addSubsonic("t1", url, "alice")
+        val adapters = tablet.adapters.map { adapter ->
+            if (adapter.kind != SyncKinds.TRACK_RATING) {
+                adapter
+            } else {
+                object : com.gpo.yoin.data.sync.SyncAdapter by adapter {
+                    override suspend fun readAll(localProfileId: String?) = throw java.io.IOException("disk")
+                }
+            }
+        }
+        val importer = BackupImporter(tablet.db, adapters, tablet::profiles) { tablet.credentials[it.id] }
+
+        val result = importer.apply(importer.plan(backup, null))
+
+        val counts = result.byScope.getValue(scope)
+        assertEquals(setOf(SyncKinds.TRACK_RATING), counts.failedKinds)
+        assertNull(tablet.db.syncDomainDao().trackRating(t, "t1", "subsonic"))
+        assertEquals("other kinds still import", 1, tablet.db.syncDomainDao().notesForProfile(t).size)
+    }
+
+    @Test
+    fun should_notOfferCloudOnly_when_theAccountWasRemovedFromTheCloud() = runTest {
+        val backup = seedPhone()
+        val dao = tablet.syncDb.syncDao()
+        val engine = SyncEngine(tablet.syncDb, tablet.adapters, "dev-b", { "Pixel Tablet" }, { 30_000 })
+        engine.applyScopePurge(scope, epoch = 20_000)
+
+        val plan = tablet.importer().plan(backup, dao)
+        val account = plan.accounts.single()
+        assertTrue(account.wasPurged)
+        assertFalse(account.cloudOnlyPossible)
+        assertEquals(ImportTarget.Skip, account.target)
+
+        val result = tablet.importer().apply(plan, choices = mapOf(scope to ImportTarget.CloudOnly), replica = dao, engine = engine)
+
+        assertEquals(listOf(scope), result.cloudOnlyRefused)
+        assertEquals(0, result.cloudOnlyMerged)
+        assertTrue(dao.recordsInScope(scope).isEmpty())
     }
 }

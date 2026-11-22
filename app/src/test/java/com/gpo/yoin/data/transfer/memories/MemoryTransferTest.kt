@@ -253,12 +253,12 @@ class MemoryTransferTest {
         val searchesBefore = catalog.searches
         val second = transfer.plan(src, MemoryItems.fromProfile(device.db, "old"), dst, catalog)
 
-        assertEquals("t3's score was copied: skipped", 1, second.previouslyCopied)
+        assertEquals("t3's score and its album link were copied: skipped", 2, second.previouslyCopied)
         assertEquals(listOf("t4"), second.tracks.map { it.source.id })
         assertEquals(MatchStatus.Matched, second.tracks.single().status)
         assertTrue(catalog.searches > searchesBefore)
         val result = transfer.execute(second)
-        assertEquals(1, result.skippedPreviously)
+        assertEquals(2, result.skippedPreviously)
         assertEquals(5f, dao.trackRating("spot", "sp4", target)?.rating)
         assertEquals(TransferLedger.CHOSEN + "spotify:sp3a", ledger.read("s-old", "spot")["track:subsonic:t3"])
     }
@@ -326,10 +326,76 @@ class MemoryTransferTest {
         assertFalse(MemoryTransfer.compatible(sub, otherServer, SourceRef("subsonic", "1")))
         assertTrue("catalog ids", MemoryTransfer.compatible(apple1, apple2, SourceRef("applemusic", "1440857781")))
         assertFalse("library ids are per listener", MemoryTransfer.compatible(apple1, apple2, SourceRef("applemusic", "library:i.abc")))
+        assertFalse(MemoryTransfer.compatible(apple1, apple2, SourceRef("applemusic", "i.abc")))
+        assertFalse(MemoryTransfer.compatible(apple1, apple2, SourceRef("applemusic", "l.abc")))
         assertTrue(MemoryTransfer.compatible(spotify1, spotify2, SourceRef("spotify", "4uLU6hMCjMI75M1A2tKUQC")))
         assertFalse(MemoryTransfer.compatible(sub, spotify1, SourceRef("subsonic", "1")))
         assertNotEquals(MigrationIds.derive("s-a", "n1", "s-b"), MigrationIds.derive("s-a", "n1", "s-c"))
         assertEquals(MigrationIds.derive("s-a", "n1", "s-b"), MigrationIds.derive("s-a", "n1", "s-b"))
+    }
+
+    @Test
+    fun should_carryAlbumsOnlyPlaysKnow_when_copyingDirectly() = runTest {
+        device.addSubsonic("old", "https://music.example.com", "alice")
+        device.addSubsonic("new", "https://music.example.com", "alice2")
+        device.rate("old", "t2", 6f, at = 2_000)
+        device.played("old", "t2", "Second Song", "al1", "Rain Album", at = 1_500)
+        device.played("old", "t9", "Never Rated", "al9", "Other Album", at = 1_500)
+
+        val result = transfer.execute(
+            transfer.plan(
+                account("old", "s-old", "subsonic", "music.example.com"),
+                MemoryItems.fromProfile(device.db, "old"),
+                account("new", "s-new", "subsonic", "music.example.com"),
+                null,
+            ),
+        )
+
+        assertEquals("al1", dao.trackAlbumLink("new", "subsonic", "t2")?.albumId)
+        assertNull("only songs with Memories get a link", dao.trackAlbumLink("new", "subsonic", "t9"))
+        assertEquals(1, result.copied.trackAlbumLinks)
+    }
+
+    @Test
+    fun should_mapTheLinksAlbumOnItsOwn_when_theAlbumIdIsLibraryOnly() = runTest {
+        device.addProfile("apple1", "applemusic", "Apple 1")
+        device.addProfile("apple2", "applemusic", "Apple 2")
+        device.rate("apple1", "1440857781", 8f, at = 2_000, provider = "applemusic")
+        device.link("apple1", "1440857781", "library:l.abc", at = 2_000, provider = "applemusic")
+        device.link("apple1", "1440857782", "1440857700", at = 2_000, provider = "applemusic")
+        device.rate("apple1", "1440857782", 7f, at = 2_000, provider = "applemusic")
+
+        val result = transfer.execute(
+            transfer.plan(
+                account("apple1", "a-1", "applemusic"),
+                MemoryItems.fromProfile(device.db, "apple1"),
+                account("apple2", "a-2", "applemusic"),
+                null,
+            ),
+        )
+
+        assertEquals("catalog song copied as is", 8f, dao.trackRating("apple2", "1440857781", "applemusic")?.rating)
+        assertNull("a library album id isn't another listener's", dao.trackAlbumLink("apple2", "applemusic", "1440857781"))
+        assertEquals("1440857700", dao.trackAlbumLink("apple2", "applemusic", "1440857782")?.albumId)
+        assertEquals(1, result.unmatched.trackAlbumLinks)
+    }
+
+    @Test
+    fun should_useTheGivenLedgerEntries_when_planning() = runTest {
+        device.addSubsonic("old", "https://music.example.com", "alice")
+        device.addSubsonic("new", "https://music.example.com", "alice2")
+        seedSubsonic("old")
+
+        val plan = transfer.plan(
+            account("old", "s-old", "subsonic", "music.example.com"),
+            MemoryItems.fromProfile(device.db, "old"),
+            account("new", "s-new", "subsonic", "music.example.com"),
+            null,
+            previous = mapOf("note:n1" to TransferLedger.COPIED + "mig-x"),
+        )
+
+        assertEquals(1, plan.previouslyCopied)
+        assertEquals(0, plan.toCopy.songNotes)
     }
 
     @Test

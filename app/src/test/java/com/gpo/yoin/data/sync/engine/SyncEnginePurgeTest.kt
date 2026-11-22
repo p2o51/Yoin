@@ -113,6 +113,28 @@ class SyncEnginePurgeTest {
     }
 
     @Test
+    fun should_acceptTheResumedAccountsDescriptor_when_aPeerKnowsThePurge() = runTest {
+        val withDescriptors: (FakeDomain) -> List<FakeAdapter> = { domain ->
+            standardAdapters(domain) + FakeAdapter(domain, SyncKinds.ACCOUNT, fields = listOf("provider"), perAccount = false)
+        }
+        val resumed = SimDevice("resumed", "resumed", 10_000, withDescriptors).also { devices += it }
+        resumed.engine.applyScopePurge("s-a", epoch = 3_000)
+        // The descriptor's own time (the profile's creation) is long before the purge.
+        resumed.adapter(SyncKinds.ACCOUNT).put(null, "s-a", 1_000, "provider" to "subsonic")
+        resumed.bind("p", "s-a")
+        resumed.note("p", "n1", rowTs = 1_000)
+        resumed.cycle(drive)
+
+        val peer = SimDevice("peer", "peer", 20_000, withDescriptors).also { devices += it }
+        peer.engine.applyScopePurge("s-a", epoch = 3_000)
+        val refused = peer.pull(drive).sumOf { it.purged }
+
+        assertEquals(0, refused)
+        assertEquals(3_001L, peer.record(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, "s-a")?.ts)
+        assertEquals(3_001L, peer.record(SyncKinds.SONG_NOTE, "s-a", "n1")?.ts)
+    }
+
+    @Test
     fun should_refuseThePurgedAccountsDescriptor_when_merged() = runTest {
         val phone = device("phone", 5_000)
         phone.engine.applyScopePurge("s-a", epoch = 3_000)

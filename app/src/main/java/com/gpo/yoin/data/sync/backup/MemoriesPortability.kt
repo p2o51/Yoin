@@ -15,6 +15,7 @@ import com.gpo.yoin.data.sync.adapters.YoinSyncAdapters
 import com.gpo.yoin.data.sync.engine.toWire
 import com.gpo.yoin.data.sync.identity.AccountFingerprints
 import com.gpo.yoin.data.sync.identity.CloudAccountDescriptor
+import com.gpo.yoin.data.transfer.memories.InMemoryTransferLedger
 import com.gpo.yoin.data.transfer.memories.MemoryCatalog
 import com.gpo.yoin.data.transfer.memories.MemoryItems
 import com.gpo.yoin.data.transfer.memories.MemorySource
@@ -163,17 +164,26 @@ class MemoriesPortability(
         catalog: MemoryCatalog?,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): TransferPlan = withContext(Dispatchers.IO) {
-        // Matching may search the network: read under the lock, match outside it.
-        val (from, items, to) = cloudSync.withReplica(createIfMissing = true) { replica ->
-            val dao = replica?.db?.syncDao()
+        // Matching may search the network: read everything (ledger included) under the lock, match outside it.
+        val read = cloudSync.withReplica(createIfMissing = true) { replica ->
+            val syncDb = requireNotNull(replica) { "No sync database" }.db
+            val dao = syncDb.syncDao()
             val targetProfile = requireNotNull(profiles().firstOrNull { it.id == targetProfileId }) { "No such profile" }
             val (account, items) = read(source, dao)
-            Triple(account, items, accountOf(targetProfile, dao))
+            require(account.localProfileId != targetProfileId) { "Source and target are the same profile" }
+            PlanInput(account, items, accountOf(targetProfile, dao), SyncMetaTransferLedger(syncDb).read(account.scope, targetProfileId))
         }
-        require(from.localProfileId != targetProfileId) { "Source and target are the same profile" }
-        val ledger = cloudSync.withReplica(createIfMissing = true) { replica -> SyncMetaTransferLedger(requireNotNull(replica).db) }
-        MemoryTransfer(db, ledger, clock = clock).plan(from, items, to, catalog, onProgress)
+        // The plan never touches the ledger: [PlanInput.previous] is what it would have read.
+        MemoryTransfer(db, InMemoryTransferLedger(), clock = clock)
+            .plan(read.from, read.items, read.to, catalog, onProgress, previous = read.previous)
     }
+
+    private class PlanInput(
+        val from: TransferAccount,
+        val items: MemoryItems,
+        val to: TransferAccount,
+        val previous: Map<String, String>,
+    )
 
     /** Copies what [plan] maps (picks included) into its target profile. */
     suspend fun runTransfer(plan: TransferPlan): TransferResult = withContext(Dispatchers.IO) {
