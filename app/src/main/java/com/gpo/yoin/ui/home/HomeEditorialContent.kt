@@ -2026,6 +2026,17 @@ internal const val ActivityBentoUnitsXlEntries = 20
 private const val ActivityBentoPhoneEntries = 6
 private const val ActivityBentoPhoneXlEntries = 8
 
+/**
+ * The phone preset the two-column Activities shows at [units]: S, M, then XL
+ * at three, whose extra card row fills the third unit (L only adds the strips
+ * and leaves the cell's lower half empty, owner 2026-11-22).
+ */
+internal fun activityGridPreset(units: Int): HomeRowPreset = when {
+    units <= 1 -> HomeRowPreset.S
+    units == 2 -> HomeRowPreset.M
+    else -> HomeRowPreset.XL
+}
+
 @Composable
 private fun ActivityBento(
     // The hero slot only carries an album / playlist (or nothing); the
@@ -2050,7 +2061,7 @@ private fun ActivityBento(
     // width, its rows following the cell's units (owner 2026-11-22: unit-tall
     // cards read as tall empty slabs; the column takes the phone's look).
     val grid = LocalHomeGridHeight.current
-    val rowsPreset = grid?.let { homeUnitsPreset(it.units.coerceIn(HomeSection.Activities.unitRange)) } ?: preset
+    val rowsPreset = grid?.let { activityGridPreset(it.units.coerceIn(HomeSection.Activities.unitRange)) } ?: preset
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
