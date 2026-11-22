@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.sync.adapters
 
+import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.HomeLayoutPreference
@@ -64,7 +65,8 @@ class SyncSecretSentinelTest {
         )
         assertEquals(
             setOf(
-                SyncKinds.SONG_NOTE, SyncKinds.TRACK_RATING, SyncKinds.ALBUM_RATING, SyncKinds.ALBUM_REVIEW,
+                SyncKinds.SONG_NOTE, SyncKinds.ALBUM_NOTE, SyncKinds.TRACK_RATING, SyncKinds.ALBUM_RATING,
+                SyncKinds.ALBUM_REVIEW,
                 SyncKinds.HOME_LAYOUT, SyncKinds.SETTING, SyncKinds.LYRICS_TRANSLATION,
                 SyncKinds.MEMORY_COPY, SyncKinds.MEMORY_TITLE, SyncKinds.ALBUM_TITLE, SyncKinds.SONG_ABOUT,
                 SyncKinds.ACCOUNT, SyncKinds.PLAYLIST_BACKUP,
@@ -88,7 +90,7 @@ class SyncSecretSentinelTest {
         }
 
         // Every kind produced something, so the scan below is meaningful.
-        assertTrue(rowCount >= 3 * 5 + 3 + 1 + 3)
+        assertTrue(rowCount >= 3 * 6 + 3 + 1 + 3)
         assertTrue(published.contains("alice @ music.example.com"))
         assertTrue(published.contains("first line"))
         assertFalse("secret leaked: $published", published.contains("SENTINEL"))
@@ -105,6 +107,7 @@ class SyncSecretSentinelTest {
             dao.writeNote(
                 SongNote("note-$id", id, "trk", provider, "note text", 1L, 2L, "Title", "Artist", 3_000L),
             )
+            dao.writeAlbumNote(AlbumNote("album-note-$id", id, "alb", provider, "album note", 1L, 2L, "Album", "Artist"))
             dao.upsertTrackRating(LocalRating(id, "trk", provider, 8f, 4, needsSync = true, updatedAt = 1L))
             dao.insertAlbumRatingIfAbsent(
                 AlbumRating(id, "alb", provider, 7f, "review text", "SENTINEL_NEODB_UUID", true, true, 1L),

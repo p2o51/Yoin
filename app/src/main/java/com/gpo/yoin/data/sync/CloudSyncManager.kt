@@ -730,6 +730,7 @@ class CloudSyncManager(
         dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
         fun count(kind: String) = applied.appliedLive.values.sumOf { it[kind] ?: 0 }
         val restored = count(SyncKinds.SONG_NOTE) +
+            count(SyncKinds.ALBUM_NOTE) +
             count(SyncKinds.TRACK_RATING) +
             count(SyncKinds.ALBUM_RATING)
         if (restored == 0) return
@@ -977,6 +978,7 @@ class CloudSyncManager(
 
         private val OBSERVED_TABLES = arrayOf(
             "song_notes",
+            "album_notes",
             "local_ratings",
             "album_ratings",
             "home_layout",
