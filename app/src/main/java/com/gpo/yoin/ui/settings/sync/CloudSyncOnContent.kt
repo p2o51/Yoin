@@ -1008,6 +1008,7 @@ private fun ChoiceCard(icon: ImageVector, title: String, summary: String, onClic
                         null
                     },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                    color = androidx.compose.material3.LocalContentColor.current,
                 )
                 Text(summary, style = MaterialTheme.typography.bodyMedium)
             }

@@ -203,7 +203,8 @@ class TransferViewModel(
             } catch (_: Exception) {
                 emptyList()
             }
-            val summary = runCatching { controller.cloudDataSummary() }.getOrNull()
+            // Counts come from the cloud replica: only meaningful while Cloud sync is on here.
+            val summary = if (controller.state.value.enabled) runCatching { controller.cloudDataSummary() }.getOrNull() else null
             val cloudRows = controller.state.value.cloudOnlyAccounts.associateBy { it.syncProfileId }
             val accounts = sources.map { (source, account) ->
                 val cloud = (source as? MemorySource.CloudAccount)?.let { cloudRows[it.syncProfileId] }

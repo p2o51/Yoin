@@ -488,7 +488,7 @@
     <string name="settings_sync_remove_cancel">Cancel</string>
     <string name="settings_sync_removed">Removed %1$s from the cloud</string>
     <string name="settings_sync_remove_failed">Couldn\'t remove %1$s from the cloud. Check your connection and try again.</string>
-    <string name="settings_sync_list_separator">, </string>
+    <string name="settings_sync_list_separator">,\u0020</string>
     <string name="settings_sync_list_last">%1$s and %2$s</string>
     <string name="settings_sync_changed_choose">Choose what to do</string>
     <string name="settings_sync_changed_title">Signed in to a different %1$s account</string>

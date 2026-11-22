@@ -286,13 +286,18 @@ internal fun SyncPill(text: String, tone: SyncPillTone = SyncPillTone.Neutral, m
 /** A row title with a pill after it, wrapping under it when the name is long. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun TitleWithPill(title: String, pill: (@Composable () -> Unit)?, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleMedium) {
+internal fun TitleWithPill(
+    title: String,
+    pill: (@Composable () -> Unit)?,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleMedium,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = title, style = style, color = MaterialTheme.colorScheme.onSurface)
+        Text(text = title, style = style, color = color)
         pill?.invoke()
     }
 }

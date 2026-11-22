@@ -855,17 +855,35 @@ internal fun CandidateRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Ink follows the fill: a chosen candidate sits on primaryContainer, which is light in Yoin's dark scheme.
+            val ink by animateColorAsState(
+                if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                YoinMotion.effectsSpring(),
+                label = "candidateInk",
+            )
+            val softInk = if (selected) ink.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
             Column(modifier = Modifier.weight(1f)) {
-                SongLines(
-                    title = candidate.title.orEmpty(),
-                    artist = listOfNotNull(candidate.artist).joinToString(),
-                    dimmed = false,
+                Text(
+                    text = candidate.title.orEmpty(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                candidate.artist?.takeIf { it.isNotEmpty() }?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = softInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 candidate.album?.let { album ->
                     Text(
                         text = album,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = softInk,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -875,11 +893,11 @@ internal fun CandidateRow(
                 Text(
                     text = formatTrackDuration(seconds),
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = softInk,
                 )
             }
             if (selected) {
-                Icon(YoinSymbols.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(YoinSymbols.Check, contentDescription = null, tint = ink)
             }
         }
     }
