@@ -53,6 +53,17 @@ interface LyricHighlightModel {
     val downloadFailure: String? get() = null
 
     suspend fun answer(prompt: String): NanoAnswer
+
+    /**
+     * Generates a response with custom decoding limits (used by Home daily greetings and About follow-ups).
+     * Implementations that only override [answer] with a single prompt keep working through this default.
+     */
+    suspend fun answer(
+        prompt: String,
+        maxOutputTokens: Int,
+        temperature: Float = 0.2f,
+        topK: Int = 16,
+    ): NanoAnswer = answer(prompt)
 }
 
 /**
@@ -164,14 +175,27 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         }
     }
 
-    override suspend fun answer(prompt: String): NanoAnswer = lock.withLock {
+    override suspend fun answer(prompt: String): NanoAnswer =
+        answer(
+            prompt = prompt,
+            maxOutputTokens = LyricHighlightPrompt.MAX_OUTPUT_TOKENS,
+            temperature = 0.2f,
+            topK = 16,
+        )
+
+    override suspend fun answer(
+        prompt: String,
+        maxOutputTokens: Int,
+        temperature: Float,
+        topK: Int,
+    ): NanoAnswer = lock.withLock {
         try {
             val response = client().generateContent(
                 generateContentRequest(TextPart(prompt)) {
-                    temperature = 0.2f
-                    topK = 16
+                    this.temperature = temperature
+                    this.topK = topK
                     candidateCount = 1
-                    maxOutputTokens = LyricHighlightPrompt.MAX_OUTPUT_TOKENS
+                    this.maxOutputTokens = maxOutputTokens
                 },
             )
             val text = response.candidates.firstOrNull()?.text

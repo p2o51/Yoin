@@ -16,6 +16,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.LyricHighlight
 import com.gpo.yoin.data.local.LyricHighlightDao
+import com.gpo.yoin.data.local.PlayHistoryDao
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -62,6 +63,8 @@ class LyricHighlightProcessor(
      * cap (AICore's own BUSY and quota still apply), and every step written to [events] for Home to show.
      */
     private val testMode: Boolean = false,
+    private val playHistoryDao: PlayHistoryDao? = null,
+    private val homeGreetingStore: HomeGreetingStore? = null,
 ) {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, error ->
@@ -95,12 +98,36 @@ class LyricHighlightProcessor(
 
     private val _optedIn by lazy { MutableStateFlow(prefs.getBoolean(KEY_OPTED_IN, false)) }
     private val _introSeen by lazy { MutableStateFlow(prefs.getBoolean(KEY_INTRO_SEEN, false)) }
+    private val _greetingsEnabled by lazy {
+        MutableStateFlow(
+            if (prefs.contains(KEY_GREETINGS_ENABLED)) {
+                prefs.getBoolean(KEY_GREETINGS_ENABLED, false)
+            } else {
+                prefs.getBoolean(KEY_OPTED_IN, false)
+            },
+        )
+    }
+    private val _aboutFollowUpsEnabled by lazy {
+        MutableStateFlow(
+            if (prefs.contains(KEY_ABOUT_FOLLOWUPS_ENABLED)) {
+                prefs.getBoolean(KEY_ABOUT_FOLLOWUPS_ENABLED, false)
+            } else {
+                prefs.getBoolean(KEY_OPTED_IN, false)
+            },
+        )
+    }
 
     /**
      * The user turned the beta on (owner 2026-11-08: Nano only runs after an opt-in from the section's intro).
      * Lines the user shares or saves are kept either way.
      */
     val optedIn: StateFlow<Boolean> by lazy { _optedIn.asStateFlow() }
+
+    /** On-device pre-generated 3-slot Home greetings (owner 2026-11-22). */
+    val greetingsEnabled: StateFlow<Boolean> by lazy { _greetingsEnabled.asStateFlow() }
+
+    /** On-device About -> Ask Gemini suggested follow-up questions (owner 2026-11-22). */
+    val aboutFollowUpsEnabled: StateFlow<Boolean> by lazy { _aboutFollowUpsEnabled.asStateFlow() }
 
     /** The section's first-use intro has been answered (turned on, or put away). */
     val introSeen: StateFlow<Boolean> by lazy { _introSeen.asStateFlow() }
@@ -110,16 +137,30 @@ class LyricHighlightProcessor(
         prefs.edit {
             putBoolean(KEY_OPTED_IN, true)
             putBoolean(KEY_INTRO_SEEN, true)
+            if (!prefs.contains(KEY_GREETINGS_ENABLED)) putBoolean(KEY_GREETINGS_ENABLED, true)
+            if (!prefs.contains(KEY_ABOUT_FOLLOWUPS_ENABLED)) putBoolean(KEY_ABOUT_FOLLOWUPS_ENABLED, true)
         }
         _optedIn.value = true
         _introSeen.value = true
+        if (!prefs.contains(KEY_GREETINGS_ENABLED) || prefs.getBoolean(KEY_GREETINGS_ENABLED, true)) {
+            _greetingsEnabled.value = true
+        }
+        if (!prefs.contains(KEY_ABOUT_FOLLOWUPS_ENABLED) || prefs.getBoolean(KEY_ABOUT_FOLLOWUPS_ENABLED, true)) {
+            _aboutFollowUpsEnabled.value = true
+        }
         if (visit?.isActive != true) visit = scope.launch { runVisit() }
     }
 
     /** Yoin Labs' switch: on starts a visit now (as [optIn]); off stops Nano at once. Kept lines stay. */
     fun setOptedIn(on: Boolean) {
         if (on) {
-            optIn()
+            prefs.edit {
+                putBoolean(KEY_OPTED_IN, true)
+                putBoolean(KEY_INTRO_SEEN, true)
+            }
+            _optedIn.value = true
+            _introSeen.value = true
+            if (visit?.isActive != true && inForeground()) visit = scope.launch { runVisit() }
             return
         }
         prefs.edit {
@@ -128,8 +169,28 @@ class LyricHighlightProcessor(
         }
         _optedIn.value = false
         _introSeen.value = true
-        visit?.cancel()
-        visit = null
+        if (!_greetingsEnabled.value) {
+            visit?.cancel()
+            visit = null
+        }
+    }
+
+    /** Yoin Labs' switch for pre-generated 3-slot Home greetings. */
+    fun setGreetingsEnabled(on: Boolean) {
+        prefs.edit { putBoolean(KEY_GREETINGS_ENABLED, on) }
+        _greetingsEnabled.value = on
+        if (on && visit?.isActive != true && inForeground()) {
+            visit = scope.launch { runVisit() }
+        } else if (!on && !_optedIn.value) {
+            visit?.cancel()
+            visit = null
+        }
+    }
+
+    /** Yoin Labs' switch for About -> Ask Gemini on-device follow-up questions. */
+    fun setAboutFollowUpsEnabled(on: Boolean) {
+        prefs.edit { putBoolean(KEY_ABOUT_FOLLOWUPS_ENABLED, on) }
+        _aboutFollowUpsEnabled.value = on
     }
 
     private val _unavailableReason = MutableStateFlow<String?>(null)
@@ -177,7 +238,9 @@ class LyricHighlightProcessor(
             val nano = checkStatus()
             note("Nano after download: $nano")
             // Only while Yoin is still in front; otherwise the next onStart picks it up.
-            if (nano == NanoStatus.AVAILABLE && _optedIn.value && visit?.isActive != true && inForeground()) {
+            if (nano == NanoStatus.AVAILABLE && (_optedIn.value || _greetingsEnabled.value) &&
+                visit?.isActive != true && inForeground()
+            ) {
                 visit = scope.launch { runVisit() }
             }
         }
@@ -236,7 +299,9 @@ class LyricHighlightProcessor(
         var nano = checkStatus()
         note("Nano: $nano")
         profileStartupDone.first { it }
-        if (!_optedIn.value) {
+        val wantsLyrics = _optedIn.value
+        val wantsGreetings = _greetingsEnabled.value && homeGreetingStore != null
+        if (!wantsLyrics && !wantsGreetings) {
             note("Waiting for the opt-in")
             return
         }
@@ -249,6 +314,13 @@ class LyricHighlightProcessor(
         }
         if (nano != NanoStatus.AVAILABLE) return
         delay(if (testMode) TEST_START_DELAY_MS else START_DELAY_MS)
+
+        // Generate today's 3-slot Home greetings once per day before the lyric queue so subsequent opens are instant.
+        if (_greetingsEnabled.value && homeGreetingStore != null) {
+            if (!runDailyGreetings(homeGreetingStore)) return
+        }
+
+        if (!_optedIn.value) return
         var done = 0
         val queue = buildQueue()
         note("Queue: ${queue.size} songs")
@@ -271,6 +343,40 @@ class LyricHighlightProcessor(
             delay(if (testMode) TEST_GAP_MS else NanoBudget.GAP_MS)
         }
         note("Visit done: $done")
+    }
+
+    private suspend fun runDailyGreetings(store: HomeGreetingStore): Boolean {
+        val profileId = repository.currentProfileId() ?: return true
+        val provider = repository.currentProviderId() ?: return true
+        if (!store.needsGeneration(profileId)) return true
+        if (!deviceIsRelaxed()) {
+            note("Greetings paused: phone warm, battery saver or low battery")
+            return false
+        }
+        val now = clock()
+        if (!testMode && !budget().allows(now, today(now))) return false
+        val started = clock()
+        val outcome = store.generateIfNeeded(profileId, provider, playHistoryDao, model)
+        note("Greetings: ${outcome.name.lowercase()} (${clock() - started} ms)")
+        return when (outcome) {
+            HomeGreetingStore.GenerationOutcome.GENERATED,
+            HomeGreetingStore.GenerationOutcome.UNUSABLE -> {
+                writeBudget(budget().afterSuccess(today(clock())))
+                delay(if (testMode) TEST_GAP_MS else NanoBudget.GAP_MS)
+                true
+            }
+            HomeGreetingStore.GenerationOutcome.BUSY -> {
+                writeBudget(budget().afterBusy(clock(), today(clock())))
+                false
+            }
+            HomeGreetingStore.GenerationOutcome.QUOTA_EXHAUSTED -> {
+                writeBudget(budget().afterQuotaExhausted(today(clock())))
+                false
+            }
+            HomeGreetingStore.GenerationOutcome.NOT_FOREGROUND -> false
+            HomeGreetingStore.GenerationOutcome.ALREADY_READY,
+            HomeGreetingStore.GenerationOutcome.FAILED -> true
+        }
     }
 
     /** A song to work on, with what's needed to show it later without the network. */
@@ -608,6 +714,8 @@ class LyricHighlightProcessor(
         private const val PREFS = "lyric_highlights"
         private const val KEY_STATUS = "nano_status"
         private const val KEY_OPTED_IN = "opted_in"
+        private const val KEY_GREETINGS_ENABLED = "greetings_enabled"
+        private const val KEY_ABOUT_FOLLOWUPS_ENABLED = "about_followups_enabled"
         private const val KEY_INTRO_SEEN = "intro_seen"
         private const val KEY_DAY = "budget_day"
         private const val KEY_USED = "budget_used"

@@ -552,9 +552,19 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** Shared Gemini Nano client serialized via its internal mutex across all on-device features. */
+    private val geminiNanoModel: com.gpo.yoin.data.highlight.GeminiNanoLyricModel by lazy {
+        com.gpo.yoin.data.highlight.GeminiNanoLyricModel()
+    }
+
+    /** Cached 3-slot daily Home greetings pre-generated on-device so Home opens with zero wait. */
+    val homeGreetingStore: com.gpo.yoin.data.highlight.HomeGreetingStore by lazy {
+        com.gpo.yoin.data.highlight.HomeGreetingStore(context)
+    }
+
     /**
      * Gemini Nano lyric highlights for Home's 「歌词一句」 (data/highlight/): picked a few at a time while Yoin is
-     * in the foreground, on devices with Nano only.
+     * in the foreground, on devices with Nano only. Also drives once-a-day 3-slot Home greeting pre-generation.
      */
     val lyricHighlightProcessor: com.gpo.yoin.data.highlight.LyricHighlightProcessor by lazy {
         com.gpo.yoin.data.highlight.LyricHighlightProcessor(
@@ -562,10 +572,27 @@ class AppContainer(private val context: Context) {
             repository = repository,
             dao = database.lyricHighlightDao(),
             albumRatingDao = database.albumRatingDao(),
-            model = com.gpo.yoin.data.highlight.GeminiNanoLyricModel(),
+            model = geminiNanoModel,
             currentTrack = { playbackManager.playbackState.value.currentTrack },
             profileStartupDone = profileStartupDone,
             testMode = BuildConfig.NANO_TEST,
+            playHistoryDao = database.playHistoryDao(),
+            homeGreetingStore = homeGreetingStore,
+        )
+    }
+
+    /** On-device suggested follow-up questions for Now Playing's About -> Ask Gemini bar. */
+    val aboutFollowUpGenerator: com.gpo.yoin.data.highlight.AboutFollowUpGenerator by lazy {
+        com.gpo.yoin.data.highlight.AboutFollowUpGenerator(
+            model = geminiNanoModel,
+            status = lyricHighlightProcessor.status,
+            enabled = lyricHighlightProcessor.aboutFollowUpsEnabled,
+            isForeground = {
+                androidx.lifecycle.ProcessLifecycleOwner.get()
+                    .lifecycle
+                    .currentState
+                    .isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            },
         )
     }
 
