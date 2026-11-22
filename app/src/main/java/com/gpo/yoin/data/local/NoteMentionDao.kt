@@ -21,15 +21,23 @@ interface NoteMentionDao {
     @Query(
         "SELECT n.*, COALESCE(l.albumId, (" +
             "SELECT ph.albumId FROM play_history ph WHERE ph.profileId = n.profileId AND ph.provider = n.provider " +
-            "AND ph.songId = n.trackId AND ph.albumId != '' ORDER BY ph.playedAt DESC LIMIT 1)) AS linkedAlbumId " +
+            "AND ph.songId = n.trackId AND ph.albumId != '' ORDER BY ph.playedAt DESC LIMIT 1)) AS linkedAlbumId, " +
+            "(SELECT ph.coverArtId FROM play_history ph WHERE ph.profileId = n.profileId AND ph.provider = n.provider " +
+            "AND ph.songId = n.trackId AND ph.coverArtId IS NOT NULL AND ph.coverArtId != '' " +
+            "ORDER BY ph.playedAt DESC LIMIT 1) AS coverKey " +
             "FROM song_notes n LEFT JOIN track_album_links l " +
             "ON l.profileId = n.profileId AND l.provider = n.provider AND l.trackId = n.trackId " +
             "WHERE n.profileId = :profileId AND n.content LIKE '%](yoin:%'",
     )
-    fun observeSongNotesWithMentions(profileId: String): Flow<List<LedgerSongNoteRow>>
+    fun observeSongNotesWithMentions(profileId: String): Flow<List<MentionSongNoteRow>>
 
-    @Query("SELECT * FROM album_notes WHERE profileId = :profileId AND content LIKE '%](yoin:%'")
-    fun observeAlbumNotesWithMentions(profileId: String): Flow<List<AlbumNote>>
+    @Query(
+        "SELECT an.*, (SELECT ph.coverArtId FROM play_history ph WHERE ph.profileId = an.profileId " +
+            "AND ph.provider = an.provider AND ph.albumId = an.albumId AND ph.coverArtId IS NOT NULL " +
+            "AND ph.coverArtId != '' ORDER BY ph.playedAt DESC LIMIT 1) AS coverKey " +
+            "FROM album_notes an WHERE an.profileId = :profileId AND an.content LIKE '%](yoin:%'",
+    )
+    fun observeAlbumNotesWithMentions(profileId: String): Flow<List<MentionAlbumNoteRow>>
 
     /** The profile's reviews holding a mention link, with the album's name as Yoin's plays or album notes know it. */
     @Query(
@@ -43,7 +51,10 @@ interface NoteMentionDao {
             "AND an.provider = r.provider AND an.albumId = r.albumId AND an.artist != '' LIMIT 1), " +
             "(SELECT ph.artist FROM play_history ph WHERE ph.profileId = r.profileId " +
             "AND ph.provider = r.provider AND ph.albumId = r.albumId AND ph.artist != '' " +
-            "ORDER BY ph.playedAt DESC LIMIT 1)) AS albumArtist " +
+            "ORDER BY ph.playedAt DESC LIMIT 1)) AS albumArtist, " +
+            "(SELECT ph.coverArtId FROM play_history ph WHERE ph.profileId = r.profileId " +
+            "AND ph.provider = r.provider AND ph.albumId = r.albumId AND ph.coverArtId IS NOT NULL " +
+            "AND ph.coverArtId != '' ORDER BY ph.playedAt DESC LIMIT 1) AS coverKey " +
             "FROM album_ratings r WHERE r.profileId = :profileId AND r.review LIKE '%](yoin:%'",
     )
     fun observeReviewsWithMentions(profileId: String): Flow<List<MentionReviewRow>>
@@ -106,6 +117,20 @@ data class MentionReviewRow(
     @Embedded val rating: AlbumRating,
     val albumName: String?,
     val albumArtist: String?,
+    /** The album's cover as a Yoin play stored it (a CoverRef storage key), when one did. */
+    val coverKey: String? = null,
+)
+
+/** A song note with the album its track belongs to and the track's cover, as Yoin's plays know them. */
+data class MentionSongNoteRow(
+    @Embedded val note: SongNote,
+    val linkedAlbumId: String?,
+    val coverKey: String? = null,
+)
+
+data class MentionAlbumNoteRow(
+    @Embedded val note: AlbumNote,
+    val coverKey: String? = null,
 )
 
 /** A local item's id (as stored) and names, for matching a mention by name. */

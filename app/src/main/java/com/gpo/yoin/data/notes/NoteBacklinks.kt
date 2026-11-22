@@ -1,7 +1,7 @@
 package com.gpo.yoin.data.notes
 
-import com.gpo.yoin.data.local.AlbumNote
-import com.gpo.yoin.data.local.LedgerSongNoteRow
+import com.gpo.yoin.data.local.MentionAlbumNoteRow
+import com.gpo.yoin.data.local.MentionSongNoteRow
 import com.gpo.yoin.data.local.MentionReviewRow
 import com.gpo.yoin.data.local.NoteMentionDao
 import com.gpo.yoin.data.model.MediaId
@@ -53,6 +53,9 @@ data class BacklinkTrack(val id: MediaId, val title: String, val artist: String?
 
 /** Where a backlink was written. Tapping it opens that item's scrapbook (phase B). */
 sealed interface BacklinkSource {
+    /** The source's cover as Yoin's plays stored it (a CoverRef storage key); null when no play did. */
+    val coverKey: String?
+
     /** [albumId]: the album the track belongs to, when Yoin knows it (a play or a track→album link). */
     data class SongNote(
         val noteId: String,
@@ -61,6 +64,7 @@ sealed interface BacklinkSource {
         val trackArtist: String,
         val positionMs: Long?,
         val albumId: MediaId?,
+        override val coverKey: String? = null,
     ) : BacklinkSource
 
     data class AlbumNote(
@@ -68,6 +72,7 @@ sealed interface BacklinkSource {
         val albumId: MediaId,
         val albumName: String,
         val albumArtist: String,
+        override val coverKey: String? = null,
     ) : BacklinkSource
 
     /** [albumName] / [albumArtist]: as Yoin's plays or album notes know them; null when neither does. */
@@ -75,6 +80,7 @@ sealed interface BacklinkSource {
         val albumId: MediaId,
         val albumName: String?,
         val albumArtist: String?,
+        override val coverKey: String? = null,
     ) : BacklinkSource
 }
 
@@ -180,8 +186,8 @@ class NoteBacklinkRepository(
 
 /** The DAO's rows as writings (blank ones dropped). */
 fun backlinkWritings(
-    songNotes: List<LedgerSongNoteRow>,
-    albumNotes: List<AlbumNote>,
+    songNotes: List<MentionSongNoteRow>,
+    albumNotes: List<MentionAlbumNoteRow>,
     reviews: List<MentionReviewRow>,
 ): List<BacklinkWriting> = buildList {
     songNotes.forEach { row ->
@@ -198,13 +204,15 @@ fun backlinkWritings(
                     trackArtist = note.artist,
                     positionMs = note.positionMs,
                     albumId = albumId,
+                    coverKey = row.coverKey,
                 ),
                 text = note.content,
                 at = note.createdAt,
             ),
         )
     }
-    albumNotes.forEach { note ->
+    albumNotes.forEach { row ->
+        val note = row.note
         if (note.content.isBlank()) return@forEach
         val albumId = storedMediaId(note.provider, note.albumId) ?: return@forEach
         add(
@@ -214,6 +222,7 @@ fun backlinkWritings(
                     albumId = albumId,
                     albumName = note.albumName,
                     albumArtist = note.artist,
+                    coverKey = row.coverKey,
                 ),
                 text = note.content,
                 at = note.createdAt,
@@ -230,6 +239,7 @@ fun backlinkWritings(
                     albumId = albumId,
                     albumName = row.albumName?.takeIf(String::isNotBlank),
                     albumArtist = row.albumArtist?.takeIf(String::isNotBlank),
+                    coverKey = row.coverKey,
                 ),
                 text = review,
                 at = rating.reviewUpdatedAt ?: rating.updatedAt,

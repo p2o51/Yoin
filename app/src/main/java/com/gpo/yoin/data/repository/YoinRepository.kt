@@ -2226,12 +2226,46 @@ class YoinRepository(
         return note
     }
 
+    /** Ticks or unticks the to-do on [lineIndex] of a song note (a tap on its box); the rest as written. */
+    suspend fun toggleNoteChecklist(id: String, lineIndex: Int) {
+        val note = songNoteDao.getById(id) ?: return
+        val toggled = com.gpo.yoin.shared.notes.NoteMarkup.toggleChecklist(note.content, lineIndex)
+        if (toggled != note.content) songNoteDao.update(note.copy(content = toggled, updatedAt = clock()))
+    }
+
+    /** [toggleNoteChecklist] for an album note. */
+    suspend fun toggleAlbumNoteChecklist(id: String, lineIndex: Int) {
+        val note = albumNoteDao.getById(id) ?: return
+        val toggled = com.gpo.yoin.shared.notes.NoteMarkup.toggleChecklist(note.content, lineIndex)
+        if (toggled != note.content) albumNoteDao.update(note.copy(content = toggled, updatedAt = clock()))
+    }
+
     /**
      * Puts a deleted note back (Undo), same id and moment. Stamped now, so it outlives the delete that
      * cloud sync may already have sent.
      */
     suspend fun restoreNote(note: SongNote) {
         songNoteDao.insert(note.copy(updatedAt = maxOf(clock(), note.updatedAt + 1)))
+    }
+
+    /**
+     * The album a song is on, for opening it from a note mention: what the service says, else what Yoin
+     * learned locally (a play, a track→album link). Null when nothing knows.
+     */
+    suspend fun findTrackAlbum(trackId: MediaId): MediaId? {
+        val fromService = try {
+            activeSource.value?.library()?.getTrack(trackId)?.albumId
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        if (fromService != null) return fromService
+        val profileId = activeProfileId.value ?: return null
+        val linked = database.trackAlbumLinkDao().get(profileId, trackId.provider, trackId.rawId)?.albumId
+            ?: database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider, profileId)?.albumId
+        return linked?.takeIf(String::isNotBlank)
+            ?.let { MediaId(trackId.provider, MediaId.storedRawId(trackId.provider, it)) }
     }
 
     // ── Album notes ────────────────────────────────────────────────────
