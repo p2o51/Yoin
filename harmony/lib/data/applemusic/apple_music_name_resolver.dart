@@ -22,6 +22,10 @@ typedef AppleMusicCatalogRead = Future<Map<String, Object?>> Function(List<Strin
 /// catalog id (digits) and ISRC, when known.
 typedef AppleMusicSongKeys = ({String? catalogId, String? isrc}) Function(Track track);
 
+/// What the resolver needs to know about an artist beyond [Artist]: its
+/// catalog id (digits) and primary genre, when known.
+typedef AppleMusicArtistKeys = ({String? catalogId, String? genre}) Function(Artist artist);
+
 /// One item's names in one storefront. A null field: the storefront named it nothing there.
 final class AppleMusicNames {
   const AppleMusicNames({this.title, this.artist, this.album});
@@ -113,6 +117,41 @@ final class AppleMusicNameResolver {
           )
         else
           albums[i],
+    ];
+  }
+
+  Future<List<Artist>> artists(
+    AppleMusicNameRegion region,
+    String? accountStorefront,
+    List<Artist> artists, {
+    required AppleMusicArtistKeys keys,
+  }) async {
+    if (region == AppleMusicNameRegion.off || artists.isEmpty) return artists;
+    final requests = <_Request>[];
+    final byArtist = <int, _Request>{};
+    for (var i = 0; i < artists.length; i++) {
+      final a = artists[i];
+      if (a.id.provider != MediaId.providerAppleMusic) continue;
+      final k = keys(a);
+      final id = k.catalogId;
+      if (id == null || !_isCatalogId(id)) continue;
+      final target = OriginalNameTarget.forRegion(region, artist: a.name, genre: k.genre);
+      if (target == null || target.storefront == accountStorefront) continue;
+      final r = _Request(id, target, null);
+      requests.add(r);
+      byArtist[i] = r;
+    }
+    if (requests.isEmpty) return artists;
+    final names = await _resolve(_Kind.artists, requests);
+    return [
+      for (var i = 0; i < artists.length; i++)
+        if (byArtist[i] case final r? when names[r.id] != null)
+          renamedArtist(
+            artists[i],
+            name: _pick(region, r.target, artists[i].name, names[r.id]!.title) ?? artists[i].name,
+          )
+        else
+          artists[i],
     ];
   }
 
@@ -267,10 +306,11 @@ final class AppleMusicNameResolver {
   static bool _isCatalogId(String id) => id.isNotEmpty && RegExp(r'^[0-9]+$').hasMatch(id);
 }
 
-/// [kind.batch]: Apple's most ids per request for the type (songs 300, albums 100).
+/// [kind.batch]: Apple's most ids per request for the type (songs 300, albums 100, artists 25).
 enum _Kind {
   songs('songs', 300),
-  albums('albums', 100);
+  albums('albums', 100),
+  artists('artists', 25);
 
   const _Kind(this.path, this.batch);
   final String path;
@@ -329,4 +369,13 @@ Album renamedAlbum(Album a, {required String name, String? artist, List<Track>? 
   addedAt: a.addedAt,
   releaseType: a.releaseType,
   version: a.version,
+);
+
+/// [a] under another name; everything else kept.
+Artist renamedArtist(Artist a, {required String name}) => Artist(
+  id: a.id,
+  name: name,
+  albumCount: a.albumCount,
+  coverArt: a.coverArt,
+  isStarred: a.isStarred,
 );

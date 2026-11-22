@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.applemusic
 
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
@@ -231,5 +232,37 @@ class AppleMusicNameResolverTest {
         assertEquals("Bad Guy", renamed[0].title)
         assertEquals("Billie Eilish", renamed[0].artist)
         assertEquals(tracks[1], renamed[1])
+    }
+
+    @Test fun artists_resolvesKatakanaWesternArtists_andLibraryCatalogIds() = runTest {
+        answers = {
+            """{"data":[{"id":"159260351","type":"artists","attributes":{"name":"Taylor Swift"}}]}"""
+        }
+        val libraryTaylor = Artist(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.1"),
+            name = "テイラー・スウィフト",
+            albumCount = null,
+            coverArt = null,
+        )
+        val yorushika = Artist(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "12345"),
+            name = "ヨルシカ",
+            albumCount = null,
+            coverArt = null,
+        )
+
+        val renamed = resolver.artists(AppleMusicNameRegion.Original, "jp", listOf(libraryTaylor, yorushika)) { a ->
+            when (a.id.rawId) {
+                "library:r.1" -> AppleMusicNameResolver.ArtistHint(catalogId = "159260351", genre = "Pop")
+                else -> AppleMusicNameResolver.ArtistHint(catalogId = a.id.rawId, genre = "J-Pop")
+            }
+        }
+
+        assertEquals(
+            listOf(Read(listOf("v1", "catalog", "us", "artists"), mapOf("ids" to "159260351", "l" to "en-US"))),
+            reads,
+        )
+        assertEquals("Taylor Swift", renamed[0].name)
+        assertEquals("ヨルシカ", renamed[1].name)
     }
 }

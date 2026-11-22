@@ -322,9 +322,15 @@ final class AppleMusicNameResolver {
     typealias ByIsrc = @MainActor (_ storefront: String, _ isrcs: [String], _ language: String) async throws -> [String: Names]
 
     enum Kind: String, Sendable {
-        case songs, albums
+        case songs, albums, artists
         /// Apple's most ids per request for the type.
-        var batch: Int { self == .songs ? 300 : 100 }
+        var batch: Int {
+            switch self {
+            case .songs: 300
+            case .albums: 100
+            case .artists: 25
+            }
+        }
     }
 
     /// Items whose names are kept: a large playlist's worth.
@@ -388,6 +394,26 @@ final class AppleMusicNameResolver {
             var out = a
             out.title = Self.pick(region, request.target, a.title, found.title)
             out.artist = Self.pick(region, request.target, a.artist, found.artist)
+            return out
+        }
+    }
+
+    func artists(_ region: AppleMusicNameRegion, accountStorefront: String?, _ artists: [AMArtist]) async -> [AMArtist] {
+        guard region != .off, !artists.isEmpty else { return artists }
+        var requests: [String: Request] = [:]
+        for artist in artists {
+            guard let id = artist.catalogId,
+                  !id.isEmpty, id.allSatisfy(\.isNumber),
+                  let target = OriginalNameTarget.forRegion(region, title: nil, artist: artist.name, genre: artist.genre, isrc: nil),
+                  target.storefront != accountStorefront else { continue }
+            requests[id] = Request(id: id, target: target, isrc: nil)
+        }
+        guard !requests.isEmpty else { return artists }
+        let names = await resolve(.artists, Array(requests.values))
+        return artists.map { artist in
+            guard let id = artist.catalogId, let request = requests[id], let found = names[id] else { return artist }
+            var out = artist
+            out.name = Self.pick(region, request.target, artist.name, found.title)
             return out
         }
     }

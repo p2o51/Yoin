@@ -208,6 +208,37 @@ final class AppleMusicSource implements MusicSource {
     return _names.album(region, await _storefrontOrNull(), album, keys: _songKeys);
   }
 
+  Future<List<Artist>> _regionalArtists(List<AppleMusicJson> resources) async {
+    final artists = <Artist>[];
+    final keysById = <MediaId, ({String? catalogId, String? genre})>{};
+    for (final r in resources) {
+      final a = artistFrom(r);
+      if (a == null) continue;
+      artists.add(a);
+      final type = text(r, 'type');
+      final catalog = type == 'library-artists'
+          ? related(r, 'catalog').where((c) => text(c, 'type') == 'artists').firstOrNull
+          : r;
+      final catalogId = catalog == null ? null : text(catalog, 'id');
+      final genre = _firstGenre(attributesOf(r)) ?? (catalog == null ? null : _firstGenre(attributesOf(catalog)));
+      keysById[a.id] = (catalogId: catalogId, genre: genre);
+    }
+    final region = await _region();
+    if (region == AppleMusicNameRegion.off || artists.isEmpty) return artists;
+    return _names.artists(
+      region,
+      await _storefrontOrNull(),
+      artists,
+      keys: (a) => keysById[a.id] ?? (catalogId: null, genre: null),
+    );
+  }
+
+  static String? _firstGenre(AppleMusicJson attributes) {
+    final genres = attributes['genreNames'];
+    if (genres is List && genres.isNotEmpty && genres.first is String) return genres.first as String;
+    return null;
+  }
+
   // ------------------------------------------------------------------ plumbing
 
   void _checkProvider(MediaId id) {
@@ -632,10 +663,9 @@ final class _AppleMusicLibrary
       query: _libraryArtistsQuery,
       fallback: _pageLimit,
     );
+    final artists = await _s._regionalArtists(listed);
     final groups = SplayTreeMap<String, List<Artist>>();
-    for (final r in listed) {
-      final artist = artistFrom(r);
-      if (artist == null) continue;
+    for (final artist in artists) {
       final letter = artist.name.isEmpty ? '#' : String.fromCharCode(artist.name.runes.first).toUpperCase();
       (groups[letter] ??= []).add(artist);
     }
@@ -655,11 +685,16 @@ final class _AppleMusicLibrary
       response = await _s._page(path);
     }
     final resource = resources(response).firstOrNull;
-    final artist = resource == null ? null : artistFrom(resource);
-    if (artist == null) return null;
-    final albums = await _s._regionalAlbums([
-      for (final r in await _s._all([...path, 'albums'], query: _pageLimit)) ?albumFrom(r),
+    if (resource == null) return null;
+    final results = await Future.wait([
+      _s._regionalArtists([resource]),
+      _s._all([...path, 'albums'], query: _pageLimit).then(
+        (items) => _s._regionalAlbums([for (final r in items) ?albumFrom(r)]),
+      ),
     ]);
+    final artist = (results[0] as List<Artist>).firstOrNull;
+    if (artist == null) return null;
+    final albums = results[1] as List<Album>;
     return ArtistDetail(
       id: artist.id,
       name: artist.name,
@@ -795,7 +830,7 @@ final class _AppleMusicLibrary
         return SearchResults(
           tracks: await _s._regionalTracks(_s._remember(songsFrom(of('songs'))).take(trackCount).toList()),
           albums: await _s._regionalAlbums([for (final r in of('albums')) ?albumFrom(r)].take(albumCount).toList()),
-          artists: [for (final r in of('artists')) ?artistFrom(r)].take(artistCount).toList(),
+          artists: await _s._regionalArtists(of('artists').take(artistCount).toList()),
           playlists: [for (final r in of('playlists')) ?playlistFrom(r)],
         );
       });

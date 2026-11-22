@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.applemusic
 
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
@@ -82,6 +83,50 @@ internal class AppleMusicNameResolver(
                 name = pick(region, request.target, album.name, found.title) ?: album.name,
                 artist = pick(region, request.target, album.artist, found.artist),
             )
+        }
+    }
+
+    /** Catalog id and primary genre read alongside an [Artist] (for library artists whose own id isn't catalog). */
+    data class ArtistHint(val catalogId: String?, val genre: String?)
+
+    suspend fun artists(
+        region: AppleMusicNameRegion,
+        accountStorefront: String?,
+        artists: List<Artist>,
+        hints: (Artist) -> ArtistHint = { artist ->
+            ArtistHint(
+                catalogId = artist.id.rawId.takeIf {
+                    artist.id.provider == MediaId.PROVIDER_APPLE_MUSIC && it.isCatalogId()
+                },
+                genre = null,
+            )
+        },
+    ): List<Artist> {
+        if (region == AppleMusicNameRegion.Off || artists.isEmpty()) return artists
+        val requests = mutableListOf<Request>()
+        val byIndex = mutableMapOf<Int, Request>()
+        artists.forEachIndexed { index, artist ->
+            if (artist.id.provider != MediaId.PROVIDER_APPLE_MUSIC) return@forEachIndexed
+            val hint = hints(artist)
+            val id = hint.catalogId?.takeIf { it.isCatalogId() } ?: return@forEachIndexed
+            val target = OriginalNameTarget.forRegion(
+                region,
+                title = null,
+                artist = artist.name,
+                genre = hint.genre,
+                isrc = null,
+            ) ?: return@forEachIndexed
+            if (target.storefront == accountStorefront) return@forEachIndexed
+            val request = Request(id, target, isrc = null)
+            requests += request
+            byIndex[index] = request
+        }
+        if (requests.isEmpty()) return artists
+        val names = resolve(Kind.Artists, requests)
+        return artists.mapIndexed { index, artist ->
+            val request = byIndex[index] ?: return@mapIndexed artist
+            val found = names[request.id] ?: return@mapIndexed artist
+            artist.copy(name = pick(region, request.target, artist.name, found.title) ?: artist.name)
         }
     }
 
@@ -170,8 +215,12 @@ internal class AppleMusicNameResolver(
         return found
     }
 
-    /** [batch]: Apple's most ids per request for the type (songs 300, albums 100). */
-    private enum class Kind(val path: String, val batch: Int) { Songs("songs", 300), Albums("albums", 100) }
+    /** [batch]: Apple's most ids per request for the type (songs 300, albums 100, artists 25). */
+    private enum class Kind(val path: String, val batch: Int) {
+        Songs("songs", 300),
+        Albums("albums", 100),
+        Artists("artists", 25),
+    }
 
     private data class Request(val id: String, val target: OriginalNameTarget, val isrc: String?)
 

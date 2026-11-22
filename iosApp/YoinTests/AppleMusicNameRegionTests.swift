@@ -287,4 +287,18 @@ final class AppleMusicNameRegionTests: XCTestCase {
         XCTAssertEqual(renamed[0].artist, "Billie Eilish")
         XCTAssertEqual(renamed[1], songs[1])
     }
+
+    func test_should_rename_artists_including_katakana_western_artists_and_library_catalog_ids() async {
+        answers = { _ in ["159260351": .init(title: "Taylor Swift", artist: nil, album: nil)] }
+        let artists = [
+            AMArtist(resourceId: "r.1", isLibrary: true, catalogId: "159260351", name: "テイラー・スウィフト", artwork: nil, genre: "Pop"),
+            AMArtist(resourceId: "12345", isLibrary: false, catalogId: "12345", name: "ヨルシカ", artwork: nil, genre: "J-Pop"),
+        ]
+
+        let renamed = await resolver().artists(.original, accountStorefront: "jp", artists)
+
+        XCTAssertEqual(reads, [Read(storefront: "us", kind: "artists", ids: ["159260351"], language: "en-US")])
+        XCTAssertEqual(renamed[0].name, "Taylor Swift")
+        XCTAssertEqual(renamed[1].name, "ヨルシカ")
+    }
 }

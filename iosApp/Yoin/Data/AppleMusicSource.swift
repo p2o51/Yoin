@@ -261,6 +261,12 @@ final class AppleMusicSource {
         return await regionalNames.albums(region, accountStorefront: try? await countryCode(), albums)
     }
 
+    private func named(_ artists: [AMArtist]) async -> [AMArtist] {
+        let region = nameRegion()
+        guard region != .off else { return artists }
+        return await regionalNames.artists(region, accountStorefront: try? await countryCode(), artists)
+    }
+
     /// The albums in a mixed list, renamed (`AppleMusicMapping.albums(in:)`).
     private func albumList(_ resources: [AppleMusicJSON.Object]) async -> [Album] {
         AppleMusicMapping.uniqueById(await named(resources.compactMap(AppleMusicMapping.album)).map(AppleMusicMapping.album))
@@ -370,15 +376,15 @@ final class AppleMusicSource {
     }
 
     func libraryArtists(cap: Int = 2000, onPage: (([LibraryItem]) -> Void)? = nil) async throws -> [LibraryItem] {
-        func items(_ r: [AppleMusicJSON.Object]) -> [LibraryItem] {
+        func items(_ r: [AppleMusicJSON.Object]) async -> [LibraryItem] {
             var seen = Set<String>()
-            return r.compactMap(AppleMusicMapping.artist).filter { seen.insert($0.rawId).inserted }
-                .map(AppleMusicMapping.artistItem)
+            let unique = r.compactMap(AppleMusicMapping.artist).filter { seen.insert($0.rawId).inserted }
+            return await named(unique).map(AppleMusicMapping.artistItem)
         }
         var pageHandler: (@MainActor ([AppleMusicJSON.Object]) async -> Void)?
-        if let onPage { pageHandler = { onPage(items($0)) } }
+        if let onPage { pageHandler = { onPage(await items($0)) } }
         let r = try await all("/v1/me/library/artists", ["limit": "100", "include": "catalog"], cap: cap, onPage: pageHandler)
-        return items(r)
+        return await items(r)
     }
 
     /// Every library playlist, all pages (a backup tells a playlist gone by its absence here, so a prefix
@@ -609,8 +615,13 @@ final class AppleMusicSource {
     private func catalogArtist(_ id: String) async throws -> ArtistPage? {
         let root = try await get(try await catalog("artists") + "/\(id)", ["include": "albums", "views": "top-songs"])
         guard let r = AppleMusicJSON.resources(root).first, let am = AppleMusicMapping.artist(r) else { return nil }
-        let albums = await named((AppleMusicJSON.related(r, "albums") ?? []).compactMap(AppleMusicMapping.album)).map(AppleMusicMapping.album)
-        return AppleMusicMapping.artistPage(am, albums: albums, topSongs: await named(songs(AppleMusicJSON.view(r, "top-songs") ?? [])))
+        let rawAlbums = (AppleMusicJSON.related(r, "albums") ?? []).compactMap(AppleMusicMapping.album)
+        let rawTopSongs = songs(AppleMusicJSON.view(r, "top-songs") ?? [])
+        async let renamedArtist = named([am])
+        async let albums = named(rawAlbums)
+        async let topSongs = named(rawTopSongs)
+        let artist = await renamedArtist.first ?? am
+        return AppleMusicMapping.artistPage(artist, albums: await albums.map(AppleMusicMapping.album), topSongs: await topSongs)
     }
 
     func playlist(_ rawId: String) async throws -> PlaylistInfo? {
@@ -672,7 +683,7 @@ final class AppleMusicSource {
         func list(_ key: String) -> [AppleMusicJSON.Object] {
             (results?[key] as? AppleMusicJSON.Object)?["data"] as? [AppleMusicJSON.Object] ?? []
         }
-        return SearchResults(artists: list("artists").compactMap(AppleMusicMapping.artist).map(AppleMusicMapping.artistItem),
+        return SearchResults(artists: await named(list("artists").compactMap(AppleMusicMapping.artist)).map(AppleMusicMapping.artistItem),
                              albums: await albumList(list("albums")),
                              songs: AppleMusicMapping.entries(await named(songs(list("songs")))),
                              playlists: list("playlists").compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem))

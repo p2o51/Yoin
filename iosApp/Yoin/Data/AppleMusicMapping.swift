@@ -110,6 +110,7 @@ struct AMArtist: Hashable, Sendable {
     var catalogId: String?
     var name: String
     var artwork: URL?
+    var genre: String? = nil
 
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
 }
@@ -351,7 +352,8 @@ enum AppleMusicMapping {
             catalogId: isLibrary ? catalog?["id"] as? String : id,
             name: AppleMusicJSON.string(a, "name") ?? "",
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
-                ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")))
+                ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
+            genre: genre((a["genreNames"] ?? catalogAttributes?["genreNames"]) as? [String]))
     }
 
     static func playlist(_ r: AppleMusicJSON.Object) -> AMPlaylist? {

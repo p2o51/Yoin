@@ -332,6 +332,69 @@ void main() {
       expect(results.tracks[1].artist, 'ヨルシカ');
     });
 
+    test('should_renameLibraryArtistsAndGroupByRenamedInitial_when_originalModeRunsOnJpStorefront', () async {
+      final server = _Server({
+        '/v1/me/library/artists': (_) => _json({
+          'data': [
+            {
+              'id': 'r.1',
+              'type': 'library-artists',
+              'attributes': {'name': 'テイラー・スウィフト'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '159260351',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'テイラー・スウィフト',
+                        'genreNames': ['Pop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              'id': 'r.2',
+              'type': 'library-artists',
+              'attributes': {'name': 'ヨルシカ'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '12345',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'ヨルシカ',
+                        'genreNames': ['J-Pop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+        '/v1/catalog/us/artists': (_) => _json({
+          'data': [
+            {
+              'id': '159260351',
+              'type': 'artists',
+              'attributes': {'name': 'Taylor Swift'},
+            },
+          ],
+        }),
+      });
+      final indices = await server.source(region: AppleMusicNameRegion.original).library.getArtists();
+      final usReq = server.to('/v1/catalog/us/artists').single;
+      expect(usReq.url.queryParameters['l'], 'en-US');
+      expect(usReq.url.queryParameters['ids'], '159260351');
+      final byGroup = {for (final g in indices) g.name: g.artists.map((a) => a.name).toList()};
+      expect(byGroup['T'], ['Taylor Swift']);
+      expect(byGroup['ヨ'], ['ヨルシカ']);
+    });
+
     test('should_readEachAccountsRegion_when_storedByProfile', () async {
       final kv = InMemoryStore();
       final repo = ProfileRepository(kv, InMemoryStore());
