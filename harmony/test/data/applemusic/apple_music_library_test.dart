@@ -235,6 +235,103 @@ void main() {
       expect(server.requests.where((r) => r.url.path.startsWith('/v1/catalog/cn')), isEmpty);
     });
 
+    test('should_recoverEnglishNames_when_originalModeRunsOnJpOrCnStorefront', () async {
+      expect(
+        OriginalNameTarget.detect(
+          title: 'Bad Guy',
+          artist: 'ビリー・アイリッシュ',
+          genre: 'Alternative',
+          isrc: 'USUM71900764',
+        ),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: 'ミッドナイツ', artist: 'テイラー・スウィフト', genre: 'Pop'),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: '红', artist: '泰勒·斯威夫特', genre: 'Pop', isrc: 'USCJY1231001'),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: '晴る', artist: 'ヨルシカ', genre: 'J-Pop', isrc: 'JPPO02400001'),
+        OriginalNameTarget.japan,
+      );
+      expect(
+        OriginalNameTarget.accepts(
+          AppleMusicNameRegion.original,
+          OriginalNameTarget.unitedStates,
+          'ビリー・アイリッシュ',
+          'Billie Eilish',
+        ),
+        isTrue,
+      );
+      expect(
+        OriginalNameTarget.accepts(
+          AppleMusicNameRegion.original,
+          OriginalNameTarget.unitedStates,
+          'Bad Guy',
+          'bad guy',
+        ),
+        isFalse,
+      );
+
+      final server = _Server({
+        '/v1/catalog/jp/search': (_) => _json({
+          'results': {
+            'songs': {
+              'data': [
+                {
+                  'id': '91',
+                  'type': 'songs',
+                  'attributes': {
+                    'name': 'Bad Guy',
+                    'artistName': 'ビリー・アイリッシュ',
+                    'albumName': 'ホエン・ウィ・オール・フォール・アスリープ',
+                    'genreNames': ['Alternative'],
+                    'isrc': 'USUM71900764',
+                  },
+                },
+                {
+                  'id': '92',
+                  'type': 'songs',
+                  'attributes': {
+                    'name': '晴る',
+                    'artistName': 'ヨルシカ',
+                    'albumName': '晴る - Single',
+                    'genreNames': ['J-Pop'],
+                    'isrc': 'JPPO02400001',
+                  },
+                },
+              ],
+            },
+          },
+        }),
+        '/v1/catalog/us/songs': (_) => _json({
+          'data': [
+            {
+              'id': '91',
+              'type': 'songs',
+              'attributes': {
+                'name': 'bad guy',
+                'artistName': 'Billie Eilish',
+                'albumName': 'WHEN WE ALL FALL ASLEEP',
+              },
+            },
+          ],
+        }),
+      });
+      final results = await server.source(region: AppleMusicNameRegion.original).library.search('billie');
+      final usReq = server.to('/v1/catalog/us/songs').single;
+      expect(usReq.url.queryParameters['l'], 'en-US');
+      expect(usReq.url.queryParameters['ids'], '91');
+      expect(results.tracks[0].title, 'Bad Guy');
+      expect(results.tracks[0].artist, 'Billie Eilish');
+      expect(results.tracks[0].album, 'WHEN WE ALL FALL ASLEEP');
+      expect(results.tracks[1].title, '晴る');
+      expect(results.tracks[1].artist, 'ヨルシカ');
+    });
+
     test('should_readEachAccountsRegion_when_storedByProfile', () async {
       final kv = InMemoryStore();
       final repo = ProfileRepository(kv, InMemoryStore());

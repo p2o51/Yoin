@@ -1,27 +1,103 @@
 import Foundation
 import Observation
 
+/// One curated Apple Music storefront option with its official primary language tag (`l` parameter).
+/// Matches Android (`AppleMusicNameRegion.CuratedStorefronts`) and HarmonyOS in exact code order.
+struct AppleMusicStorefrontOption: Hashable, Sendable, Identifiable {
+    let code: String
+    let language: String
+
+    var id: String { code }
+
+    static let us = AppleMusicStorefrontOption(code: "us", language: "en-US")
+    static let gb = AppleMusicStorefrontOption(code: "gb", language: "en-GB")
+    static let jp = AppleMusicStorefrontOption(code: "jp", language: "ja")
+    static let cn = AppleMusicStorefrontOption(code: "cn", language: "zh-Hans-CN")
+    static let tw = AppleMusicStorefrontOption(code: "tw", language: "zh-Hant-TW")
+    static let hk = AppleMusicStorefrontOption(code: "hk", language: "zh-Hant-HK")
+    static let kr = AppleMusicStorefrontOption(code: "kr", language: "ko")
+    static let ca = AppleMusicStorefrontOption(code: "ca", language: "en-CA")
+    static let au = AppleMusicStorefrontOption(code: "au", language: "en-AU")
+    static let de = AppleMusicStorefrontOption(code: "de", language: "de-DE")
+    static let fr = AppleMusicStorefrontOption(code: "fr", language: "fr-FR")
+    static let es = AppleMusicStorefrontOption(code: "es", language: "es-ES")
+    static let it = AppleMusicStorefrontOption(code: "it", language: "it-IT")
+    static let br = AppleMusicStorefrontOption(code: "br", language: "pt-BR")
+    static let mx = AppleMusicStorefrontOption(code: "mx", language: "es-MX")
+    static let `in` = AppleMusicStorefrontOption(code: "in", language: "hi")
+    static let th = AppleMusicStorefrontOption(code: "th", language: "th")
+    static let ru = AppleMusicStorefrontOption(code: "ru", language: "ru")
+
+    static let curated: [AppleMusicStorefrontOption] = [
+        .us, .gb, .jp, .cn, .tw, .hk, .kr, .ca, .au,
+        .de, .fr, .es, .it, .br, .mx, .in, .th, .ru,
+    ]
+
+    static func option(for code: String) -> AppleMusicStorefrontOption? {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return curated.first { $0.code == normalized }
+    }
+
+    func displayName(locale: Locale = .current) -> String {
+        Self.displayName(for: code, locale: locale)
+    }
+
+    static func displayName(for code: String, locale: Locale = .current) -> String {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isChinese = locale.language.languageCode?.identifier.lowercased() == "zh"
+        if normalized == "cn" { return isChinese ? "中国大陆" : "China mainland" }
+        if isChinese {
+            if normalized == "hk" { return "香港" }
+            if normalized == "tw" { return "台湾" }
+        }
+        return locale.localizedString(forRegionCode: normalized.uppercased()) ?? normalized.uppercased()
+    }
+}
+
 /// Which storefront the Apple Music account shows song, album and artist names from, set on the account's
 /// page (Android #118 AppleMusicNameRegion). An account's own storefront writes every song in its language:
 /// the US storefront calls 晴る by ヨルシカ "Sunny" by "Yorushika", and Japan's calls Kim Petras キム・ペトラス.
 /// The catalog serves the same song in every storefront under the same id, so asking another storefront for
 /// it, in that storefront's language, brings its names from there.
-enum AppleMusicNameRegion: String, CaseIterable, Sendable {
+enum AppleMusicNameRegion: Hashable, Sendable {
     /// The account's own storefront: names as Apple Music shows them.
     case off
     /// Each song from the storefront of the language it was released in (`OriginalNameTarget.detect`).
     case original
-    /// Every song from China mainland's storefront, in Simplified Chinese.
-    case mainlandChina = "cn"
-    /// Every song from Japan's storefront, in Japanese.
-    case japan = "jp"
+    /// Every song from one chosen Apple Music storefront, in that storefront's primary language.
+    case storefront(AppleMusicStorefrontOption)
 
     static let `default`: AppleMusicNameRegion = .off
+    static let mainlandChina: AppleMusicNameRegion = .storefront(.cn)
+    static let japan: AppleMusicNameRegion = .storefront(.jp)
 
-    /// The stored key (Android's `key`).
-    var key: String { rawValue }
+    /// The stored key (Android's `key`): `"off"`, `"original"`, or storefront code (`"cn"`, `"jp"`, …).
+    var key: String {
+        switch self {
+        case .off: "off"
+        case .original: "original"
+        case .storefront(let option): option.code
+        }
+    }
 
-    static func from(key: String?) -> AppleMusicNameRegion { key.flatMap(AppleMusicNameRegion.init(rawValue:)) ?? .default }
+    var storefrontOption: AppleMusicStorefrontOption? {
+        if case .storefront(let option) = self { return option }
+        return nil
+    }
+
+    static func from(key: String?) -> AppleMusicNameRegion {
+        guard let normalized = key?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalized.isEmpty else { return .default }
+        switch normalized {
+        case "off": return .off
+        case "original": return .original
+        default:
+            if let option = AppleMusicStorefrontOption.option(for: normalized) {
+                return .storefront(option)
+            }
+            return .default
+        }
+    }
 }
 
 /// A storefront to ask for names, and the language to ask it in (the `l` parameter).
@@ -32,6 +108,7 @@ struct OriginalNameTarget: Hashable, Sendable {
     static let japan = OriginalNameTarget(storefront: "jp", language: "ja")
     static let korea = OriginalNameTarget(storefront: "kr", language: "ko")
     static let mainlandChina = OriginalNameTarget(storefront: "cn", language: "zh-Hans-CN")
+    static let unitedStates = OriginalNameTarget(storefront: "us", language: "en-US")
     static let thailand = OriginalNameTarget(storefront: "th", language: "th")
     static let russia = OriginalNameTarget(storefront: "ru", language: "ru")
     static let ukraine = OriginalNameTarget(storefront: "ua", language: "uk")
@@ -41,24 +118,36 @@ struct OriginalNameTarget: Hashable, Sendable {
     static let greece = OriginalNameTarget(storefront: "gr", language: "el")
     static let bulgaria = OriginalNameTarget(storefront: "bg", language: "bg")
 
+    private static let latinIsrcCountries: Set<String> = [
+        "US", "QM", "QZ", "GB", "UK", "CA", "AU", "NZ", "IE",
+        "SE", "NO", "DK", "FI", "IS", "NL", "BE", "DE", "AT", "CH",
+        "FR", "IT", "ES", "PT", "BR", "MX", "AR", "CO", "CL", "PL", "CZ", "ZA",
+    ]
+
     /// The storefront [region] asks for an item's names, or nil when it keeps the shown ones. `.original`
-    /// goes by the item's own language ([detect]); the fixed regions ask their storefront for everything.
+    /// goes by the item's own language ([detect]); a fixed `.storefront` asks its storefront for everything.
     static func forRegion(_ region: AppleMusicNameRegion, title: String?, artist: String?, genre: String?,
                           isrc: String?) -> OriginalNameTarget? {
         switch region {
         case .off: nil
         case .original: detect(title: title, artist: artist, genre: genre, isrc: isrc)
-        case .mainlandChina: .mainlandChina
-        case .japan: .japan
+        case .storefront(let option): OriginalNameTarget(storefront: option.code, language: option.language)
         }
     }
 
     /// The language a song was released in, as well as its metadata tells: its genre first (J-Pop,
     /// Mandopop…, in English or in Chinese as the CN storefront writes them), then the country its ISRC was
-    /// registered in, then the script its shown names are written in. Nil when nothing points at a language
-    /// whose storefront writes names differently from English: a song in English keeps the names it has.
+    /// registered in (including Western/Latin countries when the shown text was transliterated into
+    /// Katakana/Hangul/Han), then the script its shown names are written in.
     static func detect(title: String?, artist: String?, genre: String?, isrc: String?) -> OriginalNameTarget? {
-        forGenre(genre) ?? forIsrc(isrc) ?? forScript("\(title ?? "") \(artist ?? "")")
+        let shown = "\(title ?? "") \(artist ?? "")"
+        if let byGenre = forGenre(genre) { return byGenre }
+        if let byIsrc = forIsrc(isrc) {
+            if byIsrc != .unitedStates || shown.unicodeScalars.contains(where: isNonLatinLetter) { return byIsrc }
+            return nil
+        }
+        if looksLikeKatakanaTransliteration(shown) { return .unitedStates }
+        return forScript(shown)
     }
 
     static func forGenre(_ genre: String?) -> OriginalNameTarget? {
@@ -82,11 +171,13 @@ struct OriginalNameTarget: Hashable, Sendable {
 
     /// The ISRC's first two letters name the country of its registrant, which mostly is the artist's.
     static func forIsrc(_ isrc: String?) -> OriginalNameTarget? {
-        switch isrc?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2).uppercased() {
-        case "JP": .japan
-        case "KR": .korea
-        case "CN", "HK", "MO", "TW": .mainlandChina
-        default: nil
+        guard let prefix = isrc?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2).uppercased(),
+              prefix.count == 2 else { return nil }
+        switch prefix {
+        case "JP": return .japan
+        case "KR": return .korea
+        case "CN", "HK", "MO", "TW": return .mainlandChina
+        default: return latinIsrcCountries.contains(prefix) ? .unitedStates : nil
         }
     }
 
@@ -101,21 +192,48 @@ struct OriginalNameTarget: Hashable, Sendable {
 
     /// Whether names a storefront answered for [target] are worth showing instead of the shown ones. A fixed
     /// region shows whatever its storefront calls the item. `.original` asks for names in the item's own
-    /// script, so it takes only an answer that is: one that differs and carries a letter outside the Latin
-    /// script (a storefront without the song in its own language answers in English), and, for Chinese, a
-    /// Han character (not a Japanese or Korean name).
+    /// script: for `.unitedStates`, accept a Latin name that drops Katakana/Hangul/Han transliteration; for
+    /// non-Latin targets, require a non-Latin letter (and Han for Chinese).
     static func accepts(_ region: AppleMusicNameRegion, target: OriginalNameTarget, shown: String?, resolved: String?) -> Bool {
         let answer = resolved?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if answer.isEmpty || answer == shown?.trimmingCharacters(in: .whitespacesAndNewlines) { return false }
         if region != .original { return true }
+        if target == .unitedStates {
+            let shownText = shown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let answerNonLatin = answer.unicodeScalars.filter(isNonLatinLetter).count
+            let shownNonLatin = shownText.unicodeScalars.filter(isNonLatinLetter).count
+            return answer.unicodeScalars.contains(where: isLatinLetter) && answerNonLatin < shownNonLatin
+        }
         guard answer.unicodeScalars.contains(where: isNonLatinLetter) else { return false }
         return target != .mainlandChina || answer.unicodeScalars.contains(where: isHan)
     }
 
     // MARK: Scripts (Java's Character.UnicodeScript ranges, the parts names use)
 
+    static func isHiragana(_ s: Unicode.Scalar) -> Bool { (0x3040...0x309F).contains(s.value) }
+
+    static func isKatakana(_ s: Unicode.Scalar) -> Bool {
+        (0x30A1...0x30FA).contains(s.value) || (0x31F0...0x31FF).contains(s.value)
+    }
+
     static func isKana(_ s: Unicode.Scalar) -> Bool {
         (0x3040...0x30FF).contains(s.value) || (0x31F0...0x31FF).contains(s.value)
+    }
+
+    static func looksLikeKatakanaTransliteration(_ text: String) -> Bool {
+        guard text.contains("・") else { return false }
+        let scalars = text.unicodeScalars
+        if scalars.contains(where: isHiragana) || scalars.contains(where: isHan) { return false }
+        return scalars.contains(where: isKatakana)
+    }
+
+    static func isLatinLetter(_ s: Unicode.Scalar) -> Bool {
+        switch s.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter:
+            return latinRanges.contains { $0.contains(s.value) }
+        default:
+            return false
+        }
     }
 
     static func isHangul(_ s: Unicode.Scalar) -> Bool {
@@ -163,7 +281,10 @@ final class AppleMusicNameRegionStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let stored = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-        regions = stored.compactMapValues { AppleMusicNameRegion(rawValue: $0) }.filter { $0.value != .default }
+        regions = stored.compactMapValues { key -> AppleMusicNameRegion? in
+            let parsed = AppleMusicNameRegion.from(key: key)
+            return parsed == .default ? nil : parsed
+        }
     }
 
     func region(_ profileId: String) -> AppleMusicNameRegion { regions[profileId] ?? .default }

@@ -164,4 +164,72 @@ class AppleMusicNameResolverTest {
         assertEquals(tracks, resolver.tracks(AppleMusicNameRegion.Off, "us", tracks))
         assertTrue(reads.isEmpty())
     }
+
+    @Test fun curatedStorefronts_roundTripKeys_andResolveAnyRegion() = runTest {
+        assertEquals(AppleMusicNameRegion.MainlandChina, AppleMusicNameRegion.fromKey("cn"))
+        assertEquals(AppleMusicNameRegion.Japan, AppleMusicNameRegion.fromKey("jp"))
+        assertEquals(AppleMusicNameRegion.Off, AppleMusicNameRegion.fromKey("unknown"))
+
+        val taiwan = AppleMusicNameRegion.fromKey("tw") as AppleMusicNameRegion.Storefront
+        assertEquals("tw", taiwan.key)
+        assertEquals("zh-Hant-TW", taiwan.language)
+        assertEquals("China mainland", AppleMusicNameRegion.displayName("cn", java.util.Locale.US))
+        assertEquals("中国大陆", AppleMusicNameRegion.displayName("cn", java.util.Locale.SIMPLIFIED_CHINESE))
+
+        answers = { song("1", "晴天", "周杰倫", "葉惠美").let { """{"data":[$it]}""" } }
+        val renamed = resolver.tracks(taiwan, "us", listOf(track("1", "Sunny Day", "Jay Chou")))
+        assertEquals(listOf(Read(listOf("v1", "catalog", "tw", "songs"), mapOf("ids" to "1", "l" to "zh-Hant-TW"))), reads)
+        assertEquals("周杰倫", renamed.single().artist)
+    }
+
+    @Test fun original_recoversEnglishNamesForKatakanaOrTranslatedWesternSongs() = runTest {
+        assertEquals(
+            OriginalNameTarget.UnitedStates,
+            OriginalNameTarget.detect("Bad Guy", "ビリー・アイリッシュ", "Alternative", "USUM71900764"),
+        )
+        assertEquals(
+            OriginalNameTarget.UnitedStates,
+            OriginalNameTarget.detect("ミッドナイツ", "テイラー・スウィフト", "Pop", null),
+        )
+        assertEquals(
+            OriginalNameTarget.UnitedStates,
+            OriginalNameTarget.detect("红", "泰勒·斯威夫特", "Pop", "USCJY1231001"),
+        )
+        assertEquals(
+            OriginalNameTarget.Japan,
+            OriginalNameTarget.detect("晴る", "ヨルシカ", "J-Pop", "JPPO02400001"),
+        )
+        assertTrue(
+            OriginalNameTarget.accepts(
+                AppleMusicNameRegion.Original,
+                OriginalNameTarget.UnitedStates,
+                "ビリー・アイリッシュ",
+                "Billie Eilish",
+            ),
+        )
+        assertEquals(
+            false,
+            OriginalNameTarget.accepts(
+                AppleMusicNameRegion.Original,
+                OriginalNameTarget.UnitedStates,
+                "Bad Guy",
+                "bad guy",
+            ),
+        )
+
+        answers = {
+            song("1", "bad guy", "Billie Eilish", "WHEN WE ALL FALL ASLEEP").let { """{"data":[$it]}""" }
+        }
+        val tracks = listOf(
+            track("1", "Bad Guy", "ビリー・アイリッシュ", genre = "Alternative", isrc = "USUM71900764"),
+            track("2", "晴る", "ヨルシカ", genre = "J-Pop", isrc = "JPPO02400001"),
+        )
+
+        val renamed = resolver.tracks(AppleMusicNameRegion.Original, "jp", tracks)
+
+        assertEquals(listOf(Read(listOf("v1", "catalog", "us", "songs"), mapOf("ids" to "1", "l" to "en-US"))), reads)
+        assertEquals("Bad Guy", renamed[0].title)
+        assertEquals("Billie Eilish", renamed[0].artist)
+        assertEquals(tracks[1], renamed[1])
+    }
 }

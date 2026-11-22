@@ -335,19 +335,82 @@ class _AccountGroup extends StatelessWidget {
   }
 }
 
-/// Song names (Android AppleMusicNameRegionGroup): the four regions as radio
-/// rows, title over summary, then the foot line.
+/// Song names (Android AppleMusicNameRegionGroup): three unified options —
+/// account storefront, original language, or a specific curated storefront
+/// chosen from a modal sheet.
 class AppleMusicNameRegionGroup extends StatelessWidget {
   const AppleMusicNameRegionGroup({super.key, required this.selected, required this.onSelect});
 
   final AppleMusicNameRegion selected;
   final ValueChanged<AppleMusicNameRegion> onSelect;
 
+  Future<void> _openRegionPicker(BuildContext context, AppleMusicStorefrontOption? current) async {
+    final strings = SettingsStrings.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final picked = await showModalBottomSheet<AppleMusicStorefrontOption>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.65,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (_, scrollController) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+                child: Text(
+                  strings.appleNamesPickerTitle,
+                  style: theme.textTheme.titleLarge?.copyWith(color: colors.onSurface),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  itemCount: AppleMusicStorefrontOption.curated.length,
+                  itemBuilder: (_, index) {
+                    final option = AppleMusicStorefrontOption.curated[index];
+                    final isSelected = option == current;
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2),
+                      title: Text(
+                        option.displayName(zh: strings.isZh),
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: isSelected ? colors.primary : colors.onSurface,
+                        ),
+                      ),
+                      trailing: isSelected ? Icon(YoinSymbols.check, color: colors.primary) : null,
+                      onTap: () {
+                        YoinHaptics.click();
+                        Navigator.of(sheetContext).pop(option);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) onSelect(AppleMusicNameRegion.storefront(picked));
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = SettingsStrings.of(context);
     final theme = Theme.of(context);
-    void pick(AppleMusicNameRegion region) {
+    final chosen = selected is AppleMusicStorefrontRegion ? (selected as AppleMusicStorefrontRegion).option : null;
+    final groupValue = switch (selected) {
+      AppleMusicStorefrontRegion() => 'region',
+      _ => selected.key,
+    };
+
+    void pickFixed(AppleMusicNameRegion region) {
       if (region == selected) return;
       YoinHaptics.click();
       onSelect(region);
@@ -356,26 +419,60 @@ class AppleMusicNameRegionGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        RadioGroup<AppleMusicNameRegion>(
-          groupValue: selected,
-          onChanged: (r) {
-            if (r != null) pick(r);
+        RadioGroup<String>(
+          groupValue: groupValue,
+          onChanged: (value) {
+            if (value == 'off') {
+              pickFixed(AppleMusicNameRegion.off);
+            } else if (value == 'original') {
+              pickFixed(AppleMusicNameRegion.original);
+            } else if (value == 'region') {
+              YoinHaptics.click();
+              _openRegionPicker(context, chosen);
+            }
           },
           child: SettingsGroup(
             title: strings.appleNamesTitle,
             children: [
-              for (final region in AppleMusicNameRegion.values)
-                SettingsItem(
-                  key: ValueKey(region),
-                  title: appleNameRegionTitle(strings, region),
-                  summary: appleNameRegionSummary(strings, region),
-                  semanticsRadio: true,
-                  leading: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                    child: Radio<AppleMusicNameRegion>(value: region),
-                  ),
-                  onTap: () => pick(region),
+              SettingsItem(
+                key: const ValueKey('off'),
+                title: strings.appleNamesOff,
+                summary: strings.appleNamesOffSummary,
+                semanticsRadio: true,
+                leading: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                  child: Radio<String>(value: 'off'),
                 ),
+                onTap: () => pickFixed(AppleMusicNameRegion.off),
+              ),
+              SettingsItem(
+                key: const ValueKey('original'),
+                title: strings.appleNamesOriginal,
+                summary: strings.appleNamesOriginalSummary,
+                semanticsRadio: true,
+                leading: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                  child: Radio<String>(value: 'original'),
+                ),
+                onTap: () => pickFixed(AppleMusicNameRegion.original),
+              ),
+              SettingsItem(
+                key: const ValueKey('region'),
+                title: strings.appleNamesRegion,
+                summary: chosen != null
+                    ? strings.appleNamesRegionSelected(chosen.displayName(zh: strings.isZh))
+                    : strings.appleNamesRegionSummary,
+                semanticsRadio: true,
+                leading: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                  child: Radio<String>(value: 'region'),
+                ),
+                trailing: Icon(YoinSymbols.chevronRight, color: theme.colorScheme.onSurfaceVariant),
+                onTap: () {
+                  YoinHaptics.click();
+                  _openRegionPicker(context, chosen);
+                },
+              ),
             ],
           ),
         ),
@@ -393,15 +490,13 @@ class AppleMusicNameRegionGroup extends StatelessWidget {
 }
 
 String appleNameRegionTitle(SettingsStrings strings, AppleMusicNameRegion region) => switch (region) {
-  AppleMusicNameRegion.off => strings.appleNamesOff,
-  AppleMusicNameRegion.original => strings.appleNamesOriginal,
-  AppleMusicNameRegion.mainlandChina => strings.appleNamesCn,
-  AppleMusicNameRegion.japan => strings.appleNamesJp,
+  AppleMusicStorefrontRegion() => strings.appleNamesRegion,
+  _ when region == AppleMusicNameRegion.original => strings.appleNamesOriginal,
+  _ => strings.appleNamesOff,
 };
 
 String appleNameRegionSummary(SettingsStrings strings, AppleMusicNameRegion region) => switch (region) {
-  AppleMusicNameRegion.off => strings.appleNamesOffSummary,
-  AppleMusicNameRegion.original => strings.appleNamesOriginalSummary,
-  AppleMusicNameRegion.mainlandChina => strings.appleNamesCnSummary,
-  AppleMusicNameRegion.japan => strings.appleNamesJpSummary,
+  AppleMusicStorefrontRegion(:final option) => strings.appleNamesRegionSelected(option.displayName(zh: strings.isZh)),
+  _ when region == AppleMusicNameRegion.original => strings.appleNamesOriginalSummary,
+  _ => strings.appleNamesOffSummary,
 };

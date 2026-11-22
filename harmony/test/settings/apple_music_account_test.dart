@@ -189,16 +189,20 @@ void main() {
       expect(find.text('Reconnect Apple Music'), findsOneWidget);
       expect(find.text('Connected'), findsOneWidget);
       await tester.scrollUntilVisible(
-        find.text('As Japan names them'),
+        find.text('From a specific region'),
         200,
         scrollable: find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first,
       );
       expect(find.text('Song names'), findsOneWidget);
-      await tester.ensureVisible(find.text('As Japan names them'));
+      await tester.ensureVisible(find.text('From a specific region'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('As Japan names them'), warnIfMissed: true);
-      await tester.pump();
+      await tester.tap(find.text('From a specific region'), warnIfMissed: true);
+      await tester.pumpAndSettle();
+      expect(find.text('Choose a region'), findsOneWidget);
+      await tester.tap(find.text('Japan'));
+      await tester.pumpAndSettle();
       expect(c.read(appleMusicAccountProvider(apple.id)).nameRegion, AppleMusicNameRegion.japan);
+      expect(find.text("Names from Apple Music's Japan storefront"), findsOneWidget);
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
       expect(await tester.runAsync(() => AppleMusicNameRegionStore(kv).read(apple.id)), AppleMusicNameRegion.japan);

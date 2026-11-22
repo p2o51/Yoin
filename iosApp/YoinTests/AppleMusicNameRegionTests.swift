@@ -60,7 +60,8 @@ final class AppleMusicNameRegionTests: XCTestCase {
         XCTAssertNil(OriginalNameTarget.forGenre(""))
         XCTAssertEqual(OriginalNameTarget.forIsrc("twa011900001"), .mainlandChina)
         XCTAssertEqual(OriginalNameTarget.forIsrc("HKA0X1900001"), .mainlandChina)
-        XCTAssertNil(OriginalNameTarget.forIsrc("GBUM71900001"))
+        XCTAssertEqual(OriginalNameTarget.forIsrc("GBUM71900001"), .unitedStates)
+        XCTAssertNil(OriginalNameTarget.forIsrc("XX0001900001"))
         XCTAssertNil(OriginalNameTarget.forIsrc(nil))
     }
 
@@ -237,10 +238,53 @@ final class AppleMusicNameRegionTests: XCTestCase {
     }
 
     func test_should_read_android_wording_for_every_region() {
-        XCTAssertEqual(AppleMusicNameRegion.allCases.map(ServiceSetupView.title), [
-            loc("As Apple Music shows them"), loc("In their original language"),
-            loc("As China mainland names them"), loc("As Japan names them"),
-        ])
-        XCTAssertEqual(AppleMusicNameRegion.allCases.map(\.key), ["off", "original", "cn", "jp"])
+        XCTAssertEqual(ServiceSetupView.title(.off), loc("As Apple Music shows them"))
+        XCTAssertEqual(ServiceSetupView.title(.original), loc("In their original language"))
+        XCTAssertEqual(ServiceSetupView.title(.japan), loc("From a specific region"))
+        XCTAssertEqual(AppleMusicNameRegion.off.key, "off")
+        XCTAssertEqual(AppleMusicNameRegion.original.key, "original")
+        XCTAssertEqual(AppleMusicNameRegion.mainlandChina.key, "cn")
+        XCTAssertEqual(AppleMusicNameRegion.japan.key, "jp")
+        XCTAssertEqual(AppleMusicNameRegion.from(key: "tw"), .storefront(.tw))
+        XCTAssertEqual(AppleMusicStorefrontOption.displayName(for: "cn", locale: Locale(identifier: "en_US")), "China mainland")
+        XCTAssertEqual(AppleMusicStorefrontOption.displayName(for: "cn", locale: Locale(identifier: "zh_CN")), "中国大陆")
+    }
+
+    func test_should_recover_english_names_for_katakana_or_translated_western_songs_when_original() async {
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "Bad Guy", artist: "ビリー・アイリッシュ", genre: "Alternative", isrc: "USUM71900764"),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "ミッドナイツ", artist: "テイラー・スウィフト", genre: "Pop", isrc: nil),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "红", artist: "泰勒·斯威夫特", genre: "Pop", isrc: "USCJY1231001"),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "晴る", artist: "ヨルシカ", genre: "J-Pop", isrc: "JPPO02400001"),
+            .japan,
+        )
+        XCTAssertTrue(
+            OriginalNameTarget.accepts(.original, target: .unitedStates, shown: "ビリー・アイリッシュ", resolved: "Billie Eilish"),
+        )
+        XCTAssertFalse(
+            OriginalNameTarget.accepts(.original, target: .unitedStates, shown: "Bad Guy", resolved: "bad guy"),
+        )
+
+        answers = { _ in ["1": .init(title: "bad guy", artist: "Billie Eilish", album: "WHEN WE ALL FALL ASLEEP")] }
+        let songs = [
+            song("1", "Bad Guy", "ビリー・アイリッシュ", genre: "Alternative", isrc: "USUM71900764"),
+            song("2", "晴る", "ヨルシカ", genre: "J-Pop", isrc: "JPPO02400001"),
+        ]
+
+        let renamed = await resolver().songs(.original, accountStorefront: "jp", songs)
+
+        XCTAssertEqual(reads, [Read(storefront: "us", kind: "songs", ids: ["1"], language: "en-US")])
+        XCTAssertEqual(renamed[0].title, "Bad Guy")
+        XCTAssertEqual(renamed[0].artist, "Billie Eilish")
+        XCTAssertEqual(renamed[1], songs[1])
     }
 }
