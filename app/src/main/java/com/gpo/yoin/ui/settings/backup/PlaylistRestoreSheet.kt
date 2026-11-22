@@ -525,7 +525,7 @@ private fun Review(
 }
 
 @Composable
-private fun CountBadge(count: Int) {
+internal fun CountBadge(count: Int) {
     Box(
         modifier = Modifier
             .heightIn(min = 24.dp)
@@ -543,7 +543,7 @@ private fun CountBadge(count: Int) {
  * as the user picks songs — with the counts under them.
  */
 @Composable
-private fun SummaryBar(summary: ReviewSummary, modifier: Modifier = Modifier) {
+internal fun SummaryBar(summary: ReviewSummary, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val parts = listOf(
         Triple(summary.matched, colors.primary, R.string.playlist_restore_matched),
@@ -705,7 +705,7 @@ private fun ReviewRowItem(
 }
 
 @Composable
-private fun StatusPill(text: String, container: Color, content: Color) {
+internal fun StatusPill(text: String, container: Color, content: Color) {
     Box(
         modifier = Modifier
             .background(container, CircleShape)
@@ -722,7 +722,7 @@ private fun StatusPill(text: String, container: Color, content: Color) {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+internal fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val morph = remember { Morph(MaterialShapes.Circle, MaterialShapes.Cookie9Sided) }
     val progress = remember { Animatable(if (checked) 1f else 0f) }
@@ -775,7 +775,7 @@ private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean,
 }
 
 @Composable
-private fun ColumnScope.SongLines(title: String, artist: String, dimmed: Boolean) {
+internal fun ColumnScope.SongLines(title: String, artist: String, dimmed: Boolean) {
     Text(
         text = title,
         style = MaterialTheme.typography.bodyLarge,
@@ -826,7 +826,7 @@ private fun Candidates(
 }
 
 @Composable
-private fun CandidateRow(
+internal fun CandidateRow(
     candidate: Track,
     selected: Boolean,
     enabled: Boolean,
@@ -1062,7 +1062,7 @@ private fun Outcome(target: RestoreTarget, record: PlaylistRestoreRecord, onDone
 }
 
 @Composable
-private fun RowScope.CountTile(count: Int, label: String, container: Color, content: Color) {
+internal fun RowScope.CountTile(count: Int, label: String, container: Color, content: Color) {
     Column(
         modifier = Modifier
             .weight(1f)

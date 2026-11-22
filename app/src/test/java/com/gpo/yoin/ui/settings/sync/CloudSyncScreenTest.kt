@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.settings.sync
 import android.app.Activity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -165,7 +166,8 @@ class CloudSyncScreenTest {
     @Test
     fun should_dropStartFreshDialog_when_theAccountIsNoLongerChanged() {
         val fake = showScreen(CloudSyncSamples.accountChanged(now))
-        rule.onNodeWithText("Start fresh").performScrollTo().performClick()
+        rule.onNodeWithText("Choose what to do").performScrollTo().performClick()
+        rule.onNodeWithText("Start fresh as new account").performScrollTo().performClick()
         rule.onNodeWithText("Start fresh as this account?").assertIsDisplayed()
 
         // Settled elsewhere (e.g. "Keep syncing as before" won the race): p1 syncs again.
@@ -206,9 +208,72 @@ class CloudSyncScreenTest {
             }
         }
 
-        rule.onNodeWithText("Add").performScrollTo().performClick()
+        rule.onNodeWithText("Add to this device").performScrollTo().performClick()
 
         assertEquals(SetupService.Subsonic, added)
+    }
+
+    @Test
+    fun should_removeFromTheCloud_onlyAfterTheConfirmation() {
+        var removed: CloudAccountRef? = null
+        rule.setContent {
+            YoinTheme {
+                CloudSyncContent(
+                    state = CloudSyncSamples.proto(now),
+                    onBackClick = {},
+                    now = now,
+                    summary = CloudSyncSamples.summary,
+                    onRemoveFromCloud = { removed = it },
+                )
+            }
+        }
+
+        rule.onNodeWithContentDescription("More options for mika.old").performScrollTo().performClick()
+        rule.onNodeWithText("Remove from cloud…").performClick()
+        rule.onNodeWithText("Remove mika.old from the cloud?").assertIsDisplayed()
+        assertEquals(null, removed)
+        rule.onNodeWithText("Remove").performClick()
+
+        assertEquals("sp-old", removed?.syncProfileId)
+    }
+
+    @Test
+    fun should_offerTheTransfer_when_signedInAsSomeoneElse() {
+        var transferFrom: String? = null
+        rule.setContent {
+            YoinTheme {
+                CloudSyncContent(
+                    state = CloudSyncSamples.accountChanged(now),
+                    onBackClick = {},
+                    now = now,
+                    onTransferFromPrevious = { transferFrom = it },
+                )
+            }
+        }
+
+        rule.onNodeWithText("Choose what to do").performScrollTo().performClick()
+        rule.onNodeWithText("Transfer Memories from previous account").performScrollTo().performClick()
+
+        assertEquals("p1", transferFrom)
+    }
+
+    @Test
+    fun should_showResumeSyncing_when_anAccountWasRemovedFromTheCloud() {
+        var resumed: String? = null
+        rule.setContent {
+            YoinTheme {
+                CloudSyncContent(
+                    state = CloudSyncSamples.proto(now),
+                    onBackClick = {},
+                    now = now,
+                    onResumeAccount = { resumed = it },
+                )
+            }
+        }
+
+        rule.onNodeWithText("Resume syncing").performScrollTo().performClick()
+
+        assertEquals("old", resumed)
     }
 
     @Test

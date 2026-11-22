@@ -194,4 +194,57 @@ class CloudSyncViewModelTest {
         }
         assertFalse(vm.turningOn.value)
     }
+
+    @Test
+    fun should_tellTheResult_when_anAccountIsRemovedFromTheCloud() = runTest {
+        fake.setState(CloudSyncSamples.proto(0L))
+        viewModel.events.test {
+            viewModel.removeFromCloud("sp-old", "mika.old")
+            assertEquals(CloudSyncEvent.ShowMessage("Removed mika.old"), awaitItem())
+        }
+        assertTrue("removeAccountFromCloud(sp-old)" in fake.calls)
+        assertTrue(viewModel.state.value.cloudOnlyAccounts.none { it.syncProfileId == "sp-old" })
+        assertTrue(viewModel.removing.value.isEmpty())
+    }
+
+    @Test
+    fun should_sayItFailed_when_removingFromTheCloudFails() = runTest {
+        fake.removeAccountResult = Result.failure(IOException("offline"))
+        viewModel.events.test {
+            viewModel.removeFromCloud("sp-old", "mika.old")
+            assertEquals(CloudSyncEvent.ShowMessage("Couldn't remove mika.old"), awaitItem())
+        }
+    }
+
+    @Test
+    fun should_resumeSyncing_when_anAccountRemovedFromTheCloudIsResumed() = runTest {
+        fake.setState(CloudSyncSamples.proto(0L))
+        viewModel.events.test {
+            viewModel.resumeAccountSync("old")
+            assertEquals(CloudSyncEvent.ShowMessage("Syncing resumed"), awaitItem())
+        }
+        assertEquals(com.gpo.yoin.data.sync.SyncAccountStatus.Syncing, viewModel.state.value.accounts.first { it.localProfileId == "old" }.status)
+    }
+
+    @Test
+    fun should_startFreshThenOpenTheTransfer_when_movingThePreviousAccountsMemories() = runTest {
+        fake.setState(CloudSyncSamples.accountChanged(0L))
+        viewModel.events.test {
+            viewModel.transferFromPreviousAccount("p1")
+            assertEquals(
+                CloudSyncEvent.OpenTransfer(TransferArgs(sourceCloudScope = "s-9a8b7c", targetProfileId = "p1")),
+                awaitItem(),
+            )
+        }
+        assertEquals(listOf("startFreshAccount(p1)"), fake.calls)
+        assertEquals(null, viewModel.preparingTransfer.value)
+    }
+
+    @Test
+    fun should_readTheCloudCountsAndFiles_when_refreshed() {
+        fake.setState(CloudSyncSamples.proto(0L))
+        viewModel.refreshCloudData()
+        assertEquals(212, viewModel.summary.value?.scopes?.get("sp-old")?.notes)
+        assertEquals(3, viewModel.files.value?.size)
+    }
 }

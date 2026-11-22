@@ -40,6 +40,10 @@
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
         <activity
+            android:name=".debug.CloudSyncScreenshotActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
             android:name=".debug.MemoriesScreenshotActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
