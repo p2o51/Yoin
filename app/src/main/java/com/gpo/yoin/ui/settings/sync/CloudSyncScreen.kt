@@ -977,6 +977,7 @@ private fun accountStatusText(status: SyncAccountStatus): String = when (status)
         stringResource(R.string.settings_sync_account_duplicate, status.otherDisplayName)
     is SyncAccountStatus.NotSynced -> stringResource(R.string.settings_sync_account_not_synced)
     SyncAccountStatus.AccountChanged -> stringResource(R.string.settings_sync_account_changed)
+    SyncAccountStatus.RemovedFromCloud -> stringResource(R.string.settings_sync_account_removed_from_cloud)
 }
 
 @OptIn(ExperimentalLayoutApi::class)

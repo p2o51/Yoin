@@ -264,6 +264,7 @@
     <string name="settings_sync_account_duplicate">与 %1$s 相同</string>
     <string name="settings_sync_account_not_synced">未同步</string>
     <string name="settings_sync_account_changed">已暂停</string>
+    <string name="settings_sync_account_removed_from_cloud">已从云端移除</string>
     <string name="settings_sync_start_syncing">开始同步</string>
     <string name="settings_sync_keep_before">继续按此前方式同步</string>
     <string name="settings_sync_start_fresh">重新开始</string>

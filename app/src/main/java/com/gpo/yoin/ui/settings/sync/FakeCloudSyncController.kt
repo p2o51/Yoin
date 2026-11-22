@@ -122,6 +122,19 @@ class FakeCloudSyncController(
         _state.update { state -> state.copy(devices = state.devices.filterNot { it.deviceId == deviceId }) }
     }
 
+    override suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit> {
+        _calls += "removeAccountFromCloud($syncProfileId)"
+        _state.update { state ->
+            state.copy(cloudOnlyAccounts = state.cloudOnlyAccounts.filterNot { it.syncProfileId == syncProfileId })
+        }
+        return Result.success(Unit)
+    }
+
+    override fun resumeAccountSync(localProfileId: String) {
+        _calls += "resumeAccountSync($localProfileId)"
+        setAccountStatus(localProfileId, SyncAccountStatus.Syncing)
+    }
+
     private fun setAccountStatus(localProfileId: String, status: SyncAccountStatus) {
         _state.update { state ->
             state.copy(

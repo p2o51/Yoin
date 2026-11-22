@@ -47,6 +47,16 @@ interface CloudSyncController {
 
     /** Delete another device's files from Drive (it re-uploads if it is still alive). */
     fun removeDevice(deviceId: String)
+
+    /**
+     * All devices: remove one music account's data ([syncProfileId]) from Drive. Writes a scope purge marker,
+     * drops the account from this replica and re-uploads; every device that sees the marker stops syncing
+     * that account (local data stays everywhere). Works for accounts only in Drive and for local ones.
+     */
+    suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit>
+
+    /** An account removed from the cloud starts syncing again from this device ([SyncAccountStatus.RemovedFromCloud]). */
+    fun resumeAccountSync(localProfileId: String)
 }
 
 sealed interface TurnOnStep {
@@ -167,6 +177,9 @@ sealed interface SyncAccountStatus {
 
     /** Signed in as a different account than the one this profile synced as. */
     data object AccountChanged : SyncAccountStatus
+
+    /** Removed from the cloud (on any device): not synced here until [CloudSyncController.resumeAccountSync]. */
+    data object RemovedFromCloud : SyncAccountStatus
 }
 
 /** An account whose data is in Drive but not connected on this device. */
