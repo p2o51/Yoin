@@ -210,6 +210,10 @@ import com.gpo.yoin.ui.home.edit.homeEditExclusion
 import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.home.edit.homeEditOnlyHeaderIcon
+import com.gpo.yoin.ui.home.edit.rememberHomeEditOnlyIconsEnabled
+import com.gpo.yoin.ui.home.edit.rememberHomeEditOnlyIconsShown
+import com.gpo.yoin.ui.home.edit.HomeEditViewToggle
 import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.settings.serviceIdentity
@@ -971,7 +975,8 @@ internal fun HomeEditorialContent(
                 feedRefs.trayScroll = scope.launch {
                     // The pinched list: its tray follows its strips.
                     if (engine.list.on) {
-                        editListState.animateScrollToItem(feedRefs.listRowCount)
+                        // After the header item and the strips.
+                        editListState.animateScrollToItem(feedRefs.listRowCount + 1)
                         return@launch
                     }
                     val index = feedRefs.keys.indexOf(TrayTitleKey)
@@ -1061,11 +1066,16 @@ internal fun HomeEditorialContent(
         }
         onDispose { rowsEngine.autoScroll = null }
     }
-    // A new width class or a resize mid-drag invalidates the drag's geometry: let go where it is.
-    LaunchedEffect(engine, feedFrame) {
-        snapshotFlow { Pair(feedFrame.to, feedFrame.containerWidth) }
+    // A rotation, a new width class, one column ⇄ two or a resize mid-drag invalidates the drag's
+    // geometry: it rolls back to before the lift (rule 5), nothing written.
+    LaunchedEffect(engine, feedFrame, controller) {
+        snapshotFlow { Triple(feedFrame.to, feedFrame.containerWidth, controller.twoColumn) }
             .drop(1)
             .collect { engine.cancel() }
+    }
+    // A span, units or rows handle in use: no block lifts or drags under it (rule 5).
+    SideEffect {
+        engine.resizeActive = { rowsEngine.dragging || spanDrag.dragging || unitDrag.dragging }
     }
     val stripShapes = rememberHomeStripShapes()
     val stripCovers: (HomeSection) -> List<StripCover> = remember(
@@ -1491,6 +1501,7 @@ internal fun HomeEditorialContent(
                         editTargets = targets,
                         editHint = controller.sessionHints.showHeaderHint,
                         onEnterEdit = { controller.enter(null, lifted = false) },
+                        editEngine = engine,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -1871,6 +1882,8 @@ private fun HomeContentHeader(
     editTargets: HomeEditTargets,
     onEnterEdit: () -> Unit,
     modifier: Modifier = Modifier,
+    // Edit mode's list ⇄ full layout switch over Settings (null: none, e.g. previews).
+    editEngine: HomeDragEngine? = null,
     // Unused. The reorder hint no longer draws.
     editHint: Boolean = false,
     // Non-null = the Memories entry is the safe-area bubble overlay: the
@@ -1964,31 +1977,46 @@ private fun HomeContentHeader(
             .homeEditHeaderIcon(editProgress)
             .seamFade()
             .then(iconSemantics)
-        if (activeAccount != null) {
-            // The account in use; its switcher has Settings in it.
-            HomeAccountButton(
-                card = activeAccount,
-                onClick = onOpenAccounts,
-                enabled = iconsEnabled,
-                hidden = accountButtonHidden,
-                onAvatarPositioned = onAccountAnchor,
-                needsReconnect = accountNeedsReconnect,
-                quickSwitch = accountQuickSwitch,
-                modifier = headerControl,
-            )
-        } else {
-            IconButton(
-                onClick = {
-                    haptics.performContextClick()
-                    onNavigateToSettings()
-                },
-                enabled = iconsEnabled,
-                modifier = headerControl.handPointer(enabled = iconsEnabled),
-            ) {
-                Icon(
-                    imageVector = YoinSymbols.Settings,
-                    contentDescription = stringResource(R.string.home_cd_settings),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Edit mode puts the list ⇄ full layout switch where Settings fades out.
+        val editIconsShown = rememberHomeEditOnlyIconsShown(editProgress)
+        val editIconsEnabled = rememberHomeEditOnlyIconsEnabled(editProgress)
+        Box(contentAlignment = Alignment.Center) {
+            if (activeAccount != null) {
+                // The account in use; its switcher has Settings in it.
+                HomeAccountButton(
+                    card = activeAccount,
+                    onClick = onOpenAccounts,
+                    enabled = iconsEnabled,
+                    hidden = accountButtonHidden,
+                    onAvatarPositioned = onAccountAnchor,
+                    needsReconnect = accountNeedsReconnect,
+                    quickSwitch = accountQuickSwitch,
+                    modifier = headerControl,
+                )
+            } else {
+                IconButton(
+                    onClick = {
+                        haptics.performContextClick()
+                        onNavigateToSettings()
+                    },
+                    enabled = iconsEnabled,
+                    modifier = headerControl.handPointer(enabled = iconsEnabled),
+                ) {
+                    Icon(
+                        imageVector = YoinSymbols.Settings,
+                        contentDescription = stringResource(R.string.home_cd_settings),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (editEngine != null && editIconsShown) {
+                HomeEditViewToggle(
+                    engine = editEngine,
+                    targets = editTargets,
+                    enabled = editIconsEnabled,
+                    modifier = Modifier
+                        .homeEditOnlyHeaderIcon(editProgress)
+                        .seamFade(),
                 )
             }
         }

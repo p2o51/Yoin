@@ -865,7 +865,7 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
                 }
             }
         } finally {
-            // The detector itself was cancelled mid-gesture: a drag still releases (as cancelled) and writes.
+            // The detector itself was cancelled mid-gesture: a drag releases as cancelled, back to before the lift.
             if (machine.state != Idle) step(HomeEditGestureEvent.Cancel(now))
         }
     }

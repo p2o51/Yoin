@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +86,9 @@ internal object HomeEditListTokens {
     const val EnterScale = .94f
 
     val RowHeight = 64.dp
+
+    /** The row over the strips that holds the switch back to the full layout. */
+    val HeaderHeight = 48.dp
     val RowGap = 8.dp
     val HideButtonSize = 32.dp
     val HideIconSize = 18.dp
@@ -178,6 +184,13 @@ internal class HomeEditListMode(
         job = scope.launchNow { progress.animateTo(if (value) 1f else 0f, specs.fold) }
     }
 
+    /** The edit header's switch (one hand): list ⇄ full layout, staying in edit mode. Ignored mid-pinch. */
+    fun toggle() {
+        if (pinching) return
+        feedback.click()
+        set(!on)
+    }
+
     /** Edit mode is ending: back to the feed alongside it. */
     fun close() {
         pinching = false
@@ -192,6 +205,39 @@ internal class HomeEditListMode(
         job = scope.launchNow { progress.snapTo(0f) }
     }
 }
+
+// ── The switch ────────────────────────────────────────────────────────────
+
+/**
+ * The edit header's one-hand switch between the full layout and the list
+ * (the pinch stays the main way): it shows where a tap goes, the list over
+ * the full layout and the cards over the list. A press on it is never an
+ * edit gesture ([targets]); [enabled] gates taps, focus and that exclusion.
+ */
+@Composable
+internal fun HomeEditViewToggle(
+    engine: HomeDragEngine,
+    targets: HomeEditTargets,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val listOn = engine.list.on
+    val currentEnabled by rememberUpdatedState(enabled)
+    IconButton(
+        onClick = engine::toggleList,
+        enabled = enabled,
+        modifier = modifier
+            .homeEditExclusion(targets, ViewToggleKey) { currentEnabled }
+            .handPointer(enabled = enabled),
+    ) {
+        Icon(
+            imageVector = if (listOn) YoinSymbols.ViewCards else YoinSymbols.ViewList,
+            contentDescription = stringResource(if (listOn) R.string.home_edit_view_full else R.string.home_edit_view_list),
+        )
+    }
+}
+
+private data object ViewToggleKey
 
 // ── Covers ────────────────────────────────────────────────────────────────
 
@@ -299,6 +345,17 @@ internal fun HomeEditList(
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(HomeEditListTokens.RowGap),
         ) {
+            // The header's switch, back to the full layout with one hand.
+            item(key = HomeEditListHeaderKey) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = HomeEditListTokens.HeaderHeight),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    HomeEditViewToggle(engine, targets, enabled = list.on && deps.controller.isEditing)
+                }
+            }
             for (row in rows) {
                 item(key = homeSectionItemKey(row.first)) {
                     // The dragged row places at once (its strip follows the finger); the others make way.
@@ -375,6 +432,8 @@ private fun HomeEditListStrip(
     Row(
         modifier = modifier
             .height(height)
+            // Where it lands while it follows the finger (rule 4).
+            .dragSlotMark(engine, section, inList = true, fill = liftedPlate, stroke = colors.outlineVariant)
             .graphicsLayer {
                 val offset = engine.translation(section, inList = true)
                 translationX = offset.x
@@ -451,3 +510,6 @@ private fun HomeEditListStrip(
 }
 
 private data class ListHideKey(val section: HomeSection)
+
+/** The list's header item: the strips start at index 1, the tray right after them. */
+internal const val HomeEditListHeaderKey = "edit-list-header"

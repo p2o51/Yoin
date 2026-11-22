@@ -1,31 +1,49 @@
 package com.gpo.yoin.ui.home.edit
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.homeFeedRows
 
-// Home edit reordering (owner 2026-11-22): a block dragged in place, in the
-// feed or in the pinched list. The other blocks make way as its slot
-// changes, and a finger near the top or bottom scrolls. In two columns a
-// block can also go BESIDE another one (stage 1, 2026-11-16): the finger in
-// the column's outer quarters over a full row pairs the dragged block with
-// it; in the middle half it goes between rows, a row of its own. A half of a
-// pair dragged across to the other side swaps with its partner; only taking
-// it up or down out of the row leaves the partner full. Never beside a pair
-// of two other blocks; beside its own partner it only changes sides. Everything here is pure; HomeDragEngine
-// drives it.
+// Home edit reordering (owner 2026-11-22; two-column rules by design,
+// approved 2026-11-22): a block dragged in place, in the feed or in the
+// pinched list. The other blocks make way as its slot changes, and a finger
+// near the top or bottom scrolls. In two columns:
+//  1. A half dragged within its own row (grown 16dp above and below) only
+//     changes sides, across the middle with hysteresis (0.45 / 0.55); only a
+//     finger out of the row leaves the partner full.
+//  2. Over another block's full row: its top and bottom quarters put the
+//     dragged block in a row of its own above or below it; in its middle half
+//     the outer 30% each side pairs with it, and between them the half-travel
+//     rule moves rows.
+//  3. Over a pair of two others: a row of its own above or below it, by the
+//     row's middle. Never three across, never splitting someone else's pair.
+// Width is the span handle's; a drag changes position and pairing only.
+// Everything here is pure; HomeDragEngine drives it.
 
 /** Where a section sits across a two-column row. */
 internal enum class HomeDragLane { Full, Left, Right }
 
 /** Numbers of the drop rules. */
 internal object HomeDragRuleTokens {
-    /** The column's outer fraction, each side, that pairs instead of inserting. */
-    const val EdgeZone = .25f
+    /** A half's own row reaches this far above and below it: a finger wobbling while it swaps sides stays in. */
+    val RowBuffer = 16.dp
 
-    /** Once beside a block, the dragged block holds there until the finger crosses the column's middle. */
-    const val HoldTo = .5f
+    /** A right half swaps to the left once the finger is left of this fraction across the content… */
+    const val SwapToLeft = .45f
+
+    /** …and a left half swaps right past this one. Between the two it stays (hysteresis). */
+    const val SwapToRight = .55f
+
+    /** The top and the bottom fraction of another full row that put the dragged block in a row of its own beside it. */
+    const val RowGapZone = .25f
+
+    /** Over a full row's middle: left of this fraction across the content pairs as [dragged | row]… */
+    const val PairLeft = .30f
+
+    /** …right of this one as [row | dragged]. Between the two the half-travel rule decides. */
+    const val PairRight = .70f
 }
 
 /** An arrangement of the drag: the order and the pairs (left → right, each pair adjacent in [ids]). */
@@ -67,22 +85,48 @@ internal fun HomeFeedRow.sections(): List<HomeSection> = when (this) {
 internal fun dragUnpair(pairs: Map<HomeSection, HomeSection>, section: HomeSection): Map<HomeSection, HomeSection> =
     pairs.filter { (left, right) -> left != section && right != section }
 
+/** The finger's fraction across the content ([contentLeft], [contentWidth]); NaN with no finger or no width. */
+internal fun dragRel(fingerX: Float, contentLeft: Float, contentWidth: Float): Float =
+    if (contentWidth <= 0f || fingerX.isNaN()) Float.NaN else (fingerX - contentLeft) / contentWidth
+
 /**
- * The edge zone the finger at [fingerX] is in across the column
- * ([columnLeft], [columnWidth]): Left or Right in the outer quarters, null
- * in the middle. A zone already [current] holds over its whole half (a half
- * lifted on its own side stays beside its partner until it crosses over).
+ * Rule 1: the side a half on [side] of its own pair takes with the finger at
+ * [rel] across the content. A right half goes left below
+ * [HomeDragRuleTokens.SwapToLeft], a left half right above
+ * [HomeDragRuleTokens.SwapToRight]; between them it stays.
  */
-internal fun dragEdgeZone(fingerX: Float, columnLeft: Float, columnWidth: Float, current: HomeDragLane?): HomeDragLane? {
-    if (columnWidth <= 0f || fingerX.isNaN()) return null
-    val rel = (fingerX - columnLeft) / columnWidth
-    val zone = HomeDragRuleTokens.EdgeZone
-    val hold = HomeDragRuleTokens.HoldTo
+internal fun dragPairSide(side: HomeDragLane, rel: Float): HomeDragLane = when {
+    rel.isNaN() -> side
+    side == HomeDragLane.Right && rel < HomeDragRuleTokens.SwapToLeft -> HomeDragLane.Left
+    side == HomeDragLane.Left && rel > HomeDragRuleTokens.SwapToRight -> HomeDragLane.Right
+    else -> side
+}
+
+/** Rule 1: the finger at [fingerY] is still in the row [own], grown by [bufferPx] above and below. */
+internal fun dragInOwnRow(fingerY: Float, own: DragRowBand, bufferPx: Float): Boolean =
+    fingerY >= own.top - bufferPx && fingerY <= own.bottom + bufferPx
+
+/** Where over another full row the finger is: its top quarter, its middle half or its bottom quarter. */
+internal enum class DragRowPart { Above, Middle, Below }
+
+/** Rule 2: the part of [band] the finger at [fingerY] is over ([HomeDragRuleTokens.RowGapZone]). */
+internal fun dragRowPart(fingerY: Float, band: DragRowBand): DragRowPart {
+    val height = band.bottom - band.top
+    if (height <= 0f) return if (fingerY < band.center) DragRowPart.Above else DragRowPart.Below
+    val f = (fingerY - band.top) / height
     return when {
-        rel < zone || (current == HomeDragLane.Left && rel < hold) -> HomeDragLane.Left
-        rel > 1f - zone || (current == HomeDragLane.Right && rel > hold) -> HomeDragLane.Right
-        else -> null
+        f < HomeDragRuleTokens.RowGapZone -> DragRowPart.Above
+        f > 1f - HomeDragRuleTokens.RowGapZone -> DragRowPart.Below
+        else -> DragRowPart.Middle
     }
+}
+
+/** Rule 2: over a full row's middle, the side the dragged block pairs on at [rel], or null between. */
+internal fun dragPairZone(rel: Float): HomeDragLane? = when {
+    rel.isNaN() -> null
+    rel < HomeDragRuleTokens.PairLeft -> HomeDragLane.Left
+    rel > HomeDragRuleTokens.PairRight -> HomeDragLane.Right
+    else -> null
 }
 
 /**
@@ -168,10 +212,10 @@ internal fun dragSwapDir(visualTop: Float, slot: DragRowBand, prev: DragRowBand?
 
 /** What the finger asks of a two-column drag ([dragSideStep]). */
 internal sealed interface DragSideStep {
-    /** Between rows: the half-travel rule ([dragSwapDir]) decides. */
+    /** A row of its own over its own row, a gap or another row's middle: the half-travel rule ([dragSwapDir]) decides. */
     data object Vertical : DragSideStep
 
-    /** Beside a block, staying there. */
+    /** Beside its partner, staying there. */
     data object Stay : DragSideStep
 
     /** A new arrangement, the dragged block now on [side] (null: a row of its own). */
@@ -179,54 +223,88 @@ internal sealed interface DragSideStep {
 }
 
 /**
- * Two columns: where the finger at [fingerY] (in edge [zone], null in the
- * middle) puts the [dragged] block, now beside a block on [side] (null:
- * between rows). [bands] are the laid-out rows of the live arrangement,
- * top to bottom. Between rows, an edge zone over another section's full row
- * pairs with it; a pair of two others or the block's own row leave it to the
- * half-travel rule. Beside a block, the middle sends it to a row of its own
- * above or below its partner (by the finger against the pair's centre);
- * over another full row it pairs with that one; over a pair of two others
- * it becomes a row of its own beside that pair; over its own pair (or a gap)
- * it changes sides when the zone did. Pure.
+ * Two columns: where the finger at [rel] across the content and [fingerY]
+ * puts the [dragged] block, now a half on [side] of a pair (null: a row of
+ * its own). [bands] are the laid-out rows of the live arrangement, top to
+ * bottom; [bufferPx] is [HomeDragRuleTokens.RowBuffer]. Pure.
+ *
+ * 1. A half with the finger in its own row (± the buffer) only changes
+ *    sides ([dragPairSide]). Out of it, the partner turns full and the rules
+ *    below place the block.
+ * 2. Over another full row: its top or bottom quarter puts the block in a
+ *    row of its own above or below; in its middle the outer 30% pairs with
+ *    it, and between them a row of its own swaps by the half-travel rule
+ *    (a half leaving its pair goes above or below by the row's middle).
+ * 3. Over a pair of two others: a row of its own above or below it, by its middle.
+ *
+ * A half in a gap between rows becomes a row of its own there.
  */
 internal fun dragSideStep(
     ids: List<HomeSection>,
     pairs: Map<HomeSection, HomeSection>,
     dragged: HomeSection,
     side: HomeDragLane?,
-    zone: HomeDragLane?,
+    rel: Float,
     fingerY: Float,
     bands: List<DragRowBand>,
+    bufferPx: Float,
 ): DragSideStep {
-    val under = bands.firstOrNull { fingerY >= it.top && fingerY <= it.bottom }
-    if (side == null) {
-        val row = under?.row ?: return DragSideStep.Vertical
-        if (zone == null || dragged in row.sections() || row !is HomeFeedRow.Full) return DragSideStep.Vertical
-        return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, row.section, zone), zone)
-    }
-    val partner = pairs[dragged] ?: pairs.entries.firstOrNull { it.value == dragged }?.key
-        ?: return DragSideStep.Vertical
     val own = bands.firstOrNull { dragged in it.row.sections() }
-    if (zone == null) {
-        // Across its own row's middle it stays beside its partner (owner
-        // 2026-11-22: dragging a half to the other side swaps the two; only
-        // leaving the row up or down splits the pair).
-        if (under != null && under === own) return DragSideStep.Stay
-        val below = own != null && fingerY > own.center
-        return DragSideStep.Arrange(dragInsertRow(ids, pairs, dragged, dragGapBy(ids, pairs, dragged, partner, below)), null)
+    val partner = if (side != null) dragPartnerOf(pairs, dragged) else null
+    if (side != null && partner != null) {
+        // Its own row not laid out (scrolled off): nothing to judge against yet.
+        if (own == null) return DragSideStep.Stay
+        if (dragInOwnRow(fingerY, own, bufferPx)) {
+            val next = dragPairSide(side, rel)
+            if (next == side) return DragSideStep.Stay
+            return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, partner, next), next)
+        }
+    } else if (own != null && fingerY >= own.top && fingerY <= own.bottom) {
+        return DragSideStep.Vertical
     }
-    if (under == null || under === own) {
-        if (zone == side) return DragSideStep.Stay
-        return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, partner, zone), zone)
+    val under = bands.firstOrNull { it !== own && fingerY >= it.top && fingerY <= it.bottom }
+    fun ownRow(band: DragRowBand, below: Boolean) = ownRowBy(ids, pairs, dragged, band, below)
+    if (under == null) {
+        if (partner == null) return DragSideStep.Vertical
+        val above = bands.lastOrNull { it.bottom < fingerY }
+        val belowBand = bands.firstOrNull { it.top > fingerY }
+        return when {
+            above != null -> ownRow(above, below = true)
+            belowBand != null -> ownRow(belowBand, below = false)
+            else -> DragSideStep.Stay
+        }
     }
     val row = under.row
-    if (row is HomeFeedRow.Full && row.section != dragged) {
-        return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, row.section, zone), zone)
+    if (row is HomeFeedRow.Full) {
+        when (dragRowPart(fingerY, under)) {
+            DragRowPart.Above -> return ownRow(under, below = false)
+            DragRowPart.Below -> return ownRow(under, below = true)
+            DragRowPart.Middle -> {
+                val zone = dragPairZone(rel)
+                if (zone != null) return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, row.section, zone), zone)
+                if (partner == null) return DragSideStep.Vertical
+                return ownRow(under, below = fingerY > under.center)
+            }
+        }
     }
-    val below = fingerY > under.center
-    return DragSideStep.Arrange(dragInsertRow(ids, pairs, dragged, dragGapBy(ids, pairs, dragged, row.first, below)), null)
+    return ownRow(under, below = fingerY > under.center)
 }
+
+// A row of its own right above (or [below]) [band]'s row; a band of the dragged block's own pair counts as its partner's.
+private fun ownRowBy(
+    ids: List<HomeSection>,
+    pairs: Map<HomeSection, HomeSection>,
+    dragged: HomeSection,
+    band: DragRowBand,
+    below: Boolean,
+): DragSideStep.Arrange {
+    val anchor = band.row.sections().firstOrNull { it != dragged } ?: band.row.first
+    return DragSideStep.Arrange(dragInsertRow(ids, pairs, dragged, dragGapBy(ids, pairs, dragged, anchor, below)), null)
+}
+
+/** [section]'s partner in [pairs], or null when it is a row of its own. */
+internal fun dragPartnerOf(pairs: Map<HomeSection, HomeSection>, section: HomeSection): HomeSection? =
+    pairs[section] ?: pairs.entries.firstOrNull { it.value == section }?.key
 
 // The gap above (or [below]) the row holding [section], among the two-column rows without [dragged].
 private fun dragGapBy(
@@ -242,20 +320,63 @@ private fun dragGapBy(
 }
 
 /**
- * The feed's scroll speed (px/s, + = toward the end) for a finger at [y]:
- * 0 outside the edge bands, rising in proportion to how deep it is inside
- * the [edge]-deep band at [top] or [bottom], to [max] at the edge itself and
- * beyond. A band narrower than two edges takes the nearer end. Pure.
+ * Rule 4 (anchor): the finger's x offset in the dragged block, [grabX] of
+ * [oldWidth], at the same fraction of [newWidth] once its slot turns half or
+ * full, so the block doesn't jump sideways under the finger. Pure.
  */
-internal fun dragAutoScrollSpeed(y: Float, top: Float, bottom: Float, edge: Float, max: Float): Float {
-    if (edge <= 0f || bottom <= top || y.isNaN()) return 0f
-    val upDepth = (top + edge - y) / edge
-    val downDepth = (y - (bottom - edge)) / edge
+internal fun dragRescaleGrabX(grabX: Float, oldWidth: Float, newWidth: Float): Float =
+    if (oldWidth <= 0f || newWidth <= 0f || oldWidth == newWidth) grabX else grabX / oldWidth * newWidth
+
+/** A slot's width across the content: a full row's, or a half's beside the column [gap]. */
+internal fun dragLaneWidth(lane: HomeDragLane, contentWidth: Float, gap: Float): Float =
+    if (lane == HomeDragLane.Full) contentWidth else ((contentWidth - gap) / 2f).coerceAtLeast(0f)
+
+// ── Edge scroll ───────────────────────────────────────────────────────────
+
+/** -1 in the [edge]-deep band at [top], +1 in the one at [bottom], else 0. A band narrower than two edges takes the nearer end. */
+internal fun dragEdgeOf(y: Float, top: Float, bottom: Float, edge: Float): Int {
+    if (edge <= 0f || bottom <= top || y.isNaN()) return 0
+    val inTop = y < top + edge
+    val inBottom = y > bottom - edge
     return when {
-        upDepth > 0f && (downDepth <= 0f || y < (top + bottom) / 2f) -> -max * upDepth.coerceAtMost(1f)
-        downDepth > 0f -> max * downDepth.coerceAtMost(1f)
-        else -> 0f
+        inTop && (!inBottom || y < (top + bottom) / 2f) -> -1
+        inBottom -> 1
+        else -> 0
     }
+}
+
+/**
+ * The feed's scroll speed (px/s, + = toward the end) for a finger at [y]:
+ * 0 outside the edge bands; inside the [edge]-deep band at [top] or
+ * [bottom], from [min] where it starts to [max] at the edge and beyond,
+ * easing in with the depth squared. Pure.
+ */
+internal fun dragAutoScrollSpeed(y: Float, top: Float, bottom: Float, edge: Float, min: Float, max: Float): Float {
+    val dir = dragEdgeOf(y, top, bottom, edge)
+    if (dir == 0) return 0f
+    val depth = (if (dir < 0) (top + edge - y) / edge else (y - (bottom - edge)) / edge).coerceIn(0f, 1f)
+    return dir * (min + (max - min) * depth * depth)
+}
+
+/**
+ * The start-in-edge guard: a block lifted with the finger already in an
+ * edge band ([startEdge] ±1, at [startY]) doesn't scroll until the finger
+ * has pushed [pushPx] further toward that edge or rested [dwellMs] there
+ * ([heldMs]). True while the guard still holds. Pure.
+ */
+internal fun dragEdgeGuardHolds(startEdge: Int, startY: Float, y: Float, heldMs: Float, pushPx: Float, dwellMs: Float): Boolean =
+    startEdge != 0 && heldMs < dwellMs && startEdge * (y - startY) < pushPx
+
+// ── Interruptions ─────────────────────────────────────────────────────────
+
+/**
+ * An exit that arrives mid-drag keeps the drop (writes the live arrangement)
+ * only for Done and the app's own exits; Back (and a blank tap) put the order
+ * back as it was before the lift. Pure.
+ */
+internal fun dragExitKeepsDrop(reason: HomeEditExitReason): Boolean = when (reason) {
+    HomeEditExitReason.Done, HomeEditExitReason.Programmatic -> true
+    HomeEditExitReason.Back, HomeEditExitReason.Blank -> false
 }
 
 /**

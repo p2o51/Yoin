@@ -193,7 +193,7 @@ class HomeDragEngineTest {
     }
 
     @Test
-    fun should_stayBesidePartner_untilTakenOutOfTheRow() = runEditClockTest { scope ->
+    fun should_swapAtMiddleAndStayBesidePartner_untilTakenOutOfTheRow() = runEditClockTest { scope ->
         // Activities | Jump Back In 100..400, All Memories 418..718; JBI is the right half (x 510..1000).
         val host = FakeHost(twoColumn = true, order = listOf(Activities, JumpBackIn, MemoryGrid), pairs = mapOf(Activities to JumpBackIn))
         val rig = Rig(scope, this, host, specs)
@@ -201,22 +201,60 @@ class HomeDragEngineTest {
         assertEquals(mapOf(Activities to JumpBackIn), rig.engine.arrangement?.pairs)
         assertEquals(Offset.Zero, rig.engine.translation(JumpBackIn, inList = false))
 
-        // Still on its own side: it stays.
-        rig.moveTo(560f, 300f)
+        // Across the middle but short of the 45% line: it stays on the right.
+        rig.moveTo(460f, 300f)
         frames()
         assertEquals(mapOf(Activities to JumpBackIn), rig.engine.arrangement?.pairs)
 
-        // Over the middle of its own row: still beside Activities (owner 2026-11-22: across, the two swap).
+        // Past it: the two swap, never full width.
         rig.moveTo(400f, 300f)
         frames()
-        assertEquals(mapOf(Activities to JumpBackIn), rig.engine.arrangement?.pairs)
+        assertEquals(DragArrangement(listOf(JumpBackIn, Activities, MemoryGrid), mapOf(JumpBackIn to Activities)), rig.engine.arrangement)
 
-        // Out of the row, below it in the middle: a row of its own under Activities.
-        rig.moveTo(400f, 410f)
+        // Back over the middle: 0.5 is inside the hysteresis, it stays on the left.
+        rig.moveTo(500f, 300f)
+        frames()
+        assertEquals(mapOf(JumpBackIn to Activities), rig.engine.arrangement?.pairs)
+
+        // Just under the row, inside its 16dp (32px) buffer: still a pair.
+        rig.moveTo(500f, 428f)
+        frames()
+        assertEquals(mapOf(JumpBackIn to Activities), rig.engine.arrangement?.pairs)
+
+        // Out of the row, onto All Memories' top quarter: a row of its own above it, Activities full.
+        rig.moveTo(500f, 440f)
         frames()
         assertEquals(DragArrangement(listOf(Activities, JumpBackIn, MemoryGrid), emptyMap()), rig.engine.arrangement)
         rig.engine.release(cancelled = false, uptimeMs = 0L)
         assertEquals(listOf(DragArrangement(listOf(Activities, JumpBackIn, MemoryGrid), emptyMap())), rig.arrangements)
+    }
+
+    @Test
+    fun should_keepFingerAtSameFractionOfBlock_when_halfTurnsFull() = runEditClockTest { scope ->
+        // JBI (right half, x 510..1000) grabbed 190px in; out of its row it is full (x 0..1000).
+        val host = FakeHost(twoColumn = true, order = listOf(Activities, JumpBackIn, MemoryGrid), pairs = mapOf(Activities to JumpBackIn))
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(JumpBackIn, x = 700f, y = 250f)
+        rig.moveTo(700f, 440f)
+        frames()
+        assertEquals(emptyMap<HomeSection, HomeSection>(), rig.engine.arrangement?.pairs)
+        // 190 / 490 of the way across a 1000px block: its left edge at 700 − 387.8.
+        assertEquals(700f - 190f / 490f * 1000f, rig.engine.translation(JumpBackIn, inList = false).x, .5f)
+    }
+
+    @Test
+    fun should_markDropSlot_whileDraggedInItsOwnHost() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        assertFalse(rig.engine.slotShown(MadeForYou, inList = false))
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        assertTrue(rig.engine.slotShown(MadeForYou, inList = false))
+        assertFalse(rig.engine.slotShown(MadeForYou, inList = true))
+        assertFalse(rig.engine.slotShown(Activities, inList = false))
+        rig.engine.release(cancelled = false, uptimeMs = 0L)
+        // Still marked as it glides in, gone once it has landed.
+        assertTrue(rig.engine.slotShown(MadeForYou, inList = false))
+        frames(60)
+        assertFalse(rig.engine.slotShown(MadeForYou, inList = false))
     }
 
     @Test
@@ -235,16 +273,111 @@ class HomeDragEngineTest {
     }
 
     @Test
-    fun should_commitAndExit_when_exitArrivesMidDrag() = runEditClockTest { scope ->
+    fun should_notScroll_when_liftedInEdgeBand_untilPushedTowardEdge() = runEditClockTest { scope ->
+        // The bottom band is 1856..2000 (72dp at density 2); a push is 16px.
+        val host = FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid, RecentlyAdded))
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(Activities, x = 500f, y = 1950f)
+        frames(5)
+        assertTrue(host.scrolls.isEmpty())
+        rig.moveTo(500f, 1960f)
+        frames(2)
+        assertTrue(host.scrolls.isEmpty())
+        rig.moveTo(500f, 1970f)
+        frames(3)
+        assertTrue(host.scrolls.isNotEmpty())
+        assertTrue(host.scrolls.all { it > 0f })
+    }
+
+    @Test
+    fun should_scroll_when_liftedInEdgeBand_andRestedThere() = runEditClockTest { scope ->
+        val host = FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid, RecentlyAdded))
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(Activities, x = 500f, y = 1950f)
+        frames(8)
+        assertTrue(host.scrolls.isEmpty())
+        // Past 180ms in the band.
+        frames(10)
+        assertTrue(host.scrolls.isNotEmpty())
+    }
+
+    @Test
+    fun should_commitAndExit_when_doneArrivesMidDrag() = runEditClockTest { scope ->
         val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
         rig.lift(MadeForYou, x = 500f, y = 568f)
         rig.moveTo(500f, 768f)
         frames()
-        rig.engine.deferExit(HomeEditExitReason.Back)
+        rig.engine.deferExit(HomeEditExitReason.Done)
         assertEquals(listOf(listOf(Activities, MemoryGrid, MadeForYou)), rig.orders)
-        assertEquals(listOf(HomeEditExitReason.Back), rig.exits)
+        assertEquals(listOf(HomeEditExitReason.Done), rig.exits)
         assertTrue(rig.engine.letGo)
         assertFalse(rig.engine.isCarrying)
+    }
+
+    @Test
+    fun should_rollBackAndExit_when_backArrivesMidDrag() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        rig.moveTo(500f, 768f)
+        frames()
+        assertEquals(listOf(Activities, MemoryGrid, MadeForYou), rig.engine.arrangement?.ids)
+        rig.engine.deferExit(HomeEditExitReason.Back)
+        assertTrue(rig.orders.isEmpty())
+        assertEquals(listOf(HomeEditExitReason.Back), rig.exits)
+        assertNull(rig.engine.arrangement)
+        assertFalse(rig.engine.isCarrying)
+    }
+
+    @Test
+    fun should_rollBack_when_geometryChangesMidDrag() = runEditClockTest { scope ->
+        // Rotation or one column ⇄ two: Home calls cancel().
+        val host = FakeHost(twoColumn = true, order = listOf(Activities, MadeForYou, MemoryGrid))
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(MemoryGrid, x = 500f, y = 886f)
+        rig.moveTo(950f, 568f)
+        frames()
+        assertEquals(mapOf(MadeForYou to MemoryGrid), rig.engine.arrangement?.pairs)
+        rig.engine.cancel()
+        assertTrue(rig.arrangements.isEmpty())
+        assertTrue(rig.orders.isEmpty())
+        assertTrue(rig.engine.letGo)
+        assertNull(rig.engine.arrangement)
+        frames(60)
+        assertNull(rig.engine.liftSection)
+    }
+
+    @Test
+    fun should_rollBack_when_systemCancelsTheFinger() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        rig.moveTo(500f, 768f)
+        frames()
+        rig.engine.release(cancelled = true, uptimeMs = 0L)
+        assertTrue(rig.orders.isEmpty())
+        assertNull(rig.engine.dragging)
+    }
+
+    @Test
+    fun should_neitherLiftNorDrag_while_aResizeHandleIsHeld() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        rig.engine.resizeActive = { true }
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        assertNull(rig.engine.liftSection)
+        assertNull(rig.engine.dragging)
+    }
+
+    @Test
+    fun should_toggleList_only_whenNoBlockIsLifted() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        rig.engine.toggleList()
+        assertFalse(rig.engine.list.on)
+        rig.engine.release(cancelled = false, uptimeMs = 0L)
+        frames(60)
+        rig.engine.toggleList()
+        assertTrue(rig.engine.list.on)
+        rig.engine.toggleList()
+        assertFalse(rig.engine.list.on)
     }
 
     @Test

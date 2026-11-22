@@ -13,7 +13,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -120,6 +125,8 @@ internal class HomeDragEngine(
 
     /** Picks [section] up at [origin]: its kicks stop, a block still lifted elsewhere is let go at once. */
     fun liftBlock(section: HomeSection, origin: Offset) {
+        // A span or rows handle in use owns the edit: no block lifts under it.
+        if (resizeActive()) return
         val retire = liftSection != null && liftSection != section
         liftSection = section
         liftOrigin = origin
@@ -186,6 +193,12 @@ internal class HomeDragEngine(
      */
     val feedHidden: Boolean get() = list.covers
 
+    /** The edit header's switch between the list and the full layout: ignored while a block is lifted or dragged. */
+    fun toggleList() {
+        if (dragging != null || liftSection != null || resizeActive()) return
+        list.toggle()
+    }
+
     // ── Drag ──────────────────────────────────────────────────────────────
 
     /** The feed's rows. Set by Home while composed. */
@@ -193,6 +206,9 @@ internal class HomeDragEngine(
 
     /** The pinched list's rows. Set by Home while composed. */
     var listHost: HomeDragHost? = null
+
+    /** A span, units or rows handle is being dragged: lifts and drags wait for it. Set by Home. */
+    var resizeActive: () -> Boolean = { false }
 
     /** The block being dragged; null between drags. */
     var dragging: HomeSection? by mutableStateOf(null)
@@ -236,13 +252,21 @@ internal class HomeDragEngine(
     // How far the finger (or the scroll under it) went since the last change: a change waits for a
     // little of it, so a layout that moved under a resting finger never decides the next one alone.
     private var travel = 0f
+
+    // The start-in-edge guard: the band the finger was lifted in (±1, 0 none), where, and how long it has rested there.
+    private var edgeGuard = 0
+    private var edgeGuardY = 0f
+    private var edgeGuardMs = 0f
     private var frameJob: Job? = null
     private var settleJob: Job? = null
     private var pendingExit: HomeEditExitReason? = null
 
     private val travelPx = with(density) { HomeDragTokens.ChangeTravel.toPx() }
     private val edgePx = with(density) { HomeDragTokens.AutoScrollEdge.toPx() }
+    private val minSpeedPx = with(density) { HomeDragTokens.AutoScrollMin.toPx() }
     private val maxSpeedPx = with(density) { HomeDragTokens.AutoScrollMax.toPx() }
+    private val pushPx = with(density) { HomeDragTokens.EdgeStartPush.toPx() }
+    private val bufferPx = with(density) { HomeDragRuleTokens.RowBuffer.toPx() }
 
     private var rowsFor: Pair<DragArrangement, Boolean>? = null
     private var rowsCache: List<HomeFeedRow> = emptyList()
@@ -255,6 +279,14 @@ internal class HomeDragEngine(
         }
         return rowsCache
     }
+
+    /**
+     * [section]'s slot is marked where the drop will land (rule 4): it is being
+     * dragged, or gliding back into the slot, in the feed or ([inList]) the
+     * pinched list. Draw only.
+     */
+    fun slotShown(section: HomeSection, inList: Boolean): Boolean =
+        (dragging == section || settling == section) && inList == activeList
 
     /** [row] holds the dragged block. Read at placement. */
     fun carries(row: HomeFeedRow): Boolean = dragging?.let { it in row.sections() } == true
@@ -278,14 +310,14 @@ internal class HomeDragEngine(
 
     /**
      * Starts dragging the lifted block with the finger at [fingerY] (and
-     * [fingerX]). In two columns a half stays beside its partner while the
-     * finger is still on its own side.
+     * [fingerX]). In two columns a half stays beside its partner: the finger
+     * is in its own row.
      */
     fun start(fingerY: Float, uptimeMs: Long) {
         // A drag that doesn't start stays the gesture's: its release puts the lift down.
         letGo = false
         val dragged = liftSection ?: return
-        if (dragging != null) return
+        if (dragging != null || resizeActive()) return
         val host = (if (list.on) listHost else host) ?: return
         val ids = host.order()
         if (dragged !in ids) return
@@ -295,12 +327,6 @@ internal class HomeDragEngine(
         val at = layoutTopLeft(host, before, dragged) ?: return
         val lane = dragLaneOf(dragged, rowsOf(before, twoColumn))
         val x = fingerX.takeUnless { it.isNaN() } ?: at.x
-        val zone = if (twoColumn) {
-            dragEdgeZone(x, host.contentLeft(), host.contentWidth(), lane.takeIf { it != HomeDragLane.Full })
-        } else {
-            null
-        }
-        val keep = lane != HomeDragLane.Full && zone == lane
         val shown = at + if (settling == dragged) Offset(settleX.value, settleY.value) else Offset.Zero
         settleJob?.cancel()
         settleJob = null
@@ -311,13 +337,15 @@ internal class HomeDragEngine(
         activeList = host.isList
         finger = Offset(x, fingerY)
         grab = finger - shown
-        side = if (keep) lane else null
+        side = lane.takeIf { it != HomeDragLane.Full }
         origin = before
         travel = 0f
         pendingExit = null
-        val live = if (keep || lane == HomeDragLane.Full) before else DragArrangement(ids, dragUnpair(pairs, dragged))
-        if (live != before) host.holdScroll()
-        arrangement = live
+        val area = host.scrollArea()
+        edgeGuard = dragEdgeOf(fingerY, area.top, area.bottom, edgePx)
+        edgeGuardY = fingerY
+        edgeGuardMs = 0f
+        arrangement = before
         dragging = dragged
         motion.carryActive = true
         motion.placeholdersAboveOpen = true
@@ -334,49 +362,34 @@ internal class HomeDragEngine(
     }
 
     /**
-     * The finger lifted (or the drag was cancelled): a changed arrangement
-     * is written now, and the block glides from where it was let go into its
-     * slot as the lift falls. A drag that never started puts the lift down.
+     * The finger lifted: a changed arrangement is written now, and the block
+     * glides from where it was let go into its slot as the lift falls.
+     * [cancelled] (the system took the finger): nothing is written, the
+     * order goes back to how it was before the lift. A drag that never
+     * started puts the lift down.
      */
     fun release(cancelled: Boolean, uptimeMs: Long) {
-        val dragged = dragging
-        if (dragged == null) {
+        if (dragging == null) {
             dropLift(0f)
             return
         }
-        val before = origin ?: DragArrangement(emptyList(), emptyMap())
-        val live = arrangement ?: before
-        val from = translation(dragged, activeList)
-        frameJob?.cancel()
-        frameJob = null
-        // Written before the live arrangement goes, so the feed never shows the order it started from.
-        val changed = live != before && commit(live)
-        dragging = null
-        arrangement = null
-        side = null
-        motion.carryActive = false
-        settle(dragged, from, if (changed) before.ids.filterIndexed { index, s -> live.ids.getOrNull(index) != s } else emptyList())
-        liftJob = scope.launchNow {
-            lift.animateTo(0f, specs.liftDown)
-            if (liftSection == dragged && dragging == null) liftSection = null
-        }
-        tintJob = scope.launchNow { liftTint.animateTo(0f, specs.liftTint) }
-        pendingExit?.let { reason ->
-            pendingExit = null
-            finishDeferredExit(reason)
-        }
-    }
-
-    /** A new width class or a resize mid-drag: let go where it is. */
-    fun cancel() {
-        if (dragging == null) return
-        letGo = true
-        release(cancelled = true, uptimeMs = uptimeMs())
+        finish(keep = !cancelled, glide = true)
     }
 
     /**
-     * An exit arrived mid-drag: the drag is released as cancelled (a changed
-     * arrangement still writes) and the exit runs right after. With no drag
+     * Rotation, a new column count or a resize mid-drag (rule 5): the drag's
+     * geometry is gone, so it rolls back to before the lift, nothing written.
+     */
+    fun cancel() {
+        if (dragging == null) return
+        letGo = true
+        finish(keep = false, glide = false)
+    }
+
+    /**
+     * An exit arrived mid-drag: the drag ends at once and the exit runs right
+     * after. Done (and the app's own exits) write the live arrangement; Back
+     * rolls it back to before the lift ([dragExitKeepsDrop]). With no drag
      * there is nothing to wait for.
      */
     fun deferExit(reason: HomeEditExitReason) {
@@ -386,7 +399,7 @@ internal class HomeDragEngine(
         }
         pendingExit = reason
         letGo = true
-        release(cancelled = true, uptimeMs = uptimeMs())
+        finish(keep = dragExitKeepsDrop(reason), glide = true)
     }
 
     /** A snap exit mid-drag: a changed arrangement writes now, then every drag value is at rest. */
@@ -409,6 +422,39 @@ internal class HomeDragEngine(
         scope.launchNow { settleY.snapTo(0f) }
         snapLiftToRest()
         motion.carryActive = false
+    }
+
+    // Ends the drag: [keep] writes a changed arrangement, else the order before the lift comes back.
+    // [glide]: the block glides from where it was let go into its slot.
+    private fun finish(keep: Boolean, glide: Boolean) {
+        val dragged = dragging ?: return
+        val before = origin ?: DragArrangement(emptyList(), emptyMap())
+        val live = arrangement ?: before
+        val from = when {
+            !glide -> Offset.Zero
+            keep -> translation(dragged, activeList)
+            // Back to its slot before the lift, as near as this layout tells.
+            else -> active?.let { host -> layoutTopLeft(host, before, dragged)?.let { finger - grab - it } }
+                ?: translation(dragged, activeList)
+        }
+        frameJob?.cancel()
+        frameJob = null
+        // Written before the live arrangement goes, so the feed never shows the order it started from.
+        val changed = keep && live != before && commit(live)
+        dragging = null
+        arrangement = null
+        side = null
+        motion.carryActive = false
+        settle(dragged, from, if (changed) before.ids.filterIndexed { index, s -> live.ids.getOrNull(index) != s } else emptyList())
+        liftJob = scope.launchNow {
+            lift.animateTo(0f, specs.liftDown)
+            if (liftSection == dragged && dragging == null) liftSection = null
+        }
+        tintJob = scope.launchNow { liftTint.animateTo(0f, specs.liftTint) }
+        pendingExit?.let { reason ->
+            pendingExit = null
+            finishDeferredExit(reason)
+        }
     }
 
     // One decision and the edge scroll per frame, against the layout of the frame before.
@@ -437,6 +483,7 @@ internal class HomeDragEngine(
             if (step != null) {
                 // A frame that reorders doesn't scroll as well: the held position is this layout's.
                 host.holdScroll()
+                if (twoColumn) rescaleGrab(host, dragged, rows, rowsOf(step.arrangement, twoColumn))
                 arrangement = step.arrangement
                 side = step.side
                 travel = 0f
@@ -445,8 +492,23 @@ internal class HomeDragEngine(
             }
         }
         val area = host.scrollArea()
-        val speed = dragAutoScrollSpeed(finger.y, area.top, area.bottom, edgePx, maxSpeedPx)
+        if (edgeGuard != 0) {
+            edgeGuardMs += dt * 1000f
+            val inBand = dragEdgeOf(finger.y, area.top, area.bottom, edgePx) == edgeGuard
+            val holds = dragEdgeGuardHolds(edgeGuard, edgeGuardY, finger.y, edgeGuardMs, pushPx, HomeDragTokens.EdgeStartDwellMs)
+            if (!inBand || !holds) edgeGuard = 0 else return
+        }
+        val speed = dragAutoScrollSpeed(finger.y, area.top, area.bottom, edgePx, minSpeedPx, maxSpeedPx)
         if (speed != 0f && dt > 0f) travel += abs(host.scrollBy(speed * dt))
+    }
+
+    // Rule 4: the dragged block's slot turned half or full: the finger keeps its place across the block.
+    private fun rescaleGrab(host: HomeDragHost, dragged: HomeSection, rows: List<HomeFeedRow>, next: List<HomeFeedRow>) {
+        val width = host.contentWidth()
+        val gap = host.columnGap()
+        val old = dragLaneWidth(dragLaneOf(dragged, rows), width, gap)
+        val new = dragLaneWidth(dragLaneOf(dragged, next), width, gap)
+        if (old != new) grab = Offset(dragRescaleGrabX(grab.x, old, new), grab.y)
     }
 
     private fun decide(
@@ -462,8 +524,8 @@ internal class HomeDragEngine(
             rows.firstOrNull { it.first == item.key }?.let { DragRowBand(it, item.top, item.bottom) }
         }
         if (twoColumn) {
-            val zone = dragEdgeZone(finger.x, host.contentLeft(), host.contentWidth(), side)
-            when (val step = dragSideStep(live.ids, live.pairs, dragged, side, zone, finger.y, bands)) {
+            val rel = dragRel(finger.x, host.contentLeft(), host.contentWidth())
+            when (val step = dragSideStep(live.ids, live.pairs, dragged, side, rel, finger.y, bands, bufferPx)) {
                 is DragSideStep.Arrange -> return step.takeIf { it.arrangement != live || it.side != side }
                 DragSideStep.Stay -> return null
                 DragSideStep.Vertical -> Unit
@@ -525,8 +587,21 @@ internal object HomeDragTokens {
     /** The list scrolls while the finger is this close to the bar (or the status tide)… */
     val AutoScrollEdge = 72.dp
 
-    /** …faster the closer it gets, up to this many dp/s at the edge. */
-    val AutoScrollMax = 1400.dp
+    /** …from this many dp/s where the band starts… */
+    val AutoScrollMin = 120.dp
+
+    /** …easing in (depth squared) to this many at the edge. */
+    val AutoScrollMax = 900.dp
+
+    /** Lifted with the finger already in a band, it scrolls once the finger pushes this much further toward the edge… */
+    val EdgeStartPush = 8.dp
+
+    /** …or rests there this long. */
+    const val EdgeStartDwellMs = 180f
+
+    /** The drop slot's frame: its stroke, over the lifted plate colour at [SlotFillAlpha]. */
+    val SlotStroke = 2.dp
+    const val SlotFillAlpha = .55f
 
     /** A change waits for this much finger (or scroll) travel since the last one. */
     val ChangeTravel = 12.dp
@@ -541,6 +616,32 @@ internal fun HomeLayout.withDrag(
     withArrangement(arrangement.ids, arrangement.pairs, unseen)
 } else {
     withEnabledOrder(arrangement.ids, unseen)
+}
+
+/**
+ * Rule 4: a light frame where the dragged [section] will land, at its slot's
+ * width and place, while the block itself follows the finger (and as it
+ * glides back in). [fill] is the lifted plate colour, [stroke] the frame's.
+ * Put it before the block's own layer, so it stays in the slot. Draw only.
+ */
+internal fun Modifier.dragSlotMark(
+    engine: HomeDragEngine,
+    section: HomeSection,
+    inList: Boolean,
+    fill: Color,
+    stroke: Color,
+): Modifier = drawBehind {
+    if (!engine.slotShown(section, inList)) return@drawBehind
+    val radius = HomeEditTokens.PlateRadius.toPx()
+    drawRoundRect(fill, cornerRadius = CornerRadius(radius), alpha = HomeDragTokens.SlotFillAlpha)
+    val w = HomeDragTokens.SlotStroke.toPx()
+    drawRoundRect(
+        color = stroke,
+        topLeft = Offset(w / 2f, w / 2f),
+        size = Size((size.width - w).coerceAtLeast(0f), (size.height - w).coerceAtLeast(0f)),
+        cornerRadius = CornerRadius((radius - w / 2f).coerceAtLeast(0f)),
+        style = Stroke(w),
+    )
 }
 
 /** A `zIndex` read in the placement pass, so a change re-places the item without recomposing it. */

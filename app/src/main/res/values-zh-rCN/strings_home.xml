@@ -84,6 +84,9 @@
     <string name="home_edit_make_full_width">改为整行</string>
     <string name="home_edit_fewer_rows">减少行数</string>
     <string name="home_edit_hide">隐藏</string>
+    <!-- The edit header's switch, named for where a tap goes: the list (over the full layout) or the full layout (over the list). -->
+    <string name="home_edit_view_list">收成列表</string>
+    <string name="home_edit_view_full">展开版面</string>
     <string name="home_cd_section_index">第 %1$d 个分区，共 %2$d 个</string>
     <string name="home_cd_section_index_rows">第 %1$d 个分区，共 %2$d 个，%3$s</string>
     <plurals name="home_edit_rows">

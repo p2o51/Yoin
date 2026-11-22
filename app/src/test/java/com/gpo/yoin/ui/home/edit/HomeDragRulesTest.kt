@@ -17,31 +17,66 @@ import org.junit.Test
 /** The drop rules (HomeDragRules.kt): which drop the finger picks, and what each does to the rows. */
 class HomeDragRulesTest {
 
-    // ── Edge zones ──────────────────────────────────────────────────────────
-
-    /** The zone across a column 100..900px. */
-    private fun zone(x: Float, current: HomeDragLane?): HomeDragLane? =
-        dragEdgeZone(x, columnLeft = 100f, columnWidth = 800f, current = current)
+    // ── Rule 1: a half in its own row ───────────────────────────────────────
 
     @Test
-    fun should_pickEdgeZone_when_fingerInOuterQuarter() {
-        assertEquals(HomeDragLane.Left, zone(120f, null))
-        assertEquals(HomeDragLane.Right, zone(880f, null))
-        assertNull(zone(500f, null))
+    fun should_measureFingerAcrossContent() {
+        assertEquals(.5f, dragRel(fingerX = 500f, contentLeft = 100f, contentWidth = 800f), 1e-6f)
+        assertTrue(dragRel(fingerX = Float.NaN, contentLeft = 0f, contentWidth = 800f).isNaN())
+        assertTrue(dragRel(fingerX = 10f, contentLeft = 0f, contentWidth = 0f).isNaN())
     }
 
     @Test
-    fun should_holdZoneOverItsHalf_when_alreadyBeside() {
-        // 40% across: the middle for a fresh drag, still the left half for a block already on the left.
-        assertNull(zone(420f, null))
-        assertEquals(HomeDragLane.Left, zone(420f, HomeDragLane.Left))
-        assertNull(zone(520f, HomeDragLane.Left))
-        assertEquals(HomeDragLane.Right, zone(520f, HomeDragLane.Right))
+    fun should_swapSides_atMiddleWithHysteresis() {
+        // A right half goes left only below 0.45; a left half goes right only above 0.55.
+        assertEquals(HomeDragLane.Right, dragPairSide(HomeDragLane.Right, .46f))
+        assertEquals(HomeDragLane.Left, dragPairSide(HomeDragLane.Right, .44f))
+        assertEquals(HomeDragLane.Left, dragPairSide(HomeDragLane.Left, .54f))
+        assertEquals(HomeDragLane.Right, dragPairSide(HomeDragLane.Left, .56f))
+        // Between the two lines either side stays.
+        assertEquals(HomeDragLane.Right, dragPairSide(HomeDragLane.Right, .5f))
+        assertEquals(HomeDragLane.Left, dragPairSide(HomeDragLane.Left, .5f))
+        assertEquals(HomeDragLane.Right, dragPairSide(HomeDragLane.Right, Float.NaN))
     }
 
     @Test
-    fun should_haveNoZone_when_fingerUnknown() {
-        assertNull(dragEdgeZone(fingerX = Float.NaN, columnLeft = 0f, columnWidth = 800f, current = null))
+    fun should_growOwnRowByBuffer() {
+        val own = DragRowBand(HomeFeedRow.Halves(Activities, MadeForYou), 100f, 400f)
+        assertTrue(dragInOwnRow(84f, own, bufferPx = 16f))
+        assertTrue(dragInOwnRow(416f, own, bufferPx = 16f))
+        assertFalse(dragInOwnRow(83f, own, bufferPx = 16f))
+        assertFalse(dragInOwnRow(417f, own, bufferPx = 16f))
+    }
+
+    @Test
+    fun should_useNamedTokens_forTheRules() {
+        assertEquals(16f, HomeDragRuleTokens.RowBuffer.value, 0f)
+        assertEquals(.45f, HomeDragRuleTokens.SwapToLeft, 0f)
+        assertEquals(.55f, HomeDragRuleTokens.SwapToRight, 0f)
+        assertEquals(.25f, HomeDragRuleTokens.RowGapZone, 0f)
+        assertEquals(.30f, HomeDragRuleTokens.PairLeft, 0f)
+        assertEquals(.70f, HomeDragRuleTokens.PairRight, 0f)
+    }
+
+    // ── Rule 2: over another full row ───────────────────────────────────────
+
+    @Test
+    fun should_splitFullRowIntoQuarterHalfQuarter() {
+        val row = band(MemoryGrid, 100f, 500f)
+        assertEquals(DragRowPart.Above, dragRowPart(199f, row))
+        assertEquals(DragRowPart.Middle, dragRowPart(201f, row))
+        assertEquals(DragRowPart.Middle, dragRowPart(399f, row))
+        assertEquals(DragRowPart.Below, dragRowPart(401f, row))
+    }
+
+    @Test
+    fun should_pairOnlyInOuterThirtyPercent() {
+        assertEquals(HomeDragLane.Left, dragPairZone(.29f))
+        assertNull(dragPairZone(.31f))
+        assertNull(dragPairZone(.5f))
+        assertNull(dragPairZone(.69f))
+        assertEquals(HomeDragLane.Right, dragPairZone(.71f))
+        assertNull(dragPairZone(Float.NaN))
     }
 
     // ── Allowed targets ─────────────────────────────────────────────────────
@@ -188,29 +223,53 @@ class HomeDragRulesTest {
         band(MemoryGrid, 854f, 1100f),
     )
 
+    private fun full(rel: Float, fingerY: Float) =
+        dragSideStep(ids, pairs, MadeForYou, side = null, rel = rel, fingerY = fingerY, bands = bands, bufferPx = 16f)
+
     @Test
-    fun should_pairWithFullRow_when_fingerInEdgeZoneOverIt() {
-        val step = dragSideStep(ids, pairs, MadeForYou, side = null, zone = HomeDragLane.Right, fingerY = 200f, bands = bands)
-        val arrange = step as DragSideStep.Arrange
-        assertEquals(HomeDragLane.Right, arrange.side)
-        assertEquals(listOf(Activities, MadeForYou, RecentlyAdded, RecentlyPlayed, MemoryGrid), arrange.arrangement.ids)
-        assertEquals(pairs + (Activities to MadeForYou), arrange.arrangement.pairs)
+    fun should_insertOwnRow_when_inTopOrBottomQuarterOfFullRow_anyX() {
+        for (rel in listOf(.1f, .5f, .9f)) {
+            val above = full(rel, 50f) as DragSideStep.Arrange
+            assertNull(above.side)
+            assertEquals(listOf(MadeForYou, Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid), above.arrangement.ids)
+            assertEquals(pairs, above.arrangement.pairs)
+            // Under Activities already: the bottom quarter keeps it where it is.
+            assertEquals(DragArrangement(ids, pairs), (full(rel, 250f) as DragSideStep.Arrange).arrangement)
+            val belowMemories = full(rel, 1080f) as DragSideStep.Arrange
+            assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid, MadeForYou), belowMemories.arrangement.ids)
+        }
     }
 
     @Test
-    fun should_leaveToHalfTravel_when_middleOwnRowOrPairOfOthers() {
-        assertEquals(
-            DragSideStep.Vertical,
-            dragSideStep(ids, pairs, MadeForYou, side = null, zone = null, fingerY = 200f, bands = bands),
-        )
-        assertEquals(
-            DragSideStep.Vertical,
-            dragSideStep(ids, pairs, MadeForYou, side = null, zone = HomeDragLane.Left, fingerY = 400f, bands = bands),
-        )
-        assertEquals(
-            DragSideStep.Vertical,
-            dragSideStep(ids, pairs, MadeForYou, side = null, zone = HomeDragLane.Left, fingerY = 600f, bands = bands),
-        )
+    fun should_pairWithFullRow_when_middleAndOuterThirty() {
+        val left = full(.2f, 150f) as DragSideStep.Arrange
+        assertEquals(HomeDragLane.Left, left.side)
+        assertEquals(listOf(MadeForYou, Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid), left.arrangement.ids)
+        assertEquals(pairs + (MadeForYou to Activities), left.arrangement.pairs)
+        val right = full(.8f, 150f) as DragSideStep.Arrange
+        assertEquals(HomeDragLane.Right, right.side)
+        assertEquals(ids, right.arrangement.ids)
+        assertEquals(pairs + (Activities to MadeForYou), right.arrangement.pairs)
+    }
+
+    @Test
+    fun should_leaveToHalfTravel_when_middleCentreOwnRowOrGap() {
+        assertEquals(DragSideStep.Vertical, full(.5f, 150f))
+        assertEquals(DragSideStep.Vertical, full(.31f, 150f))
+        // Over its own row, any x.
+        assertEquals(DragSideStep.Vertical, full(.05f, 400f))
+        // In the gap between rows.
+        assertEquals(DragSideStep.Vertical, full(.05f, 309f))
+    }
+
+    @Test
+    fun should_insertBesidePairOfOthers_byItsMiddle_neverThreeAcross() {
+        // Above the pair already: its top half keeps it there; its bottom half puts it below.
+        assertEquals(DragArrangement(ids, pairs), (full(.1f, 600f) as DragSideStep.Arrange).arrangement)
+        val below = full(.9f, 750f) as DragSideStep.Arrange
+        assertNull(below.side)
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), below.arrangement.ids)
+        assertEquals(pairs, below.arrangement.pairs)
     }
 
     // Beside Activities (on its right): rows Activities | MadeForYou 0..300, the pair 318..618, MemoryGrid 636..880.
@@ -222,80 +281,160 @@ class HomeDragRulesTest {
         band(MemoryGrid, 636f, 880f),
     )
 
-    private fun beside(zone: HomeDragLane?, fingerY: Float) =
-        dragSideStep(besideIds, besidePairs, MadeForYou, HomeDragLane.Right, zone, fingerY, besideBands)
+    private fun beside(rel: Float, fingerY: Float) =
+        dragSideStep(besideIds, besidePairs, MadeForYou, HomeDragLane.Right, rel, fingerY, besideBands, bufferPx = 16f)
 
     @Test
-    fun should_stay_when_stillOverOwnPairOnSameSide() {
-        assertEquals(DragSideStep.Stay, beside(HomeDragLane.Right, 150f))
-        // In the gap between rows too.
-        assertEquals(DragSideStep.Stay, beside(HomeDragLane.Right, 309f))
+    fun should_stayBesidePartner_when_crossingTheMiddleOfItsOwnRow() {
+        assertEquals(DragSideStep.Stay, beside(.5f, 150f))
+        assertEquals(DragSideStep.Stay, beside(.46f, 150f))
+        // Never full width while it stays in its row, whatever x.
+        assertEquals(DragSideStep.Stay, beside(.9f, 150f))
     }
 
     @Test
-    fun should_changeSides_when_zoneFlipsOverOwnPair() {
-        val step = beside(HomeDragLane.Left, 150f) as DragSideStep.Arrange
+    fun should_swapWithPartner_when_pastTheSwapLine() {
+        val step = beside(.44f, 150f) as DragSideStep.Arrange
         assertEquals(HomeDragLane.Left, step.side)
         assertEquals(mapOf(MadeForYou to Activities, RecentlyAdded to RecentlyPlayed), step.arrangement.pairs)
         assertEquals(MadeForYou, step.arrangement.ids.first())
     }
 
     @Test
-    fun should_stayPaired_when_crossingTheMiddleOfItsOwnRow() {
-        // Dragged across to the other side, a half passes the middle: still beside its partner (it swaps at the edge).
-        assertEquals(DragSideStep.Stay, beside(null, 100f))
-        assertEquals(DragSideStep.Stay, beside(null, 200f))
+    fun should_stayInRow_when_fingerWobblesWithinBuffer() {
+        assertEquals(DragSideStep.Stay, beside(.5f, -10f))
+        assertEquals(DragSideStep.Stay, beside(.5f, 310f))
+        // Swapping sides still works in the buffer.
+        assertEquals(HomeDragLane.Left, (beside(.3f, 312f) as DragSideStep.Arrange).side)
     }
 
     @Test
-    fun should_leaveAboveOrBelowPartner_when_takenOutOfTheRow() {
-        val above = beside(null, -20f) as DragSideStep.Arrange
+    fun should_leavePairAndPartnerFull_when_outOfRowPastBuffer() {
+        val above = beside(.5f, -20f) as DragSideStep.Arrange
         assertNull(above.side)
         assertEquals(listOf(MadeForYou, Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid), above.arrangement.ids)
         assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), above.arrangement.pairs)
-        val below = beside(null, 309f) as DragSideStep.Arrange
-        assertEquals(listOf(Activities, MadeForYou, RecentlyAdded, RecentlyPlayed, MemoryGrid), below.arrangement.ids)
-        assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), below.arrangement.pairs)
-    }
-
-    @Test
-    fun should_moveToAnotherFullRow_when_overItsEdge() {
-        val step = beside(HomeDragLane.Left, 700f) as DragSideStep.Arrange
-        assertEquals(HomeDragLane.Left, step.side)
-        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), step.arrangement.ids)
-        assertEquals(mapOf(RecentlyAdded to RecentlyPlayed, MadeForYou to MemoryGrid), step.arrangement.pairs)
+        // Out of its row in the gap under the pair below: a row of its own there.
+        val gap = beside(.5f, 627f) as DragSideStep.Arrange
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), gap.arrangement.ids)
+        assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), gap.arrangement.pairs)
     }
 
     @Test
     fun should_becomeOwnRowBesidePair_when_overPairOfOthers() {
-        val above = beside(HomeDragLane.Right, 400f) as DragSideStep.Arrange
+        val above = beside(.9f, 400f) as DragSideStep.Arrange
         assertNull(above.side)
         assertEquals(listOf(Activities, MadeForYou, RecentlyAdded, RecentlyPlayed, MemoryGrid), above.arrangement.ids)
         assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), above.arrangement.pairs)
-        val below = beside(HomeDragLane.Right, 550f) as DragSideStep.Arrange
+        val below = beside(.1f, 550f) as DragSideStep.Arrange
         assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), below.arrangement.ids)
+    }
+
+    @Test
+    fun should_applyFullRowThirds_when_halfLeavesForAnotherFullRow() {
+        // MemoryGrid 636..880: top quarter to 697, bottom from 819, centre 758.
+        val paired = beside(.2f, 700f) as DragSideStep.Arrange
+        assertEquals(HomeDragLane.Left, paired.side)
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), paired.arrangement.ids)
+        assertEquals(mapOf(RecentlyAdded to RecentlyPlayed, MadeForYou to MemoryGrid), paired.arrangement.pairs)
+        // The middle's centre: a row of its own above or below by the row's middle.
+        val above = beside(.5f, 700f) as DragSideStep.Arrange
+        assertNull(above.side)
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MadeForYou, MemoryGrid), above.arrangement.ids)
+        assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), above.arrangement.pairs)
+        val belowByMiddle = beside(.5f, 800f) as DragSideStep.Arrange
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid, MadeForYou), belowByMiddle.arrangement.ids)
+        // The top quarter, any x: above.
+        assertEquals(above.arrangement, (beside(.95f, 650f) as DragSideStep.Arrange).arrangement)
+        // The bottom quarter, any x: below.
+        val below = beside(.05f, 870f) as DragSideStep.Arrange
+        assertNull(below.side)
+        assertEquals(listOf(Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid, MadeForYou), below.arrangement.ids)
+    }
+
+    // ── Rule 4: the anchor ──────────────────────────────────────────────────
+
+    @Test
+    fun should_rescaleGrabX_when_slotWidthChanges() {
+        // Grabbed 190px into a 490px half; full (1000px) puts the finger 387.8px in, the same 38.8%.
+        assertEquals(387.755f, dragRescaleGrabX(190f, oldWidth = 490f, newWidth = 1000f), .01f)
+        assertEquals(190f, dragRescaleGrabX(387.755f, oldWidth = 1000f, newWidth = 490f), .01f)
+        assertEquals(190f, dragRescaleGrabX(190f, oldWidth = 490f, newWidth = 490f), 0f)
+        assertEquals(190f, dragRescaleGrabX(190f, oldWidth = 0f, newWidth = 1000f), 0f)
+    }
+
+    @Test
+    fun should_measureLaneWidths() {
+        assertEquals(1000f, dragLaneWidth(HomeDragLane.Full, contentWidth = 1000f, gap = 20f), 0f)
+        assertEquals(490f, dragLaneWidth(HomeDragLane.Left, contentWidth = 1000f, gap = 20f), 0f)
+        assertEquals(490f, dragLaneWidth(HomeDragLane.Right, contentWidth = 1000f, gap = 20f), 0f)
     }
 
     // ── Edge scroll ─────────────────────────────────────────────────────────
 
     @Test
-    fun should_scrollInProportionToDepth_capped() {
-        // Area 100..1100, 100px edges, 2000px/s at most.
-        fun speed(y: Float) = dragAutoScrollSpeed(y, top = 100f, bottom = 1100f, edge = 100f, max = 2000f)
+    fun should_easeScrollInWithDepthSquared_fromMinToMax() {
+        // Area 100..1100, 100px edges, 120..900px/s.
+        fun speed(y: Float) = dragAutoScrollSpeed(y, top = 100f, bottom = 1100f, edge = 100f, min = 120f, max = 900f)
         assertEquals(0f, speed(600f), 0f)
         assertEquals(0f, speed(200f), 0f)
-        assertEquals(-1000f, speed(150f), .01f)
-        assertEquals(-2000f, speed(100f), .01f)
-        assertEquals(-2000f, speed(20f), .01f)
-        assertEquals(500f, speed(1025f), .01f)
-        assertEquals(2000f, speed(1300f), .01f)
+        assertEquals(0f, speed(1000f), 0f)
+        // Just inside the band: the minimum.
+        assertEquals(-120f, speed(199.999f), .1f)
+        assertEquals(120f, speed(1000.001f), .1f)
+        // Halfway in: min + (max - min) · 0.25.
+        assertEquals(-315f, speed(150f), .01f)
+        assertEquals(315f, speed(1050f), .01f)
+        // At the edge and beyond: the maximum.
+        assertEquals(-900f, speed(100f), .01f)
+        assertEquals(-900f, speed(20f), .01f)
+        assertEquals(900f, speed(1300f), .01f)
+    }
+
+    @Test
+    fun should_useScrollTokens() {
+        assertEquals(72f, HomeDragTokens.AutoScrollEdge.value, 0f)
+        assertEquals(120f, HomeDragTokens.AutoScrollMin.value, 0f)
+        assertEquals(900f, HomeDragTokens.AutoScrollMax.value, 0f)
+        assertEquals(8f, HomeDragTokens.EdgeStartPush.value, 0f)
+        assertEquals(180f, HomeDragTokens.EdgeStartDwellMs, 0f)
     }
 
     @Test
     fun should_takeNearerEnd_when_areaNarrowerThanTwoEdges() {
-        assertTrue(dragAutoScrollSpeed(110f, top = 100f, bottom = 250f, edge = 100f, max = 1000f) < 0f)
-        assertTrue(dragAutoScrollSpeed(240f, top = 100f, bottom = 250f, edge = 100f, max = 1000f) > 0f)
-        assertEquals(0f, dragAutoScrollSpeed(Float.NaN, top = 0f, bottom = 1000f, edge = 100f, max = 1000f), 0f)
+        assertEquals(-1, dragEdgeOf(110f, top = 100f, bottom = 250f, edge = 100f))
+        assertEquals(1, dragEdgeOf(240f, top = 100f, bottom = 250f, edge = 100f))
+        assertEquals(0, dragEdgeOf(Float.NaN, top = 0f, bottom = 1000f, edge = 100f))
+        assertTrue(dragAutoScrollSpeed(110f, top = 100f, bottom = 250f, edge = 100f, min = 1f, max = 10f) < 0f)
+        assertTrue(dragAutoScrollSpeed(240f, top = 100f, bottom = 250f, edge = 100f, min = 1f, max = 10f) > 0f)
+    }
+
+    @Test
+    fun should_holdEdgeGuard_untilPushedOrRested() {
+        fun holds(startEdge: Int, dy: Float, heldMs: Float) =
+            dragEdgeGuardHolds(startEdge, startY = 1000f, y = 1000f + dy, heldMs = heldMs, pushPx = 16f, dwellMs = 180f)
+        // Not lifted in a band: no guard.
+        assertFalse(holds(0, 0f, 0f))
+        // Bottom band: 16px further down lets it go, less (or away from the edge) doesn't.
+        assertTrue(holds(1, 15f, 0f))
+        assertFalse(holds(1, 16f, 0f))
+        assertTrue(holds(1, -40f, 0f))
+        // Top band: up is toward the edge.
+        assertTrue(holds(-1, -15f, 0f))
+        assertFalse(holds(-1, -16f, 0f))
+        // Resting there 180ms lets it go too.
+        assertTrue(holds(1, 0f, 179f))
+        assertFalse(holds(1, 0f, 180f))
+    }
+
+    // ── Rule 5: interruptions ───────────────────────────────────────────────
+
+    @Test
+    fun should_keepDrop_onlyForDoneAndAppExits() {
+        assertTrue(dragExitKeepsDrop(HomeEditExitReason.Done))
+        assertTrue(dragExitKeepsDrop(HomeEditExitReason.Programmatic))
+        assertFalse(dragExitKeepsDrop(HomeEditExitReason.Back))
+        assertFalse(dragExitKeepsDrop(HomeEditExitReason.Blank))
     }
 
     // ── Layout catch-up ─────────────────────────────────────────────────────

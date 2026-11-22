@@ -194,6 +194,8 @@ internal fun HomeEditBlock(
     val hoverTarget = if (hovered && editing) 1f else 0f
     LaunchedEffect(hoverTarget) { handleHover.animateTo(hoverTarget, deps.specs.liftTint) }
 
+    val slotFill = MaterialTheme.colorScheme.surfaceContainerHighest
+    val slotStroke = MaterialTheme.colorScheme.outlineVariant
     val density = LocalDensity.current
     val wiggle = if (wholeBlockWiggle) {
         Modifier.homeEditBlockWiggle(cardScope) {
@@ -315,6 +317,8 @@ internal fun HomeEditBlock(
                     else -> 0f
                 }
             }
+            // Where it lands while it follows the finger (rule 4): in the slot, under the block's layer.
+            .dragSlotMark(engine, section, inList = false, fill = slotFill, stroke = slotStroke)
             .blockLayer { outset ->
                 var scale = motion.hideScale(section)
                 var pivotX = size.width / 2f
