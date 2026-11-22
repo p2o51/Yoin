@@ -654,8 +654,8 @@ internal fun Modifier.dragZIndex(zIndex: () -> Float): Modifier = layout { measu
 
 /**
  * [HomeDragHost] over a LazyColumn at the page Box's origin whose section
- * rows are keyed [homeSectionItemKey] by their first section: the feed, or
- * the pinched list ([isList]).
+ * rows are keyed [homeSectionItemKey] as [rowKeys] assigns (by their first
+ * section, or the key a swapped pair kept): the feed, or the pinched list ([isList]).
  */
 @Stable
 internal class LazyListDragHost(
@@ -668,6 +668,8 @@ internal class LazyListDragHost(
     private val columnGapPx: Float,
     private val scrollArea: () -> HomeEditSafeArea,
     override val isList: Boolean = false,
+    /** The rows' item keys, as last composed. */
+    private val rowKeys: () -> HomeRowKeys = { HomeRowKeys.Initial },
 ) : HomeDragHost {
     override fun order(): List<HomeSection> = order.invoke()
 
@@ -677,8 +679,9 @@ internal class LazyListDragHost(
 
     override fun visibleRows(): List<DragItemBand> {
         val info = listState.layoutInfo
+        val keys = rowKeys()
         return info.visibleItemsInfo.mapNotNull { item ->
-            val section = homeSectionOfKey(item.key) ?: return@mapNotNull null
+            val section = keys.firstOf(item.key) ?: return@mapNotNull null
             val top = (item.offset - info.viewportStartOffset).toFloat()
             DragItemBand(section, top, top + item.size)
         }
@@ -686,8 +689,8 @@ internal class LazyListDragHost(
 
     override fun rowBand(key: HomeSection): DragItemBand? {
         val info = listState.layoutInfo
-        val itemKey = homeSectionItemKey(key)
-        val item = info.visibleItemsInfo.firstOrNull { it.key == itemKey } ?: return null
+        val keys = rowKeys()
+        val item = info.visibleItemsInfo.firstOrNull { keys.firstOf(it.key) == key } ?: return null
         val top = (item.offset - info.viewportStartOffset).toFloat()
         return DragItemBand(key, top, top + item.size)
     }
@@ -718,12 +721,14 @@ internal fun rememberLazyListDragHost(
     columnGapPx: Float,
     scrollArea: () -> HomeEditSafeArea,
     isList: Boolean = false,
+    rowKeys: () -> HomeRowKeys = { HomeRowKeys.Initial },
 ): LazyListDragHost {
     val currentOrder by rememberUpdatedState(order)
     val currentPairs by rememberUpdatedState(pairs)
     val currentLeft by rememberUpdatedState(contentLeft)
     val currentWidth by rememberUpdatedState(contentWidth)
     val currentArea by rememberUpdatedState(scrollArea)
+    val currentRowKeys by rememberUpdatedState(rowKeys)
     return remember(listState, columnGapPx, isList) {
         LazyListDragHost(
             listState = listState,
@@ -734,17 +739,71 @@ internal fun rememberLazyListDragHost(
             columnGapPx = columnGapPx,
             scrollArea = { currentArea() },
             isList = isList,
+            rowKeys = { currentRowKeys() },
         )
     }
 }
 
-/** The item key of [section]'s row (the row it is the first of), in the feed and in the pinched list. */
+/** The item key of [section]'s row (the row it is the first of, unless [HomeRowKeys] kept another), in the feed and in the pinched list. */
 internal fun homeSectionItemKey(section: HomeSection): String = SectionKeyPrefix + section.id
 
 /** The section a row item key belongs to, or null for the header, tray and footer. */
 internal fun homeSectionOfKey(key: Any): HomeSection? {
     val id = (key as? String)?.takeIf { it.startsWith(SectionKeyPrefix) }?.removePrefix(SectionKeyPrefix) ?: return null
     return HomeSection.fromId(id)
+}
+
+/**
+ * The item key each feed row carries: [homeSectionItemKey] of its first
+ * section, except that a row made of the same sections as before keeps the
+ * key it had. A pair whose halves trade sides changes its first section, and
+ * a new key would make the LazyColumn dispose the row and compose both of
+ * its sections anew (covers re-requested, every text measured again: one
+ * ~170ms frame on the tablet, each time a drag swaps a pair). With the key
+ * kept, the cells just move inside the one item. Read the items back through
+ * [firstOf], never by parsing keys: an item's key section may be its right half.
+ */
+@Immutable
+internal class HomeRowKeys private constructor(
+    /** Row first section → the section whose key the row's item carries. */
+    private val byFirst: Map<HomeSection, HomeSection>,
+    private val bySections: Map<Set<HomeSection>, HomeSection>,
+) {
+    /** The item key of the row [first] is the first section of. */
+    fun itemKey(first: HomeSection): String = homeSectionItemKey(byFirst[first] ?: first)
+
+    /** The first section of the row whose item is keyed [key]; null for the header, tray and footer. */
+    fun firstOf(key: Any): HomeSection? {
+        val keyed = homeSectionOfKey(key) ?: return null
+        if (byFirst[keyed] == keyed) return keyed
+        return byFirst.entries.firstOrNull { it.value == keyed }?.key ?: keyed
+    }
+
+    /** The keys of [rows]: a row of the same sections as one here keeps its key, any other its first's. Pure. */
+    fun next(rows: List<HomeFeedRow>): HomeRowKeys {
+        val byFirst = HashMap<HomeSection, HomeSection>(rows.size)
+        val bySections = HashMap<Set<HomeSection>, HomeSection>(rows.size)
+        rows.forEach { row ->
+            val sections = row.sections().toSet()
+            val keyed = this.bySections[sections] ?: row.first
+            byFirst[row.first] = keyed
+            bySections[sections] = keyed
+        }
+        return HomeRowKeys(byFirst, bySections)
+    }
+
+    companion object {
+        /** No rows yet: every row is keyed by its first section. */
+        val Initial = HomeRowKeys(emptyMap(), emptyMap())
+    }
+}
+
+/** [rows]' item keys, each row keeping its key for as long as it holds the same sections ([HomeRowKeys]). */
+@Composable
+internal fun rememberHomeRowKeys(rows: List<HomeFeedRow>): HomeRowKeys {
+    // The last assignment, a plain holder: the next rows are matched against it, nothing observes it.
+    val last = remember { arrayOf(HomeRowKeys.Initial) }
+    return remember(rows) { last[0].next(rows).also { last[0] = it } }
 }
 
 private const val SectionKeyPrefix = "section-"

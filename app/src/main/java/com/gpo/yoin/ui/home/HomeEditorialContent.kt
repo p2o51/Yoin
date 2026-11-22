@@ -202,7 +202,9 @@ import com.gpo.yoin.ui.home.edit.TrayFooterKey
 import com.gpo.yoin.ui.home.edit.TrayTitleKey
 import com.gpo.yoin.ui.home.edit.asHomeEditFeedback
 import com.gpo.yoin.ui.home.edit.dragZIndex
+import com.gpo.yoin.ui.home.edit.HomeRowKeys
 import com.gpo.yoin.ui.home.edit.homeSectionItemKey
+import com.gpo.yoin.ui.home.edit.rememberHomeRowKeys
 import com.gpo.yoin.ui.home.edit.sections
 import com.gpo.yoin.ui.home.edit.homeAllHiddenItem
 import com.gpo.yoin.ui.home.edit.homeEditCard
@@ -654,7 +656,7 @@ internal fun HomeEditorialContent(
                 spacingAnchor.hold(
                     live = controller.progressReader,
                     spacingPx = { p -> with(density) { plateLook.spacingAt(itemSpacing, p).roundToPx() } },
-                    gapsAbove = { listState.gapsAboveSection(held) },
+                    gapsAbove = { listState.gapsAboveSection(held, feedRefs.rowKeys) },
                     scrollBy = { px -> listState.dispatchRawDelta(px) },
                 )
             }
@@ -708,7 +710,7 @@ internal fun HomeEditorialContent(
         }
     }
     val sectionTop: (HomeSection) -> Float? = remember(listState) {
-        { section -> listState.sectionItemTop(section) }
+        { section -> listState.sectionItemTop(section, feedRefs.rowKeys) }
     }
     val hitTester = remember(listState, targets, controller, motion, feedFrame, density, plateOutsetPx) {
         HomeEditHitTester(
@@ -723,6 +725,7 @@ internal fun HomeEditorialContent(
             isHiding = { it in motion.hiding },
             pairs = { feedRefs.pairs },
             columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
+            rowKeys = { feedRefs.rowKeys },
         )
     }
     val columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() }
@@ -741,6 +744,7 @@ internal fun HomeEditorialContent(
         contentWidth = contentWidthPx,
         columnGapPx = columnGapPx,
         scrollArea = safeArea,
+        rowKeys = { feedRefs.rowKeys },
     )
     // The pinched list (HomeEditList.kt): its own rows, handles and buttons, driven by the same detector.
     val editListState = rememberLazyListState()
@@ -886,6 +890,8 @@ internal fun HomeEditorialContent(
     val feedRows = remember(blocks, layout, twoColumn) {
         homeFeedRows(blocks.map { it.section }, layout.pairs, twoColumn)
     }
+    // A pair swapping sides keeps its item (and both cells' content): HomeRowKeys.
+    val feedRowKeys = rememberHomeRowKeys(feedRows)
     val trayMounted = motion.trayMounted
     // A section this device can't fill (「歌词一句」 without Gemini Nano) isn't offered in the tray either.
     val hiddenSections = layout.hiddenSections.filter { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
@@ -904,6 +910,7 @@ internal fun HomeEditorialContent(
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
         feedRefs.pairs = feedRows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }
+        feedRefs.rowKeys = feedRowKeys
         cellFlips.box = { feedRefs.box }
         val rowOf = feedRows.flatMap { row -> row.sections().map { it to row.first } }.toMap()
         if (cellFlips.rowOf != rowOf) cellFlips.rowOf = rowOf
@@ -961,7 +968,7 @@ internal fun HomeEditorialContent(
             override fun onTouch() = motion.touch()
 
             override fun onLayoutChange(change: HomeEditChange) {
-                motion.onLayoutChange(change) { section -> listState.sectionInSafeArea(section, currentSafeArea()) }
+                motion.onLayoutChange(change) { section -> listState.sectionInSafeArea(section, currentSafeArea(), feedRefs.rowKeys) }
                 // A changed preset (drop, step, Undo, Reset) springs its block to the new stop.
                 rowsEngine.onLayoutChange(change.previous, change.next)
             }
@@ -1508,9 +1515,9 @@ internal fun HomeEditorialContent(
 
                 // Data-driven feed: each section the user keeps on, in their order,
                 // each one an edit block. In two columns a pair shares one row
-                // (one item, keyed by its left half).
+                // (one item, keyed by its left half; a pair that swaps sides keeps its key).
                 for (row in feedRows) {
-                    item(key = sectionItemKey(row.first)) {
+                    item(key = feedRowKeys.itemKey(row.first)) {
                         // Two columns: the row is exactly its unit count tall, or the drag's live height.
                         val rowUnits = layout.unitsOf(row)
                         val grid = if (twoColumn) {
@@ -1743,30 +1750,31 @@ private class HomeFeedRefs {
 
     /** Two columns: the pairs laid out side by side, left → right (published after each composition). */
     var pairs: Map<HomeSection, HomeSection> = emptyMap()
+
+    /** The feed rows' item keys (published after each composition). */
+    var rowKeys: HomeRowKeys = HomeRowKeys.Initial
 }
 
-/** [section]'s item top in the page Box, null when not laid out (the list sits at the Box origin). */
-private fun LazyListState.sectionItemTop(section: HomeSection): Float? {
+/** The item top of the row [section] heads, in the page Box; null when not laid out (the list sits at the Box origin). */
+private fun LazyListState.sectionItemTop(section: HomeSection, rowKeys: HomeRowKeys): Float? {
     val info = layoutInfo
-    val key = sectionItemKey(section)
-    return info.visibleItemsInfo.firstOrNull { it.key == key }?.let { (it.offset - info.viewportStartOffset).toFloat() }
+    return info.visibleItemsInfo.firstOrNull { rowKeys.firstOf(it.key) == section }
+        ?.let { (it.offset - info.viewportStartOffset).toFloat() }
 }
 
 /**
  * The item gaps between the feed's first visible item (the one the list holds
  * in place) and [section]'s block; 0 when the block isn't laid out.
  */
-private fun LazyListState.gapsAboveSection(section: HomeSection): Int {
-    val key = sectionItemKey(section)
-    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == key } ?: return 0
+private fun LazyListState.gapsAboveSection(section: HomeSection, rowKeys: HomeRowKeys): Int {
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { rowKeys.firstOf(it.key) == section } ?: return 0
     return (item.index - firstVisibleItemIndex).coerceAtLeast(0)
 }
 
 /** [section]'s block shows between the status tide and the bar (proto inViewport). */
-private fun LazyListState.sectionInSafeArea(section: HomeSection, safe: HomeEditSafeArea): Boolean {
+private fun LazyListState.sectionInSafeArea(section: HomeSection, safe: HomeEditSafeArea, rowKeys: HomeRowKeys): Boolean {
     val info = layoutInfo
-    val key = sectionItemKey(section)
-    val item = info.visibleItemsInfo.firstOrNull { it.key == key } ?: return false
+    val item = info.visibleItemsInfo.firstOrNull { rowKeys.firstOf(it.key) == section } ?: return false
     val top = (item.offset - info.viewportStartOffset).toFloat()
     return top + item.size > safe.top && top < safe.bottom
 }

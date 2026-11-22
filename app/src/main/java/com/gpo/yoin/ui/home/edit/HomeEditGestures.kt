@@ -112,13 +112,15 @@ internal class HomeEditHitTester(
     /** Two columns: the pairs laid out side by side (left → right) and the gap between them, px. */
     private val pairs: () -> Map<HomeSection, HomeSection> = { emptyMap() },
     private val columnGapPx: Float = 0f,
+    /** The rows' item keys, as last composed. */
+    private val rowKeys: () -> HomeRowKeys = { HomeRowKeys.Initial },
 ) : HomeEditHitTest {
     override fun hitTest(positionInBox: Offset): HomeEditHit {
         if (targets.isExcluded(positionInBox)) return HomeEditHit.Excluded
         val layoutInfo = listState.layoutInfo
         val content = contentBounds()
         val bands = splitPairBands(
-            homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, isHiding),
+            homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, rowKeys(), isHiding),
             pairs(),
             content.start,
             content.endInclusive,
@@ -138,18 +140,19 @@ internal class HomeEditHitTester(
 }
 
 /**
- * The bands of the visible `section-<id>` items, top to bottom, in Box px
+ * The bands of the visible `section-<id>` items (each its row's first
+ * section, through [rowKeys]), top to bottom, in Box px
  * (the list sits at the Box origin): top = offset − viewportStartOffset.
  * Other items (header, tray, footer) are not sections.
  */
 internal fun homeEditSectionBands(
     items: List<LazyListItemInfo>,
     viewportStartOffset: Int,
+    rowKeys: HomeRowKeys = HomeRowKeys.Initial,
     isHiding: (HomeSection) -> Boolean = { false },
 ): List<SectionBand> = items.mapNotNull { info ->
-    val key = info.key as? String ?: return@mapNotNull null
-    if (!key.startsWith(SectionKeyPrefix)) return@mapNotNull null
-    val section = HomeSection.fromId(key.removePrefix(SectionKeyPrefix)) ?: return@mapNotNull null
+    // The row's first section: a swapped pair's item keeps the key of its right half (HomeRowKeys).
+    val section = rowKeys.firstOf(info.key) ?: return@mapNotNull null
     if (isHiding(section)) return@mapNotNull null
     val top = (info.offset - viewportStartOffset).toFloat()
     SectionBand(section, top, top + info.size, bleeds = section in BleedingSections)
@@ -870,8 +873,6 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
         }
     }
 }
-
-private const val SectionKeyPrefix = "section-"
 
 // Full-width shelves: a press in the page margin beside them lands on the shelf.
 private val BleedingSections = setOf(HomeSection.RecentlyAdded, HomeSection.Rediscover)
