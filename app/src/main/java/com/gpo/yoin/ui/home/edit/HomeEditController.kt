@@ -108,7 +108,19 @@ class HomeEditController(
      * The feed lays its sections out in two columns (set by the feed): a
      * never-customized layout shows as [HomeLayout.WideDefault], and Reset goes there.
      */
-    var twoColumn: Boolean by mutableStateOf(false)
+    var twoColumn: Boolean
+        get() = twoColumnState.value
+        set(value) {
+            if (value == twoColumnState.value) return
+            twoColumnState.value = value
+            // Rotated before the first change: the untouched draft follows the new width,
+            // as entering at that width would have made it (else portrait's single column
+            // stays pinned in landscape with a third of the width empty).
+            if (draft != null && undoStack.isEmpty() && layer?.isCarrying != true) {
+                draft = (echoHold ?: latestVmLayout ?: HomeLayout.Default).forTwoColumn(value)
+            }
+        }
+    private val twoColumnState = mutableStateOf(false)
 
     private val leftSlotState = derivedStateOf { resolveEditLeftSlot(undoDepth, trayCount) }
 
