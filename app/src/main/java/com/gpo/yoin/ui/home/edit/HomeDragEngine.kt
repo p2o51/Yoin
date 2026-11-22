@@ -747,54 +747,84 @@ internal fun rememberLazyListDragHost(
 /** The item key of [section]'s row (the row it is the first of, unless [HomeRowKeys] kept another), in the feed and in the pinched list. */
 internal fun homeSectionItemKey(section: HomeSection): String = SectionKeyPrefix + section.id
 
-/** The section a row item key belongs to, or null for the header, tray and footer. */
+/** The section a row item key belongs to (the one it was handed to, [HomeRowKeys]), or null for the header, tray and footer. */
 internal fun homeSectionOfKey(key: Any): HomeSection? {
     val id = (key as? String)?.takeIf { it.startsWith(SectionKeyPrefix) }?.removePrefix(SectionKeyPrefix) ?: return null
-    return HomeSection.fromId(id)
+    return HomeSection.fromId(id.substringBefore(KeyRoundSeparator))
 }
 
 /**
- * The item key each feed row carries: [homeSectionItemKey] of its first
- * section, except that a row made of the same sections as before keeps the
- * key it had. A pair whose halves trade sides changes its first section, and
- * a new key would make the LazyColumn dispose the row and compose both of
- * its sections anew (covers re-requested, every text measured again: one
- * ~170ms frame on the tablet, each time a drag swaps a pair). With the key
- * kept, the cells just move inside the one item. Read the items back through
- * [firstOf], never by parsing keys: an item's key section may be its right half.
+ * The item key each feed row carries. A row made of the same sections as
+ * before keeps the key it had: a pair whose halves trade sides changes its
+ * first section, and a new key would make the LazyColumn dispose the row and
+ * compose both of its sections anew (covers re-requested, every text
+ * measured again: one ~170ms frame on the tablet, each time a drag swaps a
+ * pair). With the key kept, the cells just move inside the one item.
+ *
+ * Any other row takes the key its first section was handed last
+ * ([homeSectionItemKey] the first time) while a row still carries it, so
+ * that item goes on as this row. Once the item is gone (its section moved
+ * into a pair, or out of view and removed), the section is handed a new key
+ * (`~1`, `~2`…), never an old one: the LazyColumn keeps a removed item's
+ * composition for reuse and would recompose a returning key into it in reuse
+ * mode, rebuilding the cell that [HomeFeedCells] moves in. Feed rows also
+ * take their key as their content type ([contentType]), so a new row never
+ * reuses another row's composition either.
+ *
+ * Read the items back through [firstOf], never by parsing keys: an item's
+ * key section may be its right half.
  */
 @Immutable
 internal class HomeRowKeys private constructor(
-    /** Row first section → the section whose key the row's item carries. */
-    private val byFirst: Map<HomeSection, HomeSection>,
-    private val bySections: Map<Set<HomeSection>, HomeSection>,
+    /** Row first section → its item's key. */
+    private val byFirst: Map<HomeSection, String>,
+    /** Item key → its row's first section. */
+    private val firstByKey: Map<String, HomeSection>,
+    private val bySections: Map<Set<HomeSection>, String>,
+    /** Section → the key it was handed last, while a row carries it. */
+    private val owned: Map<HomeSection, String>,
+    /** Section → how many keys it has been handed. */
+    private val handed: Map<HomeSection, Int>,
 ) {
     /** The item key of the row [first] is the first section of. */
-    fun itemKey(first: HomeSection): String = homeSectionItemKey(byFirst[first] ?: first)
+    fun itemKey(first: HomeSection): String = byFirst[first] ?: homeSectionItemKey(first)
+
+    /** The content type of the row [first] is the first section of: its own key, so no other row reuses its composition. */
+    fun contentType(first: HomeSection): Any = itemKey(first)
 
     /** The first section of the row whose item is keyed [key]; null for the header, tray and footer. */
-    fun firstOf(key: Any): HomeSection? {
-        val keyed = homeSectionOfKey(key) ?: return null
-        if (byFirst[keyed] == keyed) return keyed
-        return byFirst.entries.firstOrNull { it.value == keyed }?.key ?: keyed
-    }
+    fun firstOf(key: Any): HomeSection? = firstByKey[key] ?: homeSectionOfKey(key)
 
-    /** The keys of [rows]: a row of the same sections as one here keeps its key, any other its first's. Pure. */
+    /**
+     * The keys of [rows]: a row of the same sections as one here keeps its
+     * key; any other takes its first section's live key, or a key that
+     * section was never handed. Pure.
+     */
     fun next(rows: List<HomeFeedRow>): HomeRowKeys {
-        val byFirst = HashMap<HomeSection, HomeSection>(rows.size)
-        val bySections = HashMap<Set<HomeSection>, HomeSection>(rows.size)
+        val byFirst = HashMap<HomeSection, String>(rows.size)
+        val firstByKey = HashMap<String, HomeSection>(rows.size)
+        val bySections = HashMap<Set<HomeSection>, String>(rows.size)
+        val owned = HashMap<HomeSection, String>(rows.size)
+        val handed = HashMap(this.handed)
+        val ownerOf = this.owned.entries.associate { (section, key) -> key to section }
         rows.forEach { row ->
             val sections = row.sections().toSet()
-            val keyed = this.bySections[sections] ?: row.first
-            byFirst[row.first] = keyed
-            bySections[sections] = keyed
+            val key = this.bySections[sections] ?: this.owned[row.first] ?: run {
+                val round = handed[row.first] ?: 0
+                handed[row.first] = round + 1
+                homeSectionItemKey(row.first) + if (round == 0) "" else "$KeyRoundSeparator$round"
+            }
+            byFirst[row.first] = key
+            firstByKey[key] = row.first
+            bySections[sections] = key
+            owned[ownerOf[key] ?: row.first] = key
         }
-        return HomeRowKeys(byFirst, bySections)
+        return HomeRowKeys(byFirst, firstByKey, bySections, owned, handed)
     }
 
     companion object {
         /** No rows yet: every row is keyed by its first section. */
-        val Initial = HomeRowKeys(emptyMap(), emptyMap())
+        val Initial = HomeRowKeys(emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap())
     }
 }
 
@@ -807,3 +837,6 @@ internal fun rememberHomeRowKeys(rows: List<HomeFeedRow>): HomeRowKeys {
 }
 
 private const val SectionKeyPrefix = "section-"
+
+// Between a section's id and the round of its key: `section-activities~2`.
+private const val KeyRoundSeparator = '~'

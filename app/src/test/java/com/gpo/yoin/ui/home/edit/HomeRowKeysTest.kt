@@ -49,7 +49,9 @@ class HomeRowKeysTest {
     fun should_keyByFirst_when_pairSplitsOrForms() {
         val swappedKeys = HomeRowKeys.Initial.next(rows).next(listOf(swapped, HomeFeedRow.Full(MemoryGrid)))
         // Split: each half its own row, keyed by itself (the same sections no longer share a row).
-        val split = swappedKeys.next(listOf(HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(Activities)))
+        val split = swappedKeys.next(
+            listOf(HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(Activities), HomeFeedRow.Full(MemoryGrid)),
+        )
         assertEquals(homeSectionItemKey(JumpBackIn), split.itemKey(JumpBackIn))
         assertEquals(homeSectionItemKey(Activities), split.itemKey(Activities))
         assertEquals(Activities, split.firstOf(homeSectionItemKey(Activities)))
@@ -57,6 +59,53 @@ class HomeRowKeysTest {
         // A new pair takes its left half's key, as before.
         val formed = split.next(listOf(HomeFeedRow.Halves(MemoryGrid, Activities), HomeFeedRow.Full(JumpBackIn)))
         assertEquals(homeSectionItemKey(MemoryGrid), formed.itemKey(MemoryGrid))
+    }
+
+    @Test
+    fun should_keepThePairsItemForItsLeftHalf_when_theRightHalfLeaves() {
+        val split = HomeRowKeys.Initial.next(rows)
+            .next(listOf(HomeFeedRow.Full(Activities), HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(MemoryGrid)))
+
+        // The pair's item goes on as Activities' row; Jump Back In gets an item of its own.
+        assertEquals(homeSectionItemKey(Activities), split.itemKey(Activities))
+        assertEquals(homeSectionItemKey(JumpBackIn), split.itemKey(JumpBackIn))
+    }
+
+    @Test
+    fun should_handANewKey_when_aSectionsItemWasRemovedAndItsRowReturns() {
+        val alone = listOf(HomeFeedRow.Full(Activities), HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(MemoryGrid))
+        val split = HomeRowKeys.Initial.next(rows).next(alone)
+        // Joined again: Jump Back In's own item is removed (the pair keeps Activities' one)…
+        val joined = split.next(rows)
+        assertEquals(homeSectionItemKey(Activities), joined.itemKey(Activities))
+        // …so splitting again never brings its old key back (the list would reuse that item's
+        // composition and rebuild the cell moving into it).
+        val again = joined.next(alone)
+        val key = again.itemKey(JumpBackIn)
+        assertEquals(homeSectionItemKey(JumpBackIn) + "~1", key)
+        assertEquals(JumpBackIn, again.firstOf(key))
+        assertEquals(JumpBackIn, homeSectionOfKey(key))
+        // The next round again.
+        assertEquals(homeSectionItemKey(JumpBackIn) + "~2", again.next(rows).next(alone).itemKey(JumpBackIn))
+    }
+
+    @Test
+    fun should_keepALiveKey_when_theRowChangesAroundIt() {
+        val alone = listOf(HomeFeedRow.Full(Activities), HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(MemoryGrid))
+        val split = HomeRowKeys.Initial.next(rows).next(alone)
+        // Memory Grid joins Jump Back In: the pair takes Jump Back In's live key, round and all.
+        val formed = split.next(listOf(HomeFeedRow.Full(Activities), HomeFeedRow.Halves(JumpBackIn, MemoryGrid)))
+
+        assertEquals(homeSectionItemKey(JumpBackIn), formed.itemKey(JumpBackIn))
+        assertEquals(JumpBackIn, formed.firstOf(homeSectionItemKey(JumpBackIn)))
+    }
+
+    @Test
+    fun should_typeEachRowByItsKey_when_keyed() {
+        val again = HomeRowKeys.Initial.next(rows)
+            .next(listOf(HomeFeedRow.Full(Activities), HomeFeedRow.Full(JumpBackIn), HomeFeedRow.Full(MemoryGrid)))
+
+        listOf(Activities, JumpBackIn, MemoryGrid).forEach { assertEquals(again.itemKey(it), again.contentType(it)) }
     }
 
     @Test

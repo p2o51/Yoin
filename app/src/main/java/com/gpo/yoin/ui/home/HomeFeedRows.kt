@@ -13,6 +13,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -153,10 +154,12 @@ internal fun homeRowCellWidths(
  * One feed row: a full section, or two halves [gap] apart, top-aligned. Each
  * cell reads its own column ([LocalHomeColumn], [forHomeColumn]). A span drag
  * ([span]) sizes its cell to the finger in the layout pass, and draws the
- * width it will snap to as a dashed outline.
+ * width it will snap to as a dashed outline. Each section's cell is its own
+ * movable content in [cells] and moves with it to another row; [data] is what
+ * a cell shows (null: the section has no cell).
  */
 @Composable
-internal fun HomeFeedRowLayout(
+internal fun <T> HomeFeedRowLayout(
     row: HomeFeedRow,
     span: HomeSpanDrag?,
     gap: Dp,
@@ -166,14 +169,14 @@ internal fun HomeFeedRowLayout(
     grid: HomeGridHeight? = null,
     /** The cell drawn over its partner (a dragged block), read as the row places. */
     onTop: () -> HomeSection? = { null },
-    cell: @Composable (HomeSection) -> Unit,
+    cells: HomeFeedCells<T>,
+    data: (HomeSection) -> T?,
 ) {
     val sections = when (row) {
         is HomeFeedRow.Full -> listOf(row.section)
         is HomeFeedRow.Halves -> listOf(row.left, row.right)
     }
     val outline = MaterialTheme.colorScheme.primary
-    val windowInfo = LocalYoinWindowInfo.current
     Layout(
         modifier = modifier
             .fillMaxWidth()
@@ -206,17 +209,18 @@ internal fun HomeFeedRowLayout(
         content = {
             sections.forEach { section ->
                 key(section) {
-                    flips?.compose(section, row.first)
-                    BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, row.first) } ?: Modifier) {
-                        val half = row is HomeFeedRow.Halves || span?.section == section
-                        val info = remember(windowInfo, maxWidth, half) {
-                            if (half) windowInfo.forHomeColumn(maxWidth) else windowInfo
-                        }
-                        CompositionLocalProvider(
-                            LocalYoinWindowInfo provides info,
-                            LocalHomeColumn provides HomeColumn(half = half),
-                            LocalHomeGridHeight provides grid,
-                        ) { cell(section) }
+                    val cell = data(section)
+                    if (cell != null) {
+                        cells.of(section)(
+                            HomeFeedCellPlace(
+                                rowKey = row.first,
+                                pairHalf = row is HomeFeedRow.Halves,
+                                span = span,
+                                flips = flips,
+                                grid = grid,
+                                data = cell,
+                            ),
+                        )
                     }
                 }
             }
@@ -241,6 +245,69 @@ internal fun HomeFeedRowLayout(
                 placeable.placeRelative(x, 0)
             }
         }
+    }
+}
+
+/**
+ * Where a cell sits: the row it is in (keyed by its first section), whether
+ * that row is a pair, what the row hands every cell, and what the cell shows
+ * ([data], plain values). Equal for a cell that hasn't changed, so its host skips.
+ */
+@Stable
+internal data class HomeFeedCellPlace<T>(
+    val rowKey: HomeSection,
+    val pairHalf: Boolean,
+    val span: HomeSpanDrag?,
+    val flips: HomeCellFlips?,
+    val grid: HomeGridHeight?,
+    val data: T,
+)
+
+/**
+ * Each section's cell as movable content, one per section for the feed's
+ * life. A section changing rows (a half dragged out of its pair, a full row
+ * dragged into one, a span or Undo regrouping) changes LazyColumn items: the
+ * old item drops the cell and the new one takes it, and the cell moves with
+ * its whole tree — its covers' requests and painters, its measured text,
+ * every remembered state — instead of being disposed in one item and
+ * composed anew in the other (a ~200ms frame on the tablet, each time).
+ * Both happen in one frame: the old item recomposes as the list's items
+ * change and the new one composes in that frame's measure, while the
+ * runtime still holds what was dropped.
+ *
+ * A cell shows [content] for its place and nothing else: no lambda of the
+ * row it sits in. A row's lambda changes with the row and re-invokes where
+ * it was called, and would recompose a cell on its way to another row
+ * against the row it left (where it no longer is: its block gone).
+ */
+@Stable
+internal class HomeFeedCells<T>(private val content: @Composable (HomeSection, HomeFeedCellPlace<T>) -> Unit) {
+    private val hosts = HashMap<HomeSection, @Composable (HomeFeedCellPlace<T>) -> Unit>()
+
+    fun of(section: HomeSection): @Composable (HomeFeedCellPlace<T>) -> Unit =
+        hosts.getOrPut(section) { movableContentOf { place: HomeFeedCellPlace<T> -> HomeFeedCell(section, place, content) } }
+}
+
+/** One cell: [section] in its column at [place] (its window info, its grid height, the move between rows). */
+@Composable
+private fun <T> HomeFeedCell(
+    section: HomeSection,
+    place: HomeFeedCellPlace<T>,
+    content: @Composable (HomeSection, HomeFeedCellPlace<T>) -> Unit,
+) {
+    val flips = place.flips
+    flips?.compose(section, place.rowKey)
+    val windowInfo = LocalYoinWindowInfo.current
+    BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, place.rowKey) } ?: Modifier) {
+        val half = place.pairHalf || place.span?.section == section
+        val info = remember(windowInfo, maxWidth, half) {
+            if (half) windowInfo.forHomeColumn(maxWidth) else windowInfo
+        }
+        CompositionLocalProvider(
+            LocalYoinWindowInfo provides info,
+            LocalHomeColumn provides HomeColumn(half = half),
+            LocalHomeGridHeight provides place.grid,
+        ) { content(section, place) }
     }
 }
 
