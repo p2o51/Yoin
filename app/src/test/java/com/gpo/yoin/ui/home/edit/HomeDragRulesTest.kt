@@ -241,12 +241,19 @@ class HomeDragRulesTest {
     }
 
     @Test
-    fun should_leaveAboveOrBelowPartner_when_backInTheMiddle() {
-        val above = beside(null, 100f) as DragSideStep.Arrange
+    fun should_stayPaired_when_crossingTheMiddleOfItsOwnRow() {
+        // Dragged across to the other side, a half passes the middle: still beside its partner (it swaps at the edge).
+        assertEquals(DragSideStep.Stay, beside(null, 100f))
+        assertEquals(DragSideStep.Stay, beside(null, 200f))
+    }
+
+    @Test
+    fun should_leaveAboveOrBelowPartner_when_takenOutOfTheRow() {
+        val above = beside(null, -20f) as DragSideStep.Arrange
         assertNull(above.side)
         assertEquals(listOf(MadeForYou, Activities, RecentlyAdded, RecentlyPlayed, MemoryGrid), above.arrangement.ids)
         assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), above.arrangement.pairs)
-        val below = beside(null, 200f) as DragSideStep.Arrange
+        val below = beside(null, 309f) as DragSideStep.Arrange
         assertEquals(listOf(Activities, MadeForYou, RecentlyAdded, RecentlyPlayed, MemoryGrid), below.arrangement.ids)
         assertEquals(mapOf(RecentlyAdded to RecentlyPlayed), below.arrangement.pairs)
     }

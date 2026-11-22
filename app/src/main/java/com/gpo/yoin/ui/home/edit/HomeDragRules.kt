@@ -10,10 +10,10 @@ import com.gpo.yoin.ui.home.homeFeedRows
 // changes, and a finger near the top or bottom scrolls. In two columns a
 // block can also go BESIDE another one (stage 1, 2026-11-16): the finger in
 // the column's outer quarters over a full row pairs the dragged block with
-// it; in the middle half it goes between rows, a row of its own. Lifting one
-// half out of a pair leaves its partner full once the finger crosses the
-// column's middle. Never beside a pair of two other blocks; beside its own
-// partner it only changes sides. Everything here is pure; HomeDragEngine
+// it; in the middle half it goes between rows, a row of its own. A half of a
+// pair dragged across to the other side swaps with its partner; only taking
+// it up or down out of the row leaves the partner full. Never beside a pair
+// of two other blocks; beside its own partner it only changes sides. Everything here is pure; HomeDragEngine
 // drives it.
 
 /** Where a section sits across a two-column row. */
@@ -209,6 +209,10 @@ internal fun dragSideStep(
         ?: return DragSideStep.Vertical
     val own = bands.firstOrNull { dragged in it.row.sections() }
     if (zone == null) {
+        // Across its own row's middle it stays beside its partner (owner
+        // 2026-11-22: dragging a half to the other side swaps the two; only
+        // leaving the row up or down splits the pair).
+        if (under != null && under === own) return DragSideStep.Stay
         val below = own != null && fingerY > own.center
         return DragSideStep.Arrange(dragInsertRow(ids, pairs, dragged, dragGapBy(ids, pairs, dragged, partner, below)), null)
     }

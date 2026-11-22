@@ -193,7 +193,7 @@ class HomeDragEngineTest {
     }
 
     @Test
-    fun should_stayBesidePartner_untilFingerCrossesMiddle() = runEditClockTest { scope ->
+    fun should_stayBesidePartner_untilTakenOutOfTheRow() = runEditClockTest { scope ->
         // Activities | Jump Back In 100..400, All Memories 418..718; JBI is the right half (x 510..1000).
         val host = FakeHost(twoColumn = true, order = listOf(Activities, JumpBackIn, MemoryGrid), pairs = mapOf(Activities to JumpBackIn))
         val rig = Rig(scope, this, host, specs)
@@ -206,8 +206,13 @@ class HomeDragEngineTest {
         frames()
         assertEquals(mapOf(Activities to JumpBackIn), rig.engine.arrangement?.pairs)
 
-        // Over the middle, below the pair's centre: a row of its own under Activities.
+        // Over the middle of its own row: still beside Activities (owner 2026-11-22: across, the two swap).
         rig.moveTo(400f, 300f)
+        frames()
+        assertEquals(mapOf(Activities to JumpBackIn), rig.engine.arrangement?.pairs)
+
+        // Out of the row, below it in the middle: a row of its own under Activities.
+        rig.moveTo(400f, 410f)
         frames()
         assertEquals(DragArrangement(listOf(Activities, JumpBackIn, MemoryGrid), emptyMap()), rig.engine.arrangement)
         rig.engine.release(cancelled = false, uptimeMs = 0L)
