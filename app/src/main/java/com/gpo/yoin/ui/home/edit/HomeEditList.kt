@@ -441,7 +441,7 @@ private fun HomeEditListStrip(
             // Where it lands while it follows the finger (rule 4).
             .dragSlotMark(engine, section, inList = true, fill = liftedPlate, stroke = colors.outlineVariant)
             .graphicsLayer {
-                val offset = engine.translation(section, inList = true)
+                val offset = engine.translation(section, inList = true, width = size.width)
                 translationX = offset.x
                 translationY = offset.y
                 val lift = if (engine.liftSection == section) engine.lift.value.coerceIn(0f, 1f) else 0f

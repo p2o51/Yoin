@@ -342,7 +342,7 @@ internal fun HomeEditBlock(
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
                 // Dragged, the block follows the finger; dropped, it glides into its slot.
-                val offset = engine.translation(section, inList = false)
+                val offset = engine.translation(section, inList = false, width = size.width - 2 * outset.x)
                 translationX = offset.x
                 translationY = offset.y
                 // The list's cover on/off, not its progress: every block's layer re-runs on the flip, not each frame.

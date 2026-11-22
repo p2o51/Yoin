@@ -230,7 +230,7 @@ class HomeDragEngineTest {
     }
 
     @Test
-    fun should_keepFingerAtSameFractionOfBlock_when_halfTurnsFull() = runEditClockTest { scope ->
+    fun should_keepFingerAtSameFractionOfDrawnBlock_andStayOnContent_when_halfTurnsFull() = runEditClockTest { scope ->
         // JBI (right half, x 510..1000) grabbed 190px in; out of its row it is full (x 0..1000).
         val host = FakeHost(twoColumn = true, order = listOf(Activities, JumpBackIn, MemoryGrid), pairs = mapOf(Activities to JumpBackIn))
         val rig = Rig(scope, this, host, specs)
@@ -238,8 +238,12 @@ class HomeDragEngineTest {
         rig.moveTo(700f, 440f)
         frames()
         assertEquals(emptyMap<HomeSection, HomeSection>(), rig.engine.arrangement?.pairs)
-        // 190 / 490 of the way across a 1000px block: its left edge at 700 − 387.8.
-        assertEquals(700f - 190f / 490f * 1000f, rig.engine.translation(JumpBackIn, inList = false).x, .5f)
+        // Still drawn half wide (its width springs): it stays under the finger, 190px in, not thrown left.
+        assertEquals(510f, rig.engine.translation(JumpBackIn, inList = false, width = 490f).x, .5f)
+        // Mid-spring, 745px: the finger at 190/490 of it would put its left at 411; it keeps to the content (≤ 255).
+        assertEquals(255f, rig.engine.translation(JumpBackIn, inList = false, width = 745f).x, .5f)
+        // Full width: in its row, not half off the screen with the finger on its 190/490 mark.
+        assertEquals(0f, rig.engine.translation(JumpBackIn, inList = false, width = 1000f).x, .5f)
     }
 
     @Test

@@ -244,6 +244,11 @@ internal class HomeDragEngine(
 
     // The finger's offset from the dragged block's top-left at the start.
     private var grab = Offset.Zero
+
+    // The width the block was drawn at when [grab] was taken, and the width it was last drawn at:
+    // grab.x keeps its fraction of the block as the block's width springs between half and full.
+    private var grabWidth = Float.NaN
+    private var drawnWidth = Float.NaN
     private var origin: DragArrangement? = null
     private var active: HomeDragHost? = null
     private var activeList by mutableStateOf(false)
@@ -294,15 +299,16 @@ internal class HomeDragEngine(
     /**
      * [section]'s offset from its laid-out place: under the finger while
      * dragged, gliding home while it settles. [inList]: the pinched list's
-     * strip asks, not the feed's block. Layer only.
+     * strip asks, not the feed's block. [width] is the block's width as the
+     * layer draws it now. Layer only.
      */
-    fun translation(section: HomeSection, inList: Boolean): Offset {
+    fun translation(section: HomeSection, inList: Boolean, width: Float = Float.NaN): Offset {
         if (inList != activeList) return Offset.Zero
         if (dragging == section) {
             val host = active ?: return Offset.Zero
             val live = arrangement ?: return Offset.Zero
             val at = layoutTopLeft(host, live, section) ?: return Offset.Zero
-            return finger - grab - at
+            return dragTopLeft(host, width) - at
         }
         if (settling == section) return Offset(settleX.value, settleY.value)
         return Offset.Zero
@@ -337,6 +343,8 @@ internal class HomeDragEngine(
         activeList = host.isList
         finger = Offset(x, fingerY)
         grab = finger - shown
+        grabWidth = Float.NaN
+        drawnWidth = Float.NaN
         side = lane.takeIf { it != HomeDragLane.Full }
         origin = before
         travel = 0f
@@ -432,10 +440,10 @@ internal class HomeDragEngine(
         val live = arrangement ?: before
         val from = when {
             !glide -> Offset.Zero
-            keep -> translation(dragged, activeList)
+            keep -> translation(dragged, activeList, drawnWidth)
             // Back to its slot before the lift, as near as this layout tells.
-            else -> active?.let { host -> layoutTopLeft(host, before, dragged)?.let { finger - grab - it } }
-                ?: translation(dragged, activeList)
+            else -> active?.let { host -> layoutTopLeft(host, before, dragged)?.let { dragTopLeft(host, drawnWidth) - it } }
+                ?: translation(dragged, activeList, drawnWidth)
         }
         frameJob?.cancel()
         frameJob = null
@@ -483,7 +491,6 @@ internal class HomeDragEngine(
             if (step != null) {
                 // A frame that reorders doesn't scroll as well: the held position is this layout's.
                 host.holdScroll()
-                if (twoColumn) rescaleGrab(host, dragged, rows, rowsOf(step.arrangement, twoColumn))
                 arrangement = step.arrangement
                 side = step.side
                 travel = 0f
@@ -502,13 +509,25 @@ internal class HomeDragEngine(
         if (speed != 0f && dt > 0f) travel += abs(host.scrollBy(speed * dt))
     }
 
-    // Rule 4: the dragged block's slot turned half or full: the finger keeps its place across the block.
-    private fun rescaleGrab(host: HomeDragHost, dragged: HomeSection, rows: List<HomeFeedRow>, next: List<HomeFeedRow>) {
-        val width = host.contentWidth()
-        val gap = host.columnGap()
-        val old = dragLaneWidth(dragLaneOf(dragged, rows), width, gap)
-        val new = dragLaneWidth(dragLaneOf(dragged, next), width, gap)
-        if (old != new) grab = Offset(dragRescaleGrabX(grab.x, old, new), grab.y)
+    // Where the dragged block's top-left is drawn, the block [width] wide as its layer draws it now.
+    // Rule 4: the finger keeps its place across the block, at the same fraction of the width the
+    // block is drawn at, frame by frame as that width springs between half and full (the new
+    // slot's width at once threw the narrow block half a screen away, then grew it back). In two
+    // columns the block stays across the content: a full-width block keeps its place, never half
+    // off the screen with its handle under the finger.
+    private fun dragTopLeft(host: HomeDragHost, width: Float): Offset {
+        val drawn = !width.isNaN() && width > 0f
+        if (drawn) {
+            if (grabWidth.isNaN()) grabWidth = width
+            drawnWidth = width
+        }
+        val grabX = if (drawn) dragRescaleGrabX(grab.x, grabWidth, width) else grab.x
+        var left = finger.x - grabX
+        if (drawn && host.twoColumn()) {
+            val min = host.contentLeft()
+            left = left.coerceIn(min, (min + host.contentWidth() - width).coerceAtLeast(min))
+        }
+        return Offset(left, finger.y - grab.y)
     }
 
     private fun decide(
