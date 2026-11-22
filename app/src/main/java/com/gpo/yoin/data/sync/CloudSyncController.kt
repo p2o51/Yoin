@@ -57,6 +57,20 @@ interface CloudSyncController {
 
     /** An account removed from the cloud starts syncing again from this device ([SyncAccountStatus.RemovedFromCloud]). */
     fun resumeAccountSync(localProfileId: String)
+
+    // ---- Read-only views for the 云端数据 section ([CloudDataViews]); nothing here writes.
+
+    /** Yoin's files in the sync location, per device (names, sizes). Lists Drive: needs the network and sync on. */
+    suspend fun cloudFiles(): Result<List<CloudDeviceFiles>> = Result.success(emptyList())
+
+    /** Counts per account scope and of the global data, from this device's replica. */
+    suspend fun cloudDataSummary(): CloudDataSummary = CloudDataSummary()
+
+    /** One account's notes, ratings, reviews and Memories titles as the cloud holds them. */
+    suspend fun cloudAccountContent(syncProfileId: String): CloudAccountContent = CloudAccountContent()
+
+    /** Playlist backups, lyric translations and song About entries (the global scope). */
+    suspend fun cloudGlobalContent(): CloudGlobalContent = CloudGlobalContent()
 }
 
 sealed interface TurnOnStep {
@@ -159,6 +173,8 @@ data class SyncAccountRow(
     val provider: String,
     val displayName: String,
     val status: SyncAccountStatus,
+    /** The scope this profile is bound to (also while paused or removed from the cloud); null when unbound. */
+    val syncProfileId: String? = null,
 )
 
 sealed interface SyncAccountStatus {

@@ -23,6 +23,7 @@ import com.gpo.yoin.data.sync.engine.OutgoingFile
 import com.gpo.yoin.data.sync.engine.SnapshotCodec
 import com.gpo.yoin.data.sync.engine.SyncEngine
 import com.gpo.yoin.data.sync.engine.SyncSchemaTooNewException
+import com.gpo.yoin.data.sync.engine.toWire
 import com.gpo.yoin.data.sync.identity.AccountBinder
 import com.gpo.yoin.data.sync.identity.AccountKeys
 import com.gpo.yoin.data.sync.identity.BindingSnapshot
@@ -765,6 +766,49 @@ class CloudSyncManager(
     }
 
     override fun resumeAccountSync(localProfileId: String) = accountAction { binder.resumeSyncing(localProfileId) }
+
+    // ---- read-only views (the 云端数据 section)
+
+    override suspend fun cloudFiles(): Result<List<CloudDeviceFiles>> = withIo {
+        runCatching {
+            ensureInitialized()
+            check(isEnabled()) { "Cloud sync is off." }
+            val files = transport.list()
+            val known = dao.remoteFiles().associate { it.deviceId to it.deviceName }
+            CloudDataViews.deviceFiles(
+                files = files,
+                thisDeviceId = deviceId(),
+                thisDeviceName = deviceName(),
+                knownNames = known,
+                fallbackName = appContext.getString(R.string.settings_sync_unknown_device),
+            )
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    override suspend fun cloudDataSummary(): CloudDataSummary {
+        val records = withReplica { replica -> replica?.db?.syncDao()?.allRecords()?.map { it.toWire() }.orEmpty() }
+        return withIo { CloudDataViews.summary(records) }
+    }
+
+    override suspend fun cloudAccountContent(syncProfileId: String): CloudAccountContent {
+        val (records, localProfileId) = withReplica { replica ->
+            val dao = replica?.db?.syncDao() ?: return@withReplica emptyList<WireRecord>() to null
+            dao.recordsInScope(syncProfileId).map { it.toWire() } to dao.bindingForScope(syncProfileId)?.localProfileId
+        }
+        return withIo {
+            CloudDataViews.account(
+                records = records,
+                scope = syncProfileId,
+                names = com.gpo.yoin.data.sync.backup.DomainReadableNames(database),
+                localProfileId = localProfileId,
+            )
+        }
+    }
+
+    override suspend fun cloudGlobalContent(): CloudGlobalContent {
+        val records = withReplica { replica -> replica?.db?.syncDao()?.allRecords()?.map { it.toWire() }.orEmpty() }
+        return withIo { CloudDataViews.global(records) }
+    }
 
     /**
      * Runs [block] under the sync lock with this device's replica, or with null when Cloud sync was never
