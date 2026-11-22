@@ -12,6 +12,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.album.AlbumScrapbookTrackKey
 import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
@@ -183,6 +184,7 @@ class AlbumDetailViewModel(
 
     /** Notes deleted from page 2, as they were, for Undo ([ScrapEdit.RestoreNote]). Main thread. */
     private val deletedScrapNotes = HashMap<String, Deferred<SongNote?>>()
+    private val deletedAlbumNotes = HashMap<String, Deferred<AlbumNote?>>()
 
     /** What page 2's track sheet reads besides the book: lyrics, Gemini's work and what came of it. */
     val scrapFeeds = ScrapSheetFeeds(
@@ -713,6 +715,21 @@ class AlbumDetailViewModel(
                 viewModelScope.launch {
                     val note = deleted.await() ?: return@launch
                     scrapWrite { repository.restoreNote(note) }
+                }
+            }
+            is ScrapEdit.NewAlbumNote -> {
+                val album = loadedAlbum ?: return
+                launchScrapWrite { repository.addAlbumNote(album, edit.text) }
+            }
+            is ScrapEdit.AlbumNoteText -> {
+                val was = viewModelScope.async { scrapWrite { repository.editAlbumNoteById(edit.noteId, edit.text) } }
+                if (edit.text.isBlank()) deletedAlbumNotes[edit.noteId] = was
+            }
+            is ScrapEdit.RestoreAlbumNote -> {
+                val deleted = deletedAlbumNotes.remove(edit.noteId) ?: return
+                viewModelScope.launch {
+                    val note = deleted.await() ?: return@launch
+                    scrapWrite { repository.restoreAlbumNote(note) }
                 }
             }
         }

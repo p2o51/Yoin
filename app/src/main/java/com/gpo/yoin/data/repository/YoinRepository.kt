@@ -2300,6 +2300,22 @@ class YoinRepository(
     }
 
     /**
+     * New text for one album note, by id (the scrapbook's sticky); blank deletes it. Returns the note as it
+     * was, so a delete can be undone with [restoreAlbumNote]; null when there is no such note. An album
+     * holds any number of notes (owner 2026-11-22); [addAlbumNote] appends one.
+     */
+    suspend fun editAlbumNoteById(id: String, content: String): AlbumNote? {
+        val note = albumNoteDao.getById(id) ?: return null
+        updateAlbumNote(note, content)
+        return note
+    }
+
+    /** Puts a deleted album note back (Undo), same id and creation time, stamped now. */
+    suspend fun restoreAlbumNote(note: AlbumNote) {
+        albumNoteDao.insert(note.copy(updatedAt = maxOf(clock(), note.updatedAt + 1)))
+    }
+
+    /**
      * 把该专辑的单曲笔记原文按 (曲目序 → content) 拼起来 —— 只用于 AlbumDetail
      * 的默认聚合展示和 Review 草稿灵感。不推到 NeoDB。
      */

@@ -9,6 +9,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookPlays
 import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.LibraryMembership
@@ -375,6 +376,32 @@ class AlbumDetailViewModelScrapbookTest {
         advanceUntilIdle()
 
         coVerify { repository.addNote(track(2), "the hook", 80_000L) }
+    }
+
+    @Test
+    fun should_appendEditAndRestoreAlbumNotes_when_theScrapbookWrites() = runTest {
+        val note = AlbumNote(
+            id = "an1",
+            profileId = "p",
+            albumId = "al-1",
+            provider = MediaId.PROVIDER_SUBSONIC,
+            content = "像 [@Andromeda](yoin:track/subsonic:t2)",
+            createdAt = 1L,
+            updatedAt = 2L,
+            albumName = "Album",
+            artist = "Artist",
+        )
+        coEvery { repository.editAlbumNoteById("an1", "") } returns note
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.NewAlbumNote("周日下午"))
+        viewModel.editScrapbook(ScrapEdit.AlbumNoteText("an1", ""))
+        viewModel.editScrapbook(ScrapEdit.RestoreAlbumNote("an1"))
+        advanceUntilIdle()
+
+        coVerify { repository.addAlbumNote(match { it.name == "Album" }, "周日下午") }
+        coVerify { repository.restoreAlbumNote(note) }
     }
 
     @Test

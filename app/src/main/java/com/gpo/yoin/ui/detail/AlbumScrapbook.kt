@@ -201,6 +201,15 @@ sealed interface ScrapEdit {
 
     /** Undo of a deleted note: the same note, back at its moment. */
     data class RestoreNote(val noteId: String) : ScrapEdit
+
+    /** A new album note (an album holds any number, owner 2026-11-22); blank writes nothing. */
+    data class NewAlbumNote(val text: String) : ScrapEdit
+
+    /** New text for an album note; blank deletes it ([RestoreAlbumNote] brings it back). */
+    data class AlbumNoteText(val noteId: String, val text: String) : ScrapEdit
+
+    /** Undo of a deleted album note. */
+    data class RestoreAlbumNote(val noteId: String) : ScrapEdit
 }
 
 /** The page's fixed rules (D3 §5). */
