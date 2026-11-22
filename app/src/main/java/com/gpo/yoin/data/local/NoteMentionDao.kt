@@ -21,7 +21,7 @@ interface NoteMentionDao {
     @Query(
         "SELECT n.*, COALESCE(l.albumId, (" +
             "SELECT ph.albumId FROM play_history ph WHERE ph.profileId = n.profileId AND ph.provider = n.provider " +
-            "AND ph.songId = n.trackId AND ph.albumId != '' LIMIT 1)) AS linkedAlbumId " +
+            "AND ph.songId = n.trackId AND ph.albumId != '' ORDER BY ph.playedAt DESC LIMIT 1)) AS linkedAlbumId " +
             "FROM song_notes n LEFT JOIN track_album_links l " +
             "ON l.profileId = n.profileId AND l.provider = n.provider AND l.trackId = n.trackId " +
             "WHERE n.profileId = :profileId AND n.content LIKE '%](yoin:%'",
@@ -74,6 +74,32 @@ interface NoteMentionDao {
             "LIMIT 200",
     )
     suspend fun albumsTitled(profileId: String, provider: String, titlePrefix: String): List<MentionNameRow>
+
+    /**
+     * Every distinct track name the profile knows on [provider] — the slow path when [tracksTitled] found no
+     * match: SQLite's LIKE folds ASCII case only, so Traditional/Simplified, accents and width variants need
+     * MentionMatcher to compare every name.
+     */
+    @Query(
+        "SELECT songId AS id, title, artist, album FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND title != '' " +
+            "UNION " +
+            "SELECT trackId AS id, title, artist, NULL AS album FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND title != '' " +
+            "LIMIT 20000",
+    )
+    suspend fun allTrackNames(profileId: String, provider: String): List<MentionNameRow>
+
+    /** Every distinct album name the profile knows on [provider] (the slow path after [albumsTitled]). */
+    @Query(
+        "SELECT albumId AS id, album AS title, artist, NULL AS album FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId != '' AND album != '' " +
+            "UNION " +
+            "SELECT albumId AS id, albumName AS title, artist, NULL AS album FROM album_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumName != '' " +
+            "LIMIT 20000",
+    )
+    suspend fun allAlbumNames(profileId: String, provider: String): List<MentionNameRow>
 }
 
 data class MentionReviewRow(

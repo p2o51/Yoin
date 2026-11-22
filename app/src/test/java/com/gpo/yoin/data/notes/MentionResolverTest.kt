@@ -84,6 +84,20 @@ class MentionResolverTest {
     }
 
     @Test
+    fun should_compareEveryName_when_thePrefixFindsNoMatch() = runTest {
+        // SQLite's LIKE doesn't fold accents or width: the prefix query finds nothing, the full pass does.
+        database.playHistoryDao().insert(play("t-cafe", "Cafe", "Beyonce", "Accents", "al-acc"))
+        database.songNoteDao().insert(note("n-charm", "t-charm", "Charm", "Clairo"))
+        val cafe = NoteMention(MentionKind.Track, "spotify", "sp1", "Café", "Beyoncé")
+        val charm = NoteMention(MentionKind.Track, "applemusic", "am1", "ＣＨＡＲＭ", "Ｃｌａｉｒｏ")
+        val album = NoteMention(MentionKind.Album, "spotify", "sp2", "Àccents", "Beyoncé")
+
+        assertEquals(MediaId.subsonic("t-cafe"), (resolver.resolve(cafe) as MentionResolution.Resolved).id)
+        assertEquals(MediaId.subsonic("t-charm"), (resolver.resolve(charm) as MentionResolution.Resolved).id)
+        assertEquals(MediaId.subsonic("al-acc"), (resolver.resolve(album) as MentionResolution.Resolved).id)
+    }
+
+    @Test
     fun should_beUnresolved_when_nothingHereAnswers() = runTest {
         database.playHistoryDao().insert(play("t-x", "Andromeda", "Someone Else", "Other", "al-x"))
         database.playHistoryDao().insert(
