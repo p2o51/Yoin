@@ -281,6 +281,31 @@ class NoteMarkupTest {
     }
 
     @Test
+    fun should_locateBlocksAndTokens_when_layingOutText() {
+        val link = NoteMarkup.serializeMention(andromeda)
+        val text = "# 标题\n- [x] **做完** $link"
+        val lines = NoteMarkup.layout(text)
+        assertEquals(2, lines.size)
+        assertEquals(2, lines[0].contentStart)
+        val second = lines[1]
+        assertEquals(text.indexOf("- [x]"), second.start)
+        assertEquals(second.start + 6, second.contentStart)
+        val bold = second.inlines.first { it.kind == InlineRange.Kind.Bold }
+        assertEquals("做完", text.substring(bold.innerStart, bold.innerEnd))
+        val mention = second.inlines.first { it.kind == InlineRange.Kind.Mention }
+        assertEquals(link, text.substring(mention.start, mention.end))
+    }
+
+    @Test
+    fun should_tickAndUntickOnlyTheToDo_when_toggled() {
+        val text = "- [ ] a\n- b\n- [X] c"
+        assertEquals("- [x] a\n- b\n- [X] c", NoteMarkup.toggleChecklist(text, 0))
+        assertEquals("- [ ] a\n- b\n- [ ] c", NoteMarkup.toggleChecklist(text, 2))
+        assertEquals(text, NoteMarkup.toggleChecklist(text, 1))
+        assertEquals(text, NoteMarkup.toggleChecklist(text, 9))
+    }
+
+    @Test
     fun should_normaliseABareEmptyToDo_when_reserialized() {
         assertEquals(listOf(Checklist(false, emptyList())), NoteMarkup.parse("- [ ]").blocks)
         assertEquals("- [ ] ", NoteMarkup.serialize(NoteMarkup.parse("- [ ]")))

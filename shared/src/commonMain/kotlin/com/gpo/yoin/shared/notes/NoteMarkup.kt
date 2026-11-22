@@ -123,6 +123,21 @@ data class NoteDocument(val blocks: List<NoteBlock>) {
     }
 }
 
+/** One line as [NoteMarkup.layout] reads it: its block, where it and its words start, and its inline tokens. */
+data class LineLayout(
+    val block: NoteBlock,
+    val start: Int,
+    val end: Int,
+    /** After the block marker (`- `, `# `, `- [ ] `). */
+    val contentStart: Int,
+    val inlines: List<InlineRange>,
+)
+
+/** One inline token's source range ([start]..[end]) and its words' range inside the delimiters. */
+data class InlineRange(val kind: Kind, val start: Int, val end: Int, val innerStart: Int, val innerEnd: Int) {
+    enum class Kind { Bold, Italic, Mention }
+}
+
 /** Where one mention sits in a text: `text.substring(start, end)` is its link. */
 data class MentionSpan(val start: Int, val end: Int, val mention: NoteMention)
 
@@ -241,6 +256,52 @@ object NoteMarkup {
             }
         }
         walk(inlines)
+    }
+
+    /**
+     * Where each line's block marker and inline tokens sit in [text] (absolute offsets): what an editor needs to
+     * style the stored text in place. Same reading as [parse].
+     */
+    fun layout(text: String): List<LineLayout> {
+        val out = ArrayList<LineLayout>()
+        var lineStart = 0
+        text.split('\n').forEach { line ->
+            val block = parseLine(line)
+            val markerLength = when (block) {
+                is NoteBlock.Paragraph -> 0
+                is NoteBlock.Heading -> block.level + 1
+                is NoteBlock.Bullet -> 2
+                is NoteBlock.Checklist -> if (line.length > 5) 6 else 5
+            }
+            val ranges = ArrayList<InlineRange>()
+            val content = line.substring(markerLength)
+            if (content.isNotEmpty()) InlineParser(content, ranges).parse(0, content.length)
+            val shift = lineStart + markerLength
+            out += LineLayout(
+                block = block,
+                start = lineStart,
+                end = lineStart + line.length,
+                contentStart = shift,
+                inlines = ranges.map {
+                    it.copy(start = it.start + shift, end = it.end + shift, innerStart = it.innerStart + shift, innerEnd = it.innerEnd + shift)
+                },
+            )
+            lineStart += line.length + 1
+        }
+        return out
+    }
+
+    /**
+     * [text] with the to-do on line [lineIndex] ticked or unticked; every other character as written. Not a
+     * to-do line (or out of range): [text] unchanged.
+     */
+    fun toggleChecklist(text: String, lineIndex: Int): String {
+        val lines = text.split('\n').toMutableList()
+        val line = lines.getOrNull(lineIndex) ?: return text
+        val block = parseLine(line) as? NoteBlock.Checklist ?: return text
+        val mark = if (block.checked) ' ' else 'x'
+        lines[lineIndex] = line.substring(0, 3) + mark + line.substring(4)
+        return lines.joinToString("\n")
     }
 
     // ── internals ─────────────────────────────────────────────────────
@@ -393,7 +454,7 @@ private fun List<NoteInline>.mentions(): List<NoteMention> = flatMap { node ->
 }
 
 /** Inline parsing of one line's content; every token covers exactly the characters it was read from. */
-private class InlineParser(private val s: String) {
+private class InlineParser(private val s: String, private val ranges: MutableList<InlineRange>? = null) {
     fun parse(start: Int, end: Int): List<NoteInline> {
         val out = ArrayList<NoteInline>()
         val text = StringBuilder()
@@ -411,6 +472,7 @@ private class InlineParser(private val s: String) {
                 if (match != null) {
                     flush()
                     out += NoteInline.Mention(match.mention)
+                    ranges?.add(InlineRange(InlineRange.Kind.Mention, i, match.end, i, match.end))
                     i = match.end
                     continue
                 }
@@ -419,6 +481,7 @@ private class InlineParser(private val s: String) {
                 val close = findBoldClose(i + 2, end)
                 if (close > i + 2) {
                     flush()
+                    ranges?.add(InlineRange(InlineRange.Kind.Bold, i, close + 2, i + 2, close))
                     out += NoteInline.Bold(parse(i + 2, close))
                     i = close + 2
                     continue
@@ -428,6 +491,7 @@ private class InlineParser(private val s: String) {
                 val close = findItalicClose(i + 1, end, c)
                 if (close > i + 1) {
                     flush()
+                    ranges?.add(InlineRange(InlineRange.Kind.Italic, i, close + 1, i + 1, close))
                     out += NoteInline.Italic(parse(i + 1, close), marker = c)
                     i = close + 1
                     continue
