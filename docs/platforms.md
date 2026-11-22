@@ -24,7 +24,7 @@ Located in `shared/src/commonMain/kotlin/com/gpo/yoin/shared/` (on `main`):
 - **Lyrics Engine (`data/lyrics/`)**: `LrcParser`, `LyricCandidateMatcher`, `LyricCreditsExtractor`, `LyricTranslations`, `NativeTranslation`, and `LyricsRegistry` (`QQLyricsProvider`, `NetEaseLyricsProvider`, `LrclibLyricsProvider`, `HuaweiLyricsProvider`).
 - **Cloud Sync (`sync/`)**: `CloudSyncCore`, `SyncEngine`, `SnapshotCodec`, `DriveAppDataClient`, `AccountBinder`, `AccountFingerprints`, `CanonicalJson`, and domain sync adapters.
 - **Playlist Transfer (`backup/`, `transfer/`)**: `PlaylistSnapshots`, `TrackMatcher`, `RestoreReview`.
-- **Note Text (`notes/`)**: `NoteMarkup` (light Markdown + `[@Title](yoin:kind/provider:id?a=&al=)` mentions: parse / serialize, plain-text and NeoDB projections, `rewriteMentions`) and `MentionMatcher` (name fallback). Android renders it since the notes revamp phase A; iOS and HarmonyOS still show stored note text verbatim (gap: mentions read as raw links there until they adopt it; HarmonyOS needs a Dart port).
+- **Note Text (`notes/`)**: `NoteMarkup` (light Markdown + `[@Title](yoin:kind/provider:id?a=&al=)` mentions: parse / serialize, plain-text and NeoDB projections, `rewriteMentions`) and `MentionMatcher` (name fallback). Android renders it since the notes revamp phase A and edits it (@ mentions, chips, formatting row, backlinks, several album stickies) since phase B; iOS and HarmonyOS still show stored note text verbatim and have no @ editor (gap: mentions read as raw links there until they adopt it; HarmonyOS needs a Dart port).
 
 ---
 
@@ -112,7 +112,7 @@ Legend: **Shipped** | **Partial** (scoped difference noted) | **Planned / Absent
 | **Continue On / Handoff** | Android 17+ (`ContinueOnPauseServer` + card) | Apple Handoff (`com.gpo.yoin.playing`) | Apple Handoff | HarmonyOS 应用接续 (`ContinueOnPlugin.ets` + TCP pause channel) |
 | **Widgets & Service Cards** | Glance `PlayWidget` & `MemoryWidget` | WidgetKit `PlayWidgetView` & `MemoryWidgetView` | Same WidgetKit targets | FormKit `PlayCard.ets` & `MemoryCard.ets` (`1×2`, `2×2`, `2×4`) |
 | **Screen Corners & Scroll Edge** | `ScreenCorners` (0–64 dp slider + device display detection) + `ScrollEdge` | **Absent** (system handles corners/edges via iOS Liquid Glass / standard scroll) | **Absent** | `ScreenCornerControl` (for devices/emulators) + `ScrollEdge` |
-| **Tips (`HomeBubbleTip`)** | 29 tips (with interactive real-component demos, including `MemorySearch`) | **26 tips** on iPad/Mac (**25** on iPhone; includes `AiServices` & `CloudSync`; 100% live `DemoPhone` coverage; omits Android `ScreenCorners`, `ScrollEdge`, `SettingsRegrouped`) | Same as iOS iPad (`26` tips) | **36** entries in `home_bubble_tips.dart` (`available()` returns **36** on foldable, **35** on non-foldable, **33** on desktop; omits Spotify-only & Nano-only tips; covers Cast/DLNA and user-picked `LyricHighlight`) |
+| **Tips (`HomeBubbleTip`)** | 30 tips (with interactive real-component demos, including `MemorySearch` and `NoteMentions`) | **26 tips** on iPad/Mac (**25** on iPhone; includes `AiServices` & `CloudSync`; 100% live `DemoPhone` coverage; omits Android `ScreenCorners`, `ScrollEdge`, `SettingsRegrouped`) | Same as iOS iPad (`26` tips) | **36** entries in `home_bubble_tips.dart` (`available()` returns **36** on foldable, **35** on non-foldable, **33** on desktop; omits Spotify-only & Nano-only tips; covers Cast/DLNA and user-picked `LyricHighlight`) |
 
 ---
 
