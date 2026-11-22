@@ -249,7 +249,13 @@ internal fun BackupPage(
                         SyncHeadline(
                             crumb = null,
                             headline = stringResource(R.string.settings_sync_export_running),
-                            lead = stringResource(R.string.settings_sync_export_running_summary),
+                            lead = stringResource(
+                                if (current.fromCloud) {
+                                    R.string.settings_sync_export_running_summary
+                                } else {
+                                    R.string.settings_sync_export_running_summary_local
+                                },
+                            ),
                             small = true,
                         )
                         ProgressHero(progress = null)
@@ -304,7 +310,7 @@ internal fun BackupPage(
 @Composable
 private fun mergeTarget(intoCloud: Boolean): String = stringResource(
     R.string.settings_sync_import_merge_into,
-    stringResource(if (intoCloud) R.string.settings_sync_google_drive else R.string.settings_sync_import_this_device),
+    stringResource(if (intoCloud) R.string.settings_sync_google_drive else R.string.settings_sync_import_this_device_inline),
 )
 
 @Composable
@@ -333,8 +339,9 @@ private fun ExportedContent(state: BackupUiState.Exported) {
             item(key = "readable") {
                 Column(modifier = Modifier.padding(bottom = 8.dp)) {
                     TreeRow(BackupFormat.READABLE_DIR, stringResource(R.string.settings_sync_export_readable), depth = 0, folder = true)
+                    // readableDir is the zip path ("readable/<account>/"): show the folder under readable/.
                     manifest.accounts.mapNotNull { it.readableDir }.distinct().forEach { dir ->
-                        TreeRow("$dir/", null, depth = 1, folder = true)
+                        TreeRow(dir.removePrefix(BackupFormat.READABLE_DIR).trimEnd('/') + "/", null, depth = 1, folder = true)
                     }
                 }
             }
@@ -534,7 +541,7 @@ private fun ImportAccountRow(plan: ImportAccountPlan, choice: ImportTarget, onCh
                 }
                 Text(
                     when {
-                        plan.sameAccount -> stringResource(R.string.settings_sync_import_same_account)
+                        plan.sameAccount && choice != ImportTarget.Skip -> stringResource(R.string.settings_sync_import_same_account)
                         choice == ImportTarget.CloudOnly -> stringResource(R.string.settings_sync_import_cloud_only_note)
                         else -> stringResource(R.string.settings_sync_import_choose)
                     },
@@ -543,7 +550,9 @@ private fun ImportAccountRow(plan: ImportAccountPlan, choice: ImportTarget, onCh
                 )
             },
         )
-        if (!plan.sameAccount) {
+        // Every account can be left out (a backup may carry accounts this import shouldn't touch); one that is
+        // the same account here offers only that and Skip.
+        run {
             val options = plan.targetOptions()
             FlowRow(
                 modifier = Modifier.padding(start = SettingsRowTextInset, end = 16.dp, bottom = 16.dp),

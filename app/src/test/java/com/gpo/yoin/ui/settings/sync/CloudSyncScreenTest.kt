@@ -291,4 +291,18 @@ class CloudSyncScreenTest {
         assertTrue(contract.parseResult(Activity.RESULT_OK, null))
         assertFalse(contract.parseResult(Activity.RESULT_CANCELED, null))
     }
+
+    @Test
+    fun should_offerTheDownload_when_syncIsOff() {
+        var exported = false
+        rule.setContent {
+            YoinTheme {
+                CloudSyncContent(state = CloudSyncSamples.off, onBackClick = {}, now = now, onExport = { exported = true })
+            }
+        }
+
+        rule.onNodeWithText("Download all data").performScrollTo().performClick()
+
+        assertTrue(exported)
+    }
 }

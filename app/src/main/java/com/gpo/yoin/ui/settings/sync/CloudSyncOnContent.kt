@@ -316,13 +316,19 @@ internal fun CloudSyncOnContent(
 
 /** 备份与迁移: download everything, import a backup, transfer Memories. */
 @Composable
-internal fun BackupGroup(actions: CloudSyncOnActions, includeTransfer: Boolean = true, titleRes: Int = R.string.settings_sync_section_backup) {
+internal fun BackupGroup(
+    actions: CloudSyncOnActions,
+    includeTransfer: Boolean = true,
+    titleRes: Int = R.string.settings_sync_section_backup,
+    // Sync off: the export is this device's data, not the cloud's.
+    exportTitleRes: Int = R.string.settings_sync_export_title,
+) {
     SettingsGroup(title = stringResource(titleRes)) {
-        if (includeTransfer) {
+        run {
             item(key = "export") {
                 SettingsItem(
                     icon = YoinSymbols.Download,
-                    title = stringResource(R.string.settings_sync_export_title),
+                    title = stringResource(exportTitleRes),
                     summary = stringResource(R.string.settings_sync_export_summary),
                     onClick = actions.onExport,
                     trailing = { Chevron() },

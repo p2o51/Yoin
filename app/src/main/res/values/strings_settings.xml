@@ -460,6 +460,7 @@
     <string name="settings_sync_section_manage">Manage</string>
     <string name="settings_sync_export_title">Download all cloud data</string>
     <string name="settings_sync_export_summary">Export a single ZIP with a restorable snapshot and readable Markdown</string>
+    <string name="settings_sync_export_title_local">Download all data</string>
     <string name="settings_sync_import_title">Import from backup</string>
     <string name="settings_sync_import_summary">Migrate from another cloud service, or restore without Google services</string>
     <string name="settings_sync_section_backup_file">Backup file</string>
@@ -553,6 +554,7 @@
     <string name="settings_sync_location_is_current">Current sync location</string>
     <string name="settings_sync_export_running">Creating backup</string>
     <string name="settings_sync_export_running_summary">Gathering your cloud data into a ZIP backup.</string>
+    <string name="settings_sync_export_running_summary_local">Gathering the data on this device into a ZIP backup.</string>
     <string name="settings_sync_export_done_bar">Exported</string>
     <string name="settings_sync_export_saved">Saved</string>
     <string name="settings_sync_export_contents">Backup contents</string>
@@ -575,6 +577,7 @@
     <string name="settings_sync_import_info">Backup info</string>
     <string name="settings_sync_import_exported">Exported</string>
     <string name="settings_sync_import_this_device">This device</string>
+    <string name="settings_sync_import_this_device_inline">this device</string>
     <string name="settings_sync_import_verified">Verified</string>
     <string name="settings_sync_import_verified_summary">SHA-256 matches, file intact</string>
     <string name="settings_sync_import_merge_into">Merge into %1$s</string>

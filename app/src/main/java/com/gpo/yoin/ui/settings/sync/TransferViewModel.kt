@@ -13,6 +13,7 @@ import com.gpo.yoin.data.transfer.memories.MatchStatus
 import com.gpo.yoin.data.transfer.memories.MemorySource
 import com.gpo.yoin.data.transfer.memories.MemoryTransfer
 import com.gpo.yoin.data.transfer.memories.TransferAccount
+import com.gpo.yoin.data.transfer.memories.TransferLedger
 import com.gpo.yoin.data.transfer.memories.TransferPlan
 import com.gpo.yoin.data.transfer.memories.TransferResult
 import kotlin.coroutines.cancellation.CancellationException
@@ -91,8 +92,18 @@ data class TransferUiState(
     val totalItems: Int get() = draft?.let { MemoryTransfer.countItems(it.items) } ?: 0
     val remainingItems: Int get() = draft?.let { (totalItems - it.previouslyCopied).coerceAtLeast(0) } ?: 0
 
-    /** Songs the source has data for whose ids carry over as they are. */
-    val directSongs: Int get() = draft?.let { (it.items.tracks.size - it.tracks.size).coerceAtLeast(0) } ?: 0
+    /**
+     * Songs whose ids carry over as they are and that still have something to copy (a rerun leaves out what an
+     * earlier run copied).
+     */
+    val directSongs: Int
+        get() = draft?.let { plan ->
+            val pending = MemoryTransfer.pendingItems(plan.items) { key ->
+                plan.ledger[key]?.startsWith(TransferLedger.COPIED) != true
+            }
+            val matching = plan.tracks.mapTo(HashSet()) { it.source }
+            pending.tracks.count { it !in matching }
+        } ?: 0
 
     /** Songs whose data the run will copy: the direct ones plus the checked rows. */
     val songsToCopy: Int get() = directSongs + rows.count { it.checked }

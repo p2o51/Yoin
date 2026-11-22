@@ -30,7 +30,8 @@ enum class BackupReadFailure { NotABackup, TooNew, Checksum, Unreadable }
 sealed interface BackupUiState {
     data object Idle : BackupUiState
 
-    data class Exporting(val fileName: String) : BackupUiState
+    /** [fromCloud]: Cloud sync is on (the copy is the cloud's), else this device's data. */
+    data class Exporting(val fileName: String, val fromCloud: Boolean = false) : BackupUiState
 
     data class Exported(val fileName: String, val summary: ExportSummary, val bytes: Long?) : BackupUiState
 
@@ -56,8 +57,14 @@ sealed interface BackupUiState {
     data class ImportFailed(val review: Review) : BackupUiState
 }
 
-/** The choices an account offers: its local profiles, cloud-only (when possible), skip. */
+/** The choices an account offers: its local profiles, cloud-only (when possible), skip; the same account: it or skip. */
 fun ImportAccountPlan.targetOptions(): List<ImportTarget> = buildList {
+    // The same account here: that profile or nothing.
+    if (sameAccount) {
+        add(target)
+        add(ImportTarget.Skip)
+        return@buildList
+    }
     options.forEach { add(ImportTarget.IntoProfile(it.localProfileId)) }
     if (cloudOnlyPossible && !wasPurged) add(ImportTarget.CloudOnly)
     add(ImportTarget.Skip)
@@ -80,7 +87,7 @@ class BackupViewModel(
     /** Writes the backup to [open]'s stream; [size] reads the saved file's size afterwards (for the summary). */
     fun export(fileName: String, open: suspend () -> OutputStream?, size: suspend () -> Long? = { null }) {
         if (_state.value != BackupUiState.Idle) return
-        _state.value = BackupUiState.Exporting(fileName)
+        _state.value = BackupUiState.Exporting(fileName, fromCloud = cloudSyncOn())
         viewModelScope.launch {
             // Once started the file is finished even if the page goes away.
             _state.value = withContext(NonCancellable) {

@@ -427,6 +427,7 @@
     <string name="settings_sync_section_manage">管理</string>
     <string name="settings_sync_export_title">下载全部云端数据</string>
     <string name="settings_sync_export_summary">导出为单个 ZIP，含可还原快照与可读 Markdown</string>
+    <string name="settings_sync_export_title_local">下载全部数据</string>
     <string name="settings_sync_import_title">从备份文件导入</string>
     <string name="settings_sync_import_summary">从其他云服务迁移，或在无 Google 服务的设备上还原</string>
     <string name="settings_sync_section_backup_file">备份文件</string>
@@ -520,6 +521,7 @@
     <string name="settings_sync_location_is_current">当前同步位置</string>
     <string name="settings_sync_export_running">正在打包</string>
     <string name="settings_sync_export_running_summary">正在整理云端数据并生成 ZIP 备份。</string>
+    <string name="settings_sync_export_running_summary_local">正在整理此设备上的数据并生成 ZIP 备份。</string>
     <string name="settings_sync_export_done_bar">已导出</string>
     <string name="settings_sync_export_saved">已保存</string>
     <string name="settings_sync_export_contents">备份内容</string>
@@ -542,6 +544,7 @@
     <string name="settings_sync_import_info">备份信息</string>
     <string name="settings_sync_import_exported">导出时间</string>
     <string name="settings_sync_import_this_device">此设备</string>
+    <string name="settings_sync_import_this_device_inline">此设备</string>
     <string name="settings_sync_import_verified">校验通过</string>
     <string name="settings_sync_import_verified_summary">SHA-256 一致，文件完整</string>
     <string name="settings_sync_import_merge_into">合并到 %1$s</string>

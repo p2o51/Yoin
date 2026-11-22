@@ -439,6 +439,7 @@ fun CloudSyncContent(
                                 snackbarHostState = snackbarHostState,
                                 onTurnOn = onTurnOn,
                                 onImport = onImport,
+                                onExport = onExport,
                             )
                         }
                     }
@@ -557,6 +558,7 @@ private fun OffContent(
     snackbarHostState: SnackbarHostState,
     onTurnOn: () -> Unit,
     onImport: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
         if (phase is CloudSyncPhase.ResetElsewhere) {
@@ -612,9 +614,10 @@ private fun OffContent(
         }
         // A backup imports without Cloud sync too (no Google services, or moving from another service).
         BackupGroup(
-            actions = CloudSyncOnActions(onImport = onImport),
+            actions = CloudSyncOnActions(onImport = onImport, onExport = onExport),
             includeTransfer = false,
             titleRes = R.string.settings_sync_section_backup_file,
+            exportTitleRes = R.string.settings_sync_export_title_local,
         )
         // The action changes with what this device can do; keyed on the kind
         // so a turn-on that comes back "not set up" swaps in place.

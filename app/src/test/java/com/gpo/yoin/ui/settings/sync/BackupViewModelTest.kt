@@ -104,4 +104,17 @@ class BackupViewModelTest {
 
         assertTrue(viewModel.state.value is BackupUiState.ImportFailed)
     }
+
+    @Test
+    fun should_letTheSameAccountBeSkipped_butNotSentElsewhere() = runTest {
+        viewModel.read("yoin-backup.zip") { ByteArrayInputStream(ByteArray(0)) }
+        val same = (viewModel.state.value as BackupUiState.Review).plan.accounts.first { it.sameAccount }
+
+        assertEquals(listOf(ImportTarget.IntoProfile("nav"), ImportTarget.Skip), same.targetOptions())
+        viewModel.choose("s-nav", ImportTarget.CloudOnly)
+        assertEquals(ImportTarget.IntoProfile("nav"), (viewModel.state.value as BackupUiState.Review).choices["s-nav"])
+        viewModel.choose("s-nav", ImportTarget.Skip)
+        viewModel.confirmImport()
+        assertEquals(ImportTarget.Skip, ops.importedWith?.get("s-nav"))
+    }
 }

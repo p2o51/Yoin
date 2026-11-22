@@ -233,4 +233,18 @@ class TransferViewModelTest {
         assertEquals("cloud:sp-previous", state.sourceKey)
         assertEquals(TransferStep.Summary, state.step)
     }
+
+    @Test
+    fun should_countOnlySongsLeftToCopy_when_rerun() {
+        val source = MemorySource.CloudAccount("sp-old")
+        val fresh = TransferUiState(draft = TransferSamples.directPlan(source, "sp"))
+        assertEquals(2, fresh.directSongs)
+
+        // n0 (song t1) went over in an earlier run: only t2 is left.
+        val rerun = TransferUiState(
+            draft = TransferSamples.directPlan(source, "sp", previouslyCopied = 1).copy(ledger = mapOf("note:n0" to "copied|x")),
+        )
+        assertEquals(1, rerun.directSongs)
+        assertEquals(1, rerun.songsToCopy)
+    }
 }
