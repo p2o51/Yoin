@@ -1824,7 +1824,10 @@ private fun LazyItemScope.HomeFeedRowItem(
                         remember(base, row) { GatedPlacementSpec(base) { engine.carries(row) } }
                     }
                 },
-                fadeOutSpec = specs.effectsOut,
+                // Two columns while editing: a row that goes (a pair forming) hands its cell to
+                // another row (HomeFeedCells); one kept fading out would still hold it, and the
+                // new row would compose the cell afresh beside the fading one.
+                fadeOutSpec = if (twoColumn && deps.controller.isEditing) null else specs.effectsOut,
             )
             // The dragged block draws over the rows it crosses.
             .dragZIndex { if (engine.carries(row)) 1f else 0f },

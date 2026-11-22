@@ -300,8 +300,13 @@ private fun <T> HomeFeedCell(
     val windowInfo = LocalYoinWindowInfo.current
     BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, place.rowKey) } ?: Modifier) {
         val half = place.pairHalf || place.span?.section == section
-        val info = remember(windowInfo, maxWidth, half) {
-            if (half) windowInfo.forHomeColumn(maxWidth) else windowInfo
+        // Two columns (a grid height): every cell reads its own width, full rows too. A cell
+        // changing rows springs its width (HomeCellFlips), and the window's full-width info
+        // in a cell still half wide crammed a full row's covers into it until the spring
+        // ended. At rest a full row's width is the feed's content width: the same info.
+        val column = half || place.grid != null
+        val info = remember(windowInfo, maxWidth, column) {
+            if (column) windowInfo.forHomeColumn(maxWidth) else windowInfo
         }
         CompositionLocalProvider(
             LocalYoinWindowInfo provides info,
