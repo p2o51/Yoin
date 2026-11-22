@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -320,15 +321,17 @@ internal fun HomeEditList(
             .fillMaxSize()
             // Its own layer: the wash re-records here alone as the list comes and goes.
             .graphicsLayer {}
-            .drawBehind {
-                val p = list.progress.value.coerceIn(0f, 1f)
-                if (p <= 0f) return@drawBehind
+            .drawWithCache {
+                // One brush per size and page colours, not one per frame of the list's way in.
                 val brush = if (background.size > 1) {
                     Brush.verticalGradient(background, startY = 0f, endY = size.height)
                 } else {
                     Brush.verticalGradient(listOf(background.first(), background.first()))
                 }
-                drawRect(brush, alpha = p)
+                onDrawBehind {
+                    val p = list.progress.value.coerceIn(0f, 1f)
+                    if (p > 0f) drawRect(brush, alpha = p)
+                }
             },
     ) {
         LazyColumn(

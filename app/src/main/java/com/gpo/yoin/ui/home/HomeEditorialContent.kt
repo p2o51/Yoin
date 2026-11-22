@@ -788,15 +788,17 @@ internal fun HomeEditorialContent(
     val isFlingInProgress: () -> Boolean = remember(listState, editListState, engine) {
         { if (engine.list.on) editListState.isScrollInProgress else listState.isScrollInProgress }
     }
-    // P on the move, a drag, the list coming or going, or a charge: vote the panel's high rate
-    // for exactly as long. Read only in HomeFrameRateVote's scope: a flip (a charge, a drag
-    // starting or ending, P settling) must not recompose the feed and every section in it.
-    val editAnimating: () -> Boolean = remember(controller, engine, press, rowsEngine) {
+    // P on the move, a drag, the list coming or going, a charge, or a scroll while editing (the
+    // feed's or the pinched list's): vote the panel's high rate for exactly as long. Read only in
+    // HomeFrameRateVote's scope: a flip (a charge, a drag starting or ending, P settling) must not
+    // recompose the feed and every section in it.
+    val editAnimating: () -> Boolean = remember(controller, engine, press, rowsEngine, listState, editListState) {
         val animating = derivedStateOf {
             val p = controller.progress.value
             (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.dragging != null ||
                 engine.settling != null || engine.list.progress.isRunning || press.charge.isRunning ||
-                rowsEngine.resizing
+                rowsEngine.resizing ||
+                (controller.isEditing && (listState.isScrollInProgress || editListState.isScrollInProgress))
         }
         ({ animating.value })
     }
