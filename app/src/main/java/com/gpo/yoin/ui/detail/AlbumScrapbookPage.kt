@@ -153,8 +153,10 @@ import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.dashedOutline
@@ -814,7 +816,9 @@ private fun Opening(
     val title = piece.title
     // A long review gets the full width under the cover instead of a narrow column beside it; on a
     // phone the column beside the cover belongs to the title when there is one.
-    val reviewBeside = (wide || piece.review == null || weightedLength(piece.review) <= OpeningBesideBudget) &&
+    // Measured on the words as read (mention links and Markdown marks don't take room).
+    val reviewWords = piece.review?.let(NoteMarkup::plainText)
+    val reviewBeside = (wide || reviewWords == null || weightedLength(reviewWords) <= OpeningBesideBudget) &&
         (wide || title == null)
     val review: @Composable (Modifier) -> Unit = { m ->
         if (piece.review != null) {
@@ -915,7 +919,8 @@ private fun Opening(
 /**
  * The album's one album note (D3's sticky): secondaryContainer paper with a folded bottom-right corner, in
  * the listener's own face. Told apart by paper and fold alone — no label, and no rail (the rail is the
- * track notes'). Read-only: nothing writes album notes any more.
+ * track notes'). Drawn from the stored Markdown ([NoteMarkupText]). Writing it from the page (one sticky
+ * per note) is the notes revamp's phase B; the data side already takes any number (ScrapEdit.NewAlbumNote).
  */
 @Composable
 private fun AlbumNoteSticky(
@@ -924,11 +929,12 @@ private fun AlbumNoteSticky(
     colors: ScrapbookColors,
     modifier: Modifier = Modifier,
 ) {
-    val description = stringResource(R.string.detail_scrap_cd_album_note, text)
-    Text(
+    val description = stringResource(R.string.detail_scrap_cd_album_note, NoteMarkup.plainText(text))
+    NoteMarkupText(
         text = text,
         style = userTextStyle().copy(fontSize = 14.5.sp),
         color = colors.onSticky,
+        mentionColor = colors.onSticky,
         modifier = modifier
             .scrapLayer(tilt, depth = 0.45f)
             .seamFade()
@@ -1048,7 +1054,7 @@ private fun ReviewClipping(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
+        NoteMarkupText(
             text = review,
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontFamily = GoogleSansFlex,
@@ -1057,6 +1063,7 @@ private fun ReviewClipping(
                 letterSpacing = 0.sp,
             ),
             color = colors.onReview,
+            mentionColor = colors.onReview,
         )
         // When it was written, quietly at the foot (owner 2026-10-05).
         if (writtenAt != null) {
@@ -1612,10 +1619,11 @@ private val NoteStampColumn = 42.dp
 @Composable
 private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -> Unit) {
     val at = line.positionMs?.let(::formatNotePosition)
+    val words = remember(line.text) { NoteMarkup.plainText(line.text) }
     val description = if (at != null) {
-        stringResource(R.string.detail_scrap_cd_note_at, at, line.text)
+        stringResource(R.string.detail_scrap_cd_note_at, at, words)
     } else {
-        stringResource(R.string.detail_scrap_cd_note, line.text)
+        stringResource(R.string.detail_scrap_cd_note, words)
     }
     val playLabel = if (at != null) {
         stringResource(R.string.detail_scrap_cd_play_from, at)
@@ -1651,10 +1659,11 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
                 .width(NoteStampColumn)
                 .alignByBaseline(),
         )
-        Text(
+        NoteMarkupText(
             text = line.text,
             style = userTextStyle(),
             color = colors.onNote,
+            mentionColor = colors.ink,
             modifier = Modifier
                 .weight(1f)
                 .alignByBaseline(),

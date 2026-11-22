@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -1567,7 +1568,7 @@ private fun AlbumHeroComment(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
+                NoteMarkupText(
                     text = content.userReview,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,

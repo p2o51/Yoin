@@ -6,6 +6,7 @@ import com.gpo.yoin.data.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.ledgerAlbumKey
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.notes.NoteMarkup
 
 /*
  * Memories and notes in library search (docs/search.md). They are read from the memory ledger, every
@@ -191,7 +192,7 @@ private fun memoryHit(
                 MemoryLedgerKind.AlbumNote -> MemoryHitField.AlbumNote
                 else -> return@forEach
             }
-            add(Candidate(field, entry.id, query.match(entry.text), entry.at))
+            add(Candidate(field, entry.id, query.match(entry.text?.let(::noteWords)), entry.at))
         }
     }
     // Best tier and strength; between equals, the newer writing.
@@ -215,7 +216,7 @@ private fun memoryHit(
 }
 
 private fun noteHit(entry: MemoryLedgerEntry, query: SearchQuery, activeProfileId: String?): NoteSearchHit? {
-    val body = query.match(entry.text)
+    val body = query.match(entry.text?.let(::noteWords))
     // The song's name and artist are weaker than any hit in the note's own words, yet a note on the
     // song typed is still worth showing.
     val title = query.match(entry.trackTitle)
@@ -230,7 +231,7 @@ private fun noteHit(entry: MemoryLedgerEntry, query: SearchQuery, activeProfileI
     val fragment = if (tier == MatchTier.Body) {
         query.fragment(match)
     } else {
-        query.fragment(FieldMatch(MatchStrength.Contains, FoldedText.of(entry.text.orEmpty())))
+        query.fragment(FieldMatch(MatchStrength.Contains, FoldedText.of(entry.text?.let(::noteWords).orEmpty())))
             ?.copy(highlight = IntRange.EMPTY)
     } ?: return null
     return NoteSearchHit(
@@ -288,3 +289,6 @@ fun memoryAttachments(
         )
     }.toMap()
 }
+
+/** A note's or review's words for search: mention names, no Markdown marks, no `yoin:` links (NoteMarkup). */
+internal fun noteWords(text: String): String = NoteMarkup.plainText(text)

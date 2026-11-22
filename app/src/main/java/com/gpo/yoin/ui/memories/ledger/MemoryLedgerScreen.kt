@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.ledger
 
+import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
 import android.text.format.DateFormat
@@ -1121,8 +1122,9 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
             )
         }
         when {
-            !entry.text.isNullOrBlank() -> Text(
+            !entry.text.isNullOrBlank() -> NoteMarkupText(
                 text = entry.text,
+                mentionColor = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = YoinSerifTitle,
                     fontSize = 19.sp,

@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.shared.notes.NoteMention
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -155,7 +156,9 @@ val NoteStampColumnWidth = 40.dp
  * line under the words (the date, in the journal order).
  *
  * Shared by the collapsed Note window and the expanded Note page, so a note
- * looks the same in both — no cards, no rail, no per-row buttons.
+ * looks the same in both — no cards, no rail, no per-row buttons. [text] is
+ * the stored note (light Markdown and mentions, [NoteMarkupText]); a mention
+ * is a link when [onMentionClick] is given.
  */
 @Composable
 fun NoteLine(
@@ -166,6 +169,7 @@ fun NoteLine(
     emphasis: NoteLineEmphasis = NoteLineEmphasis.Page,
     distance: Int? = 0,
     meta: String? = null,
+    onMentionClick: ((NoteMention) -> Unit)? = null,
 ) {
     val glance = emphasis == NoteLineEmphasis.Glance
     val scheme = MaterialTheme.colorScheme
@@ -247,8 +251,9 @@ fun NoteLine(
             }
         }
         Column(modifier = Modifier.weight(1f).alignByBaseline()) {
+            // The stored Markdown drawn: headings, lists, to-dos, bold / italic and mentions.
             BasicText(
-                text = text,
+                text = rememberNoteMarkup(text, mentionColor = scheme.primary, onMentionClick = onMentionClick),
                 style = bodyStyle.copy(
                     fontWeight = when {
                         glance && isActive -> FontWeight.Bold
@@ -955,6 +960,13 @@ private fun NoteLinePagePreview() {
             NoteLine(stamp = "1:23", text = "Chorus comes in — that last summer bus", isActive = true)
             NoteLine(stamp = "2:05", text = "Clap ×4", isActive = false, distance = 1, meta = "3 天前")
             NoteLine(stamp = null, text = "An old note with no moment", isActive = false, distance = 2)
+            NoteLine(
+                stamp = "2:40",
+                text = "**Strings** swell like [@Andromeda](yoin:track/applemusic:1?a=Weyes%20Blood)\n- [ ] live version",
+                isActive = false,
+                distance = 3,
+                onMentionClick = {},
+            )
         }
     }
 }
