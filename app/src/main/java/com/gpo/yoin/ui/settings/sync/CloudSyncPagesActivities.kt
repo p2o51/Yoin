@@ -15,6 +15,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
@@ -40,18 +41,19 @@ class CloudDataActivity : ComponentActivity() {
                 val viewModel: CloudDataViewModel = viewModel(factory = CloudDataViewModel.Factory(controller, page))
                 val snackbar = remember { SnackbarHostState() }
                 val context = LocalContext.current
+                val resources = LocalResources.current
                 val now = rememberTickingNow()
                 LaunchedEffect(viewModel) {
                     viewModel.events.collect { event ->
                         when (event) {
                             is CloudDataEvent.DeviceRemoved ->
-                                snackbar.showSnackbar(context.getString(R.string.settings_sync_device_removed, event.name))
+                                snackbar.showSnackbar(resources.getString(R.string.settings_sync_device_removed, event.name))
                             is CloudDataEvent.AccountRemoved -> {
-                                Toast.makeText(context, context.getString(R.string.settings_sync_removed, event.name), Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, resources.getString(R.string.settings_sync_removed, event.name), Toast.LENGTH_SHORT).show()
                                 finish()
                             }
                             is CloudDataEvent.RemoveFailed ->
-                                snackbar.showSnackbar(context.getString(R.string.settings_sync_remove_failed, event.name))
+                                snackbar.showSnackbar(resources.getString(R.string.settings_sync_remove_failed, event.name))
                         }
                     }
                 }
@@ -174,6 +176,7 @@ class BackupActivity : ComponentActivity() {
                 val state by viewModel.state.collectAsState()
                 val snackbar = remember { SnackbarHostState() }
                 val context = LocalContext.current
+                val resources = LocalResources.current
                 LaunchedEffect(viewModel) {
                     if (viewModel.state.value != BackupUiState.Idle) return@LaunchedEffect
                     val name = displayName(uri) ?: uri.lastPathSegment.orEmpty()
@@ -187,7 +190,7 @@ class BackupActivity : ComponentActivity() {
                         viewModel.read(name) { withContext(Dispatchers.IO) { contentResolver.openInputStream(uri) } }
                     }
                 }
-                val busyText = context.getString(R.string.settings_sync_busy)
+                val busyText = resources.getString(R.string.settings_sync_busy)
                 val back = {
                     if (viewModel.busy) {
                         Toast.makeText(context, busyText, Toast.LENGTH_SHORT).show()
@@ -262,15 +265,16 @@ class MemoriesTransferActivity : ComponentActivity() {
                 val state by viewModel.state.collectAsState()
                 val snackbar = remember { SnackbarHostState() }
                 val context = LocalContext.current
+                val resources = LocalResources.current
                 LaunchedEffect(viewModel) {
                     viewModel.events.collect { event ->
                         when (event) {
                             is TransferEvent.Finished -> {
                                 event.message?.let { message ->
                                     val text = when (message) {
-                                        is TransferFinishMessage.Copied -> context.getString(R.string.settings_xfer_finished, message.sourceName)
+                                        is TransferFinishMessage.Copied -> resources.getString(R.string.settings_xfer_finished, message.sourceName)
                                         is TransferFinishMessage.CardRemoved ->
-                                            context.getString(R.string.settings_xfer_card_removed, message.sourceName)
+                                            resources.getString(R.string.settings_xfer_card_removed, message.sourceName)
                                     }
                                     Toast.makeText(context, text, Toast.LENGTH_LONG).show()
                                 }
@@ -278,9 +282,9 @@ class MemoriesTransferActivity : ComponentActivity() {
                             }
                             is TransferEvent.Message -> snackbar.showSnackbar(
                                 when (val text = event.text) {
-                                    is TransferMessage.Cleaned -> context.getString(R.string.settings_xfer_cleaned, text.sourceName)
-                                    is TransferMessage.CleanFailed -> context.getString(R.string.settings_sync_remove_failed, text.sourceName)
-                                    TransferMessage.Busy -> context.getString(R.string.settings_sync_busy)
+                                    is TransferMessage.Cleaned -> resources.getString(R.string.settings_xfer_cleaned, text.sourceName)
+                                    is TransferMessage.CleanFailed -> resources.getString(R.string.settings_sync_remove_failed, text.sourceName)
+                                    TransferMessage.Busy -> resources.getString(R.string.settings_sync_busy)
                                 },
                             )
                         }

@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -396,7 +397,10 @@ internal fun sizeStat(bytes: Long): MetaGroup.Stat {
     return if (kb < 1024) {
         MetaGroup.Stat(formatCount(kotlin.math.ceil(kb).toInt().coerceAtLeast(if (bytes > 0) 1 else 0)), stringResource(R.string.settings_sync_unit_kb))
     } else {
-        MetaGroup.Stat(String.format(Locale.getDefault(), "%.1f", kb / 1024.0), stringResource(R.string.settings_sync_unit_mb))
+        MetaGroup.Stat(
+            String.format(LocalConfiguration.current.locales[0], "%.1f", kb / 1024.0),
+            stringResource(R.string.settings_sync_unit_mb),
+        )
     }
 }
 

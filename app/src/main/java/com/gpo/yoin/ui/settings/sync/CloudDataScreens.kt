@@ -568,8 +568,10 @@ private fun BrowserItem(
             }
         }
         if (score != null) {
+            // The UI's locale, observed: a language change re-formats the score.
+            val locale = LocalConfiguration.current.locales[0]
             Text(
-                String.format(Locale.getDefault(), "%.1f", score),
+                String.format(locale, "%.1f", score),
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -644,7 +646,7 @@ internal fun CloudGlobalPage(
                                 icon = YoinSymbols.Translate,
                                 meta = listOfNotNull(
                                     entry.artist?.takeIf(String::isNotBlank)?.let { MetaGroup.Plain(it) },
-                                    entry.language.takeIf(String::isNotBlank)?.let { MetaGroup.Kind(languageLabel(it)) },
+                                    entry.language.takeIf(String::isNotBlank)?.let { MetaGroup.Kind(languageLabel(it, LocalConfiguration.current.locales[0])) },
                                 ),
                             )
                         }
@@ -667,8 +669,8 @@ internal fun CloudGlobalPage(
 }
 
 /** "zh-Hans" → "简体中文" in the UI language; the tag itself when Java doesn't know it. */
-private fun languageLabel(tag: String): String {
+private fun languageLabel(tag: String, uiLocale: Locale): String {
     val locale = Locale.forLanguageTag(tag)
-    val name = locale.getDisplayName(Locale.getDefault())
+    val name = locale.getDisplayName(uiLocale)
     return name.takeIf { it.isNotBlank() && it != tag } ?: tag
 }
