@@ -359,11 +359,17 @@ internal fun HomeEditList(
             for (row in rows) {
                 item(key = homeSectionItemKey(row.first)) {
                     // The dragged row places at once (its strip follows the finger); the others make way.
+                    // No spec for it, not a snap: a snap lands a frame late (the strip a row off for a frame).
                     val placement = remember(row, specs) { GatedPlacementSpec(specs.placement) { engine.carries(row) } }
+                    val carried by remember(row, engine) { derivedStateOf { engine.carries(row) } }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .animateItem(fadeInSpec = specs.effectsIn, placementSpec = placement, fadeOutSpec = specs.effectsOut)
+                            .animateItem(
+                                fadeInSpec = specs.effectsIn,
+                                placementSpec = if (carried) null else placement,
+                                fadeOutSpec = specs.effectsOut,
+                            )
                             .dragZIndex { if (engine.carries(row)) 1f else 0f },
                         horizontalArrangement = Arrangement.spacedBy(HomeSpanTokens.ColumnGap),
                     ) {

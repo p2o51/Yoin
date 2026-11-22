@@ -1784,6 +1784,8 @@ private fun LazyItemScope.HomeFeedRowItem(
     // row's sections, not their sides: a pair swapping sides hands its cells the same grid (a new
     // one would recompose everything in both that reads it).
     val sections = remember(row) { row.sections().toSet() }
+    // The row holds the dragged block: only its row recomposes as a drag starts or ends.
+    val carried by remember(row, engine) { derivedStateOf { engine.carries(row) } }
     val grid = if (twoColumn) {
         remember(sections, units, env.units, env.density) {
             HomeGridHeight(units) {
@@ -1812,9 +1814,15 @@ private fun LazyItemScope.HomeFeedRowItem(
                     specs.effectsIn
                 },
                 // The dragged block's row places at once (the block follows the finger);
-                // every other row makes way on the spring.
-                placementSpec = env.placement()?.let { base ->
-                    remember(base, row) { GatedPlacementSpec(base) { engine.carries(row) } }
+                // every other row makes way on the spring. No spec at all for it, not a snap:
+                // a snap lands a frame late, and the block drew at the row's old place for a
+                // frame (its layer already offset from the new one) on every step.
+                placementSpec = if (carried) {
+                    null
+                } else {
+                    env.placement()?.let { base ->
+                        remember(base, row) { GatedPlacementSpec(base) { engine.carries(row) } }
+                    }
                 },
                 fadeOutSpec = specs.effectsOut,
             )
