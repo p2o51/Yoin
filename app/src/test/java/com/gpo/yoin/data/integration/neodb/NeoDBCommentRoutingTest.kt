@@ -142,4 +142,68 @@ class NeoDBCommentRoutingTest {
         // An emoji is one character, two UTF-16 units.
         assertTrue(isNeoDbShortComment("🎧".repeat(NeoDbShortCommentMax)))
     }
+
+    // ── mentions (notes revamp) ─────────────────────────────────────
+
+    private val mentionReview = "# 天堂\n后来在 [@Andromeda](yoin:track/applemusic:1445?a=Weyes%20Blood) 里又听到了。"
+    private val mentionReviewOnNeoDb = "# 天堂\n后来在 Andromeda 里又听到了。"
+
+    @Test
+    fun should_sendMentionsAsNames_when_pushingAReview() = runTest {
+        given(row(0f, mentionReview, ratingDirty = false, reviewDirty = true))
+
+        assertTrue(service.pushAlbum("p", album).isSuccess)
+
+        assertEquals(mentionReviewOnNeoDb, mark.captured.commentText)
+        assertFalse(mark.captured.commentText.orEmpty().contains("yoin:"))
+        // the dirty flag clears against the words as stored, mentions and all
+        coVerify(exactly = 1) {
+            ratingDao.markReviewPushed("al-1", MediaId.PROVIDER_SUBSONIC, "p", mentionReview, null, any())
+        }
+    }
+
+    @Test
+    fun should_judgeTheLengthOnTheProjectedText_when_mentionLinksAreLong() = runTest {
+        // Long only because of its link: NeoDB sees a short comment.
+        val link = "[@A](yoin:album/spotify:${"x".repeat(NeoDbShortCommentMax)})"
+        given(row(0f, "听 $link", ratingDirty = false, reviewDirty = true))
+
+        assertTrue(service.pushAlbum("p", album).isSuccess)
+
+        assertEquals("听 A", mark.captured.commentText)
+        coVerify(exactly = 0) { api.postReview(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun should_keepTheLocalMentions_when_neoDbHoldsTheirProjection() = runTest {
+        val local = row(0f, mentionReview, ratingDirty = false, reviewDirty = false).copy(reviewUpdatedAt = 5L)
+        given(local, remote = ShelfItem(commentText = mentionReviewOnNeoDb, ratingGrade = null))
+        coEvery { api.getMyReviewForItem(any(), any(), "uuid-1") } returns null
+
+        val pulled = service.pullAlbum("p", album).getOrThrow()
+
+        assertEquals(mentionReview, pulled?.review)
+        assertEquals(5L, pulled?.reviewUpdatedAt)
+    }
+
+    @Test
+    fun should_takeTheRemoteWords_when_theyWereEditedOnNeoDb() = runTest {
+        given(
+            row(0f, mentionReview, ratingDirty = false, reviewDirty = false),
+            remote = ShelfItem(commentText = "$mentionReviewOnNeoDb 网页上补了一句。", ratingGrade = null),
+        )
+        coEvery { api.getMyReviewForItem(any(), any(), "uuid-1") } returns null
+
+        val pulled = service.pullAlbum("p", album).getOrThrow()
+
+        assertEquals("$mentionReviewOnNeoDb 网页上补了一句。", pulled?.review)
+    }
+
+    @Test
+    fun should_matchTheProjection_only_when_theLocalTextHasMentions() {
+        assertTrue(neoDbHoldsLocalReview(mentionReview, "  $mentionReviewOnNeoDb\n"))
+        assertFalse(neoDbHoldsLocalReview("plain", "plain"))
+        assertFalse(neoDbHoldsLocalReview(null, "x"))
+        assertEquals("", neoDbReviewText(null))
+    }
 }

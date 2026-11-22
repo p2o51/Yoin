@@ -6,6 +6,7 @@ import com.gpo.yoin.data.local.ExternalMapping
 import com.gpo.yoin.data.local.ExternalMappingDao
 import com.gpo.yoin.data.local.NeoDBConfigDao
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.shared.notes.NoteMarkup
 import kotlin.math.roundToInt
 
 /**
@@ -19,6 +20,11 @@ import kotlin.math.roundToInt
  *    Mark 的短评 `comment_text`，并删掉远端 Review；更长 → `Review.body`，
  *    并清空短评；清空文字 → 两边都清。拉取时 Review 优先，没有 Review 才
  *    取短评。song_notes 仅用于 AlbumDetail 展示，不推 NeoDB。
+ *  - 提及（notes revamp, owner 2026-11-22）：review 里的 `[@名字](yoin:…)` 推送时
+ *    变成纯文字的名字（[neoDbReviewText]，其余轻量 Markdown 原样保留，NeoDB 的
+ *    Review 正文就是 Markdown）；长短按投影后的文字算。拉回来时远端若正是本地
+ *    投影出的那段文字，保留本地带提及的原文（[neoDbHoldsLocalReview]），不让
+ *    一次 pull 把提及冲掉。
  *  - Mark 覆写雷：POST `/api/me/shelf/item/{uuid}` 会整体覆写 —— 先 GET
  *    合并 tags + comment_text + visibility 再 POST，避免把其它客户端
  *    写的字段清掉。
@@ -81,7 +87,8 @@ class NeoDBSyncService internal constructor(
         val itemUuid = resolveAlbumUuid(album, session)
             ?: error("无法在 NeoDB 上找到对应专辑")
 
-        val text = local.review.orEmpty()
+        // What NeoDB gets: the review with its mentions flattened to names (NoteMarkup.toNeoDb).
+        val text = neoDbReviewText(local.review)
         val short = text.isNotBlank() && isNeoDbShortComment(text)
         // The mark carries the rating and, for a short text, the text itself:
         // rewrite it when either changed (review-only edits included — a long
@@ -199,6 +206,8 @@ class NeoDBSyncService internal constructor(
             ?: remote?.commentText?.takeIf(String::isNotBlank)
         val mergedReview = when {
             existing?.reviewNeedsSync == true -> existing.review
+            // NeoDB holds what Yoin sent (mentions as names): keep the words with their mentions.
+            remoteText != null && neoDbHoldsLocalReview(existing?.review, remoteText) -> existing?.review
             remoteText != null -> remoteText
             reviewLookup != null -> reviewLookup.body
             else -> existing?.review
@@ -317,3 +326,13 @@ internal const val NeoDbShortCommentMax = 360
 /** [text] fits NeoDB's short comment ([NeoDbShortCommentMax] characters, counted as code points). */
 internal fun isNeoDbShortComment(text: String): Boolean = text.codePointCount(0, text.length) <= NeoDbShortCommentMax
 
+
+/** The review as NeoDB gets it: mentions flattened to their names, every other character as written. */
+internal fun neoDbReviewText(review: String?): String = review?.let(NoteMarkup::toNeoDb).orEmpty()
+
+/**
+ * [remote] (NeoDB's review or short comment) is what Yoin would send for [local]: the same words with the
+ * mentions as names. Whitespace at the ends doesn't count (NeoDB may trim).
+ */
+internal fun neoDbHoldsLocalReview(local: String?, remote: String): Boolean =
+    !local.isNullOrBlank() && NoteMarkup.hasMentions(local) && neoDbReviewText(local).trim() == remote.trim()
