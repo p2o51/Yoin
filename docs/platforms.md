@@ -24,6 +24,7 @@ Located in `shared/src/commonMain/kotlin/com/gpo/yoin/shared/` (on `main`):
 - **Lyrics Engine (`data/lyrics/`)**: `LrcParser`, `LyricCandidateMatcher`, `LyricCreditsExtractor`, `LyricTranslations`, `NativeTranslation`, and `LyricsRegistry` (`QQLyricsProvider`, `NetEaseLyricsProvider`, `LrclibLyricsProvider`, `HuaweiLyricsProvider`).
 - **Cloud Sync (`sync/`)**: `CloudSyncCore`, `SyncEngine`, `SnapshotCodec`, `DriveAppDataClient`, `AccountBinder`, `AccountFingerprints`, `CanonicalJson`, and domain sync adapters.
 - **Playlist Transfer (`backup/`, `transfer/`)**: `PlaylistSnapshots`, `TrackMatcher`, `RestoreReview`.
+- **Note Text (`notes/`)**: `NoteMarkup` (light Markdown + `[@Title](yoin:kind/provider:id?a=&al=)` mentions: parse / serialize, plain-text and NeoDB projections, `rewriteMentions`) and `MentionMatcher` (name fallback). Android renders it since the notes revamp phase A; iOS and HarmonyOS still show stored note text verbatim (gap: mentions read as raw links there until they adopt it; HarmonyOS needs a Dart port).
 
 ---
 
