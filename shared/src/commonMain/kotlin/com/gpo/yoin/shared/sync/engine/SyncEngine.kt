@@ -10,7 +10,7 @@ import com.gpo.yoin.shared.sync.RecordVersion
 import com.gpo.yoin.shared.sync.RemoteFile
 import com.gpo.yoin.shared.sync.SkipReason
 import com.gpo.yoin.shared.sync.SyncAdapter
-import com.gpo.yoin.shared.sync.SyncStore
+import com.gpo.yoin.shared.sync.SyncBindingEntity
 import com.gpo.yoin.shared.sync.SyncEnvelope
 import com.gpo.yoin.shared.sync.SyncFormat
 import com.gpo.yoin.shared.sync.SyncKinds
@@ -19,6 +19,7 @@ import com.gpo.yoin.shared.sync.SyncMetaEntity
 import com.gpo.yoin.shared.sync.SyncMetaKeys
 import com.gpo.yoin.shared.sync.SyncRecordEntity
 import com.gpo.yoin.shared.sync.SyncRemoteFileEntity
+import com.gpo.yoin.shared.sync.SyncStore
 import com.gpo.yoin.shared.sync.WireRecord
 import com.gpo.yoin.shared.sync.isoUtcDate
 import com.gpo.yoin.shared.sync.syncNowMillis
@@ -27,6 +28,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The sync engine: pure replica logic over [SyncDatabase] and the domain
@@ -73,7 +75,8 @@ class SyncEngine(
         return db.transaction {
             val acc = MergeAccumulator()
             val names = DeviceNames(envelope)
-            for (wire in envelope.records) mergeRecord(wire, names, acc)
+            val purges = PurgeFilter(loadPurges(), envelope.purges.orEmpty())
+            for (wire in envelope.records) mergeRecord(wire, names, purges, acc)
             dao.upsertRemoteFile(
                 SyncRemoteFileEntity(
                     fileId = file.id,
@@ -91,12 +94,34 @@ class SyncEngine(
         }
     }
 
-    private suspend fun mergeRecord(wire: WireRecord, names: DeviceNames, acc: MergeAccumulator) {
+    /**
+     * Merges records that did not come from a Drive file (a backup being imported for accounts no local
+     * profile takes): the same rules as [mergeRemote], without any remote-file bookkeeping. Idempotent.
+     */
+    suspend fun mergeImported(envelope: SyncEnvelope): MergeResult = db.transaction {
+        val acc = MergeAccumulator()
+        val names = DeviceNames(envelope)
+        val purges = PurgeFilter(loadPurges(), envelope.purges.orEmpty())
+        for (wire in envelope.records) mergeRecord(wire, names, purges, acc)
+        acc.build("", envelope)
+    }
+
+    private suspend fun mergeRecord(
+        wire: WireRecord,
+        names: DeviceNames,
+        purges: PurgeFilter,
+        acc: MergeAccumulator,
+    ) {
         acc.received++
         val structurallyValid = wire.kind.isNotEmpty() && wire.key.isNotEmpty() && wire.device.isNotEmpty() &&
             (wire.deleted || wire.payload != null)
         if (!structurallyValid) {
             acc.malformed++
+            return
+        }
+        if (purges.refuses(wire.kind, wire.scope, wire.key, wire.ts)) {
+            // Removed from the cloud: a device that hasn't seen the marker (or an older build) still relays it.
+            acc.purged++
             return
         }
         val incoming = wire.toEntity()
@@ -227,6 +252,7 @@ class SyncEngine(
      */
     suspend fun capture(bindings: List<ActiveBinding>): CaptureResult {
         val acc = CaptureAccumulator()
+        purgeFloors = loadPurges()
         val now = clock()
         val name = deviceName()
         val names = DeviceNames(null)
@@ -378,7 +404,7 @@ class SyncEngine(
                     continue
                 }
                 val base = if (state.pending) state.pendingPrev else record?.version
-                val version = RecordVersion(maxOf(now, (record?.ts ?: Long.MIN_VALUE) + 1), deviceId)
+                val version = stamped(scope, maxOf(now, (record?.ts ?: Long.MIN_VALUE) + 1))
                 val edited = mergedPayload(adapter, record, row.projection)
                 // The domain never showed the replica's version (merged this cycle before capture, or an apply
                 // skipped as CHANGED_LOCALLY): the edit is concurrent with it, so text kinds keep both.
@@ -421,7 +447,7 @@ class SyncEngine(
             }
 
             // (c) brand new row
-            val version = RecordVersion(row.rowTs ?: now, deviceId)
+            val version = stamped(scope, row.rowTs ?: now)
             val payload = adapter.decoratePayload(row.projection, name)
             dao.upsertRecord(localRecord(adapter, scope, row.key, version, null, payload))
             dao.upsertLocalState(localState(kind, scope, row.key, boundProfileId, hash, version, pending = true, null))
@@ -498,7 +524,7 @@ class SyncEngine(
                 loserTs = if (localWinsLww) record.ts else candidateTs,
             )
             if (merged != null) {
-                val version = RecordVersion(maxOf(candidateTs, record.ts) + 1, deviceId)
+                val version = stamped(scope, maxOf(candidateTs, record.ts) + 1)
                 dao.upsertRecord(localRecord(adapter, scope, row.key, version, record.version, merged))
                 // applied = null: the next apply writes the merged text over the local row (guarded by its hash).
                 dao.upsertLocalState(
@@ -513,7 +539,7 @@ class SyncEngine(
         if (canWin) {
             val meaninglessTombstone = record.deleted && !adapter.propagatesDeletes
             val ts = if (meaninglessTombstone) maxOf(candidateTs, record.ts + 1) else candidateTs
-            val version = RecordVersion(ts, deviceId)
+            val version = stamped(scope, ts)
             val payload = adapter.decoratePayload(mergedPayload(adapter, record, row.projection), name)
             dao.upsertRecord(localRecord(adapter, scope, row.key, version, record.version, payload))
             dao.upsertLocalState(
@@ -565,7 +591,7 @@ class SyncEngine(
         now: Long,
     ) {
         val base = if (state.pending) state.pendingPrev else record.version
-        val version = RecordVersion(maxOf(now, record.ts + 1), deviceId)
+        val version = stamped(record.scope, maxOf(now, record.ts + 1))
         dao.upsertRecord(
             SyncRecordEntity(
                 kind = record.kind,
@@ -706,10 +732,11 @@ class SyncEngine(
             }
         }
         val name = deviceName()
+        val purges = loadPurges().takeIf { it.isNotEmpty() }
         return buildList {
-            add(outgoingFile(FileClass.STATE, 0, state, epoch, writtenAt, appVersionCode, name))
+            add(outgoingFile(FileClass.STATE, 0, state, epoch, writtenAt, appVersionCode, name, purges))
             shards.forEachIndexed { shard, records ->
-                add(outgoingFile(FileClass.ARTIFACTS, shard, records, epoch, writtenAt, appVersionCode, name))
+                add(outgoingFile(FileClass.ARTIFACTS, shard, records, epoch, writtenAt, appVersionCode, name, purges))
             }
         }
     }
@@ -722,10 +749,17 @@ class SyncEngine(
         writtenAt: Long,
         appVersionCode: Int,
         name: String,
+        purges: Map<String, Long>?,
     ): OutgoingFile {
         val wires = records.map { it.toWire() }
+        val recordsJson = JsonArray(wires.map { SyncJson.json.encodeToJsonElement(WireRecord.serializer(), it) })
+        // Acknowledged purges are part of what the file says: a new one is published even with no record change.
         val contentHash = CanonicalJson.hash(
-            JsonArray(wires.map { SyncJson.json.encodeToJsonElement(WireRecord.serializer(), it) }),
+            if (purges == null) {
+                recordsJson
+            } else {
+                JsonObject(mapOf("records" to recordsJson, "purges" to JsonObject(purges.mapValues { JsonPrimitive(it.value) })))
+            },
         )
         val envelope = SyncEnvelope(
             epoch = epoch,
@@ -736,6 +770,7 @@ class SyncEngine(
             writtenAt = writtenAt,
             appVersionCode = appVersionCode,
             records = wires,
+            purges = purges,
         )
         return OutgoingFile(
             fileKind = fileClass.wireName,
@@ -832,8 +867,9 @@ class SyncEngine(
     }
 
     /**
-     * Drops records, local state and remote-file bookkeeping, plus the replica-derived held review and
-     * last-uploaded hashes. Bindings and the rest of sync_meta stay.
+     * Drops records, local state and remote-file bookkeeping, plus the replica-derived held review,
+     * last-uploaded hashes and scope purges (they belong to the Drive the replica came from, so bindings
+     * paused by one sync again). Bindings and the rest of sync_meta stay.
      */
     suspend fun clearReplica() {
         db.transaction {
@@ -842,7 +878,70 @@ class SyncEngine(
             dao.clearRemoteFiles()
             dao.deleteMeta(SyncMetaKeys.HELD_REVIEW)
             clearUploadedHashes()
+            for (entry in dao.metaWithPrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX)) {
+                if (entry.key.startsWith(SyncMetaKeys.PURGED_SCOPE_PREFIX)) dao.deleteMeta(entry.key)
+            }
+            dao.updateBindingStates(SyncBindingEntity.STATE_PURGED, SyncBindingEntity.STATE_ACTIVE)
         }
+    }
+
+    // ------------------------------------------------------------------ scope purge (docs/cloud-sync.md)
+
+    /** Scope purges applied on this device: syncProfileId -> epoch. */
+    suspend fun purgedScopes(): Map<String, Long> = loadPurges()
+
+    /**
+     * Applies a scope purge marker: forgets every replica record of [scope] (and its account descriptor)
+     * with their local state, and remembers [epoch]. From then on merges take the scope's records only from
+     * files that acknowledge the purge ([SyncEnvelope.purges]) and only after the epoch, this device's own
+     * files acknowledge it, and new local versions of the scope are stamped after it. Domain rows stay.
+     * Idempotent; an epoch not newer than the one already applied changes nothing. Returns the records dropped.
+     */
+    suspend fun applyScopePurge(scope: String, epoch: Long): Int {
+        require(scope != SyncFormat.GLOBAL_SCOPE) { "Only per-account scopes can be removed from the cloud" }
+        return db.transaction {
+            val metaKey = SyncMetaKeys.PURGED_SCOPE_PREFIX + scope
+            val known = dao.meta(metaKey)?.toLongOrNull()
+            if (known != null && known >= epoch) return@transaction 0
+            dao.putMeta(SyncMetaEntity(metaKey, epoch.toString()))
+            var removed = 0
+            // Everything held now came from files that didn't know the purge (or predates it), whatever its
+            // timestamp says: a device whose clock runs ahead must not keep the account alive.
+            for (record in dao.recordsInScope(scope)) {
+                dao.deleteRecord(record.kind, scope, record.key)
+                dao.deleteLocalState(record.kind, scope, record.key)
+                removed++
+            }
+            // Local state left without a record would read as a tracked row on a resumed binding.
+            for (state in dao.localStatesInScope(scope)) {
+                if (dao.getRecord(state.kind, scope, state.key) == null) dao.deleteLocalState(state.kind, scope, state.key)
+            }
+            dao.getRecord(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, scope)?.let {
+                dao.deleteRecord(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, scope)
+                dao.deleteLocalState(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, scope)
+                removed++
+            }
+            if (loadHeldReview()?.scope == scope) dao.deleteMeta(SyncMetaKeys.HELD_REVIEW)
+            removed
+        }
+    }
+
+    private suspend fun loadPurges(): Map<String, Long> = dao.metaWithPrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX)
+        .filter { it.key.startsWith(SyncMetaKeys.PURGED_SCOPE_PREFIX) }
+        .mapNotNull { entry ->
+            val scope = entry.key.removePrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX).takeIf(String::isNotEmpty)
+            val epoch = entry.value.toLongOrNull()
+            if (scope != null && epoch != null) scope to epoch else null
+        }
+        .toMap()
+
+    /** Purges known when the current capture started (the engine is single-threaded by contract). */
+    private var purgeFloors: Map<String, Long> = emptyMap()
+
+    /** A new local version of [scope] at [ts], moved after the scope's purge epoch if it has one. */
+    private fun stamped(scope: String, ts: Long): RecordVersion {
+        val epoch = purgeFloors[scope]
+        return RecordVersion(if (epoch != null && ts <= epoch) epoch + 1 else ts, deviceId)
     }
 
     suspend fun hasPendingChanges(): Boolean = dao.pendingCount() > 0
@@ -988,6 +1087,20 @@ class SyncEngine(
         }
     }
 
+    /**
+     * [known] = purges applied here; [acknowledged] = purges the file's writer had applied. A record of a purged
+     * scope is taken only from a writer that knew that purge (or a newer one), and only after its epoch.
+     */
+    private class PurgeFilter(private val known: Map<String, Long>, private val acknowledged: Map<String, Long>) {
+        fun refuses(kind: String, scope: String, key: String, ts: Long): Boolean {
+            if (known.isEmpty()) return false
+            val purgedScope = purgeScopeOf(kind, scope, key)
+            val epoch = known[purgedScope] ?: return false
+            val acked = acknowledged[purgedScope] ?: return true
+            return acked < epoch || ts <= epoch
+        }
+    }
+
     private class MergeAccumulator {
         var received = 0
         var inserted = 0
@@ -997,6 +1110,7 @@ class SyncEngine(
         var localChangesDropped = 0
         var opaque = 0
         var malformed = 0
+        var purged = 0
         val changed = ScopeKindCounter()
 
         fun build(fileId: String, envelope: SyncEnvelope) = MergeResult(
@@ -1012,6 +1126,7 @@ class SyncEngine(
             opaque = opaque,
             malformed = malformed,
             changedByScope = changed.snapshot(),
+            purged = purged,
         )
     }
 
@@ -1090,10 +1205,13 @@ class SyncEngine(
         /**
          * Label handed to [SyncAdapter.mergeConcurrent]: "<loser device name> · yyyy-MM-dd" (UTC date of the
          * losing version), so every device that merges the same pair produces identical text.
-         * Android formats with java.time ISO_LOCAL_DATE; this is the same civil date (years 0..9999).
          */
         fun loserLabel(deviceName: String, ts: Long): String =
             isoUtcDate(ts)?.let { "$deviceName · $it" } ?: deviceName
+
+        /** The scope a record belongs to for purging: its own, or the account a descriptor describes. */
+        internal fun purgeScopeOf(kind: String, scope: String, key: String): String =
+            if (scope == SyncFormat.GLOBAL_SCOPE && kind == SyncKinds.ACCOUNT) key else scope
 
         private fun uploadedHashKey(fileKind: String, shard: Int) =
             "${SyncMetaKeys.LAST_UPLOADED_HASH_PREFIX}$fileKind:$shard"
