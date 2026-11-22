@@ -63,38 +63,51 @@ object HomeGreetingPrompt {
         return if (lang == "zh") {
             buildString {
                 append(
-                    "你是一个克制、安静的音乐播放器首页问候语作者。请一次性为今天的三个时段各写一句极短问候：\n" +
-                        "- morning（早上）、afternoon（午后）、evening（夜晚）\n" +
+                    "为音乐播放器首页写今天三个时段的极短问候语（平实自然，不抒情，不打鸡血）：\n" +
+                        "- morning（早上）、afternoon（下午）、evening（晚上）\n" +
                         "要求：\n" +
-                        "1. 每句必须是简体中文，2到8个字（绝不超过10个字），不换行，不带表情符号，不带引号和感叹号。\n" +
-                        "2. 语气自然平实、有轻微音乐感，不要鸡汤、不要夸张、不要强行念出歌手名。\n" +
-                        "3. 示范风格：{\"morning\":\"早安，慢慢醒来\",\"afternoon\":\"午后听点轻的\",\"evening\":\"晚安，放一首歌\"}\n" +
-                        "4. 只输出 JSON，格式严格为 {\"morning\":\"...\",\"afternoon\":\"...\",\"evening\":\"...\"}，不要其他文字。\n\n",
+                        "1. 简体中文，每句 4 到 8 个字（绝不超过 10 个字），不换行，不用表情、引号、感叹号。\n" +
+                        "2. 只围绕听歌与今天的星期节奏（如周一开启、周五临近周末、周末慢听），不要提上班干活、加油或聊天。\n" +
+                        "3. 禁止使用「旋律、晨光、夜色、静谧、共鸣、轻柔、入耳、漫步」等文艺套话，也不要硬塞歌手名。\n" +
+                        "4. 只输出 JSON：{\"morning\":\"...\",\"afternoon\":\"...\",\"evening\":\"...\"}，不要其他文字。\n\n",
                 )
-                append("今天是：").append(zhDayOfWeek(dayOfWeek)).append('\n')
+                append("今天是：").append(zhDayOfWeek(dayOfWeek)).append("（").append(zhDayHint(dayOfWeek)).append("）\n")
                 if (artists.isNotEmpty()) {
-                    append("最近常听风格参考（不必直接写名字）：").append(artists.joinToString("、")).append('\n')
+                    append("最近常听：").append(artists.joinToString("、")).append('\n')
                 }
             }
         } else {
             buildString {
                 append(
-                    "Write three understated, warm one-line greetings for a quiet music player's Home header:\n" +
-                        "- morning, afternoon, and evening for today.\n" +
+                    "Write three plain, everyday one-line greetings for a music player's Home header (morning, afternoon, evening).\n" +
                         "Rules:\n" +
-                        "1. English only, 2 to 4 words each (strictly under 26 characters), single line, no emojis, no quotes, no exclamation marks.\n" +
-                        "2. Natural, calm, lightly musical; avoid clichés and avoid awkwardly repeating artist names.\n" +
-                        "3. Style example: {\"morning\":\"Easy morning spin\",\"afternoon\":\"Slow afternoon listening\",\"evening\":\"Quiet evening ahead\"}\n" +
+                        "1. English only, 2 to 4 words each (strictly under 26 characters), single line, no emojis, quotes, or exclamation marks.\n" +
+                        "2. Match the feel of the day of the week (weekday start, Friday wind-down, weekend pace); sound like a real person, not poetry.\n" +
+                        "3. Do NOT use cliché words like soft, gentle, mellow, tunes, notes, flow, or unfolds, and do not force artist names in.\n" +
                         "4. Answer with JSON only: {\"morning\":\"...\",\"afternoon\":\"...\",\"evening\":\"...\"}. No other text.\n\n",
                 )
-                append("Day: ").append(enDayOfWeek(dayOfWeek)).append('\n')
+                append("Today: ").append(enDayOfWeek(dayOfWeek)).append(" (").append(enDayHint(dayOfWeek)).append(")\n")
                 if (artists.isNotEmpty()) {
-                    append("Recent listening mood (do not force names in): ")
-                        .append(artists.joinToString(", "))
-                        .append('\n')
+                    append("Recently played: ").append(artists.joinToString(", ")).append('\n')
                 }
             }
         }
+    }
+
+    private fun zhDayHint(day: DayOfWeek): String = when (day) {
+        DayOfWeek.MONDAY -> "新一周刚开始"
+        DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY -> "普通工作日"
+        DayOfWeek.FRIDAY -> "快到周末了"
+        DayOfWeek.SATURDAY -> "周六休息日"
+        DayOfWeek.SUNDAY -> "周日慢节奏"
+    }
+
+    private fun enDayHint(day: DayOfWeek): String = when (day) {
+        DayOfWeek.MONDAY -> "start of the week"
+        DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY -> "midweek workday"
+        DayOfWeek.FRIDAY -> "almost the weekend"
+        DayOfWeek.SATURDAY -> "Saturday off"
+        DayOfWeek.SUNDAY -> "easy Sunday"
     }
 
     private val MORNING_RE = Regex("\"?morning\"?\\s*[:=]\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE)

@@ -25,9 +25,9 @@ object AboutFollowUpPrompt {
     const val MAX_QUESTIONS = 3
 
     const val MIN_ZH_CHARS = 4
-    const val MAX_ZH_CHARS = 24
+    const val MAX_ZH_CHARS = 32
     const val MIN_EN_CHARS = 10
-    const val MAX_EN_CHARS = 64
+    const val MAX_EN_CHARS = 68
     const val MIN_EN_WORDS = 3
     const val MAX_EN_WORDS = 12
 
@@ -105,10 +105,10 @@ object AboutFollowUpPrompt {
     fun buildPrompt(prepared: Prepared): String = if (prepared.localeTag == "zh") {
         buildString {
             append(
-                "你是一个音乐应用里的追问建议助手。请只根据下面给出的歌曲「关于」内容，提出 3 个听众看完后会顺着想继续问的简短问题。\n" +
+                "你是一个音乐应用里的追问建议助手。请根据下面给出的歌曲「关于」内容，提出 3 个听众看完后会顺着想继续深挖的简短问题。\n" +
                     "要求：\n" +
-                    "1. 每个问题用简体中文，6到20个字，以问号结尾，具体指向简介里提到的创作背景、编曲、人物、版本或故事，不要泛泛套话。\n" +
-                    "2. 不要编造简介之外的事实，不要重复已经问过的问题。\n" +
+                    "1. 每个问题用简体中文，6到24个字，以问号结尾，具体指向简介里提到的创作背景、编曲、人物、版本或现场故事，不要泛泛套话。\n" +
+                    "2. 顺着简介往深处问（创作细节、不同版本对比、录音趣事或风格渊源），不要问简介里已经直接给出答案的阅读理解题，也不要编造事实或重复已问问题。\n" +
                     "3. 只输出 JSON 字符串数组，格式如 [\"问题1？\",\"问题2？\",\"问题3？\"]，不要任何其他文字。\n\n",
             )
             if (prepared.title.isNotEmpty()) {
@@ -124,11 +124,11 @@ object AboutFollowUpPrompt {
     } else {
         buildString {
             append(
-                "Suggest 3 short follow-up questions a listener might naturally ask next after reading the song notes below.\n" +
+                "Suggest 3 short follow-up questions a listener would naturally want to explore next after reading the song notes below.\n" +
                     "Rules:\n" +
-                    "1. English only, 4 to 10 words each (max 60 characters), ending with a question mark.\n" +
-                    "2. Ground every question in details actually mentioned in the notes; avoid generic filler or inventing facts.\n" +
-                    "3. Do not repeat any already-asked questions.\n" +
+                    "1. English only, 4 to 11 words each (max 64 characters), ending with a question mark.\n" +
+                    "2. Go deeper beyond what is already answered in the notes (live versions, recording stories, influences, album role) — NEVER ask quiz questions whose answer is already stated verbatim in the notes.\n" +
+                    "3. Do not invent facts or repeat any already-asked questions.\n" +
                     "4. Output a JSON array of strings only, e.g. [\"Question 1?\",\"Question 2?\",\"Question 3?\"]. No other text.\n\n",
             )
             if (prepared.title.isNotEmpty()) {
@@ -143,7 +143,6 @@ object AboutFollowUpPrompt {
         }
     }
 
-    private val QUOTED_ITEM = Regex("\"([^\"]{3,100})\"")
     private val LEADING_MARKER = Regex("^\\s*(?:[-*•]|\\d+[.)、])\\s*")
     private val META_PREFIXES = listOf(
         "here are", "sure", "certainly", "follow-up", "questions:",
@@ -152,7 +151,8 @@ object AboutFollowUpPrompt {
 
     /**
      * Parses Nano's output into up to [MAX_QUESTIONS] validated, deduplicated follow-up questions that do not
-     * repeat [asked]. Accepts a JSON string array as well as bulleted/numbered lines if Nano misses JSON.
+     * repeat [asked]. Parses JSON string arrays properly (preserving nested CJK smart quotes like `“”`), and
+     * falls back to bulleted/numbered lines if Nano misses JSON.
      */
     fun parse(
         answer: String?,
@@ -165,16 +165,10 @@ object AboutFollowUpPrompt {
             .removePrefix("```json")
             .removePrefix("```")
             .removeSuffix("```")
-            .replace('“', '"')
-            .replace('”', '"')
             .trim()
 
-        val rawCandidates: List<String> = if (body.contains('[') && body.contains('"')) {
-            val arrayPart = body.substringAfter('[').substringBeforeLast(']')
-            QUOTED_ITEM.findAll(arrayPart).map { it.groupValues[1] }.toList()
-        } else {
-            body.lineSequence().map { it.trim() }.filter(String::isNotEmpty).toList()
-        }
+        val rawCandidates: List<String> = extractJsonArrayStrings(body)
+            ?: body.lineSequence().map { it.trim() }.filter(String::isNotEmpty).toList()
 
         val seen = asked.mapTo(HashSet(), SongAboutEntry::normalize)
         val out = ArrayList<String>(MAX_QUESTIONS)
@@ -186,6 +180,50 @@ object AboutFollowUpPrompt {
             if (out.size == MAX_QUESTIONS) break
         }
         return out
+    }
+
+    /**
+     * Extracts string elements from a JSON array literal `[ "...", "..." ]` without corrupting nested CJK smart
+     * quotes (`“”`) inside the strings. Returns null when [body] does not contain a valid JSON string array.
+     */
+    internal fun extractJsonArrayStrings(body: String): List<String>? {
+        val start = body.indexOf('[')
+        val end = body.lastIndexOf(']')
+        if (start < 0 || end <= start) return null
+        val slice = body.substring(start + 1, end)
+        val out = ArrayList<String>()
+        var i = 0
+        while (i < slice.length) {
+            val quoteIdx = slice.indexOf('"', i)
+            if (quoteIdx < 0) break
+            val buf = StringBuilder()
+            var j = quoteIdx + 1
+            var closed = false
+            while (j < slice.length) {
+                val ch = slice[j]
+                if (ch == '\\' && j + 1 < slice.length) {
+                    val next = slice[j + 1]
+                    when (next) {
+                        '"', '\\', '/' -> buf.append(next)
+                        'n' -> buf.append(' ')
+                        'r', 't' -> buf.append(' ')
+                        else -> buf.append(next)
+                    }
+                    j += 2
+                } else if (ch == '"') {
+                    closed = true
+                    j++
+                    break
+                } else {
+                    buf.append(ch)
+                    j++
+                }
+            }
+            if (!closed) break
+            out += buf.toString()
+            i = j
+        }
+        return out.takeIf { it.isNotEmpty() }
     }
 
     internal fun sanitize(raw: String, localeTag: String): String? {

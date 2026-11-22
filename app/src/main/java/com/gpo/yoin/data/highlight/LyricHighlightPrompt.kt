@@ -116,14 +116,14 @@ object LyricHighlightPrompt {
 
     /** The system half of the prompt: the rules. Kept short; Nano follows short rules best. */
     const val SYSTEM_INSTRUCTION: String =
-        "You pick the most memorable passage in a song's lyrics: 1 to 3 consecutive lines (usually 2 or 3) " +
+        "You pick the most memorable passage in a song's lyrics: 1 to 3 consecutive lines (usually 2 or 3, NEVER 4 or more) " +
             "from the SAME stanza that connect as one complete thought and land on a natural ending. " +
             "Blank lines mark section breaks: NEVER cross a blank line or join the end of one section to the " +
             "start of the next. NEVER stop mid-sentence or cut off the second half of a couplet. " +
             "Prefer vivid images and emotional resonance over repeated titles, filler (\"oh\", \"yeah\", " +
             "\"la la\"), or plain narration. " +
             "Answer with JSON only, in the form {\"start\": N, \"end\": M}, where N and M are line numbers " +
-            "in the same stanza and M is N, N+1, or N+2. No other text."
+            "in the same stanza and M is N, N+1, or N+2 (at most 3 lines total, NEVER M >= N+3). No other text."
 
     /** The user half: the song and its numbered lines, with blank lines where stanzas or omitted repeats break. */
     fun userPrompt(title: String, artist: String, prepared: Prepared): String = buildString {

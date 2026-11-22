@@ -117,4 +117,28 @@ class AboutFollowUpPromptTest {
             merged,
         )
     }
+
+    @Test
+    fun should_preserveNestedCjkSmartQuotes_andEnglishTitlesInChineseQuestions() {
+        val raw = """
+            ```json
+            [
+              "“大风吹”如何象征世代焦虑？",
+              "歌词中“香烟的味道”具体指代什么隐喻？",
+              "《Forbidden Colours》人声版与原曲有何区别？"
+            ]
+            ```
+        """.trimIndent()
+
+        val questions = AboutFollowUpPrompt.parse(raw, asked = emptyList(), localeTag = "zh-CN")
+
+        assertEquals(
+            listOf(
+                "“大风吹”如何象征世代焦虑？",
+                "歌词中“香烟的味道”具体指代什么隐喻？",
+                "《Forbidden Colours》人声版与原曲有何区别？",
+            ),
+            questions,
+        )
+    }
 }
