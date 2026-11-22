@@ -388,8 +388,8 @@
     <string name="labs_about_followups_title">关于页推荐追问</string>
     <string name="labs_about_followups_detail">读完歌曲「关于」后，在本机给出几个顺着聊下去的短问题</string>
     <string name="nano_diag_title">Gemini Nano 诊断</string>
-    <string name="nano_diag_entry_detail">查看系统对这台手机上模型的说法</string>
-    <string name="nano_diag_intro">Android 系统（AICore）对这台手机上每个 Gemini Nano 版本的回答。支持的手机却显示不支持时，可以在这里看原因。</string>
+    <string name="nano_diag_entry_detail">查看本机模型状态与运行测试</string>
+    <string name="nano_diag_intro">查看本机各版本 Gemini Nano 的可用状态与系统组件版本。支持的机型若显示不可用，可在此排查原因。</string>
     <string name="nano_diag_models_section">模型版本</string>
     <string name="nano_diag_variant_unavailable">不可用</string>
     <string name="nano_diag_actions_section">试试看</string>

@@ -421,8 +421,8 @@
     <string name="labs_about_followups_title">Suggested About questions</string>
     <string name="labs_about_followups_detail">Suggest a few follow-up questions on this phone from a song\'s About notes</string>
     <string name="nano_diag_title">Gemini Nano diagnostics</string>
-    <string name="nano_diag_entry_detail">See what Android says about the model on this phone</string>
-    <string name="nano_diag_intro">What Android (AICore) says about Gemini Nano on this phone, for each model version. Useful when a supported phone says it isn\'t supported.</string>
+    <string name="nano_diag_entry_detail">Check model availability and run a test</string>
+    <string name="nano_diag_intro">Check Gemini Nano availability and system components on this device, or troubleshoot why a supported phone shows unavailable.</string>
     <string name="nano_diag_models_section">Model versions</string>
     <string name="nano_diag_variant_unavailable">Not available</string>
     <string name="nano_diag_actions_section">Try</string>

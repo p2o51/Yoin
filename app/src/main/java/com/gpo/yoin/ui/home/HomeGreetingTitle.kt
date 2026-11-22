@@ -208,8 +208,12 @@ internal fun HomeGreetingTitle(
     val greetingsEnabled = container?.lyricHighlightProcessor?.greetingsEnabled?.collectAsState()?.value == true
     val cachedGreetings = container?.homeGreetingStore?.greetings?.collectAsState()?.value
     val activeProfileId = container?.profileManager?.activeProfileId?.collectAsState()?.value
-    val greeting = if (greetingsEnabled && cachedGreetings != null) {
-        container.homeGreetingStore.cachedFor(dayPart.toGreetingSlot(), activeProfileId) ?: staticGreeting
+    val greeting = if (greetingsEnabled && !cachedGreetings.isNullOrEmpty()) {
+        container.homeGreetingStore.cachedFor(
+            slot = dayPart.toGreetingSlot(),
+            profileId = activeProfileId,
+            isNoon = dayPart == HomeDayPart.Noon,
+        ) ?: staticGreeting
     } else {
         staticGreeting
     }
