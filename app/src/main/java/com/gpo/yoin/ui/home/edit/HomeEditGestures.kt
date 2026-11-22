@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyListItemInfo
@@ -810,11 +811,27 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
                     timer == null -> awaitPointerEvent(PointerEventPass.Initial)
                     timer.atMs <= now -> null
                     else -> withTimeoutOrNull(timer.atMs - now) { awaitPointerEvent(PointerEventPass.Initial) }
+                        // Woken late: a long frame held the main thread past the timer, and the
+                        // finger's moves from before it may still wait for the next frame's input.
+                        // A fling's slop would otherwise come after a body hold that never was, and
+                        // the fling dragged the block it started on (a reorder nobody asked for).
+                        ?: if (SystemClock.uptimeMillis() - timer.atMs > LateTimerMs) {
+                            withTimeoutOrNull(StalledInputGraceMs) { awaitPointerEvent(PointerEventPass.Initial) }
+                        } else {
+                            null
+                        }
                 }
                 // Edit mode can end, or an exit let the drag go, while the finger rests. A drag that never
                 // started stays: the engine's release puts a lone lift down.
                 if (!deps.controller.isEditing) step(EditEnded)
                 if (machine.state == Carry && deps.engine.letGo) step(CarryEnded)
+                // An event from after the timer (handed over late): the timer goes first, as it would have.
+                if (event != null && timer != null && timer.atMs > now &&
+                    (event.changes.minOfOrNull { it.uptimeMillis } ?: 0L) >= timer.atMs
+                ) {
+                    now = timer.atMs
+                    step(HomeEditGestureEvent.Timer(timer.kind))
+                }
                 if (event == null) {
                     if (timer != null) {
                         now = maxOf(now, timer.atMs)
@@ -876,3 +893,9 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
 
 // Full-width shelves: a press in the page margin beside them lands on the shelf.
 private val BleedingSections = setOf(HomeSection.RecentlyAdded, HomeSection.Rediscover)
+
+// A timer that wakes this late (ms) may have pointer events from before it still queued…
+private const val LateTimerMs = 8L
+
+// …which reach the detector within a frame or two of the main thread freeing up.
+private const val StalledInputGraceMs = 48L
