@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.data.local.SongAboutEntry
 import java.time.ZoneOffset
 import java.util.Locale
+import kotlin.reflect.KClass
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -140,5 +141,95 @@ class OnDeviceAiIntegrationTest {
         assertEquals(first, generator.peekCached(entries, emptyList()))
         assertEquals(first, generator.suggest(entries, emptyList()))
         assertEquals(1, model.calls)
+    }
+
+    @Test
+    fun structuredOutput_isPreferredOverPlainTextFallback_forGreetingsAndAboutFollowUps() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        var typedCalls = 0
+        var plainCalls = 0
+        val typedModel = object : LyricHighlightModel {
+            override suspend fun status(): NanoStatus = NanoStatus.AVAILABLE
+            override suspend fun baseModelName(): String = "nano-v4-fast"
+            override suspend fun download(): Boolean = true
+            override suspend fun answer(prompt: String): NanoAnswer {
+                plainCalls++
+                return NanoAnswer.Failed(null)
+            }
+
+            @Suppress("UNCHECKED_CAST")
+            override suspend fun <T : Any> answerTyped(
+                schema: KClass<T>,
+                userPrompt: String,
+                systemInstruction: String?,
+                maxOutputTokens: Int,
+                temperature: Float,
+                topK: Int,
+            ): NanoTypedAnswer<T> {
+                typedCalls++
+                return when (schema) {
+                    HomeGreetingSchema::class -> NanoTypedAnswer.Value(
+                        HomeGreetingSchema(
+                            morning = "周五早，听听宇多田光",
+                            afternoon = "午后可以再听点怀旧的",
+                            evening = "晚上放松，听点舒服的",
+                        ) as T,
+                    )
+                    AboutFollowUpSchema::class -> NanoTypedAnswer.Value(
+                        AboutFollowUpSchema(
+                            questions = listOf(
+                                "“香烟的味道”具体象征着什么？",
+                                "克制编曲如何烘托青春的复杂性？",
+                            ),
+                        ) as T,
+                    )
+                    else -> NanoTypedAnswer.Unsupported
+                }
+            }
+        }
+
+        val store = HomeGreetingStore(
+            context = app,
+            clock = { 1_800_000_000_000L },
+            zoneId = { ZoneOffset.UTC },
+            localeProvider = { Locale.SIMPLIFIED_CHINESE },
+        )
+        store.clear()
+        val outcome = store.generateIfNeeded("profile-typed", "subsonic", playHistoryDao = null, model = typedModel)
+        assertEquals(HomeGreetingStore.GenerationOutcome.GENERATED, outcome)
+        assertEquals("周五早，听听宇多田光", store.cachedFor(HomeGreetingSlot.MORNING, "profile-typed"))
+        assertEquals("午后可以再听点怀旧的", store.cachedFor(HomeGreetingSlot.AFTERNOON, "profile-typed"))
+
+        val generator = AboutFollowUpGenerator(
+            model = typedModel,
+            status = MutableStateFlow(NanoStatus.AVAILABLE),
+            enabled = MutableStateFlow(true),
+            isForeground = { true },
+            localeProvider = { Locale.SIMPLIFIED_CHINESE },
+        )
+        val entries = listOf(
+            SongAboutEntry(
+                titleKey = "first love",
+                artistKey = "utada",
+                albumKey = "first love",
+                titleDisplay = "First Love",
+                artistDisplay = "宇多田光",
+                albumDisplay = "First Love",
+                kind = SongAboutEntry.KIND_CANONICAL,
+                entryKey = SongAboutEntry.CANON_REVIEW,
+                promptText = null,
+                titleText = null,
+                answerText = "《First Love》是宇多田光 16 岁创作的代表作，编曲克制，以钢琴和弦乐衬托人声呼吸感。",
+                createdAt = 1L,
+                updatedAt = 1L,
+            ),
+        )
+        val followUps = generator.suggest(entries, emptyList())
+        assertEquals(
+            listOf("“香烟的味道”具体象征着什么？", "克制编曲如何烘托青春的复杂性？"),
+            followUps,
+        )
+        assertEquals(2, typedCalls)
+        assertEquals(0, plainCalls)
     }
 }

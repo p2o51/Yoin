@@ -83,47 +83,94 @@ class HomeGreetingStore(
             return GenerationOutcome.ALREADY_READY
         }
 
-        val recentArtists = withTimeoutOrNull(HISTORY_TIMEOUT_MS) {
+        val recentPlays = withTimeoutOrNull(HISTORY_TIMEOUT_MS) {
             runCatching {
                 playHistoryDao?.getRecentHistory(profileId, provider, RECENT_HISTORY_LIMIT)
                     ?.first()
                     .orEmpty()
-                    .map { it.artist.trim() }
-                    .filter(String::isNotEmpty)
-                    .distinct()
+                    .mapNotNull { row ->
+                        val artist = row.artist.trim()
+                        if (artist.isEmpty()) null else HomeGreetingPrompt.RecentPlay(artist, row.album.trim())
+                    }
+                    .distinctBy { it.artist.lowercase() }
                     .take(2)
             }.getOrNull()
         }.orEmpty()
 
-        val dayOfWeek = Instant.ofEpochMilli(now).atZone(zoneId()).dayOfWeek
-        val prompt = HomeGreetingPrompt.buildPrompt(
-            recentArtists = recentArtists,
-            dayOfWeek = dayOfWeek,
-            localeTag = lang,
+        val zoned = Instant.ofEpochMilli(now).atZone(zoneId())
+        val dayOfWeek = zoned.dayOfWeek
+        val month = zoned.month
+
+        val typed = model.answerTyped(
+            schema = HomeGreetingSchema::class,
+            userPrompt = HomeGreetingPrompt.userPrompt(
+                recentPlays = recentPlays,
+                dayOfWeek = dayOfWeek,
+                month = month,
+                localeTag = lang,
+            ),
+            systemInstruction = HomeGreetingPrompt.systemInstruction(
+                hasRecentPlays = recentPlays.isNotEmpty(),
+                localeTag = lang,
+            ),
+            maxOutputTokens = HomeGreetingPrompt.MAX_OUTPUT_TOKENS,
+            temperature = TEMPERATURE,
+            topK = TOP_K,
         )
 
-        return when (
-            val answer = model.answer(
-                prompt = prompt,
-                maxOutputTokens = HomeGreetingPrompt.MAX_OUTPUT_TOKENS,
-                temperature = TEMPERATURE,
-                topK = TOP_K,
-            )
-        ) {
-            is NanoAnswer.Text -> {
-                val parsed = HomeGreetingPrompt.parse(answer.text, today, lang, profileId)
+        return when (typed) {
+            is NanoTypedAnswer.Value -> {
+                val validated = HomeGreetingPrompt.validateSlots(
+                    morning = typed.value.morning,
+                    afternoon = typed.value.afternoon,
+                    evening = typed.value.evening,
+                    day = today,
+                    localeTag = lang,
+                    profileId = profileId,
+                )
                 prefs.edit { putString(KEY_ATTEMPTED, key) }
-                if (parsed != null) {
-                    saveCached(parsed)
+                if (validated != null) {
+                    saveCached(validated)
                     GenerationOutcome.GENERATED
                 } else {
                     GenerationOutcome.UNUSABLE
                 }
             }
-            NanoAnswer.Busy -> GenerationOutcome.BUSY
-            NanoAnswer.QuotaExhausted -> GenerationOutcome.QUOTA_EXHAUSTED
-            NanoAnswer.NotForeground -> GenerationOutcome.NOT_FOREGROUND
-            is NanoAnswer.Failed -> GenerationOutcome.FAILED
+            NanoTypedAnswer.Unsupported -> {
+                val prompt = HomeGreetingPrompt.buildPrompt(
+                    recentPlays = recentPlays,
+                    dayOfWeek = dayOfWeek,
+                    month = month,
+                    localeTag = lang,
+                )
+                when (
+                    val answer = model.answer(
+                        prompt = prompt,
+                        maxOutputTokens = HomeGreetingPrompt.MAX_OUTPUT_TOKENS,
+                        temperature = TEMPERATURE,
+                        topK = TOP_K,
+                    )
+                ) {
+                    is NanoAnswer.Text -> {
+                        val parsed = HomeGreetingPrompt.parse(answer.text, today, lang, profileId)
+                        prefs.edit { putString(KEY_ATTEMPTED, key) }
+                        if (parsed != null) {
+                            saveCached(parsed)
+                            GenerationOutcome.GENERATED
+                        } else {
+                            GenerationOutcome.UNUSABLE
+                        }
+                    }
+                    NanoAnswer.Busy -> GenerationOutcome.BUSY
+                    NanoAnswer.QuotaExhausted -> GenerationOutcome.QUOTA_EXHAUSTED
+                    NanoAnswer.NotForeground -> GenerationOutcome.NOT_FOREGROUND
+                    is NanoAnswer.Failed -> GenerationOutcome.FAILED
+                }
+            }
+            NanoTypedAnswer.Busy -> GenerationOutcome.BUSY
+            NanoTypedAnswer.QuotaExhausted -> GenerationOutcome.QUOTA_EXHAUSTED
+            NanoTypedAnswer.NotForeground -> GenerationOutcome.NOT_FOREGROUND
+            is NanoTypedAnswer.Failed -> GenerationOutcome.FAILED
         }
     }
 
@@ -176,7 +223,7 @@ class HomeGreetingStore(
 
         private const val RECENT_HISTORY_LIMIT = 12
         private const val HISTORY_TIMEOUT_MS = 2_000L
-        private const val TEMPERATURE = 0.65f
-        private const val TOP_K = 32
+        private const val TEMPERATURE = 0.6f
+        private const val TOP_K = 28
     }
 }

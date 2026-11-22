@@ -13,8 +13,8 @@ import com.gpo.yoin.data.local.SongAboutEntry
  */
 object AboutFollowUpPrompt {
 
-    /** Output budget: 2–3 short questions in a JSON string array (~70–95 tokens). */
-    const val MAX_OUTPUT_TOKENS = 112
+    /** Output budget: 2–3 short questions in structured JSON (~80–115 tokens). */
+    const val MAX_OUTPUT_TOKENS = 128
 
     /** Minimum About context length before asking Nano to suggest follow-ups. */
     const val MIN_CONTEXT_CHARS = 40
@@ -101,16 +101,22 @@ object AboutFollowUpPrompt {
         )
     }
 
-    /** Builds the Gemini Nano prompt for 2–3 grounded follow-up questions. */
-    fun buildPrompt(prepared: Prepared): String = if (prepared.localeTag == "zh") {
+    /**
+     * System instruction for ML Kit GenAI Structured Output (`AboutFollowUpSchema`).
+     * Kept concise because constrained decoding already guarantees the typed list format.
+     */
+    fun systemInstruction(localeTag: String): String = if (normalizeLocale(localeTag) == "zh") {
+        "你是音乐应用里的追问建议助手。根据歌曲「关于」内容，提出 3 个听众看完后会顺着想深挖的简短中文问题（6到22个字，以问号结尾）。" +
+            "具体指向创作背景、编曲、人物、版本或现场故事；不要问简介里已经直接给出答案的阅读理解题，也不要编造事实或重复已问问题。"
+    } else {
+        "Suggest 3 short follow-up questions (4 to 11 words, ending with a question mark) a listener would naturally " +
+            "want to explore next after reading the song notes. Go deeper into live versions, recording stories, " +
+            "influences, or album role; never ask quiz questions already answered in the notes or repeat asked ones."
+    }
+
+    /** User prompt paired with [systemInstruction] for structured output calls. */
+    fun userPrompt(prepared: Prepared): String = if (prepared.localeTag == "zh") {
         buildString {
-            append(
-                "你是一个音乐应用里的追问建议助手。请根据下面给出的歌曲「关于」内容，提出 3 个听众看完后会顺着想继续深挖的简短问题。\n" +
-                    "要求：\n" +
-                    "1. 每个问题用简体中文，6到24个字，以问号结尾，具体指向简介里提到的创作背景、编曲、人物、版本或现场故事，不要泛泛套话。\n" +
-                    "2. 顺着简介往深处问（创作细节、不同版本对比、录音趣事或风格渊源），不要问简介里已经直接给出答案的阅读理解题，也不要编造事实或重复已问问题。\n" +
-                    "3. 只输出 JSON 字符串数组，格式如 [\"问题1？\",\"问题2？\",\"问题3？\"]，不要任何其他文字。\n\n",
-            )
             if (prepared.title.isNotEmpty()) {
                 append("歌曲：").append(prepared.title)
                 if (prepared.artist.isNotEmpty()) append(" — ").append(prepared.artist)
@@ -123,14 +129,6 @@ object AboutFollowUpPrompt {
         }
     } else {
         buildString {
-            append(
-                "Suggest 3 short follow-up questions a listener would naturally want to explore next after reading the song notes below.\n" +
-                    "Rules:\n" +
-                    "1. English only, 4 to 11 words each (max 64 characters), ending with a question mark.\n" +
-                    "2. Go deeper beyond what is already answered in the notes (live versions, recording stories, influences, album role) — NEVER ask quiz questions whose answer is already stated verbatim in the notes.\n" +
-                    "3. Do not invent facts or repeat any already-asked questions.\n" +
-                    "4. Output a JSON array of strings only, e.g. [\"Question 1?\",\"Question 2?\",\"Question 3?\"]. No other text.\n\n",
-            )
             if (prepared.title.isNotEmpty()) {
                 append("Song: ").append(prepared.title)
                 if (prepared.artist.isNotEmpty()) append(" — ").append(prepared.artist)
@@ -143,6 +141,32 @@ object AboutFollowUpPrompt {
         }
     }
 
+    /** Builds the Gemini Nano plain-text fallback prompt for 2–3 grounded follow-up questions. */
+    fun buildPrompt(prepared: Prepared): String = if (prepared.localeTag == "zh") {
+        buildString {
+            append(
+                "你是一个音乐应用里的追问建议助手。请根据下面给出的歌曲「关于」内容，提出 3 个听众看完后会顺着想继续深挖的简短问题。\n" +
+                    "要求：\n" +
+                    "1. 每个问题用简体中文，6到24个字，以问号结尾，具体指向简介里提到的创作背景、编曲、人物、版本或现场故事，不要泛泛套话。\n" +
+                    "2. 顺着简介往深处问（创作细节、不同版本对比、录音趣事或风格渊源），不要问简介里已经直接给出答案的阅读理解题，也不要编造事实或重复已问问题。\n" +
+                    "3. 只输出 JSON 字符串数组，格式如 [\"问题1？\",\"问题2？\",\"问题3？\"]，不要任何其他文字。\n\n",
+            )
+            append(userPrompt(prepared))
+        }
+    } else {
+        buildString {
+            append(
+                "Suggest 3 short follow-up questions a listener would naturally want to explore next after reading the song notes below.\n" +
+                    "Rules:\n" +
+                    "1. English only, 4 to 11 words each (max 64 characters), ending with a question mark.\n" +
+                    "2. Go deeper beyond what is already answered in the notes (live versions, recording stories, influences, album role) — NEVER ask quiz questions whose answer is already stated verbatim in the notes.\n" +
+                    "3. Do not invent facts or repeat any already-asked questions.\n" +
+                    "4. Output a JSON array of strings only, e.g. [\"Question 1?\",\"Question 2?\",\"Question 3?\"]. No other text.\n\n",
+            )
+            append(userPrompt(prepared))
+        }
+    }
+
     private val LEADING_MARKER = Regex("^\\s*(?:[-*•]|\\d+[.)、])\\s*")
     private val META_PREFIXES = listOf(
         "here are", "sure", "certainly", "follow-up", "questions:",
@@ -150,8 +174,8 @@ object AboutFollowUpPrompt {
     )
 
     /**
-     * Parses Nano's output into up to [MAX_QUESTIONS] validated, deduplicated follow-up questions that do not
-     * repeat [asked]. Parses JSON string arrays properly (preserving nested CJK smart quotes like `“”`), and
+     * Parses Nano's raw text output into up to [MAX_QUESTIONS] validated, deduplicated follow-up questions that do
+     * not repeat [asked]. Parses JSON string arrays properly (preserving nested CJK smart quotes like `“”`), and
      * falls back to bulleted/numbered lines if Nano misses JSON.
      */
     fun parse(
@@ -160,7 +184,6 @@ object AboutFollowUpPrompt {
         localeTag: String,
     ): List<String> {
         if (answer.isNullOrBlank()) return emptyList()
-        val lang = normalizeLocale(localeTag)
         val body = answer.trim()
             .removePrefix("```json")
             .removePrefix("```")
@@ -169,10 +192,22 @@ object AboutFollowUpPrompt {
 
         val rawCandidates: List<String> = extractJsonArrayStrings(body)
             ?: body.lineSequence().map { it.trim() }.filter(String::isNotEmpty).toList()
+        return validateQuestions(rawCandidates, asked, localeTag)
+    }
 
+    /**
+     * Validates, sanitizes, and deduplicates a candidate question list (shared by structured output
+     * [AboutFollowUpSchema] and raw-text [parse]).
+     */
+    fun validateQuestions(
+        rawQuestions: List<String>,
+        asked: Collection<String>,
+        localeTag: String,
+    ): List<String> {
+        val lang = normalizeLocale(localeTag)
         val seen = asked.mapTo(HashSet(), SongAboutEntry::normalize)
         val out = ArrayList<String>(MAX_QUESTIONS)
-        for (raw in rawCandidates) {
+        for (raw in rawQuestions) {
             val clean = sanitize(raw, lang) ?: continue
             val key = SongAboutEntry.normalize(clean)
             if (key.isEmpty() || !seen.add(key)) continue

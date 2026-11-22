@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.highlight
 
 import java.time.DayOfWeek
+import java.time.Month
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -41,14 +42,14 @@ class HomeGreetingPromptTest {
 
     @Test
     fun should_enforceHardLengthCaps_andRejectOverflowingSlots() {
-        // Morning exceeds 10 Chinese chars -> dropped; afternoon & evening valid -> partial set kept (2 >= 2).
-        val raw = """{"morning":"今天早上阳光特别好适合慢慢听完一整张专辑","afternoon":"午后听点轻的","evening":"晚安，放一首歌"}"""
+        // Morning exceeds 12 Chinese chars -> dropped; afternoon (12 chars) & evening valid -> partial set kept (2 >= 2).
+        val raw = """{"morning":"今天早上阳光特别好适合慢慢听完一整张专辑","afternoon":"下午可以继续听草东的曲子","evening":"晚安，放一首歌"}"""
 
         val parsed = HomeGreetingPrompt.parse(raw, day = 20_000L, localeTag = "zh", profileId = "p1")
 
         assertNotNull(parsed)
         assertNull(parsed!!.morning)
-        assertEquals("午后听点轻的", parsed.afternoon)
+        assertEquals("下午可以继续听草东的曲子", parsed.afternoon)
         assertEquals("晚安，放一首歌", parsed.evening)
 
         // English > 4 words or > 26 chars rejected.
@@ -68,7 +69,7 @@ class HomeGreetingPromptTest {
         // Fewer than 2 valid slots -> whole answer dropped.
         assertNull(
             HomeGreetingPrompt.parse(
-                """{"morning":"早安","afternoon":"Good afternoon","evening":"Too long 超过十个字的一句话问候"}""",
+                """{"morning":"早安","afternoon":"Good afternoon","evening":"Too long 超过十二个字的一句话问候语"}""",
                 day = 20_000L,
                 localeTag = "zh",
                 profileId = "p1",
@@ -77,14 +78,44 @@ class HomeGreetingPromptTest {
     }
 
     @Test
-    fun should_includeDayAndAtMostTwoArtistsInPrompt() {
-        val prompt = HomeGreetingPrompt.buildPrompt(
+    fun should_includeMonthDayAndAtMostTwoRecentPlaysInPrompt() {
+        val prompt = HomeGreetingPrompt.userPrompt(
+            recentPlays = listOf(
+                HomeGreetingPrompt.RecentPlay("宇多田光", "First Love"),
+                HomeGreetingPrompt.RecentPlay("草东没有派对", "丑奴儿"),
+                HomeGreetingPrompt.RecentPlay("宇多田光", "Distance"),
+                HomeGreetingPrompt.RecentPlay("方大同", "橙月"),
+            ),
+            dayOfWeek = DayOfWeek.FRIDAY,
+            month = Month.NOVEMBER,
+            localeTag = "zh-CN",
+        )
+        assertEquals("十一月 · 周五 | 最近播过：宇多田光《First Love》、草东没有派对《丑奴儿》", prompt)
+
+        val fallback = HomeGreetingPrompt.buildPrompt(
             recentArtists = listOf("卢广仲", "陈绮贞", "卢广仲", "方大同"),
             dayOfWeek = DayOfWeek.SUNDAY,
             localeTag = "zh-CN",
+            month = Month.NOVEMBER,
         )
-        assertTrue(prompt.contains("周日"))
-        assertTrue(prompt.contains("卢广仲、陈绮贞"))
-        assertTrue(!prompt.contains("方大同"))
+        assertTrue(fallback.contains("十一月 · 周日"))
+        assertTrue(fallback.contains("卢广仲、陈绮贞"))
+        assertTrue(!fallback.contains("方大同"))
+    }
+
+    @Test
+    fun should_validateStructuredSlotsDirectly() {
+        val validated = HomeGreetingPrompt.validateSlots(
+            morning = "周五早，听听宇多田光",
+            afternoon = "午后可以再听点怀旧的",
+            evening = "晚上放松，听点舒服的。",
+            day = 20_000L,
+            localeTag = "zh-CN",
+            profileId = "p1",
+        )
+        assertNotNull(validated)
+        assertEquals("周五早，听听宇多田光", validated!!.morning)
+        assertEquals("午后可以再听点怀旧的", validated.afternoon)
+        assertEquals("晚上放松，听点舒服的", validated.evening)
     }
 }

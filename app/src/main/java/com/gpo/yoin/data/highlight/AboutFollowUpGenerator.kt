@@ -57,25 +57,53 @@ class AboutFollowUpGenerator(
             if (!enabled.value || status.value != NanoStatus.AVAILABLE || !isForeground()) {
                 return@withLock emptyList()
             }
-            val prompt = AboutFollowUpPrompt.buildPrompt(prepared)
-            val answer = model.answer(
-                prompt = prompt,
+            val typed = model.answerTyped(
+                schema = AboutFollowUpSchema::class,
+                userPrompt = AboutFollowUpPrompt.userPrompt(prepared),
+                systemInstruction = AboutFollowUpPrompt.systemInstruction(prepared.localeTag),
                 maxOutputTokens = AboutFollowUpPrompt.MAX_OUTPUT_TOKENS,
                 temperature = TEMPERATURE,
                 topK = TOP_K,
             )
-            when (answer) {
-                is NanoAnswer.Text -> {
-                    val parsed = AboutFollowUpPrompt.parse(answer.text, prepared.asked, prepared.localeTag)
-                    if (parsed.isNotEmpty()) {
-                        synchronized(cache) { cache[prepared.fingerprint] = parsed }
+            when (typed) {
+                is NanoTypedAnswer.Value -> {
+                    val validated = AboutFollowUpPrompt.validateQuestions(
+                        rawQuestions = typed.value.questions,
+                        asked = prepared.asked,
+                        localeTag = prepared.localeTag,
+                    )
+                    if (validated.isNotEmpty()) {
+                        synchronized(cache) { cache[prepared.fingerprint] = validated }
                     }
-                    parsed
+                    validated
                 }
-                NanoAnswer.Busy,
-                NanoAnswer.QuotaExhausted,
-                NanoAnswer.NotForeground,
-                is NanoAnswer.Failed -> emptyList()
+                NanoTypedAnswer.Unsupported -> {
+                    val prompt = AboutFollowUpPrompt.buildPrompt(prepared)
+                    when (
+                        val answer = model.answer(
+                            prompt = prompt,
+                            maxOutputTokens = AboutFollowUpPrompt.MAX_OUTPUT_TOKENS,
+                            temperature = TEMPERATURE,
+                            topK = TOP_K,
+                        )
+                    ) {
+                        is NanoAnswer.Text -> {
+                            val parsed = AboutFollowUpPrompt.parse(answer.text, prepared.asked, prepared.localeTag)
+                            if (parsed.isNotEmpty()) {
+                                synchronized(cache) { cache[prepared.fingerprint] = parsed }
+                            }
+                            parsed
+                        }
+                        NanoAnswer.Busy,
+                        NanoAnswer.QuotaExhausted,
+                        NanoAnswer.NotForeground,
+                        is NanoAnswer.Failed -> emptyList()
+                    }
+                }
+                NanoTypedAnswer.Busy,
+                NanoTypedAnswer.QuotaExhausted,
+                NanoTypedAnswer.NotForeground,
+                is NanoTypedAnswer.Failed -> emptyList()
             }
         }
     }

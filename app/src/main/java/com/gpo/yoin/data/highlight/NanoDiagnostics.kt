@@ -33,6 +33,8 @@ object NanoDiagnostics {
         val baseModel: String? = null,
         /** AICore's refusal in one line, when it refused. */
         val error: String? = null,
+        /** Whether AICore advertises constrained structured output (@Generable) for this variant. */
+        val structuredOutput: Boolean? = null,
     ) {
         val label: String get() = "$stage · $variant"
     }
@@ -83,6 +85,7 @@ object NanoDiagnostics {
             probes.forEach { probe ->
                 append("${probe.label}: ${probe.status}")
                 probe.baseModel?.let { append(" [$it]") }
+                if (probe.structuredOutput == true) append(" [structured]")
                 probe.error?.let { append(" — $it") }
                 appendLine()
             }
@@ -156,12 +159,18 @@ object NanoDiagnostics {
                 } else {
                     null
                 }
+                val structuredOutput = if (status == NanoStatus.AVAILABLE) {
+                    runCatching { model.isStructuredOutputFeatureAvailable() }.getOrNull()
+                } else {
+                    null
+                }
                 Probe(
                     stage = stageName,
                     variant = variantName,
                     status = status,
                     baseModel = baseModel,
                     error = if (status == NanoStatus.UNAVAILABLE) "FeatureStatus.UNAVAILABLE" else null,
+                    structuredOutput = structuredOutput,
                 )
             }
         } catch (e: CancellationException) {

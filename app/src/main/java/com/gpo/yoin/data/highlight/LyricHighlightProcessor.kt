@@ -539,37 +539,78 @@ class LyricHighlightProcessor(
         if (existing?.model == USER_PICK) return Outcome.SKIPPED
         if (existing?.text != null && existing.lyricsFingerprint == prepared.fingerprint) return Outcome.SKIPPED
 
-        val prompt = LyricHighlightPrompt.SYSTEM_INSTRUCTION + "\n\n" +
-            LyricHighlightPrompt.userPrompt(entry.title, entry.artist, prepared)
+        val userPrompt = LyricHighlightPrompt.userPrompt(entry.title, entry.artist, prepared)
         val now = clock()
-        return when (val answer = model.answer(prompt)) {
-            is NanoAnswer.Text -> {
+        val typed = model.answerTyped(
+            schema = LyricHighlightSchema::class,
+            userPrompt = userPrompt,
+            systemInstruction = LyricHighlightPrompt.SYSTEM_INSTRUCTION,
+            maxOutputTokens = LyricHighlightPrompt.MAX_OUTPUT_TOKENS,
+            temperature = 0.2f,
+            topK = 16,
+        )
+        return when (typed) {
+            is NanoTypedAnswer.Value -> {
                 writeBudget(budget().afterSuccess(today(now)))
                 if (!stillActive(entry)) return Outcome.STOP
-                val pick = LyricHighlightPrompt.parse(answer.text, prepared)
+                val pick = LyricHighlightPrompt.parseRange(typed.value.start, typed.value.end, prepared)
                 save(entry, pick, prepared.fingerprint, model.baseModelName())
                 if (pick != null) {
                     _revision.value = _revision.value + 1
                     Outcome.PICKED
                 } else {
-                    Log.i(TAG, "Unusable answer for ${entry.songId}: ${answer.text.take(80)}")
-                    note("Odd answer: ${answer.text.take(40)}")
+                    Log.i(TAG, "Unusable structured range for ${entry.songId}: ${typed.value.start}..${typed.value.end}")
+                    note("Odd range: ${typed.value.start}..${typed.value.end}")
                     Outcome.UNUSABLE
                 }
             }
-            NanoAnswer.Busy -> {
+            NanoTypedAnswer.Unsupported -> {
+                val prompt = LyricHighlightPrompt.SYSTEM_INSTRUCTION + "\n\n" + userPrompt
+                when (val answer = model.answer(prompt)) {
+                    is NanoAnswer.Text -> {
+                        writeBudget(budget().afterSuccess(today(now)))
+                        if (!stillActive(entry)) return Outcome.STOP
+                        val pick = LyricHighlightPrompt.parse(answer.text, prepared)
+                        save(entry, pick, prepared.fingerprint, model.baseModelName())
+                        if (pick != null) {
+                            _revision.value = _revision.value + 1
+                            Outcome.PICKED
+                        } else {
+                            Log.i(TAG, "Unusable answer for ${entry.songId}: ${answer.text.take(80)}")
+                            note("Odd answer: ${answer.text.take(40)}")
+                            Outcome.UNUSABLE
+                        }
+                    }
+                    NanoAnswer.Busy -> {
+                        note("AICore busy: backing off")
+                        writeBudget(budget().afterBusy(now, today(now)))
+                        Outcome.STOP
+                    }
+                    NanoAnswer.QuotaExhausted -> {
+                        note("Battery quota used up for today")
+                        writeBudget(budget().afterQuotaExhausted(today(now)))
+                        Outcome.STOP
+                    }
+                    NanoAnswer.NotForeground -> Outcome.STOP
+                    is NanoAnswer.Failed -> {
+                        note("Nano failed: code ${answer.code}")
+                        Outcome.SKIPPED
+                    }
+                }
+            }
+            NanoTypedAnswer.Busy -> {
                 note("AICore busy: backing off")
                 writeBudget(budget().afterBusy(now, today(now)))
                 Outcome.STOP
             }
-            NanoAnswer.QuotaExhausted -> {
+            NanoTypedAnswer.QuotaExhausted -> {
                 note("Battery quota used up for today")
                 writeBudget(budget().afterQuotaExhausted(today(now)))
                 Outcome.STOP
             }
-            NanoAnswer.NotForeground -> Outcome.STOP
-            is NanoAnswer.Failed -> {
-                note("Nano failed: code ${answer.code}")
+            NanoTypedAnswer.NotForeground -> Outcome.STOP
+            is NanoTypedAnswer.Failed -> {
+                note("Nano failed: code ${typed.code}")
                 Outcome.SKIPPED
             }
         }

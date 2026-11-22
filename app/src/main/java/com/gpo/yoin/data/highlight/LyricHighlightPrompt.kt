@@ -62,8 +62,8 @@ object LyricHighlightPrompt {
      */
     const val PROMPT_VERSION = "v5:"
 
-    /** Output budget: the JSON answer is ~15 tokens. */
-    const val MAX_OUTPUT_TOKENS = 24
+    /** Output budget: the JSON/structured answer is ~12–18 tokens. */
+    const val MAX_OUTPUT_TOKENS = 32
 
     /**
      * Numbered, de-duplicated lines with stanza indices preserved. Repeats of a line already sent (choruses)
@@ -156,9 +156,8 @@ object LyricHighlightPrompt {
     )
 
     /**
-     * Reads the model's answer. Accepts the asked-for JSON and common near-misses (code fences, "7-8", single
-     * line number). Enforces stanza continuity, `< 4` line ceiling (1–3 lines), no silent tail-chopping when
-     * over budget, and rejects picks that end mid-clause.
+     * Reads the model's raw text answer. Accepts the asked-for JSON and common near-misses (code fences, "7-8",
+     * single line number), then validates via [parseRange].
      */
     fun parse(answer: String?, prepared: Prepared): Pick? {
         if (answer.isNullOrBlank()) return null
@@ -171,10 +170,18 @@ object LyricHighlightPrompt {
             end = bare.groupValues[2].toIntOrNull()
         }
         start ?: return null
-        val asked = end ?: start
-        if (asked < start) return null
+        return parseRange(start, end ?: start, prepared)
+    }
+
+    /**
+     * Validates a 1-based line range `[start, end]` (shared by structured output [LyricHighlightSchema] and raw
+     * text [parse]). Enforces stanza continuity, `< 4` line ceiling (1–3 lines), no silent tail-chopping when over
+     * budget, and rejects picks that end mid-clause.
+     */
+    fun parseRange(start: Int, end: Int, prepared: Prepared): Pick? {
+        if (end < start) return null
         // Reject oversized ranges instead of silently chopping the tail of a longer thought.
-        if (asked - start + 1 > MAX_PICK_LINES) return null
+        if (end - start + 1 > MAX_PICK_LINES) return null
 
         val first = prepared.line(start) ?: return null
         val picked = mutableListOf(first)
@@ -185,7 +192,7 @@ object LyricHighlightPrompt {
 
         var lastSource = first.source
         var crossedBreak = false
-        for (number in (start + 1)..asked) {
+        for (number in (start + 1)..end) {
             val line = prepared.line(number) ?: break
             if (line.source != lastSource + 1 || line.stanza != first.stanza) {
                 crossedBreak = true
