@@ -56,7 +56,7 @@ internal fun LyraShellOverlay(
             exit = fadeOut(),
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(top = 12.dp, end = 64.dp),
+                .padding(top = 6.dp, end = 64.dp),
         ) {
             val containerColor = if (activeCount > 0) {
                 MaterialTheme.colorScheme.primaryContainer

@@ -1,6 +1,15 @@
 <resources>
     <string name="lyra_share_label">保存到 Lyra</string>
 
+    <!-- Landing overrides for Lyra-only edition -->
+    <string name="landing_hello_title">你好，我是 Lyra。</string>
+    <string name="landing_hello_body">播放你自己的 Lyra 曲库，并把 Memories 与评分同步到服务器。</string>
+    <string name="landing_about_title">客户端负责这些，其余交给你的 Lyra 服务器。</string>
+    <string name="landing_about_does">Lyra 客户端负责</string>
+    <string name="landing_about_doesnt">Lyra 客户端不负责</string>
+    <string name="landing_need_none">一台运行中的 Lyra 服务器</string>
+    <string name="landing_open_yoin">打开 Lyra</string>
+
     <!-- Subsonic setup branded as Lyra in the lyra flavor -->
     <string name="settings_intro_subsonic_tagline">你的个人音乐中枢与曲库</string>
 

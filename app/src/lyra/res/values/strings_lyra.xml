@@ -2,6 +2,15 @@
     <string name="lyra_app_name" translatable="false">Lyra</string>
     <string name="lyra_share_label">Save to Lyra</string>
 
+    <!-- Landing overrides for Lyra-only edition -->
+    <string name="landing_hello_title">Hi, I\'m Lyra.</string>
+    <string name="landing_hello_body">I play your music from your Lyra server and keep your Memories in sync.</string>
+    <string name="landing_about_title">Here\'s my part, and what stays with your Lyra server.</string>
+    <string name="landing_about_does">Lyra app does</string>
+    <string name="landing_about_doesnt">Lyra app doesn\'t</string>
+    <string name="landing_need_none">A running Lyra server</string>
+    <string name="landing_open_yoin">Open Lyra</string>
+
     <!-- Subsonic setup branded as Lyra in the lyra flavor -->
     <string name="settings_intro_subsonic_name" translatable="false">Lyra</string>
     <string name="settings_intro_subsonic_tagline">Your personal music hub and library</string>
