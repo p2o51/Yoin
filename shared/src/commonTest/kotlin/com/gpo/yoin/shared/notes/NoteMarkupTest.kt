@@ -245,6 +245,42 @@ class NoteMarkupTest {
     }
 
     @Test
+    fun should_italicise_when_cjkTextOrAsciiLettersSitAgainstTheMarkers() {
+        listOf(
+            "听到_副歌_的时候" to '_',
+            "听到*副歌*的时候" to '*',
+            "a*b*" to '*',
+            "**粗**和_斜_" to '_',
+        ).forEach { (text, marker) ->
+            val doc = NoteMarkup.parse(text)
+            val italic = doc.blocks.single().inlines.filterIsInstance<Italic>().single()
+            assertEquals(marker, italic.marker, text)
+            assertEquals(text, NoteMarkup.serialize(doc), text)
+        }
+        assertEquals(
+            listOf(Paragraph(listOf(Text("听到"), Italic(listOf(Text("副歌"))), Text("的时候")))),
+            NoteMarkup.parse("听到_副歌_的时候").blocks,
+        )
+        // ASCII guards stay: snake_case and arithmetic are words, not italics.
+        listOf("snake_case_name", "2*3*4", "x_1_", "a_b_c").forEach { text ->
+            assertTrue(NoteMarkup.parse(text).blocks.single().inlines.none { it is Italic }, text)
+        }
+    }
+
+    @Test
+    fun should_fallBackToStar_when_underscoreItalicSitsInsideAnAsciiWord() {
+        val doc = NoteDocument(
+            listOf(Paragraph(listOf(Text("word"), Italic(listOf(Text("ital"))), Text("ic and 中"), Italic(listOf(Text("文")))))),
+        )
+        val text = NoteMarkup.serialize(doc)
+        assertEquals("word*ital*ic and 中_文_", text)
+        assertEquals(
+            listOf(Text("word"), Italic(listOf(Text("ital")), '*'), Text("ic and 中"), Italic(listOf(Text("文")))),
+            NoteMarkup.parse(text).blocks.single().inlines,
+        )
+    }
+
+    @Test
     fun should_normaliseABareEmptyToDo_when_reserialized() {
         assertEquals(listOf(Checklist(false, emptyList())), NoteMarkup.parse("- [ ]").blocks)
         assertEquals("- [ ] ", NoteMarkup.serialize(NoteMarkup.parse("- [ ]")))

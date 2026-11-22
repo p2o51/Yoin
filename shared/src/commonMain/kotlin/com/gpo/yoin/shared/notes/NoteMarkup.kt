@@ -314,7 +314,7 @@ object NoteMarkup {
     }
 
     private fun appendInlines(inlines: List<NoteInline>, out: StringBuilder) {
-        inlines.forEach { node ->
+        inlines.forEachIndexed { index, node ->
             when (node) {
                 is NoteInline.Text -> out.append(node.text)
                 is NoteInline.Bold -> {
@@ -323,9 +323,12 @@ object NoteMarkup {
                     out.append("**")
                 }
                 is NoteInline.Italic -> {
-                    // `_` inside a word doesn't read as italic; `*` is the spelling that always does.
+                    // `_` against an ASCII letter or digit doesn't read as italic; `*` does (except against
+                    // a digit), so it's the fallback spelling.
                     val before = out.lastOrNull()
-                    val marker = if (node.marker == '_' && before?.isLetterOrDigit() != true) '_' else '*'
+                    val after = inlines.getOrNull(index + 1)?.firstChar()
+                    val underscoreReads = !italicBlockedBy(before, '_') && !italicBlockedBy(after, '_')
+                    val marker = if (node.marker == '_' && underscoreReads) '_' else '*'
                     out.append(marker)
                     appendInlines(node.children, out)
                     out.append(marker)
@@ -353,6 +356,28 @@ object NoteMarkup {
             }
         }
     }
+}
+
+/**
+ * Whether [neighbour] (the character before an opening or after a closing [marker]) keeps [marker] from
+ * reading as italic. ASCII only, so CJK text italicises without spaces (听到_副歌_的时候): `_` refuses ASCII
+ * letters and digits (snake_case_name stays literal), `*` refuses ASCII digits (2*3*4 stays literal, a*b*
+ * italicises); neither sits against its own kind.
+ */
+internal fun italicBlockedBy(neighbour: Char?, marker: Char): Boolean = when {
+    neighbour == null -> false
+    neighbour == marker -> true
+    marker == '_' -> neighbour.isAsciiLetterOrDigit()
+    else -> neighbour in '0'..'9'
+}
+
+private fun Char.isAsciiLetterOrDigit(): Boolean = this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
+
+private fun NoteInline.firstChar(): Char? = when (this) {
+    is NoteInline.Text -> text.firstOrNull()
+    is NoteInline.Bold -> '*'
+    is NoteInline.Italic -> marker
+    is NoteInline.Mention -> '['
 }
 
 /** What a backslash escapes in a mention title. */
@@ -435,8 +460,7 @@ private class InlineParser(private val s: String) {
         if (i + 1 >= end) return false
         val next = s[i + 1]
         if (next.isWhitespace() || next == marker) return false
-        val prev = if (i > 0) s[i - 1] else null
-        return prev == null || (!prev.isLetterOrDigit() && prev != marker)
+        return !italicBlockedBy(if (i > 0) s[i - 1] else null, marker)
     }
 
     /** The first [marker] after the opener (mentions skipped) if it can close, else -1: italic holds no [marker]. */
@@ -453,8 +477,7 @@ private class InlineParser(private val s: String) {
             }
             if (c == marker) {
                 if (s[j - 1].isWhitespace()) return -1
-                val next = if (j + 1 < s.length) s[j + 1] else null
-                return if (next == null || (!next.isLetterOrDigit() && next != marker)) j else -1
+                return if (italicBlockedBy(if (j + 1 < s.length) s[j + 1] else null, marker)) -1 else j
             }
             j++
         }
