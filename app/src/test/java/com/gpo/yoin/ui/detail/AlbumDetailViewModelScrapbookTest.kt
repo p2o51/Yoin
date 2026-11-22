@@ -379,6 +379,19 @@ class AlbumDetailViewModelScrapbookTest {
     }
 
     @Test
+    fun should_saveATickedTodo_onASongNoteOrAnAlbumNote() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.ToggleChecklist("n1", 2))
+        viewModel.editScrapbook(ScrapEdit.ToggleChecklist("an1", 0, album = true))
+        advanceUntilIdle()
+
+        coVerify { repository.toggleNoteChecklist("n1", 2) }
+        coVerify { repository.toggleAlbumNoteChecklist("an1", 0) }
+    }
+
+    @Test
     fun should_appendEditAndRestoreAlbumNotes_when_theScrapbookWrites() = runTest {
         val note = AlbumNote(
             id = "an1",

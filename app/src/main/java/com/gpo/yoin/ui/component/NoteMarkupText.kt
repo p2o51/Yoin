@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
@@ -30,6 +32,7 @@ import com.gpo.yoin.shared.notes.NoteDocument
 import com.gpo.yoin.shared.notes.NoteInline
 import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.ui.notes.LocalNoteMentions
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /*
@@ -56,6 +59,8 @@ fun buildNoteAnnotatedString(
     mentionStyle: SpanStyle,
     isMentionResolved: (NoteMention) -> Boolean = { true },
     onMentionClick: ((NoteMention) -> Unit)? = null,
+    onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
+    glyphStyle: SpanStyle? = null,
 ): AnnotatedString = buildAnnotatedString {
     fun inlines(nodes: List<NoteInline>) {
         nodes.forEach { node ->
@@ -92,33 +97,71 @@ fun buildNoteAnnotatedString(
                 inlines(block.inlines)
             }
             is NoteBlock.Checklist -> {
-                append(if (block.checked) NoteMarkupGlyphs.DONE else NoteMarkupGlyphs.TODO)
-                inlines(block.inlines)
+                val glyph = if (block.checked) NoteMarkupGlyphs.DONE else NoteMarkupGlyphs.TODO
+                // A tap on the box ticks it (the host saves the note).
+                if (onToggleChecklist != null) {
+                    withLink(
+                        LinkAnnotation.Clickable(
+                            tag = "$TodoTagPrefix$index",
+                            styles = glyphStyle?.let { TextLinkStyles(style = it) },
+                            linkInteractionListener = { onToggleChecklist(index) },
+                        ),
+                    ) { append(glyph) }
+                } else if (glyphStyle != null) {
+                    withStyle(glyphStyle) { append(glyph) }
+                } else {
+                    append(glyph)
+                }
+                if (block.checked) {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { inlines(block.inlines) }
+                } else {
+                    inlines(block.inlines)
+                }
             }
         }
     }
 }
 
+internal const val TodoTagPrefix = "todo:"
+
 /** The mention span: the given colour, a touch heavier than the words around it. */
 fun noteMentionStyle(color: Color): SpanStyle = SpanStyle(color = color, fontWeight = FontWeight.SemiBold)
 
-/** [text] parsed and built once per text / colour / resolution; the click goes to the latest callback. */
+/**
+ * [text] parsed and built once per text / colour / resolution; clicks go to the latest callbacks. Without an
+ * explicit [isMentionResolved] / [onMentionClick] the window's [LocalNoteMentions] decides (a resolution
+ * landing later redraws), and a resolved mention opens what it names. [onToggleChecklist] makes each to-do's
+ * box tappable.
+ */
 @Composable
 fun rememberNoteMarkup(
     text: String,
     mentionColor: Color = MaterialTheme.colorScheme.primary,
-    isMentionResolved: (NoteMention) -> Boolean = AllMentionsResolved,
+    isMentionResolved: ((NoteMention) -> Boolean)? = null,
     onMentionClick: ((NoteMention) -> Unit)? = null,
+    onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
 ): AnnotatedString {
     val document = remember(text) { NoteMarkup.parse(text) }
-    val latestClick by rememberUpdatedState(onMentionClick)
-    val clickable = onMentionClick != null
-    return remember(document, mentionColor, isMentionResolved, clickable) {
+    val controller = LocalNoteMentions.current
+    val context = LocalContext.current
+    val resolvedNow: (NoteMention) -> Boolean = isMentionResolved ?: controller?.let { c -> c::isResolved } ?: AllMentionsResolved
+    // Read in composition, so a resolution that lands later (another provider's mention, by name) redraws.
+    val resolution = document.mentions.map(resolvedNow)
+    val click = onMentionClick ?: controller?.let { c -> { mention: NoteMention -> c.open(context, mention) } }
+    val latestClick by rememberUpdatedState(click)
+    val latestToggle by rememberUpdatedState(onToggleChecklist)
+    val clickable = click != null
+    val toggles = onToggleChecklist != null
+    val glyphColor = MaterialTheme.colorScheme.primary
+    return remember(document, mentionColor, resolution, clickable, toggles, glyphColor) {
+        val answers = document.mentions.zip(resolution).toMap()
         buildNoteAnnotatedString(
             document = document,
             mentionStyle = noteMentionStyle(mentionColor),
-            isMentionResolved = isMentionResolved,
+            isMentionResolved = { answers[it] ?: true },
             onMentionClick = if (clickable) { mention -> latestClick?.invoke(mention) } else null,
+            onToggleChecklist = if (toggles) { line -> latestToggle?.invoke(line) } else null,
+            glyphStyle = SpanStyle(color = glyphColor),
         )
     }
 }
@@ -136,11 +179,12 @@ fun NoteMarkupText(
     mentionColor: Color = MaterialTheme.colorScheme.primary,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
-    isMentionResolved: (NoteMention) -> Boolean = AllMentionsResolved,
+    isMentionResolved: ((NoteMention) -> Boolean)? = null,
     onMentionClick: ((NoteMention) -> Unit)? = null,
+    onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
 ) {
     Text(
-        text = rememberNoteMarkup(text, mentionColor, isMentionResolved, onMentionClick),
+        text = rememberNoteMarkup(text, mentionColor, isMentionResolved, onMentionClick, onToggleChecklist),
         modifier = modifier,
         style = style,
         color = color,

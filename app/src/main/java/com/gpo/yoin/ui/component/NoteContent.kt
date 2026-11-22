@@ -24,7 +24,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,7 +51,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -58,8 +61,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -69,6 +70,9 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.ui.notes.editor.NoteEditorState
+import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
+import com.gpo.yoin.ui.notes.editor.NoteMarkupField
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -170,6 +174,7 @@ fun NoteLine(
     distance: Int? = 0,
     meta: String? = null,
     onMentionClick: ((NoteMention) -> Unit)? = null,
+    onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
 ) {
     val glance = emphasis == NoteLineEmphasis.Glance
     val scheme = MaterialTheme.colorScheme
@@ -253,7 +258,12 @@ fun NoteLine(
         Column(modifier = Modifier.weight(1f).alignByBaseline()) {
             // The stored Markdown drawn: headings, lists, to-dos, bold / italic and mentions.
             BasicText(
-                text = rememberNoteMarkup(text, mentionColor = scheme.primary, onMentionClick = onMentionClick),
+                text = rememberNoteMarkup(
+                    text,
+                    mentionColor = scheme.primary,
+                    onMentionClick = onMentionClick,
+                    onToggleChecklist = onToggleChecklist,
+                ),
                 style = bodyStyle.copy(
                     fontWeight = when {
                         glance && isActive -> FontWeight.Bold
@@ -484,10 +494,18 @@ fun NoteWriteBar(
     val focusManager = LocalFocusManager.current
     val haptics = rememberYoinHaptics()
     val scheme = MaterialTheme.colorScheme
-    // The field's full value, not just its text: a String-valued field starts
-    // its caret at 0 whenever it is created, so a field recreated over a
-    // draft prepended the next word. A new field starts at the draft's end.
-    var heldFieldValue by remember { mutableStateOf<TextFieldValue?>(null) }
+    // The editor holds the words the field edits (stored Markdown, mention links); the draft
+    // follows it, and a draft changed elsewhere (cleared by a save, discarded) moves it. A new
+    // editor starts at the draft's end, so writing continues the draft.
+    val editor = remember(draftState) { NoteEditorState(draftState.draft.text) }
+    LaunchedEffect(editor) {
+        snapshotFlow { draftState.draft.text }.collect { text -> if (text != editor.text) editor.setText(text) }
+    }
+    LaunchedEffect(editor) {
+        snapshotFlow { editor.text }.collect { text ->
+            if (text != draftState.draft.text) draftState.edit(text, currentTarget, latestPosition())
+        }
+    }
     var lineCount by remember { mutableIntStateOf(1) }
     var lineHeightPx by remember { mutableIntStateOf(0) }
 
@@ -567,16 +585,8 @@ fun NoteWriteBar(
         )
     }
     val fieldSlot: @Composable () -> Unit = {
-        val placeholder = stringResource(R.string.cmp_note_placeholder)
-        BasicTextField(
-            value = draftFieldValue(draft.text, heldFieldValue),
-            onValueChange = { value ->
-                heldFieldValue = value
-                // Caret / selection moves don't touch the draft.
-                if (value.text != draftState.draft.text) {
-                    draftState.edit(value.text, currentTarget, latestPosition())
-                }
-            },
+        NoteMarkupField(
+            state = editor,
             modifier = Modifier
                 .focusRequester(focusRequester)
                 .onFocusChanged { focus ->
@@ -585,27 +595,12 @@ fun NoteWriteBar(
                     // bind the song + playhead then.
                     if (focus.isFocused) draftState.followIfEmpty(currentTarget, latestPosition())
                 },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
-            cursorBrush = SolidColor(scheme.primary),
-            minLines = minLines,
-            maxLines = maxLines,
+            textStyle = MaterialTheme.typography.bodyLarge,
+            placeholder = stringResource(R.string.cmp_note_placeholder),
+            lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = minLines, maxHeightInLines = maxLines),
             onTextLayout = { layout ->
                 lineCount = layout.lineCount
                 lineHeightPx = (layout.getLineBottom(0) - layout.getLineTop(0)).roundToInt()
-            },
-            decorationBox = { inner ->
-                Box {
-                    if (draftState.draft.text.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = scheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    inner()
-                }
             },
         )
     }
@@ -622,8 +617,15 @@ fun NoteWriteBar(
     }
     val footerSlot: @Composable () -> Unit = {
         if (open && !inline) {
+            // The formatting row (@, B, I, H, list, to-do) beside 保存.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Spacer(modifier = Modifier.weight(1f))
+                NoteFormatToolbar(
+                    state = editor,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .horizontalScroll(rememberScrollState()),
+                )
+                Spacer(modifier = Modifier.weight(1f).widthIn(min = 8.dp))
                 NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
             }
         }

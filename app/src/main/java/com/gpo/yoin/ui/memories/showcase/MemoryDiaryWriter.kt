@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -47,6 +45,10 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
+import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.ui.notes.editor.NoteMarkupField
+import com.gpo.yoin.ui.notes.editor.noteEditorColors
+import com.gpo.yoin.ui.notes.editor.rememberNoteEditorState
 import com.gpo.yoin.ui.component.JournalRail
 import com.gpo.yoin.ui.component.JournalSavePill
 import com.gpo.yoin.ui.component.noRippleClickable
@@ -113,14 +115,16 @@ internal fun MemoryDiaryEntry(
     val bornBlank = remember { review == null }
     val blank = review == null
     var writing by rememberSaveable { mutableStateOf(draft != null && blank) }
-    var text by rememberSaveable { mutableStateOf(draft.orEmpty()) }
+    // The review is written in the note editor (@ mentions, light Markdown), its text stored as written.
+    val editor = rememberNoteEditorState(draft.orEmpty())
+    val text = editor.text
     var focused by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     // a save that didn't land comes back as a blank page with its draft: reopen it, writing
     LaunchedEffect(draft, blank) {
         if (draft != null && blank) {
-            text = draft
+            editor.setText(draft)
             writing = true
         }
     }
@@ -210,14 +214,11 @@ internal fun MemoryDiaryEntry(
                         type = type,
                     )
                 } else {
-                    BasicTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        enabled = enabled,
-                        textStyle = diaryUserText(type.review, type.reviewLine).copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(tones.ink),
+                    NoteMarkupField(
+                        state = editor,
+                        textStyle = diaryUserText(type.review, type.reviewLine),
+                        colors = noteEditorColors(text = MaterialTheme.colorScheme.onSurface),
+                        placeholder = placeholder,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focus)
@@ -227,20 +228,6 @@ internal fun MemoryDiaryEntry(
                             }
                             .semantics { contentDescription = reviewField }
                             .seamFade(type.review),
-                        decorationBox = { inner ->
-                            Box {
-                                if (text.isEmpty()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = diaryUserText(type.review, type.reviewLine),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                            alpha = DiaryWriterTokens.PlaceholderAlpha,
-                                        ),
-                                    )
-                                }
-                                inner()
-                            }
-                        },
                     )
                 }
             }
@@ -266,7 +253,7 @@ internal fun MemoryDiaryEntry(
                         .height(DiaryWriterTokens.RowHit)
                         .pointerPressPreview(cancelInteraction)
                         .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = discardDraft) {
-                            text = ""
+                            editor.setText("")
                             writing = false
                             focusManager.clearFocus()
                         }
@@ -360,7 +347,7 @@ private fun ReviewBody(text: String, large: Boolean, type: MemoriesTypeScale) {
     Column(Modifier.semantics(mergeDescendants = true) {}) {
         paragraphs.forEachIndexed { i, paragraph ->
             if (i > 0) Spacer(Modifier.height((type.review.value * 0.85f).dp))
-            Text(
+            NoteMarkupText(
                 text = paragraph,
                 style = style,
                 color = MaterialTheme.colorScheme.onSurface,

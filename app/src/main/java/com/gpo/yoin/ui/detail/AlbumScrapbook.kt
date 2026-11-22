@@ -20,8 +20,8 @@ import kotlin.math.sign
  * The album page's second page: a scrapbook of what the listener left on this album, pasted in track order
  * on dotted paper (D3, owner-approved 2026-10-05 with changes: the score is the Memories groove emblem; the
  * listener's review is told apart by colour only — no "your review" label, no rail; the rail is reserved for
- * track notes). An album has one album note (owner, 2026-10-05): at most one sticky, the latest row — the
- * same one the Memories diary shows. Irregular but stable: every tilt comes from a hash of the album id and
+ * track notes). An album holds any number of album notes (owner 2026-11-22; one until then): one sticky
+ * each, oldest first, then a dashed one to write the next. Irregular but stable: every tilt comes from a hash of the album id and
  * the piece's key, never from Random, so a page reopens exactly the same.
  *
  * This file is the model and its pure builder; AlbumScrapbookPage.kt draws it.
@@ -57,6 +57,11 @@ sealed interface ScrapPiece {
         val title: ScrapTitle? = null,
         /** When [review] was written ("Today", "Oct 5"…); null without a review or a date. */
         val reviewAt: String? = null,
+        /**
+         * Every album note as a sticky, oldest first (an album holds any number, owner 2026-11-22); the
+         * first leans like [albumNoteTilt], the rest alternate.
+         */
+        val stickies: List<ScrapSticky> = emptyList(),
     ) : ScrapPiece {
         override val key: String get() = "opening"
         override val fullLine: Boolean get() = true
@@ -119,6 +124,10 @@ sealed interface ScrapPiece {
         override val fullLine: Boolean get() = true
     }
 }
+
+/** One album note on the page: its row id, its words (stored Markdown) and its lean. */
+@Immutable
+data class ScrapSticky(val noteId: String, val text: String, val tilt: Float)
 
 @Immutable
 data class ScrapTrack(
@@ -210,6 +219,9 @@ sealed interface ScrapEdit {
 
     /** Undo of a deleted album note. */
     data class RestoreAlbumNote(val noteId: String) : ScrapEdit
+
+    /** A tap on a to-do's box: line [lineIndex] of song note [noteId] ([album]: of album note [noteId]). */
+    data class ToggleChecklist(val noteId: String, val lineIndex: Int, val album: Boolean = false) : ScrapEdit
 }
 
 /** The page's fixed rules (D3 §5). */
@@ -289,12 +301,25 @@ internal fun buildAlbumScrapbook(
     val review = content.userReview.trim().takeIf(String::isNotEmpty)
     val reviewTilt = tilt(if (review != null) "review" else "ghost", ScrapbookRules.CardTilts)
     val albumNote = data.albumNote?.content?.trim()?.takeIf(String::isNotEmpty)
+    val albumNoteTilt = albumNote?.let { opposite(reviewTilt, tilt("albumnote", ScrapbookRules.PaperTilts)) } ?: 0f
+    val noteRows = data.albumNotes.ifEmpty { listOfNotNull(data.albumNote) }.filter { it.content.isNotBlank() }
+    var previousStickyTilt: Float? = null
+    val stickies = noteRows.mapIndexed { index, note ->
+        val lean = if (index == 0) {
+            opposite(reviewTilt, tilt("albumnote", ScrapbookRules.PaperTilts))
+        } else {
+            opposite(previousStickyTilt, tilt("albumnote/${note.id}", ScrapbookRules.PaperTilts))
+        }
+        previousStickyTilt = lean
+        ScrapSticky(noteId = note.id, text = note.content.trim(), tilt = lean)
+    }
     pieces += ScrapPiece.Opening(
         review = review,
         coverTilt = tilt("cover", ScrapbookRules.CoverTilts),
         reviewTilt = reviewTilt,
         albumNote = albumNote,
-        albumNoteTilt = albumNote?.let { opposite(reviewTilt, tilt("albumnote", ScrapbookRules.PaperTilts)) } ?: 0f,
+        albumNoteTilt = albumNoteTilt,
+        stickies = stickies,
         title = title ?: scrapTitle(user = data.memoryTitleUser, ai = data.memoryTitle),
         reviewAt = content.userReviewAt?.takeIf { review != null }?.let { relativeDayLabel(it, nowMillis, zone) },
     )
@@ -433,8 +458,9 @@ private fun receiptLines(
     val rated = data.ratings.keys.count { it.toString() in songIds }
     add("Rated" to "$rated / ${content.trackTotal}") // i18n-allow: AlbumScrapbookTest asserts this receipt English
     val trackNotes = data.notes.entries.filter { it.key.toString() in songIds }.sumOf { it.value.size }
-    // the album's one album note counts with the track notes (D3's receipt)
-    val albumNotes = if (data.albumNote?.content.isNullOrBlank()) 0 else 1
+    // every album note counts with the track notes (D3's receipt)
+    val albumNotes = data.albumNotes.count { it.content.isNotBlank() }
+        .takeIf { it > 0 } ?: if (data.albumNote?.content.isNullOrBlank()) 0 else 1
     add("Notes" to (trackNotes + albumNotes).toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
     val askCount = data.about.entries
         .filter { it.key.toString() in songIds }

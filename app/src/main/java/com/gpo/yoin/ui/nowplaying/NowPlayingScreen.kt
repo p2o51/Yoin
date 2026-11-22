@@ -155,6 +155,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.ui.notes.rememberNoteBacklinks
+import com.gpo.yoin.data.notes.BacklinkTarget
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.data.model.YoinDevice
@@ -292,6 +295,8 @@ fun NowPlayingScreen(
     // The Note page's "对齐到现在": re-anchor a note to a new song moment
     // (NowPlayingViewModel.realignNote). Null leaves the menu with delete only.
     onRealignNote: ((SongNote, Long) -> Unit)? = null,
+    // A tap on a to-do's box in a note: (note id, line) → NowPlayingViewModel.toggleNoteChecklist.
+    onToggleNoteChecklist: ((String, Int) -> Unit)? = null,
     // The one note draft. Held at this root by default (survives a recycled
     // pager page, Expanded → Compact, a layout swap and a song change); a
     // host that passes the view model's (NowPlayingViewModel.noteDraft) also
@@ -537,6 +542,7 @@ fun NowPlayingScreen(
         LocalNowPlayingTransportSignal provides transportSignal,
         LocalNoteDeletion provides noteDeletion,
         LocalNoteRealign provides onRealignNote,
+        LocalNoteChecklistToggle provides onToggleNoteChecklist,
       ) {
         Box(
             modifier = modifier
@@ -2114,6 +2120,11 @@ private fun CompactPlayingContent(
                                     notes = notesState,
                                     immersiveProgress = if (focusKeepsList) 0f else immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
+                                    onWriteNote = {
+                                        noteBar.requestWriting()
+                                        onDetailPageChange(NowPlayingDetailPage.Note)
+                                        onStageModeChange(NowPlayingStageMode.Expanded)
+                                    },
                                     listFocus = if (focusKeepsList) {
                                         { resolvedStageProgress.immersive }
                                     } else {
@@ -3669,6 +3680,11 @@ private fun LandscapePlayingContent(
                             notes = notesState,
                             immersiveProgress = 0f,
                             onRetryFetchSongInfo = onRetryFetchSongInfo,
+                            onWriteNote = {
+                                noteBar.requestWriting()
+                                onDetailPageChange(NowPlayingDetailPage.Note)
+                                onStageModeChange(NowPlayingStageMode.Expanded)
+                            },
                             listFocus = { resolvedStageProgress.immersive },
                             // Two sung lines above: the current one sits on the
                             // third row (owner 2026-11-06).
@@ -4911,6 +4927,8 @@ private fun CompactDetailPage(
     immersiveProgress: Float,
     onRetryFetchSongInfo: () -> Unit,
     modifier: Modifier = Modifier,
+    // The empty Note pane's 写笔记: the same as the Write pill (open the write bar).
+    onWriteNote: () -> Unit = {},
     // Focus with the list kept (owner 2026-11-03): the lines print through
     // dots and the outro plays here (last line held, next song's first line);
     // read in draw. 0 = the resting page.
@@ -4987,11 +5005,21 @@ private fun CompactDetailPage(
             songKey = "${state.songTitle}\u0000${state.artist}\u0000${state.albumName}",
             modifier = insetModifier,
         )
-        NowPlayingDetailPage.Note -> NoteCompactPane(
-            notes = notes,
-            positionMs = positionMs,
-            modifier = insetModifier,
-        )
+        NowPlayingDetailPage.Note -> {
+            // Where else this song is mentioned (the empty pane's hint line).
+            val mentionTarget = remember(state.songId, state.songTitle, state.artist, state.albumName) {
+                MediaId.parseOrNull(state.songId)?.let { id ->
+                    BacklinkTarget.Track(id, state.songTitle, state.artist, state.albumName.ifBlank { null })
+                }
+            }
+            NoteCompactPane(
+                notes = notes,
+                positionMs = positionMs,
+                onWrite = onWriteNote,
+                backlinks = if (notes.isEmpty()) rememberNoteBacklinks(mentionTarget) else emptyList(),
+                modifier = insetModifier,
+            )
+        }
     }
 }
 

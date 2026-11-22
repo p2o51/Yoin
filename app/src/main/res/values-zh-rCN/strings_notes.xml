@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notes_mention_popup_title">提及</string>
+    <string name="notes_mention_expand">展开搜索</string>
+    <string name="notes_mention_section_tracks">歌曲</string>
+    <string name="notes_mention_section_albums">专辑</string>
+    <string name="notes_mention_section_artists">艺术家</string>
+    <string name="notes_mention_loading">正在找…</string>
+    <string name="notes_mention_empty">没有找到</string>
+    <string name="notes_mention_search_hint">搜索资料库</string>
+    <string name="notes_mention_cd_track">歌曲：%1$s</string>
+    <string name="notes_mention_cd_album">专辑：%1$s</string>
+    <string name="notes_mention_cd_artist">艺术家：%1$s</string>
+    <string name="notes_tool_bold">粗体</string>
+    <string name="notes_tool_italic">斜体</string>
+    <string name="notes_tool_heading">标题</string>
+    <string name="notes_tool_bullet">列表</string>
+    <string name="notes_tool_checklist">待办</string>
+    <string name="notes_tool_mention">提及歌曲、专辑或艺术家</string>
+    <string name="notes_empty_write">写笔记</string>
+    <string name="notes_empty_write_cd">在 %1$s 写笔记</string>
+    <string name="notes_source_note">笔记</string>
+    <string name="notes_source_album_note">专辑笔记</string>
+    <string name="notes_source_review">评论</string>
+    <string name="notes_mentioned_in">在 %1$s 的%2$s里被提到</string>
+    <plurals name="notes_mentioned_in_more">
+        <item quantity="other">在 %1$s 的%2$s里被提到，另有 %3$d 处</item>
+    </plurals>
+    <string name="notes_backlinks_title">被提及</string>
+    <plurals name="notes_backlinks_count">
+        <item quantity="other">%d 处</item>
+    </plurals>
+    <string name="notes_backlink_kind_note">笔记</string>
+    <string name="notes_backlink_kind_album_note">专辑笔记</string>
+    <string name="notes_backlink_kind_review">评论</string>
+    <string name="notes_backlink_cd">%1$s，%2$s：%3$s</string>
+    <string name="notes_sticky_add">写专辑笔记</string>
+    <string name="notes_sticky_placeholder">给整张专辑写点什么</string>
+    <string name="notes_sticky_save">保存</string>
+    <string name="notes_sticky_cancel">取消</string>
+    <string name="notes_sticky_edit_cd">编辑专辑笔记：%1$s</string>
+    <string name="notes_sticky_deleted">已删除专辑笔记</string>
+</resources>

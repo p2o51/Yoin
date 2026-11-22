@@ -159,8 +159,6 @@
     <string name="np_share_brand" translatable="false">Yoin</string>
     <string name="np_share_file_untitled">Yoin lyrics %1$s.png</string>
     <string name="np_share_file_named">Yoin lyrics - %1$s - %2$s.png</string>
-
-    <string name="np_note_tap_to_write">Write</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <plurals name="np_note_count">
         <item quantity="one">%1$d note</item>

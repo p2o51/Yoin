@@ -15,6 +15,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.notes.MentionAccount
+import com.gpo.yoin.ui.notes.LocalNoteBacklinks
+import com.gpo.yoin.ui.notes.LocalNoteMentions
+import com.gpo.yoin.ui.notes.NoteMentionController
+import com.gpo.yoin.ui.notes.editor.LocalMentionCandidates
+import com.gpo.yoin.ui.notes.editor.MentionCandidateSource
+import com.gpo.yoin.ui.notes.editor.RepositoryMentionCandidateSource
+import com.gpo.yoin.ui.notes.openNoteDestination
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.Player
 import coil3.SingletonImageLoader
@@ -162,7 +172,32 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val activity = LocalContext.current.findActivityOrNull()
     val windowCovered = remember(activity) { CoveredWindowAnimationGate.coveredState(activity) }
 
+    // Notes: mentions resolve for the account in use and open what they name; editors' @ rows.
+    val noteScope = rememberCoroutineScope()
+    val noteMentions = remember(app) {
+        app?.container?.let { container ->
+            NoteMentionController(
+                resolver = container.mentionResolver,
+                account = { container.profileManager.activeProfile.value?.let { MentionAccount(it.id, it.provider) } },
+                scope = noteScope,
+                trackAlbum = { container.repository.findTrackAlbum(it) },
+                navigate = ::openNoteDestination,
+                resolveCover = { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key), 120) },
+            )
+        }
+    }
+    val mentionCandidates = remember(app) {
+        app?.container?.let { container ->
+            RepositoryMentionCandidateSource(container.repository) {
+                container.playbackManager.playbackState.value.currentTrack
+            }
+        } ?: MentionCandidateSource.None
+    }
+
     CompositionLocalProvider(
+        LocalNoteMentions provides noteMentions,
+        LocalNoteBacklinks provides app?.container?.noteBacklinks,
+        LocalMentionCandidates provides mentionCandidates,
         LocalWindowCovered provides windowCovered,
         LocalCoverField provides app?.container?.playbackThemeState?.coverField,
         LocalCoverDarkScheme provides app?.container?.playbackThemeState?.colorScheme(darkTheme = true),

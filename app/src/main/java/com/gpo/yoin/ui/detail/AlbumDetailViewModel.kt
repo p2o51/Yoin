@@ -725,6 +725,13 @@ class AlbumDetailViewModel(
                 val was = viewModelScope.async { scrapWrite { repository.editAlbumNoteById(edit.noteId, edit.text) } }
                 if (edit.text.isBlank()) deletedAlbumNotes[edit.noteId] = was
             }
+            is ScrapEdit.ToggleChecklist -> launchScrapWrite {
+                if (edit.album) {
+                    repository.toggleAlbumNoteChecklist(edit.noteId, edit.lineIndex)
+                } else {
+                    repository.toggleNoteChecklist(edit.noteId, edit.lineIndex)
+                }
+            }
             is ScrapEdit.RestoreAlbumNote -> {
                 val deleted = deletedAlbumNotes.remove(edit.noteId) ?: return
                 viewModelScope.launch {
