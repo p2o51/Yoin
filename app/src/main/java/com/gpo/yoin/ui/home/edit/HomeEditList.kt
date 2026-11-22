@@ -293,6 +293,7 @@ internal fun HomeEditList(
     deps: HomeEditDeps,
     listState: LazyListState,
     rows: List<HomeFeedRow>,
+    rowKeys: HomeRowKeys,
     hidden: List<HomeSection>,
     newBadges: Set<HomeSection>,
     canReset: Boolean,
@@ -357,18 +358,21 @@ internal fun HomeEditList(
                 }
             }
             for (row in rows) {
-                item(key = homeSectionItemKey(row.first)) {
+                item(key = rowKeys.itemKey(row.first)) {
                     // The dragged row places at once (its strip follows the finger); the others make way.
                     // No spec for it, not a snap: a snap lands a frame late (the strip a row off for a frame).
                     val placement = remember(row, specs) { GatedPlacementSpec(specs.placement) { engine.carries(row) } }
                     val carried by remember(row, engine) { derivedStateOf { engine.carries(row) } }
+                    // Mid-drag a row the drag splits or forms comes and goes at once: a fading one
+                    // drew the dragged strip a second time where it was, a fading-in one hid it.
+                    val dragOn by remember(engine) { derivedStateOf { engine.dragging != null } }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateItem(
-                                fadeInSpec = specs.effectsIn,
+                                fadeInSpec = if (dragOn) null else specs.effectsIn,
                                 placementSpec = if (carried) null else placement,
-                                fadeOutSpec = specs.effectsOut,
+                                fadeOutSpec = if (dragOn) null else specs.effectsOut,
                             )
                             .dragZIndex { if (engine.carries(row)) 1f else 0f },
                         horizontalArrangement = Arrangement.spacedBy(HomeSpanTokens.ColumnGap),

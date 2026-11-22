@@ -765,6 +765,7 @@ internal fun HomeEditorialContent(
             editing = { controller.isEditing },
             pairs = { feedRefs.listPairs },
             columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
+            rowKeys = { feedRefs.listRowKeys },
         )
     }
     val listDragHost = rememberLazyListDragHost(
@@ -776,6 +777,7 @@ internal fun HomeEditorialContent(
         columnGapPx = columnGapPx,
         scrollArea = safeArea,
         isList = true,
+        rowKeys = { feedRefs.listRowKeys },
     )
     // At pointer-down: the list's rows while it is on, the feed's otherwise.
     val pageHitTest = remember(hitTester, editListHitTester, engine) {
@@ -1372,9 +1374,12 @@ internal fun HomeEditorialContent(
             // A drag renders its live arrangement in place of the draft's: the order and pairs it will write.
             val drafted = controller.layoutToRender(HomeLayout(sections), twoColumn)
             val dragArrangement = engine.arrangement
-            val layout = remember(drafted, dragArrangement, twoColumn, feedUnseen) {
+            val liveLayout = remember(drafted, dragArrangement, twoColumn, feedUnseen) {
                 dragArrangement?.let { drafted.withDrag(it, twoColumn, feedUnseen) } ?: drafted
             }
+            // A drag in the pinched list leaves the feed under it alone: the feed lays the new
+            // order out once, on the drop, not again on every step behind the list.
+            val layout = if (engine.list.on) drafted else liveLayout
             val enabledOrder = layout.enabledSections
             // Derived, by value: a motion flag that leaves the blocks as they are (the
             // placeholders above a lifted block opening with none held back) recomposes nothing.
@@ -1437,14 +1442,17 @@ internal fun HomeEditorialContent(
             val allHidden = enabledOrder.none { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
             val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
             // The pinched list's rows: every section the feed can show, as the feed pairs them.
-            val listRows = remember(layout, twoColumn, feedUnseen) {
-                homeFeedRows(layout.enabledSections.filterNot { it in feedUnseen }, layout.pairs, twoColumn)
+            val listRows = remember(liveLayout, twoColumn, feedUnseen) {
+                homeFeedRows(liveLayout.enabledSections.filterNot { it in feedUnseen }, liveLayout.pairs, twoColumn)
             }
+            // A pair trading sides in the list keeps its item, as in the feed (HomeRowKeys).
+            val listRowKeys = rememberHomeRowKeys(listRows)
             SideEffect {
                 controller.twoColumn = twoColumn
                 controller.feedUnseen = feedUnseen
                 feedRefs.listPairs = listRows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }
                 feedRefs.listRowCount = listRows.size
+                feedRefs.listRowKeys = listRowKeys
                 val displayed = blocks.map { it.section }
                 if (motion.displayed != displayed) motion.displayed = displayed
                 feedRefs.keys = feedKeys
@@ -1598,6 +1606,7 @@ internal fun HomeEditorialContent(
                 deps = editDeps,
                 listState = editListState,
                 rows = listRows,
+                rowKeys = listRowKeys,
                 hidden = hiddenSections,
                 newBadges = controller.sessionHints.newBadges,
                 canReset = controller.canReset,
@@ -1898,6 +1907,9 @@ private class HomeFeedRefs {
     /** The pinched list's pairs (two columns), left → right, and its row count (published after each composition). */
     var listPairs: Map<HomeSection, HomeSection> = emptyMap()
     var listRowCount: Int = 0
+
+    /** The pinched list's row item keys (published after each composition). */
+    var listRowKeys: HomeRowKeys = HomeRowKeys.Initial
 
     /** The bar's Add scrolling to the tray; any press stops it. */
     var trayScroll: Job? = null
