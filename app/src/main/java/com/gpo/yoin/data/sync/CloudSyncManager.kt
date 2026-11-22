@@ -768,11 +768,12 @@ class CloudSyncManager(
 
     /**
      * Runs [block] under the sync lock with this device's replica, or with null when Cloud sync was never
-     * turned on here (no sync database: nothing is created for the caller). Backups and Memories transfers
+     * turned on here (no sync database: nothing is created for the caller unless [createIfMissing], which a
+     * Memories transfer asks for to keep its ledger in the sync database). Backups and Memories transfers
      * read and write the replica through this, never concurrently with a cycle.
      */
-    suspend fun <T> withReplica(block: suspend (SyncReplica?) -> T): T = withIo {
-        if (hooks == null && !syncDbFile().exists()) return@withIo block(null)
+    suspend fun <T> withReplica(createIfMissing: Boolean = false, block: suspend (SyncReplica?) -> T): T = withIo {
+        if (!createIfMissing && hooks == null && !syncDbFile().exists()) return@withIo block(null)
         ensureInitialized()
         mutex.withLock {
             block(
