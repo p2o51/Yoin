@@ -90,7 +90,7 @@ class HomeRowsDragTest {
                         editing = { controller.isEditing },
                         feedback = HomeEditFeedback.None,
                     )
-                    val engine = HomeCarryEngine(
+                    val engine = HomeDragEngine(
                         scope = scope,
                         specs = specs,
                         motion = motion,

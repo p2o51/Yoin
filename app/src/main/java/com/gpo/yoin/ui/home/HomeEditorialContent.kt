@@ -169,8 +169,7 @@ import com.gpo.yoin.ui.home.edit.HomeSpanDrag
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
-import com.gpo.yoin.ui.home.edit.HomeCarryEngine
-import com.gpo.yoin.ui.home.edit.HomeCarryStack
+import com.gpo.yoin.ui.home.edit.HomeDragEngine
 import com.gpo.yoin.ui.home.edit.HomeEditBlock
 import com.gpo.yoin.ui.home.edit.HomeEditChange
 import com.gpo.yoin.ui.home.edit.HomeEditClock
@@ -178,7 +177,9 @@ import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.home.edit.HomeEditDeps
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.HomeEditHeaderHint
+import com.gpo.yoin.ui.home.edit.HomeEditHitTest
 import com.gpo.yoin.ui.home.edit.HomeEditHitTester
+import com.gpo.yoin.ui.home.edit.HomeEditList
 import com.gpo.yoin.ui.home.edit.HomeEditLayer
 import com.gpo.yoin.ui.home.edit.HomeEditMotion
 import com.gpo.yoin.ui.home.edit.HomeEditPressState
@@ -197,14 +198,12 @@ import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
 import com.gpo.yoin.ui.home.edit.LocalHomePlateVariant
 import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.StripCover
-import com.gpo.yoin.ui.home.edit.StripWarmFrames
-import com.gpo.yoin.ui.home.edit.StripWarmth
 import com.gpo.yoin.ui.home.edit.TrayFooterKey
 import com.gpo.yoin.ui.home.edit.TrayTitleKey
 import com.gpo.yoin.ui.home.edit.asHomeEditFeedback
-import com.gpo.yoin.ui.home.edit.carryItemKey
+import com.gpo.yoin.ui.home.edit.dragZIndex
+import com.gpo.yoin.ui.home.edit.homeSectionItemKey
 import com.gpo.yoin.ui.home.edit.sections
-import com.gpo.yoin.ui.home.edit.feedFoldWash
 import com.gpo.yoin.ui.home.edit.homeAllHiddenItem
 import com.gpo.yoin.ui.home.edit.homeEditCard
 import com.gpo.yoin.ui.home.edit.homeEditExclusion
@@ -224,10 +223,10 @@ import com.gpo.yoin.ui.home.edit.plateOutsetVDp
 import com.gpo.yoin.ui.home.edit.rememberHomeEditIconsEnabled
 import com.gpo.yoin.ui.home.edit.rememberHomeEditReducedMotion
 import com.gpo.yoin.ui.home.edit.rememberHomeEditSpecs
-import com.gpo.yoin.ui.home.edit.rememberLazyListCarryHost
+import com.gpo.yoin.ui.home.edit.rememberLazyListDragHost
 import com.gpo.yoin.ui.home.edit.rememberStandaloneHomeEditController
 import com.gpo.yoin.ui.home.edit.stripCover
-import com.gpo.yoin.ui.home.edit.stripWarmth
+import com.gpo.yoin.ui.home.edit.withDrag
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -281,8 +280,8 @@ private const val HomeBackdropPaletteWarmupDelayMillis = 350L
  * "Edit Home" footer, or the Hidden tray while editing. Home edit mode
  * happens here, in place (plan §2.1, §2.5): every section is a
  * [HomeEditBlock], one Initial-pass detector over the whole page enters and
- * drives it, and the strip stack folds over the feed while a block is
- * carried. [editController] is the shell's (null: a standalone one, for
+ * drives it: a block is dragged in place, and a pinch folds the feed into a
+ * compact list over it ([HomeEditList]). [editController] is the shell's (null: a standalone one, for
  * previews and the debug harness); while it edits, its draft overrides
  * [sections]. [footerNewBadge] badges the footer while a new section waits
  * in the tray.
@@ -396,7 +395,7 @@ internal fun HomeEditorialContent(
     }
     val press = remember { HomeEditPressState() }
     val engine = remember(controller, motion, density) {
-        HomeCarryEngine(
+        HomeDragEngine(
             scope = scope,
             specs = specs,
             motion = motion,
@@ -623,8 +622,9 @@ internal fun HomeEditorialContent(
     val flipOffsetSpec = YoinMotion.spatialSpring<Offset>()
     val currentFlipOffsetSpec by rememberUpdatedState(flipOffsetSpec)
     val cellFlips = remember { HomeCellFlips(scope, { currentSpanSpec }, { currentFlipOffsetSpec }) }
-    cellFlips.enabled = { controller.isEditing && engine.fold.value == 0f && engine.session == null }
+    cellFlips.enabled = { controller.isEditing }
     cellFlips.spanDragging = { spanDrag.section != null }
+    cellFlips.pinned = { engine.dragging }
     // Two columns: the handle's vertical axis sets the row's grid unit count (HomeGridUnits.kt).
     val unitDrag = remember(controller, editFeedback, density) {
         HomeUnitDrag(
@@ -721,37 +721,78 @@ internal fun HomeEditorialContent(
             columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
         )
     }
-    val carryHost = rememberLazyListCarryHost(
+    val columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() }
+    val contentLeftPx: () -> Float = { with(density) { feedFrame.start.toPx() } }
+    val contentWidthPx: () -> Float = { with(density) { feedFrame.contentWidth.toPx() } }
+    // The draft's order, never what happens to be laid out (critique 1), without what this device can't show.
+    val dragOrder: () -> List<HomeSection> = {
+        controller.draft?.enabledSections.orEmpty().filterNot { it in controller.feedUnseen }
+    }
+    val feedDragHost = rememberLazyListDragHost(
         listState = listState,
-        feedFrame = feedFrame,
-        // The draft's order, never what happens to be laid out (critique 1).
-        order = { controller.draft?.enabledSections.orEmpty() },
-        emittedKeys = { feedRefs.keys },
-        safeArea = safeArea,
-        plateOutsetPx = plateOutsetPx,
-        // Two columns: the strips keep the feed's pairs, and a carry can pair blocks.
+        order = dragOrder,
+        // Two columns: a drag keeps the feed's pairs, and can pair blocks.
         pairs = { if (controller.twoColumn) feedRefs.pairs else null },
-        columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
+        contentLeft = contentLeftPx,
+        contentWidth = contentWidthPx,
+        columnGapPx = columnGapPx,
+        scrollArea = safeArea,
     )
-    val isFlingInProgress: () -> Boolean = remember(listState) { { listState.isScrollInProgress } }
-    // P on the move, a carry, or a charge: vote the panel's high rate for exactly as long.
-    // Read only in HomeFrameRateVote's scope: a flip (a charge, a carry starting or
-    // ending, P settling) must not recompose the feed and every section in it.
+    // The pinched list (HomeEditList.kt): its own rows, handles and buttons, driven by the same detector.
+    val editListState = rememberLazyListState()
+    val editListTargets = remember { HomeEditTargets() }
+    val editListHitTester = remember(editListState, editListTargets, controller, feedFrame, density) {
+        HomeEditHitTester(
+            listState = editListState,
+            targets = editListTargets,
+            contentBounds = {
+                val start = with(density) { feedFrame.start.toPx() }
+                start..(start + with(density) { feedFrame.contentWidth.toPx() })
+            },
+            plateOutsetPx = { Size.Zero },
+            editing = { controller.isEditing },
+            pairs = { feedRefs.listPairs },
+            columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
+        )
+    }
+    val listDragHost = rememberLazyListDragHost(
+        listState = editListState,
+        order = dragOrder,
+        pairs = { if (controller.twoColumn) feedRefs.listPairs else null },
+        contentLeft = contentLeftPx,
+        contentWidth = contentWidthPx,
+        columnGapPx = columnGapPx,
+        scrollArea = safeArea,
+        isList = true,
+    )
+    // At pointer-down: the list's rows while it is on, the feed's otherwise.
+    val pageHitTest = remember(hitTester, editListHitTester, engine) {
+        HomeEditHitTest { position ->
+            if (engine.list.on) editListHitTester.hitTest(position) else hitTester.hitTest(position)
+        }
+    }
+    val isFlingInProgress: () -> Boolean = remember(listState, editListState, engine) {
+        { if (engine.list.on) editListState.isScrollInProgress else listState.isScrollInProgress }
+    }
+    // P on the move, a drag, the list coming or going, or a charge: vote the panel's high rate
+    // for exactly as long. Read only in HomeFrameRateVote's scope: a flip (a charge, a drag
+    // starting or ending, P settling) must not recompose the feed and every section in it.
     val editAnimating: () -> Boolean = remember(controller, engine, press, rowsEngine) {
         val animating = derivedStateOf {
             val p = controller.progress.value
-            (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.session != null ||
-                press.charge.isRunning || rowsEngine.resizing
+            (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.dragging != null ||
+                engine.settling != null || engine.list.progress.isRunning || press.charge.isRunning ||
+                rowsEngine.resizing
         }
         ({ animating.value })
     }
-    // Strips folding, or a carry: sections place 1:1 under the strips (port sheet §4.5).
-    // While editing the feed places through one stable spec that reads this gate when
-    // the list starts a move, so a fold never recomposes the sections (no composition read).
-    // A block resizing its rows pushes the feed 1:1 as well (d1-rows.md §3.2).
+    // While editing the feed places through one stable spec that reads this gate when the
+    // list starts a move (no composition read): blocks make way for a dragged one on it, and
+    // place 1:1 under the pinched list that covers them, or while a block resizes its rows
+    // (d1-rows.md §3.2).
     val editPlacement = remember(engine, specs, plateLook, rowsEngine) {
         GatedPlacementSpec(specs.placement) {
-            engine.fold.value > 0f || engine.session != null || plateLook.spacingMoving() || rowsEngine.resizing
+            engine.feedHidden || plateLook.spacingMoving() || rowsEngine.resizing
         }
     }
     // The V1 plate springs the feed's spacing with P: sections follow it 1:1
@@ -780,7 +821,13 @@ internal fun HomeEditorialContent(
     // narrower frame is ≤ 688dp, the Now Playing side panel's squeeze included)
     // lays sections out in rows of one full or two half sections.
     val twoColumn = homeTwoColumn(windowInfo)
-    val layout = controller.layoutToRender(HomeLayout(sections), twoColumn)
+    val feedUnseen = if (lyricHighlightAvailable) emptySet() else setOf(HomeSection.LyricHighlight)
+    // A drag renders its live arrangement in place of the draft's: the order and pairs it will write.
+    val drafted = controller.layoutToRender(HomeLayout(sections), twoColumn)
+    val dragArrangement = engine.arrangement
+    val layout = remember(drafted, dragArrangement, twoColumn, feedUnseen) {
+        dragArrangement?.let { drafted.withDrag(it, twoColumn, feedUnseen) } ?: drafted
+    }
     val enabledOrder = layout.enabledSections
     // Derived, by value: a motion flag that leaves the blocks as they are (the
     // placeholders above a lifted block opening with none held back) recomposes nothing.
@@ -840,9 +887,15 @@ internal fun HomeEditorialContent(
     val hiddenSections = layout.hiddenSections.filter { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val allHidden = enabledOrder.none { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
+    // The pinched list's rows: every section the feed can show, as the feed pairs them.
+    val listRows = remember(layout, twoColumn, feedUnseen) {
+        homeFeedRows(layout.enabledSections.filterNot { it in feedUnseen }, layout.pairs, twoColumn)
+    }
     SideEffect {
         controller.twoColumn = twoColumn
-        controller.feedUnseen = if (lyricHighlightAvailable) emptySet() else setOf(HomeSection.LyricHighlight)
+        controller.feedUnseen = feedUnseen
+        feedRefs.listPairs = listRows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }
+        feedRefs.listRowCount = listRows.size
         val displayed = blocks.map { it.section }
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
@@ -916,6 +969,11 @@ internal fun HomeEditorialContent(
             override fun scrollToTray() {
                 feedRefs.trayScroll?.cancel()
                 feedRefs.trayScroll = scope.launch {
+                    // The pinched list: its tray follows its strips.
+                    if (engine.list.on) {
+                        editListState.animateScrollToItem(feedRefs.listRowCount)
+                        return@launch
+                    }
                     val index = feedRefs.keys.indexOf(TrayTitleKey)
                     if (index < 0) return@launch
                     val offsetPx = with(density) { HomeEditTokens.ScrollToTrayOffset.toPx() }
@@ -933,9 +991,13 @@ internal fun HomeEditorialContent(
         if (controller.isEditing) layer.onEnter(null, lifted = false)
         onDispose { controller.detachLayer(layer) }
     }
-    DisposableEffect(engine, carryHost) {
-        engine.host = carryHost
-        onDispose { if (engine.host === carryHost) engine.host = null }
+    DisposableEffect(engine, feedDragHost, listDragHost) {
+        engine.host = feedDragHost
+        engine.listHost = listDragHost
+        onDispose {
+            if (engine.host === feedDragHost) engine.host = null
+            if (engine.listHost === listDragHost) engine.listHost = null
+        }
     }
     LaunchedEffect(motion) { motion.runEntryEffects() }
     HomeEditClock(motion)
@@ -965,14 +1027,13 @@ internal fun HomeEditorialContent(
             .collect { atRest -> currentOnFeedAtRestChanged(atRest) }
     }
     DisposableEffect(listState) { onDispose { currentOnFeedAtRestChanged(false) } }
-    // The seam followers ignore the scroll the anchor makes under the strips,
-    // and the one that keeps a held block under the finger (HomePlateSpacingAnchor).
+    // The seam followers ignore the scroll that keeps a held block under the finger (HomePlateSpacingAnchor).
     LaunchedEffect(engine, seamFlow, spacingAnchor) {
-        snapshotFlow { engine.fold.value > 0f || spacingAnchor.holding }.collect { seamFlow.held = it }
+        snapshotFlow { spacingAnchor.holding }.collect { seamFlow.held = it }
     }
-    // A carry folds every block into a strip: any row resize lands at rest first.
+    // A lift or a drag: any row resize lands at rest first.
     LaunchedEffect(engine, rowsEngine, spanDrag, unitDrag) {
-        snapshotFlow { engine.session != null || engine.liftSection != null }.collect { carrying ->
+        snapshotFlow { engine.dragging != null || engine.liftSection != null }.collect { carrying ->
             if (carrying) {
                 rowsEngine.snapAll()
                 spanDrag.snap()
@@ -1000,35 +1061,12 @@ internal fun HomeEditorialContent(
         }
         onDispose { rowsEngine.autoScroll = null }
     }
-    // A new width class or a resize mid-drag invalidates the strips: let go where it is.
+    // A new width class or a resize mid-drag invalidates the drag's geometry: let go where it is.
     LaunchedEffect(engine, feedFrame) {
         snapshotFlow { Pair(feedFrame.to, feedFrame.containerWidth) }
             .drop(1)
-            .collect {
-                if (engine.session != null) engine.release(cancelled = true, uptimeMs = SystemClock.uptimeMillis())
-            }
+            .collect { engine.cancel() }
     }
-    // The strips compose once entering has settled, ahead of any carry, one
-    // label a frame, and leave once an exit has: composed in a fold's first
-    // frame they would stall it (HomeCarryStack).
-    val stripsWarm = produceState(initialValue = 0, controller) {
-        snapshotFlow { stripWarmth(editing = controller.isEditing, moving = controller.progress.isAnimating) }
-            .collectLatest { warmth ->
-                when (warmth) {
-                    StripWarmth.Warm -> {
-                        // Past the entry's own frames first.
-                        repeat(StripWarmFrames) { withFrameNanos { } }
-                        while (value < HomeSection.entries.size) {
-                            value++
-                            withFrameNanos { }
-                        }
-                    }
-                    StripWarmth.Keep -> Unit
-                    StripWarmth.Cold -> value = 0
-                }
-            }
-    }
-    val warmSections = remember(enabledOrder) { enabledOrder }
     val stripShapes = rememberHomeStripShapes()
     val stripCovers: (HomeSection) -> List<StripCover> = remember(
         activityEntries,
@@ -1365,6 +1403,7 @@ internal fun HomeEditorialContent(
             .fillMaxSize()
             .onPlaced { coordinates ->
                 targets.attachBox(coordinates)
+                editListTargets.attachBox(coordinates)
                 feedRefs.box = coordinates
             }
             // Any press stops the bar's scroll to the tray.
@@ -1380,7 +1419,7 @@ internal fun HomeEditorialContent(
                 motion = motion,
                 press = press,
                 engine = engine,
-                hitTester = hitTester,
+                hitTester = pageHitTest,
                 feedback = editFeedback,
                 isFlingInProgress = isFlingInProgress,
                 specs = specs,
@@ -1389,7 +1428,7 @@ internal fun HomeEditorialContent(
                 flow = seamFlow,
                 color = pageColor,
                 statusBarPx = statusBarPx,
-            ) { listState.seamScrolledPx() },
+            ) { if (engine.list.on) editListState.seamScrolledPx() else listState.seamScrolledPx() },
     ) {
         // The vote's flag is read in its own scope (see editAnimating).
         HomeFrameRateVote(active = editAnimating, modifier = Modifier.fillMaxSize()) {
@@ -1397,7 +1436,6 @@ internal fun HomeEditorialContent(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .feedFoldWashOver(engine, listState, seamBackground)
                     .feedFrameWidth(feedFrame)
                     .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
                     .seamDissolveViewport(
@@ -1410,8 +1448,7 @@ internal fun HomeEditorialContent(
                     .nestedScroll(pullToMemoriesConnection),
                 // The landscape Button Group lives in the left cutout band, not at
                 // the bottom: only the nav bar needs clearing there. No top
-                // padding: the header carries it, so the carry's anchor can keep
-                // the header out by item index alone.
+                // padding: the header carries it.
                 contentPadding = remember(feedFrame, isLandscapePhone, navBarBottom) {
                     FeedFramePadding(
                         frame = feedFrame,
@@ -1482,17 +1519,25 @@ internal fun HomeEditorialContent(
                             gap = HomeSpanTokens.ColumnGap,
                             flips = if (twoColumn) cellFlips else null,
                             grid = grid,
-                            modifier = Modifier.animateItem(
-                                // A section edit mode shows fades in by its own alpha (critique 10);
-                                // one moving here from another row moves instead (HomeCellFlips).
-                                fadeInSpec = if (row.first in motion.showing || cellFlips.moved(row.first, row.first)) {
-                                    null
-                                } else {
-                                    specs.effectsIn
-                                },
-                                placementSpec = sectionPlacement(),
-                                fadeOutSpec = specs.effectsOut,
-                            ),
+                            onTop = { engine.dragging },
+                            modifier = Modifier
+                                .animateItem(
+                                    // A section edit mode shows fades in by its own alpha (critique 10);
+                                    // one moving here from another row moves instead (HomeCellFlips).
+                                    fadeInSpec = if (row.first in motion.showing || cellFlips.moved(row.first, row.first)) {
+                                        null
+                                    } else {
+                                        specs.effectsIn
+                                    },
+                                    // The dragged block's row places at once (the block follows the finger);
+                                    // every other row makes way on the spring.
+                                    placementSpec = sectionPlacement()?.let { base ->
+                                        remember(base, row) { GatedPlacementSpec(base) { engine.carries(row) } }
+                                    },
+                                    fadeOutSpec = specs.effectsOut,
+                                )
+                                // The dragged block draws over the rows it crosses.
+                                .dragZIndex { if (engine.carries(row)) 1f else 0f },
                         ) { section ->
                             val block = blockBySection[section] ?: return@HomeFeedRowLayout
                             HomeEditBlock(
@@ -1538,12 +1583,25 @@ internal fun HomeEditorialContent(
                     )
                 }
             }
-            // The strips fold over the feed, inside the tide (port sheet §0.2 item 10).
-            HomeCarryStack(
-                engine = engine,
+            // The pinched list over the feed, inside the tide.
+            HomeEditList(
+                deps = editDeps,
+                listState = editListState,
+                rows = listRows,
+                hidden = hiddenSections,
+                newBadges = controller.sessionHints.newBadges,
+                canReset = controller.canReset,
                 covers = stripCovers,
-                sections = warmSections,
-                warmCount = { stripsWarm.value },
+                targets = editListTargets,
+                background = seamBackground.colors,
+                contentPadding = remember(feedFrame, isLandscapePhone, navBarBottom, safeTopPx, density) {
+                    FeedFramePadding(
+                        frame = feedFrame,
+                        top = with(density) { safeTopPx.toDp() },
+                        bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
+                    )
+                },
+                listModifier = Modifier.feedFrameWidth(feedFrame),
             )
             if (bubbleController != null) {
                 MemoryBubbleOverlay(
@@ -1629,7 +1687,7 @@ internal fun homeFeedKeys(
 }
 
 /** A section's item key: edit mode reads the section back from it (`HomeSection.fromId`). */
-private fun sectionItemKey(section: HomeSection): String = carryItemKey(section)
+private fun sectionItemKey(section: HomeSection): String = homeSectionItemKey(section)
 
 private const val HomeHeaderKey = "home-header"
 
@@ -1638,36 +1696,6 @@ private val TwoColumnPlateMargin = 12.dp
 
 // P this close to rest counts as still (port sheet §2.5).
 private const val EditAnimatingFloor = .001f
-
-/**
- * The feed fading under the folding strips (port sheet §4.5): a wash of the
- * page's own gradient ([background], over the page's height) drawn over the
- * sections and tray, from the header's bottom down; the header never fades.
- * It stands in for each block's layer alpha (the blocks only switch off once
- * it covers them, `feedFoldShown`), so a fade frame costs one gradient
- * rect, not an offscreen pass per block. Drawn only mid-fade.
- */
-private fun Modifier.feedFoldWashOver(
-    engine: HomeCarryEngine,
-    listState: LazyListState,
-    background: SeamBackground,
-): Modifier = drawWithCache {
-    val brush = Brush.verticalGradient(background.colors, startY = 0f, endY = size.height)
-    onDrawWithContent {
-        drawContent()
-        val wash = feedFoldWash(engine.fold.value)
-        if (wash <= 0f || wash >= 1f) return@onDrawWithContent
-        val top = listState.headerBottomPx().coerceIn(0f, size.height)
-        drawRect(brush, topLeft = Offset(0f, top), size = Size(size.width, size.height - top), alpha = wash)
-    }
-}
-
-/** The header's bottom in the list's px, 0 once it has scrolled away (the list sits at the Box origin). */
-private fun LazyListState.headerBottomPx(): Float {
-    val info = layoutInfo
-    val header = info.visibleItemsInfo.firstOrNull { it.key == HomeHeaderKey } ?: return 0f
-    return (header.offset - info.viewportStartOffset + header.size).toFloat()
-}
 
 /**
  * The page's content under a high frame-rate vote while [active]. The flag
@@ -1694,6 +1722,10 @@ private class HomeFeedRefs {
 
     /** The item keys the list emits, in order (published after each composition). */
     var keys: List<Any> = emptyList()
+
+    /** The pinched list's pairs (two columns), left → right, and its row count (published after each composition). */
+    var listPairs: Map<HomeSection, HomeSection> = emptyMap()
+    var listRowCount: Int = 0
 
     /** The bar's Add scrolling to the tray; any press stops it. */
     var trayScroll: Job? = null

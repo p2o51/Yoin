@@ -24,7 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HomeCarryLiftTest {
+class HomeDragLiftTest {
 
     private val specs = HomeEditSpecs.create(MotionScheme.expressive(), reduced = false)
 
@@ -43,7 +43,7 @@ class HomeCarryLiftTest {
         val press = HomeEditPressState()
         val committed = mutableListOf<List<HomeSection>>()
         val exits = mutableListOf<HomeEditExitReason>()
-        val engine = HomeCarryEngine(
+        val engine = HomeDragEngine(
             scope = scope,
             specs = specs,
             motion = motion,
@@ -185,10 +185,9 @@ class HomeCarryLiftTest {
     }
 
     @Test
-    fun should_finishDeferredExitAtOnce_when_noCarry() = runEditClockTest { scope ->
+    fun should_finishDeferredExitAtOnce_when_noDrag() = runEditClockTest { scope ->
         val rig = rig(scope)
         assertEquals(false, rig.engine.isCarrying)
-        assertEquals(false, rig.engine.isBusy)
         rig.engine.deferExit(HomeEditExitReason.Back)
         assertEquals(listOf(HomeEditExitReason.Back), rig.exits)
     }

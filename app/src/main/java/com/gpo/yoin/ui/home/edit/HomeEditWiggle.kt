@@ -63,10 +63,10 @@ internal class HomeEditCardScope(
     /** The block's content, which card rects are measured in (`onPlaced` only). */
     val blockCoordinates: () -> LayoutCoordinates?,
     val safeArea: () -> HomeEditSafeArea,
-    /** 1 − lift while this section is lifted, 0 under its strip, else 1. */
+    /** 1 − lift while this section is lifted, 0 while it is dragged, else 1. */
     val liftGain: () -> Float,
     /**
-     * The block draws nothing (the carry's strips cover the feed): its cards stand
+     * The block draws nothing (the pinched list covers the feed): its cards stand
      * still without reading the clock, so the hidden feed takes no frames. Draw only.
      */
     val feedHidden: () -> Boolean = { false },
@@ -244,7 +244,7 @@ private class HomeEditBlockWiggleNode(
  */
 internal fun HomeEditCardScope.cardWiggleDeg(index: Int, size: Size, topInBlock: Float, density: Density): Float {
     if (motion.style.target != HomeWiggleTarget.Card) return 0f
-    // Before any clock read: a hidden card must not redraw every frame of a carry.
+    // Before any clock read: a hidden card must not redraw every frame under the list.
     if (feedHidden()) return 0f
     val envelope = motion.envelope.value
     val blockKick = motion.blockKick(section)

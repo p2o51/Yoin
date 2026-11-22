@@ -164,6 +164,8 @@ internal fun HomeFeedRowLayout(
     flips: HomeCellFlips? = null,
     /** Two columns: every cell's exact height (HomeGridUnits.kt); null in one column. */
     grid: HomeGridHeight? = null,
+    /** The cell drawn over its partner (a dragged block), read as the row places. */
+    onTop: () -> HomeSection? = { null },
     cell: @Composable (HomeSection) -> Unit,
 ) {
     val sections = when (row) {
@@ -230,8 +232,9 @@ internal fun HomeFeedRowLayout(
         }
         val height = placeables.maxOfOrNull { it.height } ?: 0
         layout(width, height) {
-            // The dragged cell last, so it draws over a partner it grows into.
-            val order = placeables.indices.sortedBy { if (sections[it] == dragged) 1 else 0 }
+            // The dragged cell last, so it draws over a partner it grows into (or is dragged across).
+            val top = onTop()
+            val order = placeables.indices.sortedBy { if (sections[it] == dragged || sections[it] == top) 1 else 0 }
             order.forEach { index ->
                 val placeable = placeables[index]
                 val x = if (index == 0) 0 else width - placeable.width
@@ -246,7 +249,8 @@ internal fun HomeFeedRowLayout(
  * splitting on the handle's release, an Undo) moves there from where it
  * was and springs its width, instead of the old row fading out while the
  * new one fades in. The old row, fading out, no longer draws the cell.
- * On only while [enabled] (edit mode at rest: a carry's strips do their own).
+ * On only while [enabled] (edit mode). A [pinned] cell (the dragged block,
+ * which follows the finger) springs its width but never flies.
  */
 @Stable
 internal class HomeCellFlips(
@@ -260,6 +264,9 @@ internal class HomeCellFlips(
 
     /** A span drag sizes its row's cells itself, frame by frame: no spring while one runs. */
     var spanDragging: () -> Boolean = { false }
+
+    /** The dragged block: it is drawn under the finger, so a change of row moves nothing. */
+    var pinned: () -> HomeSection? = { null }
 
     /** The row (keyed by its first section) each displayed section is in now. Published after each composition. */
     var rowOf: Map<HomeSection, HomeSection> by mutableStateOf(emptyMap())
@@ -326,11 +333,13 @@ internal class HomeCellFlips(
         val from = pending.remove(section)
         if (from != null) {
             val delta = from.topLeft - topLeft
-            val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
-            offsets[section] = offset
-            scope.launch {
-                offset.animateTo(androidx.compose.ui.geometry.Offset.Zero, offsetSpec())
-                if (offsets[section] === offset) offsets.remove(section)
+            if (section != pinned()) {
+                val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
+                offsets[section] = offset
+                scope.launch {
+                    offset.animateTo(androidx.compose.ui.geometry.Offset.Zero, offsetSpec())
+                    if (offsets[section] === offset) offsets.remove(section)
+                }
             }
             val w = widths[section]
             if (w != null && abs(w.value - targetWidth) >= 1f) {

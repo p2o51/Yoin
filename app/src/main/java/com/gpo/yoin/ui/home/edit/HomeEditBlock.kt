@@ -113,7 +113,7 @@ internal class HomeEditDeps(
     val controller: HomeEditController,
     val motion: HomeEditMotion,
     val press: HomeEditPressState,
-    val engine: HomeCarryEngine,
+    val engine: HomeDragEngine,
     val targets: HomeEditTargets,
     val specs: HomeEditSpecs,
     /** The edit-mode plate (HomePlateVariant.kt): the shipped V1 unless the debug harness says otherwise. */
@@ -174,7 +174,7 @@ internal fun HomeEditBlock(
             safeArea = { safe() },
             liftGain = {
                 val gain = when {
-                    engine.session?.carried == section -> 0f
+                    engine.dragging == section -> 0f
                     engine.liftSection == section -> 1f - engine.lift.value.coerceIn(0f, 1f)
                     else -> 1f
                 }
@@ -337,7 +337,11 @@ internal fun HomeEditBlock(
                 if (size.width > 0f && size.height > 0f) {
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
-                // The fold's on/off, not its value: every block's layer re-runs on the flip, not each fold frame.
+                // Dragged, the block follows the finger; dropped, it glides into its slot.
+                val offset = engine.translation(section, inList = false)
+                translationX = offset.x
+                translationY = offset.y
+                // The list's cover on/off, not its progress: every block's layer re-runs on the flip, not each frame.
                 alpha = if (engine.feedHidden) 0f else motion.hideAlpha(section)
             }
             .then(wiggle)
@@ -926,7 +930,7 @@ internal fun rememberPreviewHomeEditDeps(progress: Float, editing: Boolean): Hom
             controller = controller,
             motion = motion,
             press = HomeEditPressState(),
-            engine = HomeCarryEngine(
+            engine = HomeDragEngine(
                 scope = scope,
                 specs = specs,
                 motion = motion,

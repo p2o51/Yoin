@@ -239,7 +239,7 @@ internal class HomeEditMotion(
             field = value
         }
 
-    /** A block is carried as a strip: the others sway at [HomeEditTokens.DragEnvelope]. Set by the engine. */
+    /** A block is dragged: the others sway at [HomeEditTokens.DragEnvelope]. Set by the engine. */
     var carryActive: Boolean = false
         set(value) {
             if (field == value) return
@@ -629,7 +629,7 @@ internal class HomeEditMotion(
      * An animated exit started ([reason] is for symmetry; Done's haptic is the
      * controller's): the plate retreats with P instead of holding its latch,
      * E falls, and the tray fades out before the footer fades in. Home layers
-     * call [HomeCarryEngine.onExit], which also drops a lift and the press.
+     * call [HomeDragEngine.onExit], which also drops a lift and the press.
      */
     @Suppress("UNUSED_PARAMETER")
     fun onExit(reason: HomeEditExitReason) {

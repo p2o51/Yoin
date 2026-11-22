@@ -47,7 +47,7 @@ class HomeEditGesturesTest {
     private val feedback = RecordingHomeEditFeedback()
     private var clicks = 0
     private lateinit var controller: HomeEditController
-    private lateinit var engine: HomeCarryEngine
+    private lateinit var engine: HomeDragEngine
     private lateinit var listState: LazyListState
 
     // Three sections in Robolectric's 470dp-tall window: at 120dp they leave the page's bottom blank,
@@ -81,7 +81,7 @@ class HomeEditGesturesTest {
             }
             val press = remember { HomeEditPressState() }
             engine = remember {
-                HomeCarryEngine(
+                HomeDragEngine(
                     scope = scope,
                     specs = specs,
                     motion = motion,

@@ -30,35 +30,6 @@ class HomeEditGeometryTest {
     }
 
     @Test
-    fun should_computeStack_when_safe44to672N4k1finger300() {
-        val metrics = stripMetrics(
-            count = 4,
-            carriedIndex = 1,
-            fingerY = 300f,
-            safeTop = 44f,
-            safeBottom = 672f,
-            contentLeft = 16f,
-            contentWidth = 332f,
-            density = density,
-        )
-        assertEquals(64f, metrics.height, 0f)
-        assertEquals(72f, metrics.pitch, 0f)
-        assertEquals(280f, metrics.stackHeight, 0f)
-        assertEquals(196f, metrics.top, 0f)
-        assertEquals(332f, metrics.width, 0f)
-        assertEquals(268f, metrics.slotY(1), 0f)
-    }
-
-    @Test
-    fun should_centreCarriedStripOnFinger_when_stackFits() {
-        val metrics = stripMetrics(4, 1, 300f, 44f, 672f, 16f, 900f, density)
-        assertEquals(300f, metrics.slotY(1) + metrics.height / 2f, 0f)
-        // Wide panes cap the strip width; the cover edge follows the strip height.
-        assertEquals(560f, metrics.width, 0f)
-        assertEquals(36f, metrics.coverSize, 0f)
-    }
-
-    @Test
     fun should_hashKnownIds() {
         assertEquals(1775563416L, fnv1a32("activities"))
         assertEquals(1086541855L, fnv1a32("rediscover"))
@@ -92,31 +63,6 @@ class HomeEditGeometryTest {
         assertEquals(1.1f, cardAmpDeg(100f, 140f), .001f)
         assertEquals(.35f, cardAmpDeg(320f, 150f), .001f)
         assertEquals(.667f, cardAmpDeg(110f, 330f), .001f)
-    }
-
-    @Test
-    fun should_skipAnchor_when_headerVisible() {
-        assertNull(anchorScrollOffset(3, 200f, listOf(300, 300), 18, headerVisible = true))
-    }
-
-    @Test
-    fun should_clampAnchor_when_heightsTooShort() {
-        // Items 1 and 2 give 2 × (100 + 18) = 236px of room above item 3: the header stays out.
-        assertEquals(-236, anchorScrollOffset(3, 400f, listOf(100, 100), 18, headerVisible = false))
-        // The first section has nothing above it but the header.
-        assertEquals(0, anchorScrollOffset(1, 120f, emptyList(), 18, headerVisible = false))
-    }
-
-    @Test
-    fun should_skipAnchor_when_heightUnknown() {
-        assertNull(anchorScrollOffset(3, 300f, listOf(null, 100), 18, headerVisible = false))
-    }
-
-    @Test
-    fun should_anchorExactly_when_roomSuffices() {
-        // Only the item right above is needed, so an unknown height further up doesn't matter.
-        assertEquals(-200, anchorScrollOffset(3, 200f, listOf(null, 300), 18, headerVisible = false))
-        assertEquals(40, anchorScrollOffset(2, -40f, listOf(null), 18, headerVisible = false))
     }
 
     @Test
@@ -215,57 +161,4 @@ class HomeEditGeometryTest {
         assertEquals(0f, wiggleGain(reduced = false, lifted = true, lift = 1f, stripCarried = true), 0f)
     }
 
-    @Test
-    fun should_startInvisibleAtEdge_when_sectionOffscreen() {
-        val metrics = stripMetrics(4, 1, 300f, 44f, 672f, 16f, 332f, density)
-        val below = stripStart(Rect(8f, 700f, 356f, 900f), metrics, above = true)
-        assertEquals(0f, below.alpha, 0f)
-        assertEquals(672f - 64f + 64f * .02f, below.rect.top, 1e-4f)
-        assertEquals(332f * .96f, below.rect.width, 1e-4f)
-        val unplaced = stripStart(null, metrics, above = true)
-        assertEquals(44f + 64f * .02f, unplaced.rect.top, 1e-4f)
-        val visible = stripStart(Rect(8f, 20f, 356f, 240f), metrics, above = false)
-        assertEquals(Rect(8f, 44f, 356f, 240f), visible.rect)
-        assertEquals(1f, visible.alpha, 0f)
-    }
-
-    @Test
-    fun should_flyFromStartToSlot_when_foldRuns() {
-        val metrics = stripMetrics(4, 1, 300f, 44f, 672f, 16f, 332f, density)
-        val start = stripStart(Rect(8f, 100f, 356f, 400f), metrics, above = false)
-        val folded = stripFrame(start, metrics.slotY(2), metrics, fold = 0f, carried = false, lift = 0f, density)
-        assertEquals(start.rect, folded.rect)
-        assertEquals(0f, folded.plateAlpha, 0f)
-        val open = stripFrame(start, metrics.slotY(2), metrics, fold = 1f, carried = false, lift = 0f, density)
-        assertEquals(Rect(16f, 340f, 348f, 404f), open.rect)
-        assertEquals(1f, open.labelAlpha, 0f)
-        assertEquals(HomeEditTokens.StripTint, open.tint, 0f)
-        assertEquals(20f, open.radius, 0f)
-        assertEquals(0f, open.shadowAlpha, 0f)
-        // The strip plates fade in exactly as the feed fades out.
-        for (fold in listOf(.1f, .2f, .3f, .45f)) {
-            val frame = stripFrame(start, metrics.slotY(2), metrics, fold, false, 0f, density)
-            assertEquals(1f, frame.plateAlpha + feedFoldAlpha(fold), 1e-5f)
-        }
-        val carried = stripFrame(start, metrics.slotY(1), metrics, fold = 1f, carried = true, lift = 1f, density)
-        assertEquals(332f * 1.02f, carried.rect.width, 1e-3f)
-        assertEquals(metrics.slotY(1) + 32f, carried.rect.center.y, 1e-3f)
-        assertEquals(1f, carried.shadowAlpha, 0f)
-        assertEquals(metrics.slotY(1), carried.labelOffset.y, 1e-3f)
-        assertEquals(0f, holeAlpha(.3f), 0f)
-    }
-
-    @Test
-    fun should_fadeTheFeedByAWash_when_stripsFold() {
-        for (fold in listOf(-.01f, 0f, .1f, .3f, .449f)) {
-            // Drawn under a page wash: the same picture as the feed's own alpha.
-            assertEquals(1f, feedFoldShown(fold), 0f)
-            assertEquals(feedFoldAlpha(fold), feedFoldShown(fold) * (1f - feedFoldWash(fold)), 1e-6f)
-        }
-        // Once the wash covers it, the feed is skipped and the wash is not needed.
-        for (fold in listOf(.45f, .7f, 1f, 1.015f)) {
-            assertEquals(0f, feedFoldShown(fold), 0f)
-            assertEquals(1f, feedFoldWash(fold), 0f)
-        }
-    }
 }
