@@ -74,9 +74,10 @@ internal fun NoteCompactEmpty(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-        val doodleWidth = minOf(maxWidth * 0.42f, 160.dp)
+        val doodleWidth = minOf(maxWidth * 0.36f, 150.dp)
         val doodleHeight = doodleWidth * (NoteDoodleViewBoxHeight / NoteDoodleViewBoxWidth)
-        val showDoodle = maxWidth >= 300.dp && maxHeight >= doodleHeight
+        // The doodle only beside a button that keeps one line.
+        val showDoodle = maxWidth >= 380.dp && maxHeight >= doodleHeight
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             if (showDoodle) {
                 NoteEmptyDoodle(doodle = NoteDoodle.Stroke, modifier = Modifier.size(doodleWidth, doodleHeight))
@@ -158,9 +159,13 @@ internal fun NoteWriteButton(positionMs: () -> Long, onClick: () -> Unit, modifi
             text = stringResource(R.string.notes_empty_write),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onPrimaryContainer,
+            maxLines = 1,
+            softWrap = false,
         )
         Text(
             text = stamp,
+            maxLines = 1,
+            softWrap = false,
             style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum", fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
         )

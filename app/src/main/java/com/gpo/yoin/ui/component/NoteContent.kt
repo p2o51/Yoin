@@ -498,12 +498,22 @@ fun NoteWriteBar(
     // follows it, and a draft changed elsewhere (cleared by a save, discarded) moves it. A new
     // editor starts at the draft's end, so writing continues the draft.
     val editor = remember(draftState) { NoteEditorState(draftState.draft.text) }
+    // Words this bar wrote into the draft: their echo must never overwrite newer typing.
+    val sent = remember(draftState) { ArrayDeque<String>() }
     LaunchedEffect(editor) {
-        snapshotFlow { draftState.draft.text }.collect { text -> if (text != editor.text) editor.setText(text) }
+        snapshotFlow { draftState.draft.text }.collect { text ->
+            // A cleared draft (saved, discarded) always clears the field.
+            if (text != editor.text && (text.isEmpty() || text !in sent)) editor.setText(text)
+            if (text.isEmpty()) sent.clear()
+        }
     }
     LaunchedEffect(editor) {
         snapshotFlow { editor.text }.collect { text ->
-            if (text != draftState.draft.text) draftState.edit(text, currentTarget, latestPosition())
+            if (text != draftState.draft.text) {
+                sent.addLast(text)
+                while (sent.size > 64) sent.removeFirst()
+                draftState.edit(text, currentTarget, latestPosition())
+            }
         }
     }
     var lineCount by remember { mutableIntStateOf(1) }

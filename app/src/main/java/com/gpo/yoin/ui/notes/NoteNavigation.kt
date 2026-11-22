@@ -15,9 +15,9 @@ fun openNoteDestination(context: Context, destination: NoteDestination) {
         is NoteDestination.AlbumScrapbook -> {
             val track = destination.focusTrack
             if (track != null) {
-                ScrapbookFocusRequest.request(track.toString())
+                ScrapbookFocusRequest.request(track.toString(), newPageOnly = true)
             } else {
-                ScrapbookFocusRequest.requestAlbum(destination.albumId.toString())
+                ScrapbookFocusRequest.requestAlbum(destination.albumId.toString(), newPageOnly = true)
             }
             AlbumDetailActivity.intent(context, destination.albumId.toString())
         }

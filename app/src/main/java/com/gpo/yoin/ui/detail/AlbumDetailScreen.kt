@@ -466,9 +466,11 @@ private fun AlbumDetailContent(
     }
     // The same from Now Playing's sheet: it opened this album with a ScrapbookFocusRequest.
     val pendingFocus = ScrapbookFocusRequest.pending
+    // When this page opened: a note link's request is for the window it opens, not one already behind.
+    val pageOpenedAt = remember { android.os.SystemClock.elapsedRealtime() }
     LaunchedEffect(pendingFocus, hasScrapbook, content.songs) {
         if (pendingFocus == null || !hasScrapbook) return@LaunchedEffect
-        ScrapbookFocusRequest.takeFor(content.songs.map { it.id })?.let { request ->
+        ScrapbookFocusRequest.takeFor(content.songs.map { it.id }, pageOpenedAt)?.let { request ->
             scrapbookFocusEdit = request.edit
             viewInScrapbook(request.songId)
         }
@@ -477,7 +479,7 @@ private fun AlbumDetailContent(
     val pendingAlbumFocus = ScrapbookFocusRequest.pendingAlbum
     LaunchedEffect(pendingAlbumFocus, hasScrapbook, content.albumId) {
         if (pendingAlbumFocus == null || !hasScrapbook) return@LaunchedEffect
-        if (ScrapbookFocusRequest.takeForAlbum(content.albumId)) {
+        if (ScrapbookFocusRequest.takeForAlbum(content.albumId, pageOpenedAt)) {
             pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
         }
     }

@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -248,10 +250,10 @@ private fun StickyEditor(
             placeholder = stringResource(R.string.notes_sticky_placeholder),
             lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 3, maxHeightInLines = 10),
         )
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            NoteFormatToolbar(state = editor, modifier = Modifier.weight(1f, fill = false))
-            Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(6.dp))
+        // The sticky is narrow: the formatting row scrolls on a line of its own, 取消 / 保存 under it.
+        NoteFormatToolbar(state = editor, modifier = Modifier.horizontalScroll(rememberScrollState()))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.notes_sticky_cancel)) }
             FilledTonalButton(onClick = { onSave(editor.text) }) { Text(stringResource(R.string.notes_sticky_save)) }
         }
@@ -372,7 +374,8 @@ private fun BacklinkClipping(link: NoteBacklink, albumSeed: String, colors: Scra
             Icon(YoinSymbols.ChevronRight, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
         }
         Text(
-            text = highlightMentions(link.snippet, link.mentions.map { it.title }, colors.ask),
+            // The marker: the tertiary container at half strength, as a highlighter over paper.
+            text = highlightMentions(link.snippet, link.mentions.map { it.title }, colors.ask.copy(alpha = 0.55f)),
             style = userTextStyle(),
             color = colors.onReceipt,
             maxLines = 3,
