@@ -253,7 +253,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="yoin"
+                    android:scheme="${authScheme}"
                     android:host="auth"
                     android:pathPrefix="/spotify/callback" />
             </intent-filter>
@@ -269,7 +269,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="yoin"
+                    android:scheme="${authScheme}"
                     android:host="auth"
                     android:pathPrefix="/spotify/app-remote" />
             </intent-filter>
@@ -285,7 +285,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="yoin"
+                    android:scheme="${authScheme}"
                     android:host="auth"
                     android:pathPrefix="/neodb/callback" />
             </intent-filter>

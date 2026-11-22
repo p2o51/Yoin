@@ -94,7 +94,7 @@ jobs:
           YOIN_RELEASE_KEYSTORE_PROPERTIES: ${{ runner.temp }}/keystore.properties
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: |
-          ./gradlew :app:bundleRelease :app:assembleRelease \
+          ./gradlew :app:bundleStandardRelease :app:assembleStandardRelease \
             -PspotifyClientId="$SPOTIFY_CLIENT_ID" \
             -PyoinSymbolsDir=yoin-symbols
 
@@ -106,8 +106,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
-            app/build/outputs/bundle/release/*.aab \
-            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/standardRelease/*.aab \
+            app/build/outputs/apk/standard/release/*.apk
 
       - name: Detect Play credentials
         id: play
@@ -127,6 +127,6 @@ jobs:
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.gpo.yoin
-          releaseFiles: app/build/outputs/bundle/release/*.aab
+          releaseFiles: app/build/outputs/bundle/standardRelease/*.aab
           track: internal
           status: completed

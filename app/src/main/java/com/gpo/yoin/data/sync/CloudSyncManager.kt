@@ -68,6 +68,7 @@ class CloudSyncManager(
     private val spotifyHttpClient: () -> OkHttpClient,
     private val clock: () -> Long = System::currentTimeMillis,
     private val hooks: CloudSyncTestHooks? = null,
+    private val backendOverride: SyncBackendOverride? = null,
 ) : CloudSyncController {
     private val appContext = context.applicationContext
 
@@ -89,7 +90,10 @@ class CloudSyncManager(
     private val debugConfig by lazy { DebugSyncOverrides.load(appContext) }
 
     private val authorizer: GoogleSyncAuthorizer by lazy {
-        hooks?.authorizer ?: debugConfig?.let { DebugSyncAuthorizer(it) } ?: PlayServicesSyncAuthorizer(appContext)
+        hooks?.authorizer
+            ?: backendOverride?.authorizer
+            ?: debugConfig?.let { DebugSyncAuthorizer(it) }
+            ?: PlayServicesSyncAuthorizer(appContext)
     }
 
     private val tokenProvider by lazy {
@@ -99,7 +103,7 @@ class CloudSyncManager(
     private val driveHttp by lazy { DriveAppDataClient.defaultHttpClient(versionName) }
 
     private val transport: SyncTransport by lazy {
-        hooks?.transport ?: driveClient(IdentityCheckedTokens(tokenProvider))
+        hooks?.transport ?: backendOverride?.transport ?: driveClient(IdentityCheckedTokens(tokenProvider))
     }
 
     private fun driveClient(tokens: SyncTokenProvider): SyncTransport {
@@ -117,13 +121,14 @@ class CloudSyncManager(
     }
 
     /** A one-off client bound to exactly [accessToken] (identity checks; never falls back to another account). */
-    private fun clientFor(accessToken: String): SyncTransport = hooks?.transport ?: driveClient(
-        object : SyncTokenProvider {
-            override suspend fun token(): String = accessToken
+    private fun clientFor(accessToken: String): SyncTransport =
+        hooks?.transport ?: backendOverride?.transport ?: driveClient(
+            object : SyncTokenProvider {
+                override suspend fun token(): String = accessToken
 
-            override suspend fun invalidate(token: String) = Unit
-        },
-    )
+                override suspend fun invalidate(token: String) = Unit
+            },
+        )
 
     /**
      * Every Drive request asks Play services for a token, and a token for the pinned account can
@@ -237,7 +242,7 @@ class CloudSyncManager(
 
     override suspend fun beginTurnOn(accountEmail: String?): TurnOnStep = withIo {
         ensureInitialized()
-        if (debugConfig == null) {
+        if (debugConfig == null && backendOverride?.skipPlayServicesCheck != true) {
             when (authorizer.availability()) {
                 GoogleAuthAvailability.Available -> Unit
                 GoogleAuthAvailability.ServicesMissing -> {
@@ -1019,4 +1024,14 @@ class CloudSyncTestHooks(
     val authorizer: GoogleSyncAuthorizer,
     val deviceName: String,
     val seam: com.gpo.yoin.data.sync.adapters.SeamStyleGateway,
+)
+
+/**
+ * Edition-level backend replacement for [CloudSyncManager] (used by the `lyra` flavor
+ * to sync Yoin envelopes directly to Lyra's `/api/v1/sync` endpoints instead of Google Drive).
+ */
+class SyncBackendOverride(
+    val transport: SyncTransport,
+    val authorizer: GoogleSyncAuthorizer,
+    val skipPlayServicesCheck: Boolean = true,
 )

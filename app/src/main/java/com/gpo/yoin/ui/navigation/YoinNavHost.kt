@@ -1872,6 +1872,14 @@ private fun YoinShell(
             }
         }
 
+        // ── Edition overlay (no-op in standard; Lyra Hub / Live Activity pill in lyra) ──
+        com.gpo.yoin.edition.EditionFeatures.ShellOverlay(
+            visible = !showNowPlaying && !memoriesOpen && !homeEditing,
+            modifier = Modifier
+                .matchParentSize()
+                .besideNowPlayingPanel(npPanel),
+        )
+
         // ── Shell-level snackbar host ────────────────────────────────────
         // Anchored bottom, overlaid above Now Playing / bottom nav. Spotify
         // connect failures surface here with actionable labels.

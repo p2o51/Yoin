@@ -503,7 +503,7 @@ class AppContainer(private val context: Context) {
         }
     }
 
-    /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
+    /** Optional Google Drive sync (docs/cloud-sync.md); in the `lyra` flavor, backed by Lyra `/api/v1/sync`. */
     val cloudSync: CloudSyncManager by lazy {
         CloudSyncManager(
             context = context,
@@ -512,6 +512,10 @@ class AppContainer(private val context: Context) {
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
             spotifyHttpClient = { spotifyHttpClient },
+            backendOverride = com.gpo.yoin.edition.EditionFeatures.createSyncBackendOverride(
+                context = context,
+                profileManager = profileManager,
+            ),
         )
     }
 

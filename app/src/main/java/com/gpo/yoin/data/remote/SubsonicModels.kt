@@ -26,6 +26,8 @@ data class SubsonicResponseBody(
     val playlists: PlaylistsResponse? = null,
     val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
+    /** Lyra extension: "instrumental" or "no_lyrics" signals a terminal empty answer (stop fallback). */
+    val lyraLyricsState: String? = null,
     val shares: SharesResponse? = null,
     val type: String? = null,
     val serverVersion: String? = null,

@@ -1,0 +1,119 @@
+<resources>
+    <string name="lyra_app_name" translatable="false">Lyra</string>
+    <string name="lyra_share_label">Save to Lyra</string>
+
+    <!-- Subsonic setup branded as Lyra in the lyra flavor -->
+    <string name="settings_intro_subsonic_name" translatable="false">Lyra</string>
+    <string name="settings_intro_subsonic_tagline">Your personal music hub and library</string>
+
+    <!-- Cloud Sync overrides: Lyra replaces Google Drive as the backup & sync target -->
+    <string name="settings_sync_title">Lyra sync</string>
+    <string name="settings_sync_title_bar">Lyra sync</string>
+    <string name="settings_sync_lead">Back up Memories, notes, ratings and layout to Lyra</string>
+    <string name="settings_sync_reset_on_device">Sync was turned off and its Lyra backup deleted on %1$s. Turn it on again to start fresh from this device.</string>
+    <string name="settings_sync_reset_other_device">Sync was turned off and its Lyra backup deleted on another device. Turn it on again to start fresh from this device.</string>
+    <string name="settings_sync_know_drive">Saved on your own Lyra server, grouped by music service and account. No Google account required.</string>
+    <string name="settings_sync_waiting_retry">Connecting to Lyra…</string>
+    <string name="settings_sync_waiting_turn_on">Connecting to Lyra…</string>
+    <string name="settings_sync_turn_on">Turn on Lyra sync</string>
+    <string name="settings_sync_reauth_body">Lyra credentials rejected</string>
+    <string name="settings_sync_copy_removed_body">Lyra backup was removed</string>
+    <string name="settings_sync_google_account">Lyra server</string>
+    <string name="settings_sync_section_cloud_only">On your Lyra server, not on this device</string>
+    <string name="settings_sync_turn_off_summary">Data stays on this device and your Lyra server. Other devices keep syncing.</string>
+    <string name="settings_sync_delete_dialog_body">Deletes Yoin sync data from your Lyra server for all devices, and turns sync off on them. Data on this device stays.</string>
+    <string name="settings_sync_fresh_body">“%1$s” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your Lyra server and other devices keep the old ones.</string>
+    <string name="settings_sync_remove_device_body">Deletes this device\'s snapshot from your Lyra server. If that device is still syncing, it will upload again next time.</string>
+    <string name="settings_sync_deleted">Deleted sync data from your Lyra server</string>
+    <string name="settings_sync_turn_on_failed">Couldn\'t reach your Lyra server. Check your connection and try again.</string>
+    <string name="settings_sync_summary_reauth">Reconnect Lyra</string>
+    <string name="settings_sync_summary_storage">Lyra server storage full</string>
+    <string name="settings_sync_summary_copy_removed">Lyra backup removed</string>
+    <string name="settings_sync_status_offline">Couldn\'t reach Lyra</string>
+    <string name="settings_sync_status_storage">Lyra server storage full</string>
+    <string name="settings_sync_status_removed">Lyra backup removed</string>
+
+    <!-- Lyra Hub & Settings entry -->
+    <string name="lyra_settings_section">Lyra</string>
+    <string name="lyra_hub_title">Lyra Hub</string>
+    <string name="lyra_hub_summary_connected">v%1$s · Sources, Inbox and Passes</string>
+    <string name="lyra_hub_summary_disconnected">Connect a Lyra server to add music and sync</string>
+    <string name="lyra_hub_summary_jobs_active">%1$d library task(s) in progress</string>
+    <string name="lyra_pill_label">Lyra</string>
+    <string name="lyra_pill_active_jobs">Adding · %1$d</string>
+    <string name="lyra_cd_open_hub">Open Lyra Hub</string>
+
+    <!-- Tabs -->
+    <string name="lyra_tab_sources">Sources</string>
+    <string name="lyra_tab_inbox">Inbox</string>
+    <string name="lyra_tab_passes">Passes</string>
+    <string name="lyra_tab_server">Server</string>
+
+    <!-- Sources tab -->
+    <string name="lyra_sources_search_hint">Search songs or albums to add</string>
+    <string name="lyra_sources_type_song">Songs</string>
+    <string name="lyra_sources_type_album">Albums</string>
+    <string name="lyra_sources_search_action">Search</string>
+    <string name="lyra_sources_empty">Search to ask Lyra to fetch tracks into your library. New additions take a moment to download and scan.</string>
+    <string name="lyra_sources_none">No sources enabled on this Lyra server.</string>
+    <string name="lyra_sources_add">Add</string>
+    <string name="lyra_sources_add_album">Add album</string>
+    <string name="lyra_sources_queued">Queued on Lyra. It will appear in your library once ready.</string>
+    <string name="lyra_sources_view_tracks">Tracks</string>
+    <string name="lyra_sources_album_tracks_count">%1$d tracks</string>
+
+    <!-- Jobs & Live Update -->
+    <string name="lyra_jobs_section">Library queue</string>
+    <string name="lyra_jobs_status_queued">Queued</string>
+    <string name="lyra_jobs_status_running">Adding to library…</string>
+    <string name="lyra_jobs_status_done">Added</string>
+    <string name="lyra_jobs_status_failed">Failed</string>
+    <string name="lyra_live_channel">Lyra library tasks</string>
+    <string name="lyra_live_title_running">Adding to Lyra library</string>
+    <string name="lyra_live_title_done">Added to Lyra library</string>
+    <string name="lyra_live_title_failed">Couldn\'t add to Lyra library</string>
+    <string name="lyra_live_chip_active">%1$d running</string>
+
+    <!-- Inbox tab -->
+    <string name="lyra_inbox_url_hint">Paste a link to save into Inbox</string>
+    <string name="lyra_inbox_add_url">Save link</string>
+    <string name="lyra_inbox_upload_audio">Upload audio</string>
+    <string name="lyra_inbox_promote">Move to library</string>
+    <string name="lyra_inbox_discard">Remove</string>
+    <string name="lyra_inbox_empty">Inbox is empty. Share a link or audio file to Lyra to stage it here.</string>
+    <string name="lyra_inbox_url_saved">Sent to Lyra Inbox</string>
+    <string name="lyra_inbox_upload_done">Uploaded to Lyra Inbox</string>
+    <string name="lyra_later_section">Listen Later</string>
+    <string name="lyra_later_empty">Nothing saved for later.</string>
+    <string name="lyra_admin_token_needed">Add your Lyra admin token in the Server tab to manage Inbox and Passes.</string>
+
+    <!-- Passes tab -->
+    <string name="lyra_passes_pull_hint">Paste a Lyra Pass link (…/s/token)</string>
+    <string name="lyra_passes_pull_library">Pull to library</string>
+    <string name="lyra_passes_pull_inbox">Pull to Inbox</string>
+    <string name="lyra_passes_pull_queued">Pull started on Lyra</string>
+    <string name="lyra_passes_incoming_section">Incoming pulls</string>
+    <string name="lyra_passes_outgoing_section">Shared by you</string>
+    <string name="lyra_passes_copy_link">Copy link</string>
+    <string name="lyra_passes_copied">Pass link copied</string>
+    <string name="lyra_passes_revoke">Revoke</string>
+    <string name="lyra_passes_empty">No active passes yet.</string>
+
+    <!-- Server tab -->
+    <string name="lyra_server_not_connected">No Lyra server connected yet. Add one in Settings.</string>
+    <string name="lyra_server_open_settings">Open Settings</string>
+    <string name="lyra_server_version">Lyra %1$s (protocol v%2$d)</string>
+    <string name="lyra_server_capabilities">Server capabilities</string>
+    <string name="lyra_server_sync_card_title">Memories &amp; library sync</string>
+    <string name="lyra_server_sync_card_body">Back up ratings, notes and Memories to Lyra by platform and account.</string>
+    <string name="lyra_server_sync_open">Open Lyra sync</string>
+    <string name="lyra_server_admin_title">Admin token (optional)</string>
+    <string name="lyra_server_admin_body">Playback, source search and sync work with your Lyra login alone. Add LYRA_TOKEN for Inbox uploads and Pass pulls.</string>
+    <string name="lyra_server_admin_hint">LYRA_TOKEN</string>
+    <string name="lyra_server_admin_save">Save token</string>
+    <string name="lyra_server_admin_clear">Clear</string>
+    <string name="lyra_server_admin_saved">Admin token saved</string>
+    <string name="lyra_server_admin_cleared">Admin token cleared</string>
+    <string name="lyra_server_refresh">Refresh</string>
+    <string name="lyra_error_generic">Request failed: %1$s</string>
+</resources>

@@ -35,7 +35,8 @@ class CloudSyncActivity : ComponentActivity() {
                     factory = CloudSyncViewModel.Factory(
                         controller,
                         application.resources,
-                        accountPickerEnabled = accountPicker.enabled,
+                        accountPickerEnabled = !com.gpo.yoin.edition.EditionFeatures.isLyraOnly &&
+                            accountPicker.enabled,
                     ),
                 )
                 CloudSyncScreen(
