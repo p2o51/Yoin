@@ -183,6 +183,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
                 trackAlbum = { container.repository.findTrackAlbum(it) },
                 navigate = ::openNoteDestination,
                 resolveCover = { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key), 120) },
+                accountChanges = container.profileManager.activeProfileId,
             )
         }
     }

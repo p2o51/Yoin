@@ -38,6 +38,33 @@ class NoteEditorStateTest {
     }
 
     @Test
+    fun should_reopen_when_aDismissedAtIsDeletedAndTypedAgainAtTheSamePlace() {
+        val state = NoteEditorState("")
+        state.type("@")
+        state.dismissPopup()
+        assertNull(state.trigger)
+        state.fieldState.edit {
+            replace(0, length, "")
+            placeCursorAtEnd()
+        }
+        Snapshot.sendApplyNotifications()
+        state.syncDismissal()
+        state.type("@")
+        state.syncDismissal()
+        assertEquals("", state.trigger?.query)
+    }
+
+    @Test
+    fun should_keepTheDismissal_while_typingAfterTheSameAt() {
+        val state = NoteEditorState("x ")
+        state.type("@a")
+        state.dismissPopup()
+        state.type("b")
+        state.syncDismissal()
+        assertNull(state.trigger)
+    }
+
+    @Test
     fun should_insertAChip_inPlaceOfTheTypedAt() {
         val state = NoteEditorState("整张像 ")
         state.type("@cha")

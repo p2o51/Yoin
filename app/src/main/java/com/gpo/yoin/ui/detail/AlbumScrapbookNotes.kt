@@ -63,6 +63,8 @@ import com.gpo.yoin.shared.detail.ScrapbookTilt
 import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.component.formatNoteDate
@@ -322,11 +324,15 @@ private fun BacklinkClipping(link: NoteBacklink, albumSeed: String, colors: Scra
             is BacklinkSource.Review -> R.string.notes_backlink_kind_review
         },
     )
-    val meta = listOfNotNull(
-        kind,
-        (source as? BacklinkSource.SongNote)?.positionMs?.let(::formatNotePosition),
-        formatNoteDate(link.at, resources = resources),
-    ).joinToString(" · ")
+    val moment = (source as? BacklinkSource.SongNote)?.positionMs?.let(::formatNotePosition)
+    val date = formatNoteDate(link.at, resources = resources)
+    // The row is a MetaLine (kind, moment, date muted); TalkBack reads it joined.
+    val metaGroups = listOfNotNull(
+        MetaGroup.Kind(kind),
+        moment?.let { MetaGroup.Plain(it) },
+        MetaGroup.Plain(date, muted = true),
+    )
+    val meta = listOfNotNull(kind, moment, date).joinToString(" · ")
     val description = stringResource(R.string.notes_backlink_cd, name, meta, link.snippet)
     val tilt = ScrapbookTilt.tilt(albumSeed, "bl/${link.source}", ScrapbookTilt.CARD) * 0.6f
     Column(
@@ -369,13 +375,13 @@ private fun BacklinkClipping(link: NoteBacklink, albumSeed: String, colors: Scra
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(text = meta, style = MaterialTheme.typography.labelMedium, color = colors.muted, maxLines = 1)
+                MetaLine(groups = metaGroups, style = MaterialTheme.typography.labelMedium, color = colors.onReceipt)
             }
             Icon(YoinSymbols.ChevronRight, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
         }
         Text(
             // The marker: the tertiary container at half strength, as a highlighter over paper.
-            text = highlightMentions(link.snippet, link.mentions.map { it.title }, colors.ask.copy(alpha = 0.55f)),
+            text = highlightMentions(link.snippet, link.marks, colors.ask.copy(alpha = 0.55f)),
             style = userTextStyle(),
             color = colors.onReceipt,
             maxLines = 3,
@@ -385,16 +391,16 @@ private fun BacklinkClipping(link: NoteBacklink, albumSeed: String, colors: Scra
     Spacer(Modifier.width(0.dp))
 }
 
-/** [snippet] with each of [names] marked as by a highlighter (the mentions that point here). */
-internal fun highlightMentions(snippet: String, names: List<String>, marker: Color): AnnotatedString = buildAnnotatedString {
-    append(snippet)
-    names.distinct().filter(String::isNotBlank).forEach { name ->
-        var from = 0
-        while (true) {
-            val at = snippet.indexOf(name, from)
-            if (at < 0) break
-            addStyle(SpanStyle(background = marker, fontWeight = FontWeight.SemiBold), at, at + name.length)
-            from = at + name.length
+/**
+ * [snippet] with [marks] (where the mentions that point here landed, NoteBacklink.marks) as by a
+ * highlighter — only those words, never another that reads the same.
+ */
+internal fun highlightMentions(snippet: String, marks: List<IntRange>, marker: Color): AnnotatedString =
+    buildAnnotatedString {
+        append(snippet)
+        marks.forEach { range ->
+            val start = range.first.coerceIn(0, snippet.length)
+            val end = (range.last + 1).coerceIn(start, snippet.length)
+            if (end > start) addStyle(SpanStyle(background = marker, fontWeight = FontWeight.SemiBold), start, end)
         }
     }
-}

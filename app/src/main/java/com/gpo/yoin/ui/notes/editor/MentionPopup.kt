@@ -66,6 +66,8 @@ import com.gpo.yoin.shared.notes.MentionKind
 import com.gpo.yoin.shared.notes.NoteMention
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -214,14 +216,10 @@ internal fun MentionRow(row: MentionCandidate, query: String, highlighted: Boole
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            row.detail?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            // Artist, then the album muted: the app's meta line (groups drop from the end when short).
+            val meta = listOfNotNull(row.artist?.let { MetaGroup.Plain(it) }, row.album?.let { MetaGroup.Plain(it, muted = true) })
+            if (meta.isNotEmpty()) {
+                MetaLine(groups = meta, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

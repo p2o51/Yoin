@@ -306,6 +306,17 @@ class NoteMarkupTest {
     }
 
     @Test
+    fun should_placeEachMentionsName_when_buildingASnippet() {
+        val link = NoteMarkup.serializeMention(andromeda)
+        val text = "# 光\n\n- [x] **光** $link 光  \n-   hi $link"
+        val snippet = NoteMarkup.snippetWithMentions(text)
+        assertEquals("光 · 光 Andromeda 光 · hi Andromeda", snippet.text)
+        assertEquals(NoteMarkup.snippet(text), snippet.text)
+        assertEquals(listOf("Andromeda", "Andromeda"), snippet.mentions.map { snippet.text.substring(it.start, it.end) })
+        assertEquals(listOf(6, 23), snippet.mentions.map { it.start })
+    }
+
+    @Test
     fun should_normaliseABareEmptyToDo_when_reserialized() {
         assertEquals(listOf(Checklist(false, emptyList())), NoteMarkup.parse("- [ ]").blocks)
         assertEquals("- [ ] ", NoteMarkup.serialize(NoteMarkup.parse("- [ ]")))

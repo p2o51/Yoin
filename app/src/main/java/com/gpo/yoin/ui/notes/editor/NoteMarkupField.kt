@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -71,6 +72,7 @@ fun NoteMarkupField(
     candidates: MentionCandidateSource = LocalMentionCandidates.current,
     // False: no @ popup of its own (a Tips demo draws its rows in the phone).
     mentionPopup: Boolean = true,
+    enabled: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -87,6 +89,9 @@ fun NoteMarkupField(
         state.highlighted = 0
         loading = false
     }
+    LaunchedEffect(state) {
+        snapshotFlow { state.fieldState.text.toString() to state.fieldState.selection }.collect { state.syncDismissal() }
+    }
     val popupOpen = mentionPopup && trigger != null && !state.searchOpen
     val pick: (com.gpo.yoin.shared.notes.NoteMention) -> Unit = { mention ->
         haptics.performConfirm()
@@ -95,6 +100,7 @@ fun NoteMarkupField(
 
     BasicTextField(
         state = state.fieldState,
+        enabled = enabled,
         modifier = modifier.onPreviewKeyEvent { event ->
             if (!popupOpen || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             val all = rows.all

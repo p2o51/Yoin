@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
 import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
 import com.gpo.yoin.ui.notes.editor.NoteMarkupField
@@ -498,20 +499,17 @@ fun NoteWriteBar(
     // follows it, and a draft changed elsewhere (cleared by a save, discarded) moves it. A new
     // editor starts at the draft's end, so writing continues the draft.
     val editor = remember(draftState) { NoteEditorState(draftState.draft.text) }
-    // Words this bar wrote into the draft: their echo must never overwrite newer typing.
-    val sent = remember(draftState) { ArrayDeque<String>() }
+    // The bar's own writes into the draft come back as echoes; only a change from elsewhere moves the field.
+    val echoes = remember(draftState) { EchoGuard() }
     LaunchedEffect(editor) {
         snapshotFlow { draftState.draft.text }.collect { text ->
-            // A cleared draft (saved, discarded) always clears the field.
-            if (text != editor.text && (text.isEmpty() || text !in sent)) editor.setText(text)
-            if (text.isEmpty()) sent.clear()
+            if (!echoes.isEcho(text) && text != editor.text) editor.setText(text)
         }
     }
     LaunchedEffect(editor) {
         snapshotFlow { editor.text }.collect { text ->
             if (text != draftState.draft.text) {
-                sent.addLast(text)
-                while (sent.size > 64) sent.removeFirst()
+                echoes.sent(text)
                 draftState.edit(text, currentTarget, latestPosition())
             }
         }
@@ -629,13 +627,14 @@ fun NoteWriteBar(
         if (open && !inline) {
             // The formatting row (@, B, I, H, list, to-do) beside 保存.
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // The row takes what 保存 leaves and scrolls if even that is short (a phone).
                 NoteFormatToolbar(
                     state = editor,
                     modifier = Modifier
-                        .weight(1f, fill = false)
+                        .weight(1f)
                         .horizontalScroll(rememberScrollState()),
                 )
-                Spacer(modifier = Modifier.weight(1f).widthIn(min = 8.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
             }
         }

@@ -19,8 +19,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class MentionCandidate(
     val mention: NoteMention,
     val coverUrl: String?,
-    /** The second line: the artist (and album for a song); null for an artist. */
-    val detail: String?,
+    /** The second line's artist (a song's, an album's); null for an artist. */
+    val artist: String? = null,
+    /** The second line's album (a song's), muted after the artist. */
+    val album: String? = null,
 )
 
 /** The @ popup's rows, by kind (songs, albums, artists), in the order shown. */
@@ -140,12 +142,8 @@ class RepositoryMentionCandidateSource(
             album = album?.takeIf { kind == MentionKind.Track && it.isNotBlank() },
         ),
         coverUrl = repository.resolveCoverUrl(cover, COVER_SIZE),
-        detail = when (kind) {
-            MentionKind.Track -> listOfNotNull(artist?.takeIf(String::isNotBlank), album?.takeIf(String::isNotBlank))
-                .joinToString(" · ").ifBlank { null }
-            MentionKind.Album -> artist?.takeIf(String::isNotBlank)
-            MentionKind.Artist -> null
-        },
+        artist = artist?.takeIf { kind != MentionKind.Artist && it.isNotBlank() },
+        album = album?.takeIf { kind == MentionKind.Track && it.isNotBlank() },
     )
 
     private companion object {

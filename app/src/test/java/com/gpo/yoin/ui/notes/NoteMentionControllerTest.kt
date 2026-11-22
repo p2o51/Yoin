@@ -31,13 +31,18 @@ class NoteMentionControllerTest {
         resolver: MentionResolver = MentionResolver { MentionResolution.Unresolved(it) },
         opened: MutableList<NoteDestination> = mutableListOf(),
         albums: Map<MediaId, MediaId> = emptyMap(),
-    ) = NoteMentionController(
-        resolver = resolver,
-        account = account,
-        scope = scope,
-        trackAlbum = { albums[it] },
-        navigate = { _, destination -> opened += destination },
-    )
+    ): NoteMentionController {
+        // Each open comes well after the last (the double-tap guard is tested on its own).
+        var clock = 0L
+        return NoteMentionController(
+            resolver = resolver,
+            account = account,
+            scope = scope,
+            trackAlbum = { albums[it] },
+            navigate = { _, destination -> opened += destination },
+            now = { clock += 10 * NoteMentionController.OPEN_COOLDOWN_MS; clock },
+        )
+    }
 
     @Test
     fun should_resolveOwnProviderMentionsAtOnce_andOthersInTheBackground() = runTest {
@@ -66,6 +71,7 @@ class NoteMentionControllerTest {
         var account = MentionAccount("p1", "subsonic")
         var answer: (NoteMention) -> MentionResolution = { MentionResolution.Unresolved(it) }
         val c = controller(scope, account = { account }, resolver = MentionResolver { answer(it) })
+        // isResolved never writes snapshot state itself (it's read in composition)
 
         c.isResolved(spotifyAlbum)
         scope.advanceUntilIdle()
@@ -91,11 +97,15 @@ class NoteMentionControllerTest {
             albums = mapOf(MediaId.subsonic("t2") to MediaId.subsonic("al-weyes")),
         )
 
-        c.open(context, ownTrack)
-        c.open(context, ownTrack.copy(kind = MentionKind.Album, id = "al-x"))
-        c.open(context, ownTrack.copy(kind = MentionKind.Artist, id = "ar-1"))
-        c.open(context, ownTrack.copy(id = "unknown-album"))
-        scope.advanceUntilIdle()
+        listOf(
+            ownTrack,
+            ownTrack.copy(kind = MentionKind.Album, id = "al-x"),
+            ownTrack.copy(kind = MentionKind.Artist, id = "ar-1"),
+            ownTrack.copy(id = "unknown-album"),
+        ).forEach { mention ->
+            c.open(context, mention)
+            scope.advanceUntilIdle()
+        }
 
         assertEquals(
             listOf(
@@ -105,6 +115,53 @@ class NoteMentionControllerTest {
             ),
             opened,
         )
+    }
+
+    @Test
+    fun should_landALateAnswerUnderTheAccountItWasAskedFor() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        var account = MentionAccount("p1", "subsonic")
+        val c = controller(
+            scope,
+            account = { account },
+            resolver = MentionResolver { MentionResolution.Resolved(it, MediaId.subsonic("al"), MentionResolution.Via.Name) },
+        )
+        assertFalse(c.isResolved(spotifyAlbum))
+        // the account changes before the answer lands: it's p1's, not p2's
+        account = MentionAccount("p2", "subsonic")
+        scope.advanceUntilIdle()
+        // p2 asks for itself (its own answer, later)
+        assertFalse(c.isResolved(spotifyAlbum))
+        account = MentionAccount("p1", "subsonic")
+        assertTrue(c.isResolved(spotifyAlbum))
+    }
+
+    @Test
+    fun should_openOnce_when_tappedTwice() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val opened = mutableListOf<NoteDestination>()
+        var clock = 10_000L
+        val c = NoteMentionController(
+            resolver = MentionResolver { MentionResolution.Resolved(it, MediaId(it.provider, it.id), MentionResolution.Via.Id) },
+            account = { MentionAccount("p1", "subsonic") },
+            scope = scope,
+            trackAlbum = { null },
+            navigate = { _, d -> opened += d },
+            now = { clock },
+        )
+        val album = ownTrack.copy(kind = MentionKind.Album, id = "al-x")
+
+        c.open(context, album)
+        c.open(context, album)
+        scope.advanceUntilIdle()
+        c.open(context, album) // right after the page opened: the same tap
+        scope.advanceUntilIdle()
+        assertEquals(1, opened.size)
+
+        clock += NoteMentionController.OPEN_COOLDOWN_MS + 1
+        c.open(context, album)
+        scope.advanceUntilIdle()
+        assertEquals(2, opened.size)
     }
 
     @Test

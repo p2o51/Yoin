@@ -227,7 +227,7 @@
     <string name="home_tip_note_moments_title">笔记记住那一秒</string>
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
-    <string name="home_tip_note_mentions">写笔记或评论时输入 @ 提及歌曲、专辑或艺术家；点按跳去那张专辑的剪贴簿，笔记也会出现在它的「被提及」里</string>
+    <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
     <string name="home_tip_memory_search_title">搜索 Memories</string>
     <string name="home_tip_memory_search">在资料库搜索，也能找到你的笔记和 Memories</string>
     <string name="home_tip_library_search_title">快速搜索</string>

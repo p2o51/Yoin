@@ -7,7 +7,7 @@
     <string name="notes_mention_section_albums">Albums</string>
     <string name="notes_mention_section_artists">Artists</string>
     <string name="notes_mention_loading">Searching…</string>
-    <string name="notes_mention_empty">Nothing found</string>
+    <string name="notes_mention_empty">No results</string>
     <string name="notes_mention_search_hint">Search your library</string>
     <string name="notes_mention_cd_track">Song: %1$s</string>
     <string name="notes_mention_cd_album">Album: %1$s</string>
@@ -17,17 +17,17 @@
     <string name="notes_tool_heading">Heading</string>
     <string name="notes_tool_bullet">List</string>
     <string name="notes_tool_checklist">To-do</string>
-    <string name="notes_tool_mention">Mention a song, album or artist</string>
+    <string name="notes_tool_mention">Mention a song, album, or artist</string>
     <!-- Now Playing's empty Note pane -->
     <string name="notes_empty_write">Write a note</string>
     <string name="notes_empty_write_cd">Write a note at %1$s</string>
     <string name="notes_source_note">note</string>
     <string name="notes_source_album_note">album note</string>
     <string name="notes_source_review">review</string>
-    <string name="notes_mentioned_in">Mentioned in the %2$s on %1$s</string>
+    <string name="notes_mentioned_in">Mentioned in a %2$s on %1$s</string>
     <plurals name="notes_mentioned_in_more">
-        <item quantity="one">Mentioned in the %2$s on %1$s, and %3$d more place</item>
-        <item quantity="other">Mentioned in the %2$s on %1$s, and %3$d more places</item>
+        <item quantity="one">Mentioned in a %2$s on %1$s, and %3$d more</item>
+        <item quantity="other">Mentioned in a %2$s on %1$s, and %3$d more</item>
     </plurals>
     <!-- The album scrapbook's 被提及 section -->
     <string name="notes_backlinks_title">Mentioned in</string>
@@ -41,7 +41,7 @@
     <string name="notes_backlink_cd">%1$s, %2$s: %3$s</string>
     <!-- Album stickies -->
     <string name="notes_sticky_add">Write an album note</string>
-    <string name="notes_sticky_placeholder">Something about the whole album</string>
+    <string name="notes_sticky_placeholder">Write about the whole album</string>
     <string name="notes_sticky_save">Save</string>
     <string name="notes_sticky_cancel">Cancel</string>
     <string name="notes_sticky_edit_cd">Edit album note: %1$s</string>

@@ -38,11 +38,24 @@ class NoteEditorState(initialText: String = "") {
     /** The full-screen search sheet is open ("展开搜索"). */
     var searchOpen by mutableStateOf(false)
 
-    /** The `@` being typed at the caret, unless dismissed. */
-    val trigger: MentionTrigger? by derivedStateOf {
+    /** The `@` being typed at the caret, dismissed or not. */
+    private val typedTrigger: MentionTrigger? by derivedStateOf {
         val selection = fieldState.selection
         if (!selection.collapsed) return@derivedStateOf null
-        NoteEditorText.trigger(fieldState.text.toString(), selection.start)?.takeIf { it.start != dismissedAt }
+        NoteEditorText.trigger(fieldState.text.toString(), selection.start)
+    }
+
+    /** The `@` being typed at the caret, unless dismissed. */
+    val trigger: MentionTrigger? by derivedStateOf { typedTrigger?.takeIf { it.start != dismissedAt } }
+
+    /**
+     * Ends a dismissal once its `@` is gone or the caret has left it, so the next `@` (even typed at the
+     * same place) opens the popup again. The field calls it on every text / caret change (not from
+     * composition).
+     */
+    fun syncDismissal() {
+        val at = dismissedAt ?: return
+        if (typedTrigger?.start != at) dismissedAt = null
     }
 
     /** The words before the caret's `@` the popup searches for (empty right after the `@`). */

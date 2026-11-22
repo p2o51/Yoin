@@ -48,7 +48,7 @@ internal fun NoteMentionsDemo(playing: Boolean) {
             MentionCandidate(
                 mention = NoteMention(MentionKind.Album, "subsonic", "demo-al-$i", album.name, album.artist),
                 coverUrl = covers[i],
-                detail = album.artist,
+                artist = album.artist,
             )
         }
     }

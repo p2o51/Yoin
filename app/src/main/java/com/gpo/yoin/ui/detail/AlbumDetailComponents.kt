@@ -114,6 +114,7 @@ import com.gpo.yoin.ui.component.UnavailableTrackBadge
 import com.gpo.yoin.ui.component.UnavailableTrackReason
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.data.integration.neodb.neoDbShortCommentText
+import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorDisplay
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
 import com.gpo.yoin.ui.notes.editor.NoteMarkupField
@@ -902,18 +903,19 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
     // follows its stored text, and a draft changed elsewhere moves it.
     val editor = remember { NoteEditorState(text) }
     val latestOnChange by rememberUpdatedState(onTextChange)
-    // The words this field sent up: the draft echoes them back a frame later, by then the field may hold
-    // more (typing is faster than the round trip), so an echo must never overwrite the field.
-    val sent = remember { ArrayDeque<String>() }
+    // The words this field sent up come back as the draft a frame later, by then the field may hold more
+    // (typing is faster than the round trip): an echo never overwrites the field; anything else does.
+    val echoes = remember { EchoGuard() }
     LaunchedEffect(editor) {
         snapshotFlow { editor.text }.collect {
-            sent.addLast(it)
-            while (sent.size > 64) sent.removeFirst()
-            latestOnChange(it)
+            if (it != text) {
+                echoes.sent(it)
+                latestOnChange(it)
+            }
         }
     }
     LaunchedEffect(text) {
-        if (text != editor.text && text !in sent) editor.setText(text)
+        if (!echoes.isEcho(text) && text != editor.text) editor.setText(text)
     }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val caret = remember { BringIntoViewRequester() }

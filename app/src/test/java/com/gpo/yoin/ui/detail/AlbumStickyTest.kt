@@ -38,8 +38,11 @@ class AlbumStickyTest {
 
     @Test
     fun should_markEachMentionNameInTheSnippet() {
-        val marked = highlightMentions("像 Andromeda 和 Andromeda", listOf("Andromeda"), androidx.compose.ui.graphics.Color.Yellow)
-        assertEquals(2, marked.spanStyles.size)
-        assertEquals("Andromeda", marked.text.substring(marked.spanStyles[1].start, marked.spanStyles[1].end))
+        // only the mention's own words: the same word elsewhere in the snippet stays unmarked
+        val snippet = "Intro 像 Intro"
+        val marked = highlightMentions(snippet, listOf(8 until 13), androidx.compose.ui.graphics.Color.Yellow)
+        assertEquals(1, marked.spanStyles.size)
+        assertEquals(8, marked.spanStyles.single().start)
+        assertEquals(13, marked.spanStyles.single().end)
     }
 }

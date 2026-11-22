@@ -13,6 +13,9 @@ import com.gpo.yoin.shared.notes.MentionKind
 import com.gpo.yoin.shared.notes.MentionRef
 import com.gpo.yoin.shared.notes.NoteMention
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /** Where a mention (or a 被提及 clipping) takes the reader. */
@@ -38,45 +41,71 @@ class NoteMentionController(
     private val trackAlbum: suspend (MediaId) -> MediaId?,
     private val navigate: (Context, NoteDestination) -> Unit,
     private val resolveCover: (coverKey: String?) -> String? = { null },
+    // The account in use as it changes: answers for other accounts are dropped then (not in composition).
+    accountChanges: Flow<String?>? = null,
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-    private val resolved = mutableStateMapOf<MentionRef, MentionResolution>()
-    private val asked = HashSet<MentionRef>()
-    private var cacheFor: String? = null
+    /** Answers by (account, mention): an answer always lands under the account it was asked for. */
+    private val resolved = mutableStateMapOf<Pair<String, MentionRef>, MentionResolution>()
+    private val asked = HashSet<Pair<String, MentionRef>>()
+    private var openJob: Job? = null
+    private var openedAt: Long? = null
 
+    init {
+        accountChanges?.let { changes ->
+            scope.launch {
+                changes.distinctUntilChanged().collect { profileId ->
+                    resolved.keys.filter { it.first != profileId }.forEach(resolved::remove)
+                    asked.removeAll { it.first != profileId }
+                }
+            }
+        }
+    }
+
+    /** Read in composition: never writes snapshot state; a missing answer is asked for in the background. */
     fun isResolved(mention: NoteMention): Boolean {
         val current = account() ?: return false
-        if (cacheFor != current.profileId) {
-            cacheFor = current.profileId
-            resolved.clear()
-            asked.clear()
-        }
         if (mention.provider == current.provider) return true
-        resolved[mention.ref]?.let { return it is MentionResolution.Resolved }
-        if (asked.add(mention.ref)) {
-            scope.launch { resolved[mention.ref] = resolver.resolve(mention) }
+        val key = current.profileId to mention.ref
+        resolved[key]?.let { return it is MentionResolution.Resolved }
+        if (asked.add(key)) {
+            scope.launch { resolved[key] = resolver.resolve(mention) }
         }
         return false
     }
 
     /** Opens what [mention] names: an album's scrapbook, a song's album scrapbook on that song, an artist. */
-    fun open(context: Context, mention: NoteMention) {
-        scope.launch {
-            val resolution = resolver.resolve(mention) as? MentionResolution.Resolved ?: return@launch
-            destinationOf(resolution, trackAlbum)?.let { navigate(context, it) }
-        }
+    fun open(context: Context, mention: NoteMention) = launchOpen(context) {
+        val resolution = resolver.resolve(mention) as? MentionResolution.Resolved
+        resolution?.let { destinationOf(it, trackAlbum) }
     }
 
-    fun open(context: Context, destination: NoteDestination) = navigate(context, destination)
+    fun open(context: Context, destination: NoteDestination) = launchOpen(context) { destination }
 
     /** Opens where a 被提及 clipping was written: that album's scrapbook (a song note: on its song). */
-    fun openSource(context: Context, source: BacklinkSource) {
-        scope.launch { destinationOf(source, trackAlbum)?.let { navigate(context, it) } }
+    fun openSource(context: Context, source: BacklinkSource) = launchOpen(context) { destinationOf(source, trackAlbum) }
+
+    /**
+     * One open at a time: a second tap while one is being looked up, or right after one opened (the new
+     * window is still coming up), does nothing — two taps never stack two detail pages.
+     */
+    private fun launchOpen(context: Context, destination: suspend () -> NoteDestination?) {
+        if (openJob?.isActive == true) return
+        if (openedAt?.let { now() - it < OPEN_COOLDOWN_MS } == true) return
+        openJob = scope.launch {
+            val target = destination() ?: return@launch
+            openedAt = now()
+            navigate(context, target)
+        }
     }
 
     /** A clipping's cover, from the storage key Yoin's plays kept. */
     fun coverUrl(coverKey: String?): String? = coverKey?.let(resolveCover)
 
     companion object {
+        /** How long after opening a page another tap is taken as the same one. */
+        const val OPEN_COOLDOWN_MS = 1_000L
+
         suspend fun destinationOf(source: BacklinkSource, trackAlbum: suspend (MediaId) -> MediaId?): NoteDestination? =
             when (source) {
                 is BacklinkSource.SongNote -> (source.albumId ?: trackAlbum(source.trackId))

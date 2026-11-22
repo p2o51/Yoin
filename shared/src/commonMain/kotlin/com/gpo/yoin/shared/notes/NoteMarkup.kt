@@ -138,6 +138,9 @@ data class InlineRange(val kind: Kind, val start: Int, val end: Int, val innerSt
     enum class Kind { Bold, Italic, Mention }
 }
 
+/** A one-line snippet and where each mention's name sits in it ([MentionSpan]s in snippet offsets). */
+data class Snippet(val text: String, val mentions: List<MentionSpan>)
+
 /** Where one mention sits in a text: `text.substring(start, end)` is its link. */
 data class MentionSpan(val start: Int, val end: Int, val mention: NoteMention)
 
@@ -243,6 +246,46 @@ object NoteMarkup {
         .map(String::trim)
         .filter(String::isNotEmpty)
         .joinToString(" · ")
+
+    /**
+     * [snippet] with where each mention's name landed in it, so a clipping can mark exactly those words
+     * (never another word that happens to read the same).
+     */
+    fun snippetWithMentions(text: String): Snippet {
+        val out = StringBuilder()
+        val marks = ArrayList<MentionSpan>()
+        parse(text).blocks.forEach { block ->
+            val line = StringBuilder()
+            val lineMarks = ArrayList<MentionSpan>()
+            fun walk(nodes: List<NoteInline>) {
+                nodes.forEach { node ->
+                    when (node) {
+                        is NoteInline.Text -> line.append(node.text)
+                        is NoteInline.Bold -> walk(node.children)
+                        is NoteInline.Italic -> walk(node.children)
+                        is NoteInline.Mention -> {
+                            val start = line.length
+                            line.append(node.mention.title)
+                            lineMarks += MentionSpan(start, line.length, node.mention)
+                        }
+                    }
+                }
+            }
+            walk(block.inlines)
+            val lead = line.indexOfFirst { !it.isWhitespace() }
+            if (lead < 0) return@forEach
+            val trimmed = line.toString().trim()
+            if (out.isNotEmpty()) out.append(" · ")
+            val base = out.length - lead
+            out.append(trimmed)
+            lineMarks.forEach { mark ->
+                val start = (base + mark.start).coerceAtLeast(base + lead)
+                val end = (base + mark.end).coerceAtMost(out.length)
+                if (end > start) marks += MentionSpan(start, end, mark.mention)
+            }
+        }
+        return Snippet(out.toString(), marks)
+    }
 
     fun plainInlines(inlines: List<NoteInline>): String = buildString {
         fun walk(nodes: List<NoteInline>) {

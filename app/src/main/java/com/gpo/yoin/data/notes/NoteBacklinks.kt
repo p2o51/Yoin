@@ -97,6 +97,8 @@ data class NoteBacklink(
     val snippet: String,
     val at: Long,
     val mentions: List<NoteMention>,
+    /** Where the matching mentions' names sit in [snippet] (what the clipping marks). */
+    val marks: List<IntRange> = emptyList(),
 )
 
 /** The writings among [writings] that mention [target], newest first. Pure. */
@@ -108,7 +110,9 @@ fun findBacklinks(writings: List<BacklinkWriting>, target: BacklinkTarget): List
             if (hits.isEmpty()) {
                 null
             } else {
-                NoteBacklink(writing.source, writing.text, NoteMarkup.snippet(writing.text), writing.at, hits)
+                val snippet = NoteMarkup.snippetWithMentions(writing.text)
+                val marks = snippet.mentions.filter { target.isMentionedBy(it.mention) }.map { it.start until it.end }
+                NoteBacklink(writing.source, writing.text, snippet.text, writing.at, hits, marks)
             }
         }
         .sortedWith(compareByDescending<NoteBacklink> { it.at }.thenBy { it.source.toString() })

@@ -5,8 +5,8 @@
     <string name="notes_mention_section_tracks">歌曲</string>
     <string name="notes_mention_section_albums">专辑</string>
     <string name="notes_mention_section_artists">艺术家</string>
-    <string name="notes_mention_loading">正在找…</string>
-    <string name="notes_mention_empty">没有找到</string>
+    <string name="notes_mention_loading">搜索中…</string>
+    <string name="notes_mention_empty">没有匹配结果</string>
     <string name="notes_mention_search_hint">搜索资料库</string>
     <string name="notes_mention_cd_track">歌曲：%1$s</string>
     <string name="notes_mention_cd_album">专辑：%1$s</string>
@@ -21,10 +21,10 @@
     <string name="notes_empty_write_cd">在 %1$s 写笔记</string>
     <string name="notes_source_note">笔记</string>
     <string name="notes_source_album_note">专辑笔记</string>
-    <string name="notes_source_review">评论</string>
-    <string name="notes_mentioned_in">在 %1$s 的%2$s里被提到</string>
+    <string name="notes_source_review">乐评</string>
+    <string name="notes_mentioned_in">在「%1$s」的%2$s里被提到</string>
     <plurals name="notes_mentioned_in_more">
-        <item quantity="other">在 %1$s 的%2$s里被提到，另有 %3$d 处</item>
+        <item quantity="other">在「%1$s」的%2$s里被提到，另有 %3$d 处</item>
     </plurals>
     <string name="notes_backlinks_title">被提及</string>
     <plurals name="notes_backlinks_count">
@@ -32,7 +32,7 @@
     </plurals>
     <string name="notes_backlink_kind_note">笔记</string>
     <string name="notes_backlink_kind_album_note">专辑笔记</string>
-    <string name="notes_backlink_kind_review">评论</string>
+    <string name="notes_backlink_kind_review">乐评</string>
     <string name="notes_backlink_cd">%1$s，%2$s：%3$s</string>
     <string name="notes_sticky_add">写专辑笔记</string>
     <string name="notes_sticky_placeholder">给整张专辑写点什么</string>

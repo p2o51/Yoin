@@ -216,6 +216,7 @@ internal fun MemoryDiaryEntry(
                 } else {
                     NoteMarkupField(
                         state = editor,
+                        enabled = enabled,
                         textStyle = diaryUserText(type.review, type.reviewLine),
                         colors = noteEditorColors(text = MaterialTheme.colorScheme.onSurface),
                         placeholder = placeholder,

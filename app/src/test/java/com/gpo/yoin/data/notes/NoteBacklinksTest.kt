@@ -61,6 +61,7 @@ class NoteBacklinksTest {
         // newest first; the same-named album with another id on this provider is another album
         assertEquals(listOf("n2", "n1"), links.map { (it.source as BacklinkSource.SongNote).noteId })
         assertEquals("后来在 Andromeda 里", links.first().snippet)
+        assertEquals(listOf(4 until 13), links.first().marks)
         assertEquals("t-andromeda", links.first().mentions.single().id)
     }
 
@@ -97,6 +98,21 @@ class NoteBacklinksTest {
             songNoteWriting("same-name", "t-3", link(MentionKind.Album, sub, "al-other", "Titanic Rising", "Weyes Blood"), at = 3L),
         )
         assertTrue(findBacklinks(subsonic, titanic).isEmpty())
+    }
+
+    @Test
+    fun should_markOnlyTheMentionThatPointsHere_notTheSameWordElsewhere() {
+        val writing = songNoteWriting(
+            "n1",
+            "t-x",
+            "Andromeda: ${link(MentionKind.Track, sub, "t-andromeda", "Andromeda")} and ${link(MentionKind.Album, sub, "al-x", "Other")}",
+            at = 1L,
+        )
+
+        val link = findBacklinks(listOf(writing), titanic).single()
+
+        assertEquals("Andromeda: Andromeda and Other", link.snippet)
+        assertEquals(listOf(11 until 20), link.marks)
     }
 
     @Test
