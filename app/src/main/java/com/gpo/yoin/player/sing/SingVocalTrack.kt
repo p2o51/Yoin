@@ -1,5 +1,7 @@
 package com.gpo.yoin.player.sing
 
+import com.gpo.yoin.player.sing.dsp.getAt
+import com.gpo.yoin.player.sing.dsp.shortsAt
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -44,6 +46,11 @@ class SingVocalTrack private constructor(
 
     /** Frames written per block (writer side only). */
     private val written = IntArray(blocks)
+
+    /** The writer's scratch for a block: its frames' samples, and the floats going into them. */
+    private var frameShorts = ShortArray(0)
+    private var floatsL = FloatArray(0)
+    private var floatsR = FloatArray(0)
 
     @Volatile private var readyBlocks = 0
 
@@ -114,7 +121,17 @@ class SingVocalTrack private constructor(
      * to a reader).
      */
     fun writeReference(left: FloatBuffer, right: FloatBuffer) {
-        for (i in 0 until frames) data.putShort(offset(i) + 4, to16(0.5f * (left.get(i) + right.get(i))))
+        var at = 0
+        while (at < frames) {
+            val end = minOf(frames, at + BLOCK_FRAMES)
+            val count = end - at
+            val shorts = readFrames(at, count)
+            left.getAt(at, floatsL, 0, count)
+            right.getAt(at, floatsR, 0, count)
+            for (n in 0 until count) shorts[3 * n + 2] = to16(0.5f * (floatsL[n] + floatsR[n]))
+            writeFrames(at, count)
+            at = end
+        }
     }
 
     /**
@@ -127,11 +144,17 @@ class SingVocalTrack private constructor(
         while (at < to) {
             val block = at / BLOCK_FRAMES
             val end = minOf(to, (block + 1) * BLOCK_FRAMES)
-            for (i in at until end) {
-                val o = offset(i)
-                data.putShort(o, to16(left.get(i - sourceOffset)))
-                data.putShort(o + 2, to16(right.get(i - sourceOffset)))
+            val count = end - at
+            // The block's frames are read and written back whole (the mix reference in them unchanged):
+            // two bulk copies instead of a mapped-buffer access per sample.
+            val shorts = readFrames(at, count)
+            left.getAt(at - sourceOffset, floatsL, 0, count)
+            right.getAt(at - sourceOffset, floatsR, 0, count)
+            for (n in 0 until count) {
+                shorts[3 * n] = to16(floatsL[n])
+                shorts[3 * n + 1] = to16(floatsR[n])
             }
+            writeFrames(at, count)
             written[block] += end - at
             if (written[block] >= blockLength(block) && ready.get(block) == 0) {
                 ready.set(block, 1)
@@ -148,6 +171,21 @@ class SingVocalTrack private constructor(
         (data as? MappedByteBuffer)?.force()
     }
 
+    /** Frames [from, from + count) (≤ a block) into [frameShorts], 3 samples each; sizes the scratch. */
+    private fun readFrames(from: Int, count: Int): ShortArray {
+        if (frameShorts.size < count * SAMPLES_PER_FRAME) {
+            frameShorts = ShortArray(count * SAMPLES_PER_FRAME)
+            floatsL = FloatArray(count)
+            floatsR = FloatArray(count)
+        }
+        data.shortsAt(offset(from), ByteOrder.LITTLE_ENDIAN).get(frameShorts, 0, count * SAMPLES_PER_FRAME)
+        return frameShorts
+    }
+
+    private fun writeFrames(from: Int, count: Int) {
+        data.shortsAt(offset(from), ByteOrder.LITTLE_ENDIAN).put(frameShorts, 0, count * SAMPLES_PER_FRAME)
+    }
+
     private fun blockLength(block: Int): Int = minOf(BLOCK_FRAMES, frames - block * BLOCK_FRAMES)
 
     private fun offset(frame: Int): Int = HEADER_BYTES + frame * BYTES_PER_FRAME
@@ -155,6 +193,7 @@ class SingVocalTrack private constructor(
     companion object {
         const val BLOCK_FRAMES = 4096
         const val BYTES_PER_FRAME = 6
+        private const val SAMPLES_PER_FRAME = BYTES_PER_FRAME / 2
         const val HEADER_BYTES = 32
 
         /** The cache's file suffix for finished tracks. */

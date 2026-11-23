@@ -69,8 +69,15 @@ class LiveVocalSeparator(
     private val coreFinal = BooleanArray(hopBlocks)
     private val sourceDone = IntervalSet()
 
-    private var scratchL = FloatBuffer.allocate(0)
-    private var scratchR = FloatBuffer.allocate(0)
+    /** V at the source rate on its way to the sink (heap arrays: the sink reads them in bulk). */
+    private var emitL = FloatArray(0)
+    private var emitR = FloatArray(0)
+    private var scratchL = FloatBuffer.wrap(emitL)
+    private var scratchR = FloatBuffer.wrap(emitR)
+
+    /** A hop block of V at the core rate, being normalised. */
+    private val hopL = FloatArray(HOP)
+    private val hopR = FloatArray(HOP)
 
     val chunkCount: Int get() = chunkDone.size
 
@@ -213,11 +220,17 @@ class LiveVocalSeparator(
     /** Every frame over block [k] is in: divide by the window² envelope, as [Stft.normalize] does. */
     private fun finishHopBlock(k: Int) {
         coreFinal[k] = true
-        for (i in k * HOP until minOf(coreLength, (k + 1) * HOP)) {
-            val envelope = stft.envelope(i, totalFrames)
-            vocalCoreL.put(i, (vocalCoreL.get(i) / envelope).toFloat())
-            vocalCoreR.put(i, (vocalCoreR.get(i) / envelope).toFloat())
+        val from = k * HOP
+        val count = minOf(coreLength, from + HOP) - from
+        vocalCoreL.getAt(from, hopL, 0, count)
+        vocalCoreR.getAt(from, hopR, 0, count)
+        for (n in 0 until count) {
+            val envelope = stft.envelope(from + n, totalFrames)
+            hopL[n] = (hopL[n] / envelope).toFloat()
+            hopR[n] = (hopR[n] / envelope).toFloat()
         }
+        vocalCoreL.putAt(from, hopL, 0, count)
+        vocalCoreR.putAt(from, hopR, 0, count)
     }
 
     /** Hands out the source frames the newly final core [blocks] complete. */
@@ -258,20 +271,20 @@ class LiveVocalSeparator(
         while (at < to) {
             val end = minOf(to, at + EMIT_BLOCK)
             val count = end - at
-            if (scratchL.capacity() < count) {
-                scratchL = FloatBuffer.allocate(count)
-                scratchR = FloatBuffer.allocate(count)
+            if (emitL.size < count) {
+                emitL = FloatArray(count)
+                emitR = FloatArray(count)
+                scratchL = FloatBuffer.wrap(emitL)
+                scratchR = FloatBuffer.wrap(emitR)
             }
             val upEnd = minOf(end, upValid)
             if (!silent && at < upEnd) {
-                up.process(vocalCoreL, coreLength, scratchL, at, upEnd, outputOffset = at)
-                up.process(vocalCoreR, coreLength, scratchR, at, upEnd, outputOffset = at)
+                up.process(vocalCoreL, coreLength, emitL, at, upEnd, outputOffset = at)
+                up.process(vocalCoreR, coreLength, emitR, at, upEnd, outputOffset = at)
             }
             val zeroFrom = if (silent) at else maxOf(at, upEnd)
-            for (m in zeroFrom until end) {
-                scratchL.put(m - at, 0f)
-                scratchR.put(m - at, 0f)
-            }
+            emitL.fill(0f, zeroFrom - at, end - at)
+            emitR.fill(0f, zeroFrom - at, end - at)
             sink.onVocal(at, end, scratchL, scratchR, at)
             sourceDone.add(at, end)
             at = end

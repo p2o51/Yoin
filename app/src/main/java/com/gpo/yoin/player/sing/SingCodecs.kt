@@ -7,6 +7,8 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Build
+import com.gpo.yoin.player.sing.dsp.getAt
+import com.gpo.yoin.player.sing.dsp.putAt
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -62,6 +64,10 @@ object SingPcmDecoder {
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var floatOut = false
             var skip = delay
+            // A codec buffer's samples, read in bulk (a get per sample from the codec's direct buffer
+            // goes through a JNI-style call on ART).
+            var floats = FloatArray(0)
+            var shorts = ShortArray(0)
 
             runCodec(
                 codec = MediaCodec.createDecoderByType(mime).apply { configure(format, null, null, 0) },
@@ -75,16 +81,37 @@ object SingPcmDecoder {
                 onOutput = { buffer ->
                     val bytes = if (floatOut) 4 else 2
                     val frames = buffer.remaining() / (bytes * channels)
-                    val base = buffer.position()
+                    val samples = frames * channels
+                    if (floatOut) {
+                        if (floats.size < samples) floats = FloatArray(samples)
+                        buffer.asFloatBuffer().get(floats, 0, samples)
+                    } else {
+                        if (shorts.size < samples) shorts = ShortArray(samples)
+                        buffer.asShortBuffer().get(shorts, 0, samples)
+                    }
                     for (f in 0 until frames) {
                         if (skip > 0) {
                             skip--
                             continue
                         }
-                        val at = base + f * bytes * channels
-                        fun s(c: Int): Float =
-                            if (floatOut) buffer.getFloat(at + c * 4) else buffer.getShort(at + c * 2) / 32768f
-                        val (l, r) = foldDown(channels, ::s)
+                        val at = f * channels
+                        fun s(c: Int): Float = if (floatOut) floats[at + c] else shorts[at + c] / 32768f
+                        val l: Float
+                        val r: Float
+                        when (channels) {
+                            1 -> {
+                                l = s(0)
+                                r = l
+                            }
+                            2 -> {
+                                l = s(0)
+                                r = s(1)
+                            }
+                            else -> foldDown(channels, ::s).let { (a, b) ->
+                                l = a
+                                r = b
+                            }
+                        }
                         left.add(if (l.isFinite()) l else 0f)
                         right.add(if (r.isFinite()) r else 0f)
                     }
@@ -365,26 +392,56 @@ private fun runCodec(
 
 private fun MediaFormat.intOr(key: String, default: Int): Int = if (containsKey(key)) getInteger(key) else default
 
-/** Appends floats to mapped buffers, doubling (and copying) as it fills. */
+/**
+ * Appends floats to mapped buffers, doubling (and copying) as it fills. Values gather in a heap array
+ * and go into the mapping a block at a time.
+ */
 private class GrowingFloats(private val work: SingWorkDir, initial: Int) {
     private var buffer: FloatBuffer = work.floats(initial.coerceAtLeast(4096))
+    private val pending = FloatArray(STAGE)
+    private var pendingCount = 0
+
+    /** Values added so far (flushed or not). */
     var size = 0
         private set
 
     fun add(v: Float) {
-        if (size == buffer.capacity()) {
-            val bigger = work.floats(buffer.capacity() * 2)
-            for (i in 0 until size) bigger.put(i, buffer.get(i))
+        pending[pendingCount++] = v
+        size++
+        if (pendingCount == STAGE) flush()
+    }
+
+    fun finish(): FloatBuffer {
+        flush()
+        return buffer
+    }
+
+    private fun flush() {
+        val flushed = size - pendingCount
+        if (size > buffer.capacity()) {
+            var capacity = buffer.capacity()
+            while (capacity < size) capacity *= 2
+            val bigger = work.floats(capacity)
+            val copy = FloatArray(STAGE)
+            var at = 0
+            while (at < flushed) {
+                val count = minOf(STAGE, flushed - at)
+                buffer.getAt(at, copy, 0, count)
+                bigger.putAt(at, copy, 0, count)
+                at += count
+            }
             work.release(buffer)
             buffer = bigger
         }
-        buffer.put(size++, v)
+        buffer.putAt(flushed, pending, 0, pendingCount)
+        pendingCount = 0
     }
-
-    fun finish(): FloatBuffer = buffer
 
     companion object {
         /** A minute of 44.1 kHz audio. */
         const val INITIAL = 44_100 * 60
+
+        /** Values gathered before they go into the mapping. */
+        private const val STAGE = 4096
     }
 }

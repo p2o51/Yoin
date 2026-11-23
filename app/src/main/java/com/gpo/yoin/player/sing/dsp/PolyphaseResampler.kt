@@ -44,6 +44,19 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
         return (n / down + if (n % down != 0L) 1 else 0).toInt()
     }
 
+    /**
+     * The taps of each phase p (h[p], h[p + up], h[p + 2·up], …), reversed: output m (phase c mod up)
+     * reads them forwards while j runs forwards, the order the sum was always taken in.
+     */
+    private val phases: Array<DoubleArray> = Array(if (isIdentity) 0 else up) { p ->
+        val count = (taps.size - 1 - p) / up + 1
+        DoubleArray(count) { i -> taps[p + up * (count - 1 - i)] }
+    }
+
+    /** The input samples a block of outputs reads, and the block's results (reused: one caller at a time). */
+    private var window = FloatArray(0)
+    private val block = FloatArray(BLOCK)
+
     /** Resamples [inputLength] samples of [input] into [output] (indices from 0). */
     fun process(input: FloatBuffer, inputLength: Int, output: FloatBuffer) {
         process(input, inputLength, output, 0, outputLength(inputLength))
@@ -51,7 +64,8 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
 
     /**
      * Output samples [fromOutput, toOutput) only, so a long signal can be done in blocks; sample m goes
-     * to [output] index m − [outputOffset].
+     * to [output] index m − [outputOffset]. Reads and writes the buffers in bulk, a block at a time.
+     * Not thread-safe (one scratch window per resampler).
      */
     fun process(
         input: FloatBuffer,
@@ -61,30 +75,72 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
         toOutput: Int,
         outputOffset: Int = 0,
     ) {
-        if (isIdentity) {
-            for (m in fromOutput until toOutput) output.put(m - outputOffset, input.get(m))
-            return
-        }
-        val last = taps.size - 1
-        for (m in fromOutput until toOutput) {
-            val c = m.toLong() * down + halfLength
-            // j with 0 ≤ c − up·j ≤ last and 0 ≤ j < inputLength.
-            val jLow = maxOf(0L, ceilDiv(c - last, up.toLong())).toInt()
-            val jHigh = minOf((inputLength - 1).toLong(), c / up).toInt()
-            var acc = 0.0
-            var j = jLow
-            var k = (c - up.toLong() * jLow).toInt()
-            while (j <= jHigh) {
-                acc += taps[k] * input.get(j)
-                j++
-                k -= up
-            }
-            output.put(m - outputOffset, acc.toFloat())
+        var m = fromOutput
+        while (m < toOutput) {
+            val end = minOf(toOutput, m + BLOCK)
+            process(input, inputLength, block, m, end, outputOffset = m)
+            output.putAt(m - outputOffset, block, 0, end - m)
+            m = end
         }
     }
 
+    /** [process] into an array: sample m goes to [output] index m − [outputOffset]. */
+    fun process(
+        input: FloatBuffer,
+        inputLength: Int,
+        output: FloatArray,
+        fromOutput: Int,
+        toOutput: Int,
+        outputOffset: Int = 0,
+    ) {
+        if (fromOutput >= toOutput) return
+        if (isIdentity) {
+            input.getAt(fromOutput, output, fromOutput - outputOffset, toOutput - fromOutput)
+            return
+        }
+        var m = fromOutput
+        while (m < toOutput) {
+            val end = minOf(toOutput, m + BLOCK)
+            // Every input this block reads, at once: j from jLow(m) to jHigh(end − 1).
+            val first = jLow(centre(m))
+            val count = jHigh(centre(end - 1), inputLength) - first + 1
+            if (window.size < count) window = FloatArray(count)
+            input.getAt(first, window, 0, count)
+            for (n in m until end) output[n - outputOffset] = sample(n, inputLength, first)
+            m = end
+        }
+    }
+
+    /** Output [m], its inputs read from [window] (input index j at j − [first]). */
+    private fun sample(m: Int, inputLength: Int, first: Int): Float {
+        val c = centre(m)
+        // j with 0 ≤ c − up·j ≤ last and 0 ≤ j < inputLength.
+        val jLow = jLow(c)
+        val jHigh = jHigh(c, inputLength)
+        if (jLow > jHigh) return 0f
+        val phase = phases[(c % up).toInt()]
+        // Tap c − up·j is phase entry (c / up − j) from its start, so reversed: size − 1 − (c / up − jLow).
+        var k = phase.size - 1 - (c / up - jLow).toInt()
+        val x = window
+        var acc = 0.0
+        for (i in jLow - first..jHigh - first) {
+            acc += phase[k] * x[i]
+            k++
+        }
+        return acc.toFloat()
+    }
+
+    private fun centre(m: Int): Long = m.toLong() * down + halfLength
+
+    private fun jLow(c: Long): Int = maxOf(0L, ceilDiv(c - (taps.size - 1), up.toLong())).toInt()
+
+    private fun jHigh(c: Long, inputLength: Int): Int = minOf((inputLength - 1).toLong(), c / up).toInt()
+
     companion object {
         private const val KAISER_BETA = 5.0
+
+        /** Outputs computed per bulk read of the input. */
+        private const val BLOCK = 4096
 
         /** `firwin(numTaps, cutoff, window=('kaiser', 5.0))` (cutoff relative to Nyquist), times [gain]. */
         internal fun lowPass(numTaps: Int, cutoff: Double, gain: Int): DoubleArray {

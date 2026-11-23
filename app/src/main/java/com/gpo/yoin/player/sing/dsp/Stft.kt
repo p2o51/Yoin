@@ -13,8 +13,9 @@ import kotlin.math.cos
  * one-sided. Frames are computed one at a time, two channels per complex FFT (z = l + i·r), so a
  * whole song's spectrogram never has to sit in memory.
  *
- * Signals are read with absolute [FloatBuffer.get] from index 0, so the same code runs on heap arrays
- * (tests) and on memory-mapped work files (a song on the device).
+ * Signals are indexed from 0 and read and written in bulk (a frame or a window at a time, into reused
+ * arrays), so the same code runs on heap arrays (tests) and on memory-mapped work files (a song on the
+ * device) without a buffer access per sample. Not thread-safe: one scratch set per instance.
  */
 class Stft {
     /** `torch.hann_window(1024, periodic=True)`. */
@@ -26,6 +27,11 @@ class Stft {
 
     /** Frames torch makes of [length] samples with center=True. */
     fun frameCount(length: Int): Int = length / HOP + 1
+
+    private val frameLeft = FloatArray(N_FFT)
+    private val frameRight = FloatArray(N_FFT)
+    private val olaScratch = FloatArray(N_FFT)
+    private val normalizeScratch = FloatArray(NORMALIZE_BLOCK)
 
     /**
      * Frame [frame] of two signals of [length] samples (> 512, as reflect padding needs).
@@ -41,13 +47,29 @@ class Stft {
         rightRe: DoubleArray,
         rightIm: DoubleArray,
     ) {
-        require(length > N_FFT / 2) { "reflect padding needs more than ${N_FFT / 2} samples, got $length" }
         val origin = frame * HOP - N_FFT / 2
+        padded(left, length, origin, frameLeft, N_FFT)
+        padded(right, length, origin, frameRight, N_FFT)
+        forwardPair(frameLeft, frameRight, 0, leftRe, leftIm, rightRe, rightIm)
+    }
+
+    /**
+     * The frame whose [N_FFT] samples start at index [at] of [left]/[right], already reflect padded
+     * (see [padded]). Writes bins 0..512 of each into the four arrays.
+     */
+    fun forwardPair(
+        left: FloatArray,
+        right: FloatArray,
+        at: Int,
+        leftRe: DoubleArray,
+        leftIm: DoubleArray,
+        rightRe: DoubleArray,
+        rightIm: DoubleArray,
+    ) {
         for (n in 0 until N_FFT) {
-            val index = reflect(origin + n, length)
             val w = window[n]
-            re[n] = left.get(index) * w
-            im[n] = right.get(index) * w
+            re[n] = left[at + n] * w
+            im[n] = right[at + n] * w
         }
         fft.forward(re, im)
         for (k in 0 until ONE_SIDED_BINS) {
@@ -61,6 +83,20 @@ class Stft {
             rightRe[k] = 0.5 * (b + d)
             rightIm[k] = 0.5 * (c - a)
         }
+    }
+
+    /**
+     * Samples [from, from + [count]) of a [length]-sample signal (> 512) as torch's center=True
+     * reflect padding sees it — indices before 0 and from [length] on mirrored in — into [into] from 0.
+     * The part inside the signal is one bulk read.
+     */
+    fun padded(signal: FloatBuffer, length: Int, from: Int, into: FloatArray, count: Int) {
+        require(length > N_FFT / 2) { "reflect padding needs more than ${N_FFT / 2} samples, got $length" }
+        val inFrom = maxOf(0, from)
+        val inTo = minOf(length, from + count)
+        signal.getAt(inFrom, into, inFrom - from, inTo - inFrom)
+        for (i in from until minOf(0, from + count)) into[i - from] = signal.get(reflect(i, length))
+        for (i in maxOf(length, from) until from + count) into[i - from] = signal.get(reflect(i, length))
     }
 
     /**
@@ -98,15 +134,24 @@ class Stft {
         val origin = frame * HOP - N_FFT / 2
         val from = maxOf(0, -origin)
         val to = minOf(N_FFT, length - origin)
-        for (n in from until to) {
-            val i = origin + n
-            out.put(i, (out.get(i) + windowed[n]).toFloat())
-        }
+        if (from >= to) return
+        val sum = olaScratch
+        out.getAt(origin + from, sum, from, to - from)
+        for (n in from until to) sum[n] = (sum[n] + windowed[n]).toFloat()
+        out.putAt(origin + from, sum, from, to - from)
     }
 
     /** Divides an OLA sum of [frames] frames by the window² envelope, as `torch.istft(length=)` does. */
     fun normalize(out: FloatBuffer, length: Int, frames: Int) {
-        for (i in 0 until length) out.put(i, (out.get(i) / envelope(i, frames)).toFloat())
+        val block = normalizeScratch
+        var at = 0
+        while (at < length) {
+            val count = minOf(NORMALIZE_BLOCK, length - at)
+            out.getAt(at, block, 0, count)
+            for (n in 0 until count) block[n] = (block[n] / envelope(at + n, frames)).toFloat()
+            out.putAt(at, block, 0, count)
+            at += count
+        }
     }
 
     /** Σ window² over the frames that cover output sample [index]. */
@@ -127,5 +172,9 @@ class Stft {
         index < 0 -> -index
         index >= length -> 2 * (length - 1) - index
         else -> index
+    }
+
+    private companion object {
+        const val NORMALIZE_BLOCK = 4096
     }
 }

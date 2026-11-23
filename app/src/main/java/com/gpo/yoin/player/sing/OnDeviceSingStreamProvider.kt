@@ -337,7 +337,7 @@ class OnDeviceSingStreamProvider(
             var why: String? = null
             val following = !playhead.playing || track.isCovered(playFrame, playFrame + 1)
             val fromMs = if (following) {
-                if (target != null || run == 0) why = if (playhead.playing) "V at the playhead" else "paused, from its block"
+                if (target != null || run == 0) why = if (playhead.playing) "V at the playhead" else "from its block"
                 target = null
                 playhead.positionMs
             } else {
