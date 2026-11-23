@@ -228,6 +228,8 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
     <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
+    <string name="home_tip_apple_music_names_title">Apple Music 歌曲名</string>
+    <string name="home_tip_apple_music_names">在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区</string>
     <string name="home_tip_memory_search_title">搜索 Memories</string>
     <string name="home_tip_memory_search">在资料库搜索，也能找到你的笔记和 Memories</string>
     <string name="home_tip_library_search_title">快速搜索</string>

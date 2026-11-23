@@ -568,3 +568,137 @@ struct CloudSyncDemo: View {
         }
     }
 }
+
+// MARK: - Apple Music Song Names
+
+/// Interactive preview of Apple Music › Song names (`AppleMusicSongNames`) toggling between storefront default,
+/// Original language, and a specific region.
+struct AppleMusicSongNamesDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+
+    @State private var selected: AppleMusicNameRegion = .off
+
+    private var zh: Bool { Tips.showsChinese }
+
+    private var sampleTitle: String {
+        switch selected {
+        case .off: return "ビョーク · Utopia"
+        case .original: return "Björk · Utopia"
+        case .storefront: return "夜に駆ける · YOASOBI"
+        }
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            withAnimation(Yoin.effects) { selected = .off }
+            try await DemoTiming.delay(650)
+            try await finger.moveTo("am-names-original", fx: 0.72)
+            try await DemoTiming.delay(250)
+            try await finger.tap {
+                withAnimation(Yoin.effects) { selected = .original }
+            }
+            try await DemoTiming.delay(950)
+            try await finger.moveTo("am-names-region", fx: 0.72)
+            try await DemoTiming.delay(250)
+            try await finger.tap {
+                withAnimation(Yoin.effects) { selected = .japan }
+            }
+            try await finger.lift()
+            try await DemoTiming.delay(2_200)
+        }) {
+            SettingsPage(title: zh ? "歌曲名" : "Song names", demoScheme: scheme) { app, row in
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: 0) {
+                        optionRow(
+                            title: zh ? "按 Apple Music 显示" : "As Apple Music shows them",
+                            selected: selected == .off,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .off }
+                        }
+                        Divider()
+                            .overlay(app.outlineVariant.opacity(0.45))
+                            .padding(.leading, 16)
+                        optionRow(
+                            title: zh ? "按歌曲原地区" : "In their original language",
+                            selected: selected == .original,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .original }
+                        }
+                        .demoTarget("am-names-original")
+                        Divider()
+                            .overlay(app.outlineVariant.opacity(0.45))
+                            .padding(.leading, 16)
+                        optionRow(
+                            title: zh ? "按指定地区" : "From a specific region",
+                            subtitle: selected.isStorefront ? (zh ? "日本商店" : "Japan storefront") : nil,
+                            selected: selected.isStorefront,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .japan }
+                        }
+                        .demoTarget("am-names-region")
+                    }
+                    .background(row, in: RoundedRectangle(cornerRadius: 20))
+
+                    HStack(spacing: 10) {
+                        YoinIcon("music_note", size: 16)
+                            .foregroundStyle(app.primary)
+                        Text(sampleTitle)
+                            .yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(app.onSurface)
+                            .contentTransition(.opacity)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(row, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .safeAreaPadding(.top, DemoPhoneMetrics.statusBar)
+            .scrollDisabled(true)
+        }
+    }
+
+    private func optionRow(
+        title: String,
+        subtitle: String? = nil,
+        selected: Bool,
+        app: CoverScheme,
+        action: @escaping () -> Void,
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
+                    if let subtitle {
+                        Text(subtitle)
+                            .yoinRole(Tokens.type.labelSmall)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
+                Spacer()
+                if selected {
+                    YoinIcon("check", size: 16)
+                        .foregroundStyle(app.primary)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private extension AppleMusicNameRegion {
+    var isStorefront: Bool {
+        if case .storefront = self { return true }
+        return false
+    }
+}

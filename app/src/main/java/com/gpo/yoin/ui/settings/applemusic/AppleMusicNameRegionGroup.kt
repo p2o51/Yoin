@@ -68,6 +68,7 @@ fun AppleMusicNameRegionContent(
     selected: AppleMusicNameRegion,
     onSelect: (AppleMusicNameRegion) -> Unit,
     modifier: Modifier = Modifier,
+    rowModifier: (String) -> Modifier = { Modifier },
 ) {
     val configuration = LocalConfiguration.current
     val locale = remember(configuration) {
@@ -84,6 +85,7 @@ fun AppleMusicNameRegionContent(
                     summary = stringResource(R.string.settings_apple_names_off_summary),
                     selected = selected == AppleMusicNameRegion.Off,
                     testTag = "apple_music_names_${AppleMusicNameRegion.Off.key}",
+                    modifier = rowModifier(AppleMusicNameRegion.Off.key),
                     onClick = { onSelect(AppleMusicNameRegion.Off) },
                 )
             }
@@ -93,6 +95,7 @@ fun AppleMusicNameRegionContent(
                     summary = stringResource(R.string.settings_apple_names_original_summary),
                     selected = selected == AppleMusicNameRegion.Original,
                     testTag = "apple_music_names_${AppleMusicNameRegion.Original.key}",
+                    modifier = rowModifier(AppleMusicNameRegion.Original.key),
                     onClick = { onSelect(AppleMusicNameRegion.Original) },
                 )
             }
@@ -110,6 +113,7 @@ fun AppleMusicNameRegionContent(
                     summary = regionSummary,
                     selected = chosenStorefront != null,
                     testTag = "apple_music_names_region",
+                    modifier = rowModifier("region"),
                     alwaysClickable = true,
                     trailing = {
                         Icon(
@@ -150,12 +154,13 @@ private fun RegionRow(
     selected: Boolean,
     testTag: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     alwaysClickable: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(LocalSettingsRowShape.current)
             .handPointer()

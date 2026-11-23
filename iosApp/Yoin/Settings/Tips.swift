@@ -48,6 +48,12 @@ enum Tips {
 
     /// Every tip, in the order the bubble goes through them.
     static let catalog: [Tip] = [
+        // Apple Music song names (Settings › Apple Music account › Song names).
+        Tip(id: "AppleMusicSongNames", icon: "translate", updated: "2026-11-23",
+            title: "Apple Music song names",
+            text: "In your Apple Music account settings, show each song in its original language or pick another storefront region",
+            titleZhHans: "Apple Music 歌曲名",
+            textZhHans: "在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区"),
         // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's wired keys
         // in YoinCommands (Space, ←/→ seek ±5s, ⌘←/⌘→ skip, ⌘F focus cover, ⌘L lyrics, ⌘⇧P Now Playing,
         // ⌘K search, Esc / ⌘[ back).
