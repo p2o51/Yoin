@@ -122,6 +122,26 @@ class SingControllerTest {
     }
 
     @Test
+    fun should_resetVocalLevelToDefault_when_exitingAtZero_and_preserveWhenAboveZero() = runTest(UnconfinedTestDispatcher()) {
+        val c = controller(FakeProvider())
+        c.onCurrentItem(song1)
+        c.enter()
+
+        // Exiting at 0% (two-step left-drag dismiss) resets remembered level to 12% default.
+        c.setVocalLevel(0f)
+        assertEquals(0f, c.vocalLevel.value.position, 0f)
+        c.exit()
+        assertEquals(VocalLevel.DEFAULT, c.vocalLevel.value)
+
+        // Exiting above 0% preserves user's custom level.
+        c.enter()
+        val custom = SingGainCurve.positionFor(0.45f)
+        c.setVocalLevel(custom)
+        c.exit()
+        assertEquals(custom, c.vocalLevel.value.position, 1e-5f)
+    }
+
+    @Test
     fun should_ramp20msAndSnap_when_sliderMoves() = runTest(UnconfinedTestDispatcher()) {
         val c = controller(FakeProvider())
         c.onCurrentItem(song1)

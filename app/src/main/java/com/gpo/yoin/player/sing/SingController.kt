@@ -120,7 +120,12 @@ class SingController(
             rampMs = SingMixControl.CUT_OUT_GLIDE_MS,
             curve = SingRampCurve.EaseInOut,
         )
-        _state.update { it.copy(enabled = false, request = null, status = null, handedOver = false) }
+        _state.update {
+            // Exiting from 0 % (e.g. via the two-step left-drag dismiss) resets the remembered level
+            // back to the 12 % default so the next time Sing opens the capsule is never empty.
+            val nextLevel = if (it.vocalLevel.position <= MIN_RESET_THRESHOLD) VocalLevel.DEFAULT else it.vocalLevel
+            it.copy(enabled = false, vocalLevel = nextLevel, request = null, status = null, handedOver = false)
+        }
         refreshAvailability()
     }
 
@@ -233,5 +238,9 @@ class SingController(
             is SingStatus.Unavailable -> SingMode.Unavailable(status.reason)
             is SingStatus.Failed -> SingMode.Failed(status.reason)
         }
+    }
+
+    companion object {
+        private const val MIN_RESET_THRESHOLD = 0.005f
     }
 }

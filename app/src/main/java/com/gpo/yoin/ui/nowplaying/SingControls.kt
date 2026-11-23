@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,15 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
@@ -81,8 +79,10 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlinx.coroutines.delay
 
 /**
@@ -119,7 +119,6 @@ internal object SingIcons {
             viewportWidth = 24f,
             viewportHeight = 24f,
         ).apply {
-            // Rounded microphone capsule (x: 9..15, y: 3.2..13.0, r: 3)
             path(
                 fill = null,
                 stroke = SolidColor(Color.Black),
@@ -135,7 +134,6 @@ internal object SingIcons {
                 arcTo(3f, 3f, 0f, false, true, 12f, 3.2f)
                 close()
             }
-            // Cradle U-arc
             path(
                 fill = null,
                 stroke = SolidColor(Color.Black),
@@ -146,7 +144,6 @@ internal object SingIcons {
                 moveTo(6.3f, 10.6f)
                 arcTo(5.7f, 5.7f, 0f, false, false, 17.7f, 10.6f)
             }
-            // Stem
             path(
                 fill = null,
                 stroke = SolidColor(Color.Black),
@@ -203,7 +200,6 @@ internal object SingIcons {
                 moveTo(12f, 16.4f)
                 verticalLineTo(20.5f)
             }
-            // Diagonal slash (top-left to bottom-right)
             path(
                 fill = null,
                 stroke = SolidColor(Color.Black),
@@ -288,8 +284,9 @@ internal class SingCapsuleDismissState(
  *   `onPrimaryContainer`, matching `TrackLibraryButton`; tap cancels, zero popups).
  * - Failure: brief horizontal micro-shake + `errorContainer` tint flash (no modal/toast).
  * - Active ([SingMode.Ready]): expands on [YoinMotion.defaultSpatialSpec] into a `124.dp` short Capsule
- *   (flush with the 364dp row: `4*52 + 4*8 + 124 = 364`), with live vocal fill, subtle 12% detent notch,
- *   left mic tap-to-exit, two-step anti-accidental-dismiss left-drag, and **zero percentage text**.
+ *   (`surfaceVariant` track + `primary` flat-edged fill clipped by the outer capsule for crisp contrast),
+ *   protected by `Modifier.systemGestureExclusion()`, with subtle 12% detent notch, left mic tap-to-exit,
+ *   two-step anti-accidental-dismiss left-drag, and **zero percentage text**.
  */
 @Composable
 internal fun SingLyricsCapsuleKey(
@@ -347,20 +344,22 @@ internal fun SingLyricsCapsuleKey(
     val dismissState = remember(thresholdPx) { SingCapsuleDismissState(thresholdPx) }
 
     val shape = RoundedCornerShape(animatedCorner)
+    // Match LyricsActionIcon (`primaryContainer`) when compact, and RatingSlider (`surfaceVariant` track
+    // vs `primary` fill) when expanded so the vocal fill has crisp, unmistakable contrast across every cover.
     val containerColor by animateColorAsState(
-        targetValue = if (errorFlash && !isActive) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.primaryContainer
+        targetValue = when {
+            isActive -> MaterialTheme.colorScheme.surfaceVariant
+            errorFlash -> MaterialTheme.colorScheme.errorContainer
+            else -> MaterialTheme.colorScheme.primaryContainer
         },
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "singContainerColor",
     )
     val contentColor by animateColorAsState(
-        targetValue = if (errorFlash && !isActive) {
-            MaterialTheme.colorScheme.onErrorContainer
-        } else {
-            MaterialTheme.colorScheme.onPrimaryContainer
+        targetValue = when {
+            isActive -> MaterialTheme.colorScheme.onSurfaceVariant
+            errorFlash -> MaterialTheme.colorScheme.onErrorContainer
+            else -> MaterialTheme.colorScheme.onPrimaryContainer
         },
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "singContentColor",
@@ -390,6 +389,7 @@ internal fun SingLyricsCapsuleKey(
                     IntOffset((overpullPx + shakePx).roundToInt(), 0)
                 }
                 .size(width = animatedWidth, height = iconSize)
+                .then(if (isActive) Modifier.systemGestureExclusion() else Modifier)
                 .onSizeChanged { capsuleWidthPx = it.width.coerceAtLeast(1) }
                 .clip(shape)
                 .background(containerColor)
@@ -480,19 +480,18 @@ internal fun SingLyricsCapsuleKey(
             contentAlignment = if (isActive) Alignment.CenterStart else Alignment.Center,
         ) {
             if (isActive) {
-                // Live vocal fill bar (zero percentage text)
+                // Plain flat-edged rectangle clipped cleanly by the outer capsule — disappears cleanly at 0%.
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(shownFraction.coerceIn(0f, 1f))
-                        .clip(CircleShape)
                         .background(fillColor),
                 )
                 // Subtle 12% sweet-spot detent notch
                 val notchColor = if (shownFraction >= detentFraction) {
-                    onFillColor.copy(alpha = 0.42f)
+                    onFillColor.copy(alpha = 0.48f)
                 } else {
-                    contentColor.copy(alpha = 0.32f)
+                    contentColor.copy(alpha = 0.36f)
                 }
                 Box(
                     modifier = Modifier
@@ -506,7 +505,7 @@ internal fun SingLyricsCapsuleKey(
                         .clip(CircleShape)
                         .background(notchColor),
                 )
-                // Left mic glyph with dual-tone clip over fill edge
+                // Left mic glyph with dual-tone clip over the flat fill edge
                 Box(
                     modifier = Modifier.size(width = 34.dp, height = iconSize),
                     contentAlignment = Alignment.Center,
@@ -523,19 +522,11 @@ internal fun SingLyricsCapsuleKey(
                         .size(width = 34.dp, height = iconSize)
                         .clearAndSetSemantics {}
                         .drawWithContent {
-                            val frac = shownFraction.coerceIn(0f, 1f)
-                            val fillW = capsuleWidthPx * frac
+                            val fillW = capsuleWidthPx * shownFraction.coerceIn(0f, 1f)
                             if (fillW <= 0f) return@drawWithContent
-                            val path = Path().apply {
-                                addOutline(
-                                    CircleShape.createOutline(
-                                        Size(fillW, size.height),
-                                        layoutDirection,
-                                        this@drawWithContent,
-                                    ),
-                                )
+                            clipRect(left = 0f, top = 0f, right = fillW.coerceAtMost(size.width), bottom = size.height) {
+                                this@drawWithContent.drawContent()
                             }
-                            clipPath(path) { this@drawWithContent.drawContent() }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -579,7 +570,10 @@ internal fun SingLyricsCapsuleKey(
 /**
  * In-place morph for [NowPlayingRatingBar] when Sing is active and the Lyrics action bar capsule is not
  * visible (Phone Compact, or Tablet Dual-Pane switched away from Lyrics). Supports both [Orientation.Vertical]
- * (rating column) and [Orientation.Horizontal] (stacked landscape bar). Zero percentage text.
+ * (rating column) and [Orientation.Horizontal] (stacked landscape bar).
+ *
+ * Fill is a flat-edged rectangle clipped by the outer [YoinShapeTokens.Full] capsule so pulling down to 0%
+ * disappears cleanly with zero bowl/circle distortion. Zero percentage text.
  */
 @Composable
 internal fun SingVocalSlider(
@@ -587,6 +581,10 @@ internal fun SingVocalSlider(
     onLevelChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     orientation: Orientation = Orientation.Vertical,
+    /** Continuous 0..1 spatial-spring morph progress from RatingBar (0) to SingVocalSlider (1). */
+    morphProgress: Float = 1f,
+    /** RatingBar's current 0..1 fill fraction so the fill glides continuously on morph. */
+    fromRatingFraction: Float = 0f,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
@@ -601,13 +599,16 @@ internal fun SingVocalSlider(
         animationSpec = YoinMotion.spatialSpring(),
         label = "singVocalSliderFill",
     )
-    val shownFraction = if (dragging) targetFraction else animatedFraction
+    val vocalFraction = if (dragging) targetFraction else animatedFraction
+    val morph = morphProgress.coerceIn(0f, 1f)
+    val shownFraction = (fromRatingFraction + (vocalFraction - fromRatingFraction) * morph).coerceIn(0f, 1f)
     val detentFraction = SingGainCurve.DEFAULT_POSITION
     val vocalLabel = stringResource(R.string.np_cd_sing_vocal_volume)
 
     Box(
         modifier = modifier
             .then(if (isVertical) Modifier.width(48.dp) else Modifier.fillMaxWidth().height(48.dp))
+            .systemGestureExclusion()
             .clip(YoinShapeTokens.Full)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .onSizeChanged {
@@ -653,23 +654,23 @@ internal fun SingVocalSlider(
             },
         contentAlignment = if (isVertical) Alignment.BottomCenter else Alignment.CenterStart,
     ) {
+        // Plain flat-edged rectangle clipped by the outer capsule — zero circle/bowl distortion near 0%.
         Box(
             modifier = (
                 if (isVertical) {
-                    Modifier.fillMaxWidth().fillMaxHeight(shownFraction.coerceIn(0f, 1f))
+                    Modifier.fillMaxWidth().fillMaxHeight(shownFraction)
                 } else {
-                    Modifier.fillMaxHeight().fillMaxWidth(shownFraction.coerceIn(0f, 1f))
+                    Modifier.fillMaxHeight().fillMaxWidth(shownFraction)
                 }
                 )
-                .clip(YoinShapeTokens.Full)
                 .background(MaterialTheme.colorScheme.primary),
         )
 
-        // Subtle 12% detent notch
+        // Subtle 12% detent notch (glides in smoothly with morph)
         val notchColor = if (shownFraction >= detentFraction) {
-            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.45f)
+            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.48f * morph)
         } else {
-            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.34f * morph)
         }
         Box(
             modifier = Modifier
@@ -693,10 +694,17 @@ internal fun SingVocalSlider(
                 .background(notchColor),
         )
 
-        // Dual-tone mic icon clipped along the live fill boundary
+        // Dual-tone mic icon clipped along the flat live fill edge, gliding in on morph
         val iconAlign = if (isVertical) Alignment.BottomCenter else Alignment.CenterStart
         val iconPadding = if (isVertical) Modifier.padding(bottom = 12.dp) else Modifier.padding(start = 14.dp)
-        val fillShape = YoinShapeTokens.Full
+        val iconMorphModifier = Modifier.graphicsLayer {
+            alpha = morph
+            val s = 0.72f + 0.28f * morph
+            scaleX = s
+            scaleY = s
+            val slide = (1f - morph) * 12.dp.toPx()
+            if (isVertical) translationY = slide else translationX = -slide
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             Icon(
                 imageVector = SingIcons.Mic,
@@ -705,6 +713,7 @@ internal fun SingVocalSlider(
                 modifier = Modifier
                     .align(iconAlign)
                     .then(iconPadding)
+                    .then(iconMorphModifier)
                     .size(20.dp),
             )
             Box(
@@ -712,23 +721,22 @@ internal fun SingVocalSlider(
                     .fillMaxSize()
                     .clearAndSetSemantics {}
                     .drawWithContent {
-                        val frac = shownFraction.coerceIn(0f, 1f)
-                        if (frac <= 0f) return@drawWithContent
-                        val fillSize = if (isVertical) {
-                            Size(size.width, size.height * frac)
+                        if (shownFraction <= 0f) return@drawWithContent
+                        val left = if (!isVertical && layoutDirection == LayoutDirection.Rtl) {
+                            size.width * (1f - shownFraction)
                         } else {
-                            Size(size.width * frac, size.height)
+                            0f
                         }
-                        val origin = when {
-                            isVertical -> Offset(0f, size.height - fillSize.height)
-                            layoutDirection == LayoutDirection.Rtl -> Offset(size.width - fillSize.width, 0f)
-                            else -> Offset.Zero
+                        val right = if (!isVertical && layoutDirection != LayoutDirection.Rtl) {
+                            size.width * shownFraction
+                        } else {
+                            size.width
                         }
-                        val path = Path().apply {
-                            addOutline(fillShape.createOutline(fillSize, layoutDirection, this@drawWithContent))
-                            translate(origin)
+                        val top = if (isVertical) size.height * (1f - shownFraction) else 0f
+                        val bottom = size.height
+                        clipRect(left = left, top = top, right = right, bottom = bottom) {
+                            this@drawWithContent.drawContent()
                         }
-                        clipPath(path) { this@drawWithContent.drawContent() }
                     },
             ) {
                 Icon(
@@ -738,6 +746,7 @@ internal fun SingVocalSlider(
                     modifier = Modifier
                         .align(iconAlign)
                         .then(iconPadding)
+                        .then(iconMorphModifier)
                         .size(20.dp),
                 )
             }
@@ -793,42 +802,57 @@ internal fun SingExitButton(
 }
 
 /**
- * Animated slot that cross-morphs between the standard RatingBar and [SingVocalSlider] using YoinMotion tokens.
+ * Spatial-spring in-place morph between [NowPlayingRatingBar] and [SingVocalSlider].
+ * The capsule track never blinks or pops: its colored fill physically glides along
+ * [YoinMotion.spatialSpring] from [ratingFraction] to the live vocal level while the mic glyph
+ * slides smoothly into place.
  */
 @Composable
 internal fun SingAwareRatingBarSlot(
     showSing: Boolean,
     sing: NowPlayingSingUi?,
+    ratingFraction: Float,
     orientation: Orientation = Orientation.Vertical,
     modifier: Modifier = Modifier,
     ratingBar: @Composable () -> Unit,
 ) {
-    AnimatedContent(
-        targetState = showSing && sing != null,
-        transitionSpec = {
-            (
-                YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                    YoinMotion.scaleIn(role = YoinMotionRole.Standard, initialScale = 0.94f)
-                ) togetherWith YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-        },
-        label = "singRatingMorph",
-        modifier = modifier,
-    ) { isSingSlot ->
-        if (isSingSlot && sing != null) {
+    val active = showSing && sing != null
+    val morph by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = YoinMotion.spatialSpring(),
+        label = "singRatingMorphProgress",
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        // Keep the real RatingBar mounted and interactive when at rest (morph <= 0.01f).
+        if (morph < 0.99f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = (1f - morph * 1.4f).coerceIn(0f, 1f)
+                    },
+            ) {
+                ratingBar()
+            }
+        }
+        // Continuous morph overlay + active SingVocalSlider: glides fill smoothly from ratingFraction → vocalLevel.
+        if (morph > 0.01f && sing != null) {
             SingVocalSlider(
                 level = sing.vocalLevel,
                 onLevelChange = sing.onSetVocalLevel,
                 orientation = orientation,
+                morphProgress = morph,
+                fromRatingFraction = ratingFraction,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            ratingBar()
         }
     }
 }
 
 /**
- * Animated slot that cross-morphs between the Favorite heart button(s) and [SingExitButton].
+ * Spatial-spring in-place morph between the Favorite heart circle and [SingExitButton].
+ * The circular control smoothly rotates & scales in place on [YoinMotion.spatialSpring] with a light
+ * elastic breath instead of abruptly crossfading.
  */
 @Composable
 internal fun SingAwareFavoriteSlot(
@@ -837,25 +861,50 @@ internal fun SingAwareFavoriteSlot(
     modifier: Modifier = Modifier,
     favoriteButtons: @Composable () -> Unit,
 ) {
-    AnimatedContent(
-        targetState = showSing && sing != null,
-        transitionSpec = {
-            (
-                YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                    YoinMotion.scaleIn(role = YoinMotionRole.Standard, initialScale = 0.90f)
-                ) togetherWith YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+    val active = showSing && sing != null
+    val morph by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = YoinMotion.spatialSpring(),
+        label = "singFavoriteMorphProgress",
+    )
+    val clamped = morph.coerceIn(0f, 1f)
+    val breathScale = 1f + 0.07f * sin(clamped * PI).toFloat()
+
+    Box(
+        modifier = modifier.graphicsLayer {
+            scaleX = breathScale
+            scaleY = breathScale
         },
         contentAlignment = Alignment.Center,
-        label = "singFavoriteMorph",
-        modifier = modifier,
-    ) { isSingSlot ->
-        if (isSingSlot && sing != null) {
-            SingExitButton(
-                onExit = sing.onExit,
-                isPreparing = sing.isPreparing,
-            )
-        } else {
-            favoriteButtons()
+    ) {
+        if (clamped < 0.99f) {
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    val s = 1f - 0.35f * clamped
+                    scaleX = s
+                    scaleY = s
+                    rotationZ = -28f * clamped
+                    alpha = (1f - clamped * 1.35f).coerceIn(0f, 1f)
+                },
+            ) {
+                favoriteButtons()
+            }
+        }
+        if (clamped > 0.01f && sing != null) {
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    val s = 0.65f + 0.35f * clamped
+                    scaleX = s
+                    scaleY = s
+                    rotationZ = 28f * (1f - clamped)
+                    alpha = ((clamped - 0.12f) / 0.88f).coerceIn(0f, 1f)
+                },
+            ) {
+                SingExitButton(
+                    onExit = sing.onExit,
+                    isPreparing = sing.isPreparing,
+                )
+            }
         }
     }
 }

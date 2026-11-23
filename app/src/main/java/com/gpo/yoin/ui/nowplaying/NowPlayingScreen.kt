@@ -1976,6 +1976,7 @@ private fun CompactPlayingContent(
                                     SingAwareRatingBarSlot(
                                         showSing = showPortraitSingInRating,
                                         sing = portraitSing,
+                                        ratingFraction = ((state.rating ?: 0f) / 10f).coerceIn(0f, 1f),
                                         orientation = Orientation.Vertical,
                                         modifier = Modifier.weight(1f),
                                     ) {
@@ -2951,6 +2952,7 @@ private fun WidePlayingContent(
                                 SingAwareRatingBarSlot(
                                     showSing = showDualSingInRating,
                                     sing = dualSing,
+                                    ratingFraction = ((state.rating ?: 0f) / 10f).coerceIn(0f, 1f),
                                     orientation = Orientation.Vertical,
                                     modifier = Modifier.weight(1f),
                                 ) {
@@ -3625,6 +3627,7 @@ private fun LandscapePlayingContent(
                 SingAwareRatingBarSlot(
                     showSing = showLandscapeSingInRating,
                     sing = landscapeSing,
+                    ratingFraction = ((state.rating ?: 0f) / 10f).coerceIn(0f, 1f),
                     orientation = Orientation.Vertical,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -3673,6 +3676,7 @@ private fun LandscapePlayingContent(
                     SingAwareRatingBarSlot(
                         showSing = showLandscapeSingInRating,
                         sing = landscapeSing,
+                        ratingFraction = ((state.rating ?: 0f) / 10f).coerceIn(0f, 1f),
                         orientation = Orientation.Horizontal,
                         modifier = Modifier.fillMaxSize(),
                     ) {
