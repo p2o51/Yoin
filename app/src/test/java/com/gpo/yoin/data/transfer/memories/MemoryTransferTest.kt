@@ -5,6 +5,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.sync.ActiveBinding
 import com.gpo.yoin.data.sync.SyncKinds
+import com.gpo.yoin.shared.notes.MentionKind
+import com.gpo.yoin.shared.notes.NoteMarkup
+import com.gpo.yoin.shared.notes.NoteMention
 import com.gpo.yoin.data.sync.backup.BackupTestDevice
 import com.gpo.yoin.data.sync.engine.SyncEngine
 import com.gpo.yoin.data.sync.engine.toWire
@@ -234,6 +237,73 @@ class MemoryTransferTest {
     }
 
     @Test
+    fun should_pointMentionsAtTheTargetsIds_when_tracksAndAlbumsAreRematched() = runTest {
+        device.addSubsonic("old", "https://music.example.com", "alice")
+        device.addProfile("spot", "spotify", "Spotify")
+        val p = "old"
+        device.played(p, "t1", "Rain Song", "al1", "Rain Album", at = 1)
+        device.played(p, "t2", "Sun Song", "al1", "Rain Album", at = 1)
+        device.rate(p, "t2", 8f, at = 2_000)
+        val sun = NoteMarkup.serializeMention(NoteMention(MentionKind.Track, "subsonic", "t2", "Sun Song", "Artist"))
+        val rain = NoteMarkup.serializeMention(NoteMention(MentionKind.Album, "subsonic", "al1", "Rain Album", "Artist"))
+        val unknown = NoteMarkup.serializeMention(NoteMention(MentionKind.Track, "subsonic", "t-gone", "Gone"))
+        val artist = NoteMarkup.serializeMention(NoteMention(MentionKind.Artist, "subsonic", "ar1", "Artist"))
+        device.note(p, "n1", "t1", "like $sun on $rain, not $unknown, by $artist", at = 2_000)
+        device.albumNote(p, "an1", "al1", "**see** $sun", at = 2_000)
+        device.albumRating(p, "al1", 9f, "the $sun moment", at = 2_001)
+        val catalog = FakeCatalog().apply {
+            tracks += track("sp1", "Rain Song", "Artist", "spA", "Rain Album")
+            tracks += track("sp2", "Sun Song", "Artist", "spA", "Rain Album")
+        }
+        val src = account(p, "s-old", "subsonic", "music.example.com", "Navidrome")
+        val dst = account("spot", "s-spot", "spotify")
+
+        val result = transfer.execute(transfer.plan(src, MemoryItems.fromProfile(device.db, p), dst, catalog))
+
+        val sp2 = NoteMarkup.serializeMention(NoteMention(MentionKind.Track, target, "sp2", "Sun Song", "Artist"))
+        val spA = NoteMarkup.serializeMention(NoteMention(MentionKind.Album, target, "spA", "Rain Album", "Artist"))
+        // remapped items point at the target; an unmapped track and the artist stay as written
+        assertEquals("like $sp2 on $spA, not $unknown, by $artist", dao.notesForProfile("spot").single().content)
+        assertEquals("**see** $sp2", dao.albumNotesForProfile("spot").single().content)
+        assertEquals("the $sp2 moment", dao.albumRating("spot", "spA", target)?.review)
+        assertEquals(1, result.copied.albumNotes)
+    }
+
+    @Test
+    fun should_copyAlbumNotesOnce_andSkipThemOnARerun() = runTest {
+        device.addSubsonic("old", "https://music.example.com", "alice")
+        device.addSubsonic("new", "https://music.example.com", "alice2")
+        device.albumNote("old", "an1", "al1", "first", at = 2_000)
+        device.albumNote("old", "an2", "al1", "second", at = 2_100)
+        val src = account("old", "s-old", "subsonic", "music.example.com")
+        val dst = account("new", "s-new", "subsonic", "music.example.com")
+
+        val first = transfer.execute(transfer.plan(src, MemoryItems.fromProfile(device.db, "old"), dst, null))
+        val again = transfer.execute(transfer.plan(src, MemoryItems.fromProfile(device.db, "old"), dst, null))
+
+        assertEquals(2, first.copied.albumNotes)
+        assertEquals(0, again.copied.albumNotes)
+        assertEquals(2, again.skippedPreviously)
+        assertEquals(
+            setOf(MigrationIds.derive("s-old", "an1", "s-new"), MigrationIds.derive("s-old", "an2", "s-new")),
+            dao.albumNotesForProfile("new").map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun should_remapOnlyMappedMentions_inPlace() {
+        val text = "a [@X](yoin:track/subsonic:t1) b [@Y](yoin:album/subsonic:al1) c"
+        val out = MemoryTransfer.remapMentionsIn(
+            text,
+            trackTarget = { if (it.id == "t1") MediaId("spotify", "s1") else null },
+            albumTarget = { null },
+        )
+        assertEquals("a [@X](yoin:track/spotify:s1) b [@Y](yoin:album/subsonic:al1) c", out)
+        // same ids: nothing rewritten, not even re-encoded
+        assertEquals(text, MemoryTransfer.remapMentionsIn(text, { MediaId(it.provider, it.id) }, { MediaId(it.provider, it.id) }))
+    }
+
+    @Test
     fun should_retryUnmatchedAndReusePicks_when_runAgain() = runTest {
         device.addSubsonic("old", "https://music.example.com", "alice")
         device.addProfile("spot", "spotify", "Spotify")
@@ -278,8 +348,10 @@ class MemoryTransferTest {
             transfer.plan(account(null, "s-cloud", "subsonic", "music.example.com", "Alice"), items, account("new", "s-new", "subsonic", "music.example.com"), null),
         )
 
-        // Album notes and links aren't synced: everything else comes from the cloud copy.
-        assertEquals(8, result.copied.total)
+        // Track→album links aren't synced; album notes are (a sync kind since the notes revamp), once each.
+        assertEquals(9, result.copied.total)
+        assertEquals(1, result.copied.albumNotes)
+        assertEquals(MigrationIds.derive("s-cloud", "an1", "s-new"), dao.albumNotesForProfile("new").single().id)
         assertEquals("first listen", dao.notesForProfile("new").single().content)
         assertEquals(8f, dao.albumRating("new", "al1", "subsonic")?.rating)
         assertEquals("AI Title", dao.memoryCopy("new", "subsonic", "album", "al1")?.title)

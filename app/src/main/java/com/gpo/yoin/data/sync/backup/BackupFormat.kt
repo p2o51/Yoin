@@ -62,18 +62,19 @@ object BackupFormat {
 /**
  * Record kinds a backup carries besides the synced ones. They never enter the sync replica or Drive:
  * import writes them straight into the domain of the account they are mapped to.
+ *
+ * Album notes were one of these until they became a sync kind ([SyncKinds.ALBUM_NOTE], notes revamp):
+ * same name and payload, so an older backup's `album_note` records import through the sync adapter like
+ * any other synced kind, once each.
  */
 object BackupKinds {
-    /** `album_notes`, key = note id. */
-    const val ALBUM_NOTE = "album_note"
-
     /** `track_album_links`, key = provider␟trackId: which album a noted/rated track is on. */
     const val TRACK_ALBUM_LINK = "track_album_link"
 
-    val ALL: Set<String> = setOf(ALBUM_NOTE, TRACK_ALBUM_LINK)
+    val ALL: Set<String> = setOf(TRACK_ALBUM_LINK)
 }
 
-/** Payload fields of [BackupKinds] records. */
+/** Payload fields of [BackupKinds] records (and of album notes, which keep the same fields as a sync kind). */
 internal object BackupFields {
     const val ALBUM_ID = "albumId"
     const val PROVIDER = "provider"

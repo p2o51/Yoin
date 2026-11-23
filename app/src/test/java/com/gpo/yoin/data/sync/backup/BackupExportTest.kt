@@ -69,7 +69,7 @@ class BackupExportTest {
         assertEquals(2, account.counts[SyncKinds.TRACK_RATING])
         assertEquals(1, account.counts[SyncKinds.ALBUM_RATING])
         assertEquals(1, account.counts[SyncKinds.ALBUM_REVIEW])
-        assertEquals(1, account.counts[BackupKinds.ALBUM_NOTE])
+        assertEquals(1, account.counts[SyncKinds.ALBUM_NOTE])
         assertEquals(1, account.counts[SyncKinds.ALBUM_TITLE])
         assertEquals(1, account.counts[SyncKinds.MEMORY_TITLE])
         assertEquals(1, account.counts[SyncKinds.MEMORY_COPY])
