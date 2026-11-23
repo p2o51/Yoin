@@ -532,4 +532,46 @@ class AppleMusicNameResolverTest {
         val jpFallback = queries.firstOrNull { it.first == "jp/albums" }
         assertEquals("artists", jpFallback?.second?.get("include"))
     }
+
+    @Test fun should_protectVariousArtistsFromQunxing_preserveMultiArtists_and_healEarlierDelistedAlbums() = runTest {
+        answers = { read ->
+            when ("${read.segments[2]}/${read.segments[3]}") {
+                "cn/albums" -> """{"data":[
+                    {"id":"7001","type":"albums","attributes":{"name":"华语合辑","artistName":"群星"}}
+                ]}"""
+                "tw/albums" -> """{"data":[
+                    {"id":"7001","type":"albums","attributes":{"name":"華語合輯","artistName":"群星"},
+                     "relationships":{"tracks":{"data":[{"id":"t1","attributes":{"name":"歌","isrc":"CN0012400001"}}]}}
+                    },
+                    {"id":"7004","type":"albums","attributes":{"name":"莫文蔚精選","artistName":"莫文蔚"}}
+                ]}"""
+                "jp/albums" -> """{"data":[
+                    {"id":"7005","type":"albums","attributes":{"name":"${"$"}ome ${"$"}exy ${"$"}ongs 4 U","artistName":"PARTYNEXTDOOR & ドレイク","genreNames":["R&B"]},
+                     "relationships":{"artists":{"data":[{"id":"66001"},{"id":"66002"}]}}
+                    }
+                ]}"""
+                "us/artists" -> """{"data":[
+                    {"id":"66001","type":"artists","attributes":{"name":"PARTYNEXTDOOR"}},
+                    {"id":"66002","type":"artists","attributes":{"name":"Drake"}}
+                ]}"""
+                else -> """{"data":[]}"""
+            }
+        }
+        val cnComp = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "7001"), "Mandopop Hits", "Various Artists", null, null, 1, null, null, "マンドポップ")
+        val deComp = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "7002"), "Liebe und Euphorie", "Various Artists", null, null, 1, null, null, "Electronic")
+        val earlierKaren = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "7003"), "一朵金花", "カレン・モク", null, null, 1, null, null, "マンドポップ")
+        val laterKaren = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "7004"), "莫文蔚精選", "カレン・モク", null, null, 1, null, null, "マンドポップ")
+        val collab = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "7005"), "\$ome \$exy \$ongs 4 U", "PARTYNEXTDOOR & ドレイク", null, null, 1, null, null, "R&B")
+
+        val renamed = resolver.albums(
+            AppleMusicNameRegion.Original,
+            "jp",
+            listOf(cnComp, deComp, earlierKaren, laterKaren, collab),
+        )
+        assertEquals("Various Artists", renamed[0].artist)
+        assertEquals("Various Artists", renamed[1].artist)
+        assertEquals("莫文蔚", renamed[2].artist)
+        assertEquals("莫文蔚", renamed[3].artist)
+        assertEquals("PARTYNEXTDOOR & Drake", renamed[4].artist)
+    }
 }

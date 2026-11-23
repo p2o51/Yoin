@@ -28,14 +28,14 @@ final class AppleMusicNames {
 
 final class _SourceAlbumFallback {
   const _SourceAlbumFallback({
-    this.artistId,
+    this.artistIds = const [],
     this.firstTrackIsrc,
     this.preferredChineseTarget,
     required this.hasJapaneseScript,
     this.genre,
     required this.tracksInspected,
   });
-  final String? artistId;
+  final List<String> artistIds;
   final String? firstTrackIsrc;
   final OriginalNameTarget? preferredChineseTarget;
   final bool hasJapaneseScript;
@@ -170,6 +170,14 @@ final class AppleMusicNameResolver {
         effectiveTarget[entry.key] = entry.value.$2;
       }
     }
+    for (var i = 0; i < albums.length; i++) {
+      final r = byAlbum[i];
+      if (r != null && names[r.id] != null) {
+        final t = effectiveTarget[r.id] ?? r.target;
+        final pickedArtist = _pick(region, t, albums[i].artist, names[r.id]!.artist, isArtist: true);
+        _rememberArtistName(region, albums[i].artist, pickedArtist);
+      }
+    }
     return [
       for (var i = 0; i < albums.length; i++)
         if (byAlbum[i] case final r? when names[r.id] != null)
@@ -178,7 +186,6 @@ final class AppleMusicNameResolver {
             final pickedArtist = _pick(region, t, albums[i].artist, names[r.id]!.artist, isArtist: true) ??
                 _cachedArtistName(region, albums[i].artist) ??
                 albums[i].artist;
-            _rememberArtistName(region, albums[i].artist, pickedArtist);
             return renamedAlbum(
               albums[i],
               name: _pick(region, t, albums[i].name, names[r.id]!.title) ?? albums[i].name,
@@ -306,7 +313,7 @@ final class AppleMusicNameResolver {
     final plans = <({
       String albumId,
       OriginalNameTarget target,
-      String? artistId,
+      List<String> artistIds,
       String? isrc,
       bool needsTitleByIsrc,
       bool verifyArtistNotJapanese,
@@ -348,11 +355,11 @@ final class AppleMusicNameResolver {
               (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title)));
       final confirmedNonJapanese =
           info.firstTrackIsrc != null && OriginalNameTarget.forIsrc(info.firstTrackIsrc) != null;
-      final artistId = (info.artistId != null && _isCatalogId(info.artistId!)) ? info.artistId : null;
+      final artistIds = [for (final id in info.artistIds) if (_isCatalogId(id)) id];
       plans.add((
         albumId: req.id,
         target: effectiveTarget,
-        artistId: artistId,
+        artistIds: artistIds,
         isrc: info.firstTrackIsrc,
         needsTitleByIsrc: needsTitle && info.firstTrackIsrc != null && info.firstTrackIsrc!.isNotEmpty,
         verifyArtistNotJapanese: req.verifyNotJapanese && !confirmedNonJapanese,
@@ -363,9 +370,9 @@ final class AppleMusicNameResolver {
 
     final artistRequests = [
       for (final p in plans)
-        if (p.artistId != null)
+        for (final artistId in p.artistIds)
           _Request(
-            p.artistId!,
+            artistId,
             p.target,
             null,
             verifyNotJapanese: p.verifyArtistNotJapanese,
@@ -404,8 +411,17 @@ final class AppleMusicNameResolver {
 
     final out = <String, (AppleMusicNames, OriginalNameTarget)>{};
     for (final p in plans) {
-      final artistName = p.artistId != null ? resolvedArtists.names[p.artistId!]?.title : null;
-      final effectiveTarget = (p.artistId != null ? resolvedArtists.targets[p.artistId!] : null) ?? p.target;
+      final artistParts = [
+        for (final artistId in p.artistIds)
+          if (resolvedArtists.names[artistId]?.title case final t? when t.isNotEmpty) t,
+      ];
+      final artistName = artistParts.isEmpty ? null : artistParts.join(' & ');
+      OriginalNameTarget? resolvedTarget;
+      for (final artistId in p.artistIds) {
+        resolvedTarget = resolvedArtists.targets[artistId];
+        if (resolvedTarget != null) break;
+      }
+      final effectiveTarget = resolvedTarget ?? p.target;
       final targetIsrcs = resolvedIsrcs[p.target];
       final songMatch = (p.isrc != null && targetIsrcs != null) ? targetIsrcs[p.isrc!.toUpperCase()] : null;
       final title = songMatch?.album;
@@ -469,7 +485,7 @@ final class AppleMusicNameResolver {
               final attrs = item['attributes'] is Map ? (item['attributes'] as Map).cast<String, Object?>() : null;
               final rels = item['relationships'] is Map ? (item['relationships'] as Map).cast<String, Object?>() : null;
               final artistsData = _nestedData(rels?['artists']);
-              final artistId = artistsData.isNotEmpty ? _text(artistsData.first['id']) : null;
+              final artistIds = [for (final a in artistsData) ?_text(a['id'])];
               final tracksData = _nestedData(rels?['tracks']);
               String? firstIsrc;
               var hasJpScript = false;
@@ -482,7 +498,7 @@ final class AppleMusicNameResolver {
                 if (OriginalNameTarget.hasJapaneseScript(tName)) hasJpScript = true;
               }
               parsed[id] = _SourceAlbumFallback(
-                artistId: artistId,
+                artistIds: artistIds,
                 firstTrackIsrc: firstIsrc,
                 preferredChineseTarget: chineseTarget,
                 hasJapaneseScript: hasJpScript,
@@ -507,6 +523,7 @@ final class AppleMusicNameResolver {
     final s = shown?.trim() ?? '';
     final r = resolved?.trim() ?? '';
     if (s.isEmpty || r.isEmpty || s == r) return;
+    if (OriginalNameTarget.isCompilationArtist(s) || OriginalNameTarget.isCompilationArtist(r)) return;
     final k = '${region.key}|$s';
     _artistNameCache.remove(k);
     _artistNameCache[k] = r;
@@ -517,7 +534,7 @@ final class AppleMusicNameResolver {
 
   String? _cachedArtistName(AppleMusicNameRegion region, String? shown) {
     final s = shown?.trim() ?? '';
-    if (s.isEmpty) return null;
+    if (s.isEmpty || OriginalNameTarget.isCompilationArtist(s)) return null;
     return _artistNameCache['${region.key}|$s'];
   }
 

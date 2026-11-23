@@ -111,6 +111,10 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
         private val Greece = OriginalNameTarget("gr", "el")
         private val Bulgaria = OriginalNameTarget("bg", "bg")
 
+        private val COMPILATION_ARTISTS = setOf(
+            "various artists", "various", "ヴァリアス・アーティスト", "群星", "群星/合辑", "合辑", "合輯",
+        )
+
         private val LATIN_ISRC_COUNTRIES = setOf(
             "US", "QM", "QZ", "GB", "UK", "CA", "AU", "NZ", "IE",
             "SE", "NO", "DK", "FI", "IS", "NL", "BE", "DE", "AT", "CH",
@@ -230,19 +234,27 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
             isArtist: Boolean = false,
         ): Boolean {
             val answer = resolved?.trim().orEmpty()
-            if (answer.isEmpty() || answer == shown?.trim()) return false
+            val shownText = shown?.trim().orEmpty()
+            if (answer.isEmpty() || answer == shownText) return false
             if (region != AppleMusicNameRegion.Original) return true
+            if (isArtist && (isCompilationArtist(shownText) || isCompilationArtist(answer))) {
+                return isCompilationArtist(shownText) && isCompilationArtist(answer) &&
+                    latinLetters(answer) > 0 && nonLatinLetters(answer) < nonLatinLetters(shownText)
+            }
             if (target == UnitedStates) {
-                val shownText = shown?.trim().orEmpty()
                 return latinLetters(answer) > 0 && nonLatinLetters(answer) < nonLatinLetters(shownText)
             }
             if (isArtist && target == Korea) return false
             if (nonLatinLetters(answer) == 0) return false
             if (isChinese(target)) {
-                val shownText = shown?.trim().orEmpty()
                 return hasHan(answer) && !hasHan(shownText)
             }
             return true
+        }
+
+        fun isCompilationArtist(name: String?): Boolean {
+            val normalized = name?.trim()?.lowercase().orEmpty()
+            return normalized.isNotEmpty() && normalized in COMPILATION_ARTISTS
         }
 
         /**

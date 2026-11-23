@@ -47,7 +47,7 @@ internal class AppleMusicNameResolver(
     data class Names(val title: String?, val artist: String?, val album: String?)
 
     private data class SourceAlbumFallback(
-        val artistId: String?,
+        val artistIds: List<String>,
         val firstTrackIsrc: String?,
         val preferredChineseTarget: OriginalNameTarget?,
         val hasJapaneseScript: Boolean,
@@ -149,6 +149,14 @@ internal class AppleMusicNameResolver(
                 effectiveTargetById[id] = entry.second
             }
         }
+        // Pre-populate verified artist translations first so missed albums earlier in the list
+        // (e.g. a delisted regional album sorted above the artist's other albums) stay consistent.
+        for (album in albums) {
+            val target = effectiveTargetById[album.id.rawId] ?: continue
+            val found = names[album.id.rawId] ?: continue
+            val pickedArtist = pick(region, target, album.artist, found.artist, isArtist = true)
+            rememberArtistName(region, album.artist, pickedArtist)
+        }
         return albums.map { album ->
             val target = effectiveTargetById[album.id.rawId]
             val found = names[album.id.rawId]
@@ -156,7 +164,6 @@ internal class AppleMusicNameResolver(
                 val pickedArtist = pick(region, target, album.artist, found.artist, isArtist = true)
                     ?: cachedArtistName(region, album.artist)
                     ?: album.artist
-                rememberArtistName(region, album.artist, pickedArtist)
                 album.copy(
                     name = pick(region, target, album.name, found.title) ?: album.name,
                     artist = pickedArtist,
@@ -293,7 +300,7 @@ internal class AppleMusicNameResolver(
         data class Plan(
             val albumId: String,
             val target: OriginalNameTarget,
-            val artistId: String?,
+            val artistIds: List<String>,
             val isrc: String?,
             val needsTitleByIsrc: Boolean,
             val verifyArtistNotJapanese: Boolean,
@@ -332,7 +339,7 @@ internal class AppleMusicNameResolver(
             Plan(
                 albumId = req.id,
                 target = effectiveTarget,
-                artistId = info.artistId?.takeIf { it.isCatalogId() },
+                artistIds = info.artistIds.filter { it.isCatalogId() },
                 isrc = info.firstTrackIsrc,
                 needsTitleByIsrc = needsTitle && !info.firstTrackIsrc.isNullOrBlank(),
                 verifyArtistNotJapanese = req.verifyNotJapanese && !confirmedNonJapanese,
@@ -341,15 +348,16 @@ internal class AppleMusicNameResolver(
         }
         if (plans.isEmpty()) return@coroutineScope emptyMap()
 
-        val artistRequests = plans.mapNotNull { plan ->
-            val artistId = plan.artistId ?: return@mapNotNull null
-            Request(
-                id = artistId,
-                target = plan.target,
-                isrc = null,
-                verifyNotJapanese = plan.verifyArtistNotJapanese,
-                checkChineseRegion = plan.checkChineseRegion,
-            )
+        val artistRequests = plans.flatMap { plan ->
+            plan.artistIds.map { artistId ->
+                Request(
+                    id = artistId,
+                    target = plan.target,
+                    isrc = null,
+                    verifyNotJapanese = plan.verifyArtistNotJapanese,
+                    checkChineseRegion = plan.checkChineseRegion,
+                )
+            }
         }
         val artistJob = async {
             if (artistRequests.isEmpty()) ResolvedBatch(emptyMap(), emptyMap())
@@ -378,8 +386,9 @@ internal class AppleMusicNameResolver(
         val resolvedIsrcs = isrcJob.await()
         val out = LinkedHashMap<String, Pair<Names, OriginalNameTarget>>()
         for (plan in plans) {
-            val artistName = plan.artistId?.let { resolvedArtists.names[it]?.title }
-            val effectiveTarget = plan.artistId?.let { resolvedArtists.targets[it] } ?: plan.target
+            val resolvedArtistParts = plan.artistIds.mapNotNull { resolvedArtists.names[it]?.title?.takeIf(String::isNotBlank) }
+            val artistName = resolvedArtistParts.takeIf { it.isNotEmpty() }?.joinToString(" & ")
+            val effectiveTarget = plan.artistIds.firstNotNullOfOrNull { resolvedArtists.targets[it] } ?: plan.target
             val songMatch = plan.isrc?.let { resolvedIsrcs[plan.target]?.get(it)?.firstOrNull() }
             val title = songMatch?.album
             val artist = artistName ?: songMatch?.artist
@@ -442,8 +451,9 @@ internal class AppleMusicNameResolver(
                         val attrs = item["attributes"] as? JsonObject
                         val genre = attrs?.genreString()
                         val rels = item["relationships"] as? JsonObject
-                        val artistId = ((rels?.get("artists") as? JsonObject)?.get("data") as? JsonArray)
-                            ?.firstOrNull()?.let { (it as? JsonObject)?.text("id") }
+                        val artistIds = ((rels?.get("artists") as? JsonObject)?.get("data") as? JsonArray)
+                            .orEmpty()
+                            .mapNotNull { (it as? JsonObject)?.text("id") }
                         val tracksArray = ((rels?.get("tracks") as? JsonObject)?.get("data") as? JsonArray)
                         val tracksData = tracksArray.orEmpty()
                         var firstIsrc: String? = null
@@ -456,7 +466,7 @@ internal class AppleMusicNameResolver(
                             if (OriginalNameTarget.hasJapaneseScript(trackName)) hasJpScript = true
                         }
                         parsed[id] = SourceAlbumFallback(
-                            artistId = artistId,
+                            artistIds = artistIds,
                             firstTrackIsrc = firstIsrc,
                             preferredChineseTarget = chineseTarget,
                             hasJapaneseScript = hasJpScript,
@@ -481,6 +491,7 @@ internal class AppleMusicNameResolver(
         val s = shown?.trim().orEmpty()
         val r = resolved?.trim().orEmpty()
         if (s.isEmpty() || r.isEmpty() || s == r) return
+        if (OriginalNameTarget.isCompilationArtist(s) || OriginalNameTarget.isCompilationArtist(r)) return
         synchronized(artistNameCache) {
             artistNameCache["${region.key}|$s"] = r
         }
@@ -488,7 +499,7 @@ internal class AppleMusicNameResolver(
 
     private fun cachedArtistName(region: AppleMusicNameRegion, shown: String?): String? {
         val s = shown?.trim().orEmpty()
-        if (s.isEmpty()) return null
+        if (s.isEmpty() || OriginalNameTarget.isCompilationArtist(s)) return null
         return synchronized(artistNameCache) { artistNameCache["${region.key}|$s"] }
     }
 

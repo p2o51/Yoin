@@ -215,10 +215,16 @@ struct OriginalNameTarget: Hashable, Sendable {
     static func accepts(_ region: AppleMusicNameRegion, target: OriginalNameTarget, shown: String?, resolved: String?,
                         isArtist: Bool = false) -> Bool {
         let answer = resolved?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if answer.isEmpty || answer == shown?.trimmingCharacters(in: .whitespacesAndNewlines) { return false }
+        let shownText = shown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if answer.isEmpty || answer == shownText { return false }
         if region != .original { return true }
+        if isArtist && (isCompilationArtist(shownText) || isCompilationArtist(answer)) {
+            let answerNonLatin = answer.unicodeScalars.filter(isNonLatinLetter).count
+            let shownNonLatin = shownText.unicodeScalars.filter(isNonLatinLetter).count
+            return isCompilationArtist(shownText) && isCompilationArtist(answer) &&
+                answer.unicodeScalars.contains(where: isLatinLetter) && answerNonLatin < shownNonLatin
+        }
         if target == .unitedStates {
-            let shownText = shown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let answerNonLatin = answer.unicodeScalars.filter(isNonLatinLetter).count
             let shownNonLatin = shownText.unicodeScalars.filter(isNonLatinLetter).count
             return answer.unicodeScalars.contains(where: isLatinLetter) && answerNonLatin < shownNonLatin
@@ -226,11 +232,19 @@ struct OriginalNameTarget: Hashable, Sendable {
         if isArtist && target == .korea { return false }
         guard answer.unicodeScalars.contains(where: isNonLatinLetter) else { return false }
         if isChinese(target) {
-            let shownText = shown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return answer.unicodeScalars.contains(where: isHan) && !shownText.unicodeScalars.contains(where: isHan)
         }
         return true
     }
+
+    static func isCompilationArtist(_ name: String?) -> Bool {
+        let normalized = name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return !normalized.isEmpty && compilationArtists.contains(normalized)
+    }
+
+    private static let compilationArtists: Set<String> = [
+        "various artists", "various", "ヴァリアス・アーティスト", "群星", "群星/合辑", "合辑", "合輯",
+    ]
 
     static func isKatakanaSpeculative(title: String?, artist: String?, genre: String?, isrc: String?) -> Bool {
         if forGenre(genre) != nil || forIsrc(isrc) != nil { return false }
@@ -384,7 +398,7 @@ final class AppleMusicNameResolver {
         var id: String
         var names: Names
         var genre: String?
-        var artistId: String?
+        var artistIds: [String]
         var nestedTrackIsrcs: [String]
         var nestedTrackGenres: [String]
         var nestedTrackNames: [String]
@@ -402,7 +416,7 @@ final class AppleMusicNameResolver {
     typealias ByIsrc = @MainActor (_ storefront: String, _ isrcs: [String], _ language: String) async throws -> [String: Names]
 
     private struct SourceAlbumFallback: Sendable {
-        var artistId: String?
+        var artistIds: [String]
         var firstTrackIsrc: String?
         var preferredChineseTarget: OriginalNameTarget?
         var hasJapaneseScript: Bool
@@ -536,13 +550,18 @@ final class AppleMusicNameResolver {
                 effectiveTarget[id] = pair.1
             }
         }
+        for a in albums {
+            if let id = a.catalogId, let target = effectiveTarget[id], let found = names[id] {
+                let picked = Self.pick(region, target, a.artist, found.artist, isArtist: true)
+                rememberArtistName(region, shown: a.artist, resolved: picked)
+            }
+        }
         return albums.map { a in
             if let id = a.catalogId, let target = effectiveTarget[id], let found = names[id] {
                 var out = a
                 out.title = Self.pick(region, target, a.title, found.title)
                 let picked = Self.pick(region, target, a.artist, found.artist, isArtist: true)
                 out.artist = (picked != a.artist) ? picked : (cachedArtistName(region, shown: a.artist) ?? picked)
-                rememberArtistName(region, shown: a.artist, resolved: out.artist)
                 return out
             }
             if let cached = cachedArtistName(region, shown: a.artist) {
@@ -631,12 +650,13 @@ final class AppleMusicNameResolver {
         let s = shown.trimmingCharacters(in: .whitespacesAndNewlines)
         let r = resolved.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty, !r.isEmpty, s != r else { return }
+        guard !OriginalNameTarget.isCompilationArtist(s), !OriginalNameTarget.isCompilationArtist(r) else { return }
         artistNameCache["\(region.key)|\(s)"] = r
     }
 
     private func cachedArtistName(_ region: AppleMusicNameRegion, shown: String) -> String? {
         let s = shown.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return nil }
+        guard !s.isEmpty, !OriginalNameTarget.isCompilationArtist(s) else { return nil }
         return artistNameCache["\(region.key)|\(s)"]
     }
 
@@ -803,7 +823,7 @@ final class AppleMusicNameResolver {
         struct Plan {
             var albumId: String
             var target: OriginalNameTarget
-            var artistId: String?
+            var artistIds: [String]
             var isrc: String?
             var needsTitleByIsrc: Bool
             var verifyArtistNotJapanese: Bool
@@ -845,11 +865,11 @@ final class AppleMusicNameResolver {
                 (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title))
             )
             let confirmedNonJp = info.firstTrackIsrc != nil && OriginalNameTarget.forIsrc(info.firstTrackIsrc) != nil
-            let artistId = info.artistId.flatMap { !$0.isEmpty && $0.allSatisfy(\.isNumber) ? $0 : nil }
+            let artistIds = info.artistIds.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
             plans.append(Plan(
                 albumId: req.id,
                 target: effectiveTarget,
-                artistId: artistId,
+                artistIds: artistIds,
                 isrc: info.firstTrackIsrc,
                 needsTitleByIsrc: needsTitle && !(info.firstTrackIsrc?.isEmpty ?? true),
                 verifyArtistNotJapanese: req.verifyNotJapanese && !confirmedNonJp,
@@ -858,15 +878,16 @@ final class AppleMusicNameResolver {
         }
         guard !plans.isEmpty else { return [:] }
 
-        let artistRequests = plans.compactMap { p -> Request? in
-            guard let artistId = p.artistId else { return nil }
-            return Request(
-                id: artistId,
-                target: p.target,
-                isrc: nil,
-                verifyNotJapanese: p.verifyArtistNotJapanese,
-                checkChineseRegion: p.checkChineseRegion
-            )
+        let artistRequests = plans.flatMap { p in
+            p.artistIds.map { artistId in
+                Request(
+                    id: artistId,
+                    target: p.target,
+                    isrc: nil,
+                    verifyNotJapanese: p.verifyArtistNotJapanese,
+                    checkChineseRegion: p.checkChineseRegion
+                )
+            }
         }
         let resolvedArtists: ResolvedBatch = artistRequests.isEmpty
             ? ResolvedBatch(names: [:], targets: [:])
@@ -883,8 +904,9 @@ final class AppleMusicNameResolver {
 
         var out: [String: (Names, OriginalNameTarget)] = [:]
         for p in plans {
-            let artistName = p.artistId.flatMap { resolvedArtists.names[$0]?.title }
-            let effectiveTarget = p.artistId.flatMap { resolvedArtists.targets[$0] } ?? p.target
+            let artistParts = p.artistIds.compactMap { resolvedArtists.names[$0]?.title }.filter { !$0.isEmpty }
+            let artistName = artistParts.isEmpty ? nil : artistParts.joined(separator: " & ")
+            let effectiveTarget = p.artistIds.compactMap { resolvedArtists.targets[$0] }.first ?? p.target
             let songMatch = p.isrc.flatMap { resolvedIsrcs[p.target]?[$0] }
             let title = songMatch?.album
             let artist = artistName ?? songMatch?.artist
@@ -931,7 +953,7 @@ final class AppleMusicNameResolver {
             var parsed: [String: SourceAlbumFallback] = [:]
             for r in resources {
                 parsed[r.id] = SourceAlbumFallback(
-                    artistId: r.artistId,
+                    artistIds: r.artistIds,
                     firstTrackIsrc: r.nestedTrackIsrcs.first,
                     preferredChineseTarget: includeTracks ? Self.preferredChineseTarget(in: r.nestedTrackIsrcs) : nil,
                     hasJapaneseScript: r.nestedTrackNames.contains { OriginalNameTarget.hasJapaneseScript($0) },
@@ -1012,7 +1034,7 @@ final class AppleMusicNameResolver {
             let rels = r["relationships"] as? AppleMusicJSON.Object
             let views = r["views"] as? AppleMusicJSON.Object
             let artistsData = nestedData(rels?["artists"])
-            let artistId = artistsData.first?["id"] as? String
+            let artistIds = artistsData.compactMap { $0["id"] as? String }
             let tracksData = nestedData(rels?["tracks"]) + nestedData(views?["top-songs"])
             var isrcs: [String] = []
             var trackGenres: [String] = []
@@ -1027,7 +1049,7 @@ final class AppleMusicNameResolver {
                 id: id,
                 names: names,
                 genre: genreString(a),
-                artistId: artistId,
+                artistIds: artistIds,
                 nestedTrackIsrcs: isrcs,
                 nestedTrackGenres: trackGenres,
                 nestedTrackNames: trackNames

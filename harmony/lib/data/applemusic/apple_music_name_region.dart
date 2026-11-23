@@ -320,10 +320,18 @@ final class OriginalNameTarget {
     bool isArtist = false,
   }) {
     final answer = resolved?.trim() ?? '';
-    if (answer.isEmpty || answer == shown?.trim()) return false;
+    final shownText = shown?.trim() ?? '';
+    if (answer.isEmpty || answer == shownText) return false;
     if (region != AppleMusicNameRegion.original) return true;
+    if (isArtist && (isCompilationArtist(shownText) || isCompilationArtist(answer))) {
+      final answerNonLatin = answer.runes.where(_isNonLatinLetter).length;
+      final shownNonLatin = shownText.runes.where(_isNonLatinLetter).length;
+      return isCompilationArtist(shownText) &&
+          isCompilationArtist(answer) &&
+          answer.runes.any(_isLatinLetter) &&
+          answerNonLatin < shownNonLatin;
+    }
     if (target == unitedStates) {
-      final shownText = shown?.trim() ?? '';
       final answerNonLatin = answer.runes.where(_isNonLatinLetter).length;
       final shownNonLatin = shownText.runes.where(_isNonLatinLetter).length;
       return answer.runes.any(_isLatinLetter) && answerNonLatin < shownNonLatin;
@@ -331,11 +339,25 @@ final class OriginalNameTarget {
     if (isArtist && target == korea) return false;
     if (!answer.runes.any(_isNonLatinLetter)) return false;
     if (_isChinese(target)) {
-      final shownText = shown?.trim() ?? '';
       return answer.runes.any(_isHan) && !shownText.runes.any(_isHan);
     }
     return true;
   }
+
+  static bool isCompilationArtist(String? name) {
+    final normalized = name?.trim().toLowerCase() ?? '';
+    return normalized.isNotEmpty && _compilationArtists.contains(normalized);
+  }
+
+  static const _compilationArtists = <String>{
+    'various artists',
+    'various',
+    'ヴァリアス・アーティスト',
+    '群星',
+    '群星/合辑',
+    '合辑',
+    '合輯',
+  };
 
   static bool isKatakanaSpeculative({String? title, String? artist, String? genre, String? isrc}) {
     if (forGenre(genre) != null || forIsrc(isrc) != null) return false;
