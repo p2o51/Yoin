@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.shared.palette.Palette
 import com.gpo.yoin.ui.nowplaying.CoverField
 import com.gpo.yoin.ui.nowplaying.buildCoverField
@@ -41,9 +42,14 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
         private set
     private var neighbourRequest: Pair<String?, String?>? = null
     private var neighbourLoading: Job? = null
+    private val artworkCache = object : LinkedHashMap<String, CachedArtworkTheme>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedArtworkTheme>?) = size > 32
+    }
     private val neighbourCache = object : LinkedHashMap<String, NeighbourTint>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NeighbourTint>?) = size > 8
     }
+
+    private fun cacheKey(model: String): String = SubsonicCacheKey.of(model) ?: model
 
     fun colorScheme(darkTheme: Boolean): ColorScheme? =
         palette?.let { if (darkTheme) it.dark else it.light }
@@ -57,6 +63,16 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
         if (request == next) return
         request = next
         loading?.cancel()
+        if (model != null) {
+            val cached = artworkCache[cacheKey(model)]
+            if (cached != null) {
+                if (cached.field != null) coverField = cached.field
+                if (cached.palette != null && palette?.seed != cached.palette.seed) {
+                    palette = cached.palette
+                }
+                return
+            }
+        }
         loading = scope.launch {
             if (model != null) {
                 val bitmap = loadBitmap(model)
@@ -64,13 +80,23 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
                 val swatchPalette = bitmap?.let { withContext(Dispatchers.Default) { CoverSeedExtractor.palette(it) } }
                 val seed = swatchPalette?.let { CoverSeedExtractor.seedSwatch(it)?.rgb }
                 val field = bitmap?.let { readCoverField(it, swatchPalette?.let(::swatchesOf) ?: IntArray(0)) }
+                val built = seed?.let {
+                    if (palette?.seed == it) {
+                        palette
+                    } else {
+                        PlaybackPalette(
+                            seed = it,
+                            light = ExpressiveColorSchemeFactory.fromSeed(it, isDark = false),
+                            dark = ExpressiveColorSchemeFactory.fromSeed(it, isDark = true),
+                        )
+                    }
+                }
+                if (field != null || built != null) {
+                    artworkCache[cacheKey(model)] = CachedArtworkTheme(palette = built, field = field)
+                }
                 if (field != null) coverField = field
-                if (seed != null && palette?.seed != seed) {
-                    palette = PlaybackPalette(
-                        seed = seed,
-                        light = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = false),
-                        dark = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = true),
-                    )
+                if (built != null && palette?.seed != built.seed) {
+                    palette = built
                 }
             } else if (clearWhenMissing) {
                 // Keep the current palette through brief empty-queue handoffs.
@@ -98,8 +124,8 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
         neighbourLoading = scope.launch {
             // All cached (a skip): straight in. Otherwise the old frame stays
             // until the new covers are read, so the edges cross over once.
-            val cachedPrevious = previous?.let { neighbourCache[it] }
-            val cachedNext = next?.let { neighbourCache[it] }
+            val cachedPrevious = previous?.let { neighbourCache[cacheKey(it)] }
+            val cachedNext = next?.let { neighbourCache[cacheKey(it)] }
             if ((previous == null || cachedPrevious != null) && (next == null || cachedNext != null)) {
                 neighbours = CoverNeighbours(previous = cachedPrevious, next = cachedNext)
                 return@launch
@@ -107,7 +133,16 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
             loading?.join()
             suspend fun tintOf(model: String?): NeighbourTint? {
                 if (model == null) return null
-                neighbourCache[model]?.let { return it }
+                val k = cacheKey(model)
+                neighbourCache[k]?.let { return it }
+                artworkCache[k]?.palette?.let { pal ->
+                    val tint = NeighbourTint(
+                        light = pal.light.primaryContainer,
+                        dark = pal.dark.primaryContainer,
+                    )
+                    neighbourCache[k] = tint
+                    return tint
+                }
                 val seed = CoverSeedExtractor.extractSeedArgb(loadBitmap(model)) ?: return null
                 val tint = withContext(Dispatchers.Default) {
                     NeighbourTint(
@@ -115,7 +150,7 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
                         dark = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = true).primaryContainer,
                     )
                 }
-                neighbourCache[model] = tint
+                neighbourCache[k] = tint
                 return tint
             }
             val p = tintOf(previous)
@@ -156,3 +191,4 @@ private suspend fun readCoverField(bitmap: Bitmap, swatches: IntArray): CoverFie
 
 private data class ArtworkRequest(val model: String?, val clearWhenMissing: Boolean)
 private data class PlaybackPalette(val seed: Int, val light: ColorScheme, val dark: ColorScheme)
+private data class CachedArtworkTheme(val palette: PlaybackPalette?, val field: CoverField?)

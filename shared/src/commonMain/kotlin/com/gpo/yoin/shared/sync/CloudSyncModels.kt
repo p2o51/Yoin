@@ -126,6 +126,9 @@ sealed interface SyncAccountStatus {
 
     /** Signed in as a different account than the one this profile synced as. */
     data object AccountChanged : SyncAccountStatus
+
+    /** Removed from the cloud (on any device): not synced here until resumed. */
+    data object RemovedFromCloud : SyncAccountStatus
 }
 
 /** An account whose data is in Drive but not connected on this device. */

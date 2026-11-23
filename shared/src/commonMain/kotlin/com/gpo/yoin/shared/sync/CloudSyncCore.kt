@@ -292,6 +292,10 @@ class CloudSyncCore(
     @Throws(Throwable::class)
     suspend fun keepAccountAsBefore(localProfileId: String) = accountAction { binder.keepAsBefore(localProfileId) }
 
+    /** An account removed from the cloud (a scope purge marker) syncs again from this device. */
+    @Throws(Throwable::class)
+    suspend fun resumeAccountSync(localProfileId: String) = accountAction { binder.resumeSyncing(localProfileId) }
+
     /**
      * "Start fresh as this account" for a paused account. Returns how many changes of the old account
      * are still not uploaded: above zero nothing was done (the account stays paused, its rows stay on
@@ -375,6 +379,35 @@ class CloudSyncCore(
         refreshState()
     }
 
+    /**
+     * Applies every scope purge marker ("remove this account from the cloud", written by Android) this device
+     * hasn't applied yet, newest per scope, before any peer file is merged (docs/cloud-sync.md).
+     */
+    private suspend fun applyPurgeMarkers(files: List<RemoteFile>, resetEpoch: Long) {
+        val markers = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE }
+        if (markers.isEmpty()) return
+        val engine = engine()
+        val applied = engine.purgedScopes()
+        val newest = HashMap<String, Long>()
+        for (file in markers) {
+            var scope = file.appProperties[SyncFileProps.SCOPE]?.takeIf(String::isNotEmpty)
+            var epoch = file.appProperties[SyncFileProps.EPOCH]?.toLongOrNull()
+            if (scope == null || epoch == null) {
+                val marker = runCatching { transport.download(file.id)?.let(SnapshotCodec::decodePurge) }.getOrNull()
+                    ?: continue
+                scope = marker.scope
+                epoch = marker.epoch
+            }
+            if (scope == SyncFormat.GLOBAL_SCOPE || epoch < resetEpoch) continue
+            if (epoch > (newest[scope] ?: Long.MIN_VALUE)) newest[scope] = epoch
+        }
+        for ((scope, epoch) in newest) {
+            if ((applied[scope] ?: Long.MIN_VALUE) >= epoch) continue
+            engine.applyScopePurge(scope, epoch)
+            binder.markPurged(scope)
+        }
+    }
+
     /** One network cycle. Returns a LAST_ERROR code, or null when everything went through. */
     private suspend fun cycle(): String? {
         val engine = engine()
@@ -423,6 +456,8 @@ class CloudSyncCore(
             putMeta(SyncMetaKeys.EPOCH, newestEpoch.toString())
             myEpoch = newestEpoch
         }
+
+        applyPurgeMarkers(files, myEpoch)
 
         val dataFiles = files.filter {
             val kind = it.appProperties[SyncFileProps.KIND]
@@ -906,6 +941,7 @@ class CloudSyncCore(
         private val STATE_FILE_KEY = "${SyncFileProps.KIND_STATE}:0"
 
         private val YOIN_FILE_KINDS = setOf(
+            SyncFileProps.KIND_PURGE,
             SyncFileProps.KIND_STATE,
             SyncFileProps.KIND_ARTIFACTS,
             SyncFileProps.KIND_RESET,

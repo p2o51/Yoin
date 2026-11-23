@@ -21,6 +21,7 @@ Launch with `adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.<Activity>`.
 | `DetailScreenshotActivity` | `AlbumDetailScreen` against fixed fake data. |
 | `LibraryScreenshotActivity` | The Library page against fixed fake data. Pick the tab with a string extra: `--es tab Albums`. |
 | `MemoriesScreenshotActivity` | The whole redesigned home feed — Activities bento, Jump Back In widget grid, compact Recently Added. |
+| `CloudSyncScreenshotActivity` | The redone Cloud sync page, its sub-pages (all files, an account's cloud data, global data, sync location), backup export / import and the 转移 Memories flow, against `FakeCloudSyncController` and `PreviewMemoriesOps` (nothing touches Google, Drive or profiles). `--es screen main\|changed\|files\|account\|global\|location\|export\|import\|xfer`; xfer takes `--es source local:nav\|cloud:sp-old --es target am`. |
 | `MemoriesEmptyPreviewActivity` | Prototype of the redesigned Memories empty state. Pick the variant with a string extra: `--es variant fresh` (ghost seal + gates) or `--es variant almost` (near-miss album + CTA). |
 
 Example:

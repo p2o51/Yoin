@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
 import com.gpo.yoin.ui.theme.YoinMotion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -88,6 +89,22 @@ class ShellBarScrollHide internal constructor(
     fun showUnseen() {
         settleJob?.cancel()
         fraction = 0f
+    }
+
+    /**
+     * A page above has started to reveal the window [revealedKey] names
+     * ([com.gpo.yoin.ui.experience.ExperienceSessionStore.windowBeneathRevealed]).
+     * When that is the shell, the bar is put back unseen: on a back's first
+     * frame the page still covers the whole window, and the page's own bar
+     * rests where this one does, so the hand-back finds a bar under it instead
+     * of an empty spot that this bar then rises into after the page is gone.
+     */
+    fun onWindowRevealed(revealedKey: String?) {
+        if (revealedKey == CoveredWindowAnimationGate.ShellWindowKey ||
+            revealedKey == CoveredWindowAnimationGate.AnyWindow
+        ) {
+            showUnseen()
+        }
     }
 
     private fun settleTo(target: Float) {

@@ -383,6 +383,9 @@ class RenderSeamDissolve extends RenderProxyBox {
   bool _nearField = false;
   SeamTopStyle? _paintedStyle;
   ui.Image? _image;
+  double _cachedCropTop = 0;
+  SeamMaskLip? _cachedVeil;
+  Object? _maskCacheKey;
   final _layer = LayerHandle<ShaderMaskLayer>();
 
   // The bottom field's lightness probe: the child is painted into its own
@@ -455,6 +458,8 @@ class RenderSeamDissolve extends RenderProxyBox {
     _probeLayer.layer = null;
     _image?.dispose();
     _image = null;
+    _maskCacheKey = null;
+    _cachedVeil = null;
     super.dispose();
   }
 
@@ -571,21 +576,45 @@ class RenderSeamDissolve extends RenderProxyBox {
     if (shape == null) {
       _layer.layer = null;
       _probeLayer.layer = null;
+      _image?.dispose();
+      _image = null;
+      _maskCacheKey = null;
+      _cachedVeil = null;
       context.paintChild(child, offset);
       return;
     }
     if (shape is SeamMaskGone) {
       _layer.layer = null;
       _probeLayer.layer = null;
+      _image?.dispose();
+      _image = null;
+      _maskCacheKey = null;
+      _cachedVeil = null;
       return;
     }
-    final (image, cropTop, veil) = _mask(shape);
-    final previous = _image;
-    _image = image;
+    final key = _buildMaskCacheKey(shape);
+    final ui.Image image;
+    final double cropTop;
+    final SeamMaskLip? veil;
+    if (_image != null && _maskCacheKey == key) {
+      image = _image!;
+      cropTop = _cachedCropTop;
+      veil = _cachedVeil;
+    } else {
+      final built = _mask(shape);
+      final previous = _image;
+      _image = built.$1;
+      _cachedCropTop = built.$2;
+      _cachedVeil = built.$3;
+      _maskCacheKey = key;
+      previous?.dispose();
+      image = built.$1;
+      cropTop = built.$2;
+      veil = built.$3;
+    }
     final scale = 1 / _dpr;
     final matrix = Matrix4.translationValues(0, cropTop, 0)..scaleByDouble(scale, scale, 1, 1);
     final shader = ImageShader(image, TileMode.clamp, TileMode.clamp, matrix.storage);
-    previous?.dispose();
     final tail = _tailOf(shape);
     final origin = switch (shape) {
       SeamMaskDots(:final origin) => origin,
@@ -651,6 +680,56 @@ class RenderSeamDissolve extends RenderProxyBox {
         _probing = false;
       }
     });
+  }
+
+  Object _buildMaskCacheKey(SeamMaskShape shape) {
+    int q(double v) => v.isFinite ? (v * 4).round() : (v.isNegative ? -1000000000 : 1000000000);
+    final printBox = _printBox;
+    final printTopLeft = printBox.localToGlobal(Offset.zero);
+    final seam = _seam;
+    final tail = _tailOf(shape);
+    final topKey = _nearTop && seam != null
+        ? Object.hash(
+            seam.style,
+            q(printTopLeft.dy - seam.lineY),
+            q(printTopLeft.dx),
+            q(seam.reveal * 250),
+            q(seam.stretch * 250),
+            q(seam.disorder * 250),
+            q(seam.lagPx),
+            q(seam.travelPx),
+            seam.reduced,
+          )
+        : 0;
+    final tailKey = tail == null
+        ? 0
+        : Object.hash(
+            q(tail.y0),
+            q(tail.yb),
+            q(tail.len),
+            q(tail.end),
+            q(tail.reveal * 250),
+            q(tail.flowShift * 250),
+            q(tail.bar.left),
+            q(tail.bar.top),
+            q(tail.bar.right),
+            q(tail.bar.bottom),
+            q(tail.barRadius),
+            q(tail.barLum),
+            q(tail.bgLum),
+          );
+    return Object.hash(
+      shape.runtimeType,
+      q(size.width),
+      q(size.height),
+      q(_dpr * 100),
+      q(printBox.size.width),
+      q(printBox.size.height),
+      _round,
+      identityHashCode(_probe),
+      topKey,
+      tailKey,
+    );
   }
 
   /// Renders [shape] as an alpha image over this element (device px) from

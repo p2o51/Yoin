@@ -47,6 +47,30 @@ interface CloudSyncController {
 
     /** Delete another device's files from Drive (it re-uploads if it is still alive). */
     fun removeDevice(deviceId: String)
+
+    /**
+     * All devices: remove one music account's data ([syncProfileId]) from Drive. Writes a scope purge marker,
+     * drops the account from this replica and re-uploads; every device that sees the marker stops syncing
+     * that account (local data stays everywhere). Works for accounts only in Drive and for local ones.
+     */
+    suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit>
+
+    /** An account removed from the cloud starts syncing again from this device ([SyncAccountStatus.RemovedFromCloud]). */
+    fun resumeAccountSync(localProfileId: String)
+
+    // ---- Read-only views for the 云端数据 section ([CloudDataViews]); nothing here writes.
+
+    /** Yoin's files in the sync location, per device (names, sizes). Lists Drive: needs the network and sync on. */
+    suspend fun cloudFiles(): Result<List<CloudDeviceFiles>> = Result.success(emptyList())
+
+    /** Counts per account scope and of the global data, from this device's replica. */
+    suspend fun cloudDataSummary(): CloudDataSummary = CloudDataSummary()
+
+    /** One account's notes, ratings, reviews and Memories titles as the cloud holds them. */
+    suspend fun cloudAccountContent(syncProfileId: String): CloudAccountContent = CloudAccountContent()
+
+    /** Playlist backups, lyric translations and song About entries (the global scope). */
+    suspend fun cloudGlobalContent(): CloudGlobalContent = CloudGlobalContent()
 }
 
 sealed interface TurnOnStep {
@@ -149,6 +173,8 @@ data class SyncAccountRow(
     val provider: String,
     val displayName: String,
     val status: SyncAccountStatus,
+    /** The scope this profile is bound to (also while paused or removed from the cloud); null when unbound. */
+    val syncProfileId: String? = null,
 )
 
 sealed interface SyncAccountStatus {
@@ -167,6 +193,9 @@ sealed interface SyncAccountStatus {
 
     /** Signed in as a different account than the one this profile synced as. */
     data object AccountChanged : SyncAccountStatus
+
+    /** Removed from the cloud (on any device): not synced here until [CloudSyncController.resumeAccountSync]. */
+    data object RemovedFromCloud : SyncAccountStatus
 }
 
 /** An account whose data is in Drive but not connected on this device. */
