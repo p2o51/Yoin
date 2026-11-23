@@ -90,7 +90,8 @@ class HomeFeedCellsMoveTest {
 
     @Composable
     private fun Cell(section: HomeSection, data: Int, probe: CellProbe) {
-        remember(section) { probe.created[section] = (probe.created[section] ?: 0) + 1 }
+        // Counts each time the cell's state is created anew (a cell composed afresh, not moved).
+        remember(section) { (probe.created[section] ?: 0).plus(1).also { probe.created[section] = it } }
         SideEffect { probe.composed[section] = (probe.composed[section] ?: 0) + 1 }
         Box(Modifier.fillMaxWidth().height((40 + data).dp))
     }
