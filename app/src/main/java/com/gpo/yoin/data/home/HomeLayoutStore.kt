@@ -35,10 +35,22 @@ data class HomeSectionPref(
 )
 
 /**
+ * The whole stored layout: [sections] (as [HomeSectionPref]s), and [wide], the
+ * two-column memory of which sections pair up (`{"pairs":[["left","right"], …]}`,
+ * owner 2026-11-23), opaque here like a section's config. Null [wide]: written
+ * by a build without it (older Android, iOS, HarmonyOS all drop the key when
+ * they write), so the UI layer derives it again. Older readers skip the key.
+ */
+data class HomeLayoutDocument(
+    val sections: List<HomeSectionPref>,
+    val wide: JsonObject? = null,
+)
+
+/**
  * Per-profile persistence for the customizable home layout. Reads emit `null`
  * when the profile has never customized (the caller falls back to catalog
- * defaults); writes serialize the ordered pref list to the `home_layout` Room
- * row. The document is versioned and decoded entry by entry: an unreadable
+ * defaults); writes serialize the ordered pref list (and the two-column memory,
+ * [HomeLayoutDocument.wide]) to the `home_layout` Room row. The document is versioned and decoded entry by entry: an unreadable
  * document is treated as "never set", a bad entry drops only itself.
  */
 class HomeLayoutStore(
@@ -56,7 +68,11 @@ class HomeLayoutStore(
 
     /** Persisted ordered section prefs for [profileId], or null if never set / unreadable. */
     fun layoutFlow(profileId: String): Flow<List<HomeSectionPref>?> =
-        dao.getForProfile(profileId).map { row -> row?.sectionsJson?.let(::decode) }
+        documentFlow(profileId).map { it?.sections }
+
+    /** [layoutFlow] with the two-column memory beside the sections. */
+    fun documentFlow(profileId: String): Flow<HomeLayoutDocument?> =
+        dao.getForProfile(profileId).map { row -> row?.sectionsJson?.let(::decodeDocument) }
 
     /**
      * [layoutFlow]'s current value, read once on the caller's dispatcher: a
@@ -64,19 +80,26 @@ class HomeLayoutStore(
      * on Room's change tracking (Home reads it beside a snapshot, off the main
      * thread, before a cold start's first frames are done).
      */
-    suspend fun readLayout(profileId: String): List<HomeSectionPref>? =
-        dao.getOnceForProfile(profileId)?.sectionsJson?.let(::decode)
+    suspend fun readLayout(profileId: String): List<HomeSectionPref>? = readDocument(profileId)?.sections
 
-    /** Persist [sections] for [profileId]; skipped when the stored row already holds them. */
-    suspend fun setLayout(profileId: String, sections: List<HomeSectionPref>) {
+    /** [readLayout] with the two-column memory beside the sections. */
+    suspend fun readDocument(profileId: String): HomeLayoutDocument? =
+        dao.getOnceForProfile(profileId)?.sectionsJson?.let(::decodeDocument)
+
+    /** Persist [sections] for [profileId] without a two-column memory; skipped when the stored row already holds them. */
+    suspend fun setLayout(profileId: String, sections: List<HomeSectionPref>) =
+        setDocument(profileId, HomeLayoutDocument(sections))
+
+    /** Persist [document] for [profileId]; skipped when the stored row already holds it. */
+    suspend fun setDocument(profileId: String, document: HomeLayoutDocument) {
         bestEffort {
             writeMutex.withLock {
-                val stored = dao.getForProfile(profileId).first()?.sectionsJson?.let(::decode)
-                if (stored == sections) return@withLock
+                val stored = dao.getForProfile(profileId).first()?.sectionsJson?.let(::decodeDocument)
+                if (stored == document) return@withLock
                 dao.upsert(
                     HomeLayoutPreference(
                         profileId = profileId,
-                        sectionsJson = encode(sections),
+                        sectionsJson = encode(document.sections, document.wide),
                         updatedAt = clock(),
                     ),
                 )
@@ -91,21 +114,26 @@ class HomeLayoutStore(
         }
     }
 
-    internal fun encode(sections: List<HomeSectionPref>): String = json.encodeToString(
+    internal fun encode(sections: List<HomeSectionPref>, wide: JsonObject? = null): String = json.encodeToString(
         SectionsDto.serializer(),
         SectionsDto(
             version = SCHEMA_VERSION,
             sections = sections.map { json.encodeToJsonElement(HomeSectionPref.serializer(), it) },
+            wide = wide,
         ),
     )
 
     /** Unreadable document → null ("never set"); a bad entry drops only itself. */
-    internal fun decode(raw: String): List<HomeSectionPref>? {
+    internal fun decode(raw: String): List<HomeSectionPref>? = decodeDocument(raw)?.sections
+
+    /** [decode] with the two-column memory; a `wide` that isn't an object reads as none. */
+    internal fun decodeDocument(raw: String): HomeLayoutDocument? {
         val dto = runCatching { json.decodeFromString(SectionsDto.serializer(), raw) }.getOrNull()
             ?: return null
-        return dto.sections.mapNotNull { entry ->
+        val sections = dto.sections.mapNotNull { entry ->
             runCatching { json.decodeFromJsonElement(HomeSectionPref.serializer(), entry) }.getOrNull()
         }
+        return HomeLayoutDocument(sections, dto.wide as? JsonObject)
     }
 
     private inline fun bestEffort(block: () -> Unit) {
@@ -120,12 +148,16 @@ class HomeLayoutStore(
         }
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Serializable
     private data class SectionsDto(
         // Absent in pre-versioned rows → 1; older builds skip it (ignoreUnknownKeys).
         val version: Int = SCHEMA_VERSION,
         // Raw entries, decoded one by one (see [decode]).
         val sections: List<JsonElement>,
+        // The two-column memory (HomeLayoutDocument.wide). Optional and additive, so the version stays 1:
+        // older builds skip it and write it away, which reads as "derive it again".
+        @EncodeDefault(EncodeDefault.Mode.NEVER) val wide: JsonElement? = null,
     )
 
     private companion object {

@@ -25,8 +25,10 @@ class HomeLayoutStoreRowsTest {
     fun should_notWriteConfig_when_everySectionIsAtItsDefaultRows() = runTest {
         store.setLayout(PROFILE, HomeLayout.Default.moved(HomeSection.Rediscover, 0).toPrefs())
 
+        // Only Activities | Jump Back In's "span" (the default's shown pair); no rows, never "config":null.
         val raw = dao.raw(PROFILE)!!
-        assertFalse(raw, raw.contains("config"))
+        assertFalse(raw, raw.contains("rows"))
+        assertFalse(raw, raw.contains("null"))
     }
 
     @Test
@@ -39,8 +41,12 @@ class HomeLayoutStoreRowsTest {
             val obj = entry.jsonObject
             (obj.getValue("id") as JsonPrimitive).content to obj["config"]
         }
-        assertEquals(JsonObject(mapOf("rows" to JsonPrimitive("xl"))), configs.getValue("jump_back_in"))
-        assertEquals(null, configs.getValue("activities"))
+        // Jump Back In and Activities also carry the default's shown pair ("span").
+        assertEquals(
+            JsonObject(mapOf("rows" to JsonPrimitive("xl"), "span" to JsonPrimitive("half"))),
+            configs.getValue("jump_back_in"),
+        )
+        assertEquals(JsonObject(mapOf("span" to JsonPrimitive("half"))), configs.getValue("activities"))
         assertEquals(null, configs.getValue("recently_added"))
     }
 
@@ -49,9 +55,9 @@ class HomeLayoutStoreRowsTest {
         val layout = HomeLayout.Default
             .withRows(HomeSection.Activities, HomeRowPreset.S)
             .withRows(HomeSection.JumpBackIn, HomeRowPreset.M)
-        store.setLayout(PROFILE, layout.toPrefs())
+        store.setDocument(PROFILE, layout.toDocument())
 
-        val read = HomeLayout.reconcile(store.layoutFlow(PROFILE).first())
+        val read = HomeLayout.fromDocument(store.documentFlow(PROFILE).first())
         assertTrue(read.sameSectionsAs(layout))
         assertEquals(HomeRowPreset.S, read.rowsOf(HomeSection.Activities))
         assertEquals(HomeRowPreset.M, read.rowsOf(HomeSection.JumpBackIn))
@@ -95,7 +101,7 @@ class HomeLayoutStoreRowsTest {
         store.setLayout(PROFILE, read.withEnabled(HomeSection.Rediscover, false).toPrefs())
 
         val written = store.layoutFlow(PROFILE).first()!!.first { it.id == "activities" }
-        assertEquals(JsonObject(mapOf("rows" to JsonPrimitive("xxl"))), written.config)
+        assertEquals(JsonPrimitive("xxl"), written.config?.get("rows"))
     }
 
     @Test

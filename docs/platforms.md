@@ -72,7 +72,7 @@ See [cloud-sync.md](cloud-sync.md) for schema and conflict rules. Across all pla
 ### Adaptive Windowing, Keyboard Shortcuts & Desktop Input
 
 - **Adaptive Layout**: Follow [adaptive-principles.md](adaptive-principles.md).
-  - Android: `MainActivity` adapts from compact handset to medium/expanded foldable/tablet with 2-column detail panes (`ui/navigation/pane/`), `feedUnits` (`N`) density, edge-bleed shelves, and a two-column unit-height Home grid (`HomeGridUnits`, side-by-side layout in Edit Home, shelf page arrows).
+  - Android: `MainActivity` adapts from compact handset to medium/expanded foldable/tablet with 2-column detail panes (`ui/navigation/pane/`), `feedUnits` (`N`) density, edge-bleed shelves, and a two-column unit-height Home grid (`HomeGridUnits`, side-by-side layout in Edit Home, shelf page arrows). One section order is shared by both widths; the two-column pairing is remembered apart in the layout document's optional `wide` key (design.md「两栏的并排记忆」). iOS and HarmonyOS have no two-column Home: they read the document fine but drop `wide` when they write a layout, so Android derives the pairing again from `span`.
   - iPadOS / macOS: `PadShell` supports 2-column / 3-column layouts with a draggable column split handle (`iosApp/docs/ipad.md`). Single-scene on iOS/Mac (`UIApplicationSupportsMultipleScenes: false`).
   - HarmonyOS: Responsive Dart shell + `PosturePlugin.ets` (fold posture) & `WindowPlugin.ets` + desktop/Windows development runner (`harmony/docs/windows.md`).
 - **Keyboard Shortcuts & Pointer**:
