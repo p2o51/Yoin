@@ -112,4 +112,32 @@ class SingSessionPoolTest {
         assertFalse(opened[0].closed)
         poolScope.cancel()
     }
+
+    @Test
+    fun should_closeSessionStillOpening_when_singTurnsOff() = runTest {
+        val queue = ArrayDeque<Runnable>()
+        val poolScope = CoroutineScope(Executor { queue += it }.asCoroutineDispatcher() + Job())
+        val pool = SingSessionPool(poolScope) { FakeSession().also { opened += it } }
+        pool.prewarm(model)
+        // Sing off before the open is through: the session it opens is closed, not left warm.
+        pool.close()
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        assertEquals(1, opened.size)
+        assertTrue(opened[0].closed)
+        assertFalse(pool.isWarm)
+        poolScope.cancel()
+    }
+
+    @Test
+    fun should_closeOnce_when_closedAgainAfterIdleClose() = runTest {
+        val pool = pool()
+        pool.give(pool.take(model))
+        advanceTimeBy(60_001)
+        assertTrue(opened[0].closed)
+        // Sing off after the idle close: nothing left, nothing opened.
+        pool.close()
+        runCurrent()
+        assertEquals(1, opened.size)
+        assertFalse(pool.isWarm)
+    }
 }
