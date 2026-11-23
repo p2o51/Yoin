@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
+import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.HomeLayoutPreference
@@ -16,6 +17,7 @@ import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SpotifyConfig
+import com.gpo.yoin.data.local.TrackAlbumLink
 
 /**
  * Every read and write cloud sync makes against the app's domain tables.
@@ -42,6 +44,21 @@ interface SyncDomainDao {
 
     @Query("DELETE FROM song_notes WHERE id = :id AND profileId = :profileId")
     suspend fun deleteNote(id: String, profileId: String): Int
+
+    // ---- album_notes
+
+    @Query("SELECT * FROM album_notes WHERE profileId = :profileId")
+    suspend fun albumNotesForProfile(profileId: String): List<AlbumNote>
+
+    @Query("SELECT * FROM album_notes WHERE id = :id LIMIT 1")
+    suspend fun albumNoteById(id: String): AlbumNote?
+
+    /** Callers must have checked [albumNoteById] first: REPLACE on `id` would re-parent another profile's note. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun writeAlbumNote(note: AlbumNote)
+
+    @Query("DELETE FROM album_notes WHERE id = :id AND profileId = :profileId")
+    suspend fun deleteAlbumNote(id: String, profileId: String): Int
 
     // ---- local_ratings (track ratings)
 
@@ -224,4 +241,45 @@ interface SyncDomainDao {
 
     @Upsert
     suspend fun upsertSongAbout(entry: SongAboutEntry)
+
+    // ---- track_album_links: not synced, but backups and Memories transfers carry them
+    // (album_notes are synced: see the album_notes section above)
+
+    @Query("SELECT * FROM track_album_links WHERE profileId = :profileId")
+    suspend fun trackAlbumLinksForProfile(profileId: String): List<TrackAlbumLink>
+
+    @Query(
+        "SELECT * FROM track_album_links WHERE profileId = :profileId AND provider = :provider " +
+            "AND trackId = :trackId LIMIT 1",
+    )
+    suspend fun trackAlbumLink(profileId: String, provider: String, trackId: String): TrackAlbumLink?
+
+    @Upsert
+    suspend fun upsertTrackAlbumLink(link: TrackAlbumLink)
+
+    // ---- names for readable backups (Yoin's own plays)
+
+    @Query(
+        "SELECT profileId, provider, albumId, album AS albumName, artist, coverArtId, MAX(playedAt) AS playedAt " +
+            "FROM play_history WHERE profileId = :profileId AND albumId != '' GROUP BY provider, albumId",
+    )
+    suspend fun playedAlbumsForProfile(profileId: String): List<com.gpo.yoin.data.local.LedgerAlbumFactRow>
+
+    @Query(
+        "SELECT songId, provider, title, artist, album, albumId, durationMs, MAX(playedAt) AS playedAt FROM play_history " +
+            "WHERE profileId = :profileId AND title != '' GROUP BY provider, songId",
+    )
+    suspend fun playedTracksForProfile(profileId: String): List<PlayedTrackRow>
 }
+
+/** What Yoin's own plays know about a song: its name, artist and album. */
+data class PlayedTrackRow(
+    val songId: String,
+    val provider: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val albumId: String,
+    val durationMs: Long,
+    val playedAt: Long,
+)

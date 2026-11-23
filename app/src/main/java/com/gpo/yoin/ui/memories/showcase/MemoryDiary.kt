@@ -78,6 +78,8 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.MarqueeText
+import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.formatNotePosition
 import com.gpo.yoin.ui.component.seamDissolve
@@ -716,7 +718,7 @@ private fun DiaryLiner(
 private fun AlbumNoteRow(note: MemoryWriting) {
     val type = LocalMemoriesType.current
     val lineHeight = type.noteLine
-    val description = stringResource(R.string.mem_cd_album_note, note.text)
+    val description = stringResource(R.string.mem_cd_album_note, NoteMarkup.plainText(note.text))
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -734,10 +736,11 @@ private fun AlbumNoteRow(note: MemoryWriting) {
                     .border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
             )
         }
-        Text(
+        NoteMarkupText(
             text = note.text,
             style = noteTextStyle(type),
             color = MaterialTheme.colorScheme.onSurface,
+            mentionColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f).seamFade(type.note),
         )
     }
@@ -850,17 +853,18 @@ private fun NoteRow(
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "diaryNoteStamp",
     )
-    val words by animateColorAsState(
+    val wordsColor by animateColorAsState(
         targetValue = if (lit) tones.highlight else MaterialTheme.colorScheme.onSurface,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "diaryNoteWords",
     )
     val type = LocalMemoriesType.current
     val at = note.positionMs?.let(::formatNotePosition)
+    val words = remember(note.text) { NoteMarkup.plainText(note.text) }
     val description = if (at != null) {
-        stringResource(R.string.mem_cd_note_at, at, note.text)
+        stringResource(R.string.mem_cd_note_at, at, words)
     } else {
-        stringResource(R.string.mem_cd_note, note.text)
+        stringResource(R.string.mem_cd_note, words)
     }
     val playingState = stringResource(R.string.mem_cd_playing_note)
     Row(
@@ -891,10 +895,11 @@ private fun NoteRow(
             color = stamp,
             modifier = Modifier.width(type.linerColumn).alignByBaseline().seamFade(type.stamp),
         )
-        Text(
+        NoteMarkupText(
             text = note.text,
             style = noteTextStyle(type),
-            color = words,
+            color = wordsColor,
+            mentionColor = wordsColor,
             modifier = Modifier.weight(1f).alignByBaseline().seamFade(type.note),
         )
     }

@@ -7,8 +7,8 @@ import androidx.room.PrimaryKey
 import com.gpo.yoin.data.model.MediaId
 
 /**
- * 专辑级笔记条目。与 [SongNote] 同形 —— 多条 per album，追加式写入，
- * 本地私密。聚合展示在 AlbumDetail / Memory；作为 NeoDB Review.body 的
+ * 专辑级笔记条目。与 [SongNote] 同形 —— 多条 per album，追加式写入；
+ * 2026-11-23 起随云同步走（`album_note`，AlbumNoteSyncAdapter）。聚合展示在 AlbumDetail / Memory；作为 NeoDB Review.body 的
  * 默认草稿来源（用户仍可手动改写 album_ratings.review）。
  */
 @Entity(

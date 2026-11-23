@@ -74,6 +74,8 @@ class AccountBinder(
             }
             val bindingsByProfile = dao.bindings().associateByTo(HashMap(), SyncBindingEntity::localProfileId)
             val bindingsByScope = bindingsByProfile.values.associateByTo(HashMap(), SyncBindingEntity::syncProfileId)
+            val purgedScopes = dao.metaWithPrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX)
+                .mapTo(HashSet()) { it.key.removePrefix(SyncMetaKeys.PURGED_SCOPE_PREFIX) }
             val active = mutableListOf<ActiveBinding>()
             val newlyBound = mutableListOf<ActiveBinding>()
             // null = Apple Music "not synced", filled in once the cloud-only list is final.
@@ -82,7 +84,10 @@ class AccountBinder(
             for (profile in localProfiles) {
                 val identity = identities.getValue(profile.id)
                 val binding = bindingsByProfile[profile.id]
-                statuses[profile] = if (binding != null) {
+                statuses[profile] = if (binding?.state == SyncBindingEntity.STATE_PURGED) {
+                    // Removed from the cloud: stays out of sync until the user resumes it here.
+                    SyncAccountStatus.RemovedFromCloud
+                } else if (binding != null) {
                     val (status, updated) = verify(binding, identity)
                     if (updated != binding) {
                         if (updated.state != binding.state) forgetDescriptorState(updated.syncProfileId)
@@ -106,17 +111,25 @@ class AccountBinder(
                                     .orEmpty()
                                 SyncAccountStatus.DuplicateOf(holderName)
                             } else {
+                                // An account removed from the cloud is bound but not synced: a device that
+                                // joins later must not upload it again.
+                                val purged = scope in purgedScopes
                                 val created = bind(
                                     profile = profile,
                                     scope = scope,
                                     fingerprintHash = AccountFingerprints.fingerprintHash(identity.fingerprint),
                                     now = now,
+                                    state = if (purged) SyncBindingEntity.STATE_PURGED else SyncBindingEntity.STATE_ACTIVE,
                                 )
                                 bindingsByProfile[profile.id] = created
                                 bindingsByScope[scope] = created
-                                active += created.toActive()
-                                newlyBound += created.toActive()
-                                SyncAccountStatus.Syncing
+                                if (purged) {
+                                    SyncAccountStatus.RemovedFromCloud
+                                } else {
+                                    active += created.toActive()
+                                    newlyBound += created.toActive()
+                                    SyncAccountStatus.Syncing
+                                }
                             }
                         }
                     }
@@ -179,6 +192,26 @@ class AccountBinder(
             bind(profile, syncProfileId, fingerprintHash, clock())
             true
         }
+    }
+
+    /** The account bound to [scope] (if any) was removed from the cloud: its binding stops syncing until [resumeSyncing]. */
+    suspend fun markPurged(scope: String): String? = syncDb.transaction {
+        val binding = dao.bindingForScope(scope) ?: return@transaction null
+        if (binding.state != SyncBindingEntity.STATE_PURGED) {
+            dao.upsertBinding(binding.copy(state = SyncBindingEntity.STATE_PURGED, observedFingerprintHash = null))
+            forgetDescriptorState(scope)
+        }
+        binding.localProfileId
+    }
+
+    /** "Sync this account again" after it was removed from the cloud: JOINs its scope afresh. */
+    suspend fun resumeSyncing(localProfileId: String): Boolean = syncDb.transaction {
+        val binding = dao.bindingFor(localProfileId) ?: return@transaction false
+        if (binding.state != SyncBindingEntity.STATE_PURGED) return@transaction false
+        dao.deleteLocalStatesInScope(binding.syncProfileId)
+        forgetDescriptorState(binding.syncProfileId)
+        dao.upsertBinding(binding.copy(state = SyncBindingEntity.STATE_ACTIVE, observedFingerprintHash = null))
+        true
     }
 
     /** "Keep syncing as before": the changed fingerprint is the same account (new address, re-sign-in). */
@@ -282,7 +315,13 @@ class AccountBinder(
             }
         }
 
-    private suspend fun bind(profile: SyncProfile, scope: String, fingerprintHash: String?, now: Long): SyncBindingEntity {
+    private suspend fun bind(
+        profile: SyncProfile,
+        scope: String,
+        fingerprintHash: String?,
+        now: Long,
+        state: String = SyncBindingEntity.STATE_ACTIVE,
+    ): SyncBindingEntity {
         // A binding always JOINs: no local state may exist for its scope (nor for its descriptor).
         dao.deleteLocalStatesInScope(scope)
         forgetDescriptorState(scope)
@@ -291,7 +330,7 @@ class AccountBinder(
             syncProfileId = scope,
             provider = profile.provider,
             fingerprintHash = fingerprintHash,
-            state = SyncBindingEntity.STATE_ACTIVE,
+            state = state,
             observedFingerprintHash = null,
             boundAt = now,
         )

@@ -7,7 +7,7 @@ import org.junit.Test
 class MemoriesDiaryAlbumNoteTest {
 
     @Test
-    fun should_keep_only_the_latest_album_note_when_an_album_has_several() {
+    fun should_keep_every_album_note_oldest_first_when_an_album_has_several() {
         val writings = listOf(
             albumNote(id = "a1", text = "First", at = 1L),
             albumNote(id = "a2", text = "Latest", at = 3L),
@@ -15,7 +15,7 @@ class MemoriesDiaryAlbumNoteTest {
             albumNote(id = "a3", text = "Middle", at = 2L),
         )
 
-        assertEquals(listOf("a2"), diaryAlbumNotes(writings).map(MemoryWriting::noteId))
+        assertEquals(listOf("a1", "a3", "a2"), diaryAlbumNotes(writings).map(MemoryWriting::noteId))
     }
 
     @Test

@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,13 +23,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.highlight.HomeGreetingSlot
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -168,6 +173,13 @@ private suspend fun playHomeIntro(
     }
 }
 
+/** Maps Home's four day parts onto the three pre-generated on-device greeting slots. */
+internal fun HomeDayPart.toGreetingSlot(): HomeGreetingSlot = when (this) {
+    HomeDayPart.Morning -> HomeGreetingSlot.MORNING
+    HomeDayPart.Noon, HomeDayPart.Afternoon -> HomeGreetingSlot.AFTERNOON
+    HomeDayPart.Evening -> HomeGreetingSlot.EVENING
+}
+
 /**
  * The greeting over "Home" (and "Edit Home" over it through edit mode's P, via
  * [HomeEditHeaderTitle]); the greeting fades out with the header icons.
@@ -181,11 +193,29 @@ internal fun HomeGreetingTitle(
     compact: Boolean = false,
 ) {
     val intro = rememberHomeIntro()
-    val greeting = when (rememberHomeDayPart()) {
+    val dayPart = rememberHomeDayPart()
+    val staticGreeting = when (dayPart) {
         HomeDayPart.Morning -> stringResource(R.string.home_greeting_morning)
         HomeDayPart.Noon -> stringResource(R.string.home_greeting_noon)
         HomeDayPart.Afternoon -> stringResource(R.string.home_greeting_afternoon)
         HomeDayPart.Evening -> stringResource(R.string.home_greeting_evening)
+    }
+    val preview = LocalInspectionMode.current
+    val context = LocalContext.current
+    val container = remember(context, preview) {
+        if (preview) null else (context.applicationContext as? YoinApplication)?.container
+    }
+    val greetingsEnabled = container?.lyricHighlightProcessor?.greetingsEnabled?.collectAsState()?.value == true
+    val cachedGreetings = container?.homeGreetingStore?.greetings?.collectAsState()?.value
+    val activeProfileId = container?.profileManager?.activeProfileId?.collectAsState()?.value
+    val greeting = if (greetingsEnabled && !cachedGreetings.isNullOrEmpty()) {
+        container.homeGreetingStore.cachedFor(
+            slot = dayPart.toGreetingSlot(),
+            profileId = activeProfileId,
+            isNoon = dayPart == HomeDayPart.Noon,
+        ) ?: staticGreeting
+    } else {
+        staticGreeting
     }
     val typography = MaterialTheme.typography
     val titleStyle = (if (compact) typography.headlineSmall else typography.headlineMedium).rounded()
@@ -197,6 +227,7 @@ internal fun HomeGreetingTitle(
                 style = greetingStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .homeEditHeaderIcon(editProgress)
                     .graphicsLayer {

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notes revamp phase B. REVIEW: English drafted from the prototype's Chinese (copy review pending). -->
+    <string name="notes_mention_popup_title">Mention</string>
+    <string name="notes_mention_expand">Search all</string>
+    <string name="notes_mention_section_tracks">Songs</string>
+    <string name="notes_mention_section_albums">Albums</string>
+    <string name="notes_mention_section_artists">Artists</string>
+    <string name="notes_mention_loading">Searching…</string>
+    <string name="notes_mention_empty">No results</string>
+    <string name="notes_mention_search_hint">Search your library</string>
+    <string name="notes_mention_cd_track">Song: %1$s</string>
+    <string name="notes_mention_cd_album">Album: %1$s</string>
+    <string name="notes_mention_cd_artist">Artist: %1$s</string>
+    <string name="notes_tool_bold">Bold</string>
+    <string name="notes_tool_italic">Italic</string>
+    <string name="notes_tool_heading">Heading</string>
+    <string name="notes_tool_bullet">List</string>
+    <string name="notes_tool_checklist">To-do</string>
+    <string name="notes_tool_mention">Mention a song, album, or artist</string>
+    <!-- Now Playing's empty Note pane -->
+    <string name="notes_empty_write">Write a note</string>
+    <string name="notes_empty_write_cd">Write a note at %1$s</string>
+    <string name="notes_source_note">note</string>
+    <string name="notes_source_album_note">album note</string>
+    <string name="notes_source_review">review</string>
+    <string name="notes_mentioned_in">Mentioned in a %2$s on %1$s</string>
+    <plurals name="notes_mentioned_in_more">
+        <item quantity="one">Mentioned in a %2$s on %1$s, and %3$d more</item>
+        <item quantity="other">Mentioned in a %2$s on %1$s, and %3$d more</item>
+    </plurals>
+    <!-- The album scrapbook's 被提及 section -->
+    <string name="notes_backlinks_title">Mentioned in</string>
+    <plurals name="notes_backlinks_count">
+        <item quantity="one">%d place</item>
+        <item quantity="other">%d places</item>
+    </plurals>
+    <string name="notes_backlink_kind_note">Note</string>
+    <string name="notes_backlink_kind_album_note">Album note</string>
+    <string name="notes_backlink_kind_review">Review</string>
+    <string name="notes_backlink_cd">%1$s, %2$s: %3$s</string>
+    <!-- Album stickies -->
+    <string name="notes_sticky_add">Write an album note</string>
+    <string name="notes_sticky_placeholder">Write about the whole album</string>
+    <string name="notes_sticky_save">Save</string>
+    <string name="notes_sticky_cancel">Cancel</string>
+    <string name="notes_sticky_edit_cd">Edit album note: %1$s</string>
+    <string name="notes_sticky_deleted">Album note deleted</string>
+</resources>

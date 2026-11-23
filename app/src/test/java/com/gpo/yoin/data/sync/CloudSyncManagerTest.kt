@@ -476,6 +476,135 @@ class CloudSyncManagerTest {
         assertNull("not pulled back", phone.db.albumMemoryTitleDao().get(p, "subsonic", "al-1"))
     }
 
+    // ---- removing one account from the cloud (scope purge marker)
+
+    private fun scopeOf(url: String, user: String): String =
+        com.gpo.yoin.data.sync.identity.AccountFingerprints.deterministicId(
+            requireNotNull(com.gpo.yoin.data.sync.identity.AccountFingerprints.subsonic(url, user)),
+        )
+
+    private fun Device.status(profileId: String): SyncAccountStatus? =
+        manager.state.value.accounts.firstOrNull { it.localProfileId == profileId }?.status
+
+    @Test
+    fun should_stopEveryDeviceFromReuploading_when_anAccountIsRemovedFromTheCloud() = runBlocking {
+        val phone = device("Pixel 9")
+        val tablet = device("Pixel Tablet")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        val t = tablet.addSubsonic("https://music.example.com", "alice")
+        val bob = phone.addSubsonic("https://music.example.com", "bob")
+        phone.addNote(p, "n-alice", "alice's note")
+        phone.addNote(bob, "n-bob", "bob's note")
+        phone.turnOn()
+        tablet.turnOn()
+        assertEquals(setOf("n-alice"), tablet.noteIds(t))
+        val alice = scopeOf("https://music.example.com", "alice")
+
+        assertTrue(phone.manager.removeAccountFromCloud(alice).isSuccess)
+        tablet.sync()
+        tablet.addNote(t, "n-later", "written after the removal")
+        tablet.sync()
+        phone.sync()
+
+        assertTrue(drive.files().any { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE })
+        val contents = drive.allContents()
+        assertFalse("no device publishes alice any more", contents.contains("alice's note"))
+        assertFalse(contents.contains("written after the removal"))
+        // The marker itself and the files' purge acknowledgements name the scope; nothing else may.
+        val dataFiles = contents.lines()
+            .filterNot { it.contains("\"scope\":") }
+            .joinToString("\n")
+            .replace(Regex("\"purges\":\\{[^}]*\\}"), "")
+        assertFalse(
+            "descriptor and records gone too: " + dataFiles.lines().filter { it.contains(alice) },
+            dataFiles.contains(alice),
+        )
+        assertTrue("other accounts keep syncing", contents.contains("bob's note"))
+        assertEquals(SyncAccountStatus.RemovedFromCloud, phone.status(p))
+        assertEquals(SyncAccountStatus.RemovedFromCloud, tablet.status(t))
+        assertEquals("local data stays", setOf("n-alice", "n-later"), tablet.noteIds(t))
+        assertEquals(setOf("n-alice"), phone.noteIds(p))
+        assertTrue(tablet.manager.state.value.cloudOnlyAccounts.none { it.syncProfileId == alice })
+    }
+
+    @Test
+    fun should_keepANewDeviceFromUploadingIt_when_itJoinsAfterTheRemoval() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "first note")
+        phone.turnOn()
+        assertTrue(phone.manager.removeAccountFromCloud(scopeOf("https://music.example.com", "alice")).isSuccess)
+
+        val fresh = device("New phone")
+        val f = fresh.addSubsonic("https://music.example.com", "alice")
+        fresh.addNote(f, "n-fresh", "fresh device note")
+        fresh.turnOn()
+
+        assertEquals(SyncAccountStatus.RemovedFromCloud, fresh.status(f))
+        assertFalse(drive.allContents().contains("fresh device note"))
+        assertEquals(setOf("n-fresh"), fresh.noteIds(f))
+    }
+
+    @Test
+    fun should_syncAgainWithNewVersions_when_resumedAfterTheRemoval() = runBlocking {
+        val phone = device("Pixel 9")
+        val tablet = device("Pixel Tablet")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        val t = tablet.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "kept note")
+        phone.turnOn()
+        tablet.turnOn()
+        val alice = scopeOf("https://music.example.com", "alice")
+        assertTrue(phone.manager.removeAccountFromCloud(alice).isSuccess)
+        tablet.sync()
+
+        phone.manager.resumeAccountSync(p)
+        phone.awaitIdle()
+        phone.sync()
+
+        assertEquals(SyncAccountStatus.Syncing, phone.status(p))
+        assertTrue("re-published after the purge epoch", drive.allContents().contains("kept note"))
+        tablet.sync()
+        assertEquals("still removed on the tablet until resumed there", SyncAccountStatus.RemovedFromCloud, tablet.status(t))
+    }
+
+    @Test
+    fun should_pauseTheAccountElsewhere_when_removedFromADeviceThatOnlySeesItInDrive() = runBlocking {
+        val phone = device("Pixel 9")
+        val tablet = device("Pixel Tablet")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "phone only note")
+        phone.turnOn()
+        tablet.turnOn()
+        val alice = scopeOf("https://music.example.com", "alice")
+        assertTrue(tablet.manager.state.value.cloudOnlyAccounts.any { it.syncProfileId == alice })
+
+        assertTrue(tablet.manager.removeAccountFromCloud(alice).isSuccess)
+        phone.sync()
+        phone.sync()
+
+        assertTrue(tablet.manager.state.value.cloudOnlyAccounts.isEmpty())
+        assertEquals(SyncAccountStatus.RemovedFromCloud, phone.status(p))
+        assertFalse(drive.allContents().contains("phone only note"))
+        assertEquals(setOf("n1"), phone.noteIds(p))
+    }
+
+    @Test
+    fun should_deletePurgeMarkersToo_when_cloudDataIsDeleted() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.turnOn()
+        assertTrue(phone.manager.removeAccountFromCloud(scopeOf("https://music.example.com", "alice")).isSuccess)
+
+        assertTrue(phone.manager.deleteCloudData().isSuccess)
+
+        assertTrue(drive.onlyResetMarkers())
+        phone.turnOn()
+        assertEquals("a reset clears the removal: the account syncs again", SyncAccountStatus.Syncing, phone.status(p))
+        assertTrue(drive.allContents().contains("\"one\""))
+    }
+
     // ---- harness
 
     private fun device(name: String, on: FakeDrive = drive): Device = Device(name, on, clock).also { devices += it }

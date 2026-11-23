@@ -6,6 +6,7 @@ import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.GeminiConfigDao
@@ -21,6 +22,7 @@ import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.LyricsTranslationCache
 import com.gpo.yoin.data.local.LyricsTranslationCacheDao
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
@@ -745,6 +747,49 @@ class YoinRepositoryTest {
 
         coVerify { songNoteDao.deleteById("n1") }
         assertEquals(note.copy(updatedAt = 7_000L), restored.captured)
+    }
+
+    @Test
+    fun albumNotes_append_edit_delete_and_restore_keeping_the_markup() = runTest {
+        val album = Album(
+            id = MediaId.spotify("al-1"),
+            name = "Charm",
+            artist = "Clairo",
+            artistId = null,
+            coverArt = null,
+            songCount = 11,
+            durationSec = 0,
+            year = 2024,
+            genre = null,
+        )
+        val inserted = mutableListOf<AlbumNote>()
+        coEvery { albumNoteDao.insert(capture(inserted)) } returns Unit
+        val markup = "  像 [@Titanic Rising](yoin:album/applemusic:1?a=Weyes%20Blood) 的白天\n- [ ] 周日下午  "
+
+        currentTime = 1_000L
+        val first = requireNotNull(repository.addAlbumNote(album, markup))
+        val second = requireNotNull(repository.addAlbumNote(album, "second"))
+
+        // any number per album; the text is stored as written (ends trimmed), mentions and all
+        assertTrue(first.id != second.id)
+        assertEquals(markup.trim(), first.content)
+        assertEquals(listOf("al-1", "al-1"), inserted.map(AlbumNote::albumId))
+        assertEquals("Charm", first.albumName)
+
+        coEvery { albumNoteDao.getById(first.id) } returns first
+        val updated = slot<AlbumNote>()
+        coEvery { albumNoteDao.update(capture(updated)) } returns Unit
+        currentTime = 2_000L
+        repository.editAlbumNoteById(first.id, "edited **words**")
+        assertEquals(first.copy(content = "edited **words**", updatedAt = 2_000L), updated.captured)
+
+        val before = repository.editAlbumNoteById(first.id, "  ")
+        coVerify { albumNoteDao.deleteById(first.id) }
+        currentTime = 3_000L
+        repository.restoreAlbumNote(requireNotNull(before))
+        assertEquals(first.copy(updatedAt = 3_000L), inserted.last())
+        coEvery { albumNoteDao.getById("missing") } returns null
+        assertEquals(null, repository.editAlbumNoteById("missing", "x"))
     }
 
     @Test

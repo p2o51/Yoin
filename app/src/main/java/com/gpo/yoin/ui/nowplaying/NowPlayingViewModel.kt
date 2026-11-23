@@ -1223,6 +1223,11 @@ class NowPlayingViewModel(
         }
     }
 
+    /** A tap on a to-do's box in note [id] (line [lineIndex]): ticked or unticked, saved. */
+    fun toggleNoteChecklist(id: String, lineIndex: Int) {
+        viewModelScope.launch { repository.toggleNoteChecklist(id, lineIndex) }
+    }
+
     /**
      * The Note page's "对齐到现在": files [note] at a new song moment. Words,
      * id and creation time stay; [positionMs] replaces the anchor.

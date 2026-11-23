@@ -24,6 +24,13 @@ object SyncKinds {
     const val SONG_ABOUT = "song_about"
     const val ALBUM_TITLE = "album_title"
     const val PLAYLIST_BACKUP = "playlist_backup"
+
+    /**
+     * `album_notes` (notes revamp, 2026-11-23): Android publishes it; engines without an adapter (iOS, HarmonyOS,
+     * older Android) carry the records opaquely and republish them. Same name as the Memories backup's
+     * `album_note` kind.
+     */
+    const val ALBUM_NOTE = "album_note"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */
@@ -121,10 +128,31 @@ data class SyncEnvelope(
     @SerialName("writtenAt") val writtenAt: Long,
     @SerialName("appVersionCode") val appVersionCode: Int,
     @SerialName("records") val records: List<WireRecord>,
+    /**
+     * Scope purges the writer had applied when it wrote this file: syncProfileId -> epoch. A reader that
+     * knows a purge of scope S takes S's records only from files that acknowledge it (a resumed account);
+     * everything else is a stale relay. Absent (null) from older builds and when the writer knows none.
+     */
+    @SerialName("purges") val purges: Map<String, Long>? = null,
 )
 
 @Serializable
 data class ResetMarker(
+    @SerialName("epoch") val epoch: Long,
+    @SerialName("at") val at: Long,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("deviceName") val deviceName: String,
+)
+
+/**
+ * "Remove this account from the cloud" (one scope, all devices): records of [scope] whose version ts is at or
+ * before [epoch] are dropped from every replica that sees the marker, and no device that knows it publishes
+ * them again (docs/cloud-sync.md「从云端移除一个账号」). Lives in its own small file
+ * ([SyncFileProps.KIND_PURGE]); builds that predate it skip files of unknown kinds, so it never breaks them.
+ */
+@Serializable
+data class ScopePurgeMarker(
+    @SerialName("scope") val scope: String,
     @SerialName("epoch") val epoch: Long,
     @SerialName("at") val at: Long,
     @SerialName("deviceId") val deviceId: String,
@@ -139,15 +167,23 @@ object SyncFileProps {
     const val SCHEMA = "schema"
     const val EPOCH = "epoch"
 
+    /** The scope a [KIND_PURGE] marker removes. */
+    const val SCOPE = "scope"
+
     const val KIND_STATE = "state"
     const val KIND_ARTIFACTS = "artifacts"
     const val KIND_RESET = "reset"
+
+    /** A [ScopePurgeMarker]. Older builds ignore this kind (they only read state/artifacts/reset). */
+    const val KIND_PURGE = "purge"
 
     fun stateFileName(deviceId: String) = "yoin-state-$deviceId.json.gz"
 
     fun artifactFileName(deviceId: String, shard: Int) = "yoin-artifacts-$deviceId-$shard.json.gz"
 
     fun resetFileName(epoch: Long, deviceId: String) = "yoin-reset-$epoch-$deviceId.json"
+
+    fun purgeFileName(epoch: Long, deviceId: String) = "yoin-purge-$epoch-$deviceId.json"
 }
 
 // ---- Domain bridge

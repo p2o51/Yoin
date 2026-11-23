@@ -6,8 +6,8 @@ kotlin = "2.4.21"
 ksp = "2.3.12"
 
 # Compose
-composeBom = "2026.09.00"
-material3Expressive = "1.5.0-alpha27"
+composeBom = "2026.11.01"
+material3Expressive = "1.5.0"
 # Window size class + fold posture (currentWindowAdaptiveInfo). NOT in the
 # Compose BOM — versioned independently. Pulls androidx.window transitively.
 # 1.3.x requires compileSdk 37.
@@ -42,8 +42,9 @@ gson = "2.13.1"
 ktor = "3.4.3"
 kotlinxCoroutines = "1.10.2"
 
-# On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights.
-genaiPrompt = "1.0.0-beta4"
+# On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights & structured output.
+genaiPrompt = "1.0.0-beta5"
+genaiSchemaCompiler = "1.0.0-alpha2"
 
 # Image
 coil = "3.4.0"
@@ -119,6 +120,7 @@ cast-framework = { group = "com.google.android.gms", name = "play-services-cast-
 
 # On-device Gemini Nano
 genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "genaiPrompt" }
+genai-schema-compiler = { group = "com.google.mlkit", name = "genai-schema-compiler", version.ref = "genaiSchemaCompiler" }
 
 # Google authorization (cloud sync)
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }

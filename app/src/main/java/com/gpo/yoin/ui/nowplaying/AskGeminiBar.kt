@@ -45,7 +45,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -53,6 +55,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.highlight.AboutFollowUpPrompt
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.QuickPrompts
@@ -71,10 +75,31 @@ internal fun AskGeminiBar(
     modifier: Modifier = Modifier,
     // What was already asked about this song: those quick prompts aren't offered again.
     asked: List<String> = emptyList(),
+    // Visible About rows for on-device follow-up question suggestions (empty / unavailable falls back to static).
+    aboutEntries: List<SongAboutEntry> = emptyList(),
 ) {
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     var draft by remember { mutableStateOf(TextFieldValue()) }
+
+    val preview = LocalInspectionMode.current
+    val context = LocalContext.current
+    val followUpGenerator = remember(context, preview) {
+        if (preview) null else (context.applicationContext as? YoinApplication)?.container?.aboutFollowUpGenerator
+    }
+    var nanoFollowUps by remember(aboutEntries, asked, followUpGenerator) {
+        mutableStateOf(
+            followUpGenerator?.peekCached(aboutEntries, asked).orEmpty(),
+        )
+    }
+    LaunchedEffect(aboutEntries, asked, followUpGenerator) {
+        if (followUpGenerator == null || aboutEntries.isEmpty()) {
+            nanoFollowUps = emptyList()
+            return@LaunchedEffect
+        }
+        val suggested = followUpGenerator.suggest(aboutEntries, asked)
+        nanoFollowUps = suggested
+    }
 
     // Idle after a Loading → answer landed, reset the draft so the bar is
     // empty on next tap.
@@ -167,7 +192,11 @@ internal fun AskGeminiBar(
             AskBarState.Focused -> FocusedLayout(
                 draft = draft,
                 onDraftChange = { draft = it },
-                prompts = quickPromptsFor(asked),
+                prompts = AboutFollowUpPrompt.mergeWithFallback(
+                    suggested = nanoFollowUps,
+                    fallback = quickPromptsFor(asked),
+                    asked = asked,
+                ),
                 focusRequester = focusRequester,
                 onSubmit = {
                     val text = draft.text.trim()
