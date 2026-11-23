@@ -245,6 +245,7 @@ internal fun HomeWidgetGridSection(
             // A column-count, template or path change re-packs the grid: crossfade
             // it, with the section's height on a spatial spring — never a hard cut.
             // A row preset updates in place (edit mode's resize interpolates it).
+            val swap = remember { HomeInstantSwap() }
             AnimatedContent(
                 targetState = content,
                 contentKey = { it.key },
@@ -254,7 +255,8 @@ internal fun HomeWidgetGridSection(
                     // shelf takes its new layout in place, once — a crossfade
                     // there ghosted the whole page at the tap (2026-11-12).
                     // A template / removal change at the same width still fades.
-                    if (reduced || initialState.spec != targetState.spec) {
+                    swap.instant = reduced || initialState.spec != targetState.spec
+                    if (swap.instant) {
                         ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
                     } else {
                         // No SizeTransform: its animated WIDTH lags a container
@@ -274,7 +276,11 @@ internal fun HomeWidgetGridSection(
                 val ladder = remember(state.spec, state.cards, state.layout) {
                     jbiRowLadder(state.spec, state.cards, state.layout)
                 }
-                Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
+                Box(
+                    Modifier
+                        .heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }
+                        .drawIncomingOnly(swap) { transition.targetState == EnterExitState.PostExit },
+                ) {
                     HomeRowsBody(
                         track = cardScope?.rows,
                         engine = cardScope?.rowsEngine,

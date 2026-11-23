@@ -2294,6 +2294,7 @@ private fun ActivityBento(
         // the section's height springs between them — never a hard cut. Data
         // changes inside one composition update in place (contentKey), and so
         // does a row preset.
+        val swap = remember { HomeInstantSwap() }
         AnimatedContent(
             targetState = BentoContent(spec, hero, candidates, rowsPreset),
             contentKey = { it.spec },
@@ -2304,6 +2305,7 @@ private fun ActivityBento(
                 // the same width still fades.
                 val widthChanged = initialState.spec.recipe != targetState.spec.recipe ||
                     initialState.spec.units != targetState.spec.units
+                swap.instant = reduced || widthChanged
                 if (reduced || widthChanged) {
                     ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
                 } else {
@@ -2322,7 +2324,11 @@ private fun ActivityBento(
             val ladder = remember(s, hero != null, state.candidates.size) {
                 activityRowLadder(s, hasHero = hero != null, supportingCount = state.candidates.size)
             }
-            Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
+            Box(
+                Modifier
+                    .heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }
+                    .drawIncomingOnly(swap) { transition.targetState == EnterExitState.PostExit },
+            ) {
                 HomeRowsBody(
                     track = cardScope?.rows,
                     engine = cardScope?.rowsEngine,

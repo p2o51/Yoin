@@ -97,7 +97,10 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.home.lyricCards
 import com.gpo.yoin.ui.home.HomeRowPreset
+import com.gpo.yoin.ui.home.LocalHomeCellMorph
 import com.gpo.yoin.ui.home.LocalHomeGridHeight
+import com.gpo.yoin.ui.home.homeCellMorphBlock
+import com.gpo.yoin.ui.home.homeCellMorphContent
 import com.gpo.yoin.ui.home.homeGridBox
 import com.gpo.yoin.ui.home.HomeSectionTitle
 import com.gpo.yoin.ui.home.RediscoverPlaceholderText
@@ -194,6 +197,9 @@ internal fun HomeEditBlock(
     val hoverTarget = if (hovered && editing) 1f else 0f
     LaunchedEffect(hoverTarget) { handleHover.animateTo(hoverTarget, deps.specs.liftTint) }
 
+    // Two columns: a cell springing between half and full draws the block at the spring's width
+    // around content laid out once, at the width it springs to (HomeCellMorph).
+    val morph = LocalHomeCellMorph.current
     val slotFill = MaterialTheme.colorScheme.surfaceContainerHighest
     val slotStroke = MaterialTheme.colorScheme.outlineVariant
     val density = LocalDensity.current
@@ -306,6 +312,10 @@ internal fun HomeEditBlock(
 
     Box(
         modifier = modifier
+            // Where it lands while it follows the finger (rule 4): in the slot, at the slot's own
+            // width, under the block's layer.
+            .dragSlotMark(engine, section, inList = false, fill = slotFill, stroke = slotStroke)
+            .homeCellMorphBlock(morph)
             .fillMaxWidth()
             // The lifted block above its neighbours, read as it is placed: a lift recomposes no block.
             // While editing, each block also draws over the ones after it: a reflow (a hide) starts
@@ -317,8 +327,6 @@ internal fun HomeEditBlock(
                     else -> 0f
                 }
             }
-            // Where it lands while it follows the finger (rule 4): in the slot, under the block's layer.
-            .dragSlotMark(engine, section, inList = false, fill = slotFill, stroke = slotStroke)
             .blockLayer { outset ->
                 var scale = motion.hideScale(section)
                 var pivotX = size.width / 2f
@@ -361,6 +369,7 @@ internal fun HomeEditBlock(
         Box(
             Modifier
                 .fillMaxWidth()
+                .homeCellMorphContent(morph)
                 // Two columns: exactly the row's grid height, the content cut off below it.
                 .homeGridBox(LocalHomeGridHeight.current)
                 .homeEditContentInset(cardScope)

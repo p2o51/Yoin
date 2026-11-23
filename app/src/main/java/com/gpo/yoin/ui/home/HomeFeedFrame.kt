@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -264,4 +265,24 @@ private class SpringHeightNode(
 internal fun Modifier.heightOfIncomingOnly(outgoing: () -> Boolean): Modifier = layout { measurable, constraints ->
     val placeable = measurable.measure(constraints)
     layout(placeable.width, if (outgoing()) 0 else placeable.height) { placeable.placeRelative(0, 0) }
+}
+
+/**
+ * Whether an AnimatedContent's last change swapped its compositions with no
+ * fade (a width class changing: the section re-seats in place, once). Set in
+ * the transition spec, read in draw ([drawIncomingOnly]).
+ */
+internal class HomeInstantSwap {
+    var instant: Boolean = false
+}
+
+/**
+ * For an AnimatedContent child: draw nothing while it is the OUTGOING layer
+ * of a [swap] with no fade. With no exit transition the old composition is
+ * still composed (and drawn) for the frame the transition takes to finish:
+ * the old layout's cards drew over the new one's (Activities' bento, Jump
+ * Back In's covers, a half turning full). A fading one still draws.
+ */
+internal fun Modifier.drawIncomingOnly(swap: HomeInstantSwap, outgoing: () -> Boolean): Modifier = drawWithContent {
+    if (!(swap.instant && outgoing())) drawContent()
 }
