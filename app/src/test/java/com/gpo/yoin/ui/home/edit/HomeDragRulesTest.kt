@@ -263,6 +263,21 @@ class HomeDragRulesTest {
     }
 
     @Test
+    fun should_pairWithNothing_but_stillPlaceByRows_while_edgeScrollRuns() {
+        fun scrolling(rel: Float, fingerY: Float) =
+            dragSideStep(ids, pairs, MadeForYou, side = null, rel = rel, fingerY = fingerY, bands = bands, bufferPx = 16f, pairing = false)
+        // A full row's middle, either side: the half-travel rule moves it past, no pair.
+        assertEquals(DragSideStep.Vertical, scrolling(.8f, 150f))
+        assertEquals(DragSideStep.Vertical, scrolling(.2f, 150f))
+        // Its top and bottom quarters still put it in a row of its own.
+        assertEquals(full(.9f, 50f), scrolling(.9f, 50f))
+        assertEquals(full(.9f, 1080f), scrolling(.9f, 1080f))
+        // A half leaving its pair over another full row's side goes above or below it, by the row's middle.
+        val half = dragSideStep(besideIds, besidePairs, MadeForYou, HomeDragLane.Right, .9f, 700f, besideBands, bufferPx = 16f, pairing = false)
+        assertEquals(beside(.5f, 700f), half)
+    }
+
+    @Test
     fun should_insertBesidePairOfOthers_byItsMiddle_neverThreeAcross() {
         // Above the pair already: its top half keeps it there; its bottom half puts it below.
         assertEquals(DragArrangement(ids, pairs), (full(.1f, 600f) as DragSideStep.Arrange).arrangement)

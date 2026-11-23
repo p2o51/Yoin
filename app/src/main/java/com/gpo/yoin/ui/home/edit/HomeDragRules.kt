@@ -238,6 +238,12 @@ internal sealed interface DragSideStep {
  * 3. Over a pair of two others: a row of its own above or below it, by its middle.
  *
  * A half in a gap between rows becomes a row of its own there.
+ *
+ * Not [pairing] (the edge scroll is moving the rows under the finger): a
+ * full row's middle pairs with nothing, the half-travel rule moves the block
+ * past it. Each row the scroll carried under a finger near a side paired the
+ * block with it and let it go again a moment later: the block sprang half ⇄
+ * full under the finger with every row (2026-11-23).
  */
 internal fun dragSideStep(
     ids: List<HomeSection>,
@@ -248,6 +254,7 @@ internal fun dragSideStep(
     fingerY: Float,
     bands: List<DragRowBand>,
     bufferPx: Float,
+    pairing: Boolean = true,
 ): DragSideStep {
     val own = bands.firstOrNull { dragged in it.row.sections() }
     val partner = if (side != null) dragPartnerOf(pairs, dragged) else null
@@ -280,7 +287,7 @@ internal fun dragSideStep(
             DragRowPart.Above -> return ownRow(under, below = false)
             DragRowPart.Below -> return ownRow(under, below = true)
             DragRowPart.Middle -> {
-                val zone = dragPairZone(rel)
+                val zone = if (pairing) dragPairZone(rel) else null
                 if (zone != null) return DragSideStep.Arrange(dragPlaceBeside(ids, pairs, dragged, row.section, zone), zone)
                 if (partner == null) return DragSideStep.Vertical
                 return ownRow(under, below = fingerY > under.center)

@@ -279,6 +279,9 @@ internal class HomeDragEngine(
     // little of it, so a layout that moved under a resting finger never decides the next one alone.
     private var travel = 0f
 
+    // The edge scroll moved the rows on the last frame that scrolled: no block pairs while it runs.
+    private var edgeScrolling = false
+
     // The start-in-edge guard: the band the finger was lifted in (±1, 0 none), where, and how long it has rested there.
     private var edgeGuard = 0
     private var edgeGuardY = 0f
@@ -410,6 +413,7 @@ internal class HomeDragEngine(
         side = lane.takeIf { it != HomeDragLane.Full }
         origin = before
         travel = 0f
+        edgeScrolling = false
         pendingExit = null
         val area = host.scrollArea()
         edgeGuard = dragEdgeOf(fingerY, area.top, area.bottom, edgePx)
@@ -594,10 +598,22 @@ internal class HomeDragEngine(
             edgeGuardMs += dt * 1000f
             val inBand = dragEdgeOf(finger.y, area.top, area.bottom, edgePx) == edgeGuard
             val holds = dragEdgeGuardHolds(edgeGuard, edgeGuardY, finger.y, edgeGuardMs, pushPx, HomeDragTokens.EdgeStartDwellMs)
-            if (!inBand || !holds) edgeGuard = 0 else return
+            if (!inBand || !holds) {
+                edgeGuard = 0
+            } else {
+                edgeScrolling = false
+                return
+            }
         }
         val speed = dragAutoScrollSpeed(finger.y, area.top, area.bottom, edgePx, minSpeedPx, maxSpeedPx)
-        if (speed != 0f && dt > 0f) travel += abs(host.scrollBy(speed * dt))
+        if (speed == 0f) {
+            edgeScrolling = false
+        } else if (dt > 0f) {
+            val moved = abs(host.scrollBy(speed * dt))
+            travel += moved
+            // At the list's end nothing moves: the finger pairs there as anywhere.
+            edgeScrolling = moved > 0f
+        }
     }
 
     // Where the dragged block's top-left is drawn, the block [width] wide as its layer draws it now.
@@ -636,7 +652,9 @@ internal class HomeDragEngine(
         }
         if (twoColumn) {
             val rel = dragRel(finger.x, host.contentLeft(), host.contentWidth())
-            when (val step = dragSideStep(live.ids, live.pairs, dragged, side, rel, finger.y, bands, bufferPx)) {
+            // While the edge scroll carries rows under the finger, it pairs with none of them.
+            val step = dragSideStep(live.ids, live.pairs, dragged, side, rel, finger.y, bands, bufferPx, pairing = !edgeScrolling)
+            when (step) {
                 is DragSideStep.Arrange -> return step.takeIf { it.arrangement != live || it.side != side }
                 DragSideStep.Stay -> return null
                 DragSideStep.Vertical -> Unit

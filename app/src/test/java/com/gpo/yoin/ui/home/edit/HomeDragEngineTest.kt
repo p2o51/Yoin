@@ -9,7 +9,11 @@ import com.gpo.yoin.ui.home.HomeSection.Activities
 import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
 import com.gpo.yoin.ui.home.HomeSection.MadeForYou
 import com.gpo.yoin.ui.home.HomeSection.MemoryGrid
+import com.gpo.yoin.ui.home.HomeSection.OtherProfiles
 import com.gpo.yoin.ui.home.HomeSection.RecentlyAdded
+import com.gpo.yoin.ui.home.HomeSection.RecentlyPlayed
+import com.gpo.yoin.ui.home.HomeSection.Rediscover
+import com.gpo.yoin.ui.home.HomeSection.YourPlaylists
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -247,6 +251,45 @@ class HomeDragEngineTest {
         assertEquals(255f, rig.engine.translation(JumpBackIn, inList = false, width = 745f).x, .5f)
         // Full width: in its row, not half off the screen with the finger on its 190/490 mark.
         assertEquals(0f, rig.engine.translation(JumpBackIn, inList = false, width = 1000f).x, .5f)
+    }
+
+    @Test
+    fun should_pairWithNoRow_andKeepBlockUnderFingerOnContent_while_edgeScrollCarriesRowsPast() = runEditClockTest { scope ->
+        // Eight full rows, 100..400, 418..718, …; the bottom edge band is 1856..2000. Activities is
+        // dragged with the finger 95% across, to the bottom band: the scroll carries the rows below
+        // up under the finger, each one's middle in the pairing zone (> 0.70) as it passes.
+        val order = listOf(Activities, JumpBackIn, MadeForYou, MemoryGrid, RecentlyAdded, RecentlyPlayed, YourPlaylists, Rediscover, OtherProfiles)
+        val host = FakeHost(twoColumn = true, order = order)
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(Activities, x = 950f, y = 250f)
+        rig.moveTo(950f, 1950f)
+        var passed = 0
+        repeat(90) {
+            frames(1)
+            val live = rig.engine.arrangement ?: error("dragging")
+            // No pair while the rows scroll past: the block never turns half under the finger.
+            assertEquals(emptyMap<HomeSection, HomeSection>(), live.pairs)
+            if (host.visibleRows().any { it.key != Activities && 1950f in it.top..it.bottom }) passed++
+            // Drawn at any width its spring passes through, the block holds the finger and stays on the content.
+            for (width in listOf(1000f, 745f, 490f)) {
+                val left = rig.engine.translation(Activities, inList = false, width = width).x
+                assertTrue("left $left at width $width", left >= -.5f && left + width <= 1000.5f)
+                assertTrue("finger off the block at width $width", 950f in left..left + width)
+            }
+        }
+        assertTrue(host.scrolls.isNotEmpty())
+        assertTrue("rows passed under the finger: $passed", passed > 10)
+
+        // Out of the band, the scroll stops: over a full row's middle at the side it pairs again.
+        val row = host.visibleRows().first { it.key != Activities && it.top > 300f && it.bottom < 1800f }
+        rig.moveTo(950f, (row.top + row.bottom) / 2f)
+        frames(2)
+        rig.moveTo(990f, host.visibleRows().first { it.key == row.key }.let { (it.top + it.bottom) / 2f })
+        frames(2)
+        assertEquals(mapOf(row.key to Activities), rig.engine.arrangement?.pairs)
+        // As a right half, drawn half wide: on the content, under the finger.
+        val left = rig.engine.translation(Activities, inList = false, width = 490f).x + 510f
+        assertTrue("left $left", left >= -.5f && left + 490f <= 1000.5f && 990f in left..left + 490f)
     }
 
     @Test
