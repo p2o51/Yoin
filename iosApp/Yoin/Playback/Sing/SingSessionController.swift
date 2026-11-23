@@ -95,6 +95,11 @@ final class SingSessionController {
         let wasEnabled = isEnabled
         isEnabled = false
         phase = .off
+        // Exiting at 0% (two-step left-drag dismiss) resets the remembered level back to the 12% default
+        // so re-entering Sing never opens an empty capsule.
+        if SingGainCurve.isAtMinimum(sliderPosition) {
+            sliderPosition = SingGainCurve.defaultSlider
+        }
         guard wasEnabled else { return }
         avOutputProvider()?.exitSingMode()
     }

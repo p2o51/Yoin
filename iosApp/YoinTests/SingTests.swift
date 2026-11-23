@@ -320,5 +320,18 @@ final class SingTests: XCTestCase {
         controller.exit()
         XCTAssertFalse(controller.isEnabled)
         XCTAssertEqual(controller.phase, .off)
+
+        // Exiting at 0% (two-step left-drag dismiss) resets remembered level to 12% default.
+        controller.enter(track: subsonicTrack)
+        controller.setSliderPosition(0.0)
+        XCTAssertEqual(controller.sliderPosition, 0.0, accuracy: 1e-6)
+        controller.exit()
+        XCTAssertEqual(controller.sliderPosition, SingGainCurve.defaultSlider, accuracy: 1e-6)
+
+        // Exiting above 0% preserves user's custom level.
+        controller.enter(track: subsonicTrack)
+        controller.setSliderPosition(0.55)
+        controller.exit()
+        XCTAssertEqual(controller.sliderPosition, 0.55, accuracy: 1e-6)
     }
 }

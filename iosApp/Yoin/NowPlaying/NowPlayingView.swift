@@ -1042,27 +1042,7 @@ struct NowPlayingView: View, Equatable {
             }
             Spacer().frame(width: retreat ? 0 : Tokens.np.RATING_GAP.cg)
             VStack(spacing: 0) {
-                if showSingInRatingColumn {
-                    SingVocalVerticalSlider(
-                        level: model.sing.sliderPosition,
-                        scheme: scheme,
-                        haptics: demo == nil
-                    ) { nextLevel in
-                        model.sing.setSliderPosition(nextLevel)
-                    }
-                    .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
-                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
-                    Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
-                    SingExitCircleButton(
-                        scheme: scheme,
-                        isPreparing: model.sing.isPreparing,
-                        haptics: demo == nil
-                    ) {
-                        model.sing.exit()
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.90)))
-                    Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
-                } else {
+                ZStack {
                     RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
                               gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock", haptics: demo == nil) { down in
                         // One spring lifts and settles the bar (scale, glass, shadow).
@@ -1081,24 +1061,58 @@ struct NowPlayingView: View, Equatable {
                             glowRatingCommitted(ratingBinding.wrappedValue)
                         }
                     }
-                    .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                     .glowAnchor(.rating, glow)
                     .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
                     // A podcast episode is no song: nothing to rate.
-                    .opacity(isEpisode ? 0 : 1)
-                    .allowsHitTesting(!isEpisode)
+                    .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : 1))
+                    .allowsHitTesting(!showSingInRatingColumn && !isEpisode)
                     .animation(Yoin.effects, value: isEpisode)
-                    Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
+
+                    if showSingInRatingColumn {
+                        SingVocalVerticalSlider(
+                            level: model.sing.sliderPosition,
+                            scheme: scheme,
+                            haptics: demo == nil
+                        ) { nextLevel in
+                            model.sing.setSliderPosition(nextLevel)
+                        }
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.96, anchor: .bottom).combined(with: .opacity),
+                            removal: .scale(scale: 0.96, anchor: .bottom).combined(with: .opacity)
+                        ))
+                    }
+                }
+                .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
+
+                Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
+
+                ZStack {
                     // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
                     // and still, not an empty heart that would save it.
                     heart
-                        .opacity(isEpisode ? 0 : heartKnown ? 1 : 0.38)
-                        .allowsHitTesting(!isEpisode && heartKnown)
+                        .scaleEffect(showSingInRatingColumn ? 0.65 : 1)
+                        .rotationEffect(.degrees(showSingInRatingColumn ? -28 : 0))
+                        .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : heartKnown ? 1 : 0.38))
+                        .allowsHitTesting(!showSingInRatingColumn && !isEpisode && heartKnown)
                         .animation(Yoin.effects, value: isEpisode || !heartKnown)
-                    Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
+
+                    SingExitCircleButton(
+                        scheme: scheme,
+                        isPreparing: model.sing.isPreparing,
+                        haptics: demo == nil
+                    ) {
+                        model.sing.exit()
+                    }
+                    .scaleEffect(showSingInRatingColumn ? 1 : 0.65)
+                    .rotationEffect(.degrees(showSingInRatingColumn ? 0 : 28))
+                    .opacity(showSingInRatingColumn ? 1 : 0)
+                    .allowsHitTesting(showSingInRatingColumn)
                 }
+                .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
+
+                Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
-            .animation(Yoin.effects, value: showSingInRatingColumn)
+            .animation(Yoin.spatial, value: showSingInRatingColumn)
             // World: pressing the rating lifts the heart with it; their glass
             // shares one container, so the two shapes reach for each other.
             .background(alignment: .top) {

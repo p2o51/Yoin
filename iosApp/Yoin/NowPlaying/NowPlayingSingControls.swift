@@ -143,24 +143,24 @@ struct SingLyricsCapsuleKey: View {
             let fillWidth = max(0, min(w, w * clamped))
 
             ZStack(alignment: .leading) {
-                // Track
+                // High-contrast track matching RatingBar (`surfaceVariant` vs `primary` fill)
                 Capsule(style: .continuous)
-                    .fill(scheme.primaryContainer)
+                    .fill(scheme.surfaceVariant)
 
-                // Live vocal fill (zero percentage numbers!)
-                Capsule(style: .continuous)
+                // Flat-edged live vocal fill clipped cleanly by the outer Capsule — zero distortion near 0%.
+                Rectangle()
                     .fill(scheme.primary)
                     .frame(width: fillWidth, height: h)
                     .animation(dragActive ? nil : Yoin.spatial, value: clamped)
 
                 // Subtle 12% detent notch
                 Capsule(style: .continuous)
-                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.42) : scheme.onPrimaryContainer.opacity(0.32))
+                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.36))
                     .frame(width: 2, height: 10)
                     .offset(x: max(micZoneWidth, w * detentFraction) - 1)
 
-                // Left mic glyph: dual-tone clip over fill so legibility stays crisp at any vocal level.
-                micGlyph(color: scheme.onPrimaryContainer)
+                // Left mic glyph: dual-tone clip over the flat fill edge so legibility stays crisp at any vocal level.
+                micGlyph(color: scheme.onSurfaceVariant)
                 micGlyph(color: scheme.onPrimary)
                     .mask(alignment: .leading) {
                         Rectangle().frame(width: fillWidth, height: h)
@@ -257,18 +257,19 @@ struct SingVocalVerticalSlider: View {
                 Capsule(style: .continuous)
                     .fill(scheme.surfaceVariant)
 
-                Capsule(style: .continuous)
+                // Flat-edged fill clipped by the outer Capsule — disappears cleanly at 0% with zero bowl distortion.
+                Rectangle()
                     .fill(scheme.primary)
                     .frame(width: w, height: fillHeight)
                     .animation(dragging ? nil : Yoin.spatial, value: clamped)
 
                 // Subtle 12% detent notch
                 Capsule(style: .continuous)
-                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.45) : scheme.onSurfaceVariant.opacity(0.32))
+                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.34))
                     .frame(width: 12, height: 2)
                     .offset(y: -max(36, h * detentFraction))
 
-                // Bottom mic glyph (dual-tone clipped along live fill edge)
+                // Bottom mic glyph (dual-tone clipped along the flat live fill edge)
                 bottomMic(color: scheme.onSurfaceVariant)
                 bottomMic(color: scheme.onPrimary)
                     .mask(alignment: .bottom) {
