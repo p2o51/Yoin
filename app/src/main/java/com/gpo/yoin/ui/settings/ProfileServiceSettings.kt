@@ -31,6 +31,26 @@ internal fun ProfileServiceSettings(providerKey: String, profileId: String?) {
     val streamQuality = Capability.STREAM_QUALITY in capabilities
     val volumeLeveling = Capability.REPLAY_GAIN in capabilities
     val downloads = Capability.OFFLINE_DOWNLOAD in capabilities && profileId != null && profileId == activeProfileId
+    // 转移 Memories: copy this account's notes, ratings and reviews into another account.
+    if (profileId != null) {
+        SettingsGroup(title = stringResource(R.string.settings_section_memories)) {
+            item(key = "transferMemories") {
+                SettingsItem(
+                    icon = YoinSymbols.Forward,
+                    title = stringResource(R.string.settings_xfer_title),
+                    summary = stringResource(R.string.settings_xfer_summary),
+                    onClick = {
+                        context.startActivity(
+                            com.gpo.yoin.ui.settings.sync.MemoriesTransferActivity.intent(
+                                context,
+                                com.gpo.yoin.ui.settings.sync.TransferArgs(sourceProfileId = profileId),
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
     if (!streamQuality && !volumeLeveling && !downloads) return
     val open: (SettingsFeature) -> Unit = { feature ->
         context.startActivity(SettingsFeatureActivity.intent(context, feature))

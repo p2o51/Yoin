@@ -13,6 +13,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -525,7 +526,7 @@ private fun Review(
 }
 
 @Composable
-private fun CountBadge(count: Int) {
+internal fun CountBadge(count: Int) {
     Box(
         modifier = Modifier
             .heightIn(min = 24.dp)
@@ -543,7 +544,7 @@ private fun CountBadge(count: Int) {
  * as the user picks songs — with the counts under them.
  */
 @Composable
-private fun SummaryBar(summary: ReviewSummary, modifier: Modifier = Modifier) {
+internal fun SummaryBar(summary: ReviewSummary, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val parts = listOf(
         Triple(summary.matched, colors.primary, R.string.playlist_restore_matched),
@@ -705,7 +706,7 @@ private fun ReviewRowItem(
 }
 
 @Composable
-private fun StatusPill(text: String, container: Color, content: Color) {
+internal fun StatusPill(text: String, container: Color, content: Color) {
     Box(
         modifier = Modifier
             .background(container, CircleShape)
@@ -722,7 +723,7 @@ private fun StatusPill(text: String, container: Color, content: Color) {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+internal fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean, onToggle: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val morph = remember { Morph(MaterialShapes.Circle, MaterialShapes.Cookie9Sided) }
     val progress = remember { Animatable(if (checked) 1f else 0f) }
@@ -755,8 +756,24 @@ private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean,
             modifier = Modifier
                 .size(36.dp)
                 .graphicsLayer { rotationZ = 40f * progress.value }
-                .background(container, remember(morph, progress) { MorphProgressShape(morph) { progress.value } }),
+                .background(container, remember(morph, progress) { MorphProgressShape(morph) { progress.value } })
+                // Not found: a quiet fill vanishes on a dark card; a hairline ring keeps the mark readable.
+                .then(
+                    if (status == ReviewStatus.NotFound) {
+                        Modifier.border(1.dp, colors.outline.copy(alpha = 0.6f), CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
         )
+        if (status == ReviewStatus.NotFound && !checked) {
+            Icon(
+                YoinSymbols.Close,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
         if (checked) {
             Icon(
                 YoinSymbols.Check,
@@ -775,7 +792,7 @@ private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean,
 }
 
 @Composable
-private fun ColumnScope.SongLines(title: String, artist: String, dimmed: Boolean) {
+internal fun ColumnScope.SongLines(title: String, artist: String, dimmed: Boolean) {
     Text(
         text = title,
         style = MaterialTheme.typography.bodyLarge,
@@ -826,7 +843,7 @@ private fun Candidates(
 }
 
 @Composable
-private fun CandidateRow(
+internal fun CandidateRow(
     candidate: Track,
     selected: Boolean,
     enabled: Boolean,
@@ -855,17 +872,35 @@ private fun CandidateRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Ink follows the fill: a chosen candidate sits on primaryContainer, which is light in Yoin's dark scheme.
+            val ink by animateColorAsState(
+                if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                YoinMotion.effectsSpring(),
+                label = "candidateInk",
+            )
+            val softInk = if (selected) ink.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
             Column(modifier = Modifier.weight(1f)) {
-                SongLines(
-                    title = candidate.title.orEmpty(),
-                    artist = listOfNotNull(candidate.artist).joinToString(),
-                    dimmed = false,
+                Text(
+                    text = candidate.title.orEmpty(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                candidate.artist?.takeIf { it.isNotEmpty() }?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = softInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 candidate.album?.let { album ->
                     Text(
                         text = album,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = softInk,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -875,11 +910,11 @@ private fun CandidateRow(
                 Text(
                     text = formatTrackDuration(seconds),
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = softInk,
                 )
             }
             if (selected) {
-                Icon(YoinSymbols.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(YoinSymbols.Check, contentDescription = null, tint = ink)
             }
         }
     }
@@ -1062,7 +1097,7 @@ private fun Outcome(target: RestoreTarget, record: PlaylistRestoreRecord, onDone
 }
 
 @Composable
-private fun RowScope.CountTile(count: Int, label: String, container: Color, content: Color) {
+internal fun RowScope.CountTile(count: Int, label: String, container: Color, content: Color) {
     Column(
         modifier = Modifier
             .weight(1f)
