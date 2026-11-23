@@ -1966,36 +1966,55 @@ private fun CompactPlayingContent(
                                         }
                                         .dotDissolve { immersiveProgress },
                                 ) {
-                                    NowPlayingRatingBar(
-                                        songId = state.songId,
-                                        rating = state.rating,
-                                        onRatingCommit = onRatingChange,
+                                    val portraitSing = LocalNowPlayingSing.current
+                                    val portraitLyricsSingVisible = !lyricsSelection.active &&
+                                        detailPage == NowPlayingDetailPage.Lyrics &&
+                                        (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
+                                    val showPortraitSingInRating = portraitSing?.isActive == true && !portraitLyricsSingVisible
+                                    SingAwareRatingBarSlot(
+                                        showSing = showPortraitSingInRating,
+                                        sing = portraitSing,
+                                        orientation = Orientation.Vertical,
                                         modifier = Modifier.weight(1f),
-                                    )
+                                    ) {
+                                        NowPlayingRatingBar(
+                                            songId = state.songId,
+                                            rating = state.rating,
+                                            onRatingCommit = onRatingChange,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
 
                                     Spacer(modifier = Modifier.height(YoinTokens.NowPlaying.RATING_TO_HEART_GAP.dp))
 
-                                    if (state.serviceFeatures.supportsFavorites) {
-                                        FavoriteButton(
-                                            isStarred = state.isStarred,
-                                            quietFlips = state.favoriteQuietFlips,
-                                            actionLabel = stringResource(
-                                                if (state.isStarred) {
-                                                    state.serviceFeatures.removeLabel
-                                                } else {
-                                                    state.serviceFeatures.saveLabel
-                                                },
-                                            ),
-                                            onClick = onToggleFavorite,
-                                            onLongClick = onAddCurrentToPlaylist,
-                                        )
-                                    }
-                                    if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                                        NowPlayingLibraryButton(
-                                            membership = state.libraryMembership,
-                                            isWorking = state.libraryActionInFlight,
-                                            onClick = onAddCurrentToLibrary,
-                                        )
+                                    SingAwareFavoriteSlot(
+                                        showSing = showPortraitSingInRating,
+                                        sing = portraitSing,
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            if (state.serviceFeatures.supportsFavorites) {
+                                                FavoriteButton(
+                                                    isStarred = state.isStarred,
+                                                    quietFlips = state.favoriteQuietFlips,
+                                                    actionLabel = stringResource(
+                                                        if (state.isStarred) {
+                                                            state.serviceFeatures.removeLabel
+                                                        } else {
+                                                            state.serviceFeatures.saveLabel
+                                                        },
+                                                    ),
+                                                    onClick = onToggleFavorite,
+                                                    onLongClick = onAddCurrentToPlaylist,
+                                                )
+                                            }
+                                            if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
+                                                NowPlayingLibraryButton(
+                                                    membership = state.libraryMembership,
+                                                    isWorking = state.libraryActionInFlight,
+                                                    onClick = onAddCurrentToLibrary,
+                                                )
+                                            }
+                                        }
                                     }
 
                                     // Room for the heart's tap-bounce (scales to
@@ -2917,19 +2936,39 @@ private fun WidePlayingContent(
                                     }
                                     .retreatInput(focusNow),
                             ) {
-                                NowPlayingRatingBar(
-                                    songId = state.songId,
-                                    rating = state.rating,
-                                    onRatingCommit = onRatingChange,
+                                val dualSing = LocalNowPlayingSing.current
+                                // Tablet dual-pane invariant: keep Rating + Heart on the left when the right pane
+                                // shows Lyrics (where the 124dp Sing capsule lives); morph left column only when
+                                // switched away to About/Note or Focus so vocal control is never lost or duplicated.
+                                val dualLyricsSingVisible = !lyricsSelection.active &&
+                                    detailPage == NowPlayingDetailPage.Lyrics &&
+                                    !inFocus
+                                val showDualSingInRating = dualSing?.isActive == true && !dualLyricsSingVisible
+                                SingAwareRatingBarSlot(
+                                    showSing = showDualSingInRating,
+                                    sing = dualSing,
+                                    orientation = Orientation.Vertical,
                                     modifier = Modifier.weight(1f),
-                                )
+                                ) {
+                                    NowPlayingRatingBar(
+                                        songId = state.songId,
+                                        rating = state.rating,
+                                        onRatingCommit = onRatingChange,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                LandscapeFavoriteButtons(
-                                    state = state,
-                                    onToggleFavorite = onToggleFavorite,
-                                    onAddCurrentToPlaylist = onAddCurrentToPlaylist,
-                                    onAddCurrentToLibrary = onAddCurrentToLibrary,
-                                )
+                                SingAwareFavoriteSlot(
+                                    showSing = showDualSingInRating,
+                                    sing = dualSing,
+                                ) {
+                                    LandscapeFavoriteButtons(
+                                        state = state,
+                                        onToggleFavorite = onToggleFavorite,
+                                        onAddCurrentToPlaylist = onAddCurrentToPlaylist,
+                                        onAddCurrentToLibrary = onAddCurrentToLibrary,
+                                    )
+                                }
                                 // Room for the heart's tap-bounce (scales to 1.25×).
                                 Spacer(modifier = Modifier.height(6.dp))
                             }
@@ -3555,6 +3594,11 @@ private fun LandscapePlayingContent(
         // The standard rating column (portrait's: the bar, the heart under
         // it) at the cover's right (owner 2026-11-06 「按照原本的标准」). Focus
         // breaks it into dots; stacked, an open page moves it under the cover.
+        val landscapeSing = LocalNowPlayingSing.current
+        val landscapeLyricsSingVisible = !lyricsSelection.active &&
+            expanded &&
+            detailPage == NowPlayingDetailPage.Lyrics
+        val showLandscapeSingInRating = landscapeSing?.isActive == true && !landscapeLyricsSingVisible
         val ratingAway = if (stacked) detailProgress else 0f
         if (!focusSettled && !(stacked && expandedSettled)) {
             Column(
@@ -3572,19 +3616,31 @@ private fun LandscapePlayingContent(
                         maxOf(resolvedStageProgress.immersive, if (stacked) resolvedStageProgress.detail else 0f)
                     },
             ) {
-                NowPlayingRatingBar(
-                    songId = state.songId,
-                    rating = state.rating,
-                    onRatingCommit = onRatingChange,
+                SingAwareRatingBarSlot(
+                    showSing = showLandscapeSingInRating,
+                    sing = landscapeSing,
+                    orientation = Orientation.Vertical,
                     modifier = Modifier.weight(1f),
-                )
+                ) {
+                    NowPlayingRatingBar(
+                        songId = state.songId,
+                        rating = state.rating,
+                        onRatingCommit = onRatingChange,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
-                LandscapeFavoriteButtons(
-                    state = state,
-                    onToggleFavorite = onToggleFavorite,
-                    onAddCurrentToPlaylist = onAddCurrentToPlaylist,
-                    onAddCurrentToLibrary = onAddCurrentToLibrary,
-                )
+                SingAwareFavoriteSlot(
+                    showSing = showLandscapeSingInRating,
+                    sing = landscapeSing,
+                ) {
+                    LandscapeFavoriteButtons(
+                        state = state,
+                        onToggleFavorite = onToggleFavorite,
+                        onAddCurrentToPlaylist = onAddCurrentToPlaylist,
+                        onAddCurrentToLibrary = onAddCurrentToLibrary,
+                    )
+                }
                 // Room for the heart's tap-bounce (scales to 1.25×).
                 Spacer(modifier = Modifier.height(6.dp))
             }
@@ -3608,21 +3664,33 @@ private fun LandscapePlayingContent(
                         .weight(1f)
                         .height(LandscapeRatingRow),
                 ) {
-                    NowPlayingRatingBar(
-                        songId = state.songId,
-                        rating = state.rating,
-                        onRatingCommit = onRatingChange,
+                    SingAwareRatingBarSlot(
+                        showSing = showLandscapeSingInRating,
+                        sing = landscapeSing,
                         orientation = Orientation.Horizontal,
                         modifier = Modifier.fillMaxSize(),
-                    )
+                    ) {
+                        NowPlayingRatingBar(
+                            songId = state.songId,
+                            rating = state.rating,
+                            onRatingCommit = onRatingChange,
+                            orientation = Orientation.Horizontal,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                LandscapeFavoriteButtons(
-                    state = state,
-                    onToggleFavorite = onToggleFavorite,
-                    onAddCurrentToPlaylist = onAddCurrentToPlaylist,
-                    onAddCurrentToLibrary = onAddCurrentToLibrary,
-                )
+                SingAwareFavoriteSlot(
+                    showSing = showLandscapeSingInRating,
+                    sing = landscapeSing,
+                ) {
+                    LandscapeFavoriteButtons(
+                        state = state,
+                        onToggleFavorite = onToggleFavorite,
+                        onAddCurrentToPlaylist = onAddCurrentToPlaylist,
+                        onAddCurrentToLibrary = onAddCurrentToLibrary,
+                    )
+                }
             }
         }
 

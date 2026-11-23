@@ -79,9 +79,23 @@ class SingControllerTest {
         c.exit()
         assertEquals(SingMode.Off, c.mode.value)
         assertEquals(1f, c.mixControl.targetGain, 0f)
-        assertEquals(SingMixControl.GLIDE_MS, c.mixControl.rampMs)
+        assertEquals(SingMixControl.CUT_OUT_GLIDE_MS, c.mixControl.rampMs)
+        assertEquals(SingRampCurve.EaseInOut, c.mixControl.rampCurve)
         assertFalse(c.mixControl.startAtUnity)
         assertEquals(listOf(song1.key), provider.cancelled)
+    }
+
+    @Test
+    fun should_stayPreparingUntilHandover_when_waitForHandoverEnabled() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = SingController(backgroundScope, SingProviderSelector(provider), waitForHandover = true)
+        c.onCurrentItem(song1)
+        assertTrue(c.enter())
+        provider.flows.getValue(song1.key).value = SingStatus.Ready(SingSource.LocalFile(File("x.m4a")))
+        // Still preparing while SingPlaybackSwitcher pre-buffers & swaps in.
+        assertEquals(SingMode.Preparing(null), c.mode.value)
+        c.onStreamHandedOver(song1.key)
+        assertEquals(SingMode.Ready, c.mode.value)
     }
 
     @Test

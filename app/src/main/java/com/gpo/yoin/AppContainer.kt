@@ -603,6 +603,7 @@ class AppContainer(private val context: Context) {
                     lyraSingCapabilities.isSingEnabled(creds)
                 },
             ),
+            waitForHandover = true,
         )
     }
 

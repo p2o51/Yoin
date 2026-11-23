@@ -14,18 +14,19 @@ import kotlin.math.roundToInt
  *
  *     Y_L = I_L + g·V_L,  Y_R = I_R + g·V_R
  *
- * at the gain [SingMixControl] asks for. Every change of g ramps linearly, sample by sample, over the
- * control's ramp (20 ms for the slider, 250 ms when Sing turns on or off), so nothing clicks. Anything
- * else — stereo, mono, 5.1, a quad file while Sing is off — makes this processor inactive, and the
- * sink passes it by untouched. Handles 16-bit and float PCM, the two encodings the sink's chain carries.
- *
- * The on-device engine and the Lyra server path (a remote quad.m4a) both end here.
+ * at the gain [SingMixControl] asks for. Every change of g ramps sample by sample along the control's
+ * curve (20 ms linear for slider drags, ~950 ms ease-out cubic on Sing cut-in, ~750 ms ease-in-out on
+ * Sing exit), so nothing clicks and transitions feel silky. Anything else — stereo, mono, 5.1, a quad
+ * file while Sing is off — makes this processor inactive, and the sink passes it by untouched.
  */
 @OptIn(UnstableApi::class)
 class SingMixerAudioProcessor(private val control: SingMixControl) : BaseAudioProcessor() {
     private var currentGain = 1f
-    private var rampStep = 0f
-    private var rampRemaining = 0
+    private var rampStartGain = 1f
+    private var rampTarget = 1f
+    private var rampTotal = 0
+    private var rampElapsed = 0
+    private var rampCurve = SingRampCurve.Linear
     private var seenGeneration = -1
     private var begun = false
 
@@ -79,8 +80,11 @@ class SingMixerAudioProcessor(private val control: SingMixControl) : BaseAudioPr
 
     override fun onReset() {
         currentGain = 1f
-        rampStep = 0f
-        rampRemaining = 0
+        rampStartGain = 1f
+        rampTarget = 1f
+        rampTotal = 0
+        rampElapsed = 0
+        rampCurve = SingRampCurve.Linear
         seenGeneration = -1
         begun = false
     }
@@ -91,12 +95,15 @@ class SingMixerAudioProcessor(private val control: SingMixControl) : BaseAudioPr
         if (control.startAtUnity) {
             control.startAtUnity = false
             currentGain = 1f
-            startRamp(control.targetGain, SingMixControl.GLIDE_MS)
+            startRamp(control.targetGain, SingMixControl.CUT_IN_GLIDE_MS, SingRampCurve.EaseOutCubic)
             seenGeneration = control.generation
         } else if (seenGeneration == -1) {
             // Already on when this stream began (the next song, a seek): no glide to make.
             currentGain = control.targetGain
-            rampRemaining = 0
+            rampStartGain = currentGain
+            rampTarget = currentGain
+            rampTotal = 0
+            rampElapsed = 0
             seenGeneration = control.generation
         }
     }
@@ -105,27 +112,37 @@ class SingMixerAudioProcessor(private val control: SingMixControl) : BaseAudioPr
         val generation = control.generation
         if (generation == seenGeneration) return
         seenGeneration = generation
-        startRamp(control.targetGain, control.rampMs)
+        startRamp(control.targetGain, control.rampMs, control.rampCurve)
     }
 
-    private fun startRamp(target: Float, ms: Int) {
+    private fun startRamp(target: Float, ms: Int, curve: SingRampCurve) {
         val samples = (ms.toLong() * inputAudioFormat.sampleRate / 1000L).toInt()
         if (samples <= 0) {
             currentGain = target
-            rampRemaining = 0
+            rampStartGain = target
+            rampTarget = target
+            rampTotal = 0
+            rampElapsed = 0
+            rampCurve = curve
             return
         }
-        rampRemaining = samples
-        rampStep = (target - currentGain) / samples
+        rampStartGain = currentGain
         rampTarget = target
+        rampTotal = samples
+        rampElapsed = 0
+        rampCurve = curve
     }
 
-    private var rampTarget = 1f
-
     private fun nextGain(): Float {
-        if (rampRemaining > 0) {
-            rampRemaining--
-            currentGain = if (rampRemaining == 0) rampTarget else currentGain + rampStep
+        if (rampTotal > 0 && rampElapsed < rampTotal) {
+            rampElapsed++
+            currentGain = if (rampElapsed >= rampTotal) {
+                rampTotal = 0
+                rampTarget
+            } else {
+                val progress = rampCurve.evaluate(rampElapsed.toFloat() / rampTotal.toFloat())
+                rampStartGain + (rampTarget - rampStartGain) * progress
+            }
         }
         return currentGain
     }

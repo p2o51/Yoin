@@ -112,16 +112,33 @@ class SingMixerAudioProcessorTest {
     }
 
     @Test
-    fun should_startAtUnityAndGlide250ms_when_singTurnsOn() {
-        control.setTarget(SingGainCurve.DEFAULT_GAIN, SingMixControl.GLIDE_MS)
+    fun should_startAtUnityAndEaseOutGlide_when_singTurnsOn() {
+        control.setTarget(SingGainCurve.DEFAULT_GAIN, SingMixControl.CUT_IN_GLIDE_MS, SingRampCurve.EaseOutCubic)
         control.startAtUnity = true
         configure(4)
-        val glide = SingMixControl.GLIDE_MS * rate / 1000
+        val glide = SingMixControl.CUT_IN_GLIDE_MS * rate / 1000
         val y = mixFloat(quadFloat(glide + 100, 0f, 0f, 1f, 1f))
         assertEquals(1f, y[0], 1e-4f) // first frame: the mix, no jump from the original stream
-        assertEquals((1f + SingGainCurve.DEFAULT_GAIN) / 2, y[(glide / 2 - 1) * 2], 1e-3f)
+        // At 50% of EaseOutCubic, progress = 1 - 0.5^3 = 0.875 → gain ≈ 1.0 + (0.12 - 1.0) * 0.875 = 0.23
+        val expectedMid = 1f + (SingGainCurve.DEFAULT_GAIN - 1f) * 0.875f
+        assertEquals(expectedMid, y[(glide / 2 - 1) * 2], 5e-3f)
         assertEquals(SingGainCurve.DEFAULT_GAIN, y[(glide + 50) * 2], 1e-6f)
+        for (f in 1 until glide) assertTrue(y[f * 2] <= y[(f - 1) * 2] + 1e-6f)
         assertFalse(control.startAtUnity)
+    }
+
+    @Test
+    fun should_easeInOutBackToUnity_when_exitingSing() {
+        control.setTarget(SingGainCurve.DEFAULT_GAIN, rampMs = 0)
+        configure(4)
+        mixFloat(quadFloat(10, 0f, 0f, 1f, 1f))
+        control.setTarget(1f, SingMixControl.CUT_OUT_GLIDE_MS, SingRampCurve.EaseInOut)
+        val glide = SingMixControl.CUT_OUT_GLIDE_MS * rate / 1000
+        val y = mixFloat(quadFloat(glide + 100, 0f, 0f, 1f, 1f))
+        assertEquals(SingGainCurve.DEFAULT_GAIN, y[0], 1e-3f)
+        assertEquals((SingGainCurve.DEFAULT_GAIN + 1f) / 2f, y[(glide / 2 - 1) * 2], 5e-3f)
+        assertEquals(1f, y[(glide + 50) * 2], 1e-6f)
+        for (f in 1 until glide) assertTrue(y[f * 2] >= y[(f - 1) * 2] - 1e-6f)
     }
 
     @Test

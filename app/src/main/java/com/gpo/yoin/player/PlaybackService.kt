@@ -155,6 +155,7 @@ class PlaybackService : MediaSessionService() {
             scope = serviceScope,
             profileId = { container.profileManager.activeProfileId.value },
             isLocalOutput = { !_usingDlna.value },
+            prebufferDataSourceFactory = cacheDataSourceFactory,
         ).also { it.start() }
 
         setMediaNotificationProvider(yoinNotificationProvider())
