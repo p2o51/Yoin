@@ -24,6 +24,13 @@ object SyncKinds {
     const val SONG_ABOUT = "song_about"
     const val ALBUM_TITLE = "album_title"
     const val PLAYLIST_BACKUP = "playlist_backup"
+
+    /**
+     * `album_notes` (notes revamp, 2026-11-23): Android publishes it; engines without an adapter (iOS, HarmonyOS,
+     * older Android) carry the records opaquely and republish them. Same name as the Memories backup's
+     * `album_note` kind.
+     */
+    const val ALBUM_NOTE = "album_note"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */
@@ -152,7 +159,27 @@ data class ScopePurgeMarker(
     @SerialName("deviceName") val deviceName: String,
 )
 
-/** Drive appProperties keys/values used to identify Yoin files (never identify files by name). */
+/** Supported cloud sync storage locations. Stored in [SyncMetaKeys.SYNC_LOCATION]. */
+object SyncLocations {
+    const val GOOGLE_DRIVE = "google_drive"
+    const val ICLOUD = "icloud"
+}
+
+/**
+ * Written into an old sync location when a device switches to [targetLocation] (e.g. Google Drive -> iCloud).
+ * Other devices still connected to the old location see this marker, pause publishing there, and prompt the
+ * user to follow the switch or keep using the old location. Builds that predate it ignore unknown kinds.
+ */
+@Serializable
+data class MigrationMarker(
+    @SerialName("epoch") val epoch: Long,
+    @SerialName("at") val at: Long,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("deviceName") val deviceName: String,
+    @SerialName("targetLocation") val targetLocation: String,
+)
+
+/** Drive / CloudKit metadata keys/values used to identify Yoin files (never identify files by name). */
 object SyncFileProps {
     const val KIND = "yoinKind"
     const val DEVICE_ID = "deviceId"
@@ -163,12 +190,18 @@ object SyncFileProps {
     /** The scope a [KIND_PURGE] marker removes. */
     const val SCOPE = "scope"
 
+    /** The destination [SyncLocations] a [KIND_MIGRATED] marker points to. */
+    const val TARGET_LOCATION = "targetLocation"
+
     const val KIND_STATE = "state"
     const val KIND_ARTIFACTS = "artifacts"
     const val KIND_RESET = "reset"
 
     /** A [ScopePurgeMarker]. Older builds ignore this kind (they only read state/artifacts/reset). */
     const val KIND_PURGE = "purge"
+
+    /** A [MigrationMarker]. Older builds ignore this kind safely. */
+    const val KIND_MIGRATED = "migrated"
 
     fun stateFileName(deviceId: String) = "yoin-state-$deviceId.json.gz"
 
@@ -177,6 +210,8 @@ object SyncFileProps {
     fun resetFileName(epoch: Long, deviceId: String) = "yoin-reset-$epoch-$deviceId.json"
 
     fun purgeFileName(epoch: Long, deviceId: String) = "yoin-purge-$epoch-$deviceId.json"
+
+    fun migratedFileName(epoch: Long, deviceId: String) = "yoin-migrated-$epoch-$deviceId.json"
 }
 
 // ---- Domain bridge

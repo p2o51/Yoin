@@ -10,6 +10,8 @@ import com.gpo.yoin.data.local.TrackAlbumLink
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.notes.MentionKind
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.sync.SyncFormat
 import com.gpo.yoin.data.sync.adapters.TrackRatingSyncAdapter
@@ -307,6 +309,10 @@ class MemoryTransfer(
                 albumMatches[ref]?.takeIf { it.status == MatchStatus.Matched || it.status == MatchStatus.Picked }?.chosen?.id
             }
 
+        // A mention of a track or album this transfer remaps points at its copy's target (the words stay):
+        // NoteMarkup.rewriteMentions edits only the mention links.
+        fun remapMentions(text: String): String = remapMentionsIn(text, ::trackTarget, ::albumTarget)
+
         val copied = Counter()
         val updated = Counter()
         val kept = Counter()
@@ -332,7 +338,7 @@ class MemoryTransfer(
                     profileId = profileId,
                     trackId = track.rawId,
                     provider = track.provider,
-                    content = note.content,
+                    content = remapMentions(note.content),
                     createdAt = note.createdAt,
                     updatedAt = note.updatedAt,
                     title = matched?.title?.takeIf(String::isNotBlank) ?: note.title,
@@ -434,7 +440,7 @@ class MemoryTransfer(
                     continue
                 }
                 val existing = dao.albumRating(profileId, album.rawId, album.provider)
-                val text = review.review.trim()
+                val text = remapMentions(review.review.trim())
                 val writtenAt = review.reviewUpdatedAt ?: review.updatedAt
                 when {
                     existing == null -> {
@@ -488,7 +494,7 @@ class MemoryTransfer(
                     profileId = profileId,
                     albumId = album.rawId,
                     provider = album.provider,
-                    content = note.content,
+                    content = remapMentions(note.content),
                     createdAt = note.createdAt,
                     updatedAt = note.updatedAt,
                     albumName = matched?.name?.takeIf(String::isNotBlank) ?: note.albumName,
@@ -740,6 +746,32 @@ class MemoryTransfer(
         /** Apple Music library ids ("library:…", or a bare "i." / "l." resource id) are per listener. */
         fun isAppleLibraryId(id: String): Boolean =
             id.startsWith("library:") || id.startsWith("i.") || id.startsWith("l.")
+
+        /**
+         * [text] with each track / album mention whose item this transfer maps ([trackTarget] / [albumTarget])
+         * pointing at the target's id; names, other mentions (artists, unmapped items) and every other
+         * character as written.
+         */
+        internal fun remapMentionsIn(
+            text: String,
+            trackTarget: (SourceRef) -> MediaId?,
+            albumTarget: (SourceRef) -> MediaId?,
+        ): String {
+            if (!NoteMarkup.hasMentions(text)) return text
+            return NoteMarkup.rewriteMentions(text) { mention ->
+                val ref = SourceRef(mention.provider, mention.id)
+                val to = when (mention.kind) {
+                    MentionKind.Track -> trackTarget(ref)
+                    MentionKind.Album -> albumTarget(ref)
+                    MentionKind.Artist -> null
+                } ?: return@rewriteMentions null
+                if (to.provider == mention.provider && to.rawId == mention.id) {
+                    null
+                } else {
+                    mention.copy(provider = to.provider, id = to.rawId)
+                }
+            }
+        }
 
         internal fun trackKey(ref: SourceRef) = "track:$ref"
 

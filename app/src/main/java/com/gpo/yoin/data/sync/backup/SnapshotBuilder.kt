@@ -49,7 +49,8 @@ data class BackupContent(
  *
  * With no replica (Cloud sync never turned on) the record set is just the domain's projections. Profiles
  * that aren't bound get the scope a binding would get (Subsonic / known Spotify user), else a device-local
- * scope [BackupFormat.LOCAL_SCOPE_PREFIX]. Album notes and track→album links ride along as [BackupKinds].
+ * scope [BackupFormat.LOCAL_SCOPE_PREFIX]. Track→album links ride along as [BackupKinds]; album notes are a sync
+ * kind and come from their adapter like song notes.
  * Nothing outside the sync allowlist is ever read: every value comes from an adapter projection, a replica
  * payload (already allowlisted) or the same descriptor fields sync publishes.
  */
@@ -234,26 +235,7 @@ class SnapshotBuilder(
 
     private suspend fun addBackupKinds(profileId: String, scope: String, out: MutableMap<Key, WireRecord>) {
         val dao = db.syncDomainDao()
-        for (note in dao.albumNotesForProfile(profileId)) {
-            out[Key(BackupKinds.ALBUM_NOTE, scope, note.id)] = WireRecord(
-                kind = BackupKinds.ALBUM_NOTE,
-                scope = scope,
-                key = note.id,
-                ts = note.updatedAt,
-                device = deviceId,
-                payload = JsonObject(
-                    mapOf(
-                        BackupFields.ALBUM_ID to JsonPrimitive(note.albumId),
-                        BackupFields.PROVIDER to JsonPrimitive(note.provider),
-                        BackupFields.CONTENT to JsonPrimitive(note.content),
-                        BackupFields.CREATED_AT to JsonPrimitive(note.createdAt),
-                        BackupFields.UPDATED_AT to JsonPrimitive(note.updatedAt),
-                        BackupFields.ALBUM_NAME to JsonPrimitive(note.albumName),
-                        BackupFields.ARTIST to JsonPrimitive(note.artist),
-                    ),
-                ),
-            )
-        }
+        // Album notes are a sync kind (AlbumNoteSyncAdapter): they come in with the adapters above.
         for (link in dao.trackAlbumLinksForProfile(profileId)) {
             val key = SyncFormat.compositeKey(link.provider, link.trackId)
             out[Key(BackupKinds.TRACK_ALBUM_LINK, scope, key)] = WireRecord(

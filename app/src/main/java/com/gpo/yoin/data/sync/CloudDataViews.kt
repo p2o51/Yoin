@@ -149,7 +149,8 @@ object CloudDataViews {
     }
 
     fun countsOf(items: MemoryItems): CloudScopeCounts = CloudScopeCounts(
-        notes = items.songNotes.size,
+        // Song notes and album notes, each once (album notes are a sync kind since the notes revamp).
+        notes = items.songNotes.size + items.albumNotes.size,
         albums = (items.albumRatings.map { it.album } + items.albumReviews.map { it.album }).toSet().size,
         songRatings = items.trackRatings.size,
         memoryTitles = items.albumTitles.size + items.memoryTitles.size,

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeNetworkBlock
 import com.gpo.yoin.data.home.HomeSnapshot
@@ -2359,7 +2360,7 @@ class HomeViewModel(
             ratingUnavailable = score == "N/A",
             ratingBasis = formatMemoryDate(note.updatedAt),
             ratingBasisDateMillis = note.updatedAt,
-            comment = note.content,
+            comment = NoteMarkup.plainText(note.content),
             expanded = true,
             target = HomeWidgetTarget.PlaySong(song),
         )

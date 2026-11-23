@@ -45,6 +45,21 @@ interface SyncDomainDao {
     @Query("DELETE FROM song_notes WHERE id = :id AND profileId = :profileId")
     suspend fun deleteNote(id: String, profileId: String): Int
 
+    // ---- album_notes
+
+    @Query("SELECT * FROM album_notes WHERE profileId = :profileId")
+    suspend fun albumNotesForProfile(profileId: String): List<AlbumNote>
+
+    @Query("SELECT * FROM album_notes WHERE id = :id LIMIT 1")
+    suspend fun albumNoteById(id: String): AlbumNote?
+
+    /** Callers must have checked [albumNoteById] first: REPLACE on `id` would re-parent another profile's note. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun writeAlbumNote(note: AlbumNote)
+
+    @Query("DELETE FROM album_notes WHERE id = :id AND profileId = :profileId")
+    suspend fun deleteAlbumNote(id: String, profileId: String): Int
+
     // ---- local_ratings (track ratings)
 
     @Query("SELECT * FROM local_ratings WHERE profileId = :profileId")
@@ -227,17 +242,8 @@ interface SyncDomainDao {
     @Upsert
     suspend fun upsertSongAbout(entry: SongAboutEntry)
 
-    // ---- album_notes and track_album_links: not synced, but backups and Memories transfers carry them
-
-    @Query("SELECT * FROM album_notes WHERE profileId = :profileId")
-    suspend fun albumNotesForProfile(profileId: String): List<AlbumNote>
-
-    @Query("SELECT * FROM album_notes WHERE id = :id LIMIT 1")
-    suspend fun albumNoteById(id: String): AlbumNote?
-
-    /** Callers must have checked [albumNoteById] first: REPLACE on `id` would re-parent another profile's note. */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun writeAlbumNote(note: AlbumNote)
+    // ---- track_album_links: not synced, but backups and Memories transfers carry them
+    // (album_notes are synced: see the album_notes section above)
 
     @Query("SELECT * FROM track_album_links WHERE profileId = :profileId")
     suspend fun trackAlbumLinksForProfile(profileId: String): List<TrackAlbumLink>

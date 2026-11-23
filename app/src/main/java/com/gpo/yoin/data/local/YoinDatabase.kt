@@ -96,5 +96,7 @@ abstract class YoinDatabase : RoomDatabase() {
 
     abstract fun lyricHighlightDao(): LyricHighlightDao
 
+    abstract fun noteMentionDao(): NoteMentionDao
+
     abstract fun syncDomainDao(): com.gpo.yoin.data.sync.domain.SyncDomainDao
 }

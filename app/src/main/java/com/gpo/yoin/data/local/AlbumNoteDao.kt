@@ -43,6 +43,9 @@ interface AlbumNoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: AlbumNote)
 
+    @Query("SELECT * FROM album_notes WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AlbumNote?
+
     @Update
     suspend fun update(note: AlbumNote)
 

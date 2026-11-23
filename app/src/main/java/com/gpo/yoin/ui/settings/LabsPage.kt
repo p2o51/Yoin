@@ -44,6 +44,8 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     val downloading by processor.downloading.collectAsState()
     val reason by processor.unavailableReason.collectAsState()
     val optedIn by processor.optedIn.collectAsState()
+    val greetingsOn by processor.greetingsEnabled.collectAsState()
+    val aboutFollowUpsOn by processor.aboutFollowUpsEnabled.collectAsState()
     LaunchedEffect(processor) { processor.checkNow() }
     LabsPageBody(
         state = LabsState(
@@ -52,10 +54,14 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
             // phones have no AICore at all, and "NullPointerException" under "not supported" reads as a crash.
             reason = reason.takeIf { BuildConfig.DEBUG || BuildConfig.NANO_TEST },
             lyricsOn = optedIn,
+            greetingsOn = greetingsOn,
+            aboutFollowUpsOn = aboutFollowUpsOn,
         ),
         onDownload = processor::downloadNow,
         onCheckAgain = processor::checkNow,
         onLyricsChange = processor::setOptedIn,
+        onGreetingsChange = processor::setGreetingsEnabled,
+        onAboutFollowUpsChange = processor::setAboutFollowUpsEnabled,
         onOpenDiagnostics = {
             context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
         },
@@ -63,11 +69,13 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     )
 }
 
-/** What the Labs page shows: Nano here (null while it's never been asked), why not, and the lyric cards' switch. */
+/** What the Labs page shows: Nano here (null while it's never been asked), why not, and each beta switch. */
 internal data class LabsState(
     val nano: NanoStatus?,
     val reason: String? = null,
     val lyricsOn: Boolean,
+    val greetingsOn: Boolean = false,
+    val aboutFollowUpsOn: Boolean = false,
 )
 
 /** The page itself, stateless, so the Tips demo can show the real thing. */
@@ -81,6 +89,8 @@ internal fun LabsPageBody(
     switchModifier: Modifier = Modifier,
     /** Opens Gemini Nano diagnostics; null leaves the row out. */
     onOpenDiagnostics: (() -> Unit)? = null,
+    onGreetingsChange: ((Boolean) -> Unit)? = null,
+    onAboutFollowUpsChange: ((Boolean) -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -181,6 +191,56 @@ internal fun LabsPageBody(
                             )
                         },
                     )
+                }
+                if (onGreetingsChange != null) {
+                    item {
+                        SettingsItem(
+                            icon = YoinSymbols.LightMode,
+                            title = stringResource(R.string.labs_greetings_title),
+                            summary = stringResource(R.string.labs_greetings_detail),
+                            onClick = if (nanoHere) {
+                                {
+                                    haptics.performContextClick()
+                                    onGreetingsChange(!state.greetingsOn)
+                                }
+                            } else {
+                                null
+                            },
+                            trailing = {
+                                Switch(
+                                    checked = state.greetingsOn && nanoHere,
+                                    onCheckedChange = null,
+                                    enabled = nanoHere,
+                                    modifier = Modifier.handPointer(enabled = nanoHere),
+                                )
+                            },
+                        )
+                    }
+                }
+                if (onAboutFollowUpsChange != null) {
+                    item {
+                        SettingsItem(
+                            icon = YoinSymbols.Sparkle,
+                            title = stringResource(R.string.labs_about_followups_title),
+                            summary = stringResource(R.string.labs_about_followups_detail),
+                            onClick = if (nanoHere) {
+                                {
+                                    haptics.performContextClick()
+                                    onAboutFollowUpsChange(!state.aboutFollowUpsOn)
+                                }
+                            } else {
+                                null
+                            },
+                            trailing = {
+                                Switch(
+                                    checked = state.aboutFollowUpsOn && nanoHere,
+                                    onCheckedChange = null,
+                                    enabled = nanoHere,
+                                    modifier = Modifier.handPointer(enabled = nanoHere),
+                                )
+                            },
+                        )
+                    }
                 }
             }
             if (state.nano == NanoStatus.UNAVAILABLE) {

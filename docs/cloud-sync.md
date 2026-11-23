@@ -10,13 +10,13 @@
 
 四端复用相同的同步数据契约与合并语义（Core 引擎已在 `:shared` 的 `CloudSyncCore` / `SyncEngine` 中跨平台对齐）：
 
-| 平台 | Google OAuth 方式 | 引擎实现 | Drive `appDataFolder` 远端文件 | 本地防克隆副本库（不入系统备份） |
+| 平台 | 同步位置与鉴权方式 | 引擎实现 | 远端存储形态（同一套 `SyncContracts` 线协议） | 本地防克隆副本库（不入系统备份） |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android** (`app/`) | Credential Manager + Play Services Drive Auth | Kotlin 同步引擎 + Room 副本库 | 共享 `SyncContracts` 线协议文件：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-<epoch>-<设备ID>.json` | `no_backup/yoin-sync.db` |
-| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | `GoogleSignIn` | `:shared` `CloudSyncCore` (`SyncEngine`, `DriveAppDataClient`) | 同上共享 `SyncContracts` 线协议文件 | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `keychain-access-groups`） |
-| **HarmonyOS** (`harmony/`) | Loopback OAuth PKCE | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
+| **Android** (`app/`) | Google Drive（Credential Manager + Play Services Drive Auth） | Kotlin 同步引擎 + Room 副本库 | `appDataFolder`：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-*`、`yoin-purge-*`、`yoin-migrated-*` | `no_backup/yoin-sync.db` |
+| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | **iCloud（CloudKit 私有库，免登录）** 或 Google Drive（`GoogleSignIn`） | `:shared` `CloudSyncCore`（`SyncEngine`、`DriveAppDataClient`、`CloudKitSyncTransport`） | 同上线协议；iCloud 存入私有库自定义 Zone `YoinSyncZone` 的 `YoinSyncFile`（元数据字段 + `CKAsset` 存 `.json.gz`，绕开 1 MB 上限） | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `iCloud.com.gpo.yoin` CloudKit 与 `keychain-access-groups`） |
+| **HarmonyOS** (`harmony/`) | Google Drive（Loopback OAuth PKCE） | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
 
-> 注：所有平台均必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。
+> 注：Google Drive 各平台必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。iCloud（CloudKit）仅支持 Apple 设备（iOS / iPadOS / macOS），与 Android / 鸿蒙互通请继续使用 Google Drive 或通过「导出 / 导入备份文件」迁移。
 
 ## 评估结论
 
@@ -37,6 +37,7 @@
 | 数据 | 归属 | 合并方式 |
 |---|---|---|
 | 歌曲笔记 | 按音乐账号 | 删除会同步（墓碑）；批量消失会先暂停问你 |
+| 专辑笔记（`album_note`，2026-11-23 笔记改版起；一张专辑可多条） | 按音乐账号 | 同歌曲笔记：按笔记 id，最后修改为准，删除会同步（墓碑），同时一边改一边删时留下改的那条；Android 发布，iOS / HarmonyOS 暂无适配器时把记录原样带着再发布（不写库、不丢墓碑）。旧备份里只在备份中的 `album_note` 记录同名同字段，导入时照普通同步类型合并，每条只写一次 |
 | 单曲评分、专辑评分 | 按音乐账号 | 最后修改的为准（取消评分 = 0，也是一个值） |
 | 专辑长评 | 按音乐账号 | 两台设备同时改：**两段都保留**，中间用「设备 · 日期」分隔 |
 | 首页布局 | 按音乐账号 | 最后修改的为准；「恢复默认」会同步（本机删掉布局行 = 默认）。文档里两栏的并排记忆（可选的 `wide` 键，见 design.md「两栏的并排记忆」）随同一个字符串同步；不认识它的版本写入时会丢掉，新版本再按 `span` 推出来 |
@@ -48,16 +49,19 @@
 | 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」、Apple Music 店面） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
 | 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md`） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
 
+笔记和长评里的格式和提及（`[@名字](yoin:…)`，见 `docs/design.md` 专辑详情「笔记的文字格式」）就是文字的一部分，原样同步；两台设备同时改长评时拼接两段也不会弄坏格式。
+
 **不同步**：密码、Token、API Key（音源 / NeoDB / 在线 AI / 外部搜索）、Apple Music 服务地址、当前激活的账号、头像、播放历史/活动记录（每台设备各自保留）、各种音频与封面缓存、`ScreenCorners`（每台设备屏幕物理圆角不同）、手打的歌词（v1 暂不；从搜索面板选的歌词会随 AI 译文的快照带过去，带「用户选择」标记）。
 
 ## 怎么存
 
 ```
-Drive appDataFolder（隐藏，只有 Yoin 能读写）
+Drive appDataFolder / CloudKit Private Database (iCloud.com.gpo.yoin / YoinSyncZone)
   yoin-state-<设备ID>.json.gz            每台设备一份：笔记/评分/布局/设置/账号描述 + 墓碑
   yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask、歌单备份
   yoin-reset-<时间>-<设备ID>.json         「删除云端数据」留下的标记
   yoin-purge-<时间>-<设备ID>.json         「从云端移除这个账号」留下的标记（见下文）
+  yoin-migrated-<时间>-<设备ID>.json      「切换同步位置」留在旧位置的迁移提示标记（含 targetLocation）
 ```
 
 - 每台设备上传的是**完整副本**（含别的设备来的数据），所以任何一台设备丢了，数据都还在。
@@ -139,7 +143,7 @@ readable/global/歌单备份.md        歌单备份列表（含曲目）
 - **内容 = 本机此刻同步会上传的东西**：本机副本里的全部记录（所有账号，包括「Drive 里有，本机没有」的、墓碑、本版本不认识的类型），再叠上本机数据库的现状——和副本一致的行保留原版本；同步后改过的行按采集规则生成本机的新版本；同步过、现在被删掉的笔记 / 专辑标题写成墓碑。并发的乐评不在导出时合并，下次同步照常处理。
 - **没开过云同步**也能导出：直接用各适配器的投影；账号的 scope 和绑定时会得到的一样（Subsonic 指纹、本机已知的 Spotify 用户），算不出来的（Apple Music、没解析过的 Spotify）用 `local-<本机 profile id>`。同一账号在本机有两个 profile 时，后一个也用 `local-…`，不混在一起。
 - **墓碑保留**：快照是无损的，墓碑能防止导回同步副本时把删掉的笔记复活；导入到本机数据时墓碑什么也不删。
-- 额外带两类只在备份里的记录：`album_note`（专辑笔记，key = 笔记 id）和 `track_album_link`（歌曲 → 专辑，key = `provider␟trackId`）。它们不同步，导入时只写本机数据库，**永远不进同步副本和 Drive**。
+- 额外带一类只在备份里的记录：`track_album_link`（歌曲 → 专辑，key = `provider␟trackId`）。它不同步，导入时只写本机数据库，**永远不进同步副本和 Drive**。专辑笔记（`album_note`）自笔记改版起是普通同步类型，和歌曲笔记一样从同步适配器进备份；旧版备份里作为只在备份中的 `album_note` 记录也照样能导入（同一形状，走同步合并，按 id 去重）。迁移 Memories 时，笔记、专辑笔记和长评里指向被重新匹配的歌曲 / 专辑的提及（`[@名字](yoin:…)`）改指目标账号的 id（`NoteMarkup.rewriteMentions`），名字和其余文字不动。
 - 白名单和同步完全一样：所有值都来自适配器投影、副本里已经过白名单的 payload，或账号描述的那几个字段。密码、Token、API Key 永不进入文件（有哨兵测试）。
 - readable/ 只给人看，导入时不读。名字只用本机已有的信息（Yoin 自己的播放记录、笔记里的歌名、专辑笔记里的专辑名），不联网；不知道名字的写 id。
 

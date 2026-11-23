@@ -21,8 +21,10 @@ object CanonicalJson {
     /** Lowercase hex SHA-256 of [canonical]. */
     fun hash(element: JsonElement): String = sha256Hex(canonical(element))
 
-    fun sha256Hex(text: String): String {
-        val digest = Sha256.digest(text.encodeToByteArray())
+    fun sha256Hex(text: String): String = sha256Hex(text.encodeToByteArray())
+
+    fun sha256Hex(bytes: ByteArray): String {
+        val digest = Sha256.digest(bytes)
         val hex = "0123456789abcdef"
         return buildString(64) {
             for (byte in digest) {
