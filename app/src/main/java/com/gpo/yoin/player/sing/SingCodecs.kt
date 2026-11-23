@@ -44,7 +44,12 @@ object SingPcmDecoder {
             val mime = format.getString(MediaFormat.KEY_MIME)!!
             val delay = format.intOr(KEY_ENCODER_DELAY, 0)
             val padding = format.intOr(KEY_ENCODER_PADDING, 0)
-            format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT)
+            // Ask compressed decoders for float output. For audio/raw (WAV) the key describes the
+            // *input* samples, so overriding it would make 16-bit data be read as float (half the
+            // frames, NaN garbage) — keep the container's own encoding there.
+            if (mime != MediaFormat.MIMETYPE_AUDIO_RAW) {
+                format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT)
+            }
 
             var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val expected = if (format.containsKey(MediaFormat.KEY_DURATION)) {
@@ -80,8 +85,8 @@ object SingPcmDecoder {
                         fun s(c: Int): Float =
                             if (floatOut) buffer.getFloat(at + c * 4) else buffer.getShort(at + c * 2) / 32768f
                         val (l, r) = foldDown(channels, ::s)
-                        left.add(l)
-                        right.add(r)
+                        left.add(if (l.isFinite()) l else 0f)
+                        right.add(if (r.isFinite()) r else 0f)
                     }
                 },
             )
@@ -203,7 +208,8 @@ object QuadAacEncoder {
         }
     }
 
-    private fun pcm16(v: Float): Short = (v * 32767f).roundToInt().coerceIn(-32768, 32767).toShort()
+    private fun pcm16(v: Float): Short =
+        if (v.isFinite()) (v * 32767f).roundToInt().coerceIn(-32768, 32767).toShort() else 0
 
     private const val BLOCK_FRAMES = 4096
     internal const val TIMEOUT_US = 10_000L
