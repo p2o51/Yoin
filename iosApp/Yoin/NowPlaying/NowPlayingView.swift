@@ -1077,8 +1077,8 @@ struct NowPlayingView: View, Equatable {
                             model.sing.setSliderPosition(nextLevel)
                         }
                         .transition(.asymmetric(
-                            insertion: .scale(scale: 0.96, anchor: .bottom).combined(with: .opacity),
-                            removal: .scale(scale: 0.96, anchor: .bottom).combined(with: .opacity)
+                            insertion: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity),
+                            removal: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity)
                         ))
                     }
                 }
@@ -1090,8 +1090,7 @@ struct NowPlayingView: View, Equatable {
                     // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
                     // and still, not an empty heart that would save it.
                     heart
-                        .scaleEffect(showSingInRatingColumn ? 0.65 : 1)
-                        .rotationEffect(.degrees(showSingInRatingColumn ? -28 : 0))
+                        .scaleEffect(showSingInRatingColumn ? 0.84 : 1)
                         .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : heartKnown ? 1 : 0.38))
                         .allowsHitTesting(!showSingInRatingColumn && !isEpisode && heartKnown)
                         .animation(Yoin.effects, value: isEpisode || !heartKnown)
@@ -1103,8 +1102,7 @@ struct NowPlayingView: View, Equatable {
                     ) {
                         model.sing.exit()
                     }
-                    .scaleEffect(showSingInRatingColumn ? 1 : 0.65)
-                    .rotationEffect(.degrees(showSingInRatingColumn ? 0 : 28))
+                    .scaleEffect(showSingInRatingColumn ? 1 : 0.84)
                     .opacity(showSingInRatingColumn ? 1 : 0)
                     .allowsHitTesting(showSingInRatingColumn)
                 }
