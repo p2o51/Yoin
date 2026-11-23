@@ -188,10 +188,32 @@ void main() {
   group('name region', () {
     test('should_detectLanguage_when_genreIsrcOrScriptTells', () {
       expect(OriginalNameTarget.detect(genre: 'J-Pop'), OriginalNameTarget.japan);
-      expect(OriginalNameTarget.detect(genre: '华语流行'), OriginalNameTarget.mainlandChina);
+      expect(OriginalNameTarget.detect(genre: 'アニメ'), OriginalNameTarget.japan);
+      expect(OriginalNameTarget.detect(genre: '华语流行'), OriginalNameTarget.taiwan);
+      expect(
+        OriginalNameTarget.detect(title: 'x', artist: 'y', genre: 'Mandopop', isrc: 'CNXXX1900001'),
+        OriginalNameTarget.mainlandChina,
+      );
+      expect(
+        OriginalNameTarget.detect(title: 'Sunny Day', artist: 'Jay Chou', genre: 'Mandopop', isrc: 'TWA011900001'),
+        OriginalNameTarget.taiwan,
+      );
+      expect(OriginalNameTarget.detect(genre: 'Cantopop'), OriginalNameTarget.hongKong);
       expect(OriginalNameTarget.detect(isrc: 'KRA382400001'), OriginalNameTarget.korea);
       expect(OriginalNameTarget.detect(title: 'さよなら'), OriginalNameTarget.japan);
-      expect(OriginalNameTarget.detect(title: '晴天'), OriginalNameTarget.mainlandChina);
+      // Han-only names without Chinese genre/ISRC (e.g. "藤井 風") must not route to CN.
+      expect(OriginalNameTarget.detect(title: '晴天'), isNull);
+      expect(OriginalNameTarget.detect(artist: '藤井 風'), isNull);
+      expect(
+        OriginalNameTarget.detect(
+          title: '我要給世界最悠長的濕吻',
+          artist: '徐佳瑩',
+          genre: 'Mandopop',
+          isrc: 'TWA011900001',
+        ),
+        isNull,
+      );
+      expect(OriginalNameTarget.detect(artist: 'ミューズ', genre: 'Alternative'), OriginalNameTarget.unitedStates);
       expect(OriginalNameTarget.detect(title: 'Hello', artist: 'Adele', genre: 'Pop', isrc: 'GBBKS1500214'), isNull);
     });
 
@@ -200,6 +222,17 @@ void main() {
       expect(OriginalNameTarget.accepts(region, OriginalNameTarget.japan, 'Sayonara', 'さよなら'), isTrue);
       expect(OriginalNameTarget.accepts(region, OriginalNameTarget.japan, 'Sayonara', 'Goodbye'), isFalse);
       expect(OriginalNameTarget.accepts(region, OriginalNameTarget.mainlandChina, 'X', 'さよなら'), isFalse);
+      expect(OriginalNameTarget.accepts(region, OriginalNameTarget.mainlandChina, '藤井 風', '藤井风'), isFalse);
+      expect(OriginalNameTarget.accepts(region, OriginalNameTarget.mainlandChina, '張懸', '张悬'), isFalse);
+      expect(OriginalNameTarget.accepts(region, OriginalNameTarget.taiwan, 'Rainie Yang', '楊丞琳'), isTrue);
+      expect(
+        OriginalNameTarget.accepts(region, OriginalNameTarget.korea, 'NewJeans', '뉴진스', isArtist: true),
+        isFalse,
+      );
+      expect(
+        OriginalNameTarget.accepts(region, OriginalNameTarget.korea, 'Good Day', '좋은 날', isArtist: false),
+        isTrue,
+      );
       expect(OriginalNameTarget.accepts(AppleMusicNameRegion.japan, OriginalNameTarget.japan, 'A', 'B'), isTrue);
       expect(OriginalNameTarget.accepts(region, OriginalNameTarget.japan, 'さよなら', 'さよなら'), isFalse);
     });
@@ -233,6 +266,308 @@ void main() {
       final results = await server.source().library.search('x');
       expect(results.tracks.first.title, 'Song 11');
       expect(server.requests.where((r) => r.url.path.startsWith('/v1/catalog/cn')), isEmpty);
+    });
+
+    test('should_recoverEnglishNames_when_originalModeRunsOnJpOrCnStorefront', () async {
+      expect(
+        OriginalNameTarget.detect(
+          title: 'Bad Guy',
+          artist: 'ビリー・アイリッシュ',
+          genre: 'Alternative',
+          isrc: 'USUM71900764',
+        ),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: 'ミッドナイツ', artist: 'テイラー・スウィフト', genre: 'Pop'),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: '红', artist: '泰勒·斯威夫特', genre: 'Pop', isrc: 'USCJY1231001'),
+        OriginalNameTarget.unitedStates,
+      );
+      expect(
+        OriginalNameTarget.detect(title: '晴る', artist: 'ヨルシカ', genre: 'J-Pop', isrc: 'JPPO02400001'),
+        OriginalNameTarget.japan,
+      );
+      expect(
+        OriginalNameTarget.accepts(
+          AppleMusicNameRegion.original,
+          OriginalNameTarget.unitedStates,
+          'ビリー・アイリッシュ',
+          'Billie Eilish',
+        ),
+        isTrue,
+      );
+      expect(
+        OriginalNameTarget.accepts(
+          AppleMusicNameRegion.original,
+          OriginalNameTarget.unitedStates,
+          'Bad Guy',
+          'bad guy',
+        ),
+        isFalse,
+      );
+
+      final server = _Server({
+        '/v1/catalog/jp/search': (_) => _json({
+          'results': {
+            'songs': {
+              'data': [
+                {
+                  'id': '91',
+                  'type': 'songs',
+                  'attributes': {
+                    'name': 'Bad Guy',
+                    'artistName': 'ビリー・アイリッシュ',
+                    'albumName': 'ホエン・ウィ・オール・フォール・アスリープ',
+                    'genreNames': ['Alternative'],
+                    'isrc': 'USUM71900764',
+                  },
+                },
+                {
+                  'id': '92',
+                  'type': 'songs',
+                  'attributes': {
+                    'name': '晴る',
+                    'artistName': 'ヨルシカ',
+                    'albumName': '晴る - Single',
+                    'genreNames': ['J-Pop'],
+                    'isrc': 'JPPO02400001',
+                  },
+                },
+              ],
+            },
+          },
+        }),
+        '/v1/catalog/us/songs': (_) => _json({
+          'data': [
+            {
+              'id': '91',
+              'type': 'songs',
+              'attributes': {
+                'name': 'bad guy',
+                'artistName': 'Billie Eilish',
+                'albumName': 'WHEN WE ALL FALL ASLEEP',
+              },
+            },
+          ],
+        }),
+      });
+      final results = await server.source(region: AppleMusicNameRegion.original).library.search('billie');
+      final usReq = server.to('/v1/catalog/us/songs').single;
+      expect(usReq.url.queryParameters['l'], 'en-US');
+      expect(usReq.url.queryParameters['ids'], '91');
+      expect(results.tracks[0].title, 'Bad Guy');
+      expect(results.tracks[0].artist, 'Billie Eilish');
+      expect(results.tracks[0].album, 'WHEN WE ALL FALL ASLEEP');
+      expect(results.tracks[1].title, '晴る');
+      expect(results.tracks[1].artist, 'ヨルシカ');
+    });
+
+    test('should_renameLibraryArtistsAndGroupByRenamedInitial_when_originalModeRunsOnJpStorefront', () async {
+      final server = _Server({
+        '/v1/me/library/artists': (_) => _json({
+          'data': [
+            {
+              'id': 'r.1',
+              'type': 'library-artists',
+              'attributes': {'name': 'テイラー・スウィフト'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '159260351',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'テイラー・スウィフト',
+                        'genreNames': ['Pop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              'id': 'r.2',
+              'type': 'library-artists',
+              'attributes': {'name': 'ヨルシカ'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '12345',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'ヨルシカ',
+                        'genreNames': ['J-Pop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+        '/v1/catalog/us/artists': (_) => _json({
+          'data': [
+            {
+              'id': '159260351',
+              'type': 'artists',
+              'attributes': {'name': 'Taylor Swift'},
+            },
+          ],
+        }),
+      });
+      final indices = await server.source(region: AppleMusicNameRegion.original).library.getArtists();
+      final usReq = server.to('/v1/catalog/us/artists').single;
+      expect(usReq.url.queryParameters['l'], 'en-US');
+      expect(usReq.url.queryParameters['ids'], '159260351');
+      final byGroup = {for (final g in indices) g.name: g.artists.map((a) => a.name).toList()};
+      expect(byGroup['T'], ['Taylor Swift']);
+      expect(byGroup['ヨ'], ['ヨルシカ']);
+    });
+
+    test('should_recoverSingleWordKatakanaAndProtectJpTwKpopAndAlbumHeader_when_originalOnJp', () async {
+      final server = _Server({
+        '/v1/me/library/artists': (_) => _json({
+          'data': [
+            {
+              'id': 'r.101',
+              'type': 'library-artists',
+              'attributes': {'name': 'ミューズ'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '101',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'ミューズ',
+                        'genreNames': ['Alternative'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              'id': 'r.103',
+              'type': 'library-artists',
+              'attributes': {'name': '藤井 風'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '103',
+                      'type': 'artists',
+                      'attributes': {'name': '藤井 風'},
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              'id': 'r.104',
+              'type': 'library-artists',
+              'attributes': {'name': '張懸'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '104',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': '張懸',
+                        'genreNames': ['Mandopop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              'id': 'r.105',
+              'type': 'library-artists',
+              'attributes': {'name': 'NewJeans'},
+              'relationships': {
+                'catalog': {
+                  'data': [
+                    {
+                      'id': '105',
+                      'type': 'artists',
+                      'attributes': {
+                        'name': 'NewJeans',
+                        'genreNames': ['K-Pop'],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+        '/v1/catalog/us/artists': (_) => _json({
+          'data': [
+            {
+              'id': '101',
+              'type': 'artists',
+              'attributes': {'name': 'Muse'},
+            },
+          ],
+        }),
+        '/v1/catalog/jp/albums/201': (_) => _json({
+          'data': [
+            {
+              'id': '201',
+              'type': 'albums',
+              'attributes': {
+                'name': 'Absolution',
+                'artistName': 'ミューズ',
+                'genreNames': ['Alternative'],
+              },
+            },
+          ],
+        }),
+        '/v1/catalog/jp/albums/201/tracks': (_) => _json({
+          'data': [
+            {
+              'id': '301',
+              'type': 'songs',
+              'attributes': {
+                'name': 'Time Is Running Out',
+                'artistName': 'ミューズ',
+                'albumName': 'Absolution',
+                'genreNames': ['Alternative'],
+                'isrc': 'GBAHT0300001',
+              },
+            },
+          ],
+        }),
+        '/v1/catalog/us/albums': (_) => _json({'data': []}),
+        '/v1/catalog/us/songs': (_) => _json({
+          'data': [
+            {
+              'id': '301',
+              'type': 'songs',
+              'attributes': {
+                'name': 'Time Is Running Out',
+                'artistName': 'Muse',
+                'albumName': 'Absolution',
+              },
+            },
+          ],
+        }),
+      });
+      final library = server.source(region: AppleMusicNameRegion.original).library;
+      final artists = (await library.getArtists()).expand((g) => g.artists).map((a) => a.name).toSet();
+      expect(artists, {'Muse', '藤井 風', '張懸', 'NewJeans'});
+      expect(server.to('/v1/catalog/cn/artists'), isEmpty);
+      expect(server.to('/v1/catalog/kr/artists'), isEmpty);
+
+      final album = await library.getAlbum(MediaId(MediaId.providerAppleMusic, '201'));
+      expect(album?.artist, 'Muse');
+      expect(album?.tracks.single.artist, 'Muse');
     });
 
     test('should_readEachAccountsRegion_when_storedByProfile', () async {

@@ -149,6 +149,29 @@ class AppleMusicSource(
         return regionalNames.albums(region, storefrontOrNull(), albums)
     }
 
+    private suspend fun regionalArtists(resources: List<JsonObject>): List<Artist> {
+        val parsed = resources.map { resource -> artist(resource) to artistHint(resource) }
+        val region = nameRegion()
+        if (region == AppleMusicNameRegion.Off) return parsed.map { it.first }
+        val hintsById = parsed.associate { (artist, hint) -> artist.id to hint }
+        return regionalNames.artists(region, storefrontOrNull(), parsed.map { it.first }) { artist ->
+            hintsById[artist.id] ?: AppleMusicNameResolver.ArtistHint(null, null)
+        }
+    }
+
+    private fun artistHint(resource: JsonObject): AppleMusicNameResolver.ArtistHint {
+        val type = resource.text("type")
+        val catalog = if (type == "library-artists") {
+            resource.related("catalog").firstOrNull { it.text("type") == "artists" }
+        } else {
+            resource
+        }
+        val catalogId = catalog?.text("id")
+        val genre = (resource.attributes()["genreNames"] ?: catalog?.attributes()?.get("genreNames"))
+            ?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.joinToString(", ")?.ifBlank { null }
+        return AppleMusicNameResolver.ArtistHint(catalogId = catalogId, genre = genre)
+    }
+
     override fun library() = this
     override fun metadata() = this
     override fun writeActions() = this
@@ -471,7 +494,7 @@ class AppleMusicSource(
 
     // An include Apple refuses costs the portraits, never the list: the artists are read again without it.
     override suspend fun getArtists(): List<ArtistIndex> =
-        all(path("artists"), LibraryArtistsQuery, fallback = PageLimitQuery).map(::artist)
+        regionalArtists(all(path("artists"), LibraryArtistsQuery, fallback = PageLimitQuery))
             .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
             .map { (letter, artists) -> ArtistIndex(letter, artists) }
 
@@ -487,10 +510,14 @@ class AppleMusicSource(
             page(path)
         }
         val resource = response.resources().firstOrNull() ?: return null
-        val artist = artist(resource)
-        // The albums relationship pages 25 by default, 100 at most.
-        val albums = regionalAlbums(all(path + "albums", PageLimitQuery).map(::album))
-        return ArtistDetail(artist.id, artist.name, albums.size, artist.coverArt, albums = albums)
+        return coroutineScope {
+            val renamedArtist = async { regionalArtists(listOf(resource)).first() }
+            // The albums relationship pages 25 by default, 100 at most.
+            val albums = async { regionalAlbums(all(path + "albums", PageLimitQuery).map(::album)) }
+            val artist = renamedArtist.await()
+            val albumList = albums.await()
+            ArtistDetail(artist.id, artist.name, albumList.size, artist.coverArt, albums = albumList)
+        }
     }
 
     override suspend fun getPlaylists(): List<Playlist> = all(path("playlists")).map(::listedPlaylist)
@@ -597,7 +624,7 @@ class AppleMusicSource(
         return SearchResults(
             tracks = regionalTracks(results["songs"]?.jsonObject?.resources().orEmpty().songTracks()),
             albums = regionalAlbums(results["albums"]?.jsonObject?.resources().orEmpty().map(::album)),
-            artists = results["artists"]?.jsonObject?.resources().orEmpty().map(::artist),
+            artists = regionalArtists(results["artists"]?.jsonObject?.resources().orEmpty()),
             playlists = results["playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
         )
     }
@@ -621,7 +648,7 @@ class AppleMusicSource(
             albums = regionalAlbums(
                 results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
             ),
-            artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
+            artists = regionalArtists(results["library-artists"]?.jsonObject?.resources().orEmpty()),
             playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::listedPlaylist)
         )
     }
@@ -963,7 +990,8 @@ class AppleMusicSource(
             return Album(
                 catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
                 a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
-                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
+                (a["genreNames"] ?: catalog?.attributes()?.get("genreNames"))
+                    ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
                 libraryAddedAt = a.text("dateAdded")
             )
         }

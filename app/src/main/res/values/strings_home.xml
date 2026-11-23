@@ -253,6 +253,8 @@
     <!-- Copy by Gemini 4 Argon (.argon/notes-mention-tip), line revised in review 2026-11-23. -->
     <string name="home_tip_note_mentions_title">Mention in notes</string>
     <string name="home_tip_note_mentions">Type @ in a note or review to mention a song, album, or artist</string>
+    <string name="home_tip_apple_music_names_title">Apple Music song names</string>
+    <string name="home_tip_apple_music_names">In your Apple Music account settings, show each song in its original language or pick another storefront region</string>
     <!-- Copy by Rebecca, 2026-11-23. -->
     <string name="home_tip_album_stickies_title">Album notes</string>
     <string name="home_tip_album_stickies">Tap an empty spot in an album\'s Scrapbook to stick notes onto the whole album</string>

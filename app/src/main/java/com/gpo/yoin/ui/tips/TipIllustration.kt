@@ -59,6 +59,7 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.AppleMusicSongNames -> AppleMusicSongNamesDemo(playing)
             HomeBubbleTip.NoteMentions -> NoteMentionsDemo(playing)
             HomeBubbleTip.AlbumStickies -> AlbumStickiesDemo(playing)
             HomeBubbleTip.MentionedIn -> MentionedInDemo(playing)

@@ -36,6 +36,7 @@ struct ServiceSetupView: View {
     /// Android SpotifyDeveloperGroup: a one-time developer chore, open by itself only while it blocks.
     @State private var clientIdOpen = (SpotifyConfig.clientId ?? "").isEmpty
     @State private var showSpotifyGuide = false
+    @State private var showNameRegionPicker = false
     @FocusState private var focus: Field?
 
     private enum TestResult: Equatable { case testing, reachable, failed(String) }
@@ -393,13 +394,40 @@ struct ServiceSetupView: View {
     /// Android AppleMusicNameRegionGroup: which storefront the account's songs and albums are named from.
     private func nameRegionGroup(_ profileId: String) -> some View {
         let selected = AppleMusicNameRegionStore.shared.region(profileId)
+        let chosenStorefront = selected.storefrontOption
         return VStack(alignment: .leading, spacing: 8) {
             group(String(localized: "Song names")) {
-                AppleMusicNameRegion.allCases.map { region in
-                    AnyView(nameRegionRow(region, selected: region == selected) {
-                        AppleMusicNameRegionStore.shared.set(region, for: profileId)
-                    })
-                }
+                [
+                    AnyView(nameRegionRow(
+                        title: Self.title(.off),
+                        summary: Self.summary(.off),
+                        selected: selected == .off,
+                        alwaysClickable: false,
+                        showChevron: false,
+                    ) {
+                        AppleMusicNameRegionStore.shared.set(.off, for: profileId)
+                    }),
+                    AnyView(nameRegionRow(
+                        title: Self.title(.original),
+                        summary: Self.summary(.original),
+                        selected: selected == .original,
+                        alwaysClickable: false,
+                        showChevron: false,
+                    ) {
+                        AppleMusicNameRegionStore.shared.set(.original, for: profileId)
+                    }),
+                    AnyView(nameRegionRow(
+                        title: String(localized: "From a specific region"),
+                        summary: chosenStorefront.map {
+                            String(localized: "Names from Apple Music's \($0.displayName()) storefront")
+                        } ?? String(localized: "Choose an Apple Music storefront"),
+                        selected: chosenStorefront != nil,
+                        alwaysClickable: true,
+                        showChevron: true,
+                    ) {
+                        showNameRegionPicker = true
+                    }),
+                ]
             }
             Text("Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has.")
                 .yoinRole(Tokens.type.bodySmall)
@@ -409,11 +437,49 @@ struct ServiceSetupView: View {
         }
         .sensoryFeedback(.selection, trigger: selected)
         .animation(Yoin.effects, value: selected)
+        .sheet(isPresented: $showNameRegionPicker) {
+            NavigationStack {
+                List(AppleMusicStorefrontOption.curated) { option in
+                    let isSelected = option == chosenStorefront
+                    Button {
+                        AppleMusicNameRegionStore.shared.set(.storefront(option), for: profileId)
+                        showNameRegionPicker = false
+                    } label: {
+                        HStack {
+                            Text(option.displayName())
+                                .foregroundStyle(isSelected ? app.primary : app.onSurface)
+                            Spacer()
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(app.primary)
+                            }
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .navigationTitle(String(localized: "Choose a region"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(localized: "Cancel")) { showNameRegionPicker = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
-    private func nameRegionRow(_ region: AppleMusicNameRegion, selected: Bool, onSelect: @escaping () -> Void) -> some View {
+    private func nameRegionRow(
+        title: String,
+        summary: String,
+        selected: Bool,
+        alwaysClickable: Bool,
+        showChevron: Bool,
+        onSelect: @escaping () -> Void,
+    ) -> some View {
         Button {
-            if !selected { onSelect() }
+            if alwaysClickable || !selected { onSelect() }
         } label: {
             HStack(spacing: 12) {
                 ZStack {
@@ -423,15 +489,20 @@ struct ServiceSetupView: View {
                 .frame(width: 20, height: 20)
                 .animation(Yoin.spatial, value: selected)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.title(region))
+                    Text(title)
                         .yoinRole(Tokens.type.titleMedium)
                         .foregroundStyle(app.onSurface)
-                    Text(Self.summary(region))
+                    Text(summary)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -446,17 +517,16 @@ struct ServiceSetupView: View {
         switch region {
         case .off: String(localized: "As Apple Music shows them")
         case .original: String(localized: "In their original language")
-        case .mainlandChina: String(localized: "As China mainland names them")
-        case .japan: String(localized: "As Japan names them")
+        case .storefront: String(localized: "From a specific region")
         }
     }
 
     static func summary(_ region: AppleMusicNameRegion) -> String {
         switch region {
         case .off: String(localized: "Names from your own storefront")
-        case .original: String(localized: "A Japanese song keeps its Japanese name, a Korean one its Korean name")
-        case .mainlandChina: String(localized: "Names from Apple Music's China mainland storefront")
-        case .japan: String(localized: "Names from Apple Music's Japan storefront")
+        case .original: String(localized: "Each song keeps the name in its own language")
+        case .storefront(let option):
+            String(localized: "Names from Apple Music's \(option.displayName()) storefront")
         }
     }
 
