@@ -58,7 +58,9 @@ import okhttp3.OkHttpClient
  * count in the app's PSS, but are file pages the system can write back and drop): X, the decoded mix,
  * 2 × 4 B × 44 100 ≈ 353 KB; the 22.05 kHz mix and V, ≈ 353 KB; the vocal track, 6 B × 44 100
  * ≈ 265 KB — ≈ 970 KB/s, ~190 MB for a 3:16 song once separated whole. Plus the ORT session (weights,
- * XNNPACK's packed copy, its activation arena), and 4 MB of reused tensors.
+ * XNNPACK's packed copy, its activation arena: native heap, ~the planned peak of a run once the first
+ * run's arena is shrunk, handed back when the last session closes — see [OrtSeparationModel]), and
+ * 4 MB of reused tensors.
  *
  * One song at a time; a request for another song cancels the one in progress (the listener moved on).
  * The first request runs the device gate ([SingDeviceGate]) once.
@@ -483,13 +485,16 @@ class OnDeviceSingStreamProvider(
     private fun openSession(model: File): SeparationModel {
         val t0 = System.nanoTime()
         return OrtSeparationModel.open(model, threads, modelStore.config.execution).also {
-            Log.d(TAG, "session open ${(System.nanoTime() - t0) / 1_000_000} ms (${if (it.usesXnnpack) "XNNPACK" else "CPU"}, $threads threads)")
+            val t = OrtSeparationModel.threading(threads, it.usesXnnpack)
+            val how = if (it.usesXnnpack) "XNNPACK ${t.xnnpackThreads} threads + ORT ${t.ortThreads}" else "CPU, ${t.ortThreads} threads"
+            Log.d(TAG, "session open ${(System.nanoTime() - t0) / 1_000_000} ms ($how)")
         }
     }
 
     private val gatePrefs by lazy { context.getSharedPreferences(GATE_PREFS, Context.MODE_PRIVATE) }
 
-    private fun gateFingerprint() = "${android.os.Build.FINGERPRINT}|${modelStore.config.sha256}|$threads|${modelStore.config.execution}"
+    private fun gateFingerprint() =
+        "${android.os.Build.FINGERPRINT}|${modelStore.config.sha256}|$threads|${modelStore.config.execution}|${OrtSeparationModel.CONFIG_TAG}"
 
     private fun restoreGate() {
         gateRestored = true
@@ -590,8 +595,9 @@ class OnDeviceSingStreamProvider(
         }
 
         /**
-         * Big cores only, roughly: half the cores, 2..4. (On a Pixel Tablet that's 4 threads, ~150 % CPU
-         * and ~1.6× real time; live Sing needs > 1×.)
+         * Big cores only, roughly: half the cores, 2..4 — XNNPACK's pool; ORT's own, for the nodes
+         * XNNPACK doesn't take, works in turn with it ([OrtSeparationModel.threading]). (On a Pixel
+         * Tablet that's 4 threads, ~1.6× real time; live Sing needs > 1×.)
          */
         fun defaultThreads(): Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 4)
     }

@@ -1,9 +1,12 @@
 package com.gpo.yoin.player.sing
 
 import com.gpo.yoin.player.sing.dsp.LyraSingSpec
+import ai.onnxruntime.OrtEnvironment
 import java.io.ByteArrayOutputStream
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +29,72 @@ class OrtSeparationModelTest {
                 assertEquals(-input.last(), output.last(), 0f)
             }
             assertTrue("pinned output kept", model.usesPinnedOutput)
+        }
+    }
+
+    private fun negFile() = File.createTempFile("neg", ".onnx").apply {
+        deleteOnExit()
+        writeBytes(negModel())
+    }
+
+    private fun assertNegates(model: OrtSeparationModel, round: Int) {
+        val input = FloatArray(LyraSingSpec.CHUNK_FLOATS) { (it % 89) * 0.02f - round }
+        val output = FloatArray(LyraSingSpec.CHUNK_FLOATS)
+        model.run(input, output)
+        for (i in input.indices step 3001) assertEquals("round $round at $i", -input[i], output[i], 0f)
+    }
+
+    @Test
+    fun should_shrinkTheArenaAfterTheFirstRunOnly_when_arenaPresent() {
+        OrtSeparationModel.open(negFile(), threads = 1, execution = SingExecution.Cpu).use { model ->
+            assertEquals(null, model.arenaShrunk)
+            for (round in 1..3) assertNegates(model, round)
+            assertEquals(true, model.arenaShrunk)
+            assertTrue(model.usesPinnedOutput)
+        }
+    }
+
+    @Test
+    fun should_runPlainly_when_ortRefusesTheShrink() {
+        // No arena: ORT refuses the shrink request before running anything; the chunk still runs once,
+        // pinned.
+        OrtSeparationModel.open(negFile(), threads = 1, execution = SingExecution.Cpu, cpuArena = false).use { model ->
+            for (round in 1..2) assertNegates(model, round)
+            assertEquals(false, model.arenaShrunk)
+            assertTrue("the refusal isn't a pinned-output failure", model.usesPinnedOutput)
+        }
+    }
+
+    @Test
+    fun should_releaseEverything_when_closed() {
+        val before = OrtSeparationModel.openSessions
+        val model = OrtSeparationModel.open(negFile(), threads = 1, execution = SingExecution.Cpu)
+        assertEquals(before + 1, OrtSeparationModel.openSessions)
+        assertNegates(model, 1)
+        model.close()
+        model.close() // twice is fine (the pool may close what Sing off already closed)
+        assertEquals(before, OrtSeparationModel.openSessions)
+        assertThrows(IllegalStateException::class.java) { assertNegates(model, 2) }
+    }
+
+    @Test
+    fun should_runTheTrimSession_when_lastSessionCloses() {
+        // The desktop runtime has no XNNPACK; the one-node trim model and its shrink run on ORT's CPU
+        // arena all the same.
+        assertTrue(OrtSeparationModel.trimSharedArena(OrtEnvironment.getEnvironment(), xnnpack = false))
+    }
+
+    @Test
+    fun should_giveOrtTwoNonSpinningThreads_when_xnnpackRuns() {
+        val xnnpack = OrtSeparationModel.threading(4, xnnpack = true)
+        assertEquals(OrtSeparationModel.Threading(xnnpackThreads = 4, ortThreads = 2, ortSpinning = false), xnnpack)
+        assertEquals("0", OrtSeparationModel.configEntries(xnnpack)["session.intra_op.allow_spinning"])
+        assertEquals(OrtSeparationModel.Threading(2, 2, false), OrtSeparationModel.threading(2, xnnpack = true))
+        val cpu = OrtSeparationModel.threading(4, xnnpack = false)
+        assertEquals(OrtSeparationModel.Threading(xnnpackThreads = 0, ortThreads = 4, ortSpinning = null), cpu)
+        assertFalse("ORT's default spinning", "session.intra_op.allow_spinning" in OrtSeparationModel.configEntries(cpu))
+        for (t in listOf(xnnpack, cpu)) {
+            assertEquals("1", OrtSeparationModel.configEntries(t)["session.use_device_allocator_for_initializers"])
         }
     }
 
