@@ -22,19 +22,23 @@ import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LatchPlate
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Lift
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LongPressHaptic
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.OpenPlaceholders
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchBy
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchEnd
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchStart
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PointerDown
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ReleaseCharge
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCarry
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCharge
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Touch
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.TryRegrab
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Cancel
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.CarryEnded
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Down
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.EditEnded
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Move
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.OtherPointer
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Regrabbed
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchDown
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchMove
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchUp
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Timer
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Up
 import kotlinx.coroutines.CoroutineScope
@@ -64,11 +68,10 @@ class HomeEditGestureMachineTest {
     private fun down(
         hit: HomeEditHit,
         editing: Boolean = false,
-        carryBusy: Boolean = false,
         fling: Boolean = false,
         t: Long = 0L,
         secondaryClick: Boolean = false,
-    ) = machine.handle(Down(hit, point, editing, carryBusy, fling, t, secondaryClick))
+    ) = machine.handle(Down(hit, point, editing, fling, t, secondaryClick))
 
     private fun moveBy(dx: Float, dy: Float, t: Long = 0L) = machine.handle(Move(point + Offset(dx, dy), t))
 
@@ -223,7 +226,7 @@ class HomeEditGestureMachineTest {
 
         // A short accessibility timeout still waits 150ms.
         val quick = HomeEditGestureMachine(longPressMs = 200L, slopPx = Slop)
-        quick.handle(Down(block, point, editing = true, carryBusy = false, flingInProgress = false, t = 0L))
+        quick.handle(Down(block, point, editing = true, flingInProgress = false, t = 0L))
         assertEquals(150L, quick.pendingTimer!!.atMs)
     }
 
@@ -303,33 +306,42 @@ class HomeEditGestureMachineTest {
         assertEquals(HomeEditGestureState.Idle, machine.state)
     }
 
+    // ── Pinch (owner 2026-11-22) ──────────────────────────────────────────
+
     @Test
-    fun should_regrab_when_settling() {
-        assertEquals(
-            listOf(Touch, PointerDown(true), TryRegrab(point, 10L), ConsumeRest),
-            down(block, editing = true, carryBusy = true, t = 10L),
-        )
-
-        machine.handle(Regrabbed)
-
-        assertEquals(HomeEditGestureState.Carry, machine.state)
-        assertEquals(listOf(CarryMove(point.y + 30f, 40L)), moveBy(0f, 30f, t = 40L))
-        assertTrue(CarryRelease(cancelled = false, 60L) in machine.handle(Up(60L)))
+    fun should_pinch_when_secondFingerBeforeLift() {
+        down(block, editing = true)
+        assertEquals(listOf(PinchStart, ConsumeRest, ConsumeOther), machine.handle(PinchDown(400f)))
+        assertEquals(HomeEditGestureState.Pinch, machine.state)
+        // The body hold never lifts a pinched block.
+        assertEquals(null, machine.pendingTimer)
+        assertEquals(listOf(PinchBy(.5f)), machine.handle(PinchMove(200f)))
+        assertEquals(emptyList<HomeEditGestureAction>(), moveBy(0f, 40f))
+        assertEquals(listOf(PinchEnd), machine.handle(PinchUp))
+        assertEquals(HomeEditGestureState.Done, machine.state)
+        assertEquals(listOf(PointerDown(false), Touch, OpenPlaceholders), machine.handle(Up(300L)))
     }
 
     @Test
-    fun should_ignore_when_unfolding() {
-        // The strip was not caught: the whole press is swallowed, nothing else happens.
-        val actions = down(block, editing = true, carryBusy = true)
-        assertTrue(ConsumeRest in actions)
-        assertEquals(HomeEditGestureState.Done, machine.state)
+    fun should_pinchFromScrollOrBlank_when_editing() {
+        down(HomeEditHit.Blank(HomeSection.Activities), editing = true)
+        moveBy(0f, 40f)
+        assertEquals(HomeEditGestureState.Passive, machine.state)
+        assertTrue(PinchStart in machine.handle(PinchDown(300f)))
+        // The tracked finger lifting first ends the pinch too.
+        assertEquals(listOf(PointerDown(false), Touch, PinchEnd, OpenPlaceholders), machine.handle(Up(200L)))
+    }
 
-        assertEquals(emptyList<HomeEditGestureAction>(), moveBy(0f, 100f))
-        assertEquals(emptyList<HomeEditGestureAction>(), machine.handle(Timer(HomeEditTimer.BodyHold)))
-        // A late catch report is ignored.
-        machine.handle(Regrabbed)
-        assertEquals(HomeEditGestureState.Done, machine.state)
-        assertEquals(listOf(PointerDown(false), Touch, OpenPlaceholders), machine.handle(Up(300L)))
+    @Test
+    fun should_ignoreSecondFinger_when_liftedOrNotEditing() {
+        liftByLongPress()
+        assertEquals(listOf(ConsumeOther), machine.handle(PinchDown(300f)))
+        assertEquals(HomeEditGestureState.Lifted, machine.state)
+        machine.handle(Up(800L))
+
+        down(block)
+        assertEquals(listOf(ConsumeOther), machine.handle(PinchDown(300f)))
+        assertEquals(HomeEditGestureState.Pressing, machine.state)
     }
 
     @Test
@@ -353,7 +365,7 @@ class HomeEditGestureMachineTest {
         fireNext()
         fireNext()
         assertEquals(listOf(ConsumeOther), machine.handle(OtherPointer))
-        moveBy(0f, 40f)
+        moveBy(0f, 40f, t = 500L)
         assertEquals(listOf(ConsumeOther), machine.handle(OtherPointer))
         // The state is unchanged by the other finger.
         assertEquals(HomeEditGestureState.Carry, machine.state)
@@ -422,7 +434,7 @@ class HomeEditGestureMachineTest {
             uptimeMs = uptimeMs,
         )
         val press = HomeEditPressState()
-        val engine = HomeCarryEngine(
+        val engine = HomeDragEngine(
             scope = scope,
             specs = specs,
             motion = motion,

@@ -75,8 +75,14 @@ class TipReadStoreTest {
 
     @Test
     fun should_readBareNamesAsTheOldTips_when_savedBeforeTipsHadADay() {
-        val saved = setOf(HomeBubbleTip.EditHome.name, HomeBubbleTip.PlayModes.name, HomeBubbleTip.SongMenu.name, "Gone")
-        // SongMenu was updated after bare names were last written: unread again.
-        assertEquals(setOf(HomeBubbleTip.EditHome, HomeBubbleTip.PlayModes), decodeReadTips(saved))
+        val saved = setOf(
+            HomeBubbleTip.PullForMemories.name,
+            HomeBubbleTip.PlayModes.name,
+            HomeBubbleTip.SongMenu.name,
+            HomeBubbleTip.EditHome.name,
+            "Gone",
+        )
+        // SongMenu and EditHome were updated after bare names were last written: unread again.
+        assertEquals(setOf(HomeBubbleTip.PullForMemories, HomeBubbleTip.PlayModes), decodeReadTips(saved))
     }
 }

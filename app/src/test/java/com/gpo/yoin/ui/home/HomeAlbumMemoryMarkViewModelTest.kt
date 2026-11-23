@@ -206,7 +206,7 @@ class HomeAlbumMemoryMarkViewModelTest {
         repository = repository,
         activeProfileId = MutableStateFlow(PROFILE),
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns flowOf(null)
+            every { store.documentFlow(any()) } returns flowOf(null)
         }
     )
 

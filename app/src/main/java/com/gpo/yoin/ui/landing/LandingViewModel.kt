@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.data.home.HomeLayoutDocument
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.home.HomeLayout
@@ -23,8 +23,8 @@ import kotlinx.coroutines.launch
 
 /** Where the landing reads and writes a profile's Home layout (the same rows Home's edit mode writes). */
 internal interface LandingLayoutGateway {
-    suspend fun read(profileId: String): List<HomeSectionPref>?
-    suspend fun write(profileId: String, sections: List<HomeSectionPref>)
+    suspend fun read(profileId: String): HomeLayoutDocument?
+    suspend fun write(profileId: String, document: HomeLayoutDocument)
     suspend fun clear(profileId: String)
 }
 
@@ -78,7 +78,7 @@ internal class LandingViewModel(
                 val active = activeProfileId.value
                 if (active != null) {
                     val stored = runCatching { layouts.read(active) }.getOrNull()
-                    _state.update { it.copy(layout = HomeLayout.reconcile(stored)) }
+                    _state.update { it.copy(layout = HomeLayout.fromDocument(stored)) }
                 }
             }
         }
@@ -148,9 +148,11 @@ internal class LandingViewModel(
                 addAll(createdProfileIds)
                 if (state.mode == LandingMode.Rerun) activeProfileId.value?.let(::add)
             }
+            // The landing reorders the list itself: the two-column pairs follow its order before the write.
+            val layout = state.layout.withRememberedPairs()
             targets.forEach { id ->
                 runCatching {
-                    if (state.layout.isDefault && state.layout.retained.isEmpty()) layouts.clear(id) else layouts.write(id, state.layout.toPrefs())
+                    if (layout.isDefault && layout.retained.isEmpty()) layouts.clear(id) else layouts.write(id, layout.toDocument())
                 }
             }
             store.markDone()
@@ -174,8 +176,8 @@ internal class LandingViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val store = container.homeLayoutStore
             val gateway = object : LandingLayoutGateway {
-                override suspend fun read(profileId: String) = store.layoutFlow(profileId).first()
-                override suspend fun write(profileId: String, sections: List<HomeSectionPref>) = store.setLayout(profileId, sections)
+                override suspend fun read(profileId: String) = store.documentFlow(profileId).first()
+                override suspend fun write(profileId: String, document: HomeLayoutDocument) = store.setDocument(profileId, document)
                 override suspend fun clear(profileId: String) = store.clearLayout(profileId)
             }
             val appContext = context.applicationContext

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyListItemInfo
@@ -13,7 +14,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputEventHandler
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
+import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.positionChanged
@@ -38,16 +41,20 @@ import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LatchPlate
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Lift
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LongPressHaptic
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.OpenPlaceholders
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchBy
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchEnd
+import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchStart
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PointerDown
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ReleaseCharge
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCarry
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCharge
 import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Touch
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.TryRegrab
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.CarryEnded
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.EditEnded
 import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.OtherPointer
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Regrabbed
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchDown
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchMove
+import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchUp
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Blank
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Carry
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Done
@@ -56,12 +63,15 @@ import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Holding
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Idle
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Lifted
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Passive
+import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Pinch
 import com.gpo.yoin.ui.home.edit.HomeEditGestureState.Pressing
 import kotlinx.coroutines.CoroutineScope
 
 // Home edit mode's one gesture detector (port sheet §2.1, spec §2.1): a pure
 // state machine, the executor that applies its actions, the page hit tester,
 // and the Initial-pass pointer modifier on Home's root Box that drives them.
+// It drives the feed and the pinched list alike (owner 2026-11-22): a second
+// finger turns an edit-mode press into a pinch, in or out of the list.
 
 // ── Hit testing ───────────────────────────────────────────────────────────
 
@@ -78,6 +88,11 @@ internal sealed interface HomeEditHit {
 
     /** Off every block. [nearest] is the closest visible section, the entry ripple's origin. */
     data class Blank(val nearest: HomeSection?) : HomeEditHit
+}
+
+/** Resolves a press at pointer-down: the feed's [HomeEditHitTester], or the pinched list's while it shows. */
+internal fun interface HomeEditHitTest {
+    fun hitTest(positionInBox: Offset): HomeEditHit
 }
 
 /**
@@ -98,13 +113,15 @@ internal class HomeEditHitTester(
     /** Two columns: the pairs laid out side by side (left → right) and the gap between them, px. */
     private val pairs: () -> Map<HomeSection, HomeSection> = { emptyMap() },
     private val columnGapPx: Float = 0f,
-) {
-    fun hitTest(positionInBox: Offset): HomeEditHit {
+    /** The rows' item keys, as last composed. */
+    private val rowKeys: () -> HomeRowKeys = { HomeRowKeys.Initial },
+) : HomeEditHitTest {
+    override fun hitTest(positionInBox: Offset): HomeEditHit {
         if (targets.isExcluded(positionInBox)) return HomeEditHit.Excluded
         val layoutInfo = listState.layoutInfo
         val content = contentBounds()
         val bands = splitPairBands(
-            homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, isHiding),
+            homeEditSectionBands(layoutInfo.visibleItemsInfo, layoutInfo.viewportStartOffset, rowKeys(), isHiding),
             pairs(),
             content.start,
             content.endInclusive,
@@ -124,18 +141,19 @@ internal class HomeEditHitTester(
 }
 
 /**
- * The bands of the visible `section-<id>` items, top to bottom, in Box px
+ * The bands of the visible `section-<id>` items (each its row's first
+ * section, through [rowKeys]), top to bottom, in Box px
  * (the list sits at the Box origin): top = offset − viewportStartOffset.
  * Other items (header, tray, footer) are not sections.
  */
 internal fun homeEditSectionBands(
     items: List<LazyListItemInfo>,
     viewportStartOffset: Int,
+    rowKeys: HomeRowKeys = HomeRowKeys.Initial,
     isHiding: (HomeSection) -> Boolean = { false },
 ): List<SectionBand> = items.mapNotNull { info ->
-    val key = info.key as? String ?: return@mapNotNull null
-    if (!key.startsWith(SectionKeyPrefix)) return@mapNotNull null
-    val section = HomeSection.fromId(key.removePrefix(SectionKeyPrefix)) ?: return@mapNotNull null
+    // The row's first section: a swapped pair's item keeps the key of its right half (HomeRowKeys).
+    val section = rowKeys.firstOf(info.key) ?: return@mapNotNull null
     if (isHiding(section)) return@mapNotNull null
     val top = (info.offset - viewportStartOffset).toFloat()
     SectionBand(section, top, top + info.size, bleeds = section in BleedingSections)
@@ -204,8 +222,11 @@ internal enum class HomeEditGestureState {
     /** Edit mode off every plate: a tap exits. */
     Blank,
 
-    /** The finger drives the strip carry. */
+    /** The finger drags the lifted block. */
     Carry,
+
+    /** A second finger came down in edit mode: the two pinch the list in or out. */
+    Pinch,
 
     /** The rest of the finger is swallowed. */
     Done,
@@ -239,8 +260,7 @@ internal sealed interface HomeEditGestureEvent {
         val hit: HomeEditHit,
         val position: Offset,
         val editing: Boolean,
-        /** The carry is settling or unfolding: a press can only catch the strip. */
-        val carryBusy: Boolean,
+        /** The feed (or the list) is flinging, or stopped one a moment ago ([HomeEditFlingWatch]). */
         val flingInProgress: Boolean,
         val t: Long,
         /** A mouse or trackpad secondary-button press (desktop windowing). */
@@ -254,19 +274,26 @@ internal sealed interface HomeEditGestureEvent {
     /** The system or an ancestor took the finger. */
     data class Cancel(val t: Long) : HomeEditGestureEvent
 
-    data class Timer(val kind: HomeEditTimer) : HomeEditGestureEvent
-
-    /** The busy press's [HomeEditGestureAction.TryRegrab] caught the settling strip. */
-    data object Regrabbed : HomeEditGestureEvent
+    /** [kind] is due. [flinging]: the feed (or the list) is flinging as it fires, so a hold doesn't lift. */
+    data class Timer(val kind: HomeEditTimer, val flinging: Boolean = false) : HomeEditGestureEvent
 
     /** Edit mode ended under the finger (critique 4). */
     data object EditEnded : HomeEditGestureEvent
 
-    /** The carry was let go from outside: an exit dropped it into its settle (proto forceDrop). */
+    /** The drag was let go from outside: an exit or a resize dropped it (proto forceDrop). */
     data object CarryEnded : HomeEditGestureEvent
 
     /** A change of any other finger. */
     data object OtherPointer : HomeEditGestureEvent
+
+    /** A second finger went down [span] px from the tracked one. */
+    data class PinchDown(val span: Float) : HomeEditGestureEvent
+
+    /** A finger of the pinch moved: the two are [span] px apart. */
+    data class PinchMove(val span: Float) : HomeEditGestureEvent
+
+    /** The pinch's second finger lifted. */
+    data object PinchUp : HomeEditGestureEvent
 }
 
 /** Output of [HomeEditGestureMachine], applied in order by [HomeEditGestureExecutor]. */
@@ -300,7 +327,14 @@ internal sealed interface HomeEditGestureAction {
 
     data class CarryRelease(val cancelled: Boolean, val t: Long) : HomeEditGestureAction
 
-    data class TryRegrab(val position: Offset, val t: Long) : HomeEditGestureAction
+    /** Two fingers down in edit mode: the list follows their span from here. */
+    data object PinchStart : HomeEditGestureAction
+
+    /** The fingers' span over the one they started at. */
+    data class PinchBy(val scale: Float) : HomeEditGestureAction
+
+    /** The pinch let go: the list lands where it was left. */
+    data object PinchEnd : HomeEditGestureAction
 
     /** An edit-mode tap: kick the card at [local] (or the block, for null or no card) and pulse the handle. */
     data class BlockTap(val section: HomeSection, val local: Offset?) : HomeEditGestureAction
@@ -324,8 +358,9 @@ internal sealed interface HomeEditGestureAction {
  * one finger's events and its timers, it answers with actions. In normal mode
  * it only watches until the long-press threshold, so a tap still opens the
  * card and a slop still scrolls; from the threshold on the finger is owned.
- * In edit mode a body hold or a handle drag lifts, a tap kicks, and a blank
- * tap exits. [longPressMs] is T, [slopPx] the touch slop.
+ * In edit mode a body hold or a handle drag lifts, a tap kicks, a blank
+ * tap exits, and a second finger before any lift pinches the list in or out.
+ * [longPressMs] is T, [slopPx] the touch slop.
  */
 internal class HomeEditGestureMachine(private val longPressMs: Long, private val slopPx: Float) {
     var state: HomeEditGestureState = Idle
@@ -345,24 +380,44 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
     private var charging = false
     private var flingStop = false
     private var blankHeld = false
-    private var awaitingRegrab = false
+    private var pinchSpan = 0f
+
+    // The instant (event uptime) a hold lifted the block: a move from before it past the slop takes the lift back.
+    private var liftAt = Long.MIN_VALUE
 
     /** The next timer to fire, or null. */
     val pendingTimer: HomeEditTimerAt? get() = timers.minByOrNull { it.atMs }
 
-    fun handle(event: HomeEditGestureEvent): List<HomeEditGestureAction> {
-        if (event !is Regrabbed && event !is OtherPointer) awaitingRegrab = false
-        return when (event) {
-            is HomeEditGestureEvent.Down -> down(event)
-            is HomeEditGestureEvent.Move -> move(event)
-            is HomeEditGestureEvent.Up -> up(event.t)
-            is HomeEditGestureEvent.Cancel -> cancel(event.t)
-            is HomeEditGestureEvent.Timer -> timer(event.kind)
-            Regrabbed -> regrabbed()
-            EditEnded -> editEnded()
-            CarryEnded -> carryEnded()
-            OtherPointer -> if (state != Idle && state != Passive) listOf(ConsumeOther) else emptyList()
+    fun handle(event: HomeEditGestureEvent): List<HomeEditGestureAction> = when (event) {
+        is HomeEditGestureEvent.Down -> down(event)
+        is HomeEditGestureEvent.Move -> move(event)
+        is HomeEditGestureEvent.Up -> up(event.t)
+        is HomeEditGestureEvent.Cancel -> cancel(event.t)
+        is HomeEditGestureEvent.Timer -> timer(event.kind, event.flinging)
+        EditEnded -> editEnded()
+        CarryEnded -> carryEnded()
+        OtherPointer -> otherPointer()
+        is PinchDown -> pinchDown(event.span)
+        is PinchMove -> if (state == Pinch && pinchSpan > 0f) listOf(PinchBy(event.span / pinchSpan)) else emptyList()
+        PinchUp -> if (state == Pinch) {
+            state = Done
+            listOf(PinchEnd)
+        } else {
+            emptyList()
         }
+    }
+
+    private fun otherPointer(): List<HomeEditGestureAction> =
+        if (state != Idle && state != Passive) listOf(ConsumeOther) else emptyList()
+
+    // Before a lift, an edit-mode press (a scroll included) becomes a pinch; otherwise the finger is ignored.
+    private fun pinchDown(span: Float): List<HomeEditGestureAction> {
+        val canPinch = editGesture && span > 0f && (state == Holding || state == HandleDown || state == Blank || state == Passive)
+        if (!canPinch) return otherPointer()
+        timers.clear()
+        pinchSpan = span
+        state = Pinch
+        return listOf(PinchStart, ConsumeRest, ConsumeOther)
     }
 
     private fun down(event: HomeEditGestureEvent.Down): List<HomeEditGestureAction> {
@@ -382,18 +437,15 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
     private fun editDown(event: HomeEditGestureEvent.Down): List<HomeEditGestureAction> {
         // Only primary presses edit; the mouse's secondary button does nothing here.
         if (event.secondaryClick) return emptyList()
-        // Settling or unfolding: catch the strip, or swallow the press so the list can't move under it.
-        if (event.carryBusy) {
-            editGesture = true
-            awaitingRegrab = true
-            state = Done
-            return listOf(Touch, PointerDown(true), TryRegrab(event.position, event.t), ConsumeRest)
-        }
         if (event.hit == HomeEditHit.Excluded) return listOf(Touch)
         editGesture = true
         state = when (event.hit) {
-            is HomeEditHit.Handle -> HandleDown
-            is HomeEditHit.Block -> {
+            // A press on a block that stops a fling (or lands just after one) is part of the
+            // scroll: it never lifts, and its up kicks nothing.
+            is HomeEditHit.Handle -> if (event.flingInProgress) Passive else HandleDown
+            is HomeEditHit.Block -> if (event.flingInProgress) {
+                Passive
+            } else {
                 timers += HomeEditTimerAt(HomeEditTimer.BodyHold, event.t + bodyHoldMs)
                 Holding
             }
@@ -408,6 +460,8 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
 
     private fun normalDown(event: HomeEditGestureEvent.Down): List<HomeEditGestureAction> {
         if (event.hit == HomeEditHit.Excluded) return emptyList()
+        // A press that stops a fling is the scroll's, not a long press: left to the page untouched.
+        if (event.flingInProgress && !event.secondaryClick) return emptyList()
         if (event.secondaryClick) {
             editGesture = true
             state = Done
@@ -431,14 +485,22 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
             } else {
                 emptyList()
             }
-            Lifted -> if (pastSlop) {
+            // A move stamped before the lift that was already past the slop, handed over late (a long
+            // frame held the input back past the hold's timer): the finger never held still that
+            // long, so the lift is taken back and the rest of the finger swallowed. Never a carry:
+            // a fling must not drag the block it started on.
+            Lifted -> if (pastSlop && event.t < liftAt) {
+                timers.clear()
+                state = Done
+                listOf(DropLift(0f))
+            } else if (pastSlop) {
                 state = Carry
                 listOf(StartCarry(event.position.y, event.t))
             } else {
                 emptyList()
             }
             Carry -> listOf(CarryMove(event.position.y, event.t))
-            Idle, Done, Passive -> emptyList()
+            Idle, Done, Passive, Pinch -> emptyList()
         }
     }
 
@@ -455,6 +517,7 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
             }
             Blank -> if (flingStop || blankHeld) emptyList() else listOf(ExitBlank, ConsumeRest)
             Carry -> listOf(CarryRelease(cancelled = false, t))
+            Pinch -> listOf(PinchEnd)
             Idle, Done, Passive -> emptyList()
         }
         return finish(body)
@@ -465,6 +528,7 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
             Pressing -> releaseCharge() + Abandon
             Lifted -> listOf(DropLift(0f))
             Carry -> listOf(CarryRelease(cancelled = true, t))
+            Pinch -> listOf(PinchEnd)
             else -> emptyList()
         }
         return finish(body)
@@ -478,9 +542,13 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
         return listOf(PointerDown(false), Touch) + body + OpenPlaceholders
     }
 
-    private fun timer(kind: HomeEditTimer): List<HomeEditGestureAction> {
-        if (!timers.removeAll { it.kind == kind }) return emptyList()
+    private fun timer(kind: HomeEditTimer, flinging: Boolean): List<HomeEditGestureAction> {
+        val at = timers.firstOrNull { it.kind == kind }?.atMs ?: return emptyList()
+        timers.removeAll { it.kind == kind }
         val section = section
+        // The feed began to fling under a resting finger: no lift, the press is the scroll's.
+        if (flinging && kind == HomeEditTimer.LongPress && state == Pressing) return abandon(next = Idle)
+        if (flinging && kind == HomeEditTimer.BodyHold && state == Holding) return abandon(next = Passive)
         return when (kind) {
             HomeEditTimer.HalfT -> if (state == Pressing && section != null) {
                 charging = true
@@ -488,8 +556,14 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
             } else {
                 emptyList()
             }
-            HomeEditTimer.LongPress -> if (state == Pressing) threshold(section) else emptyList()
+            HomeEditTimer.LongPress -> if (state == Pressing) {
+                liftAt = at
+                threshold(section)
+            } else {
+                emptyList()
+            }
             HomeEditTimer.BodyHold -> if (state == Holding && section != null) {
+                liftAt = at
                 state = Lifted
                 listOf(DragStartHaptic, Lift(section, local), ConsumeRest)
             } else {
@@ -528,12 +602,6 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
             ConsumeRest,
             PointerDown(true),
         )
-    }
-
-    private fun regrabbed(): List<HomeEditGestureAction> {
-        if (state == Done && awaitingRegrab) state = Carry
-        awaitingRegrab = false
-        return emptyList()
     }
 
     // proto disownGesture: a press still waiting on edit mode must not lift or exit in normal mode.
@@ -581,6 +649,8 @@ internal class HomeEditGestureMachine(private val longPressMs: Long, private val
         charging = false
         flingStop = false
         blankHeld = false
+        pinchSpan = 0f
+        liftAt = Long.MIN_VALUE
     }
 }
 
@@ -597,7 +667,7 @@ internal class HomeEditGestureExecutor(
     private val controller: HomeEditController,
     private val motion: HomeEditMotion,
     private val press: HomeEditPressState,
-    private val engine: HomeCarryEngine,
+    private val engine: HomeDragEngine,
     private val feedback: HomeEditFeedback,
     private val specs: HomeEditSpecs,
     private val density: Density,
@@ -623,7 +693,9 @@ internal class HomeEditGestureExecutor(
                 is StartCarry -> engine.start(action.y, action.t)
                 is CarryMove -> engine.move(action.y, action.t)
                 is CarryRelease -> engine.release(action.cancelled, action.t)
-                is TryRegrab -> if (engine.tryRegrab(action.position, action.t)) run(machine.handle(Regrabbed), machine)
+                PinchStart -> engine.list.pinchStart()
+                is PinchBy -> engine.list.pinchBy(action.scale)
+                PinchEnd -> engine.list.pinchEnd()
                 is BlockTap -> blockTap(action)
                 ExitBlank -> controller.commitAndExit(HomeEditExitReason.Blank)
                 Touch -> motion.touch()
@@ -647,7 +719,8 @@ internal class HomeEditGestureExecutor(
     }
 
     private val HomeEditGestureAction.editOnly: Boolean
-        get() = this is Lift || this is LatchPlate || this is StartCarry || this is BlockTap || this == ExitBlank
+        get() = this is Lift || this is LatchPlate || this is StartCarry || this is BlockTap || this == ExitBlank ||
+            this == PinchStart || this is PinchBy
 }
 
 // ── Pointer modifier ──────────────────────────────────────────────────────
@@ -656,8 +729,8 @@ internal class HomeEditGestureExecutor(
  * Home edit mode's detector over the whole page, margins included (spec
  * §2.1.2). It reads only the Initial pass, before the cards and the list:
  * in normal mode it watches without consuming until the long-press
- * threshold, then owns the finger; in edit mode it lifts, carries, kicks and
- * exits. A down already consumed (the memory bubble or arrow) is left alone.
+ * threshold, then owns the finger; in edit mode it lifts, drags, kicks,
+ * pinches and exits. A down already consumed (the memory bubble or arrow) is left alone.
  * The dependencies are swapped in place, so a recomposition never restarts a
  * gesture mid-carry.
  */
@@ -665,8 +738,8 @@ internal fun Modifier.homeEditGestures(
     controller: HomeEditController,
     motion: HomeEditMotion,
     press: HomeEditPressState,
-    engine: HomeCarryEngine,
-    hitTester: HomeEditHitTester,
+    engine: HomeDragEngine,
+    hitTester: HomeEditHitTest,
     feedback: HomeEditFeedback,
     isFlingInProgress: () -> Boolean,
     specs: HomeEditSpecs,
@@ -685,8 +758,8 @@ private data class HomeEditGesturesElement(
     val controller: HomeEditController,
     val motion: HomeEditMotion,
     val press: HomeEditPressState,
-    val engine: HomeCarryEngine,
-    val hitTester: HomeEditHitTester,
+    val engine: HomeDragEngine,
+    val hitTester: HomeEditHitTest,
     val feedback: HomeEditFeedback,
     val isFlingInProgress: () -> Boolean,
     val specs: HomeEditSpecs,
@@ -735,75 +808,219 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
             scope = this@HomeEditGesturesNode.coroutineScope,
         )
         var consuming = false
-        // Event time, so timers follow the events' clock (and a test's).
-        var now = down.uptimeMillis
-        fun step(event: HomeEditGestureEvent) {
+        fun step(event: HomeEditGestureEvent): List<HomeEditGestureAction> {
             val actions = machine.handle(event)
             if (ConsumeRest in actions) consuming = true
             executor.run(actions, machine)
+            return actions
         }
+        // Event time, so timers follow the events' clock (and a test's).
+        val timeline = HomeEditGestureTimeline(machine, deps.isFlingInProgress, ::step)
+        timeline.start(down.uptimeMillis)
 
-        // The carry reads the finger's x for side drops (two columns).
+        // The drag reads the finger's x for two-column drops.
         deps.engine.fingerX = down.position.x
         step(
             HomeEditGestureEvent.Down(
                 hit = deps.hitTester.hitTest(down.position),
                 position = down.position,
                 editing = deps.controller.isEditing,
-                carryBusy = deps.engine.isBusy,
                 flingInProgress = deps.isFlingInProgress(),
-                t = now,
+                t = down.uptimeMillis,
                 secondaryClick = mouse && !buttons.isPrimaryPressed,
             ),
         )
         if (consuming) down.consume()
+        // A pinch's two fingers: the tracked one and the second one down.
+        var primary = down.position
+        var second: PointerId? = null
+        var secondAt = Offset.Zero
         try {
             while (machine.state != Idle) {
-                val timer = machine.pendingTimer
-                val event = when {
-                    timer == null -> awaitPointerEvent(PointerEventPass.Initial)
-                    timer.atMs <= now -> null
-                    else -> withTimeoutOrNull(timer.atMs - now) { awaitPointerEvent(PointerEventPass.Initial) }
+                val wait = timeline.untilDue()
+                var event = when (wait) {
+                    null -> awaitPointerEvent(PointerEventPass.Initial)
+                    0L -> null
+                    else -> withTimeoutOrNull(wait) { awaitPointerEvent(PointerEventPass.Initial) }
                 }
-                // Edit mode can end, or an exit drop the carry, while the finger rests. A carry that
-                // never started or was torn down stays: the engine's release puts a lone lift down.
+                // Woken late at a timer's instant: a long frame held the main thread past it, and the
+                // finger's moves from before it may still wait for the next frame's input. Give them
+                // a moment to arrive; they are then handled at their own stamps, ahead of the timer.
+                if (event == null && wait != null) {
+                    val grace = timeline.graceAfter(SystemClock.uptimeMillis())
+                    if (grace > 0L) event = withTimeoutOrNull(grace) { awaitPointerEvent(PointerEventPass.Initial) }
+                }
+                // Edit mode can end, or an exit let the drag go, while the finger rests. A drag that never
+                // started stays: the engine's release puts a lone lift down.
                 if (!deps.controller.isEditing) step(EditEnded)
-                if (machine.state == Carry && deps.engine.isBusy) step(CarryEnded)
+                if (machine.state == Carry && deps.engine.letGo) step(CarryEnded)
                 if (event == null) {
-                    if (timer != null) {
-                        now = maxOf(now, timer.atMs)
-                        step(HomeEditGestureEvent.Timer(timer.kind))
-                    }
+                    timeline.timeout()
                     continue
                 }
-                // Any finger's event moves the clock on, or a resting finger's timer would run late.
-                now = maxOf(now, event.changes.maxOfOrNull { it.uptimeMillis } ?: now)
                 for (change in event.changes) {
                     if (change.id != down.id) {
-                        if (ConsumeOther in machine.handle(OtherPointer)) change.consume()
+                        // Any finger's event moves the clock on, or a resting finger's timer would run late.
+                        timeline.advanceTo(change.uptimeMillis)
+                        when {
+                            second == null && change.changedToDown() -> {
+                                val actions = step(PinchDown((change.position - primary).getDistance()))
+                                if (machine.state == Pinch) {
+                                    second = change.id
+                                    secondAt = change.position
+                                }
+                                if (ConsumeOther in actions) change.consume()
+                            }
+                            change.id == second -> {
+                                if (!change.pressed) {
+                                    second = null
+                                    step(PinchUp)
+                                } else if (change.positionChanged()) {
+                                    secondAt = change.position
+                                    step(PinchMove((secondAt - primary).getDistance()))
+                                }
+                                change.consume()
+                            }
+                            else -> if (ConsumeOther in machine.handle(OtherPointer)) change.consume()
+                        }
                         continue
+                    }
+                    // A batch's earlier samples (a long frame held them back), each at its own stamp:
+                    // a timer due between two of them fires between them.
+                    if (!change.isConsumed && machine.state != Pinch) {
+                        for (sample in change.historical) {
+                            deps.engine.fingerX = sample.position.x
+                            primary = sample.position
+                            timeline.sample(HomeEditGestureEvent.Move(sample.position, sample.uptimeMillis))
+                        }
                     }
                     val t = change.uptimeMillis
                     when {
                         // Consumed before the Initial pass reached us: a system cancel, or an ancestor took it.
-                        change.isConsumed -> step(HomeEditGestureEvent.Cancel(t))
-                        !change.pressed -> step(HomeEditGestureEvent.Up(t))
+                        change.isConsumed -> timeline.sample(HomeEditGestureEvent.Cancel(t))
+                        !change.pressed -> timeline.sample(HomeEditGestureEvent.Up(t))
                         change.positionChanged() -> {
+                            primary = change.position
                             deps.engine.fingerX = change.position.x
-                            step(HomeEditGestureEvent.Move(change.position, t))
+                            if (machine.state == Pinch && second != null) {
+                                timeline.advanceTo(t)
+                                step(PinchMove((secondAt - primary).getDistance()))
+                            } else {
+                                timeline.sample(HomeEditGestureEvent.Move(change.position, t))
+                            }
                         }
+                        else -> timeline.advanceTo(t)
                     }
                     if (consuming) change.consume()
                 }
             }
         } finally {
-            // The detector itself was cancelled mid-gesture: a carry still releases (as cancelled) and commits.
-            if (machine.state != Idle) step(HomeEditGestureEvent.Cancel(now))
+            // The detector itself was cancelled mid-gesture: a drag releases as cancelled, back to before the lift.
+            if (machine.state != Idle) step(HomeEditGestureEvent.Cancel(timeline.now))
         }
     }
 }
 
-private const val SectionKeyPrefix = "section-"
+/**
+ * Runs [machine]'s timers on the pointer events' own clock (their uptimes,
+ * ms), never on when a wait happens to wake. Every sample of the finger is
+ * handled at its stamp, and a timer due at or before a stamp fires first. So
+ * a hold lifts only if the finger stayed within the slop up to the hold's
+ * instant by the events themselves: a long frame that hands a fling's moves
+ * over late (in one batch, after the wait for the hold already woke) can't
+ * let the hold run ahead of them. A move from before the instant that comes
+ * even later than that takes the lift back ([HomeEditGestureMachine]).
+ * [flinging] is asked as a hold fires: no lift while the feed flings.
+ */
+internal class HomeEditGestureTimeline(
+    private val machine: HomeEditGestureMachine,
+    private val flinging: () -> Boolean,
+    private val step: (HomeEditGestureEvent) -> List<HomeEditGestureAction>,
+) {
+    /** The event clock: the latest instant handled, a sample's stamp or a timer's. */
+    var now: Long = 0L
+        private set
+
+    /** The gesture starts at its down's stamp [t]. */
+    fun start(t: Long) {
+        now = t
+    }
+
+    /** How long (ms, from [now]) input may take before the next timer is due; null with none pending. */
+    fun untilDue(): Long? = machine.pendingTimer?.let { (it.atMs - now).coerceAtLeast(0L) }
+
+    /**
+     * The wait for the next timer woke at [wallMs] (uptime) with no input:
+     * how much longer to wait for input held back from before the timer's
+     * instant. Only a wait that woke late (a long frame) has any to wait for.
+     */
+    fun graceAfter(wallMs: Long): Long {
+        val timer = machine.pendingTimer ?: return 0L
+        return if (wallMs - timer.atMs > LateTimerMs) StalledInputGraceMs else 0L
+    }
+
+    /** No input came by the next timer's instant (and its grace): it fires. */
+    fun timeout() {
+        machine.pendingTimer?.let(::fire)
+    }
+
+    /** Timers due at or before [t] fire, oldest first; then the clock is at [t]. */
+    fun advanceTo(t: Long) {
+        while (true) {
+            val timer = machine.pendingTimer ?: break
+            if (timer.atMs > t) break
+            fire(timer)
+        }
+        now = maxOf(now, t)
+    }
+
+    /** A sample of the tracked finger, handled at its own stamp: whatever was due before it goes first. */
+    fun sample(event: HomeEditGestureEvent): List<HomeEditGestureAction> {
+        val t = when (event) {
+            is HomeEditGestureEvent.Move -> event.t
+            is HomeEditGestureEvent.Up -> event.t
+            is HomeEditGestureEvent.Cancel -> event.t
+            else -> now
+        }
+        advanceTo(t)
+        return step(event)
+    }
+
+    private fun fire(timer: HomeEditTimerAt) {
+        now = maxOf(now, timer.atMs)
+        val lifts = timer.kind == HomeEditTimer.BodyHold || timer.kind == HomeEditTimer.LongPress
+        step(HomeEditGestureEvent.Timer(timer.kind, flinging = lifts && flinging()))
+    }
+}
+
+/**
+ * Whether the feed (or the pinched list) is flinging, or stopped one less
+ * than [windowMs] ago: a press then belongs to the scroll and never lifts.
+ * [inProgress] is read live; [onScrolling] is told each change of it.
+ */
+internal class HomeEditFlingWatch(
+    private val inProgress: () -> Boolean,
+    private val windowMs: Long = HomeEditTokens.FlingStopMs,
+    private val uptimeMs: () -> Long = { SystemClock.uptimeMillis() },
+) {
+    private var scrolling = false
+    private var stoppedAt = Long.MIN_VALUE
+
+    fun onScrolling(scrolling: Boolean) {
+        if (this.scrolling && !scrolling) stoppedAt = uptimeMs()
+        this.scrolling = scrolling
+    }
+
+    fun flinging(): Boolean =
+        inProgress() || scrolling || (stoppedAt != Long.MIN_VALUE && uptimeMs() - stoppedAt < windowMs)
+}
 
 // Full-width shelves: a press in the page margin beside them lands on the shelf.
 private val BleedingSections = setOf(HomeSection.RecentlyAdded, HomeSection.Rediscover)
+
+// A timer that wakes this late (ms) may have pointer events from before it still queued…
+internal const val LateTimerMs = 8L
+
+// …which reach the detector with the first frame the main thread runs after it (edit mode has
+// 100-300ms frames on the tablet; 48ms was seen to fall short). A resting finger lifts this late at most.
+internal const val StalledInputGraceMs = 120L

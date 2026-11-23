@@ -339,7 +339,7 @@ class HomeActivityPortraitTest {
         repository = repository,
         activeProfileId = MutableStateFlow(profile),
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns flowOf(null)
+            every { store.documentFlow(any()) } returns flowOf(null)
         }
     )
 

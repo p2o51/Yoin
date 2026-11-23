@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.data.home.HomeLayoutDocument
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.data.home.HomeSnapshotStore
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -1022,8 +1024,8 @@ class HomeSnapshotViewModelTest {
         repository = repository,
         activeProfileId = profileId,
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns layouts
-            coEvery { store.readLayout(any()) } coAnswers { layoutRead() }
+            every { store.documentFlow(any()) } returns layouts.map { prefs -> prefs?.let { HomeLayoutDocument(it) } }
+            coEvery { store.readDocument(any()) } coAnswers { layoutRead()?.let { HomeLayoutDocument(it) } }
         },
         configurationRevision = revision,
         switchingState = switching,

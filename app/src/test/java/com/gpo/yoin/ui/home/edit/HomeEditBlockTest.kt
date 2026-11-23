@@ -78,7 +78,7 @@ class HomeEditBlockTest {
                         controller = controller,
                         motion = motion,
                         press = HomeEditPressState(),
-                        engine = HomeCarryEngine(
+                        engine = HomeDragEngine(
                             scope = scope,
                             specs = specs,
                             motion = motion,

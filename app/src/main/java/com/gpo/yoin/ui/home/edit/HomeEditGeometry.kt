@@ -18,18 +18,12 @@ import com.gpo.yoin.ui.home.edit.HomeEditTokens.CardAmpMinDeg
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.CardAmpWidth
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.ChargePlateAlpha
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.ChargeScale
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.FoldHoleStart
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.FoldLabelStart
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.FoldPlateEnd
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.FoldShadowStart
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.KickGain
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.LiftScale
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.MinAngleDeg
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.OffscreenStripScale
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.RippleMaxSteps
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.RippleStep
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.RubberK
-import com.gpo.yoin.ui.home.edit.HomeEditTokens.StripTint
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.SwayDetune
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.SwayFloor
 import com.gpo.yoin.ui.home.edit.HomeEditTokens.SwayHz
@@ -288,206 +282,19 @@ internal fun resolveSectionAt(
     }
 }
 
-// ── Strips ────────────────────────────────────────────────────────────────
+// ── Rubber band (the row resize past its first and last stop) ──────────
 
-/** The strip stack, computed once at fold start (port sheet §4.2). Box px. */
-@Immutable
-internal data class StripMetrics(
-    val count: Int,
-    /** Strip height h_s. */
-    val height: Float,
-    val pitch: Float,
-    val stackHeight: Float,
-    val left: Float,
-    val width: Float,
-    /** Slot 0's top. */
-    val top: Float,
-    val coverSize: Float,
-    val safeTop: Float,
-    val safeBottom: Float,
-) {
-    fun slotY(index: Int): Float = top + index * pitch
-}
-
-/** Lays out [count] strips so the carried one ([carriedIndex]) is centred on [fingerY], inside the safe area. */
-internal fun stripMetrics(
-    count: Int,
-    carriedIndex: Int,
-    fingerY: Float,
-    safeTop: Float,
-    safeBottom: Float,
-    contentLeft: Float,
-    contentWidth: Float,
-    density: Density,
-    /** Two columns: the strips span the whole content, so their halves sit over the feed's. */
-    fullWidth: Boolean = false,
-): StripMetrics = with(density) {
-    val n = count.coerceAtLeast(1)
-    val gap = HomeEditTokens.StripGap.toPx()
-    val height = (((safeBottom - safeTop) - (n - 1) * gap) / n)
-        .coerceIn(HomeEditTokens.StripMinH.toPx(), HomeEditTokens.StripMaxH.toPx())
-    val pitch = height + gap
-    val stackHeight = n * pitch - gap
-    // (k + ½)·pitch − gap/2 puts strip k's centre exactly on the finger.
-    val top = (fingerY - (carriedIndex + .5f) * pitch + gap / 2f)
-        .coerceIn(safeTop, max(safeTop, safeBottom - stackHeight))
-    StripMetrics(
-        count = n,
-        height = height,
-        pitch = pitch,
-        stackHeight = stackHeight,
-        left = contentLeft,
-        width = if (fullWidth) contentWidth else min(contentWidth, HomeEditTokens.StripMaxW.toPx()),
-        top = top,
-        coverSize = (height - HomeEditTokens.StripCoverInset.toPx())
-            .coerceIn(HomeEditTokens.StripCoverMin.toPx(), HomeEditTokens.StripCoverMax.toPx()),
-        safeTop = safeTop,
-        safeBottom = safeBottom,
-    )
-}
-
-/** Where a strip flies from (B_i): its visible plate, or an invisible strip at its side's edge. */
-@Immutable
-internal data class StripStart(val rect: Rect, val alpha: Float)
-
-/**
- * B_i for a section whose feed plate is [plate] (Box px, null when not laid
- * out; [above] then picks the side). The visible part of the plate inside
- * the safe area, or an invisible 0.96 strip at the safe edge it left by.
- */
-internal fun stripStart(plate: Rect?, metrics: StripMetrics, above: Boolean): StripStart {
-    if (plate != null) {
-        val top = max(plate.top, metrics.safeTop)
-        val bottom = min(plate.bottom, metrics.safeBottom)
-        if (bottom - top > 1f) return StripStart(Rect(plate.left, top, plate.right, bottom), alpha = 1f)
-    }
-    val offAbove = plate?.let { it.bottom <= metrics.safeTop } ?: above
-    val y = if (offAbove) metrics.safeTop else metrics.safeBottom - metrics.height
-    val inset = (1f - OffscreenStripScale) / 2f
-    return StripStart(
-        rect = Rect(
-            offset = Offset(metrics.left + metrics.width * inset, y + metrics.height * inset),
-            size = Size(metrics.width * OffscreenStripScale, metrics.height * OffscreenStripScale),
-        ),
-        alpha = 0f,
-    )
-}
-
-/** One strip at one fold value. Box px. */
-@Immutable
-internal data class StripFrame(
-    val rect: Rect,
-    val radius: Float,
-    val plateAlpha: Float,
-    /** The label keeps its slot size (w × h_s); only its position follows [rect]. */
-    val labelOffset: Offset,
-    val labelAlpha: Float,
-    /** Weight toward the first cover's colour; lerp only where the section has a cover. */
-    val tint: Float,
-    /** Carried strip only. */
-    val shadowAlpha: Float,
-)
-
-/**
- * Strip frame (port sheet §4.4) at [fold], which overshoots on purpose: the
- * geometry uses it unclamped. [slotTop] is the strip's slot plus its offset
- * (drag display, settle or make-way).
- */
-internal fun stripFrame(
-    start: StripStart,
-    slotTop: Float,
-    metrics: StripMetrics,
-    fold: Float,
-    carried: Boolean,
-    lift: Float,
-    density: Density,
-    /** The slot's lane across the column (two columns: a half beside another strip). */
-    slotLeft: Float = metrics.left,
-    slotWidth: Float = metrics.width,
-): StripFrame {
-    var slot = Rect(slotLeft, slotTop, slotLeft + slotWidth, slotTop + metrics.height)
-    if (carried) {
-        val grow = LiftScale * lift / 2f
-        slot = Rect(
-            left = slot.left - slot.width * grow,
-            top = slot.top - slot.height * grow,
-            right = slot.right + slot.width * grow,
-            bottom = slot.bottom + slot.height * grow,
-        )
-    }
-    val rect = lerp(start.rect, slot, fold)
-    val alpha = lerp(start.alpha, 1f, fold.coerceIn(0f, 1f))
-    val radius = min(with(density) { HomeEditTokens.PlateRadius.toPx() }, rect.height / 2f).coerceAtLeast(0f)
-    return StripFrame(
-        rect = rect,
-        radius = radius,
-        plateAlpha = alpha * smoothstep(0f, FoldPlateEnd, fold),
-        labelOffset = Offset(rect.left, rect.center.y - metrics.height / 2f),
-        labelAlpha = alpha * smoothstep(FoldLabelStart, 1f, fold),
-        tint = StripTint * smoothstep(FoldHoleStart, 1f, fold),
-        shadowAlpha = if (carried) lift.coerceIn(0f, 1f) * smoothstep(FoldShadowStart, 1f, fold) else 0f,
-    )
-}
-
-/** The drop hole at [holeY]: slot-sized, under every strip. */
-internal fun holeRect(
-    metrics: StripMetrics,
-    holeY: Float,
-    left: Float = metrics.left,
-    width: Float = metrics.width,
-): Rect = Rect(left, holeY, left + width, holeY + metrics.height)
-
-/** Feed sections fade out as the strips fold in: the exact complement of the strip plates. */
-internal fun feedFoldAlpha(fold: Float): Float = 1f - smoothstep(0f, FoldPlateEnd, fold)
-
-/**
- * How the feed shows [feedFoldAlpha] (port sheet §4.5): a page-background
- * wash of this alpha over the sections and tray (Home draws it under the
- * strips, below the header), the same picture as fading each block's layer,
- * without an offscreen pass per block for every frame of the fade.
- */
-internal fun feedFoldWash(fold: Float): Float = 1f - feedFoldAlpha(fold)
-
-/** The sections' and tray's own alpha under the wash: drawn, or skipped once it covers them. */
-internal fun feedFoldShown(fold: Float): Float = if (feedFoldAlpha(fold) > 0f) 1f else 0f
-
-internal fun holeAlpha(fold: Float): Float = smoothstep(FoldHoleStart, 1f, fold)
-
-/** Displayed overscroll for a raw [overscroll] past the end slots. Resists from the first px. */
+/** Displayed overscroll for a raw [overscroll] past the end stops. Resists from the first px. */
 internal fun rubber(overscroll: Float, density: Density): Float {
     val range = with(density) { HomeEditTokens.RubberD.toPx() }
     return range * (1f - 1f / (overscroll * RubberK / range + 1f))
 }
 
-/** Inverse of [rubber], for re-grabbing a strip that is settling from an overscroll. */
+/** Inverse of [rubber]. */
 internal fun unrubber(displayed: Float, density: Density): Float {
     val range = with(density) { HomeEditTokens.RubberD.toPx() }
     val ratio = min(displayed / range, UnrubberMaxRatio)
     return range / RubberK * (1f / (1f - ratio) - 1f)
-}
-
-/**
- * The `requestScrollToItem` offset that puts the dropped item's top at
- * [desiredTop] (px below the list's scroll origin), or null to leave the
- * scroll alone: the header is visible, or a height needed for the clamp is
- * unknown. Clamped so the header stays out: [heightsAbove] are items
- * 1 until [droppedIndex] (item 0 is the header).
- */
-internal fun anchorScrollOffset(
-    droppedIndex: Int,
-    desiredTop: Float,
-    heightsAbove: List<Int?>,
-    spacingPx: Int,
-    headerVisible: Boolean,
-): Int? {
-    if (headerVisible || droppedIndex < 1) return null
-    var room = 0f
-    for (index in heightsAbove.indices.reversed()) {
-        if (room >= desiredTop) break
-        val height = heightsAbove[index] ?: return null
-        room += height + spacingPx
-    }
-    return -min(desiredTop, room).roundToInt()
 }
 
 // ── Velocity ──────────────────────────────────────────────────────────────

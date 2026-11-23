@@ -146,6 +146,11 @@ internal class DemoFinger(
     val ring = Animatable(0f)
     val ripple = Animatable(1f)
 
+    /** A second touch, for a pinch: where it is and whether it shows. Down with the first while it shows. */
+    val x2 = Animatable(0.5f)
+    val y2 = Animatable(0.5f)
+    val alpha2 = Animatable(0f)
+
     /** Where part [key] is (see [DemoTargets.fraction]); the phone's middle until it is laid out. */
     fun at(key: String, fx: Float = 0.5f, fy: Float = 0.5f, dx: Float = 0f, dy: Float = 0f): Offset =
         targets.fraction(key, fx, fy, dx, dy) ?: Offset(0.5f, 0.5f)
@@ -203,12 +208,45 @@ internal class DemoFinger(
         press.animateTo(0f, spring)
     }
 
+    /**
+     * Two fingers down around ([cx], [cy]), one above the other [fromGap] apart (a fraction of the
+     * screen's height), closing or opening to [toGap] over [ms]; [onProgress] gets 0..1 every frame.
+     * Both lift after; the first stays where it ends.
+     */
+    suspend fun pinch(cx: Float, cy: Float, fromGap: Float, toGap: Float, ms: Int, onProgress: (Float) -> Unit) {
+        coroutineScope {
+            launch { x.animateTo(cx, spring) }
+            launch { x2.snapTo(cx) }
+            launch { y2.snapTo(cy + fromGap / 2f) }
+            y.animateTo(cy - fromGap / 2f, spring)
+        }
+        if (alpha.value < 0.05f) alpha.animateTo(1f, tween(180))
+        coroutineScope {
+            launch { alpha2.animateTo(1f, tween(140)) }
+            press.animateTo(1f, tween(80))
+        }
+        val progress = Animatable(0f)
+        coroutineScope {
+            launch { y.animateTo(cy - toGap / 2f, tween(ms)) }
+            launch { y2.animateTo(cy + toGap / 2f, tween(ms)) }
+            progress.animateTo(1f, tween(ms)) { onProgress(value) }
+        }
+        coroutineScope {
+            launch { alpha2.animateTo(0f, tween(180)) }
+            press.animateTo(0f, spring)
+        }
+    }
+
     suspend fun lift() {
-        alpha.animateTo(0f, tween(220))
+        coroutineScope {
+            launch { alpha2.animateTo(0f, tween(220)) }
+            alpha.animateTo(0f, tween(220))
+        }
     }
 
     suspend fun hide() {
         alpha.snapTo(0f)
+        alpha2.snapTo(0f)
         press.snapTo(0f)
         ring.snapTo(0f)
         ripple.snapTo(1f)
@@ -227,6 +265,8 @@ internal fun DemoPhone(
     playing: Boolean,
     script: suspend DemoFinger.() -> Unit,
     tall: Boolean = false,
+    // A tablet on its side (Expanded width, two columns), for a scene only large screens have.
+    wide: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -234,8 +274,17 @@ internal fun DemoPhone(
     // layout differs on a 16:9 screen (Now Playing's focus).
     // It lays out as wide as a 20:9 phone is (412dp) so Now Playing's widths
     // (the cover, the inline time labels) come out as they do there.
-    val phoneWidth = if (tall) PhoneHeight * TallAspect else PhoneWidth
-    val screenWidth = if (tall) TallScreenWidth else ScreenWidth
+    val phoneWidth = when {
+        wide -> PhoneHeight
+        tall -> PhoneHeight * TallAspect
+        else -> PhoneWidth
+    }
+    val phoneHeight = if (wide) PhoneHeight * WideAspect else PhoneHeight
+    val screenWidth = when {
+        wide -> WideScreenWidth
+        tall -> TallScreenWidth
+        else -> ScreenWidth
+    }
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val density = LocalDensity.current
     // A tall window (a tablet held upright) gets a bigger phone: the demo is the page's subject, and at
@@ -267,7 +316,7 @@ internal fun DemoPhone(
     }
     Box(
         modifier = Modifier
-            .size(phoneWidth * grow, PhoneHeight * grow)
+            .size(phoneWidth * grow, phoneHeight * grow)
             .clip(PhoneShape)
             .background(colors.surface)
             // Watch (never consume) the user's touches: the phone becomes theirs.
@@ -279,7 +328,7 @@ internal fun DemoPhone(
                 }
             },
     ) {
-        DemoScreen(targets = targets, phoneWidth = phoneWidth, screenWidth = screenWidth, content = content)
+        DemoScreen(targets = targets, phoneWidth = phoneWidth, phoneHeight = phoneHeight, screenWidth = screenWidth, content = content)
         Box(modifier = Modifier.fillMaxSize().border(1.5.dp, colors.outlineVariant, PhoneShape))
         Canvas(modifier = Modifier.fillMaxSize()) {
             val a = finger.alpha.value
@@ -298,6 +347,12 @@ internal fun DemoPhone(
                     c,
                     style = Stroke(width = with(density) { 2.dp.toPx() }),
                 )
+            }
+            val a2 = finger.alpha2.value
+            if (a2 > 0f) {
+                val c2 = Offset(size.width * finger.x2.value, size.height * finger.y2.value)
+                drawCircle(primary.copy(alpha = 0.22f * a2), r * (1f - 0.15f * down), c2)
+                drawCircle(primary.copy(alpha = 0.9f * a2), r * 0.42f * (1f - 0.15f * down), c2)
             }
             val ring = finger.ring.value
             if (ring > 0f) {
@@ -321,8 +376,14 @@ internal fun DemoPhone(
  * scaled down to the frame.
  */
 @Composable
-private fun DemoScreen(targets: DemoTargets, phoneWidth: Dp, screenWidth: Dp, content: @Composable BoxScope.() -> Unit) {
-    val heightDp = (screenWidth.value * PhoneHeight.value / phoneWidth.value).roundToInt()
+private fun DemoScreen(
+    targets: DemoTargets,
+    phoneWidth: Dp,
+    phoneHeight: Dp,
+    screenWidth: Dp,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val heightDp = (screenWidth.value * phoneHeight.value / phoneWidth.value).roundToInt()
     Layout(
         content = {
             ProvidePreviewWindow(widthDp = screenWidth.value.roundToInt(), heightDp = heightDp) {
@@ -361,6 +422,10 @@ private const val TallAspect = 9f / 20f
 
 /** The layout width of a `tall` [DemoPhone]'s screen: a 20:9 phone's. */
 private val TallScreenWidth: Dp = 412.dp
+
+/** Height over width of a `wide` [DemoPhone] frame (a 16:10 tablet on its side), and its screen's layout width (Expanded). */
+private const val WideAspect = 10f / 16f
+private val WideScreenWidth: Dp = 880.dp
 /** The demo phone's own corner, on the page (not scaled with its screen). */
 internal val DemoPhoneCorner: Dp = 24.dp
 private val PhoneShape = RoundedCornerShape(DemoPhoneCorner)

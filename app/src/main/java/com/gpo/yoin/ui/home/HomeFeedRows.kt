@@ -13,12 +13,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
@@ -153,10 +156,12 @@ internal fun homeRowCellWidths(
  * One feed row: a full section, or two halves [gap] apart, top-aligned. Each
  * cell reads its own column ([LocalHomeColumn], [forHomeColumn]). A span drag
  * ([span]) sizes its cell to the finger in the layout pass, and draws the
- * width it will snap to as a dashed outline.
+ * width it will snap to as a dashed outline. Each section's cell is its own
+ * movable content in [cells] and moves with it to another row; [data] is what
+ * a cell shows (null: the section has no cell).
  */
 @Composable
-internal fun HomeFeedRowLayout(
+internal fun <T> HomeFeedRowLayout(
     row: HomeFeedRow,
     span: HomeSpanDrag?,
     gap: Dp,
@@ -164,14 +169,16 @@ internal fun HomeFeedRowLayout(
     flips: HomeCellFlips? = null,
     /** Two columns: every cell's exact height (HomeGridUnits.kt); null in one column. */
     grid: HomeGridHeight? = null,
-    cell: @Composable (HomeSection) -> Unit,
+    /** The cell drawn over its partner (a dragged block), read as the row places. */
+    onTop: () -> HomeSection? = { null },
+    cells: HomeFeedCells<T>,
+    data: (HomeSection) -> T?,
 ) {
     val sections = when (row) {
         is HomeFeedRow.Full -> listOf(row.section)
         is HomeFeedRow.Halves -> listOf(row.left, row.right)
     }
     val outline = MaterialTheme.colorScheme.primary
-    val windowInfo = LocalYoinWindowInfo.current
     Layout(
         modifier = modifier
             .fillMaxWidth()
@@ -204,17 +211,18 @@ internal fun HomeFeedRowLayout(
         content = {
             sections.forEach { section ->
                 key(section) {
-                    flips?.compose(section, row.first)
-                    BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, row.first) } ?: Modifier) {
-                        val half = row is HomeFeedRow.Halves || span?.section == section
-                        val info = remember(windowInfo, maxWidth, half) {
-                            if (half) windowInfo.forHomeColumn(maxWidth) else windowInfo
-                        }
-                        CompositionLocalProvider(
-                            LocalYoinWindowInfo provides info,
-                            LocalHomeColumn provides HomeColumn(half = half),
-                            LocalHomeGridHeight provides grid,
-                        ) { cell(section) }
+                    val cell = data(section)
+                    if (cell != null) {
+                        cells.of(section)(
+                            HomeFeedCellPlace(
+                                rowKey = row.first,
+                                pairHalf = row is HomeFeedRow.Halves,
+                                span = span,
+                                flips = flips,
+                                grid = grid,
+                                data = cell,
+                            ),
+                        )
                     }
                 }
             }
@@ -230,8 +238,9 @@ internal fun HomeFeedRowLayout(
         }
         val height = placeables.maxOfOrNull { it.height } ?: 0
         layout(width, height) {
-            // The dragged cell last, so it draws over a partner it grows into.
-            val order = placeables.indices.sortedBy { if (sections[it] == dragged) 1 else 0 }
+            // The dragged cell last, so it draws over a partner it grows into (or is dragged across).
+            val top = onTop()
+            val order = placeables.indices.sortedBy { if (sections[it] == dragged || sections[it] == top) 1 else 0 }
             order.forEach { index ->
                 val placeable = placeables[index]
                 val x = if (index == 0) 0 else width - placeable.width
@@ -242,11 +251,84 @@ internal fun HomeFeedRowLayout(
 }
 
 /**
+ * Where a cell sits: the row it is in (keyed by its first section), whether
+ * that row is a pair, what the row hands every cell, and what the cell shows
+ * ([data], plain values). Equal for a cell that hasn't changed, so its host skips.
+ */
+@Stable
+internal data class HomeFeedCellPlace<T>(
+    val rowKey: HomeSection,
+    val pairHalf: Boolean,
+    val span: HomeSpanDrag?,
+    val flips: HomeCellFlips?,
+    val grid: HomeGridHeight?,
+    val data: T,
+)
+
+/**
+ * Each section's cell as movable content, one per section for the feed's
+ * life. A section changing rows (a half dragged out of its pair, a full row
+ * dragged into one, a span or Undo regrouping) changes LazyColumn items: the
+ * old item drops the cell and the new one takes it, and the cell moves with
+ * its whole tree — its covers' requests and painters, its measured text,
+ * every remembered state — instead of being disposed in one item and
+ * composed anew in the other (a ~200ms frame on the tablet, each time).
+ * Both happen in one frame: the old item recomposes as the list's items
+ * change and the new one composes in that frame's measure, while the
+ * runtime still holds what was dropped.
+ *
+ * A cell shows [content] for its place and nothing else: no lambda of the
+ * row it sits in. A row's lambda changes with the row and re-invokes where
+ * it was called, and would recompose a cell on its way to another row
+ * against the row it left (where it no longer is: its block gone).
+ */
+@Stable
+internal class HomeFeedCells<T>(private val content: @Composable (HomeSection, HomeFeedCellPlace<T>) -> Unit) {
+    private val hosts = HashMap<HomeSection, @Composable (HomeFeedCellPlace<T>) -> Unit>()
+
+    fun of(section: HomeSection): @Composable (HomeFeedCellPlace<T>) -> Unit =
+        hosts.getOrPut(section) { movableContentOf { place: HomeFeedCellPlace<T> -> HomeFeedCell(section, place, content) } }
+}
+
+/** One cell: [section] in its column at [place] (its window info, its grid height, the move between rows). */
+@Composable
+private fun <T> HomeFeedCell(
+    section: HomeSection,
+    place: HomeFeedCellPlace<T>,
+    content: @Composable (HomeSection, HomeFeedCellPlace<T>) -> Unit,
+) {
+    val flips = place.flips
+    flips?.compose(section, place.rowKey)
+    val windowInfo = LocalYoinWindowInfo.current
+    val morph = remember(flips, section) { flips?.let { HomeCellMorph(it, section) } }
+    // The cell is measured at the width it springs to, once: its content reads that width's info
+    // here and lays out for it alone. Only the block around it (HomeEditBlock) follows the spring.
+    BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, place.rowKey) } ?: Modifier) {
+        val half = place.pairHalf || place.span?.section == section
+        // Two columns (a grid height): every cell reads its own width, full rows too. A cell
+        // changing rows springs its width (HomeCellFlips), and the window's full-width info
+        // in a cell still half wide crammed a full row's covers into it until the spring
+        // ended. At rest a full row's width is the feed's content width: the same info.
+        val column = half || place.grid != null
+        val info = remember(windowInfo, maxWidth, column) {
+            if (column) windowInfo.forHomeColumn(maxWidth) else windowInfo
+        }
+        CompositionLocalProvider(
+            LocalYoinWindowInfo provides info,
+            LocalHomeColumn provides HomeColumn(half = half),
+            LocalHomeGridHeight provides place.grid,
+            LocalHomeCellMorph provides morph,
+        ) { content(section, place) }
+    }
+}
+
+/**
  * A section's cell moving to another row (two columns: a pair forming or
  * splitting on the handle's release, an Undo) moves there from where it
  * was and springs its width, instead of the old row fading out while the
  * new one fades in. The old row, fading out, no longer draws the cell.
- * On only while [enabled] (edit mode at rest: a carry's strips do their own).
+ * On only while [enabled] (edit mode). A [pinned] cell (the dragged block,
+ * which follows the finger) springs its width but never flies.
  */
 @Stable
 internal class HomeCellFlips(
@@ -261,6 +343,9 @@ internal class HomeCellFlips(
     /** A span drag sizes its row's cells itself, frame by frame: no spring while one runs. */
     var spanDragging: () -> Boolean = { false }
 
+    /** The dragged block: it is drawn under the finger, so a change of row moves nothing. */
+    var pinned: () -> HomeSection? = { null }
+
     /** The row (keyed by its first section) each displayed section is in now. Published after each composition. */
     var rowOf: Map<HomeSection, HomeSection> by mutableStateOf(emptyMap())
 
@@ -270,6 +355,9 @@ internal class HomeCellFlips(
     private val offsets = HashMap<HomeSection, Animatable<androidx.compose.ui.geometry.Offset, AnimationVector2D>>()
     private val widths = HashMap<HomeSection, Animatable<Float, AnimationVector1D>>()
     private val lastTarget = HashMap<HomeSection, Int>()
+
+    /** Cells whose move keeps their end edge nearer in place (a full row becoming the right half): content sits at the end. */
+    private val endAnchored = HashSet<HomeSection>()
 
     /** The feed composed [section] in the row [rowKey]: a change of row arms a move from its last place. */
     fun compose(section: HomeSection, rowKey: HomeSection) {
@@ -290,32 +378,50 @@ internal class HomeCellFlips(
         lastRow.keys.retainAll(keep)
         lastBounds.keys.retainAll(keep)
         lastTarget.keys.retainAll(keep)
+        endAnchored.retainAll(keep)
     }
 
     internal fun shows(section: HomeSection, rowKey: HomeSection): Boolean =
         rowOf[section]?.let { it == rowKey } ?: true
 
     /**
-     * The width to measure [section]'s content at for a cell [target] px wide:
-     * a cell staying in its row whose width changes (a pair splitting leaves
-     * the left half's row full width) springs from the width it had.
+     * [section]'s cell is [target] px wide: a cell staying in its row whose
+     * width changes (a pair splitting leaves the left half's row full width)
+     * springs its drawn width from the width it had ([drawnWidth]).
      */
-    internal fun measureWidth(section: HomeSection, target: Int): Int {
+    internal fun target(section: HomeSection, target: Int) {
         val last = lastTarget.put(section, target)
         if (last != null && last != target && widths[section] == null && !spanDragging() &&
             androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { enabled() }
         ) {
             val w = Animatable(last.toFloat())
             widths[section] = w
+            endAnchored.remove(section)
             scope.launch {
                 w.animateTo(target.toFloat(), spec())
                 if (widths[section] === w) widths.remove(section)
             }
         }
-        return widths[section]?.value?.roundToInt()?.coerceAtLeast(1) ?: target
+    }
+
+    /**
+     * The width [section]'s block is drawn at in a cell [target] px wide:
+     * the spring's while it runs, else the cell's. Reading it in a layout
+     * pass re-lays that pass (only) each frame of the spring.
+     */
+    internal fun drawnWidth(section: HomeSection, target: Int): Int =
+        widths[section]?.value?.roundToInt()?.coerceAtLeast(1) ?: target
+
+    /** How much wider [section]'s content lays out than its block is drawn now (< 0: narrower); 0 at rest. */
+    internal fun contentExtra(section: HomeSection): Int {
+        val target = lastTarget[section] ?: return 0
+        return target - drawnWidth(section, target)
     }
 
     internal fun offsetOf(section: HomeSection) = offsets[section]?.value
+
+    /** [section]'s content keeps to its block's end edge while the width springs ([homeCellAnchorsEnd]). Draw only. */
+    internal fun anchorsEnd(section: HomeSection): Boolean = section in endAnchored
 
     internal fun placed(section: HomeSection, rowKey: HomeSection, coordinates: LayoutCoordinates, targetWidth: Float) {
         // A row fading out still places its old cell: it keeps no record.
@@ -326,11 +432,18 @@ internal class HomeCellFlips(
         val from = pending.remove(section)
         if (from != null) {
             val delta = from.topLeft - topLeft
-            val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
-            offsets[section] = offset
-            scope.launch {
-                offset.animateTo(androidx.compose.ui.geometry.Offset.Zero, offsetSpec())
-                if (offsets[section] === offset) offsets.remove(section)
+            if (section != pinned() && homeCellAnchorsEnd(from.left, from.right, topLeft.x, topLeft.x + targetWidth)) {
+                endAnchored += section
+            } else {
+                endAnchored -= section
+            }
+            if (section != pinned()) {
+                val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
+                offsets[section] = offset
+                scope.launch {
+                    offset.animateTo(androidx.compose.ui.geometry.Offset.Zero, offsetSpec())
+                    if (offsets[section] === offset) offsets.remove(section)
+                }
             }
             val w = widths[section]
             if (w != null && abs(w.value - targetWidth) >= 1f) {
@@ -347,13 +460,17 @@ internal class HomeCellFlips(
     }
 }
 
-/** A cell under [flips]: measured at its springing width, drawn from where it came, hidden while its old row fades. */
+/**
+ * A cell under [flips]: measured at the width it springs to (its content
+ * lays out once, never at the widths in between), drawn from where it came,
+ * hidden while its old row fades. Its block follows the spring ([HomeCellMorph]).
+ */
 private fun Modifier.homeCellFlip(flips: HomeCellFlips, section: HomeSection, rowKey: HomeSection): Modifier =
     onPlaced { coordinates -> flips.placed(section, rowKey, coordinates, coordinates.size.width.toFloat()) }
         .layout { measurable, constraints ->
             val target = constraints.maxWidth
-            val w = flips.measureWidth(section, target)
-            val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+            flips.target(section, target)
+            val placeable = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
             layout(target, placeable.height) { placeable.place(0, 0) }
         }
         .drawWithContent {
@@ -361,3 +478,94 @@ private fun Modifier.homeCellFlip(flips: HomeCellFlips, section: HomeSection, ro
             val offset = flips.offsetOf(section)
             if (offset == null) drawContent() else translate(offset.x, offset.y) { this@drawWithContent.drawContent() }
         }
+
+/**
+ * A cell springing between half and full width (a pair forming or
+ * splitting, the dragged block changing rows). Its content lays out once,
+ * at the width the cell springs to: laid out at every width in between, a
+ * section re-packed its grid each time it crossed a width class (Activities'
+ * bento, Jump Back In's covers), drawing cards over each other and taking a
+ * long frame for each re-pack. The block around the content (its plate,
+ * badges, handle and layer) follows the spring instead ([homeCellMorphBlock]),
+ * and the content shows inside it ([homeCellMorphContent]): revealed as the
+ * block widens, the block closing around it as it narrows. Read in layout and
+ * draw only.
+ */
+@Stable
+internal class HomeCellMorph(private val flips: HomeCellFlips, private val section: HomeSection) {
+    /** The block's width now in a cell [target] px wide. */
+    fun drawnWidth(target: Int): Int = flips.drawnWidth(section, target)
+
+    /** How much wider the content lays out than the block draws now (< 0: narrower); 0 at rest. */
+    fun contentExtra(): Int = flips.contentExtra(section)
+
+    /** The content keeps to the block's end edge, the one staying (nearly) in place. Draw only. */
+    fun anchorsEnd(): Boolean = flips.anchorsEnd(section)
+}
+
+/**
+ * A cell moving from [fromLeft]‥[fromRight] to [toLeft]‥[toRight] keeps its content at its end
+ * edge when that edge travels less than its start edge: a full row becoming the right half of a
+ * pair (a block dropped beside it, on its left) narrows from the left, its right edge staying,
+ * and its content sits in the right half from the first frame — never sliding across the half
+ * the incoming block lands in (2026-11-23). A move without a width change ties: start edge. Pure.
+ */
+internal fun homeCellAnchorsEnd(fromLeft: Float, fromRight: Float, toLeft: Float, toRight: Float): Boolean =
+    abs(fromRight - toRight) < abs(fromLeft - toLeft) - .5f
+
+/** The morph of the cell a block sits in; null outside two columns' cells. */
+internal val LocalHomeCellMorph = staticCompositionLocalOf<HomeCellMorph?> { null }
+
+/** The block of a cell [morph]s: as wide as the spring draws it, from the cell's start. */
+internal fun Modifier.homeCellMorphBlock(morph: HomeCellMorph?): Modifier = if (morph == null) {
+    this
+} else {
+    layout { measurable, constraints ->
+        if (!constraints.hasBoundedWidth) return@layout measurable.measure(constraints).let { layout(it.width, it.height) { it.place(0, 0) } }
+        val w = morph.drawnWidth(constraints.maxWidth)
+        val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
+    }
+}
+
+/**
+ * The content inside a [morph]ing block: laid out at the width the cell
+ * springs to whatever width the block is drawn at (the same constraints each
+ * frame, so it isn't measured again), cut off at the block's edge while it
+ * is the wider of the two.
+ *
+ * The cut is drawn OUTSIDE the layout, at the block's width: inside it, its
+ * size was the content's own (the wider one), so nothing was cut, and a
+ * widening block drew the cards of its final width past its edge (Jump Back
+ * In's covers over the next column, a dragged block's shelf off the screen,
+ * 2026-11-23).
+ */
+internal fun Modifier.homeCellMorphContent(morph: HomeCellMorph?): Modifier = if (morph == null) {
+    this
+} else {
+    drawWithContent {
+        val extra = morph.contentExtra()
+        // Anchored at the end ([homeCellAnchorsEnd]): the content's end edge on the block's,
+        // so it moves with the block's end and is cut at its start edge instead.
+        val end = extra != 0 && morph.anchorsEnd()
+        val dx = if (end) -extra.toFloat() else 0f
+        when {
+            extra > 0 && end -> clipRect(left = 0f, top = -size.height, right = size.width * 2f, bottom = size.height * 2f) {
+                translate(left = dx) { this@drawWithContent.drawContent() }
+            }
+            extra > 0 -> clipRect(left = -size.width, top = -size.height, right = size.width, bottom = size.height * 2f) {
+                this@drawWithContent.drawContent()
+            }
+            end -> translate(left = dx) { this@drawWithContent.drawContent() }
+            else -> drawContent()
+        }
+    }.layout { measurable, constraints ->
+        if (!constraints.hasBoundedWidth) return@layout measurable.measure(constraints).let { layout(it.width, it.height) { it.place(0, 0) } }
+        val w = homeCellMorphContentWidth(constraints.maxWidth, morph.contentExtra())
+        val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
+    }
+}
+
+/** The width a morphing block's content lays out at: its box's [boxWidth] plus what the spring has left to go ([extra]). Pure. */
+internal fun homeCellMorphContentWidth(boxWidth: Int, extra: Int): Int = (boxWidth + extra).coerceAtLeast(1)

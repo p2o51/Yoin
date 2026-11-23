@@ -74,7 +74,7 @@ class HomeEditSpringTest {
         assertEquals(380f, fold.stiffness, 0f)
         assertEquals(.0005f, (specs.stage as SpringSpec<Float>).visibilityThreshold)
         assertEquals(.01f, (specs.kick as SpringSpec<Float>).visibilityThreshold)
-        assertEquals(.3f, (specs.holePx as SpringSpec<Float>).visibilityThreshold)
+        assertEquals(.4f, (specs.settlePx as SpringSpec<Float>).visibilityThreshold)
     }
 
     @Test

@@ -76,9 +76,10 @@ class HomeLayoutRowsTest {
 
     @Test
     fun should_writeNoConfig_when_rowsAtDefault() {
-        HomeLayout.Default.toPrefs().forEach { assertNull(it.id, it.config) }
+        // Activities | Jump Back In is the default's one shown pair (its two-column memory): only "span".
+        HomeLayout.Default.toPrefs().forEach { assertNull(it.id, it.config?.get("rows")) }
         val prefs = HomeLayout.Default.withRows(HomeSection.Activities, HomeRowPreset.M).toPrefs()
-        assertEquals(rowsConfig("m"), prefs.first { it.id == "activities" }.config)
+        assertEquals(rowsConfig("m")["rows"], prefs.first { it.id == "activities" }.config?.get("rows"))
     }
 
     @Test
@@ -92,7 +93,9 @@ class HomeLayoutRowsTest {
 
         assertEquals(HomeRowPreset.XL, layout.rowsOf(HomeSection.JumpBackIn))
         assertEquals(HomeRowPreset.S, layout.rowsOf(HomeSection.Activities))
-        assertTrue(layout.sameSectionsAs(HomeLayout.reconcile(layout.toPrefs())))
+        // The whole document: the flags alone can't carry the memory's pairs this order doesn't show
+        // (Jump Back In | Activities shows, swapped, since 2026-11-23).
+        assertTrue(layout.sameSectionsAs(HomeLayout.fromDocument(layout.toDocument())))
     }
 
     @Test
@@ -100,11 +103,11 @@ class HomeLayoutRowsTest {
         val layout = HomeLayout.reconcile(listOf(HomeSectionPref("activities", true, rowsConfig("xxl"))))
 
         assertEquals(HomeRowPreset.L, layout.rowsOf(HomeSection.Activities))
-        assertEquals(rowsConfig("xxl"), layout.toPrefs().first { it.id == "activities" }.config)
+        assertEquals(rowsConfig("xxl")["rows"], layout.toPrefs().first { it.id == "activities" }.config?.get("rows"))
         // Choosing a preset replaces the unreadable value.
         assertEquals(
-            rowsConfig("s"),
-            layout.withRows(HomeSection.Activities, HomeRowPreset.S).toPrefs().first { it.id == "activities" }.config,
+            rowsConfig("s")["rows"],
+            layout.withRows(HomeSection.Activities, HomeRowPreset.S).toPrefs().first { it.id == "activities" }.config?.get("rows"),
         )
     }
 

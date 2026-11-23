@@ -91,6 +91,31 @@ class HomeEditControllerTest {
     }
 
     @Test
+    fun should_followTheNewWidth_when_rotatedBeforeAnyChange() = runFrameClockTest { scope ->
+        val h = Harness(scope)
+        h.controller.enter(null, lifted = false)
+        assertEquals(HomeLayout.Default, h.controller.draft)
+
+        h.controller.twoColumn = true
+        assertTrue(h.controller.draft!!.isWideDefault)
+
+        h.controller.twoColumn = false
+        assertTrue(h.controller.draft!!.isDefault)
+    }
+
+    @Test
+    fun should_keepTheDraft_when_rotatedAfterAChange() = runFrameClockTest { scope ->
+        val h = Harness(scope)
+        h.controller.enter(null, lifted = false)
+        h.controller.hide(HomeSection.RecentlyAdded)
+        val edited = h.controller.draft
+
+        h.controller.twoColumn = true
+
+        assertEquals(edited, h.controller.draft)
+    }
+
+    @Test
     fun should_pushUndoPersistAndNotifyLayer_when_hiding() = runFrameClockTest { scope ->
         val h = Harness(scope)
         h.controller.enter(null, lifted = false)

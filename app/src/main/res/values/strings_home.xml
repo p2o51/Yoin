@@ -84,6 +84,9 @@
     <string name="home_edit_make_full_width">Make full width</string>
     <string name="home_edit_fewer_rows">Fewer rows</string>
     <string name="home_edit_hide">Hide</string>
+    <!-- The edit header's switch, named for where a tap goes: the list (over the full layout) or the full layout (over the list). -->
+    <string name="home_edit_view_list">Compact list</string>
+    <string name="home_edit_view_full">Full layout</string>
     <string name="home_cd_section_index">Section %1$d of %2$d</string>
     <string name="home_cd_section_index_rows">Section %1$d of %2$d, %3$s</string>
     <plurals name="home_edit_rows">
@@ -236,7 +239,7 @@
     <string name="home_tip_downloads_title">Offline downloads</string>
     <string name="home_tip_downloads">Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Accounts › your active account › Storage › Downloads</string>
     <string name="home_tip_edit_home_title">Rearrange Home</string>
-    <string name="home_tip_edit_home">Long-press Home to rearrange sections</string>
+    <string name="home_tip_edit_home">While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large screens.</string>
     <string name="home_tip_pull_memories_title">Memories</string>
     <string name="home_tip_pull_memories">Pull down on Home to open Memories</string>
     <string name="home_tip_cover_menu_title">Song options</string>

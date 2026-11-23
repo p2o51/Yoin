@@ -367,7 +367,7 @@ class HomeViewModel(
             if (next.isAnyDefault && next.retained.isEmpty()) {
                 homeLayoutStore.clearLayout(profileId)
             } else {
-                homeLayoutStore.setLayout(profileId, next.toPrefs())
+                homeLayoutStore.setDocument(profileId, next.toDocument())
             }
         }
     }
@@ -387,8 +387,8 @@ class HomeViewModel(
                     if (profileId.isNullOrBlank()) {
                         flowOf(profileId to HomeLayout.Default)
                     } else {
-                        homeLayoutStore.layoutFlow(profileId)
-                            .map { prefs -> profileId to HomeLayout.reconcile(prefs) }
+                        homeLayoutStore.documentFlow(profileId)
+                            .map { document -> profileId to HomeLayout.fromDocument(document) }
                     }
                 }
                 .collect { (profileId, layout) ->
@@ -944,7 +944,7 @@ class HomeViewModel(
 
     /** [profileId]'s layout read once; one that can't be read is the default, as [observeHomeLayout] would show. */
     private suspend fun readLayoutOrDefault(profileId: String): HomeLayout = try {
-        HomeLayout.reconcile(homeLayoutStore.readLayout(profileId))
+        HomeLayout.fromDocument(homeLayoutStore.readDocument(profileId))
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (_: Exception) {
@@ -2322,7 +2322,13 @@ class HomeViewModel(
         val trackId = MediaId(note.provider, note.trackId)
         val rating = guardedOrNull { repository.getRating(trackId).first()?.rating }
         val recentPlay = guardedOrNull { repository.getMostRecentPlay(trackId) }
+        // No play in Yoin (noted from a list, or the play row has no cover):
+        // the song's album cover from disk, so the card isn't a bare note
+        // glyph. This runs in the local tier, so no network here: a miss
+        // fetches the album in the background and the next Home load has it.
         val coverRef = CoverRef.fromStorageKey(recentPlay?.coverArtId)
+            ?: guardedOrNull { repository.coverForTrack(trackId) }
+                .also { found -> if (found == null) warmTrackCover(trackId) }
         val song = Track(
             id = trackId,
             title = note.title,
@@ -2340,7 +2346,8 @@ class HomeViewModel(
         )
         val score = formatMemoryScore(rating)
         val (subtitle, subtitleText) = singleSubtitle(note.artist)
-        val (coverArtUrl, coverKey) = cardCover(coverRef)
+        // Subsonic serves a song's own id as cover art too: the last stand-in.
+        val (coverArtUrl, coverKey) = cardCover(coverRef, subsonicFallback = trackId)
         val card = HomeWidgetCard(
             stableId = "grid-note:${note.id}",
             entityType = MemoryEntityType.SONG,
@@ -2358,6 +2365,13 @@ class HomeViewModel(
             target = HomeWidgetTarget.PlaySong(song),
         )
         return card to trackId
+    }
+
+    /** Reads a noted song's album off the network once, so its cover is on disk for the next Home load. */
+    private fun warmTrackCover(trackId: MediaId) {
+        viewModelScope.launch {
+            runCatching { repository.coverForTrack(trackId, allowNetwork = true) }
+        }
     }
 
     private suspend fun loadGridTracks(): List<Track> =

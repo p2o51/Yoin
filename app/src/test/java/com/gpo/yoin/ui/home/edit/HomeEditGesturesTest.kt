@@ -47,12 +47,12 @@ class HomeEditGesturesTest {
     private val feedback = RecordingHomeEditFeedback()
     private var clicks = 0
     private lateinit var controller: HomeEditController
-    private lateinit var engine: HomeCarryEngine
+    private lateinit var engine: HomeDragEngine
     private lateinit var listState: LazyListState
 
     // Three sections in Robolectric's 470dp-tall window: at 120dp they leave the page's bottom blank,
     // at 300dp they scroll.
-    private fun setPage(sectionHeight: Int = 120) {
+    private fun setPage(sectionHeight: Int = 120, follow: Boolean = false) {
         rule.setContent {
             val scope = rememberCoroutineScope()
             val density = LocalDensity.current
@@ -81,7 +81,7 @@ class HomeEditGesturesTest {
             }
             val press = remember { HomeEditPressState() }
             engine = remember {
-                HomeCarryEngine(
+                HomeDragEngine(
                     scope = scope,
                     specs = specs,
                     motion = motion,
@@ -92,6 +92,19 @@ class HomeEditGesturesTest {
                 )
             }
             val targets = remember { HomeEditTargets() }
+            if (follow) {
+                engine.host = remember {
+                    LazyListDragHost(
+                        listState = listState,
+                        order = { listOf(HomeSection.Activities, HomeSection.JumpBackIn, HomeSection.RecentlyAdded) },
+                        laidOutPairs = { null },
+                        contentLeft = { 0f },
+                        contentWidth = { 1000f },
+                        columnGapPx = 0f,
+                        scrollArea = { HomeEditSafeArea(-10_000f, 10_000f) },
+                    )
+                }
+            }
             val hitTester = remember {
                 HomeEditHitTester(
                     listState = listState,
@@ -123,6 +136,13 @@ class HomeEditGesturesTest {
                             Modifier
                                 .fillMaxWidth()
                                 .height(sectionHeight.dp)
+                                .then(
+                                    if (follow) {
+                                        Modifier.dragFollow(engine, HomeSection.Activities, inList = false, box = targets::boxCoordinates)
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                                 .testTag("card")
                                 .clickable { clicks++ },
                         )
@@ -199,5 +219,51 @@ class HomeEditGesturesTest {
 
         assertFalse(controller.isEditing)
         assertEquals(0, clicks)
+    }
+
+    @Test
+    fun should_notLift_when_cardPressedWhileFeedFlings() {
+        setPage(sectionHeight = 300)
+        rule.onNodeWithTag("card").performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertTrue(controller.isEditing)
+
+        // A fast swipe flings the feed; the next press lands while it still runs and is held past the body hold.
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("page").performTouchInput { swipeUp(startY = bottom - 10f, endY = centerY, durationMillis = 60L) }
+        rule.mainClock.advanceTimeBy(32L)
+        assertTrue(listState.isScrollInProgress)
+        rule.onNodeWithTag("page").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(500L)
+
+        assertEquals(null, engine.liftSection)
+        rule.onNodeWithTag("page").performTouchInput { up() }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        assertTrue(controller.isEditing)
+        assertEquals(null, engine.dragging)
+    }
+
+    @Test
+    fun should_keepDraggedBlockUnderFinger_onTheFrameTheListScrolls() {
+        setPage(sectionHeight = 300, follow = true)
+        rule.waitForIdle()
+        // A drag runs a frame loop for as long as it lasts: frame by frame from here.
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("card").performTouchInput { down(Offset(centerX, 100f)) }
+        rule.mainClock.advanceTimeBy(600L)
+        rule.onNodeWithTag("page").performTouchInput { moveBy(Offset(0f, 40f)) }
+        rule.mainClock.advanceTimeBy(100L)
+        assertEquals(HomeSection.Activities, engine.dragging)
+        val top = rule.onNodeWithTag("card").fetchSemanticsNode().boundsInRoot.top
+
+        // The list scrolls under the resting finger; the next frame lays it out and draws the block.
+        rule.runOnUiThread { listState.dispatchRawDelta(60f) }
+        rule.mainClock.advanceTimeByFrame()
+
+        assertEquals(top, rule.onNodeWithTag("card").fetchSemanticsNode().boundsInRoot.top, 1f)
+        rule.onNodeWithTag("page").performTouchInput { up() }
+        rule.mainClock.advanceTimeBy(1_000L)
+        rule.mainClock.autoAdvance = true
     }
 }
