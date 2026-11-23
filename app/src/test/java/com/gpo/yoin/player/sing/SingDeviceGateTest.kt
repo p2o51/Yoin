@@ -12,13 +12,25 @@ class SingDeviceGateTest {
     @Test
     fun should_pass_when_fastCoolAndQuad() {
         assertEquals(Verdict.Sufficient(400), SingDeviceGate.evaluate(400, thermalStatus = 0))
-        assertEquals(Verdict.Sufficient(1_500), SingDeviceGate.evaluate(1_500, thermalStatus = 1))
+        assertEquals(Verdict.Sufficient(825), SingDeviceGate.evaluate(825, thermalStatus = 1))
+    }
+
+    @Test
+    fun should_passPixelTablet_when_itsIdleBenchmarkDoublesWhilePlaying() {
+        // Round-2 tablet logs: 650 ms idle, 1 280–1 297 ms/chunk while the song played.
+        assertEquals(Verdict.Sufficient(650), SingDeviceGate.evaluate(650, thermalStatus = 0))
+        assertEquals(1_300L, SingDeviceGate.liveChunkMs(650))
+        assertTrue(SingDeviceGate.liveChunkMs(650) <= SingDeviceGate.MAX_LIVE_CHUNK_MS)
+        // A chunk step is ~1.86 s of audio: the limit keeps live separation ahead of the song.
+        assertTrue(SingDeviceGate.MAX_LIVE_CHUNK_MS < 1_858)
     }
 
     @Test
     fun should_reportInsufficient_when_chunkTooSlowForLive() {
-        val v = SingDeviceGate.evaluate(1_501, 0)
-        assertEquals(Verdict.Insufficient(Why.TooSlow, 1_501), v)
+        // Fine idle (the old 1.5 s limit passed it) but ~2.0 s a chunk while playing: can't keep up.
+        assertEquals(Why.TooSlow, (SingDeviceGate.evaluate(1_000, 0) as Verdict.Insufficient).why)
+        val v = SingDeviceGate.evaluate(826, 0)
+        assertEquals(Verdict.Insufficient(Why.TooSlow, 826), v)
         assertEquals(SingUnavailableReason.DeviceInsufficient, (v as Verdict.Insufficient).reason)
         assertEquals(com.gpo.yoin.R.string.sing_device_insufficient, v.reason.messageRes)
     }

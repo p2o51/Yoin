@@ -129,4 +129,46 @@ class LiveVocalSeparatorTest {
         assertEquals(1, collector.times[play.toInt()])
         assertTrue(separator.chunksDone == 2 && !separator.isFinished)
     }
+
+    /** Where V is final from [from] on: the first frame after it not yet handed out. */
+    private fun Collector.finalEnd(from: Int): Long {
+        var at = from
+        while (at < times.size && times[at] == 1) at++
+        return at.toLong()
+    }
+
+    @Test
+    fun should_predictWhereVIsFinal_when_planningChunksAhead() {
+        for (rate in intArrayOf(44_100, 48_000)) {
+            val frames = rate * 30
+            val (left, right) = SingFixtures.synth(frames, rate)
+            val separator = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+            val collector = Collector(frames)
+            separator.start(collector)
+            val from = rate * 7L + 1234
+            val priority = separator.frameAtSource(from)
+            // One chunk under a frame doesn't make it final (its neighbour overlaps it).
+            for (k in 1..4) {
+                val predicted = separator.finalEndAfter(from, 1)
+                separator.runChunk(separator.nextChunk(priority), FakeModel, collector)
+                val actual = collector.finalEnd(from.toInt())
+                assertTrue("k=$k @ $rate: predicted $predicted ≤ actual $actual", predicted <= actual || predicted <= from)
+                // Conservative by no more than the iSTFT and upsampler edges (a few hops).
+                assertTrue("k=$k @ $rate: predicted $predicted ≫ behind actual $actual", actual - maxOf(predicted, from) < 4L * 256 * rate / 22_050)
+            }
+            // Planned from scratch: four chunks ahead predicts as far as running them does, and a chunk
+            // already run comes free.
+            val fresh = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+            val freshCollector = Collector(frames)
+            fresh.start(freshCollector)
+            val ahead = rate * 18L
+            val four = fresh.finalEndAfter(ahead, 4)
+            repeat(4) { fresh.runChunk(fresh.nextChunk(fresh.frameAtSource(ahead)), FakeModel, freshCollector) }
+            assertTrue(four <= freshCollector.finalEnd(ahead.toInt()))
+            assertEquals(four, fresh.finalEndAfter(ahead, 0))
+            assertTrue(fresh.finalEndAfter(ahead, 1) > four)
+            // To the end of the song: everything.
+            assertEquals(Long.MAX_VALUE, fresh.finalEndAfter(ahead, 100))
+        }
+    }
 }
