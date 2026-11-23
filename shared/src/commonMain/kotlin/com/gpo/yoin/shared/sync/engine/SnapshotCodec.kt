@@ -2,6 +2,7 @@ package com.gpo.yoin.shared.sync.engine
 
 import com.gpo.yoin.shared.sync.CanonicalJson
 import com.gpo.yoin.shared.sync.ResetMarker
+import com.gpo.yoin.shared.sync.ScopePurgeMarker
 import com.gpo.yoin.shared.sync.SyncEnvelope
 import com.gpo.yoin.shared.sync.SyncFormat
 import com.gpo.yoin.shared.sync.SyncRecordEntity
@@ -96,6 +97,23 @@ object SnapshotCodec {
         } catch (e: IllegalArgumentException) {
             throw MalformedSyncFileException("Unreadable reset marker", e)
         }
+    }
+
+    fun encodePurge(marker: ScopePurgeMarker): ByteArray =
+        SyncJson.encodeToString(ScopePurgeMarker.serializer(), marker).encodeToByteArray()
+
+    /** @throws MalformedSyncFileException when the bytes are not a scope purge marker (or name no scope). */
+    fun decodePurge(bytes: ByteArray): ScopePurgeMarker {
+        val root = parseRoot(bytes)
+        val marker = try {
+            SyncJson.json.decodeFromJsonElement(ScopePurgeMarker.serializer(), root)
+        } catch (e: SerializationException) {
+            throw MalformedSyncFileException("Unreadable scope purge marker", e)
+        } catch (e: IllegalArgumentException) {
+            throw MalformedSyncFileException("Unreadable scope purge marker", e)
+        }
+        if (marker.scope.isEmpty()) throw MalformedSyncFileException("Scope purge marker without a scope")
+        return marker
     }
 
     fun isGzip(bytes: ByteArray): Boolean = bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()

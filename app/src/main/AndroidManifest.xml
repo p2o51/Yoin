@@ -160,6 +160,21 @@
             android:name=".ui.settings.sync.CloudSyncActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- Cloud sync's sub-pages (云端数据, 同步位置, backup export / import, 转移 Memories). Plain Activities:
+             native cross-Activity predictive back. -->
+        <activity
+            android:name=".ui.settings.sync.CloudDataActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.settings.sync.SyncLocationActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.settings.sync.BackupActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.settings.sync.MemoriesTransferActivity"
+            android:exported="false" />
         <!-- Settings › Playlist backups › one backup (docs/playlist-transfer.md §7). Plain Activity:
              native cross-Activity predictive back. -->
         <activity

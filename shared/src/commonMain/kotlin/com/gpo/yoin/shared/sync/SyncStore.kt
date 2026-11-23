@@ -75,7 +75,7 @@ data class SyncBindingEntity(
     val provider: String,
     /** sha256 of the account fingerprint this binding was made for; null for Apple Music (explicit links). */
     val fingerprintHash: String?,
-    /** [STATE_ACTIVE] or [STATE_PAUSED_MISMATCH]. */
+    /** [STATE_ACTIVE], [STATE_PAUSED_MISMATCH] or [STATE_PURGED]. */
     val state: String,
     /** Fingerprint hash observed when the state became PAUSED_MISMATCH. */
     val observedFingerprintHash: String?,
@@ -84,6 +84,9 @@ data class SyncBindingEntity(
     companion object {
         const val STATE_ACTIVE = "active"
         const val STATE_PAUSED_MISMATCH = "paused_mismatch"
+
+        /** Removed from the cloud (a scope purge marker): not synced until resumed on this device. Sticky. */
+        const val STATE_PURGED = "purged"
     }
 }
 
@@ -145,6 +148,9 @@ object SyncMetaKeys {
     /** Prefix: "spotify_uid:<localProfileId>" = "<userId>|<refreshTokenHash16>". */
     const val SPOTIFY_UID_PREFIX = "spotify_uid:"
 
+    /** Prefix: "purged_scope:<syncProfileId>" = epoch of the newest scope purge applied here. */
+    const val PURGED_SCOPE_PREFIX = "purged_scope:"
+
     /** Prefix: "last_uploaded_hash:<fileKind>:<shard>". */
     const val LAST_UPLOADED_HASH_PREFIX = "last_uploaded_hash:"
 
@@ -179,6 +185,8 @@ interface SyncStore {
 
     suspend fun clearRecords()
 
+    suspend fun deleteRecord(kind: String, scope: String, key: String)
+
     // ---- local state
     suspend fun getLocalState(kind: String, scope: String, key: String): SyncLocalStateEntity?
 
@@ -212,6 +220,9 @@ interface SyncStore {
     suspend fun upsertBinding(binding: SyncBindingEntity)
 
     suspend fun deleteBinding(localProfileId: String)
+
+    /** Every binding in [fromState] moves to [state]. */
+    suspend fun updateBindingStates(fromState: String, state: String)
 
     // ---- remote files
     suspend fun remoteFiles(): List<SyncRemoteFileEntity>
