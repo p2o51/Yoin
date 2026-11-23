@@ -247,7 +247,7 @@ object ReadableExport {
                         }
                     }
                 }
-                BackupKinds.ALBUM_NOTE -> {
+                SyncKinds.ALBUM_NOTE -> {
                     val provider = payload.requiredString(BackupFields.PROVIDER) ?: continue
                     val albumId = payload.requiredString(BackupFields.ALBUM_ID) ?: continue
                     page(AlbumKey(provider, albumId)).apply {

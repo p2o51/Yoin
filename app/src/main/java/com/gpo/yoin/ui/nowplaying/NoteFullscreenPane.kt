@@ -344,9 +344,11 @@ private fun NotePageLine(
     var menuNowMs by remember { mutableLongStateOf(0L) }
     val anchor = note.positionMs
     Box(modifier = modifier) {
+        val toggle = LocalNoteChecklistToggle.current
         NoteLine(
             stamp = anchor?.let(::formatNotePosition),
             text = note.content,
+            onToggleChecklist = toggle?.let { t -> { line -> t(note.id, line) } },
             isActive = isActive,
             emphasis = NoteLineEmphasis.Page,
             distance = distance,

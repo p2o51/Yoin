@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -19,13 +17,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.notes.NoteBacklink
 import com.gpo.yoin.ui.component.NoteLine
 import com.gpo.yoin.ui.component.NoteLineEmphasis
 import com.gpo.yoin.ui.component.NoteSortMode
@@ -43,25 +39,19 @@ import kotlinx.coroutines.flow.filter
  * expanded page, at glance emphasis), the line the playhead is inside lit
  * up, the list gliding to keep it anchored — no cards, no controls.
  * Tapping the compact pager area promotes to [NowPlayingStageMode.Expanded]
- * where notes become editable.
+ * where notes become editable. No notes yet: [NoteCompactEmpty].
  */
 @Composable
 fun NoteCompactPane(
     notes: List<SongNote>,
     positionMs: () -> Long,
     modifier: Modifier = Modifier,
+    onWrite: () -> Unit = {},
+    backlinks: List<NoteBacklink> = emptyList(),
 ) {
     if (notes.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Text(
-                text = stringResource(R.string.np_note_tap_to_write),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        // The notes revamp's empty pane: the doodle, 写笔记 with the live moment, where it's mentioned.
+        NoteCompactEmpty(positionMs = positionMs, onWrite = onWrite, backlinks = backlinks, modifier = modifier)
         return
     }
 

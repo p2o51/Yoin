@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.sync.SyncKinds
 import com.gpo.yoin.data.sync.backup.BackupFormat
-import com.gpo.yoin.data.sync.backup.BackupKinds
 import com.gpo.yoin.data.sync.backup.ImportAccountPlan
 import com.gpo.yoin.data.sync.backup.ImportTarget
 import com.gpo.yoin.symbols.YoinSymbols
@@ -426,7 +425,7 @@ private fun TreeRow(name: String, note: String?, depth: Int, folder: Boolean = f
 private fun kindLabels(kinds: Collection<String>): String = joinedList(
     kinds.map { kind ->
         when (kind) {
-            SyncKinds.SONG_NOTE, BackupKinds.ALBUM_NOTE -> R.string.settings_sync_kind_notes
+            SyncKinds.SONG_NOTE, SyncKinds.ALBUM_NOTE -> R.string.settings_sync_kind_notes
             SyncKinds.TRACK_RATING, SyncKinds.ALBUM_RATING -> R.string.settings_sync_kind_ratings
             SyncKinds.ALBUM_REVIEW -> R.string.settings_sync_kind_reviews
             SyncKinds.MEMORY_TITLE, SyncKinds.ALBUM_TITLE, SyncKinds.MEMORY_COPY -> R.string.settings_sync_kind_titles
@@ -520,7 +519,7 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
 /** An account's live record counts in the backup, in the page's words. */
 @Composable
 private fun accountCountGroups(counts: Map<String, Int>): List<MetaGroup> {
-    val notes = (counts[SyncKinds.SONG_NOTE] ?: 0)
+    val notes = (counts[SyncKinds.SONG_NOTE] ?: 0) + (counts[SyncKinds.ALBUM_NOTE] ?: 0)
     val albums = maxOf(counts[SyncKinds.ALBUM_RATING] ?: 0, counts[SyncKinds.ALBUM_REVIEW] ?: 0)
     val songs = counts[SyncKinds.TRACK_RATING] ?: 0
     val titles = (counts[SyncKinds.MEMORY_TITLE] ?: 0) + (counts[SyncKinds.ALBUM_TITLE] ?: 0)

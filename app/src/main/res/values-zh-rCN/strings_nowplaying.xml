@@ -148,8 +148,6 @@
     <string name="np_cd_tone_mist">薄雾配色</string>
     <string name="np_share_file_untitled">Yoin 歌词 %1$s.png</string>
     <string name="np_share_file_named">Yoin 歌词 - %1$s - %2$s.png</string>
-
-    <string name="np_note_tap_to_write">写笔记</string>
     <plurals name="np_note_count">
         <item quantity="other">%1$d 条笔记</item>
     </plurals>

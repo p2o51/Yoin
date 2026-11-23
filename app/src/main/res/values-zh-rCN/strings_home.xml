@@ -226,6 +226,8 @@
     <string name="home_tip_play_modes">点按切换随机与循环；长按拆成两个按钮，单独开关循环</string>
     <string name="home_tip_note_moments_title">笔记记住那一秒</string>
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
+    <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
+    <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
     <string name="home_tip_memory_search_title">搜索 Memories</string>
     <string name="home_tip_memory_search">在资料库搜索，也能找到你的笔记和 Memories</string>
     <string name="home_tip_library_search_title">快速搜索</string>

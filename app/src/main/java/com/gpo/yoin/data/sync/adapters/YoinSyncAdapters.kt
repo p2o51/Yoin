@@ -20,6 +20,7 @@ object YoinSyncAdapters {
         clock: () -> Long = System::currentTimeMillis,
     ): List<SyncAdapter> = listOf(
         SongNoteSyncAdapter(db),
+        AlbumNoteSyncAdapter(db),
         TrackRatingSyncAdapter(db),
         AlbumRatingSyncAdapter(db),
         AlbumReviewSyncAdapter(db),

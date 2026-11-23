@@ -8,6 +8,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gpo.yoin.data.notes.LocalMentionResolver
+import com.gpo.yoin.data.notes.MentionAccount
+import com.gpo.yoin.data.notes.MentionResolver
+import com.gpo.yoin.data.notes.NoteBacklinkRepository
+import com.gpo.yoin.data.notes.RoomMentionNameLookup
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.album.TrackAlbumLinkEnricher
 import com.gpo.yoin.data.cache.DetailCacheStore
@@ -843,6 +848,19 @@ class AppContainer(private val context: Context) {
             detailCacheStore = detailCacheStore,
             aiProviderStore = aiProviderStore,
         )
+    }
+
+    /** Mentions in notes, resolved for the account in use (notes revamp; data/notes/MentionResolver). */
+    val mentionResolver: MentionResolver by lazy {
+        LocalMentionResolver(
+            account = { profileManager.activeProfile.value?.let { MentionAccount(it.id, it.provider) } },
+            names = RoomMentionNameLookup(database.noteMentionDao()),
+        )
+    }
+
+    /** 被提及: the account in use's writings that mention an album, track or artist (data/notes/NoteBacklinks). */
+    val noteBacklinks: NoteBacklinkRepository by lazy {
+        NoteBacklinkRepository(database.noteMentionDao(), profileManager.activeProfileId)
     }
 
     /** AI settings v2: service, tier and the non-Gemini keys (data/local/AiProviderStore). */
