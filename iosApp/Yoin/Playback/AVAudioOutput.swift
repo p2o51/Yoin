@@ -11,6 +11,8 @@ final class AVAudioOutput: AudioOutput {
     private var current: AVPlayerItem?
     private var next: AVPlayerItem?
     private var nextURL: URL?
+    private let singMixer = SingQuadDownmixer(initialGain: 1.0)
+    private var singActive = false
     /// Each item's stream URL (a cached asset's own URL is the cache's, not the stream's).
     private var itemURLs: [ObjectIdentifier: URL] = [:]
     private var timeObserver: Any?
@@ -136,12 +138,78 @@ final class AVAudioOutput: AudioOutput {
 
     func stop() {
         PlayTrace.log("AV stop")
+        singActive = false
+        singMixer.setVocalGain(1.0, rampSeconds: 0)
         player.pause()
         player.removeAllItems()
         current = nil
         next = nil
         nextURL = nil
         itemObservations = []
+    }
+
+    // MARK: - Sing 4-channel quad playback
+
+    /// Seamlessly switches the current track into 4-channel Quad AAC Sing mode (`[I_L, I_R, V_L, V_R]`).
+    /// Uses direct `AVURLAsset` (bypassing `CachedAudio`'s custom URL scheme so `MTAudioProcessingTap` fires),
+    /// starts at `g = 1.0` for click-free cut-in, then ramps over 250 ms down to `sliderPosition` (default 12%).
+    func enterSingMode(source: SingQuadSource, sliderPosition: Float = SingGainCurve.defaultSlider) {
+        let posSec = currentTimeSec
+        let wasPlaying = player.rate > 0
+        let savedNext = nextURL
+
+        singActive = true
+        singMixer.setVocalGain(1.0, rampSeconds: 0)
+
+        let asset = AVURLAsset(url: source.url)
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = 30
+        // Quad Sing channels are [I_L, I_R, V_L, V_R], never spatialized surround.
+        item.allowedAudioSpatializationFormats = []
+
+        Task { @MainActor [weak self, weak item] in
+            guard let self, let item, self.singActive else { return }
+            guard let tracks = try? await asset.loadTracks(withMediaType: .audio),
+                  let track = tracks.first,
+                  let mix = SingQuadAudioTap.makeAudioMix(for: track, mixer: self.singMixer) else {
+                self.singActive = false
+                PlayTrace.log("AV Sing tap attach failed")
+                return
+            }
+            item.audioMix = mix
+            self.player.removeAllItems()
+            self.current = item
+            if posSec > 0 {
+                await item.seek(to: CMTime(seconds: posSec, preferredTimescale: 600),
+                                toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+            self.player.insert(item, after: nil)
+            self.observeCurrent(item)
+            self.next = nil
+            self.nextURL = nil
+            self.preload(savedNext)
+            if wasPlaying { self.player.play() }
+            self.singMixer.setSliderPosition(sliderPosition, rampSeconds: SingGainCurve.cutInRampSeconds)
+            PlayTrace.log("AV Sing active (slider=\(Int((sliderPosition * 100).rounded()))%)")
+        }
+    }
+
+    /// Adjusts real-time vocal level (`0.0 ... 1.0`) with a click-free 20 ms linear gain ramp.
+    func setSingVocalSlider(_ position: Float) {
+        guard singActive else { return }
+        singMixer.setSliderPosition(position, rampSeconds: SingGainCurve.smoothingWindowSeconds)
+    }
+
+    /// Exits Sing mode and restores the original stereo track URL at the exact playback position.
+    func exitSingMode(originalURL: URL) {
+        guard singActive else { return }
+        let posSec = currentTimeSec
+        let wasPlaying = player.rate > 0
+        let savedNext = nextURL
+        singActive = false
+        singMixer.setVocalGain(1.0, rampSeconds: SingGainCurve.smoothingWindowSeconds)
+        load(originalURL, next: savedNext, startSec: posSec)
+        if wasPlaying { play() }
     }
 
     // MARK: -
