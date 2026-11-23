@@ -110,9 +110,13 @@ class SubsonicMusicSource(
         override suspend fun songLinks(trackId: MediaId): SongLinks? =
             library.getTrack(trackId)?.let { SongLinks(albumId = it.albumId, artistId = it.artistId) }
 
-        override suspend fun getLyrics(trackId: MediaId): Lyrics? =
-            unwrap(api.getLyricsBySongId(trackId.requireSubsonic()))
-                .lyricsList?.toLyrics()
+        override suspend fun getLyrics(trackId: MediaId): Lyrics? {
+            val body = unwrap(api.getLyricsBySongId(trackId.requireSubsonic()))
+            if (body.lyraLyricsState == LYRA_LYRICS_INSTRUMENTAL || body.lyraLyricsState == LYRA_LYRICS_NONE) {
+                return null
+            }
+            return body.lyricsList?.toLyrics()
+        }
 
         // createShare takes song and album ids; a playlist id only on some
         // servers (Navidrome), so a playlist the server won't take is shared
@@ -387,6 +391,8 @@ class SubsonicMusicSource(
     companion object {
         /** Subsonic's "the requested data was not found". */
         private const val ERROR_DATA_NOT_FOUND = 70
+        private const val LYRA_LYRICS_INSTRUMENTAL = "instrumental"
+        private const val LYRA_LYRICS_NONE = "no_lyrics"
 
         fun fromProfileCredentials(
             credentials: ProfileCredentials.Subsonic,

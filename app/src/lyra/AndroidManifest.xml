@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- Lyra-only edition replaces the Spotoolfy JSON share target with its own Lyra intake. -->
+        <activity
+            android:name="com.gpo.yoin.ui.spotoolfy.SpotoolfyShareReceiverActivity"
+            android:enabled="false"
+            android:exported="false"
+            tools:node="replace" />
+
+        <!-- Lyra Hub: capability-driven Sources search & download, Inbox, Share Passes, and Server status. -->
+        <activity
+            android:name="com.gpo.yoin.lyra.ui.LyraHubActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- System share sheet target ("Lyra"): accepts URLs, Pass links, and Quick Share audio files. -->
+        <activity
+            android:name="com.gpo.yoin.lyra.ui.LyraShareReceiverActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/lyra_share_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yoin.WidgetTrampoline">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -48,8 +48,8 @@ if [ -f "$OUT" ]; then
 fi
 
 echo "[$(date '+%F %T')] building $SHA -> $OUT" >> "$LOG"
-if ./gradlew assembleReleaseDebugSigned -q >> "$LOG" 2>&1; then
-    cp app/build/outputs/apk/releaseDebugSigned/app-releaseDebugSigned.apk "$OUT"
+if ./gradlew :app:assembleStandardReleaseDebugSigned -q >> "$LOG" 2>&1; then
+    cp app/build/outputs/apk/standard/releaseDebugSigned/app-standard-releaseDebugSigned.apk "$OUT"
     echo "[$(date '+%F %T')] OK $OUT ($(du -h "$OUT" | cut -f1))" >> "$LOG"
 else
     echo "[$(date '+%F %T')] BUILD FAILED for $SHA — see log above" >> "$LOG"

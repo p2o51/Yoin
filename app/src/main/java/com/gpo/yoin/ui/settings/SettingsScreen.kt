@@ -413,10 +413,17 @@ fun SettingsContent(
                                         onSwitchToProfile = onSwitchToProfile,
                                         onOpenService = onOpenService,
                                         onRequestDeleteProfile = onRequestDeleteProfile,
-                                        onAddAccount = onShowProviderPicker,
+                                        onAddAccount = {
+                                            if (com.gpo.yoin.edition.EditionFeatures.isLyraOnly) {
+                                                onOpenService(ServiceSetupRequest(SetupService.Subsonic))
+                                            } else {
+                                                onShowProviderPicker()
+                                            }
+                                        },
                                         asRows = listDetail,
                                         openAccountId = openAccountId,
                                     )
+                                    com.gpo.yoin.edition.EditionFeatures.SettingsLyraSection(listDetail = listDetail)
                                     SettingsGroup(title = stringResource(R.string.settings_section_features)) {
                                         item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
                                             GeminiItem(

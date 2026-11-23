@@ -55,13 +55,22 @@ enum class LandingMode { FirstRun, Rerun }
  * into the Spotify account connected next); Home only once an account exists
  * to own the layout.
  */
-internal fun landingSteps(picked: Set<SetupService>, hasAccount: Boolean): List<LandingStep> = buildList {
+internal fun landingSteps(
+    picked: Set<SetupService>,
+    hasAccount: Boolean,
+    lyraOnly: Boolean = com.gpo.yoin.edition.EditionFeatures.isLyraOnly,
+): List<LandingStep> = buildList {
     add(LandingStep.Hello)
-    add(LandingStep.Pick)
-    add(LandingStep.About)
-    SetupService.entries.filter { it in picked }.forEach { service ->
-        if (service == SetupService.Spotify) add(LandingStep.Spotoolfy)
-        add(LandingStep.connectStep(service))
+    if (lyraOnly) {
+        add(LandingStep.About)
+        add(LandingStep.Subsonic)
+    } else {
+        add(LandingStep.Pick)
+        add(LandingStep.About)
+        SetupService.entries.filter { it in picked }.forEach { service ->
+            if (service == SetupService.Spotify) add(LandingStep.Spotoolfy)
+            add(LandingStep.connectStep(service))
+        }
     }
     if (hasAccount) add(LandingStep.Home)
     add(LandingStep.Edge)

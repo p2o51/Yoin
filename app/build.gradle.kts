@@ -73,7 +73,30 @@ android {
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
+        buildConfigField("boolean", "LYRA_ONLY", "false")
+        buildConfigField("String", "AUTH_SCHEME", "\"yoin\"")
         manifestPlaceholders["appLabel"] = "@string/app_name"
+        manifestPlaceholders["authScheme"] = "yoin"
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("standard") {
+            dimension = "edition"
+            isDefault = true
+            buildConfigField("boolean", "LYRA_ONLY", "false")
+            buildConfigField("String", "AUTH_SCHEME", "\"yoin\"")
+            manifestPlaceholders["appLabel"] = "@string/app_name"
+            manifestPlaceholders["authScheme"] = "yoin"
+        }
+        create("lyra") {
+            dimension = "edition"
+            applicationId = "com.gpo.yoin.lyra"
+            buildConfigField("boolean", "LYRA_ONLY", "true")
+            buildConfigField("String", "AUTH_SCHEME", "\"yoin-lyra\"")
+            manifestPlaceholders["appLabel"] = "@string/lyra_app_name"
+            manifestPlaceholders["authScheme"] = "yoin-lyra"
+        }
     }
 
     androidResources {

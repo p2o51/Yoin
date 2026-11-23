@@ -168,6 +168,9 @@ object SyncMetaKeys {
 
     /** permissionId the replica content was built against. */
     const val REPLICA_PERMISSION_ID = "replica_permission_id"
+
+    /** Local profile id pinned to an edition-level sync backend (e.g. Lyra server profile). */
+    const val BACKEND_PROFILE_ID = "backend_profile_id"
     const val EPOCH = "epoch"
     const val LAST_SYNC_AT = "last_sync_at"
     const val LAST_ERROR = "last_error"

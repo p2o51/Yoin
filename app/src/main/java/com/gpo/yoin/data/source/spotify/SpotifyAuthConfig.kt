@@ -15,11 +15,11 @@ object SpotifyAuthConfig {
     const val API_HOST: String = "api.spotify.com"
 
     /** Registered in the Spotify Developer Dashboard for this app. */
-    const val REDIRECT_URI: String = "yoin://auth/spotify/callback"
-    const val REDIRECT_SCHEME: String = "yoin"
+    val REDIRECT_SCHEME: String get() = BuildConfig.AUTH_SCHEME
+    val REDIRECT_URI: String get() = "${BuildConfig.AUTH_SCHEME}://auth/spotify/callback"
     const val REDIRECT_HOST: String = "auth"
     const val REDIRECT_PATH_PREFIX: String = "/spotify/callback"
-    const val APP_REMOTE_REDIRECT_URI: String = "yoin://auth/spotify/app-remote"
+    val APP_REMOTE_REDIRECT_URI: String get() = "${BuildConfig.AUTH_SCHEME}://auth/spotify/app-remote"
     const val APP_REMOTE_REDIRECT_PATH_PREFIX: String = "/spotify/app-remote"
 
     /**

@@ -177,6 +177,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 if (started.onStarted()) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
+                    com.gpo.yoin.edition.EditionFeatures.onAppForeground(this@YoinApplication, container)
                     container.trackAlbumLinkEnricher.kick()
                 } else {
                     container.playbackManager.onHostChanged(activity)
@@ -188,6 +189,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 if (started.onStopped()) {
                     container.playbackManager.onHostStop()
                     container.cloudSync.onAppBackground()
+                    com.gpo.yoin.edition.EditionFeatures.onAppBackground(this@YoinApplication, container)
                 } else {
                     // The host may have been the Activity that stopped (a widget's
                     // OpenNowPlayingActivity hands over to MainActivity and finishes):

@@ -224,6 +224,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
@@ -550,6 +551,14 @@ private fun YoinShell(
     LaunchedEffect(playlistMutationRevision) {
         if (playlistMutationRevision == 0L) return@LaunchedEffect
         libraryViewModel.invalidatePlaylists()
+    }
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    LaunchedEffect(libraryViewModel) {
+        app.container.libraryContentRevision
+            .drop(1)
+            .debounce(800L)
+            .collect { libraryViewModel.refresh() }
     }
 
     // The side-by-side surfaces in the order they opened: back closes the
@@ -1871,6 +1880,14 @@ private fun YoinShell(
                 }
             }
         }
+
+        // ── Edition overlay (no-op in standard; Lyra Hub / Live Activity pill in lyra) ──
+        com.gpo.yoin.edition.EditionFeatures.ShellOverlay(
+            visible = !showNowPlaying && !memoriesOpen && !homeEditing,
+            modifier = Modifier
+                .matchParentSize()
+                .besideNowPlayingPanel(npPanel),
+        )
 
         // ── Shell-level snackbar host ────────────────────────────────────
         // Anchored bottom, overlaid above Now Playing / bottom nav. Spotify
