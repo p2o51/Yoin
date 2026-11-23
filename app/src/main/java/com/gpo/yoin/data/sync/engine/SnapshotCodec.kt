@@ -118,6 +118,23 @@ object SnapshotCodec {
         return marker
     }
 
+    fun encodeMigration(marker: com.gpo.yoin.data.sync.MigrationMarker): ByteArray =
+        SyncJson.encodeToString(com.gpo.yoin.data.sync.MigrationMarker.serializer(), marker).toByteArray(Charsets.UTF_8)
+
+    /** @throws MalformedSyncFileException when the bytes are not a migration marker. */
+    fun decodeMigration(bytes: ByteArray): com.gpo.yoin.data.sync.MigrationMarker {
+        val root = parseRoot(bytes)
+        val marker = try {
+            SyncJson.json.decodeFromJsonElement(com.gpo.yoin.data.sync.MigrationMarker.serializer(), root)
+        } catch (e: SerializationException) {
+            throw MalformedSyncFileException("Unreadable migration marker", e)
+        } catch (e: IllegalArgumentException) {
+            throw MalformedSyncFileException("Unreadable migration marker", e)
+        }
+        if (marker.targetLocation.isEmpty()) throw MalformedSyncFileException("Migration marker without targetLocation")
+        return marker
+    }
+
     fun isGzip(bytes: ByteArray): Boolean = bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
 
     private fun decodeRecordOrNull(element: JsonElement): WireRecord? = try {

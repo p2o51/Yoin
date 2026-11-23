@@ -325,6 +325,12 @@ struct CloudSyncView: View {
             if state.phase is CloudSyncPhaseCloudCopyRemoved {
                 rows.append(AnyView(action(String(localized: "Upload again"), ink: app.primary) { Task { await sync.uploadAgain() } }))
             }
+            if state.pendingMigrationNotice {
+                rows.append(AnyView(info(
+                    String(localized: "Migration notice pending"),
+                    String(localized: "Other devices on your previous sync location haven't been notified yet. Yoin will retry automatically.")
+                )))
+            }
             rows.append(AnyView(action(state.phase is CloudSyncPhaseSyncing ? String(localized: "Syncing…") : String(localized: "Sync now"), ink: app.primary,
                                        disabled: state.phase is CloudSyncPhaseSyncing) { Task { await sync.syncNow() } }))
             return rows

@@ -38,7 +38,6 @@ object BackupFormat {
 
     /** [BackupSource.location] values. */
     const val LOCATION_GOOGLE_DRIVE = "google-drive"
-    const val LOCATION_ICLOUD = "icloud"
     const val LOCATION_THIS_DEVICE = "this-device"
 
     /** Hard limits while reading, against a hostile or corrupt zip. */

@@ -59,6 +59,20 @@ protocol CloudKitStore: Sendable {
     func deleteRecord(id: String) async throws -> Bool
 }
 
+/// Bridges Swift `Task` cancellation into Kotlin `PlatformCancellable` so coroutine cancellation cancels
+/// in-flight CloudKit operations promptly without holding the sync mutex.
+private final class TaskCancellable: NSObject, PlatformCancellable, @unchecked Sendable {
+    private let task: Task<Void, Never>
+
+    init(_ task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
 /// Native CloudKit Private Database implementation of `SyncTransport` (via `PlatformSyncTransport`).
 ///
 /// Storage layout (docs/cloud-sync.md):
@@ -68,6 +82,7 @@ protocol CloudKitStore: Sendable {
 /// - Payload field: `payload` (`CKAsset`, avoiding the 1 MB `CKRecord` field limit).
 /// - `list()` uses `CKFetchRecordZoneChangesOperation` with `desiredKeys` (omitting `payload`), which is
 ///   strongly consistent and needs zero `CKQuery` dashboard index configuration.
+/// - `update()` fetches only metadata `desiredKeys` (omitting `payload`) before saving with `.changedKeys`.
 final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked Sendable {
     static let containerIdentifier = "iCloud.com.gpo.yoin"
     static let zoneName = "YoinSyncZone"
@@ -79,33 +94,33 @@ final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked S
         self.store = store
     }
 
-    func list(completion: @escaping ([RemoteFile]?, PlatformTransportError?) -> Void) {
+    func list(completion: @escaping ([RemoteFile]?, PlatformTransportError?) -> Void) -> any PlatformCancellable {
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 let items = try await store.listMetadata().map(Self.toRemoteFile)
-                done(items, nil)
+                if !Task.isCancelled { done(items, nil) }
             } catch {
-                done(nil, Self.mapError(error))
+                if !Task.isCancelled { done(nil, Self.mapError(error)) }
             }
-        }
+        })
     }
 
-    func download(fileId: String, completion: @escaping (KotlinByteArray?, PlatformTransportError?) -> Void) {
+    func download(fileId: String, completion: @escaping (KotlinByteArray?, PlatformTransportError?) -> Void) -> any PlatformCancellable {
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 guard let data = try await store.downloadPayload(id: fileId) else {
-                    done(nil, nil)
+                    if !Task.isCancelled { done(nil, nil) }
                     return
                 }
-                done(SyncByteBridge.shared.toByteArray(data: data), nil)
+                if !Task.isCancelled { done(SyncByteBridge.shared.toByteArray(data: data), nil) }
             } catch {
-                done(nil, Self.mapError(error))
+                if !Task.isCancelled { done(nil, Self.mapError(error)) }
             }
-        }
+        })
     }
 
     func create(
@@ -115,11 +130,11 @@ final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked S
         mimeType: String,
         bytes: KotlinByteArray,
         completion: @escaping (RemoteFile?, PlatformTransportError?) -> Void
-    ) {
+    ) -> any PlatformCancellable {
         let data = SyncByteBridge.shared.toNSData(bytes: bytes) as Data
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 let meta = try await store.createRecord(
                     id: fileId,
@@ -128,45 +143,45 @@ final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked S
                     mimeType: mimeType,
                     data: data
                 )
-                done(Self.toRemoteFile(meta), nil)
+                if !Task.isCancelled { done(Self.toRemoteFile(meta), nil) }
             } catch {
-                done(nil, Self.mapError(error))
+                if !Task.isCancelled { done(nil, Self.mapError(error)) }
             }
-        }
+        })
     }
 
     func update(
         fileId: String,
         bytes: KotlinByteArray,
         completion: @escaping (RemoteFile?, PlatformTransportError?) -> Void
-    ) {
+    ) -> any PlatformCancellable {
         let data = SyncByteBridge.shared.toNSData(bytes: bytes) as Data
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 guard let meta = try await store.updateRecord(id: fileId, data: data) else {
-                    done(nil, nil)
+                    if !Task.isCancelled { done(nil, nil) }
                     return
                 }
-                done(Self.toRemoteFile(meta), nil)
+                if !Task.isCancelled { done(Self.toRemoteFile(meta), nil) }
             } catch {
-                done(nil, Self.mapError(error))
+                if !Task.isCancelled { done(nil, Self.mapError(error)) }
             }
-        }
+        })
     }
 
-    func delete(fileId: String, completion: @escaping (KotlinBoolean, PlatformTransportError?) -> Void) {
+    func delete(fileId: String, completion: @escaping (KotlinBoolean, PlatformTransportError?) -> Void) -> any PlatformCancellable {
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 let removed = try await store.deleteRecord(id: fileId)
-                done(KotlinBoolean(value: removed), nil)
+                if !Task.isCancelled { done(KotlinBoolean(value: removed), nil) }
             } catch {
-                done(KotlinBoolean(value: false), Self.mapError(error))
+                if !Task.isCancelled { done(KotlinBoolean(value: false), Self.mapError(error)) }
             }
-        }
+        })
     }
 
     func generateIds(count: Int32, completion: @escaping ([String]?, PlatformTransportError?) -> Void) {
@@ -175,17 +190,19 @@ final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked S
         completion(ids, nil)
     }
 
-    func about(completion: @escaping (GoogleAccountInfo?, PlatformTransportError?) -> Void) {
+    func about(completion: @escaping (GoogleAccountInfo?, PlatformTransportError?) -> Void) -> any PlatformCancellable {
         nonisolated(unsafe) let done = completion
         let store = self.store
-        Task.detached(priority: .userInitiated) {
+        return TaskCancellable(Task.detached(priority: .userInitiated) {
             do {
                 let id = try await store.accountIdentity()
-                done(GoogleAccountInfo(permissionId: id.permissionId, email: nil, displayName: id.displayName), nil)
+                if !Task.isCancelled {
+                    done(GoogleAccountInfo(permissionId: id.permissionId, email: nil, displayName: id.displayName), nil)
+                }
             } catch {
-                done(nil, Self.mapError(error))
+                if !Task.isCancelled { done(nil, Self.mapError(error)) }
             }
-        }
+        })
     }
 
     private static func toRemoteFile(_ meta: CloudKitRecordMetadata) -> RemoteFile {
@@ -206,13 +223,41 @@ final class CloudKitSyncTransport: NSObject, PlatformSyncTransport, @unchecked S
         return classifyCKError(error).toPlatformError()
     }
 
+    /// Unwraps `CKError.partialFailure` (e.g. from zone/batch operations) to expose the real underlying `CKError`.
+    static func unwrapCKError(_ error: Error) -> CKError? {
+        guard let ck = error as? CKError else { return nil }
+        if ck.code == .partialFailure, let partials = ck.partialErrorsByItemID?.values {
+            for inner in partials {
+                if let unwrapped = unwrapCKError(inner) {
+                    return unwrapped
+                }
+            }
+        }
+        return ck
+    }
+
+    static func isZoneMissing(_ error: Error) -> Bool {
+        guard let ck = unwrapCKError(error) else { return false }
+        return ck.code == .zoneNotFound || ck.code == .userDeletedZone
+    }
+
+    static func isUnknownItem(_ error: Error) -> Bool {
+        unwrapCKError(error)?.code == .unknownItem
+    }
+
     static func classifyCKError(_ error: Error) -> CloudKitStoreError {
-        guard let ck = error as? CKError else {
-            return .network(error.localizedDescription)
+        if let storeError = error as? CloudKitStoreError {
+            return storeError
+        }
+        guard let ck = unwrapCKError(error) else {
+            // Non-CloudKit errors (e.g. local disk / temp file I/O) are not network/offline errors.
+            return .server(code: 0, message: error.localizedDescription)
         }
         switch ck.code {
         case .notAuthenticated, .permissionFailure, .managedAccountRestricted:
             return .unauthorized("Sign in to iCloud in Settings to use iCloud sync.")
+        case .accountTemporarilyUnavailable:
+            return .network("iCloud is temporarily unavailable.")
         case .badContainer, .missingEntitlement:
             return .misconfigured("iCloud container is not configured for this build.")
         case .quotaExceeded:
@@ -272,7 +317,7 @@ actor LiveCloudKitStore: CloudKitStore {
         do {
             try await ensureZone()
             return try await fetchAllZoneMetadata()
-        } catch let ck as CKError where ck.code == .zoneNotFound || ck.code == .userDeletedZone {
+        } catch where CloudKitSyncTransport.isZoneMissing(error) {
             zoneReady = false
             try await ensureZone()
             return []
@@ -283,13 +328,15 @@ actor LiveCloudKitStore: CloudKitStore {
         try await ensureZone()
         let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
         do {
-            let record = try await database.record(for: recordID)
+            guard let record = try await fetchRecord(recordID, desiredKeys: [Field.payload]) else {
+                return nil
+            }
             guard let asset = record[Field.payload] as? CKAsset, let url = asset.fileURL else {
                 return Data()
             }
             return try Data(contentsOf: url)
-        } catch let ck as CKError where ck.code == .unknownItem || ck.code == .zoneNotFound || ck.code == .userDeletedZone {
-            if ck.code == .zoneNotFound || ck.code == .userDeletedZone { zoneReady = false }
+        } catch where CloudKitSyncTransport.isUnknownItem(error) || CloudKitSyncTransport.isZoneMissing(error) {
+            if CloudKitSyncTransport.isZoneMissing(error) { zoneReady = false }
             return nil
         }
     }
@@ -305,29 +352,46 @@ actor LiveCloudKitStore: CloudKitStore {
         let tempURL = try writeTempAsset(data)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        let nowMs = Int64(Date().timeIntervalSince1970 * 1000.0)
-        let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
-        let record = CKRecord(recordType: CloudKitSyncTransport.recordType, recordID: recordID)
-        record[Field.name] = name as CKRecordValue
-        record[Field.mimeType] = mimeType as CKRecordValue
-        record[Field.size] = NSNumber(value: Int64(data.count))
-        record[Field.version] = NSNumber(value: Int64(1))
-        record[Field.modifiedAt] = NSNumber(value: nowMs)
-        record[Field.appPropertiesJson] = encodeProperties(appProperties) as CKRecordValue
-        record[Field.payload] = CKAsset(fileURL: tempURL)
+        func buildRecord() -> CKRecord {
+            let nowMs = Int64(Date().timeIntervalSince1970 * 1000.0)
+            let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
+            let record = CKRecord(recordType: CloudKitSyncTransport.recordType, recordID: recordID)
+            record[Field.name] = name as CKRecordValue
+            record[Field.mimeType] = mimeType as CKRecordValue
+            record[Field.size] = NSNumber(value: Int64(data.count))
+            record[Field.version] = NSNumber(value: Int64(1))
+            record[Field.modifiedAt] = NSNumber(value: nowMs)
+            record[Field.appPropertiesJson] = encodeProperties(appProperties) as CKRecordValue
+            record[Field.payload] = CKAsset(fileURL: tempURL)
+            return record
+        }
 
-        let saved = try await saveRecord(record, policy: .ifServerRecordUnchanged)
-        return metadata(from: saved, fallbackName: name, fallbackProperties: appProperties, fallbackSize: Int64(data.count))
+        do {
+            let saved = try await saveRecord(buildRecord(), policy: .ifServerRecordUnchanged)
+            return metadata(from: saved, fallbackName: name, fallbackProperties: appProperties, fallbackSize: Int64(data.count))
+        } catch where CloudKitSyncTransport.isZoneMissing(error) {
+            zoneReady = false
+            try await ensureZone()
+            let saved = try await saveRecord(buildRecord(), policy: .ifServerRecordUnchanged)
+            return metadata(from: saved, fallbackName: name, fallbackProperties: appProperties, fallbackSize: Int64(data.count))
+        }
     }
 
     func updateRecord(id: String, data: Data) async throws -> CloudKitRecordMetadata? {
         try await ensureZone()
         let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
+        // Fetch metadata keys ONLY (never download the previous CKAsset payload on update).
         let existing: CKRecord
         do {
-            existing = try await database.record(for: recordID)
-        } catch let ck as CKError where ck.code == .unknownItem || ck.code == .zoneNotFound || ck.code == .userDeletedZone {
-            if ck.code == .zoneNotFound || ck.code == .userDeletedZone { zoneReady = false }
+            guard let fetched = try await fetchRecord(
+                recordID,
+                desiredKeys: [Field.version, Field.name, Field.appPropertiesJson]
+            ) else {
+                return nil
+            }
+            existing = fetched
+        } catch where CloudKitSyncTransport.isUnknownItem(error) || CloudKitSyncTransport.isZoneMissing(error) {
+            if CloudKitSyncTransport.isZoneMissing(error) { zoneReady = false }
             return nil
         }
 
@@ -341,104 +405,206 @@ actor LiveCloudKitStore: CloudKitStore {
         existing[Field.modifiedAt] = NSNumber(value: nowMs)
         existing[Field.payload] = CKAsset(fileURL: tempURL)
 
-        let saved = try await saveRecord(existing, policy: .changedKeys)
-        let props = decodeProperties(saved[Field.appPropertiesJson] as? String)
-        let name = (saved[Field.name] as? String) ?? id
-        return metadata(from: saved, fallbackName: name, fallbackProperties: props, fallbackSize: Int64(data.count))
+        do {
+            let saved = try await saveRecord(existing, policy: .changedKeys)
+            let props = decodeProperties(saved[Field.appPropertiesJson] as? String)
+            let name = (saved[Field.name] as? String) ?? id
+            return metadata(from: saved, fallbackName: name, fallbackProperties: props, fallbackSize: Int64(data.count))
+        } catch where CloudKitSyncTransport.isZoneMissing(error) || CloudKitSyncTransport.isUnknownItem(error) {
+            if CloudKitSyncTransport.isZoneMissing(error) { zoneReady = false }
+            return nil
+        }
     }
 
     func deleteRecord(id: String) async throws -> Bool {
         let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
         do {
-            _ = try await database.deleteRecord(withID: recordID)
+            try await deleteRecordOperation(recordID)
             return true
-        } catch let ck as CKError where ck.code == .unknownItem || ck.code == .zoneNotFound || ck.code == .userDeletedZone {
-            if ck.code == .zoneNotFound || ck.code == .userDeletedZone { zoneReady = false }
+        } catch where CloudKitSyncTransport.isUnknownItem(error) || CloudKitSyncTransport.isZoneMissing(error) {
+            if CloudKitSyncTransport.isZoneMissing(error) { zoneReady = false }
             return true
         }
     }
 
     // MARK: - Private CloudKit helpers
 
+    private static func configure(_ op: CKOperation) {
+        op.qualityOfService = .userInitiated
+        op.configuration.timeoutIntervalForRequest = 30
+        op.configuration.timeoutIntervalForResource = 60
+    }
+
     private func ensureZone() async throws {
         if zoneReady { return }
-        _ = try await database.save(CKRecordZone(zoneID: zoneID))
+        let db = self.database
+        let zone = CKRecordZone(zoneID: zoneID)
+        let op = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
+        Self.configure(op)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let box = SavedRecordBox()
+                op.perRecordZoneSaveBlock = { _, result in
+                    if case .failure(let error) = result { box.setError(error) }
+                }
+                op.modifyRecordZonesResultBlock = { result in
+                    if let zoneError = box.error {
+                        continuation.resume(throwing: zoneError)
+                        return
+                    }
+                    switch result {
+                    case .success: continuation.resume()
+                    case .failure(let error): continuation.resume(throwing: error)
+                    }
+                }
+                db.add(op)
+            }
+        } onCancel: {
+            op.cancel()
+        }
         zoneReady = true
+    }
+
+    private func fetchRecord(_ recordID: CKRecord.ID, desiredKeys: [CKRecord.FieldKey]) async throws -> CKRecord? {
+        let db = self.database
+        let op = CKFetchRecordsOperation(recordIDs: [recordID])
+        op.desiredKeys = desiredKeys
+        Self.configure(op)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let box = SavedRecordBox()
+                op.perRecordResultBlock = { _, result in
+                    switch result {
+                    case .success(let record): box.set(record)
+                    case .failure(let error): box.setError(error)
+                    }
+                }
+                op.fetchRecordsResultBlock = { result in
+                    if let recordError = box.error {
+                        continuation.resume(throwing: recordError)
+                        return
+                    }
+                    switch result {
+                    case .success: continuation.resume(returning: box.saved)
+                    case .failure(let error): continuation.resume(throwing: error)
+                    }
+                }
+                db.add(op)
+            }
+        } onCancel: {
+            op.cancel()
+        }
     }
 
     private func fetchAllZoneMetadata() async throws -> [CloudKitRecordMetadata] {
         let db = self.database
         let zoneID = self.zoneID
-        return try await withCheckedThrowingContinuation { continuation in
-            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
-            config.previousServerChangeToken = nil
-            config.desiredKeys = [
-                Field.name,
-                Field.size,
-                Field.version,
-                Field.modifiedAt,
-                Field.appPropertiesJson,
-            ]
-            let op = CKFetchRecordZoneChangesOperation(
-                recordZoneIDs: [zoneID],
-                configurationsByRecordZoneID: [zoneID: config]
-            )
-            op.fetchAllChanges = true
-            let box = MetadataCollector()
-            op.recordWasChangedBlock = { _, result in
-                if case .success(let record) = result, record.recordType == CloudKitSyncTransport.recordType {
-                    box.append(Self.metadata(from: record))
+        let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        config.previousServerChangeToken = nil
+        config.desiredKeys = [
+            Field.name,
+            Field.size,
+            Field.version,
+            Field.modifiedAt,
+            Field.appPropertiesJson,
+        ]
+        let op = CKFetchRecordZoneChangesOperation(
+            recordZoneIDs: [zoneID],
+            configurationsByRecordZoneID: [zoneID: config]
+        )
+        op.fetchAllChanges = true
+        Self.configure(op)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let box = MetadataCollector()
+                op.recordWasChangedBlock = { _, result in
+                    if case .success(let record) = result, record.recordType == CloudKitSyncTransport.recordType {
+                        box.append(Self.metadata(from: record))
+                    }
                 }
-            }
-            op.recordZoneFetchResultBlock = { _, result in
-                if case .failure(let error) = result {
-                    box.setZoneError(error)
+                op.recordZoneFetchResultBlock = { _, result in
+                    if case .failure(let error) = result {
+                        box.setZoneError(error)
+                    }
                 }
-            }
-            op.fetchRecordZoneChangesResultBlock = { result in
-                switch result {
-                case .success:
+                op.fetchRecordZoneChangesResultBlock = { result in
+                    // Always prefer the zone-level error over the outer `.partialFailure` wrapper.
                     if let zoneError = box.zoneError {
                         continuation.resume(throwing: zoneError)
-                    } else {
-                        continuation.resume(returning: box.items)
+                        return
                     }
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: box.items)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
                 }
+                db.add(op)
             }
-            db.add(op)
+        } onCancel: {
+            op.cancel()
         }
     }
 
     private func saveRecord(_ record: CKRecord, policy: CKModifyRecordsOperation.RecordSavePolicy) async throws -> CKRecord {
         let db = self.database
-        return try await withCheckedThrowingContinuation { continuation in
-            let op = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
-            op.savePolicy = policy
-            op.isAtomic = true
-            let box = SavedRecordBox()
-            op.perRecordSaveBlock = { _, result in
-                switch result {
-                case .success(let saved):
-                    box.set(saved)
-                case .failure(let error):
-                    box.setError(error)
+        let op = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        op.savePolicy = policy
+        op.isAtomic = true
+        Self.configure(op)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let box = SavedRecordBox()
+                op.perRecordSaveBlock = { _, result in
+                    switch result {
+                    case .success(let saved): box.set(saved)
+                    case .failure(let error): box.setError(error)
+                    }
                 }
+                op.modifyRecordsResultBlock = { result in
+                    if let perRecordError = box.error {
+                        continuation.resume(throwing: perRecordError)
+                        return
+                    }
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: box.saved ?? record)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+                db.add(op)
             }
-            op.modifyRecordsResultBlock = { result in
-                if let perRecordError = box.error {
-                    continuation.resume(throwing: perRecordError)
-                    return
+        } onCancel: {
+            op.cancel()
+        }
+    }
+
+    private func deleteRecordOperation(_ recordID: CKRecord.ID) async throws {
+        let db = self.database
+        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [recordID])
+        Self.configure(op)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let box = SavedRecordBox()
+                op.perRecordDeleteBlock = { _, result in
+                    if case .failure(let error) = result { box.setError(error) }
                 }
-                switch result {
-                case .success:
-                    continuation.resume(returning: box.saved ?? record)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+                op.modifyRecordsResultBlock = { result in
+                    if let perRecordError = box.error {
+                        continuation.resume(throwing: perRecordError)
+                        return
+                    }
+                    switch result {
+                    case .success: continuation.resume()
+                    case .failure(let error): continuation.resume(throwing: error)
+                    }
                 }
+                db.add(op)
             }
-            db.add(op)
+        } onCancel: {
+            op.cancel()
         }
     }
 

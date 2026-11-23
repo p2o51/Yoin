@@ -16,7 +16,7 @@ final class CloudSyncFreshHoldTests: XCTestCase {
                                           status: $0.status, syncProfileId: nil)
                        },
                        cloudOnlyAccounts: [], devices: [], lastSummary: nil, readOnly: false, lastBackup: nil,
-                       location: SyncLocations.shared.GOOGLE_DRIVE)
+                       location: SyncLocations.shared.GOOGLE_DRIVE, pendingMigrationNotice: false)
     }
 
     func test_should_holdTheAccount_when_startFreshComesBackWithChangesNotUploaded() {

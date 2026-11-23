@@ -14,6 +14,7 @@ struct SyncLocationView: View {
     @State private var switching = false
     @State private var clearingOld = false
     @State private var oldCleared = false
+    @State private var confirmClearOldLocation: String?
     @State private var notice: String?
 
     private var app: CoverScheme {
@@ -65,6 +66,25 @@ struct SyncLocationView: View {
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .onAppear { selectedLocation = currentLocation }
+        .alert(
+            String(localized: "Remove old copy from \(confirmClearOldLocation == SyncLocations.shared.ICLOUD ? String(localized: "iCloud") : String(localized: "Google Drive"))?"),
+            isPresented: Binding(
+                get: { confirmClearOldLocation != nil },
+                set: { if !$0 { confirmClearOldLocation = nil } }
+            )
+        ) {
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Remove"), role: .destructive) {
+                if let oldLoc = confirmClearOldLocation {
+                    Task { await clearOldCopy(oldLocation: oldLoc) }
+                }
+            }
+        } message: {
+            let oldName = confirmClearOldLocation == SyncLocations.shared.ICLOUD
+                ? String(localized: "iCloud")
+                : String(localized: "Google Drive")
+            Text(String(localized: "Yoin will back up \(oldName) on this device first, then delete the old synced files there. Other devices that still use \(oldName) will stop seeing updates from this device."))
+        }
     }
 
     // MARK: - Service picker
@@ -146,13 +166,25 @@ struct SyncLocationView: View {
     }
 
     private var footerNote: some View {
-        HStack(alignment: .top, spacing: 10) {
-            YoinIcon("info", size: 18)
-                .foregroundStyle(app.onSurfaceVariant)
-                .padding(.top, 2)
-            Text(String(localized: "Switching only changes where the cloud copy lives. Data on this device isn't affected."))
-                .yoinRole(Tokens.type.bodyMedium)
-                .foregroundStyle(app.onSurfaceVariant)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                YoinIcon("info", size: 18)
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .padding(.top, 2)
+                Text(String(localized: "Switching only changes where the cloud copy lives. Data on this device isn't affected."))
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
+            if selectedLocation == SyncLocations.shared.ICLOUD && currentLocation != SyncLocations.shared.ICLOUD {
+                HStack(alignment: .top, spacing: 10) {
+                    YoinIcon("info", size: 18)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .padding(.top, 2)
+                    Text(String(localized: "iCloud only syncs Apple devices. Any Android or HarmonyOS devices using Google Drive will stay on Drive and stop receiving updates from this device."))
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
+            }
         }
         .padding(.horizontal, 8)
     }
@@ -221,9 +253,15 @@ struct SyncLocationView: View {
                         : String(localized: "Your copy in \(oldName) stays untouched. You can remove it now or later.")
                 )),
             ]
+            if !result.migrationMarkerWritten {
+                rows.append(AnyView(infoRow(
+                    String(localized: "Migration notice pending"),
+                    String(localized: "Couldn't notify other devices on \(oldName) yet. Yoin will retry automatically on the next sync.")
+                )))
+            }
             if !oldCleared {
                 rows.append(AnyView(Button {
-                    Task { await clearOldCopy(oldLocation: result.fromLocation) }
+                    confirmClearOldLocation = result.fromLocation
                 } label: {
                     Text(clearingOld ? String(localized: "Removing…") : String(localized: "Remove old copy from \(oldName)"))
                         .yoinRole(Tokens.type.bodyLarge)

@@ -512,6 +512,9 @@
     <string name="settings_sync_location_lyra">Lyra</string>
     <string name="settings_sync_location_lyra_summary">自建服务器</string>
     <string name="settings_sync_location_icloud_soon">iCloud（CloudKit）仅支持 Apple 设备；Android 端可使用 Google Drive 或通过备份文件迁移</string>
+    <string name="settings_sync_migrated_notice_device">%1$s 已将云同步切换到 %2$s。此设备会继续在 Google Drive 上同步。</string>
+    <string name="settings_sync_migrated_notice_other">其他设备已将云同步切换到 %1$s。此设备会继续在 Google Drive 上同步。</string>
+    <string name="settings_sync_migrated_notice_dismiss">知道了</string>
     <string name="settings_sync_location_lyra_soon">Lyra 同步即将推出</string>
     <string name="settings_sync_location_steps">切换流程</string>
     <string name="settings_sync_location_step1">导出并校验</string>

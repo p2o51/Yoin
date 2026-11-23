@@ -33,6 +33,8 @@ data class CloudSyncState(
     val lastBackup: String? = null,
     /** Active cloud sync backend ([SyncLocations.GOOGLE_DRIVE] or [SyncLocations.ICLOUD]). */
     val location: String = SyncLocations.GOOGLE_DRIVE,
+    /** True when a migration marker still needs to be retried on the previous sync location. */
+    val pendingMigrationNotice: Boolean = false,
 ) {
     val enabled: Boolean get() = phase.enabled
 }

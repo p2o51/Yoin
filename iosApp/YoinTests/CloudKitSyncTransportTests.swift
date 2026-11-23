@@ -96,7 +96,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
         let bytes = SyncByteBridge.shared.toByteArray(data: largeData)
 
         let created: RemoteFile = try await withCheckedThrowingContinuation { cont in
-            transport.create(
+            _ = transport.create(
                 fileId: "ck-1",
                 name: "yoin-state-dev1.json.gz",
                 appProperties: [
@@ -116,7 +116,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
 
         // Duplicate create must surface ALREADY_EXISTS (Drive HTTP 409 parity).
         let duplicateError: PlatformTransportError? = await withCheckedContinuation { cont in
-            transport.create(
+            _ = transport.create(
                 fileId: "ck-1",
                 name: "yoin-state-dev1.json.gz",
                 appProperties: [:],
@@ -128,7 +128,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
 
         // list() returns metadata without touching downloadPayload().
         let listed: [RemoteFile] = try await withCheckedThrowingContinuation { cont in
-            transport.list { files, error in
+            _ = transport.list { files, error in
                 if let error { cont.resume(throwing: NSError(domain: "test", code: Int(error.code))) }
                 else { cont.resume(returning: files ?? []) }
             }
@@ -140,7 +140,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
 
         // download() recovers the full >1.2 MB payload losslessly.
         let downloaded: Data? = try await withCheckedThrowingContinuation { cont in
-            transport.download(fileId: "ck-1") { data, error in
+            _ = transport.download(fileId: "ck-1") { data, error in
                 if let error { cont.resume(throwing: NSError(domain: "test", code: Int(error.code))) }
                 else { cont.resume(returning: data.map { SyncByteBridge.shared.toNSData(bytes: $0) as Data }) }
             }
@@ -149,7 +149,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
 
         // update() increments version; delete() removes record and returns true on missing id.
         let updated: RemoteFile? = try await withCheckedThrowingContinuation { cont in
-            transport.update(fileId: "ck-1", bytes: SyncByteBridge.shared.toByteArray(data: Data([1, 2, 3]))) { file, error in
+            _ = transport.update(fileId: "ck-1", bytes: SyncByteBridge.shared.toByteArray(data: Data([1, 2, 3]))) { file, error in
                 if let error { cont.resume(throwing: NSError(domain: "test", code: Int(error.code))) }
                 else { cont.resume(returning: file) }
             }
@@ -158,7 +158,7 @@ final class CloudKitSyncTransportTests: XCTestCase {
         XCTAssertEqual(updated?.size?.int64Value, 3)
 
         let deleted: Bool = try await withCheckedThrowingContinuation { cont in
-            transport.delete(fileId: "ck-1") { ok, error in
+            _ = transport.delete(fileId: "ck-1") { ok, error in
                 if let error { cont.resume(throwing: NSError(domain: "test", code: Int(error.code))) }
                 else { cont.resume(returning: ok.boolValue) }
             }
@@ -180,6 +180,10 @@ final class CloudKitSyncTransportTests: XCTestCase {
             .network
         )
         XCTAssertEqual(
+            CloudKitSyncTransport.mapError(CKError(.accountTemporarilyUnavailable)).kind,
+            .network
+        )
+        XCTAssertEqual(
             CloudKitSyncTransport.mapError(CKError(.missingEntitlement)).kind,
             .misconfigured
         )
@@ -191,5 +195,56 @@ final class CloudKitSyncTransportTests: XCTestCase {
             CloudKitSyncTransport.mapError(CKError(.requestRateLimited)).kind,
             .rateLimited
         )
+
+        // Unwrapping partialFailure must expose nested zone/account errors accurately.
+        let zoneID = CKRecordZone.ID(zoneName: CloudKitSyncTransport.zoneName, ownerName: CKCurrentUserDefaultName)
+        let partialZoneDeleted = CKError(
+            .partialFailure,
+            userInfo: [CKPartialErrorsByItemIDKey: [zoneID: CKError(.userDeletedZone)]]
+        )
+        XCTAssertTrue(CloudKitSyncTransport.isZoneMissing(partialZoneDeleted))
+
+        let partialNotAuth = CKError(
+            .partialFailure,
+            userInfo: [CKPartialErrorsByItemIDKey: [zoneID: CKError(.notAuthenticated)]]
+        )
+        XCTAssertEqual(CloudKitSyncTransport.mapError(partialNotAuth).kind, .unauthorized)
+
+        // Non-CloudKit errors (e.g. local disk / temp file write failure) must NOT be misclassified as Offline.
+        let ioError = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+        XCTAssertEqual(CloudKitSyncTransport.mapError(ioError).kind, .server)
+    }
+
+    func test_should_cancelInFlightOperationWhenCancellableHandleIsCancelled() async {
+        actor SlowStore: CloudKitStore {
+            var cancelled = false
+            func accountIdentity() async throws -> (permissionId: String, displayName: String) { ("icloud:1", "iCloud") }
+            func listMetadata() async throws -> [CloudKitRecordMetadata] {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    cancelled = true
+                    throw error
+                }
+                return []
+            }
+            func downloadPayload(id: String) async throws -> Data? { nil }
+            func createRecord(id: String, name: String, appProperties: [String: String], mimeType: String, data: Data) async throws -> CloudKitRecordMetadata {
+                CloudKitRecordMetadata(id: id, name: name, version: 1, modifiedTimeMs: nil, size: 0, appProperties: appProperties)
+            }
+            func updateRecord(id: String, data: Data) async throws -> CloudKitRecordMetadata? { nil }
+            func deleteRecord(id: String) async throws -> Bool { true }
+        }
+
+        let store = SlowStore()
+        let transport = CloudKitSyncTransport(store: store)
+        var callbackFired = false
+        let handle = transport.list { _, _ in callbackFired = true }
+        try? await Task.sleep(for: .milliseconds(30))
+        handle.cancel()
+        try? await Task.sleep(for: .milliseconds(50))
+        let wasCancelled = await store.cancelled
+        XCTAssertTrue(wasCancelled)
+        XCTAssertFalse(callbackFired)
     }
 }

@@ -11737,6 +11737,76 @@
           }
         }
       }
+    },
+    "Remove old copy from %@?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@ 中的旧副本？"
+          }
+        }
+      }
+    },
+    "Yoin will back up %@ on this device first, then delete the old synced files there. Other devices that still use %@ will stop seeing updates from this device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yoin 会先在此设备上备份 %1$@ 的数据，再删除其中的旧同步文件。仍在使用 %2$@ 的其他设备将不再收到此设备的更新。"
+          }
+        }
+      }
+    },
+    "iCloud only syncs Apple devices. Any Android or HarmonyOS devices using Google Drive will stay on Drive and stop receiving updates from this device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 仅同步 Apple 设备。正在使用 Google Drive 的 Android 或鸿蒙设备会继续留在 Drive，不再收到此设备的更新。"
+          }
+        }
+      }
+    },
+    "Migration notice pending": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迁移提示待发送"
+          }
+        }
+      }
+    },
+    "Couldn't notify other devices on %@ yet. Yoin will retry automatically on the next sync.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时未能通知仍在 %@ 上的其他设备，下次同步时 Yoin 会自动重试。"
+          }
+        }
+      }
+    },
+    "Other devices on your previous sync location haven't been notified yet. Yoin will retry automatically.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此前同步位置上的其他设备尚未收到迁移提示，Yoin 会自动重试。"
+          }
+        }
+      }
+    },
+    "Sign in to Google to remove the old Drive copy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先登录 Google 以移除旧的 Drive 副本。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -26,7 +26,8 @@ final class CloudSync {
     private(set) var state = CloudSyncState(phase: CloudSyncPhaseOff.shared, account: nil, lastSyncAt: nil,
                                             pendingChanges: false, accounts: [], cloudOnlyAccounts: [], devices: [],
                                             lastSummary: nil, readOnly: false, lastBackup: nil,
-                                            location: SyncLocations.shared.GOOGLE_DRIVE)
+                                            location: SyncLocations.shared.GOOGLE_DRIVE,
+                                            pendingMigrationNotice: false)
     private(set) var working = false
     /// The last action's message for the page (a failed sign-in, a failed delete).
     var message: String?
@@ -197,15 +198,25 @@ final class CloudSync {
         }
     }
 
-    /// Optional Step 4 cleanup after switching: clears old Yoin files at [oldLocation], keeping the migration marker.
+    /// Optional Step 4 cleanup after switching: backs up and clears old Yoin files at [oldLocation],
+    /// preserving migration, purge, and latest reset markers. Refreshes Google token explicitly when cleaning Drive.
     func clearOldLocationCopy(oldLocation: String) async -> String? {
         guard let kit else { return String(localized: "Cloud sync isn't ready.") }
         message = nil
         working = true
         defer { working = false }
         var token: String?
-        if oldLocation == SyncLocations.shared.GOOGLE_DRIVE, let debug {
-            token = debug.token
+        if oldLocation == SyncLocations.shared.GOOGLE_DRIVE {
+            if let debug {
+                token = debug.token
+            } else if let refreshed = await refreshGoogleTokenIfSignedIn() {
+                token = refreshed
+            } else {
+                guard let acquired = await acquireGoogleAccessToken() else {
+                    return message ?? String(localized: "Sign in to Google to remove the old Drive copy.")
+                }
+                token = acquired
+            }
         }
         do {
             let failure = try await kit.core.clearOldLocationCopy(oldLocation: oldLocation, accessToken: token)
@@ -214,6 +225,15 @@ final class CloudSync {
         } catch {
             message = error.localizedDescription
             return error.localizedDescription
+        }
+    }
+
+    private func refreshGoogleTokenIfSignedIn() async -> String? {
+        guard let user = GIDSignIn.sharedInstance.currentUser else { return nil }
+        return await withCheckedContinuation { continuation in
+            user.refreshTokensIfNeeded { refreshed, _ in
+                continuation.resume(returning: refreshed?.accessToken.tokenString)
+            }
         }
     }
 
@@ -381,7 +401,8 @@ final class CloudSync {
             devices: [SyncDeviceRow(deviceId: "this", name: UIDevice.current.model, isThisDevice: true,
                                     lastSyncAt: KotlinLong(value: now - 3 * 3_600_000))],
             lastSummary: nil, readOnly: false, lastBackup: nil,
-            location: SyncLocations.shared.GOOGLE_DRIVE)
+            location: SyncLocations.shared.GOOGLE_DRIVE,
+            pendingMigrationNotice: false)
         Task {
             try? await Task.sleep(for: .seconds(4))
             freshHeld = CloudSyncFreshHold.after(freshHeld, profile: profile, notUploaded: 2, state: state)

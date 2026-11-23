@@ -562,6 +562,36 @@ class CloudSyncManager(
             myEpoch = newestEpoch
         }
 
+        // Another device (e.g. iPhone) moved its sync location: surface a dismissible notice so Android
+        // users know Drive is no longer receiving updates from that device while staying on Drive here.
+        val ackMigratedEpoch = dao.meta(SyncMetaKeys.ACK_MIGRATED_EPOCH)?.toLongOrNull() ?: 0L
+        val newestMigration = files
+            .filter {
+                it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED &&
+                    it.appProperties[SyncFileProps.DEVICE_ID] != me
+            }
+            .maxByOrNull { it.appProperties[SyncFileProps.EPOCH]?.toLongOrNull() ?: 0L }
+        val newestMigrationEpoch = newestMigration?.appProperties?.get(SyncFileProps.EPOCH)?.toLongOrNull() ?: 0L
+        if (newestMigration != null && newestMigrationEpoch > maxOf(myEpoch, ackMigratedEpoch)) {
+            val participated = dao.meta(SyncMetaKeys.PARTICIPATED) == "true" ||
+                dao.meta(SyncMetaKeys.HAS_PUBLISHED) == "true"
+            if (!participated) {
+                putMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH, newestMigrationEpoch.toString())
+                dao.deleteMeta(SyncMetaKeys.MIGRATED_NOTICE)
+            } else {
+                val decoded = runCatching { transport.download(newestMigration.id)?.let(SnapshotCodec::decodeMigration) }
+                    .getOrNull()
+                val target = decoded?.targetLocation
+                    ?: newestMigration.appProperties[SyncFileProps.TARGET_LOCATION].orEmpty()
+                if (target.isNotEmpty() && target != "google_drive") {
+                    val by = decoded?.deviceName.orEmpty().replace('|', ' ')
+                    putMeta(SyncMetaKeys.MIGRATED_NOTICE, "$newestMigrationEpoch|$target|$by")
+                }
+            }
+        } else {
+            dao.deleteMeta(SyncMetaKeys.MIGRATED_NOTICE)
+        }
+
         applyPurgeMarkers(files, myEpoch)
 
         val dataFiles = files.filter {
@@ -999,7 +1029,32 @@ class CloudSyncManager(
             cloudOnlyAccounts = bindings?.cloudOnly.orEmpty(),
             devices = if (enabled || peers.isNotEmpty()) listOf(thisDevice) + peers else emptyList(),
             lastSummary = dao.meta(SyncMetaKeys.LAST_SUMMARY),
+            migratedNotice = if (enabled) parseMigratedNotice(dao.meta(SyncMetaKeys.MIGRATED_NOTICE)) else null,
         )
+    }
+
+    override fun dismissMigrationNotice() {
+        scope.launch {
+            mutex.withLock {
+                val raw = dao.meta(SyncMetaKeys.MIGRATED_NOTICE)
+                val epoch = raw?.substringBefore('|')?.toLongOrNull()
+                if (epoch != null) {
+                    val existing = dao.meta(SyncMetaKeys.ACK_MIGRATED_EPOCH)?.toLongOrNull() ?: 0L
+                    putMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH, maxOf(existing, epoch).toString())
+                }
+                dao.deleteMeta(SyncMetaKeys.MIGRATED_NOTICE)
+            }
+            refreshState()
+        }
+    }
+
+    private fun parseMigratedNotice(raw: String?): CloudMigrationNotice? {
+        if (raw.isNullOrEmpty()) return null
+        val parts = raw.split('|', limit = 3)
+        if (parts.size < 2) return null
+        val target = parts[1].takeIf { it.isNotEmpty() } ?: return null
+        val device = parts.getOrNull(2)?.takeIf { it.isNotBlank() }
+        return CloudMigrationNotice(targetLocation = target, deviceName = device)
     }
 
     private suspend fun offPhase(lastError: String?): CloudSyncPhase {

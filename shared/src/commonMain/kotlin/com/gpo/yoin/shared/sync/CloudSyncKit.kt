@@ -54,15 +54,20 @@ class PlatformTransportError(
     }
 }
 
+/** Cancellation handle returned by [PlatformSyncTransport] so coroutine cancellation cancels in-flight CloudKit ops. */
+interface PlatformCancellable {
+    fun cancel()
+}
+
 /**
  * Callback-shaped [SyncTransport] so Swift can implement CloudKit Private Database (`CKRecord` + `CKAsset`)
  * cleanly without Kotlin/Native suspend-interface interop issues.
  */
 interface PlatformSyncTransport {
-    fun list(completion: (List<RemoteFile>?, PlatformTransportError?) -> Unit)
+    fun list(completion: (List<RemoteFile>?, PlatformTransportError?) -> Unit): PlatformCancellable
 
     /** Returns (bytes, null) if present, (null, null) if not found (404 / unknownItem), or (null, error). */
-    fun download(fileId: String, completion: (ByteArray?, PlatformTransportError?) -> Unit)
+    fun download(fileId: String, completion: (ByteArray?, PlatformTransportError?) -> Unit): PlatformCancellable
 
     fun create(
         fileId: String,
@@ -71,33 +76,39 @@ interface PlatformSyncTransport {
         mimeType: String,
         bytes: ByteArray,
         completion: (RemoteFile?, PlatformTransportError?) -> Unit,
-    )
+    ): PlatformCancellable
 
     /** Returns (file, null) on update, (null, null) if absent (404 / unknownItem), or (null, error). */
-    fun update(fileId: String, bytes: ByteArray, completion: (RemoteFile?, PlatformTransportError?) -> Unit)
+    fun update(
+        fileId: String,
+        bytes: ByteArray,
+        completion: (RemoteFile?, PlatformTransportError?) -> Unit,
+    ): PlatformCancellable
 
-    fun delete(fileId: String, completion: (Boolean, PlatformTransportError?) -> Unit)
+    fun delete(fileId: String, completion: (Boolean, PlatformTransportError?) -> Unit): PlatformCancellable
 
     fun generateIds(count: Int, completion: (List<String>?, PlatformTransportError?) -> Unit)
 
-    fun about(completion: (GoogleAccountInfo?, PlatformTransportError?) -> Unit)
+    fun about(completion: (GoogleAccountInfo?, PlatformTransportError?) -> Unit): PlatformCancellable
 }
 
 internal class PlatformTransportBridge(private val platform: PlatformSyncTransport) : SyncTransport {
     override suspend fun list(): List<RemoteFile> = suspendCancellableCoroutine { cont ->
-        platform.list { files, error ->
+        val handle = platform.list { files, error ->
             if (!cont.isActive) return@list
             if (error != null) cont.resumeWith(Result.failure(error.toException()))
             else cont.resumeWith(Result.success(files.orEmpty()))
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 
     override suspend fun download(fileId: String): ByteArray? = suspendCancellableCoroutine { cont ->
-        platform.download(fileId) { bytes, error ->
+        val handle = platform.download(fileId) { bytes, error ->
             if (!cont.isActive) return@download
             if (error != null) cont.resumeWith(Result.failure(error.toException()))
             else cont.resumeWith(Result.success(bytes))
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 
     override suspend fun create(
@@ -107,7 +118,7 @@ internal class PlatformTransportBridge(private val platform: PlatformSyncTranspo
         mimeType: String,
         bytes: ByteArray,
     ): RemoteFile = suspendCancellableCoroutine { cont ->
-        platform.create(fileId, name, appProperties, mimeType, bytes) { file, error ->
+        val handle = platform.create(fileId, name, appProperties, mimeType, bytes) { file, error ->
             if (!cont.isActive) return@create
             if (error != null) {
                 cont.resumeWith(Result.failure(error.toException()))
@@ -117,22 +128,25 @@ internal class PlatformTransportBridge(private val platform: PlatformSyncTranspo
                 cont.resumeWith(Result.failure(SyncTransportException.Server(500, "Empty create response")))
             }
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 
     override suspend fun update(fileId: String, bytes: ByteArray): RemoteFile? = suspendCancellableCoroutine { cont ->
-        platform.update(fileId, bytes) { file, error ->
+        val handle = platform.update(fileId, bytes) { file, error ->
             if (!cont.isActive) return@update
             if (error != null) cont.resumeWith(Result.failure(error.toException()))
             else cont.resumeWith(Result.success(file))
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 
     override suspend fun delete(fileId: String): Boolean = suspendCancellableCoroutine { cont ->
-        platform.delete(fileId) { deleted, error ->
+        val handle = platform.delete(fileId) { deleted, error ->
             if (!cont.isActive) return@delete
             if (error != null) cont.resumeWith(Result.failure(error.toException()))
             else cont.resumeWith(Result.success(deleted))
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 
     override suspend fun generateIds(count: Int): List<String> = suspendCancellableCoroutine { cont ->
@@ -144,7 +158,7 @@ internal class PlatformTransportBridge(private val platform: PlatformSyncTranspo
     }
 
     override suspend fun about(): GoogleAccountInfo = suspendCancellableCoroutine { cont ->
-        platform.about { info, error ->
+        val handle = platform.about { info, error ->
             if (!cont.isActive) return@about
             if (error != null) {
                 cont.resumeWith(Result.failure(error.toException()))
@@ -154,6 +168,7 @@ internal class PlatformTransportBridge(private val platform: PlatformSyncTranspo
                 cont.resumeWith(Result.failure(SyncTransportException.Unauthorized("Cloud account unavailable")))
             }
         }
+        cont.invokeOnCancellation { handle.cancel() }
     }
 }
 
