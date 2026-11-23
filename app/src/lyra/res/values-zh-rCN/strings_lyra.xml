@@ -94,6 +94,8 @@
     <string name="lyra_inbox_empty">收件箱暂无条目。把链接或音频分享到 Lyra 即可暂存到这里。</string>
     <string name="lyra_inbox_url_saved">已投递到 Lyra 收件箱</string>
     <string name="lyra_inbox_upload_done">已上传到 Lyra 收件箱</string>
+    <string name="lyra_inbox_upload_partial">已上传 %1$d 个文件，%2$d 个失败</string>
+    <string name="lyra_inbox_upload_failed">有 %1$d 个文件无法读取或上传失败</string>
     <string name="lyra_later_section">稍后再听</string>
     <string name="lyra_later_empty">暂无稍后再听。</string>
     <string name="lyra_admin_token_needed">请在「服务」页填入 Lyra 管理令牌（LYRA_TOKEN），以管理收件箱与通行证。</string>
@@ -124,6 +126,7 @@
     <string name="lyra_server_admin_save">保存令牌</string>
     <string name="lyra_server_admin_clear">清除</string>
     <string name="lyra_server_admin_saved">管理令牌已保存</string>
+    <string name="lyra_server_admin_invalid">当前 Lyra 服务器拒绝了该管理令牌</string>
     <string name="lyra_server_admin_cleared">管理令牌已清除</string>
     <string name="lyra_server_refresh">刷新</string>
     <string name="lyra_error_generic">请求失败：%1$s</string>

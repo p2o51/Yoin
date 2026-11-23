@@ -172,6 +172,21 @@ data class LyraInboxItem(
 )
 
 @Serializable
+data class LyraInboxUploadFailure(
+    val name: String = "",
+    val filename: String = "",
+    val error: String = "",
+) {
+    val displayName: String get() = name.ifBlank { filename }
+}
+
+@Serializable
+data class LyraInboxUploadResponse(
+    val items: List<LyraInboxItem> = emptyList(),
+    val failed: List<LyraInboxUploadFailure> = emptyList(),
+)
+
+@Serializable
 data class LyraListenLaterListResponse(
     val items: List<LyraListenLaterItem> = emptyList(),
 )
@@ -212,7 +227,7 @@ data class LyraIncomingPull(
     val id: String = "",
     @SerialName("manifest_url") val manifestUrl: String = "",
     val target: String = "library",
-    val status: String = "",
+    @SerialName("state") val state: String = "",
     val error: String = "",
     @SerialName("created_at") val createdAt: String = "",
 )

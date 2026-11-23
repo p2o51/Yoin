@@ -772,7 +772,7 @@ private fun IncomingPullRow(pull: LyraIncomingPull) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOf(pull.target, pull.status, pull.error).filter { it.isNotBlank() }.joinToString(" · "),
+                text = listOf(pull.target, pull.state, pull.error).filter { it.isNotBlank() }.joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -34,6 +34,7 @@ object EditionFeatures {
 
     @Volatile private var sessionInstance: LyraSessionManager? = null
     @Volatile private var credentialsInstance: LyraCredentialsProvider? = null
+    private val syncHttpClient by lazy { LyraSyncTransport.defaultHttpClient() }
 
     private fun credentialsProvider(context: Context, profileManager: ProfileManager): LyraCredentialsProvider =
         credentialsInstance ?: synchronized(this) {
@@ -59,12 +60,17 @@ object EditionFeatures {
         val creds = credentialsProvider(context, profileManager)
         val appContext = context.applicationContext
         return SyncBackendOverride(
-            transport = LyraSyncTransport(authProvider = creds::currentAuth),
+            transport = LyraSyncTransport(authProvider = creds::currentAuth, http = syncHttpClient),
             authorizer = LyraSyncAuthorizer(
                 authProvider = creds::currentAuth,
                 missingServerMessage = appContext.getString(R.string.lyra_server_not_connected),
             ),
             skipPlayServicesCheck = true,
+            backendName = "Lyra",
+            resolveTransport = { pinnedProfileId ->
+                LyraSyncTransport.pinned(creds.authForProfile(pinnedProfileId), http = syncHttpClient)
+            },
+            profileIdFromToken = LyraSyncAuthorizer::profileIdFromToken,
         )
     }
 
@@ -74,6 +80,12 @@ object EditionFeatures {
 
     fun onAppBackground(context: Context, container: AppContainer) {
         sessionManager(context, container).onAppBackground()
+    }
+
+    suspend fun onProfileDeleted(context: Context, container: AppContainer, profileId: String) {
+        val creds = credentialsProvider(context, container.profileManager)
+        creds.pruneOrphanedTokens()
+        sessionInstance?.onProfileDeleted(profileId)
     }
 
     @Composable

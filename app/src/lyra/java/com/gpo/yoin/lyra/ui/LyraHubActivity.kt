@@ -8,7 +8,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
@@ -31,7 +30,9 @@ class LyraHubActivity : ComponentActivity() {
         val initialTab = LyraHubTab.fromKey(intent.getStringExtra(EXTRA_TAB))
         val prefillInboxUrl = intent.getStringExtra(EXTRA_INBOX_URL)
         val prefillPassUrl = intent.getStringExtra(EXTRA_PASS_URL)
-        val uploadUris = readUploadUris(intent)
+        // Consume shared audio URIs only on fresh creation so rotation/recreation/process-restore
+        // never re-uploads the same files.
+        val initialUploadUris = if (savedInstanceState == null) readUploadUris(intent) else emptyList()
 
         setContent {
             YoinActivityRoot {
@@ -42,13 +43,9 @@ class LyraHubActivity : ComponentActivity() {
                         initialTab = initialTab,
                         prefillInboxUrl = prefillInboxUrl,
                         prefillPassUrl = prefillPassUrl,
+                        initialUploadUris = initialUploadUris,
                     ),
                 )
-                LaunchedEffect(uploadUris) {
-                    if (uploadUris.isNotEmpty()) {
-                        vm.uploadInboxAudioUris(uploadUris)
-                    }
-                }
                 LyraHubScreen(
                     viewModel = vm,
                     onBack = { finish() },
@@ -63,6 +60,14 @@ class LyraHubActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun readUploadUris(intent: Intent?): List<Uri> {
         if (intent == null) return emptyList()
+        val fromClip = intent.clipData?.let { clip ->
+            buildList {
+                for (i in 0 until clip.itemCount) {
+                    clip.getItemAt(i).uri?.let(::add)
+                }
+            }
+        }.orEmpty()
+        if (fromClip.isNotEmpty()) return fromClip
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableArrayListExtra(EXTRA_UPLOAD_URIS, Uri::class.java).orEmpty()
         } else {

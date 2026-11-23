@@ -1,5 +1,6 @@
 package com.gpo.yoin.lyra.ui
 
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -10,7 +11,7 @@ import androidx.activity.ComponentActivity
  * Receives Android share-sheet intents ("Save to Lyra") and routes them directly into [LyraHubActivity]:
  * - Lyra Share Pass links (`.../s/<token>`) → Passes tab (ready to Pull)
  * - Other URLs (Bilibili / YouTube / web links) → Inbox tab (ready to save link)
- * - Audio files (audio MIME types, including Quick Share) → Inbox tab (immediate multipart upload)
+ * - Audio files (audio MIME types, including Quick Share) → Inbox tab (immediate streaming upload)
  */
 class LyraShareReceiverActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,7 +23,7 @@ class LyraShareReceiverActivity : ComponentActivity() {
         finish()
     }
 
-    private fun buildHubIntent(incoming: Intent?): Intent? {
+    internal fun buildHubIntent(incoming: Intent?): Intent? {
         if (incoming == null) return null
         return when (incoming.action) {
             Intent.ACTION_SEND -> {
@@ -37,28 +38,33 @@ class LyraShareReceiverActivity : ComponentActivity() {
                             LyraHubActivity.intent(this, initialTab = LyraHubTab.Inbox, prefillInboxUrl = url)
                         }
                     }
-                    streamUri != null -> LyraHubActivity.intent(
-                        this,
-                        initialTab = LyraHubTab.Inbox,
-                        uploadAudioUris = arrayListOf(streamUri),
-                    ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    streamUri != null -> buildAudioUploadIntent(listOf(streamUri))
                     else -> null
                 }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 val uris = readParcelableUriList(incoming, Intent.EXTRA_STREAM)
-                if (uris.isEmpty()) {
-                    null
-                } else {
-                    LyraHubActivity.intent(
-                        this,
-                        initialTab = LyraHubTab.Inbox,
-                        uploadAudioUris = ArrayList(uris),
-                    ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
+                if (uris.isEmpty()) null else buildAudioUploadIntent(uris)
             }
             else -> null
         }
+    }
+
+    /**
+     * Attaches every shared URI to [Intent.clipData] alongside [Intent.FLAG_GRANT_READ_URI_PERMISSION]
+     * so Android forwards read grants to [LyraHubActivity] even after this `noHistory` trampoline finishes.
+     */
+    private fun buildAudioUploadIntent(uris: List<Uri>): Intent {
+        val hubIntent = LyraHubActivity.intent(
+            this,
+            initialTab = LyraHubTab.Inbox,
+            uploadAudioUris = ArrayList(uris),
+        )
+        val clip = ClipData.newRawUri("lyra-audio", uris.first())
+        uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+        hubIntent.clipData = clip
+        hubIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return hubIntent
     }
 
     @Suppress("DEPRECATION")

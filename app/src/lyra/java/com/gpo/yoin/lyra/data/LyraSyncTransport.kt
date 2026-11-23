@@ -3,14 +3,17 @@ package com.gpo.yoin.lyra.data
 import com.gpo.yoin.data.remote.SubsonicAuth
 import com.gpo.yoin.data.sync.GoogleAccountInfo
 import com.gpo.yoin.data.sync.RemoteFile
-import com.gpo.yoin.data.sync.SyncFileProps
 import com.gpo.yoin.data.sync.SyncTransport
 import com.gpo.yoin.data.sync.SyncTransportException
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -23,9 +26,10 @@ import okhttp3.Response
  * Native Lyra backend for Yoin's [SyncTransport] (`CloudSyncManager` + `SyncEngine`).
  *
  * Replaces Google Drive `appDataFolder` with Lyra's `/api/v1/sync` endpoints, authenticated
- * via the active Subsonic/Lyra profile's `u/t/s` (`v1Auth`) — preserving Yoin's exact per-platform
- * and per-account scope isolation (`s-<sha256>[:24]`) and gzip envelope wire format so Lyra's
- * `go/internal/yoinsync` projects Memories, ratings, and notes immediately on write.
+ * strictly via the pinned Subsonic/Lyra profile's `u/t/s` (`v1Auth`, NEVER `Authorization: Bearer`)
+ * — preserving Yoin's exact per-platform and per-account scope isolation (`s-<sha256>[:24]`) and
+ * gzip envelope wire format so Lyra's `go/internal/yoinsync` projects Memories, ratings, and notes
+ * immediately on write.
  */
 class LyraSyncTransport(
     private val authProvider: suspend () -> LyraServerAuth?,
@@ -39,7 +43,7 @@ class LyraSyncTransport(
     override suspend fun about(): GoogleAccountInfo = withContext(Dispatchers.IO) {
         val auth = requireAuth()
         val url = syncUrl(auth, listOf("about"))
-        send(requestBuilder(url, auth).get().build()) { response ->
+        send(requestBuilder(url).get().build()) { response ->
             val dto = decode<LyraSyncAboutResponse>(response)
             val id = dto.permissionId.takeIf { it.isNotBlank() }
                 ?: throw SyncTransportException.Server(200, "Lyra sync/about returned no permissionId")
@@ -54,7 +58,7 @@ class LyraSyncTransport(
     override suspend fun list(): List<RemoteFile> = withContext(Dispatchers.IO) {
         val auth = requireAuth()
         val url = syncUrl(auth, listOf("files"))
-        send(requestBuilder(url, auth).get().build()) { response ->
+        send(requestBuilder(url).get().build()) { response ->
             decode<LyraSyncFilesResponse>(response).files.map { it.toRemoteFile() }
         }
     }
@@ -62,7 +66,7 @@ class LyraSyncTransport(
     override suspend fun download(fileId: String): ByteArray? = withContext(Dispatchers.IO) {
         val auth = requireAuth()
         val url = syncUrl(auth, listOf("files", fileId))
-        send(requestBuilder(url, auth).get().build(), accept = setOf(404)) { response ->
+        send(requestBuilder(url).get().build(), accept = setOf(404)) { response ->
             if (response.code == 404) null else response.body.bytes()
         }
     }
@@ -75,7 +79,7 @@ class LyraSyncTransport(
             segments = listOf("files", "generate-ids"),
             queryParams = mapOf("count" to count.toString()),
         )
-        send(requestBuilder(url, auth).post(EMPTY_BODY).build()) { response ->
+        send(requestBuilder(url).post(EMPTY_BODY).build()) { response ->
             val ids = decode<LyraSyncGeneratedIdsResponse>(response).ids.filter { it.isNotBlank() }
             if (ids.size < count) {
                 throw SyncTransportException.Server(200, "Lyra returned ${ids.size} of $count requested file ids")
@@ -92,15 +96,19 @@ class LyraSyncTransport(
         bytes: ByteArray,
     ): RemoteFile = withContext(Dispatchers.IO) {
         val auth = requireAuth()
+        // Pass every non-blank appProperty (including scope, targetLocation, and future keys) so
+        // purge/migration markers never lose metadata on round-trip.
         val params = buildMap {
             put("name", name)
-            PROP_QUERY_KEYS.forEach { key ->
-                appProperties[key]?.takeIf { it.isNotBlank() }?.let { put(key, it) }
+            appProperties.forEach { (key, value) ->
+                if (key.isNotBlank() && value.isNotBlank() && key !in RESERVED_QUERY_KEYS) {
+                    put(key, value)
+                }
             }
         }
         val url = syncUrl(auth, listOf("files", fileId), queryParams = params)
         val body = bytes.toRequestBody(mimeType.toMediaType())
-        send(requestBuilder(url, auth).post(body).build(), accept = setOf(409)) { response ->
+        send(requestBuilder(url).post(body).build(), accept = setOf(409)) { response ->
             if (response.code == 409) {
                 throw SyncTransportException.AlreadyExists("Lyra sync file $fileId already exists")
             }
@@ -112,7 +120,7 @@ class LyraSyncTransport(
         val auth = requireAuth()
         val url = syncUrl(auth, listOf("files", fileId))
         val body = bytes.toRequestBody(sniffMediaType(bytes))
-        send(requestBuilder(url, auth).put(body).build(), accept = setOf(404)) { response ->
+        send(requestBuilder(url).put(body).build(), accept = setOf(404)) { response ->
             if (response.code == 404) null else decode<LyraSyncFileDto>(response).toRemoteFile()
         }
     }
@@ -120,7 +128,7 @@ class LyraSyncTransport(
     override suspend fun delete(fileId: String): Boolean = withContext(Dispatchers.IO) {
         val auth = requireAuth()
         val url = syncUrl(auth, listOf("files", fileId))
-        send(requestBuilder(url, auth).delete().build(), accept = setOf(404)) { true }
+        send(requestBuilder(url).delete().build(), accept = setOf(404)) { true }
     }
 
     // ── Internals ────────────────────────────────────────────────────────
@@ -128,22 +136,25 @@ class LyraSyncTransport(
     private suspend fun requireAuth(): LyraServerAuth =
         authProvider() ?: throw SyncTransportException.Unauthorized("No Lyra server configured")
 
-    private fun <T> send(
+    private suspend fun <T> send(
         request: Request,
         accept: Set<Int> = emptySet(),
         handle: (Response) -> T,
     ): T {
-        val response = try {
-            http.newCall(request).execute()
+        return try {
+            http.executeCancellable(request) { res ->
+                if (res.isSuccessful || res.code in accept) {
+                    handle(res)
+                } else {
+                    throw mapFailure(res)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: SyncTransportException) {
+            throw error
         } catch (error: IOException) {
             throw SyncTransportException.Network("Could not reach Lyra sync server", error)
-        }
-        return response.use { res ->
-            if (res.isSuccessful || res.code in accept) {
-                handle(res)
-            } else {
-                throw mapFailure(res)
-            }
         }
     }
 
@@ -152,12 +163,19 @@ class LyraSyncTransport(
         val body = runCatching { response.body.string() }.getOrDefault("").take(300)
         return when (code) {
             401, 403 -> SyncTransportException.Unauthorized("Lyra sync unauthorized ($code): $body")
+            413 -> SyncTransportException.Server(413, "Lyra sync payload too large: $body")
             429 -> {
-                val retrySec = response.header("Retry-After")?.toLongOrNull()
-                SyncTransportException.RateLimited(
-                    message = "Lyra sync rate-limited",
-                    retryAfterMs = retrySec?.times(1000L),
-                )
+                val lower = body.lowercase()
+                val isAuthThrottle = "auth" in lower || "credential" in lower || "login" in lower || "password" in lower
+                if (isAuthThrottle) {
+                    SyncTransportException.Unauthorized("Lyra authentication rate-limited ($code): $body")
+                } else {
+                    val retrySec = response.header("Retry-After")?.toLongOrNull()
+                    SyncTransportException.RateLimited(
+                        message = "Lyra sync rate-limited",
+                        retryAfterMs = retrySec?.times(1000L),
+                    )
+                }
             }
             507 -> SyncTransportException.StorageFull("Lyra server storage full")
             else -> SyncTransportException.Server(code, "Lyra sync HTTP $code: $body")
@@ -173,13 +191,8 @@ class LyraSyncTransport(
         }
     }
 
-    private fun requestBuilder(url: HttpUrl, auth: LyraServerAuth): Request.Builder =
-        Request.Builder()
-            .url(url)
-            .apply {
-                val bearer = auth.adminToken?.trim().orEmpty()
-                if (bearer.isNotEmpty()) header("Authorization", "Bearer $bearer")
-            }
+    /** Sync routes are `v1Auth` (`u/t/s`): never attach `Authorization: Bearer` admin tokens here. */
+    private fun requestBuilder(url: HttpUrl): Request.Builder = Request.Builder().url(url)
 
     private fun syncUrl(
         auth: LyraServerAuth,
@@ -228,13 +241,11 @@ class LyraSyncTransport(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val GZIP_MEDIA_TYPE = "application/gzip".toMediaType()
         private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
-        private val PROP_QUERY_KEYS = listOf(
-            SyncFileProps.KIND,
-            SyncFileProps.DEVICE_ID,
-            SyncFileProps.SHARD,
-            SyncFileProps.SCHEMA,
-            SyncFileProps.EPOCH,
-        )
+        private val RESERVED_QUERY_KEYS = setOf("name", "u", "t", "s", "v", "c", "f")
+
+        /** Returns a transport pinned to a single resolved [LyraServerAuth] snapshot for one cycle. */
+        fun pinned(auth: LyraServerAuth?, http: OkHttpClient = defaultHttpClient()): LyraSyncTransport =
+            LyraSyncTransport(authProvider = { auth }, http = http)
 
         fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -242,4 +253,28 @@ class LyraSyncTransport(
             .writeTimeout(90, TimeUnit.SECONDS)
             .build()
     }
+}
+
+internal suspend fun <T> OkHttpClient.executeCancellable(
+    request: Request,
+    read: (Response) -> T,
+): T = suspendCancellableCoroutine { continuation ->
+    val call = newCall(request)
+    continuation.invokeOnCancellation { runCatching { call.cancel() } }
+    call.enqueue(
+        object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) {
+                    continuation.resumeWith(Result.failure(e))
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = runCatching { response.use(read) }
+                if (continuation.isActive) {
+                    continuation.resumeWith(result)
+                }
+            }
+        },
+    )
 }

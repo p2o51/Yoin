@@ -89,7 +89,11 @@ class MemoriesPortability(
                     clock = clock,
                 ).build()
                 val source = BackupSource(
-                    location = if (replica?.enabled == true) BackupFormat.LOCATION_GOOGLE_DRIVE else BackupFormat.LOCATION_THIS_DEVICE,
+                    location = when {
+                        replica?.enabled != true -> BackupFormat.LOCATION_THIS_DEVICE
+                        com.gpo.yoin.edition.EditionFeatures.isLyraOnly -> BackupFormat.LOCATION_LYRA
+                        else -> BackupFormat.LOCATION_GOOGLE_DRIVE
+                    },
                     deviceId = deviceId,
                     deviceName = deviceName,
                     appVersionName = versionName,

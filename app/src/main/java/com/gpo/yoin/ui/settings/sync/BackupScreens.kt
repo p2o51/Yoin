@@ -468,13 +468,11 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
             item {
                 SettingsItem(
                     icon = YoinSymbols.Cloud,
-                    title = stringResource(
-                        if (manifest.source.location == BackupFormat.LOCATION_GOOGLE_DRIVE) {
-                            R.string.settings_sync_google_drive
-                        } else {
-                            R.string.settings_sync_import_this_device
-                        },
-                    ),
+                    title = when (manifest.source.location) {
+                        BackupFormat.LOCATION_GOOGLE_DRIVE -> stringResource(R.string.settings_sync_google_drive)
+                        BackupFormat.LOCATION_LYRA -> "Lyra"
+                        else -> stringResource(R.string.settings_sync_import_this_device)
+                    },
                     summaryContent = {
                         MetaLine(groups = listOf(MetaGroup.Plain(manifest.source.deviceName, muted = true)), style = MaterialTheme.typography.bodyMedium)
                     },

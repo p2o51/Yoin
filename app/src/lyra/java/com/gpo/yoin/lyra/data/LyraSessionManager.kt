@@ -42,9 +42,10 @@ data class LyraSessionState(
 /**
  * Process-scoped Lyra coordinator for the `lyra` flavor.
  *
- * Probes `/api/v1/capabilities`, loads anonymized `/api/v1/sources` and `/api/v1/jobs`, maintains
- * the authenticated `/api/v1/events` SSE stream while foregrounded or while library jobs are running,
- * drives [LyraJobLiveUpdate], and refreshes Yoin when a newly downloaded track/album lands.
+ * Probes `/api/v1/capabilities`, loads anonymized `/api/v1/sources` and download `/api/v1/jobs`,
+ * maintains the authenticated `/api/v1/events` SSE stream while foregrounded or while download
+ * jobs are running, drives [LyraJobLiveUpdate], and refreshes Yoin's library catalog in place
+ * (without closing open detail panes) when a newly downloaded track/album lands.
  */
 class LyraSessionManager(
     context: Context,
@@ -60,13 +61,14 @@ class LyraSessionManager(
         isLenient = true
     }
 
-    private val _state = MutableStateFlow(
-        LyraSessionState(hasAdminToken = credentialsProvider.adminTokenStore.hasToken()),
-    )
+    private val _state = MutableStateFlow(LyraSessionState())
     val state: StateFlow<LyraSessionState> = _state.asStateFlow()
+
+    private val stateLock = Any()
 
     @Volatile private var foregrounded = false
     @Volatile private var lastEventId: Long? = null
+    @Volatile private var activeServerKey: String? = null
     private var sseJob: Job? = null
     private val knownActiveJobIds = mutableSetOf<Long>()
 
@@ -89,24 +91,62 @@ class LyraSessionManager(
     fun onAppBackground() {
         foregrounded = false
         if (_state.value.activeJobs.isEmpty()) {
-            sseJob?.cancel()
-            sseJob = null
-            _state.update { it.copy(sseConnected = false) }
+            stopSse()
         }
     }
 
-    fun setAdminToken(token: String?) {
-        credentialsProvider.adminTokenStore.write(token)
-        _state.update { it.copy(hasAdminToken = credentialsProvider.adminTokenStore.hasToken()) }
-        scope.launch { refresh() }
+    fun onProfileDeleted(profileId: String) {
+        stopSse()
+        synchronized(stateLock) {
+            knownActiveJobIds.clear()
+            lastEventId = null
+            activeServerKey = null
+        }
+        liveUpdate.clear()
+        _state.value = LyraSessionState()
+        if (foregrounded) {
+            scope.launch { refresh() }
+        }
+    }
+
+    fun setAdminToken(serverUrl: String, token: String?) {
+        credentialsProvider.adminTokenStore.write(serverUrl, token)
+        val hasToken = credentialsProvider.adminTokenStore.hasToken(serverUrl)
+        _state.update { current ->
+            if (normalizeServer(current.serverUrl) == normalizeServer(serverUrl)) {
+                current.copy(hasAdminToken = hasToken)
+            } else {
+                current
+            }
+        }
     }
 
     suspend fun refresh() {
         val auth = credentialsProvider.currentAuth()
         if (auth == null) {
-            _state.value = LyraSessionState(hasAdminToken = credentialsProvider.adminTokenStore.hasToken())
+            stopSse()
+            synchronized(stateLock) {
+                knownActiveJobIds.clear()
+                lastEventId = null
+                activeServerKey = null
+            }
+            _state.value = LyraSessionState()
             liveUpdate.clear()
             return
+        }
+        val serverKey = normalizeServer(auth.serverUrl)
+        val serverChanged = synchronized(stateLock) {
+            val changed = activeServerKey != null && activeServerKey != serverKey
+            if (changed) {
+                lastEventId = null
+                knownActiveJobIds.clear()
+            }
+            activeServerKey = serverKey
+            changed
+        }
+        if (serverChanged) {
+            stopSse()
+            liveUpdate.clear()
         }
         _state.update {
             it.copy(
@@ -127,7 +167,9 @@ class LyraSessionManager(
         } else {
             emptyList()
         }
-        val jobs = runCatching { api.listJobs(auth, limit = 30) }.getOrDefault(emptyList())
+        val jobs = runCatching { api.listJobs(auth, kind = DOWNLOAD_JOB_KIND, limit = 30) }
+            .getOrDefault(emptyList())
+            .filter { it.kind.isBlank() || it.kind == DOWNLOAD_JOB_KIND }
         updateJobsAndNotification(jobs)
         _state.update {
             it.copy(
@@ -148,7 +190,7 @@ class LyraSessionManager(
         }
     }
 
-    fun noteJobQueued(jobId: Long, displayTitle: String, kind: String = "download") {
+    fun noteJobQueued(jobId: Long, displayTitle: String, kind: String = DOWNLOAD_JOB_KIND) {
         val synthetic = LyraJob(
             id = jobId,
             kind = kind,
@@ -167,45 +209,66 @@ class LyraSessionManager(
 
     private suspend fun refreshJobsOnly() {
         val auth = credentialsProvider.currentAuth() ?: return
-        val jobs = runCatching { api.listJobs(auth, limit = 30) }.getOrNull() ?: return
+        val jobs = runCatching { api.listJobs(auth, kind = DOWNLOAD_JOB_KIND, limit = 30) }
+            .getOrNull()
+            ?.filter { it.kind.isBlank() || it.kind == DOWNLOAD_JOB_KIND }
+            ?: return
         updateJobsAndNotification(jobs)
         _state.update { it.copy(jobs = jobs) }
     }
 
+    private fun stopSse() {
+        synchronized(stateLock) {
+            sseJob?.cancel()
+            sseJob = null
+        }
+        _state.update { it.copy(sseConnected = false) }
+    }
+
     private fun ensureSseRunning() {
-        if (sseJob?.isActive == true) return
         if (!_state.value.capabilityEnabled("push_events")) return
-        sseJob = scope.launch {
-            var backoffMs = 2_000L
-            while (isActive && (foregrounded || _state.value.activeJobs.isNotEmpty())) {
-                val auth = credentialsProvider.currentAuth()
-                if (auth == null) {
-                    delay(5_000L)
-                    continue
-                }
-                try {
-                    val ticket = api.issueEventsTicket(auth).ticket
-                    _state.update { it.copy(sseConnected = true) }
-                    backoffMs = 2_000L
-                    api.streamEvents(
-                        auth = auth,
-                        ticket = ticket,
-                        topics = "job,library,inbox,share",
-                        lastEventId = lastEventId,
-                    ) { event ->
-                        if (event.id > 0) lastEventId = event.id
-                        handleEvent(event)
+        synchronized(stateLock) {
+            if (sseJob?.isActive == true) return
+            sseJob = scope.launch {
+                var backoffMs = 2_000L
+                while (isActive && (foregrounded || _state.value.activeJobs.isNotEmpty())) {
+                    val auth = credentialsProvider.currentAuth()
+                    if (auth == null) {
+                        delay(5_000L)
+                        continue
                     }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    Log.d(TAG, "Lyra SSE disconnected: ${error.message}")
-                } finally {
-                    _state.update { it.copy(sseConnected = false) }
+                    val streamServerKey = normalizeServer(auth.serverUrl)
+                    synchronized(stateLock) {
+                        if (activeServerKey != null && activeServerKey != streamServerKey) {
+                            lastEventId = null
+                            knownActiveJobIds.clear()
+                        }
+                        activeServerKey = streamServerKey
+                    }
+                    try {
+                        val ticket = api.issueEventsTicket(auth).ticket
+                        _state.update { it.copy(sseConnected = true) }
+                        backoffMs = 2_000L
+                        api.streamEvents(
+                            auth = auth,
+                            ticket = ticket,
+                            topics = "job,library,inbox,share",
+                            lastEventId = lastEventId,
+                        ) { event ->
+                            if (event.id > 0) lastEventId = event.id
+                            handleEvent(event)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.d(TAG, "Lyra SSE disconnected: ${error.message}")
+                    } finally {
+                        _state.update { it.copy(sseConnected = false) }
+                    }
+                    if (!foregrounded && _state.value.activeJobs.isEmpty()) break
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
                 }
-                if (!foregrounded && _state.value.activeJobs.isEmpty()) break
-                delay(backoffMs)
-                backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
             }
         }
     }
@@ -217,7 +280,10 @@ class LyraSessionManager(
                     runCatching { json.decodeFromJsonElement(LyraJob.serializer(), it) }.getOrNull()
                 }
                 if (parsed != null && parsed.id > 0) {
-                    val merged = (listOf(parsed) + _state.value.jobs.filterNot { it.id == parsed.id }).take(40)
+                    val effectiveKind = parsed.kind.ifBlank { event.kind }
+                    if (effectiveKind.isNotBlank() && effectiveKind != DOWNLOAD_JOB_KIND) return
+                    val normalized = if (parsed.kind.isBlank()) parsed.copy(kind = DOWNLOAD_JOB_KIND) else parsed
+                    val merged = (listOf(normalized) + _state.value.jobs.filterNot { it.id == normalized.id }).take(40)
                     updateJobsAndNotification(merged)
                     _state.update { it.copy(jobs = merged) }
                 } else {
@@ -225,30 +291,37 @@ class LyraSessionManager(
                 }
             }
             "library" -> {
-                container.notifyMusicConfigurationChanged()
+                container.notifyLibraryContentChanged()
             }
         }
     }
 
     private fun updateJobsAndNotification(jobs: List<LyraJob>) {
         val active = jobs.filter { it.isActive }
-        val completedNow = jobs.filter { it.id in knownActiveJobIds && (it.isDone || it.isFailed) }
-        knownActiveJobIds.clear()
-        knownActiveJobIds.addAll(active.map { it.id })
+        val completedNow = synchronized(stateLock) {
+            val done = jobs.filter { it.id in knownActiveJobIds && (it.isDone || it.isFailed) }
+            knownActiveJobIds.clear()
+            knownActiveJobIds.addAll(active.map { it.id })
+            done
+        }
 
         if (active.isNotEmpty()) {
             liveUpdate.showActive(active)
         } else if (completedNow.isNotEmpty()) {
             liveUpdate.showCompleted(completedNow.first())
             if (completedNow.any { it.isDone }) {
-                container.notifyMusicConfigurationChanged()
+                container.notifyLibraryContentChanged()
             }
         } else {
             liveUpdate.clear()
         }
     }
 
+    private fun normalizeServer(raw: String?): String? =
+        raw?.trim()?.takeIf { it.isNotEmpty() }?.let { LyraApiClient.normalizeServerBase(it) }
+
     companion object {
         private const val TAG = "LyraSessionManager"
+        private const val DOWNLOAD_JOB_KIND = "download"
     }
 }

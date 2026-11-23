@@ -96,6 +96,8 @@
     <string name="lyra_inbox_empty">Inbox is empty. Share a link or audio file to Lyra to stage it here.</string>
     <string name="lyra_inbox_url_saved">Sent to Lyra Inbox</string>
     <string name="lyra_inbox_upload_done">Uploaded to Lyra Inbox</string>
+    <string name="lyra_inbox_upload_partial">Uploaded %1$d file(s), %2$d failed</string>
+    <string name="lyra_inbox_upload_failed">Couldn\'t read or upload %1$d file(s)</string>
     <string name="lyra_later_section">Listen Later</string>
     <string name="lyra_later_empty">Nothing saved for later.</string>
     <string name="lyra_admin_token_needed">Add your Lyra admin token in the Server tab to manage Inbox and Passes.</string>
@@ -126,6 +128,7 @@
     <string name="lyra_server_admin_save">Save token</string>
     <string name="lyra_server_admin_clear">Clear</string>
     <string name="lyra_server_admin_saved">Admin token saved</string>
+    <string name="lyra_server_admin_invalid">Admin token was rejected by this Lyra server</string>
     <string name="lyra_server_admin_cleared">Admin token cleared</string>
     <string name="lyra_server_refresh">Refresh</string>
     <string name="lyra_error_generic">Request failed: %1$s</string>

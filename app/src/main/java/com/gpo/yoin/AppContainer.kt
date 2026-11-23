@@ -231,6 +231,7 @@ class AppContainer(private val context: Context) {
 
     private val _musicConfigurationRevision = MutableStateFlow(0L)
     private val _playlistMutationRevision = MutableStateFlow(0L)
+    private val _libraryContentRevision = MutableStateFlow(0L)
 
     /**
      * Increments whenever the active profile's configuration changes (switch,
@@ -240,12 +241,22 @@ class AppContainer(private val context: Context) {
     val musicConfigurationRevision: StateFlow<Long> = _musicConfigurationRevision.asStateFlow()
     val playlistMutationRevision: StateFlow<Long> = _playlistMutationRevision.asStateFlow()
 
+    /**
+     * Increments when the current server's library catalog changes in place (e.g. a Lyra download
+     * finishes). Refreshes Library without closing open detail panes or resetting Memories/Home.
+     */
+    val libraryContentRevision: StateFlow<Long> = _libraryContentRevision.asStateFlow()
+
     fun notifyMusicConfigurationChanged() {
         _musicConfigurationRevision.value += 1
     }
 
     fun notifyPlaylistMutation() {
         _playlistMutationRevision.value += 1
+    }
+
+    fun notifyLibraryContentChanged() {
+        _libraryContentRevision.value += 1
     }
 
     /**
@@ -475,6 +486,14 @@ class AppContainer(private val context: Context) {
                 appleMusicNameRegionStore.remove(profileId)
                 // Ratings it still owed its server can't be sent now (I10).
                 database.localRatingDao().clearPendingForProfile(profileId)
+                runCatching { cloudSync.onProfileDeleted(profileId) }
+                runCatching {
+                    com.gpo.yoin.edition.EditionFeatures.onProfileDeleted(
+                        context = context,
+                        container = this,
+                        profileId = profileId,
+                    )
+                }
             },
         ).also { manager ->
             applicationScope.launch {

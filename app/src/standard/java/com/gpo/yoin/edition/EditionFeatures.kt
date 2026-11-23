@@ -23,6 +23,8 @@ object EditionFeatures {
 
     fun onAppBackground(context: Context, container: AppContainer) = Unit
 
+    fun onProfileDeleted(context: Context, container: AppContainer, profileId: String) = Unit
+
     @Composable
     fun ShellOverlay(
         visible: Boolean,

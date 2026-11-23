@@ -17,6 +17,7 @@ import com.gpo.yoin.lyra.data.LyraSessionState
 import com.gpo.yoin.lyra.data.LyraShareView
 import com.gpo.yoin.lyra.data.LyraSourceAlbumResponse
 import com.gpo.yoin.lyra.data.LyraSourceItem
+import com.gpo.yoin.lyra.data.LyraUploadPart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -69,6 +70,7 @@ class LyraHubViewModel(
     initialTab: LyraHubTab = LyraHubTab.Sources,
     prefillInboxUrl: String? = null,
     prefillPassUrl: String? = null,
+    initialUploadUris: List<Uri> = emptyList(),
 ) : ViewModel() {
     val sessionState: StateFlow<LyraSessionState> = session.state
 
@@ -84,6 +86,8 @@ class LyraHubViewModel(
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages: Flow<String> = _messages.receiveAsFlow()
 
+    private var initialUploadsConsumed = false
+
     init {
         viewModelScope.launch {
             session.refresh()
@@ -95,6 +99,10 @@ class LyraHubViewModel(
                 LyraHubTab.Inbox -> loadInboxAndLater()
                 LyraHubTab.Passes -> loadPasses()
                 else -> Unit
+            }
+            if (initialUploadUris.isNotEmpty() && !initialUploadsConsumed) {
+                initialUploadsConsumed = true
+                uploadInboxAudioUris(initialUploadUris)
             }
         }
     }
@@ -295,24 +303,52 @@ class LyraHubViewModel(
         viewModelScope.launch {
             val auth = session.credentialsProvider.currentAuth() ?: return@launch
             _ui.update { it.copy(inboxBusy = true) }
-            val payload = withContext(Dispatchers.IO) {
-                uris.mapNotNull { uri ->
-                    runCatching {
-                        val name = resolveDisplayName(uri) ?: "audio-${System.currentTimeMillis()}.bin"
-                        val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                            ?: return@runCatching null
-                        name to bytes
-                    }.getOrNull()
+            val (parts, localFailures) = withContext(Dispatchers.IO) {
+                val ready = mutableListOf<LyraUploadPart>()
+                var failedCount = 0
+                uris.forEachIndexed { idx, uri ->
+                    val canOpen = runCatching {
+                        appContext.contentResolver.openInputStream(uri)?.use { true } == true
+                    }.getOrDefault(false)
+                    if (!canOpen) {
+                        failedCount += 1
+                    } else {
+                        val meta = resolveFileMeta(uri)
+                        val name = meta.first ?: "audio-${System.currentTimeMillis()}-$idx.bin"
+                        val size = meta.second
+                        ready += LyraUploadPart(
+                            filename = name,
+                            contentLength = size,
+                            openStream = { appContext.contentResolver.openInputStream(uri) },
+                        )
+                    }
                 }
+                ready to failedCount
             }
-            if (payload.isEmpty()) {
+            if (parts.isEmpty()) {
                 _ui.update { it.copy(inboxBusy = false) }
+                _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_failed, localFailures.coerceAtLeast(uris.size)))
                 return@launch
             }
-            runCatching { session.api.uploadInboxFiles(auth, payload) }
-                .onSuccess {
+            runCatching { session.api.uploadInboxParts(auth, parts) }
+                .onSuccess { resp ->
                     _ui.update { it.copy(inboxBusy = false) }
-                    _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_done))
+                    val totalFailed = localFailures + resp.failed.size
+                    val succeededCount = if (resp.items.isNotEmpty()) {
+                        resp.items.size
+                    } else {
+                        (parts.size - resp.failed.size).coerceAtLeast(0)
+                    }
+                    when {
+                        totalFailed == 0 ->
+                            _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_done))
+                        succeededCount > 0 ->
+                            _messages.trySend(
+                                appContext.getString(R.string.lyra_inbox_upload_partial, succeededCount, totalFailed),
+                            )
+                        else ->
+                            _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_failed, totalFailed))
+                    }
                     loadInboxAndLater()
                 }
                 .onFailure { err ->
@@ -405,22 +441,51 @@ class LyraHubViewModel(
 
     fun saveAdminToken() {
         val token = _ui.value.adminTokenInput.trim()
-        session.setAdminToken(token)
-        _ui.update { it.copy(adminTokenInput = "", inboxNeedsAdminToken = false, passesNeedsAdminToken = false) }
-        _messages.trySend(appContext.getString(R.string.lyra_server_admin_saved))
+        if (token.isEmpty()) return
+        viewModelScope.launch {
+            val auth = session.credentialsProvider.currentAuth() ?: return@launch
+            val candidate = auth.copy(adminToken = token)
+            runCatching { session.api.validateAdminToken(candidate) }
+                .onSuccess {
+                    session.setAdminToken(auth.serverUrl, token)
+                    _ui.update { it.copy(adminTokenInput = "", inboxNeedsAdminToken = false, passesNeedsAdminToken = false) }
+                    _messages.trySend(appContext.getString(R.string.lyra_server_admin_saved))
+                }
+                .onFailure { err ->
+                    if (err is LyraApiException && err.code == 401) {
+                        _messages.trySend(appContext.getString(R.string.lyra_server_admin_invalid))
+                    } else {
+                        postError(err)
+                    }
+                }
+        }
     }
 
     fun clearAdminToken() {
-        session.setAdminToken(null)
-        _ui.update { it.copy(adminTokenInput = "") }
-        _messages.trySend(appContext.getString(R.string.lyra_server_admin_cleared))
+        viewModelScope.launch {
+            val auth = session.credentialsProvider.currentAuth() ?: return@launch
+            session.setAdminToken(auth.serverUrl, null)
+            _ui.update { it.copy(adminTokenInput = "") }
+            _messages.trySend(appContext.getString(R.string.lyra_server_admin_cleared))
+        }
     }
 
-    private fun resolveDisplayName(uri: Uri): String? = runCatching {
-        appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-    }.getOrNull()
+    private fun resolveFileMeta(uri: Uri): Pair<String?, Long> = runCatching {
+        appContext.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null to -1L
+            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+            val name = if (nameIdx >= 0 && !cursor.isNull(nameIdx)) cursor.getString(nameIdx) else null
+            val size = if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else -1L
+            name to size
+        } ?: (null to -1L)
+    }.getOrDefault(null to -1L)
 
     private fun postError(error: Throwable) {
         _messages.trySend(
@@ -434,6 +499,7 @@ class LyraHubViewModel(
         private val initialTab: LyraHubTab,
         private val prefillInboxUrl: String?,
         private val prefillPassUrl: String?,
+        private val initialUploadUris: List<Uri> = emptyList(),
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = LyraHubViewModel(
@@ -442,6 +508,7 @@ class LyraHubViewModel(
             initialTab = initialTab,
             prefillInboxUrl = prefillInboxUrl,
             prefillPassUrl = prefillPassUrl,
+            initialUploadUris = initialUploadUris,
         ) as T
     }
 }

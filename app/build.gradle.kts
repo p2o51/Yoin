@@ -74,6 +74,7 @@ android {
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
         buildConfigField("boolean", "LYRA_ONLY", "false")
+        buildConfigField("String", "AUTH_SCHEME", "\"yoin\"")
         manifestPlaceholders["appLabel"] = "@string/app_name"
         manifestPlaceholders["authScheme"] = "yoin"
     }
@@ -84,6 +85,7 @@ android {
             dimension = "edition"
             isDefault = true
             buildConfigField("boolean", "LYRA_ONLY", "false")
+            buildConfigField("String", "AUTH_SCHEME", "\"yoin\"")
             manifestPlaceholders["appLabel"] = "@string/app_name"
             manifestPlaceholders["authScheme"] = "yoin"
         }
@@ -91,6 +93,7 @@ android {
             dimension = "edition"
             applicationId = "com.gpo.yoin.lyra"
             buildConfigField("boolean", "LYRA_ONLY", "true")
+            buildConfigField("String", "AUTH_SCHEME", "\"yoin-lyra\"")
             manifestPlaceholders["appLabel"] = "@string/lyra_app_name"
             manifestPlaceholders["authScheme"] = "yoin-lyra"
         }

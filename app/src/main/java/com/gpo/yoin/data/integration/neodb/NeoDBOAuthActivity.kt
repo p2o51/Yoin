@@ -214,7 +214,7 @@ class NeoDBOAuthActivity : ComponentActivity() {
     }
 
     private fun isNeoDbCallback(uri: Uri?): Boolean =
-        uri?.scheme == "yoin" &&
+        uri?.scheme == com.gpo.yoin.BuildConfig.AUTH_SCHEME &&
             uri.host == "auth" &&
             uri.path?.startsWith("/neodb/callback") == true
 
@@ -238,6 +238,6 @@ class NeoDBOAuthActivity : ComponentActivity() {
 
         private const val CLIENT_NAME = "Yoin"
         private const val APP_WEBSITE = "https://github.com/p2o51/Yoin"
-        private const val CALLBACK_URI = "yoin://auth/neodb/callback"
+        private val CALLBACK_URI = "${com.gpo.yoin.BuildConfig.AUTH_SCHEME}://auth/neodb/callback"
     }
 }

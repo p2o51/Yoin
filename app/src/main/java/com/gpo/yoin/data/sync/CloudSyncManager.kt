@@ -122,14 +122,29 @@ class CloudSyncManager(
     }
 
     /** A one-off client bound to exactly [accessToken] (identity checks; never falls back to another account). */
-    private fun clientFor(accessToken: String): SyncTransport =
-        hooks?.transport ?: backendOverride?.transport ?: driveClient(
+    private suspend fun clientFor(accessToken: String): SyncTransport {
+        hooks?.transport?.let { return it }
+        backendOverride?.let { override ->
+            val profileId = override.profileIdFromToken(accessToken)
+            return override.resolveTransport(profileId)
+        }
+        return driveClient(
             object : SyncTokenProvider {
                 override suspend fun token(): String = accessToken
 
                 override suspend fun invalidate(token: String) = Unit
             },
         )
+    }
+
+    /** Resolves a single transport pinned to the stored backend profile for the duration of one operation. */
+    private suspend fun resolveTransport(): SyncTransport {
+        hooks?.transport?.let { return it }
+        backendOverride?.let { override ->
+            return override.resolveTransport(dao.meta(SyncMetaKeys.BACKEND_PROFILE_ID))
+        }
+        return transport
+    }
 
     /**
      * Every Drive request asks Play services for a token, and a token for the pinned account can
@@ -302,6 +317,9 @@ class CloudSyncManager(
             if (previousOwner != about.permissionId) dao.deleteMeta(SyncMetaKeys.EPOCH)
             putMeta(SyncMetaKeys.GOOGLE_PERMISSION_ID, about.permissionId)
             putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, about.permissionId)
+            backendOverride?.profileIdFromToken(accessToken)?.let { pinnedId ->
+                putMeta(SyncMetaKeys.BACKEND_PROFILE_ID, pinnedId)
+            }
             about.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) } ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
             about.displayName?.let { putMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME, it) }
             dao.deleteMeta(SyncMetaKeys.MISCONFIGURED_FOR)
@@ -333,14 +351,38 @@ class CloudSyncManager(
         }
     }
 
+    /** Turns sync off cleanly when the local profile pinned to an edition backend (e.g. Lyra) is removed. */
+    suspend fun onProfileDeleted(profileId: String) = withIo {
+        if (backendOverride == null) return@withIo
+        if (hooks == null && !syncDbFile().exists()) return@withIo
+        ensureInitialized()
+        var turnedOff = false
+        mutex.withLock {
+            if (dao.meta(SyncMetaKeys.BACKEND_PROFILE_ID) == profileId) {
+                putMeta(SyncMetaKeys.ENABLED, "false")
+                dao.deleteMeta(SyncMetaKeys.BACKEND_PROFILE_ID)
+                dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
+                turnedOff = true
+            }
+        }
+        if (turnedOff) {
+            stopObservers()
+            refreshState()
+        }
+    }
+
     override suspend fun deleteCloudData(): Result<Unit> = withIo {
         val result = runCatching {
             mutex.withLock {
+                val activeTransport = resolveTransport()
                 // Never act on whatever account a token happens to come from.
-                val about = transport.about()
+                val about = activeTransport.about()
                 val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-                check(owner != null && owner == about.permissionId) { "Reconnect Google before deleting cloud data." }
-                val files = transport.list()
+                val serviceName = backendOverride?.backendName ?: "Google"
+                check(owner != null && owner == about.permissionId) {
+                    "Reconnect $serviceName before deleting cloud data."
+                }
+                val files = activeTransport.list()
                 val pending = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset)
                 // Strictly newer than every marker any device has seen, whatever the local clock says.
                 val epoch = pending?.first ?: maxOf(
@@ -348,10 +390,10 @@ class CloudSyncManager(
                     (files.maxOfOrNull { it.resetEpoch() ?: 0L } ?: 0L) + 1,
                     (dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() ?: 0L) + 1,
                 )
-                val markerId = pending?.second ?: transport.generateIds(1).first()
+                val markerId = pending?.second ?: activeTransport.generateIds(1).first()
                 putMeta(SyncMetaKeys.PENDING_RESET, "$epoch|$markerId")
                 try {
-                    transport.create(
+                    activeTransport.create(
                         fileId = markerId,
                         name = SyncFileProps.resetFileName(epoch, deviceId()),
                         appProperties = mapOf(
@@ -377,7 +419,7 @@ class CloudSyncManager(
                 dao.deleteMeta(SyncMetaKeys.REPLICA_PERMISSION_ID)
                 putMeta(SyncMetaKeys.EPOCH, epoch.toString())
                 putMeta(SyncMetaKeys.ENABLED, "false")
-                deleteYoinFilesExcept(files, markerId)
+                deleteYoinFilesExcept(activeTransport, files, markerId)
                 dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
             }
             // No revokeAccess: other devices need the grant to read the marker and turn themselves off.
@@ -395,17 +437,22 @@ class CloudSyncManager(
         runCatching {
             mutex.withLock {
                 val (_, markerId) = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset) ?: return@withLock
-                val about = transport.about()
+                val activeTransport = resolveTransport()
+                val about = activeTransport.about()
                 if (about.permissionId != dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)) return@withLock
-                deleteYoinFilesExcept(transport.list(), markerId)
+                deleteYoinFilesExcept(activeTransport, activeTransport.list(), markerId)
                 dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
             }
         }.onFailure { Log.w(TAG, "Resuming cloud data deletion failed", it) }
     }
 
-    private suspend fun deleteYoinFilesExcept(files: List<RemoteFile>, keepId: String) {
+    private suspend fun deleteYoinFilesExcept(
+        activeTransport: SyncTransport,
+        files: List<RemoteFile>,
+        keepId: String,
+    ) {
         files.filter { it.isYoinFile() && it.id != keepId }.forEach { file ->
-            check(transport.delete(file.id)) { "Couldn't delete ${file.name}" }
+            check(activeTransport.delete(file.id)) { "Couldn't delete ${file.name}" }
         }
     }
 
@@ -467,8 +514,9 @@ class CloudSyncManager(
         scope.launch {
             mutex.withLock {
                 runCatching {
+                    val activeTransport = resolveTransport()
                     dao.remoteFiles().filter { it.deviceId == deviceId && !it.own }.forEach { file ->
-                        if (transport.delete(file.fileId)) dao.deleteRemoteFile(file.fileId)
+                        if (activeTransport.delete(file.fileId)) dao.deleteRemoteFile(file.fileId)
                     }
                 }.onFailure { Log.w(TAG, "Remove device failed", it) }
             }
@@ -520,12 +568,13 @@ class CloudSyncManager(
     private suspend fun cycle(): String? {
         val engine = engine()
         val me = deviceId()
+        val activeTransport = resolveTransport()
 
-        val about = transport.about()
+        val about = activeTransport.about()
         val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
         if (owner != null && owner != about.permissionId) return CODE_ACCOUNT_MISMATCH
 
-        val files = transport.list()
+        val files = activeTransport.list()
 
         // A newer "delete cloud data" from any device wins over everything.
         val resets = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_RESET }
@@ -549,7 +598,7 @@ class CloudSyncManager(
                     null
                 } else {
                     newest?.let { marker ->
-                        runCatching { transport.download(marker.id)?.let(SnapshotCodec::decodeReset) }.getOrNull()
+                        runCatching { activeTransport.download(marker.id)?.let(SnapshotCodec::decodeReset) }.getOrNull()
                     }
                 }
                 engine.clearReplica()
@@ -567,7 +616,7 @@ class CloudSyncManager(
             myEpoch = newestEpoch
         }
 
-        applyPurgeMarkers(files, myEpoch)
+        applyPurgeMarkers(activeTransport, files, myEpoch)
 
         val dataFiles = files.filter {
             val kind = it.appProperties[SyncFileProps.KIND]
@@ -578,7 +627,7 @@ class CloudSyncManager(
         // Own files: keep the newest per (kind, shard); a crashed create may have left a duplicate.
         var keptOwn = ownFiles.groupBy { it.fileKey() }.mapValues { (_, group) ->
             val sorted = group.sortedByDescending { it.version }
-            sorted.drop(1).forEach { runCatching { transport.delete(it.id) } }
+            sorted.drop(1).forEach { runCatching { activeTransport.delete(it.id) } }
             sorted.first()
         }
         val hasPublished = dao.meta(SyncMetaKeys.HAS_PUBLISHED) == "true"
@@ -597,7 +646,7 @@ class CloudSyncManager(
         for (file in peerFiles) {
             val seen = dao.remoteFile(file.id)
             if (seen != null && seen.version == file.version) continue
-            val bytes = transport.download(file.id) ?: continue
+            val bytes = activeTransport.download(file.id) ?: continue
             val envelope = try {
                 SnapshotCodec.decode(bytes)
             } catch (error: SyncSchemaTooNewException) {
@@ -651,7 +700,7 @@ class CloudSyncManager(
             if (existing != null && engine.lastUploadedHash(file.fileKind, file.shard) == file.contentHash) continue
             // Don't create empty artifact shards; the state file always exists once we publish.
             if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
-            val uploaded = upload(existing, file, me) ?: continue
+            val uploaded = upload(activeTransport, existing, file, me) ?: continue
             putMeta(SyncMetaKeys.PARTICIPATED, "true")
             if (file.fileKind == SyncFileProps.KIND_STATE) putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
             engine.markUploaded(file)
@@ -682,7 +731,11 @@ class CloudSyncManager(
      * peer file is merged. Markers older than the current reset epoch predate a "delete cloud data" and mean
      * nothing any more.
      */
-    private suspend fun applyPurgeMarkers(files: List<RemoteFile>, resetEpoch: Long) {
+    private suspend fun applyPurgeMarkers(
+        activeTransport: SyncTransport,
+        files: List<RemoteFile>,
+        resetEpoch: Long,
+    ) {
         val markers = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE }
         if (markers.isEmpty()) return
         val engine = engine()
@@ -692,7 +745,7 @@ class CloudSyncManager(
             var scope = file.appProperties[SyncFileProps.SCOPE]?.takeIf(String::isNotEmpty)
             var epoch = file.appProperties[SyncFileProps.EPOCH]?.toLongOrNull()
             if (scope == null || epoch == null) {
-                val marker = runCatching { transport.download(file.id)?.let(SnapshotCodec::decodePurge) }.getOrNull()
+                val marker = runCatching { activeTransport.download(file.id)?.let(SnapshotCodec::decodePurge) }.getOrNull()
                     ?: continue
                 scope = marker.scope
                 epoch = marker.epoch
@@ -712,11 +765,15 @@ class CloudSyncManager(
             require(syncProfileId.isNotEmpty()) { "No account to remove." }
             mutex.withLock {
                 check(isEnabled()) { "Turn on Cloud sync to remove an account from the cloud." }
+                val activeTransport = resolveTransport()
                 // Never act on whatever account a token happens to come from.
-                val about = transport.about()
+                val about = activeTransport.about()
                 val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-                check(owner != null && owner == about.permissionId) { "Reconnect Google before removing an account." }
-                val files = transport.list()
+                val serviceName = backendOverride?.backendName ?: "Google"
+                check(owner != null && owner == about.permissionId) {
+                    "Reconnect $serviceName before removing an account."
+                }
+                val files = activeTransport.list()
                 val resetEpoch = dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() ?: 0L
                 val engine = engine()
                 // At or after every version of the scope this device knows, and after any earlier purge of it.
@@ -737,8 +794,8 @@ class CloudSyncManager(
                     (engine.purgedScopes()[syncProfileId] ?: 0L) + 1,
                     resetEpoch,
                 )
-                val markerId = transport.generateIds(1).first()
-                transport.create(
+                val markerId = activeTransport.generateIds(1).first()
+                activeTransport.create(
                     fileId = markerId,
                     name = SyncFileProps.purgeFileName(epoch, deviceId()),
                     appProperties = mapOf(
@@ -779,7 +836,8 @@ class CloudSyncManager(
             ensureInitialized()
             check(isEnabled()) { "Cloud sync is off." }
             // The Drive listing runs outside the sync lock (network); the replica's file table only under it.
-            val files = transport.list()
+            val activeTransport = resolveTransport()
+            val files = activeTransport.list()
             val known = mutex.withLock { dao.remoteFiles().associate { it.deviceId to it.deviceName } }
             CloudDataViews.deviceFiles(
                 files = files,
@@ -848,19 +906,24 @@ class CloudSyncManager(
         }
     }
 
-    private suspend fun upload(existing: RemoteFile?, file: OutgoingFile, me: String): RemoteFile? {
+    private suspend fun upload(
+        activeTransport: SyncTransport,
+        existing: RemoteFile?,
+        file: OutgoingFile,
+        me: String,
+    ): RemoteFile? {
         if (existing != null) {
-            transport.update(existing.id, file.bytes)?.let { return it }
+            activeTransport.update(existing.id, file.bytes)?.let { return it }
         }
         val pendingKey = SyncMetaKeys.PENDING_FILE_ID_PREFIX + "${file.fileKind}:${file.shard}"
-        val id = dao.meta(pendingKey) ?: transport.generateIds(1).first().also { putMeta(pendingKey, it) }
+        val id = dao.meta(pendingKey) ?: activeTransport.generateIds(1).first().also { putMeta(pendingKey, it) }
         val name = if (file.fileKind == SyncFileProps.KIND_STATE) {
             SyncFileProps.stateFileName(me)
         } else {
             SyncFileProps.artifactFileName(me, file.shard)
         }
         val created = try {
-            transport.create(
+            activeTransport.create(
                 fileId = id,
                 name = name,
                 appProperties = mapOf(
@@ -873,7 +936,7 @@ class CloudSyncManager(
                 bytes = file.bytes,
             )
         } catch (_: SyncTransportException.AlreadyExists) {
-            transport.update(id, file.bytes)
+            activeTransport.update(id, file.bytes)
         } catch (error: SyncTransportException.Server) {
             // Drive refused our pre-allocated id (e.g. fileIdNotUsable): allocate a new one next time.
             if (error.code == 400) dao.deleteMeta(pendingKey)
@@ -1061,14 +1124,33 @@ class CloudSyncManager(
         is SyncTransportException.AlreadyExists, is SyncTransportException.Server -> ERROR_PREFIX + describe(error)
     }
 
-    private fun describe(error: SyncTransportException): String = when (error) {
-        is SyncTransportException.Network -> "Couldn't reach Google. Check your connection."
-        is SyncTransportException.StorageFull -> "Your Google storage is full."
-        is SyncTransportException.Misconfigured -> "Cloud sync isn't available in this build of Yoin."
-        is SyncTransportException.Unauthorized -> "Google needs your permission again."
-        is SyncTransportException.RateLimited -> "Google asked Yoin to slow down. Trying again later."
-        is SyncTransportException.Server -> "Google Drive error (${error.code})."
-        is SyncTransportException.AlreadyExists -> "Google Drive conflict."
+    private fun describe(error: SyncTransportException): String {
+        val custom = backendOverride?.backendName
+        if (custom != null) {
+            return when (error) {
+                is SyncTransportException.Network -> "Couldn't reach $custom. Check your connection."
+                is SyncTransportException.StorageFull -> "$custom storage is full."
+                is SyncTransportException.Misconfigured -> "Sync isn't available in this build."
+                is SyncTransportException.Unauthorized -> "$custom rejected your credentials."
+                is SyncTransportException.RateLimited -> "$custom asked to slow down. Trying again later."
+                is SyncTransportException.Server ->
+                    if (error.code == 413) {
+                        "Sync file is too large for your $custom server."
+                    } else {
+                        "$custom sync error (${error.code})."
+                    }
+                is SyncTransportException.AlreadyExists -> "$custom sync conflict."
+            }
+        }
+        return when (error) {
+            is SyncTransportException.Network -> "Couldn't reach Google. Check your connection."
+            is SyncTransportException.StorageFull -> "Your Google storage is full."
+            is SyncTransportException.Misconfigured -> "Cloud sync isn't available in this build of Yoin."
+            is SyncTransportException.Unauthorized -> "Google needs your permission again."
+            is SyncTransportException.RateLimited -> "Google asked Yoin to slow down. Trying again later."
+            is SyncTransportException.Server -> "Google Drive error (${error.code})."
+            is SyncTransportException.AlreadyExists -> "Google Drive conflict."
+        }
     }
 
     private suspend fun markMisconfigured() {
@@ -1224,4 +1306,7 @@ class SyncBackendOverride(
     val transport: SyncTransport,
     val authorizer: GoogleSyncAuthorizer,
     val skipPlayServicesCheck: Boolean = true,
+    val backendName: String = "Lyra",
+    val resolveTransport: suspend (pinnedProfileId: String?) -> SyncTransport = { transport },
+    val profileIdFromToken: (String) -> String? = { null },
 )

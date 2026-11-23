@@ -27,6 +27,8 @@ class LyraSyncTransportTest {
             serverUrl = server.url("/").toString(),
             username = "51",
             password = "secret",
+            // Intentionally populated: sync transport MUST NOT send Bearer to /api/v1/sync/*.
+            adminToken = "should-not-leak-to-sync",
         )
         transport = LyraSyncTransport(authProvider = { auth })
     }
@@ -37,7 +39,7 @@ class LyraSyncTransportTest {
     }
 
     @Test
-    fun aboutListGenerateDownloadCreateUpdateDeleteRoundTrip() = runTest {
+    fun aboutListGenerateDownloadCreateUpdateDeleteRoundTripAndPassesAllAppProperties() = runTest {
         // 1. about
         server.enqueue(
             MockResponse().setBody(
@@ -52,6 +54,7 @@ class LyraSyncTransportTest {
         assertEquals("/api/v1/sync/about", aboutReq.requestUrl?.encodedPath)
         assertEquals("51", aboutReq.requestUrl?.queryParameter("u"))
         assertNotNull(aboutReq.requestUrl?.queryParameter("t"))
+        assertNull("sync routes must never send admin Bearer", aboutReq.getHeader("Authorization"))
 
         // 2. generateIds
         server.enqueue(MockResponse().setBody("""{"ids":["lyf_001","lyf_002"]}"""))
@@ -61,8 +64,9 @@ class LyraSyncTransportTest {
         assertEquals("POST", genReq.method)
         assertEquals("/api/v1/sync/files/generate-ids", genReq.requestUrl?.encodedPath)
         assertEquals("2", genReq.requestUrl?.queryParameter("count"))
+        assertNull(genReq.getHeader("Authorization"))
 
-        // 3. create
+        // 3. create (including purge scope + custom properties)
         val payload = byteArrayOf(0x1f, 0x8b.toByte(), 0x08, 0x00, 0x42)
         server.enqueue(
             MockResponse()
@@ -71,25 +75,26 @@ class LyraSyncTransportTest {
                     """
                     {
                       "id": "lyf_001",
-                      "name": "yoin-state-dev1.json.gz",
+                      "name": "yoin-purge-123-dev1.json",
                       "version": 1,
                       "modifiedTime": 1700000000000,
                       "size": 5,
-                      "appProperties": {"yoinKind": "state", "deviceId": "dev1", "schema": "1", "epoch": "0"}
+                      "appProperties": {"yoinKind": "purge", "deviceId": "dev1", "epoch": "123", "scope": "s-abc123"}
                     }
                     """.trimIndent(),
                 ),
         )
         val created = transport.create(
             fileId = "lyf_001",
-            name = "yoin-state-dev1.json.gz",
+            name = "yoin-purge-123-dev1.json",
             appProperties = mapOf(
-                SyncFileProps.KIND to SyncFileProps.KIND_STATE,
+                SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
                 SyncFileProps.DEVICE_ID to "dev1",
-                SyncFileProps.SCHEMA to "1",
-                SyncFileProps.EPOCH to "0",
+                SyncFileProps.EPOCH to "123",
+                SyncFileProps.SCOPE to "s-abc123",
+                "targetLocation" to "icloud",
             ),
-            mimeType = "application/gzip",
+            mimeType = "application/json",
             bytes = payload,
         )
         assertEquals("lyf_001", created.id)
@@ -97,8 +102,11 @@ class LyraSyncTransportTest {
         val createReq = server.takeRequest()
         assertEquals("POST", createReq.method)
         assertEquals("/api/v1/sync/files/lyf_001", createReq.requestUrl?.encodedPath)
-        assertEquals("yoin-state-dev1.json.gz", createReq.requestUrl?.queryParameter("name"))
-        assertEquals("state", createReq.requestUrl?.queryParameter(SyncFileProps.KIND))
+        assertEquals("yoin-purge-123-dev1.json", createReq.requestUrl?.queryParameter("name"))
+        assertEquals(SyncFileProps.KIND_PURGE, createReq.requestUrl?.queryParameter(SyncFileProps.KIND))
+        assertEquals("s-abc123", createReq.requestUrl?.queryParameter(SyncFileProps.SCOPE))
+        assertEquals("icloud", createReq.requestUrl?.queryParameter("targetLocation"))
+        assertNull(createReq.getHeader("Authorization"))
         assertArrayEquals(payload, createReq.body.readByteArray())
 
         // 4. list
@@ -145,6 +153,7 @@ class LyraSyncTransportTest {
         val updReq = server.takeRequest()
         assertEquals("PUT", updReq.method)
         assertEquals("application/gzip", updReq.getHeader("Content-Type")?.substringBefore(';'))
+        assertNull(updReq.getHeader("Authorization"))
 
         server.enqueue(MockResponse().setResponseCode(404))
         assertNull(transport.update("lyf_missing", payload))
@@ -161,7 +170,7 @@ class LyraSyncTransportTest {
     }
 
     @Test
-    fun mapsConflictUnauthorizedRateLimitAndStorageFull() = runTest {
+    fun mapsConflictUnauthorizedPayloadTooLargeRateLimitAuthThrottleStorageFullAndNetwork() = runTest {
         server.enqueue(MockResponse().setResponseCode(409))
         val conflict = runCatching {
             transport.create("lyf_dup", "yoin-state-d.json.gz", emptyMap(), "application/gzip", byteArrayOf(1))
@@ -172,13 +181,31 @@ class LyraSyncTransportTest {
         val unauth = runCatching { transport.list() }.exceptionOrNull()
         assertTrue(unauth is SyncTransportException.Unauthorized)
 
+        server.enqueue(MockResponse().setResponseCode(413).setBody("""{"error":"payload too large"}"""))
+        val tooLarge = runCatching { transport.list() }.exceptionOrNull() as? SyncTransportException.Server
+        assertNotNull(tooLarge)
+        assertEquals(413, tooLarge?.code)
+
         server.enqueue(MockResponse().setResponseCode(429).addHeader("Retry-After", "12"))
         val rate = runCatching { transport.list() }.exceptionOrNull() as? SyncTransportException.RateLimited
         assertNotNull(rate)
         assertEquals(12_000L, rate?.retryAfterMs)
 
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"too many failed auth attempts"}"""))
+        val authThrottle = runCatching { transport.list() }.exceptionOrNull()
+        assertTrue(authThrottle is SyncTransportException.Unauthorized)
+
         server.enqueue(MockResponse().setResponseCode(507))
         val full = runCatching { transport.list() }.exceptionOrNull()
         assertTrue(full is SyncTransportException.StorageFull)
+
+        // Network failure when server is unreachable
+        val deadTransport = LyraSyncTransport(
+            authProvider = {
+                LyraServerAuth(serverUrl = "http://127.0.0.1:1/", username = "51", password = "secret")
+            },
+        )
+        val networkErr = runCatching { deadTransport.about() }.exceptionOrNull()
+        assertTrue(networkErr is SyncTransportException.Network)
     }
 }
