@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.edition.EditionFeatures
 import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.component.SeamTopStyle
@@ -11,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 
@@ -49,11 +51,23 @@ class LandingViewModelTest {
 
     @Test
     fun should_list_one_connect_step_per_picked_service_in_catalog_order_when_services_are_picked() {
-        val steps = landingSteps(setOf(SetupService.AppleMusic, SetupService.Subsonic), hasAccount = false)
+        val steps = landingSteps(setOf(SetupService.AppleMusic, SetupService.Subsonic), hasAccount = false, lyraOnly = false)
         assertEquals(
             listOf(
                 LandingStep.Hello, LandingStep.Pick, LandingStep.About,
                 LandingStep.Subsonic, LandingStep.AppleMusic, LandingStep.Edge, LandingStep.Corners, LandingStep.Ready,
+            ),
+            steps,
+        )
+    }
+
+    @Test
+    fun should_skip_service_picker_and_offer_subsonic_step_when_lyra_only() {
+        val steps = landingSteps(emptySet(), hasAccount = false, lyraOnly = true)
+        assertEquals(
+            listOf(
+                LandingStep.Hello, LandingStep.About, LandingStep.Subsonic,
+                LandingStep.Edge, LandingStep.Corners, LandingStep.Ready,
             ),
             steps,
         )
@@ -67,6 +81,7 @@ class LandingViewModelTest {
 
     @Test
     fun should_keep_the_current_step_when_picking_rebuilds_the_list() {
+        assumeFalse(EditionFeatures.isLyraOnly)
         val vm = viewModel()
         vm.next()
         assertEquals(LandingStep.Pick, vm.state.value.step)
@@ -81,19 +96,24 @@ class LandingViewModelTest {
 
     @Test
     fun should_ask_about_spotoolfy_right_before_spotify_when_spotify_is_picked() {
-        val steps = landingSteps(setOf(SetupService.Subsonic, SetupService.Spotify), hasAccount = false)
+        val steps = landingSteps(setOf(SetupService.Subsonic, SetupService.Spotify), hasAccount = false, lyraOnly = false)
         assertEquals(steps.indexOf(LandingStep.Spotify) - 1, steps.indexOf(LandingStep.Spotoolfy))
         assertTrue(steps.indexOf(LandingStep.Subsonic) < steps.indexOf(LandingStep.Spotoolfy))
-        assertFalse(LandingStep.Spotoolfy in landingSteps(setOf(SetupService.AppleMusic), hasAccount = false))
+        assertFalse(LandingStep.Spotoolfy in landingSteps(setOf(SetupService.AppleMusic), hasAccount = false, lyraOnly = false))
     }
 
     @Test
     fun should_add_the_home_step_without_moving_when_the_first_account_appears() {
         val vm = viewModel()
-        vm.next()
-        vm.toggleService(SetupService.Subsonic)
-        vm.next()
-        vm.next()
+        if (EditionFeatures.isLyraOnly) {
+            vm.next()
+            vm.next()
+        } else {
+            vm.next()
+            vm.toggleService(SetupService.Subsonic)
+            vm.next()
+            vm.next()
+        }
         assertEquals(LandingStep.Subsonic, vm.state.value.step)
         profiles.value = listOf("p1")
         assertEquals(LandingStep.Subsonic, vm.state.value.step)

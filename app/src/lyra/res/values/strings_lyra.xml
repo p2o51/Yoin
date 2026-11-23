@@ -41,6 +41,10 @@
     <string name="settings_sync_status_offline">Couldn\'t reach Lyra</string>
     <string name="settings_sync_status_storage">Lyra server storage full</string>
     <string name="settings_sync_status_removed">Lyra backup removed</string>
+    <string name="settings_sync_google_drive">Lyra</string>
+    <string name="settings_sync_cloud_data_where">On your Lyra server</string>
+    <string name="settings_sync_import_summary">Migrate from another Yoin sync location or restore from a backup file</string>
+    <string name="settings_sync_files_lead">Stored on your own Lyra server (/api/v1/sync), grouped by music service and account.</string>
 
     <!-- Lyra Hub & Settings entry -->
     <string name="lyra_settings_section">Lyra</string>

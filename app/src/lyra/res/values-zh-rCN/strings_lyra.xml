@@ -39,6 +39,10 @@
     <string name="settings_sync_status_offline">无法连接 Lyra</string>
     <string name="settings_sync_status_storage">Lyra 服务器空间已满</string>
     <string name="settings_sync_status_removed">Lyra 备份已移除</string>
+    <string name="settings_sync_google_drive">Lyra</string>
+    <string name="settings_sync_cloud_data_where">在 Lyra 服务器中</string>
+    <string name="settings_sync_import_summary">从其他 Yoin 同步位置迁移，或从备份文件还原</string>
+    <string name="settings_sync_files_lead">存放在你自己的 Lyra 服务器（/api/v1/sync）中，按音乐平台与账号分开保存。</string>
 
     <!-- Lyra Hub & Settings entry -->
     <string name="lyra_settings_section">Lyra</string>

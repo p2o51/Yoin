@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.data.sync.CloudSyncPhase
 import com.gpo.yoin.data.sync.CloudSyncState
+import com.gpo.yoin.edition.EditionFeatures
 import com.gpo.yoin.ui.settings.service.ServiceSetupActivity
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
@@ -47,8 +48,9 @@ class CloudSyncScreenTest {
     @Test
     fun should_callBeginTurnOn_when_turnOnWithGoogleTapped() {
         val fake = showScreen(CloudSyncSamples.off)
+        val buttonLabel = if (EditionFeatures.isLyraOnly) "Turn on Lyra sync" else "Turn on with Google"
 
-        rule.onNodeWithText("Turn on with Google").performScrollTo().assertIsDisplayed().performClick()
+        rule.onNodeWithText(buttonLabel).performScrollTo().assertIsDisplayed().performClick()
         rule.waitForIdle()
 
         assertEquals(listOf("beginTurnOn"), fake.calls)
@@ -116,7 +118,8 @@ class CloudSyncScreenTest {
             }
         }
 
-        rule.onNodeWithText("Cloud sync").assertIsDisplayed()
+        val rowTitle = if (EditionFeatures.isLyraOnly) "Lyra sync" else "Cloud sync"
+        rule.onNodeWithText(rowTitle).assertIsDisplayed()
         rule.onNodeWithText("On").assertIsDisplayed()
         rule.onNodeWithText("Synced 2 min ago").assertIsDisplayed()
     }
@@ -129,8 +132,9 @@ class CloudSyncScreenTest {
             }
         }
 
+        val reconnectLabel = if (EditionFeatures.isLyraOnly) "Reconnect Lyra" else "Reconnect Google"
         rule.onNodeWithText("Paused").assertIsDisplayed()
-        rule.onNodeWithText("Reconnect Google").assertIsDisplayed()
+        rule.onNodeWithText(reconnectLabel).assertIsDisplayed()
     }
 
     @Test

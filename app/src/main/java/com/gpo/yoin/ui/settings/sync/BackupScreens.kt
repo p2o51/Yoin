@@ -76,46 +76,62 @@ internal fun SyncLocationPage(account: String?, onBack: () -> Unit, snackbarHost
         },
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(SyncGroupGap)) {
+            val lyraOnly = com.gpo.yoin.edition.EditionFeatures.isLyraOnly
             SettingsGroup(title = stringResource(R.string.settings_sync_location_section)) {
-                item(key = "drive") {
-                    LocationOption(
-                        icon = YoinSymbols.Cloud,
-                        title = stringResource(R.string.settings_sync_google_drive),
-                        meta = listOfNotNull(account?.let { MetaGroup.Plain(it) }),
-                        pill = { SyncPill(stringResource(R.string.settings_sync_location_current), SyncPillTone.Primary) },
-                        selected = true,
-                    )
-                }
-                item(key = "icloud") {
-                    LocationOption(
-                        icon = YoinSymbols.Cloud,
-                        title = stringResource(R.string.settings_sync_location_icloud),
-                        meta = listOf(
-                            MetaGroup.Plain(stringResource(R.string.settings_sync_location_cloudkit)),
-                            MetaGroup.Plain(stringResource(R.string.settings_sync_location_apple_devices)),
-                        ),
-                        pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
-                        selected = false,
-                        enabled = false,
-                        onClick = {
-                            haptics.performReject()
-                            scope.launch { snackbarHostState.showSnackbar(icloudSoon) }
-                        },
-                    )
-                }
-                item(key = "lyra") {
-                    LocationOption(
-                        icon = YoinSymbols.Storage,
-                        title = stringResource(R.string.settings_sync_location_lyra),
-                        meta = listOf(MetaGroup.Plain(stringResource(R.string.settings_sync_location_lyra_summary))),
-                        pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
-                        selected = false,
-                        enabled = false,
-                        onClick = {
-                            haptics.performReject()
-                            scope.launch { snackbarHostState.showSnackbar(lyraSoon) }
-                        },
-                    )
+                if (lyraOnly) {
+                    item(key = "lyra") {
+                        LocationOption(
+                            icon = YoinSymbols.Storage,
+                            title = stringResource(R.string.settings_sync_location_lyra),
+                            meta = listOfNotNull(
+                                account?.let { MetaGroup.Plain(it) }
+                                    ?: MetaGroup.Plain(stringResource(R.string.settings_sync_location_lyra_summary)),
+                            ),
+                            pill = { SyncPill(stringResource(R.string.settings_sync_location_current), SyncPillTone.Primary) },
+                            selected = true,
+                        )
+                    }
+                } else {
+                    item(key = "drive") {
+                        LocationOption(
+                            icon = YoinSymbols.Cloud,
+                            title = stringResource(R.string.settings_sync_google_drive),
+                            meta = listOfNotNull(account?.let { MetaGroup.Plain(it) }),
+                            pill = { SyncPill(stringResource(R.string.settings_sync_location_current), SyncPillTone.Primary) },
+                            selected = true,
+                        )
+                    }
+                    item(key = "icloud") {
+                        LocationOption(
+                            icon = YoinSymbols.Cloud,
+                            title = stringResource(R.string.settings_sync_location_icloud),
+                            meta = listOf(
+                                MetaGroup.Plain(stringResource(R.string.settings_sync_location_cloudkit)),
+                                MetaGroup.Plain(stringResource(R.string.settings_sync_location_apple_devices)),
+                            ),
+                            pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
+                            selected = false,
+                            enabled = false,
+                            onClick = {
+                                haptics.performReject()
+                                scope.launch { snackbarHostState.showSnackbar(icloudSoon) }
+                            },
+                        )
+                    }
+                    item(key = "lyra") {
+                        LocationOption(
+                            icon = YoinSymbols.Storage,
+                            title = stringResource(R.string.settings_sync_location_lyra),
+                            meta = listOf(MetaGroup.Plain(stringResource(R.string.settings_sync_location_lyra_summary))),
+                            pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
+                            selected = false,
+                            enabled = false,
+                            onClick = {
+                                haptics.performReject()
+                                scope.launch { snackbarHostState.showSnackbar(lyraSoon) }
+                            },
+                        )
+                    }
                 }
             }
             SettingsGroup(title = stringResource(R.string.settings_sync_location_steps)) {
