@@ -1,14 +1,18 @@
 package com.gpo.yoin.data.sync.adapters
 
+import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.HomeLayoutPreference
 import com.gpo.yoin.data.sync.ApplyOutcome
 import com.gpo.yoin.data.sync.SkipReason
 import com.gpo.yoin.data.sync.testing.SyncDomainFixtures
 import com.gpo.yoin.data.sync.testing.hashOf
 import com.gpo.yoin.data.sync.testing.payload
+import com.gpo.yoin.ui.home.HomeLayout
+import com.gpo.yoin.ui.home.HomeSection
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -52,5 +56,26 @@ class HomeLayoutSyncAdapterTest {
         val outcome = adapter.apply("p1", "other", remote, versionTs = 42L, expectedLocalHash = null)
 
         assertEquals(ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null), outcome)
+    }
+
+    @Test
+    fun should_carryTheTwoColumnMemory_when_aLayoutSyncsToAnotherDevice() = runTest {
+        val other = SyncDomainFixtures()
+        try {
+            // A portrait edit that split Activities | Jump Back In: remembered, not shown.
+            val layout = HomeLayout.WideDefault.moved(HomeSection.MemoryGrid, 1)
+            HomeLayoutStore(fixtures.db.homeLayoutDao()).setDocument("p1", layout.toDocument())
+            val row = adapter.readAll("p1").single()
+
+            val receiver = HomeLayoutSyncAdapter(other.db)
+            receiver.apply("p9", HomeLayoutSyncAdapter.KEY, row.projection, versionTs = 42L, expectedLocalHash = null)
+
+            val received = HomeLayoutStore(other.db.homeLayoutDao()).readDocument("p9")!!
+            assertEquals(layout.wideDocument(), received.wide)
+            assertTrue(HomeLayout.fromDocument(received).sameSectionsAs(layout))
+            assertEquals(hashOf(row.projection), hashOf(receiver.readAll("p9").single().projection))
+        } finally {
+            other.close()
+        }
     }
 }

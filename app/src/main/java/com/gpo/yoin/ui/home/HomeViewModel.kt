@@ -366,7 +366,7 @@ class HomeViewModel(
             if (next.isAnyDefault && next.retained.isEmpty()) {
                 homeLayoutStore.clearLayout(profileId)
             } else {
-                homeLayoutStore.setLayout(profileId, next.toPrefs())
+                homeLayoutStore.setDocument(profileId, next.toDocument())
             }
         }
     }
@@ -386,8 +386,8 @@ class HomeViewModel(
                     if (profileId.isNullOrBlank()) {
                         flowOf(profileId to HomeLayout.Default)
                     } else {
-                        homeLayoutStore.layoutFlow(profileId)
-                            .map { prefs -> profileId to HomeLayout.reconcile(prefs) }
+                        homeLayoutStore.documentFlow(profileId)
+                            .map { document -> profileId to HomeLayout.fromDocument(document) }
                     }
                 }
                 .collect { (profileId, layout) ->
@@ -943,7 +943,7 @@ class HomeViewModel(
 
     /** [profileId]'s layout read once; one that can't be read is the default, as [observeHomeLayout] would show. */
     private suspend fun readLayoutOrDefault(profileId: String): HomeLayout = try {
-        HomeLayout.reconcile(homeLayoutStore.readLayout(profileId))
+        HomeLayout.fromDocument(homeLayoutStore.readDocument(profileId))
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (_: Exception) {

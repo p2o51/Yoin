@@ -113,11 +113,16 @@ class HomeEditController(
         set(value) {
             if (value == twoColumnState.value) return
             twoColumnState.value = value
-            // Rotated before the first change: the untouched draft follows the new width,
-            // as entering at that width would have made it (else portrait's single column
-            // stays pinned in landscape with a third of the width empty).
-            if (draft != null && undoStack.isEmpty() && layer?.isCarrying != true) {
-                draft = (echoHold ?: latestVmLayout ?: HomeLayout.Default).forTwoColumn(value)
+            // Rotated in edit mode: the draft follows the new width. Untouched, it is what entering at
+            // that width would have made it; edited, it keeps its order, and two columns pair it from
+            // its memory (HomeLayout.widePairs) — never portrait's single column pinned in landscape.
+            val current = draft
+            if (current != null && layer?.isCarrying != true) {
+                draft = if (undoStack.isEmpty()) {
+                    (echoHold ?: latestVmLayout ?: HomeLayout.Default).forTwoColumn(value)
+                } else {
+                    current.shownAt(value)
+                }
             }
         }
     private val twoColumnState = mutableStateOf(false)
@@ -277,7 +282,8 @@ class HomeEditController(
         val current = draft ?: return false
         if (layer?.isCarrying == true || undoStack.isEmpty()) return false
         feedback.click()
-        apply(HomeEditChangeKind.Undo, current, undoStack.removeAt(undoStack.lastIndex), subject = null)
+        // A step taken at the other width comes back as this width shows it (a default as this width's).
+        apply(HomeEditChangeKind.Undo, current, undoStack.removeAt(undoStack.lastIndex).shownAt(twoColumn), subject = null)
         return true
     }
 
@@ -402,8 +408,10 @@ class HomeEditController(
     ): Boolean {
         val current = draft ?: return false
         if (!duringCarry && layer?.isCarrying == true) return false
-        val next = transform(current)
-        if (next === current) return false
+        val changed = transform(current)
+        if (changed === current) return false
+        // Two columns remember what they show; one column changes order and visibility only.
+        val next = if (twoColumn) changed.rememberingShownPairs() else changed
         haptic()
         undoStack.add(current)
         if (undoStack.size > HomeEditTokens.UndoMax) undoStack.removeAt(0)

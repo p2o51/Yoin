@@ -76,9 +76,10 @@ class HomeLayoutRowsTest {
 
     @Test
     fun should_writeNoConfig_when_rowsAtDefault() {
-        HomeLayout.Default.toPrefs().forEach { assertNull(it.id, it.config) }
+        // Activities | Jump Back In is the default's one shown pair (its two-column memory): only "span".
+        HomeLayout.Default.toPrefs().forEach { assertNull(it.id, it.config?.get("rows")) }
         val prefs = HomeLayout.Default.withRows(HomeSection.Activities, HomeRowPreset.M).toPrefs()
-        assertEquals(rowsConfig("m"), prefs.first { it.id == "activities" }.config)
+        assertEquals(rowsConfig("m")["rows"], prefs.first { it.id == "activities" }.config?.get("rows"))
     }
 
     @Test
@@ -100,11 +101,11 @@ class HomeLayoutRowsTest {
         val layout = HomeLayout.reconcile(listOf(HomeSectionPref("activities", true, rowsConfig("xxl"))))
 
         assertEquals(HomeRowPreset.L, layout.rowsOf(HomeSection.Activities))
-        assertEquals(rowsConfig("xxl"), layout.toPrefs().first { it.id == "activities" }.config)
+        assertEquals(rowsConfig("xxl")["rows"], layout.toPrefs().first { it.id == "activities" }.config?.get("rows"))
         // Choosing a preset replaces the unreadable value.
         assertEquals(
-            rowsConfig("s"),
-            layout.withRows(HomeSection.Activities, HomeRowPreset.S).toPrefs().first { it.id == "activities" }.config,
+            rowsConfig("s")["rows"],
+            layout.withRows(HomeSection.Activities, HomeRowPreset.S).toPrefs().first { it.id == "activities" }.config?.get("rows"),
         )
     }
 

@@ -105,7 +105,7 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.MadeForYou, enabled = true),
             ),
         )
-        assertEquals(layout, HomeLayout.reconcile(layout.toPrefs()))
+        assertEquals(layout, HomeLayout.fromDocument(layout.toDocument()))
     }
 
     @Test

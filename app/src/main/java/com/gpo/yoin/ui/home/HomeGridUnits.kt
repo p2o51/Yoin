@@ -180,6 +180,15 @@ internal fun homeRowUnits(left: HomeSectionState, right: HomeSectionState?): Int
     return own.coerceIn(left.section.unitRange.intersectUnits(right.section.unitRange))
 }
 
+/** Two ranges share a count: a pair of sections with them can be one row height. */
+internal fun IntRange.meetsUnits(other: IntRange): Boolean = maxOf(first, other.first) <= minOf(last, other.last)
+
+/**
+ * [left] and [right] can be the two halves of a row (owner 2026-11-23: 「左右两边高度一致」): a pair
+ * shares one unit count, at most the smaller of the two maxima, so their ranges must meet.
+ */
+internal fun homeCanPair(left: HomeSection, right: HomeSection): Boolean = left.unitRange.meetsUnits(right.unitRange)
+
 /** The range a row's handle can drag over: the section's own, or the overlap with its partner. */
 internal fun homeRowUnitRange(left: HomeSection, right: HomeSection?): IntRange =
     if (right == null) left.unitRange else left.unitRange.intersectUnits(right.unitRange)

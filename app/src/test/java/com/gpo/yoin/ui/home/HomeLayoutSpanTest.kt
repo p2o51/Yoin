@@ -96,7 +96,8 @@ class HomeLayoutSpanTest {
     @Test
     fun should_keepUnknownSpanValue_when_readByThisBuild() {
         val odd = JsonObject(mapOf("span" to JsonPrimitive("third")))
-        val layout = HomeLayout.reconcile(listOf(HomeSectionPref(a.id, true, odd)))
+        // Rediscover between it and Jump Back In: the default memory's Activities | JBI doesn't show.
+        val layout = HomeLayout.reconcile(listOf(HomeSectionPref(a.id, true, odd), HomeSectionPref(rd.id, true)))
         assertFalse(layout.sections.first().half)
         assertEquals(odd, layout.toPrefs().first().config)
     }
@@ -105,7 +106,7 @@ class HomeLayoutSpanTest {
     fun should_dropOrphanHalf_when_reconciled() {
         val half = JsonObject(mapOf("span" to JsonPrimitive("half")))
         val layout = HomeLayout.reconcile(
-            listOf(HomeSectionPref(a.id, true, half), HomeSectionPref(j.id, true), HomeSectionPref(m.id, true, half)),
+            listOf(HomeSectionPref(a.id, true, half), HomeSectionPref(m.id, true), HomeSectionPref(j.id, true, half)),
         )
         assertTrue(layout.halves().isEmpty())
     }
@@ -155,8 +156,10 @@ class HomeLayoutSpanTest {
         val layout = wide.withEnabled(j, false)
         assertFalse(a in layout.halves())
         assertFalse(j in layout.halves())
-        // Shown again it comes back full width.
-        assertEquals(HomeFeedRow.Full(j), layout.withEnabled(j, true).rows().first { j in listOf(it.first) })
+        // Still remembered: shown again, back in its slot beside Activities, the pair is back
+        // (a two-column edit forgets it: HomeLayoutWideMemoryTest).
+        assertEquals(mapOf(a to j, l to ra, yp to rd), layout.widePairs)
+        assertEquals(HomeFeedRow.Halves(a, j), layout.withEnabled(j, true).rows().first())
     }
 
     @Test
