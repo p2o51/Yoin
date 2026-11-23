@@ -44,23 +44,33 @@ final class AppleMusicNameRegionTests: XCTestCase {
     func test_should_go_by_genre_then_isrc_then_script_when_detecting_a_songs_language() {
         XCTAssertEqual(OriginalNameTarget.detect(title: "Sunny", artist: "Yorushika", genre: "J-Pop", isrc: "USXXX0000001"), .japan)
         XCTAssertEqual(OriginalNameTarget.detect(title: "Love", artist: "Someone", genre: nil, isrc: "KRA401500001"), .korea)
-        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "华语流行", isrc: nil), .mainlandChina)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "华语流行", isrc: nil), .taiwan)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "Mandopop", isrc: "CNXXX1900001"), .mainlandChina)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "Sunny Day", artist: "Jay Chou", genre: "Mandopop", isrc: "TWA011900001"), .taiwan)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "Cantopop", isrc: nil), .hongKong)
         XCTAssertEqual(OriginalNameTarget.detect(title: "夜に駆ける", artist: "YOASOBI", genre: nil, isrc: nil), .japan)
-        XCTAssertEqual(OriginalNameTarget.detect(title: "晴天", artist: "周杰伦", genre: nil, isrc: nil), .mainlandChina)
+        // Han-only names without Chinese genre/ISRC (e.g. Japanese Kanji "藤井 風") must not route to CN.
+        XCTAssertNil(OriginalNameTarget.detect(title: "晴天", artist: "周杰伦", genre: nil, isrc: nil))
+        XCTAssertNil(OriginalNameTarget.detect(title: nil, artist: "藤井 風", genre: nil, isrc: nil))
+        XCTAssertNil(OriginalNameTarget.detect(title: "我要給世界最悠長的濕吻", artist: "徐佳瑩", genre: "Mandopop", isrc: "TWA011900001"))
         XCTAssertEqual(OriginalNameTarget.detect(title: "좋은 날", artist: "IU", genre: nil, isrc: nil), .korea)
         XCTAssertNil(OriginalNameTarget.detect(title: "Bad Guy", artist: "Billie Eilish", genre: "Alternative", isrc: "USUM71900764"))
     }
 
     func test_should_name_the_storefront_and_language_when_a_genre_or_isrc_points_at_one() {
-        XCTAssertEqual(OriginalNameTarget.forGenre("Mandopop"), OriginalNameTarget(storefront: "cn", language: "zh-Hans-CN"))
+        XCTAssertEqual(OriginalNameTarget.forGenre("Mandopop"), OriginalNameTarget(storefront: "tw", language: "zh-Hant-TW"))
+        XCTAssertEqual(OriginalNameTarget.forGenre("Cantopop"), OriginalNameTarget(storefront: "hk", language: "zh-Hant-HK"))
         XCTAssertEqual(OriginalNameTarget.forGenre("K-Pop"), OriginalNameTarget(storefront: "kr", language: "ko"))
         XCTAssertEqual(OriginalNameTarget.forGenre(" Anime "), OriginalNameTarget(storefront: "jp", language: "ja"))
+        XCTAssertEqual(OriginalNameTarget.forGenre("アニメ"), OriginalNameTarget(storefront: "jp", language: "ja"))
         XCTAssertEqual(OriginalNameTarget.forGenre("Russian Pop")?.storefront, "ru")
         XCTAssertNil(OriginalNameTarget.forGenre("Pop"))
         XCTAssertNil(OriginalNameTarget.forGenre(""))
-        XCTAssertEqual(OriginalNameTarget.forIsrc("twa011900001"), .mainlandChina)
-        XCTAssertEqual(OriginalNameTarget.forIsrc("HKA0X1900001"), .mainlandChina)
-        XCTAssertNil(OriginalNameTarget.forIsrc("GBUM71900001"))
+        XCTAssertEqual(OriginalNameTarget.forIsrc("twa011900001"), .taiwan)
+        XCTAssertEqual(OriginalNameTarget.forIsrc("HKA0X1900001"), .hongKong)
+        XCTAssertEqual(OriginalNameTarget.forIsrc("CNA011900001"), .mainlandChina)
+        XCTAssertEqual(OriginalNameTarget.forIsrc("GBUM71900001"), .unitedStates)
+        XCTAssertNil(OriginalNameTarget.forIsrc("XX0001900001"))
         XCTAssertNil(OriginalNameTarget.forIsrc(nil))
     }
 
@@ -78,6 +88,14 @@ final class AppleMusicNameRegionTests: XCTestCase {
         XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .japan, shown: "Sunny", resolved: "Café"))
         // A Chinese name has Han characters; kana alone is not one.
         XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .mainlandChina, shown: "x", resolved: "かな"))
+        // Already-Han text (Japanese Kanji or Traditional Chinese) is never simplified in Original mode.
+        XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .mainlandChina, shown: "藤井 風", resolved: "藤井风"))
+        XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .mainlandChina, shown: "張懸", resolved: "张悬"))
+        XCTAssertTrue(OriginalNameTarget.accepts(.original, target: .taiwan, shown: "Rainie Yang", resolved: "楊丞琳"))
+        // K-Pop artist names keep international/shown names while Korean titles still restore.
+        XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .korea, shown: "NewJeans", resolved: "뉴진스", isArtist: true))
+        XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .korea, shown: "ROSÉ", resolved: "로제", isArtist: true))
+        XCTAssertTrue(OriginalNameTarget.accepts(.original, target: .korea, shown: "Good Day", resolved: "좋은 날", isArtist: false))
         // The same name, or none, is no answer.
         XCTAssertFalse(OriginalNameTarget.accepts(.original, target: .japan, shown: "晴る", resolved: " 晴る "))
         XCTAssertFalse(OriginalNameTarget.accepts(.japan, target: .japan, shown: "Sunny", resolved: "  "))
@@ -237,10 +255,142 @@ final class AppleMusicNameRegionTests: XCTestCase {
     }
 
     func test_should_read_android_wording_for_every_region() {
-        XCTAssertEqual(AppleMusicNameRegion.allCases.map(ServiceSetupView.title), [
-            loc("As Apple Music shows them"), loc("In their original language"),
-            loc("As China mainland names them"), loc("As Japan names them"),
-        ])
-        XCTAssertEqual(AppleMusicNameRegion.allCases.map(\.key), ["off", "original", "cn", "jp"])
+        XCTAssertEqual(ServiceSetupView.title(.off), loc("As Apple Music shows them"))
+        XCTAssertEqual(ServiceSetupView.title(.original), loc("In their original language"))
+        XCTAssertEqual(ServiceSetupView.title(.japan), loc("From a specific region"))
+        XCTAssertEqual(AppleMusicNameRegion.off.key, "off")
+        XCTAssertEqual(AppleMusicNameRegion.original.key, "original")
+        XCTAssertEqual(AppleMusicNameRegion.mainlandChina.key, "cn")
+        XCTAssertEqual(AppleMusicNameRegion.japan.key, "jp")
+        XCTAssertEqual(AppleMusicNameRegion.from(key: "tw"), .storefront(.tw))
+        XCTAssertEqual(AppleMusicStorefrontOption.displayName(for: "cn", locale: Locale(identifier: "en_US")), "China mainland")
+        XCTAssertEqual(AppleMusicStorefrontOption.displayName(for: "cn", locale: Locale(identifier: "zh_CN")), "中国大陆")
+    }
+
+    func test_should_recover_english_names_for_katakana_or_translated_western_songs_when_original() async {
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "Bad Guy", artist: "ビリー・アイリッシュ", genre: "Alternative", isrc: "USUM71900764"),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "ミッドナイツ", artist: "テイラー・スウィフト", genre: "Pop", isrc: nil),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "红", artist: "泰勒·斯威夫特", genre: "Pop", isrc: "USCJY1231001"),
+            .unitedStates,
+        )
+        XCTAssertEqual(
+            OriginalNameTarget.detect(title: "晴る", artist: "ヨルシカ", genre: "J-Pop", isrc: "JPPO02400001"),
+            .japan,
+        )
+        XCTAssertTrue(
+            OriginalNameTarget.accepts(.original, target: .unitedStates, shown: "ビリー・アイリッシュ", resolved: "Billie Eilish"),
+        )
+        XCTAssertFalse(
+            OriginalNameTarget.accepts(.original, target: .unitedStates, shown: "Bad Guy", resolved: "bad guy"),
+        )
+
+        answers = { _ in ["1": .init(title: "bad guy", artist: "Billie Eilish", album: "WHEN WE ALL FALL ASLEEP")] }
+        let songs = [
+            song("1", "Bad Guy", "ビリー・アイリッシュ", genre: "Alternative", isrc: "USUM71900764"),
+            song("2", "晴る", "ヨルシカ", genre: "J-Pop", isrc: "JPPO02400001"),
+        ]
+
+        let renamed = await resolver().songs(.original, accountStorefront: "jp", songs)
+
+        XCTAssertEqual(reads, [Read(storefront: "us", kind: "songs", ids: ["1"], language: "en-US")])
+        XCTAssertEqual(renamed[0].title, "Bad Guy")
+        XCTAssertEqual(renamed[0].artist, "Billie Eilish")
+        XCTAssertEqual(renamed[1], songs[1])
+    }
+
+    func test_should_rename_artists_including_katakana_western_artists_and_library_catalog_ids() async {
+        answers = { _ in ["159260351": .init(title: "Taylor Swift", artist: nil, album: nil)] }
+        let artists = [
+            AMArtist(resourceId: "r.1", isLibrary: true, catalogId: "159260351", name: "テイラー・スウィフト", artwork: nil, genre: "Pop"),
+            AMArtist(resourceId: "12345", isLibrary: false, catalogId: "12345", name: "ヨルシカ", artwork: nil, genre: "J-Pop"),
+        ]
+
+        let renamed = await resolver().artists(.original, accountStorefront: "jp", artists)
+
+        XCTAssertEqual(reads, [Read(storefront: "us", kind: "artists", ids: ["159260351"], language: "en-US")])
+        XCTAssertEqual(renamed[0].name, "Taylor Swift")
+        XCTAssertEqual(renamed[1].name, "ヨルシカ")
+    }
+
+    func test_should_recover_single_word_katakana_and_protect_jp_tw_kpop_and_album_header_consistency() async {
+        answers = { read in
+            switch read.kind {
+            case "artists":
+                return [
+                    "101": .init(title: "Muse", artist: nil, album: nil),
+                    "102": .init(title: "Björk", artist: nil, album: nil),
+                ]
+            case "albums":
+                return [:]
+            default:
+                return ["301": .init(title: "Time Is Running Out", artist: "Muse", album: "Absolution")]
+            }
+        }
+        let artists = [
+            AMArtist(resourceId: "101", isLibrary: false, catalogId: "101", name: "ミューズ", artwork: nil, genre: "Alternative"),
+            AMArtist(resourceId: "102", isLibrary: false, catalogId: "102", name: "ビョーク", artwork: nil, genre: "Electronic"),
+            AMArtist(resourceId: "103", isLibrary: false, catalogId: "103", name: "藤井 風", artwork: nil, genre: nil),
+            AMArtist(resourceId: "104", isLibrary: false, catalogId: "104", name: "張懸", artwork: nil, genre: "Mandopop"),
+            AMArtist(resourceId: "105", isLibrary: false, catalogId: "105", name: "NewJeans", artwork: nil, genre: "K-Pop"),
+            AMArtist(resourceId: "106", isLibrary: false, catalogId: "106", name: "ヨルシカ", artwork: nil, genre: "アニメ"),
+        ]
+        let renamedArtists = await resolver().artists(.original, accountStorefront: "jp", artists)
+        XCTAssertEqual(renamedArtists.map(\.name), ["Muse", "Björk", "藤井 風", "張懸", "NewJeans", "ヨルシカ"])
+
+        let album = AMAlbum(
+            resourceId: "201", isLibrary: false, catalogId: "201", title: "Absolution", artist: "ミューズ",
+            artistId: nil, artwork: nil, releaseDate: nil, dateAdded: nil, trackCount: 1, isSingle: false,
+            isCompilation: false, genre: "Alternative",
+            tracks: [song("301", "Time Is Running Out", "ミューズ", genre: "Alternative", isrc: "GBAHT0300001")]
+        )
+        let renamedAlbum = await resolver().album(.original, accountStorefront: "jp", album)
+        XCTAssertEqual(renamedAlbum.artist, "Muse")
+        XCTAssertEqual(renamedAlbum.tracks.map(\.artist), ["Muse"])
+    }
+
+    func test_should_notCrash_when_twoMissedAlbumsShareSameArtistId() async {
+        let res = AppleMusicNameResolver(
+            catalog: { storefront, kind, ids, _ in
+                if storefront == "tw" && kind == "artists" {
+                    return Dictionary(uniqueKeysWithValues: ids.map { ($0, .init(title: "王菲", artist: nil, album: nil)) })
+                }
+                return [:]
+            },
+            byIsrc: { _, _, _ in [:] },
+            catalogResources: { storefront, kind, query in
+                if storefront == "jp" && kind == "albums" {
+                    return [
+                        .init(id: "8001", names: .init(title: "フェイ・ウォン 1", artist: "フェイ・ウォン", album: nil),
+                              genre: "マンドポップ", artistIds: ["99001"], nestedTrackIsrcs: ["TW0019900001"], nestedTrackGenres: ["マンドポップ"], nestedTrackNames: ["紅豆"]),
+                        .init(id: "8002", names: .init(title: "フェイ・ウォン 2", artist: "フェイ・ウォン", album: nil),
+                              genre: "マンドポップ", artistIds: ["99001"], nestedTrackIsrcs: ["TW0019900002"], nestedTrackGenres: ["マンドポップ"], nestedTrackNames: ["悶"]),
+                    ]
+                }
+                if storefront == "tw" && kind == "artists" {
+                    return [
+                        .init(id: "99001", names: .init(title: "王菲", artist: nil, album: nil),
+                              genre: "Mandopop", artistIds: [], nestedTrackIsrcs: ["TW0019900001"], nestedTrackGenres: ["Mandopop"], nestedTrackNames: ["紅豆"]),
+                    ]
+                }
+                return []
+            }
+        )
+        let albums = [
+            AMAlbum(resourceId: "8001", isLibrary: false, catalogId: "8001", title: "Faye 1", artist: "フェイ・ウォン",
+                    artistId: nil, artwork: nil, releaseDate: nil, dateAdded: nil, trackCount: 1, isSingle: false,
+                    isCompilation: false, genre: "マンドポップ", tracks: []),
+            AMAlbum(resourceId: "8002", isLibrary: false, catalogId: "8002", title: "Faye 2", artist: "フェイ・ウォン",
+                    artistId: nil, artwork: nil, releaseDate: nil, dateAdded: nil, trackCount: 1, isSingle: false,
+                    isCompilation: false, genre: "マンドポップ", tracks: []),
+        ]
+        let renamed = await res.albums(.original, accountStorefront: "jp", albums)
+        XCTAssertEqual(renamed.map(\.artist), ["王菲", "王菲"])
     }
 }

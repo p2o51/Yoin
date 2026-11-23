@@ -228,6 +228,8 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
     <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
+    <string name="home_tip_apple_music_names_title">Apple Music 歌曲名</string>
+    <string name="home_tip_apple_music_names">在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区</string>
     <string name="home_tip_album_stickies_title">专辑笔记</string>
     <string name="home_tip_album_stickies">轻点专辑剪贴簿的空白处，可以给整张专辑贴上多张笔记</string>
     <string name="home_tip_mentioned_in_title">被提及</string>

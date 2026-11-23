@@ -208,15 +208,16 @@ class SettingsStrings {
       _zh ? '用你所在地区商店的名字' : 'Names from your own storefront'; // settings_apple_names_off_summary
   String get appleNamesOriginal => _zh ? '按歌曲原地区' : 'In their original language'; // settings_apple_names_original
   String get appleNamesOriginalSummary => _zh
-      ? '日语歌显示日文原名，韩语歌显示韩文原名'
-      : 'A Japanese song keeps its Japanese name, a Korean one its Korean name'; // settings_apple_names_original_summary
-  String get appleNamesCn => _zh ? '按中国大陆' : 'As China mainland names them'; // settings_apple_names_cn
-  String get appleNamesCnSummary => _zh
-      ? '用 Apple Music 中国大陆商店的名字'
-      : "Names from Apple Music's China mainland storefront"; // settings_apple_names_cn_summary
-  String get appleNamesJp => _zh ? '按日本' : 'As Japan names them'; // settings_apple_names_jp
-  String get appleNamesJpSummary =>
-      _zh ? '用 Apple Music 日本商店的名字' : "Names from Apple Music's Japan storefront"; // settings_apple_names_jp_summary
+      ? '英文歌显示英文，日语歌显示日文，韩语歌显示韩文'
+      : 'Each song keeps the name in its own language'; // settings_apple_names_original_summary
+  bool get isZh => _zh;
+  String get appleNamesRegion => _zh ? '按指定地区' : 'From a specific region'; // settings_apple_names_region
+  String get appleNamesRegionSummary =>
+      _zh ? '选择一个 Apple Music 商店地区' : 'Choose an Apple Music storefront'; // settings_apple_names_region_summary
+  String appleNamesRegionSelected(String regionName) => _zh
+      ? '用 Apple Music $regionName商店的名字'
+      : "Names from Apple Music's $regionName storefront"; // settings_apple_names_region_selected
+  String get appleNamesPickerTitle => _zh ? '选择商店地区' : 'Choose a region'; // settings_apple_names_picker_title
   String get appleStatusNeedService =>
       _zh ? '将你的 Apple Music 账号连接至 Yoin。' : 'Connect your Apple Music account to Yoin.'; // settings_apple_status_need_service
   String get appleStatusAuthorize =>

@@ -46,6 +46,7 @@ internal enum class HomeBubbleTip(
     private val symbol: () -> ImageVector,
     private val minSdk: Int = 0,
 ) {
+    AppleMusicSongNames(R.string.home_tip_apple_music_names_title, R.string.home_tip_apple_music_names, day(2026, 11, 23), { YoinSymbols.Translate }),
     NoteMentions(R.string.home_tip_note_mentions_title, R.string.home_tip_note_mentions, day(2026, 11, 23), { YoinSymbols.At }),
     AlbumStickies(R.string.home_tip_album_stickies_title, R.string.home_tip_album_stickies, day(2026, 11, 23), { YoinSymbols.Note }),
     MentionedIn(R.string.home_tip_mentioned_in_title, R.string.home_tip_mentioned_in, day(2026, 11, 23), { YoinSymbols.Link }),
