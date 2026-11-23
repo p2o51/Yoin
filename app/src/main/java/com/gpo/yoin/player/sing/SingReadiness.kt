@@ -1,5 +1,7 @@
 package com.gpo.yoin.player.sing
 
+import com.gpo.yoin.player.sing.dsp.LiveVocalSeparator
+
 /**
  * When live on-device Sing is ready, and where to separate so it gets there soonest.
  *
@@ -76,6 +78,32 @@ object SingReadiness {
         elapsedMs >= timeoutMs -> Handover.Timeout
         else -> null
     }
+
+    /**
+     * Where separating for a place at source [frame] must start: the start of its
+     * [SingVocalTrack.BLOCK_FRAMES] readiness block. A block counts as in only once every frame of it
+     * is, so V must be final from there — 93 ms before [frame] at most at 44.1 kHz, but 512 ms at
+     * 8 kHz, which can reach into the chunk before the one under [frame].
+     */
+    fun planFrame(frame: Long): Long =
+        frame.coerceAtLeast(0L) / SingVocalTrack.BLOCK_FRAMES * SingVocalTrack.BLOCK_FRAMES
+
+    /**
+     * The chunk to run next for a playhead that isn't moving ahead of V — paused, or with V already
+     * there: the earliest chunk the first block still missing from the playhead's own block on
+     * depends on (so the Ready span fills in first, whatever the block size), forwards; with V in to
+     * the song's end from there, the earlier chunks. −1 when every chunk has run.
+     */
+    fun chunkFromPlayhead(separator: LiveVocalSeparator, track: SingVocalTrack, positionMs: Long): Int {
+        val playFrame = positionMs.coerceAtLeast(0L) * track.sampleRate / 1000L
+        val from = planFrame(playFrame)
+        val gap = track.readyEnd(from, track.frames.toLong())
+        return separator.nextChunkFrom(if (gap == Long.MAX_VALUE) playFrame else planFrame(gap))
+    }
+
+    /** The chunk to run next for V from [targetMs] on (a playing listener's planned start). */
+    fun chunkForTarget(separator: LiveVocalSeparator, track: SingVocalTrack, targetMs: Long): Int =
+        separator.nextChunkFrom(planFrame(targetMs.coerceAtLeast(0L) * track.sampleRate / 1000L))
 
     /** Whether V in [track] covers [READY_AHEAD_MS] (or to the song's end) from [positionMs]. */
     fun isReadyAt(track: SingVocalTrack, positionMs: Long): Boolean {

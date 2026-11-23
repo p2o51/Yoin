@@ -103,34 +103,60 @@ class LiveVocalSeparator(
      * nearest first. −1 when every chunk has run.
      */
     fun nextChunk(priorityFrame: Int): Int {
-        val plan = plan ?: return -1
-        val first = firstChunkFor(priorityFrame)
+        if (plan == null) return -1
+        // V at a core sample needs frames k−1..k+2 of its hop block k, and the upsampler reaches a few
+        // core samples further: three frames back covers both.
+        return nextChunkFromChunk(firstChunkCovering((priorityFrame - 3).coerceIn(0, totalFrames - 1)))
+    }
+
+    /**
+     * [nextChunk] for V final from source frame [sourceFrame] on, exactly: the first chunk not yet run
+     * from the earliest one V at [sourceFrame] depends on (through the upsampler's and the iSTFT's
+     * reach), forwards, then the earlier ones. −1 when every chunk has run.
+     */
+    fun nextChunkFrom(sourceFrame: Long): Int {
+        if (plan == null) return -1
+        return nextChunkFromChunk(firstChunkFor(sourceFrame))
+    }
+
+    private fun nextChunkFromChunk(first: Int): Int {
+        val plan = checkNotNull(plan)
         for (i in first until plan.size) if (!chunkDone[i]) return i
         for (i in first - 1 downTo 0) if (!chunkDone[i]) return i
         return -1
     }
 
-    /** The earliest chunk V at STFT frame [priorityFrame] depends on (see [nextChunk]). */
-    private fun firstChunkFor(priorityFrame: Int): Int {
+    /**
+     * The earliest chunk V at source frame [sourceFrame] depends on: the upsampling filter for that
+     * frame reads core samples from j on; core sample j lies in hop block k = j / [HOP], final once
+     * frames k−1..k+2 are inverted; frame k−1 needs every chunk over it, the earliest first.
+     */
+    private fun firstChunkFor(sourceFrame: Long): Int {
+        val m = sourceFrame.coerceIn(0L, maxOf(0L, frames - 1L))
+        val coreFirst = maxOf(0L, ceilDiv(m * up.down - up.reach, up.up.toLong()))
+        val hopBlock = minOf(coreFirst / HOP, (hopBlocks - 1).toLong()).toInt()
+        return firstChunkCovering((hopBlock - 1).coerceIn(0, totalFrames - 1))
+    }
+
+    /** The first chunk that covers STFT frame [frame] (chunks covering it run from there on). */
+    private fun firstChunkCovering(frame: Int): Int {
         val plan = checkNotNull(plan)
-        // V at a core sample needs frames k−1..k+2 of its hop block k, and the upsampler reaches a few
-        // core samples further: three frames back covers both.
-        val needed = (priorityFrame - 3).coerceIn(0, totalFrames - 1)
         for (i in 0 until plan.size) {
-            if (plan.starts[i] + plan.validFrames(i) > needed) return i
+            if (plan.starts[i] + plan.validFrames(i) > frame) return i
         }
         return plan.size - 1
     }
 
     /**
      * Where V would be final from source frame [sourceFrame] on — a source frame, or [Long.MAX_VALUE]
-     * when to the song's end — once the next [chunks] chunks [nextChunk] picks for that place have run
-     * (forwards from the first chunk under it; chunks already run come free). Conservative by the
-     * iSTFT's and the upsampler's reach. For planning how far ahead of the playhead to start.
+     * when to the song's end — once the next [chunks] chunks [nextChunkFrom] picks for that place have
+     * run (forwards from the earliest chunk V there depends on; chunks already run come free).
+     * Conservative by the iSTFT's and the upsampler's reach. For planning how far ahead of the
+     * playhead to start.
      */
     fun finalEndAfter(sourceFrame: Long, chunks: Int): Long {
         val plan = plan ?: return Long.MAX_VALUE
-        var i = firstChunkFor(frameAtSource(sourceFrame))
+        var i = firstChunkFor(sourceFrame)
         var left = chunks
         while (i < plan.size) {
             if (!chunkDone[i]) {
@@ -280,6 +306,8 @@ class LiveVocalSeparator(
 
         /** Source frames handed to the sink at a time. */
         private const val EMIT_BLOCK = 65_536
+
+        private fun ceilDiv(a: Long, b: Long): Long = -Math.floorDiv(-a, b)
     }
 }
 

@@ -329,10 +329,13 @@ class OnDeviceSingStreamProvider(
             val playhead = playheadMs(request)
             val playFrame = playhead.positionMs * rate / 1000
             val seekGeneration = seeks[request.key] ?: 0
-            // Where V should start: the playhead itself when it's paused or V is there (the forward
-            // sweep then extends it), else where the playhead will be when the chunks are through.
+            // Where V should start: from the playhead's own readiness block when it's paused or V is
+            // there (filling what's missing from there on, then on to the end), else where the playhead
+            // will be when the chunks are through.
             var why: String? = null
-            val fromMs = if (!playhead.playing || track.isCovered(playFrame, playFrame + 1)) {
+            val following = !playhead.playing || track.isCovered(playFrame, playFrame + 1)
+            val fromMs = if (following) {
+                if (target != null || run == 0) why = if (playhead.playing) "V at the playhead" else "paused, from its block"
                 target = null
                 playhead.positionMs
             } else {
@@ -354,7 +357,11 @@ class OnDeviceSingStreamProvider(
                     Target(playhead.positionMs + lead.leadMs, seekGeneration).also { target = it }.positionMs
                 }
             }
-            val chunk = separator.nextChunk(separator.frameAtSource(fromMs * rate / 1000))
+            val chunk = if (following) {
+                SingReadiness.chunkFromPlayhead(separator, track, fromMs)
+            } else {
+                SingReadiness.chunkForTarget(separator, track, fromMs)
+            }
             if (chunk < 0) break
             if (why != null || (chunk != lastChunk + 1 && chunk != lastChunk - 1)) {
                 Log.d(
@@ -407,7 +414,7 @@ class OnDeviceSingStreamProvider(
      */
     private fun coverEndMs(separator: LiveVocalSeparator, track: SingVocalTrack, playheadMs: Long, startMs: Long, chunks: Int): Long {
         val rate = track.sampleRate
-        val end = separator.finalEndAfter((playheadMs + startMs) * rate / 1000, chunks)
+        val end = separator.finalEndAfter(SingReadiness.planFrame((playheadMs + startMs) * rate / 1000), chunks)
         if (end >= track.frames) return Long.MAX_VALUE / 4
         val blocks = end / SingVocalTrack.BLOCK_FRAMES * SingVocalTrack.BLOCK_FRAMES
         return blocks * 1000 / rate - playheadMs
