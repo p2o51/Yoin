@@ -469,4 +469,67 @@ class AppleMusicNameResolverTest {
         assertEquals("蔡健雅", renamed[1].artist)
         assertEquals("我要給世界最悠長的濕吻", renamed[1].name)
     }
+
+    @Test
+    fun should_reclassifyMainlandMandopopByCnIsrc_while_keepingTaiwanTraditional_and_fixingHiraganaTypo() = runTest {
+        val queries = mutableListOf<Pair<String, Map<String, String>>>()
+        answers = { read ->
+            val key = "${read.segments[2]}/${read.segments[3]}"
+            queries += key to read.query
+            when (key) {
+                "tw/artists" -> """{"data":[
+                    {"id":"1546181214","type":"artists","attributes":{"name":"單依純"},
+                     "views":{"top-songs":{"data":[{"id":"s1","attributes":{"name":"永不失联的爱","isrc":"CNA022000001"}}]}}
+                    },
+                    {"id":"387317532","type":"artists","attributes":{"name":"徐佳瑩"},
+                     "views":{"top-songs":{"data":[{"id":"s2","attributes":{"name":"身騎白馬","isrc":"TWB430900001"}}]}}
+                    }
+                ]}"""
+                "cn/artists" -> """{"data":[
+                    {"id":"1546181214","type":"artists","attributes":{"name":"单依纯"}}
+                ]}"""
+                "us/albums" -> """{"data":[
+                    {"id":"1730001","type":"albums","attributes":{"name":"Lives Outgrown","artistName":"Beth Gibbons"},
+                     "relationships":{"tracks":{"data":[{"id":"t1","attributes":{"name":"Tell Me Who You Are Today","isrc":"GBCEL2400001"}}]}}
+                    }
+                ]}"""
+                "us/artists" -> """{"data":[
+                    {"id":"540328","type":"artists","attributes":{"name":"Björk"},
+                     "views":{"top-songs":{"data":[{"id":"s3","attributes":{"name":"Army of Me","isrc":"GBBKS9500001"}}]}}
+                    }
+                ]}"""
+                else -> """{"data":[]}"""
+            }
+        }
+
+        // 1. Mainland Mandopop artist (CN ISRC) gets Simplified Chinese; Taiwan (TW ISRC) stays Traditional
+        val shan = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.shan"), "シャン・イーチュン", null, null)
+        val lala = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.lala"), "ララ・スー", null, null)
+        val bjork = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.bjork"), "ビョーク", null, null)
+        val renamedArtists = resolver.artists(AppleMusicNameRegion.Original, "jp", listOf(shan, lala, bjork)) {
+            when (it.id.rawId) {
+                "library:r.shan" -> AppleMusicNameResolver.ArtistHint("1546181214", "マンドポップ")
+                "library:r.lala" -> AppleMusicNameResolver.ArtistHint("387317532", "マンドポップ")
+                else -> AppleMusicNameResolver.ArtistHint("540328", "Electronic")
+            }
+        }
+        assertEquals("单依纯", renamedArtists[0].name)
+        assertEquals("徐佳瑩", renamedArtists[1].name)
+        assertEquals("Björk", renamedArtists[2].name)
+
+        // 2. Hiragana typo in Katakana artist ("べス・ギボンズ") resolves to Beth Gibbons;
+        //    delisted album ("Utopia | ビョーク") whose ID 404s on both us & jp still gets cached Björk!
+        val bethAlbum = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1730001"), "Lives Outgrown", "べス・ギボンズ", null, null, 1, null, null, "Alternative")
+        val utopia = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "9999999"), "Utopia", "ビョーク", null, null, 1, null, null, "Electronic")
+        val renamedAlbums = resolver.albums(AppleMusicNameRegion.Original, "jp", listOf(bethAlbum, utopia))
+        assertEquals("Beth Gibbons", renamedAlbums[0].artist)
+        assertEquals("Björk", renamedAlbums[1].artist)
+
+        // 3. Fixed storefront (US) missed-album fallback uses include=artists ONLY (no tracks/ISRC storm)
+        queries.clear()
+        val missedUs = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "8888888"), "Some JP Album", "オアシス", null, null, 1, null, null, "Rock")
+        resolver.albums(AppleMusicNameRegion.Storefront("us", "en-US"), "jp", listOf(missedUs))
+        val jpFallback = queries.firstOrNull { it.first == "jp/albums" }
+        assertEquals("artists", jpFallback?.second?.get("include"))
+    }
 }

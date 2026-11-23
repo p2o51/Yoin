@@ -255,6 +255,17 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
             return looksLikeKatakanaTransliteration("${title.orEmpty()} ${artist.orEmpty()}")
         }
 
+        /**
+         * True when [detect] routed to [Taiwan] solely via a generic Mandopop genre without an explicit
+         * `CN`/`TW`/`HK` ISRC — the resolver inspects nested tracks/top-songs ISRCs so Mainland China
+         * artists/albums (`CN` ISRCs, e.g. 单依纯, 新裤子, 陈粒) stay Simplified Chinese while Taiwan acts
+         * stay Traditional Chinese.
+         */
+        fun isMandopopGeneric(genre: String?, isrc: String?): Boolean {
+            if (forIsrc(isrc)?.let(::isChinese) == true) return false
+            return forGenre(genre) == Taiwan
+        }
+
         fun hasJapaneseScript(text: String): Boolean = text.any(::isHiragana) || hasHan(text)
 
         fun isChinese(target: OriginalNameTarget) =
@@ -278,8 +289,20 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
         private fun isHangul(c: Char) = c.code in 0xAC00..0xD7AF || c.code in 0x1100..0x11FF || c.code in 0x3130..0x318F
 
         private fun looksLikeKatakanaTransliteration(text: String): Boolean {
-            if (text.any(::isHiragana) || hasHan(text) || text.any(::isHangul)) return false
-            return text.any(::isKatakana)
+            if (hasHan(text) || text.any(::isHangul)) return false
+            var katakana = 0
+            var hiragana = 0
+            for (c in text) {
+                when {
+                    isKatakana(c) -> katakana++
+                    isHiragana(c) -> hiragana++
+                }
+            }
+            if (katakana == 0) return false
+            if (hiragana == 0) return true
+            // Apple Music JP occasionally spells a Western Katakana name with a single Hiragana typo
+            // alongside a Katakana middle dot (e.g. "べス・ギボンズ" for Beth Gibbons, using Hiragana べ).
+            return hiragana == 1 && katakana >= 2 && text.contains('・')
         }
 
         private fun hasHan(text: String): Boolean = text.codePoints().anyMatch {

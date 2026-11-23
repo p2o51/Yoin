@@ -342,6 +342,12 @@ final class OriginalNameTarget {
     return _looksLikeKatakanaTransliteration('${title ?? ''} ${artist ?? ''}');
   }
 
+  static bool isMandopopGeneric({String? genre, String? isrc}) {
+    final byIsrc = forIsrc(isrc);
+    if (byIsrc != null && _isChinese(byIsrc)) return false;
+    return forGenre(genre) == taiwan;
+  }
+
   static bool hasJapaneseScript(String text) => text.runes.any(_isHiragana) || text.runes.any(_isHan);
 
   static bool isChinese(OriginalNameTarget target) => _isChinese(target);
@@ -368,8 +374,19 @@ final class OriginalNameTarget {
   static bool _isKana(int c) => (c >= 0x3040 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF);
 
   static bool _looksLikeKatakanaTransliteration(String text) {
-    if (text.runes.any(_isHiragana) || text.runes.any(_isHan) || text.runes.any(_isHangul)) return false;
-    return text.runes.any(_isKatakana);
+    if (text.runes.any(_isHan) || text.runes.any(_isHangul)) return false;
+    var katakana = 0;
+    var hiragana = 0;
+    for (final c in text.runes) {
+      if (_isKatakana(c)) {
+        katakana++;
+      } else if (_isHiragana(c)) {
+        hiragana++;
+      }
+    }
+    if (katakana == 0) return false;
+    if (hiragana == 0) return true;
+    return hiragana == 1 && katakana >= 2 && text.contains('・');
   }
 
   static bool _isLatinLetter(int c) {

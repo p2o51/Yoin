@@ -1,15 +1,5 @@
 /// Renames songs, albums, and artists after another storefront's names, as an
 /// account's [AppleMusicNameRegion] asks (Android AppleMusicNameResolver.kt).
-///
-/// Items are grouped by the storefront they ask ([OriginalNameTarget.forRegion]);
-/// each group is one request per batch of catalog ids (`GET
-/// /v1/catalog/{storefront}/songs?ids=…&l=…`). Songs absent in the target
-/// storefront fall back to ISRC lookup; regional-edition albums absent in the
-/// target storefront fall back to their global catalog artist ID (and track
-/// ISRC) read from the account's storefront. Speculative pure-Katakana lookups
-/// in [AppleMusicNameRegion.original] verify track/top-song ISRCs so native
-/// Japanese Katakana acts (ヨルシカ, サカナクション, ササノマリイ) are never
-/// romanized.
 library;
 
 import 'dart:async';
@@ -37,11 +27,20 @@ final class AppleMusicNames {
 }
 
 final class _SourceAlbumFallback {
-  const _SourceAlbumFallback({this.artistId, this.firstTrackIsrc, required this.hasJapaneseScript, this.genre});
+  const _SourceAlbumFallback({
+    this.artistId,
+    this.firstTrackIsrc,
+    this.preferredChineseTarget,
+    required this.hasJapaneseScript,
+    this.genre,
+    required this.tracksInspected,
+  });
   final String? artistId;
   final String? firstTrackIsrc;
+  final OriginalNameTarget? preferredChineseTarget;
   final bool hasJapaneseScript;
   final String? genre;
+  final bool tracksInspected;
 }
 
 final class AppleMusicNameResolver {
@@ -57,10 +56,16 @@ final class AppleMusicNameResolver {
   static const cacheSize = 4000;
 
   /// Bounded parallelism for multi-batch region lookups.
-  static const maxConcurrentBatches = 6;
+  static const maxConcurrentBatches = 4;
 
-  final _cache = <String, AppleMusicNames?>{}; // insertion order = least recently used first
+  static const _inspectAlbumsBatch = 15;
+  static const _inspectArtistsBatch = 10;
+  static const _artistsOnlyAlbumsBatch = 50;
+  static const _isrcTimeout = Duration(seconds: 10);
+
+  final _cache = <String, AppleMusicNames?>{};
   final _sourceAlbumCache = <String, _SourceAlbumFallback?>{};
+  final _artistNameCache = <String, String>{};
 
   Future<List<Track>> tracks(
     AppleMusicNameRegion region,
@@ -90,16 +95,21 @@ final class AppleMusicNameResolver {
       byTrack[i] = r;
     }
     if (requests.isEmpty) return tracks;
-    final names = await _resolve(_Kind.songs, requests);
+    final resolved = await _resolve(_Kind.songs, requests);
+    final names = resolved.names;
     return [
       for (var i = 0; i < tracks.length; i++)
         if (byTrack[i] case final r? when names[r.id] != null)
-          renamedTrack(
-            tracks[i],
-            title: _pick(region, r.target, tracks[i].title, names[r.id]!.title),
-            artist: _pick(region, r.target, tracks[i].artist, names[r.id]!.artist, isArtist: true),
-            album: _pick(region, r.target, tracks[i].album, names[r.id]!.album),
-          )
+          () {
+            final pickedArtist = _pick(region, r.target, tracks[i].artist, names[r.id]!.artist, isArtist: true);
+            _rememberArtistName(region, tracks[i].artist, pickedArtist);
+            return renamedTrack(
+              tracks[i],
+              title: _pick(region, r.target, tracks[i].title, names[r.id]!.title),
+              artist: pickedArtist,
+              album: _pick(region, r.target, tracks[i].album, names[r.id]!.album),
+            );
+          }()
         else
           tracks[i],
     ];
@@ -118,7 +128,6 @@ final class AppleMusicNameResolver {
       final a = albums[i];
       if (a.id.provider != MediaId.providerAppleMusic || !_isCatalogId(a.id.rawId)) continue;
       final isrc = isrcByAlbumId[a.id.rawId];
-      // An album's genre says its language as a song's does; album pages also pass a unanimous track ISRC.
       final target = OriginalNameTarget.forRegion(
         region,
         title: a.name,
@@ -130,13 +139,23 @@ final class AppleMusicNameResolver {
       final speculative = region == AppleMusicNameRegion.original &&
           target == OriginalNameTarget.unitedStates &&
           OriginalNameTarget.isKatakanaSpeculative(title: a.name, artist: a.artist, genre: a.genre, isrc: isrc);
-      final r = _Request(a.id.rawId, target, null, verifyNotJapanese: speculative);
+      final checkChinese = region == AppleMusicNameRegion.original &&
+          target == OriginalNameTarget.taiwan &&
+          OriginalNameTarget.isMandopopGeneric(genre: a.genre, isrc: isrc);
+      final r = _Request(
+        a.id.rawId,
+        target,
+        null,
+        verifyNotJapanese: speculative,
+        checkChineseRegion: checkChinese,
+      );
       requests.add(r);
       byAlbum[i] = r;
     }
     if (requests.isEmpty) return albums;
-    final names = Map<String, AppleMusicNames>.from(await _resolve(_Kind.albums, requests));
-    final effectiveTarget = <String, OriginalNameTarget>{for (final r in requests) r.id: r.target};
+    final resolved = await _resolve(_Kind.albums, requests);
+    final names = Map<String, AppleMusicNames>.from(resolved.names);
+    final effectiveTarget = Map<String, OriginalNameTarget>.from(resolved.targets);
     final missed = [for (final r in requests) if (!names.containsKey(r.id)) r];
     if (missed.isNotEmpty && accountStorefront != null && accountStorefront.isNotEmpty) {
       final albumsById = {for (final a in albums) a.id.rawId: a};
@@ -154,17 +173,20 @@ final class AppleMusicNameResolver {
     return [
       for (var i = 0; i < albums.length; i++)
         if (byAlbum[i] case final r? when names[r.id] != null)
-          renamedAlbum(
-            albums[i],
-            name: _pick(region, effectiveTarget[r.id] ?? r.target, albums[i].name, names[r.id]!.title) ?? albums[i].name,
-            artist: _pick(
-              region,
-              effectiveTarget[r.id] ?? r.target,
-              albums[i].artist,
-              names[r.id]!.artist,
-              isArtist: true,
-            ),
-          )
+          () {
+            final t = effectiveTarget[r.id] ?? r.target;
+            final pickedArtist = _pick(region, t, albums[i].artist, names[r.id]!.artist, isArtist: true) ??
+                _cachedArtistName(region, albums[i].artist) ??
+                albums[i].artist;
+            _rememberArtistName(region, albums[i].artist, pickedArtist);
+            return renamedAlbum(
+              albums[i],
+              name: _pick(region, t, albums[i].name, names[r.id]!.title) ?? albums[i].name,
+              artist: pickedArtist,
+            );
+          }()
+        else if (_cachedArtistName(region, albums[i].artist) case final cached?)
+          renamedAlbum(albums[i], name: albums[i].name, artist: cached)
         else
           albums[i],
     ];
@@ -191,19 +213,31 @@ final class AppleMusicNameResolver {
       final speculative = region == AppleMusicNameRegion.original &&
           target == OriginalNameTarget.unitedStates &&
           OriginalNameTarget.isKatakanaSpeculative(artist: a.name, genre: k.genre);
-      final r = _Request(id, target, null, verifyNotJapanese: speculative);
+      final checkChinese = region == AppleMusicNameRegion.original &&
+          target == OriginalNameTarget.taiwan &&
+          OriginalNameTarget.isMandopopGeneric(genre: k.genre);
+      final r = _Request(
+        id,
+        target,
+        null,
+        verifyNotJapanese: speculative,
+        checkChineseRegion: checkChinese,
+      );
       requests.add(r);
       byArtist[i] = r;
     }
     if (requests.isEmpty) return artists;
-    final names = await _resolve(_Kind.artists, requests);
+    final resolved = await _resolve(_Kind.artists, requests);
     return [
       for (var i = 0; i < artists.length; i++)
-        if (byArtist[i] case final r? when names[r.id] != null)
-          renamedArtist(
-            artists[i],
-            name: _pick(region, r.target, artists[i].name, names[r.id]!.title, isArtist: true) ?? artists[i].name,
-          )
+        if (byArtist[i] case final r? when resolved.names[r.id] != null)
+          () {
+            final t = resolved.targets[r.id] ?? r.target;
+            final picked = _pick(region, t, artists[i].name, resolved.names[r.id]!.title, isArtist: true) ??
+                artists[i].name;
+            _rememberArtistName(region, artists[i].name, picked);
+            return renamedArtist(artists[i], name: picked);
+          }()
         else
           artists[i],
     ];
@@ -238,7 +272,35 @@ final class AppleMusicNameResolver {
     List<_Request> missed,
     Map<String, Album> albumsById,
   ) async {
-    final sourceInfo = await _fetchSourceAlbumFallbacks(accountStorefront, [for (final r in missed) r.id]);
+    final withTracksIds = <String>[];
+    final artistsOnlyIds = <String>[];
+    if (region == AppleMusicNameRegion.original) {
+      for (final req in missed) {
+        final title = albumsById[req.id]?.name ?? '';
+        final titleNeedsRecovery =
+            (req.target == OriginalNameTarget.unitedStates && OriginalNameTarget.hasNonLatin(title)) ||
+                (OriginalNameTarget.isChinese(req.target) && !OriginalNameTarget.hasHanText(title));
+        if (req.verifyNotJapanese || req.checkChineseRegion || titleNeedsRecovery) {
+          withTracksIds.add(req.id);
+        } else {
+          artistsOnlyIds.add(req.id);
+        }
+      }
+    } else {
+      for (final req in missed) {
+        artistsOnlyIds.add(req.id);
+      }
+    }
+
+    final fetched = await Future.wait([
+      withTracksIds.isEmpty
+          ? Future.value(const <String, _SourceAlbumFallback>{})
+          : _fetchSourceAlbumFallbacks(accountStorefront, withTracksIds, includeTracks: true),
+      artistsOnlyIds.isEmpty
+          ? Future.value(const <String, _SourceAlbumFallback>{})
+          : _fetchSourceAlbumFallbacks(accountStorefront, artistsOnlyIds, includeTracks: false),
+    ]);
+    final sourceInfo = <String, _SourceAlbumFallback>{...fetched[0], ...fetched[1]};
     if (sourceInfo.isEmpty) return const {};
 
     final plans = <({
@@ -248,6 +310,7 @@ final class AppleMusicNameResolver {
       String? isrc,
       bool needsTitleByIsrc,
       bool verifyArtistNotJapanese,
+      bool checkChineseRegion,
     })>[];
 
     for (final req in missed) {
@@ -258,8 +321,11 @@ final class AppleMusicNameResolver {
       if (region == AppleMusicNameRegion.original) {
         final byIsrc = OriginalNameTarget.forIsrc(info.firstTrackIsrc);
         final byGenre = OriginalNameTarget.forGenre(info.genre);
-        if (byIsrc != null && byIsrc.storefront == accountStorefront) continue;
-        if (byIsrc == OriginalNameTarget.unitedStates) {
+        if (info.preferredChineseTarget != null) {
+          effectiveTarget = info.preferredChineseTarget!;
+        } else if (byIsrc != null && byIsrc.storefront == accountStorefront) {
+          continue;
+        } else if (byIsrc == OriginalNameTarget.unitedStates) {
           effectiveTarget = OriginalNameTarget.unitedStates;
         } else if (byIsrc != null) {
           effectiveTarget = byIsrc;
@@ -277,9 +343,9 @@ final class AppleMusicNameResolver {
       if (region == AppleMusicNameRegion.original && effectiveTarget == OriginalNameTarget.korea) continue;
 
       final title = album?.name ?? '';
-      final needsTitle = region != AppleMusicNameRegion.original ||
-          (effectiveTarget == OriginalNameTarget.unitedStates && OriginalNameTarget.hasNonLatin(title)) ||
-          (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title));
+      final needsTitle = region == AppleMusicNameRegion.original &&
+          ((effectiveTarget == OriginalNameTarget.unitedStates && OriginalNameTarget.hasNonLatin(title)) ||
+              (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title)));
       final confirmedNonJapanese =
           info.firstTrackIsrc != null && OriginalNameTarget.forIsrc(info.firstTrackIsrc) != null;
       final artistId = (info.artistId != null && _isCatalogId(info.artistId!)) ? info.artistId : null;
@@ -290,13 +356,21 @@ final class AppleMusicNameResolver {
         isrc: info.firstTrackIsrc,
         needsTitleByIsrc: needsTitle && info.firstTrackIsrc != null && info.firstTrackIsrc!.isNotEmpty,
         verifyArtistNotJapanese: req.verifyNotJapanese && !confirmedNonJapanese,
+        checkChineseRegion: req.checkChineseRegion && info.preferredChineseTarget == null,
       ));
     }
     if (plans.isEmpty) return const {};
 
     final artistRequests = [
       for (final p in plans)
-        if (p.artistId != null) _Request(p.artistId!, p.target, null, verifyNotJapanese: p.verifyArtistNotJapanese),
+        if (p.artistId != null)
+          _Request(
+            p.artistId!,
+            p.target,
+            null,
+            verifyNotJapanese: p.verifyArtistNotJapanese,
+            checkChineseRegion: p.checkChineseRegion,
+          ),
     ];
     final isrcGroups = <OriginalNameTarget, List<String>>{};
     for (final p in plans) {
@@ -306,12 +380,14 @@ final class AppleMusicNameResolver {
     }
 
     final results = await Future.wait([
-      artistRequests.isEmpty ? Future.value(const <String, AppleMusicNames>{}) : _resolve(_Kind.artists, artistRequests),
+      artistRequests.isEmpty
+          ? Future.value((names: const <String, AppleMusicNames>{}, targets: const <String, OriginalNameTarget>{}))
+          : _resolve(_Kind.artists, artistRequests),
       Future.wait([
         for (final entry in isrcGroups.entries)
           () async {
             try {
-              final songs = await _songsByIsrc(entry.key, entry.value).timeout(batchTimeout);
+              final songs = await _songsByIsrc(entry.key, entry.value).timeout(_isrcTimeout);
               return MapEntry(entry.key, songs);
             } catch (_) {
               return MapEntry(entry.key, const <String, AppleMusicNames>{});
@@ -320,22 +396,24 @@ final class AppleMusicNameResolver {
       ]),
     ]);
 
-    final resolvedArtists = results[0] as Map<String, AppleMusicNames>;
+    final resolvedArtists =
+        results[0] as ({Map<String, AppleMusicNames> names, Map<String, OriginalNameTarget> targets});
     final resolvedIsrcs = Map<OriginalNameTarget, Map<String, AppleMusicNames>>.fromEntries(
       results[1] as List<MapEntry<OriginalNameTarget, Map<String, AppleMusicNames>>>,
     );
 
     final out = <String, (AppleMusicNames, OriginalNameTarget)>{};
     for (final p in plans) {
-      final artistName = p.artistId != null ? resolvedArtists[p.artistId!]?.title : null;
+      final artistName = p.artistId != null ? resolvedArtists.names[p.artistId!]?.title : null;
+      final effectiveTarget = (p.artistId != null ? resolvedArtists.targets[p.artistId!] : null) ?? p.target;
       final targetIsrcs = resolvedIsrcs[p.target];
       final songMatch = (p.isrc != null && targetIsrcs != null) ? targetIsrcs[p.isrc!.toUpperCase()] : null;
       final title = songMatch?.album;
       final artist = artistName ?? songMatch?.artist;
       if (title != null || artist != null) {
         final resolved = AppleMusicNames(title: title, artist: artist);
-        out[p.albumId] = (resolved, p.target);
-        _put(_key(_Kind.albums, p.target, p.albumId), resolved);
+        out[p.albumId] = (resolved, effectiveTarget);
+        _put(_key(_Kind.albums, effectiveTarget, p.albumId), resolved);
       }
     }
     return out;
@@ -343,23 +421,30 @@ final class AppleMusicNameResolver {
 
   Future<Map<String, _SourceAlbumFallback>> _fetchSourceAlbumFallbacks(
     String accountStorefront,
-    List<String> albumIds,
-  ) async {
+    List<String> albumIds, {
+    required bool includeTracks,
+  }) async {
     final known = <String, _SourceAlbumFallback>{};
     final unread = <String>[];
     for (final id in albumIds.toSet()) {
       final k = '$accountStorefront|$id';
       if (_sourceAlbumCache.containsKey(k)) {
         final hit = _sourceAlbumCache[k];
-        if (hit != null) known[id] = hit;
+        if (hit == null || hit.tracksInspected || !includeTracks) {
+          if (hit != null) known[id] = hit;
+        } else {
+          unread.add(id);
+        }
       } else {
         unread.add(id);
       }
     }
     if (unread.isEmpty) return known;
+    final batchSize = includeTracks ? _inspectAlbumsBatch : _artistsOnlyAlbumsBatch;
+    final includeValue = includeTracks ? 'artists,tracks' : 'artists';
     final batches = <List<String>>[
-      for (var i = 0; i < unread.length; i += _Kind.albums.batch)
-        unread.sublist(i, (i + _Kind.albums.batch).clamp(0, unread.length)),
+      for (var i = 0; i < unread.length; i += batchSize)
+        unread.sublist(i, (i + batchSize).clamp(0, unread.length)),
     ];
     var cursor = 0;
     final workers = batches.length < maxConcurrentBatches ? batches.length : maxConcurrentBatches;
@@ -372,7 +457,7 @@ final class AppleMusicNameResolver {
             try {
               response = await _catalog(
                 ['v1', 'catalog', accountStorefront, _Kind.albums.path],
-                {'ids': batch.join(','), 'include': 'artists,tracks'},
+                {'ids': batch.join(','), 'include': includeValue},
               ).timeout(batchTimeout);
             } catch (_) {
               continue;
@@ -388,6 +473,7 @@ final class AppleMusicNameResolver {
               final tracksData = _nestedData(rels?['tracks']);
               String? firstIsrc;
               var hasJpScript = false;
+              final chineseTarget = includeTracks ? _preferredChineseTargetFromTracks(tracksData) : null;
               for (final track in tracksData) {
                 final tAttrs = track['attributes'] is Map ? (track['attributes'] as Map).cast<String, Object?>() : null;
                 if (tAttrs == null) continue;
@@ -398,8 +484,10 @@ final class AppleMusicNameResolver {
               parsed[id] = _SourceAlbumFallback(
                 artistId: artistId,
                 firstTrackIsrc: firstIsrc,
+                preferredChineseTarget: chineseTarget,
                 hasJapaneseScript: hasJpScript,
                 genre: _genreString(attrs),
+                tracksInspected: includeTracks,
               );
             }
             for (final id in batch) {
@@ -413,6 +501,24 @@ final class AppleMusicNameResolver {
         }(),
     ]);
     return known;
+  }
+
+  void _rememberArtistName(AppleMusicNameRegion region, String? shown, String? resolved) {
+    final s = shown?.trim() ?? '';
+    final r = resolved?.trim() ?? '';
+    if (s.isEmpty || r.isEmpty || s == r) return;
+    final k = '${region.key}|$s';
+    _artistNameCache.remove(k);
+    _artistNameCache[k] = r;
+    while (_artistNameCache.length > cacheSize) {
+      _artistNameCache.remove(_artistNameCache.keys.first);
+    }
+  }
+
+  String? _cachedArtistName(AppleMusicNameRegion region, String? shown) {
+    final s = shown?.trim() ?? '';
+    if (s.isEmpty) return null;
+    return _artistNameCache['${region.key}|$s'];
   }
 
   static String? _unanimousTrackIsrc(List<Track> tracks, AppleMusicSongKeys keys) {
@@ -446,55 +552,130 @@ final class AppleMusicNameResolver {
     bool isArtist = false,
   }) => OriginalNameTarget.accepts(region, target, shown, found, isArtist: isArtist) ? found!.trim() : shown;
 
-  /// Catalog id → its names, for every request that has an answer (cached or read now).
-  Future<Map<String, AppleMusicNames>> _resolve(_Kind kind, List<_Request> requests) async {
+  Future<({Map<String, AppleMusicNames> names, Map<String, OriginalNameTarget> targets})> _resolve(
+    _Kind kind,
+    List<_Request> requests,
+  ) async {
     final distinct = <String, _Request>{};
     for (final r in requests) {
       distinct.putIfAbsent(r.id, () => r);
     }
     final groups = <OriginalNameTarget, List<_Request>>{};
+    final finalTargets = <String, OriginalNameTarget>{};
     for (final r in distinct.values) {
       (groups[r.target] ??= []).add(r);
+      finalTargets[r.id] = r.target;
     }
     final found = <String, AppleMusicNames>{};
+    final reclassifiedRequests = <_Request>[];
+
     await Future.wait([
       for (final MapEntry(key: target, value: group) in groups.entries)
         () async {
-          final unread = <_Request>[];
+          final unreadPlain = <_Request>[];
+          final unreadInspected = <_Request>[];
           for (final r in group) {
             final key = _key(kind, target, r.id);
             if (!_cache.containsKey(key)) {
-              unread.add(r);
+              if (r.needsInspection && kind != _Kind.songs) {
+                unreadInspected.add(r);
+              } else {
+                unreadPlain.add(r);
+              }
             } else {
               final hit = _cache.remove(key);
-              _cache[key] = hit; // most recent last
+              _cache[key] = hit;
               if (hit != null) found[r.id] = hit;
             }
           }
-          if (unread.isEmpty) return;
-          final batches = <List<_Request>>[
-            for (var i = 0; i < unread.length; i += kind.batch)
-              unread.sublist(i, (i + kind.batch).clamp(0, unread.length)),
+          final batches = <(List<_Request>, bool)>[
+            for (var i = 0; i < unreadPlain.length; i += kind.batch)
+              (unreadPlain.sublist(i, (i + kind.batch).clamp(0, unreadPlain.length)), false),
+            for (var i = 0; i < unreadInspected.length; i += kind.inspectBatch)
+              (unreadInspected.sublist(i, (i + kind.inspectBatch).clamp(0, unreadInspected.length)), true),
           ];
-          var cursor = 0;
-          final workers = batches.length < maxConcurrentBatches ? batches.length : maxConcurrentBatches;
-          await Future.wait([
-            for (var w = 0; w < workers; w++)
-              () async {
-                while (cursor < batches.length) {
-                  final batch = batches[cursor++];
-                  final read = await _readBatch(kind, target, batch);
-                  if (read == null) continue;
-                  for (final r in batch) {
-                    _put(_key(kind, target, r.id), read[r.id]);
+          if (batches.isNotEmpty) {
+            var cursor = 0;
+            final workers = batches.length < maxConcurrentBatches ? batches.length : maxConcurrentBatches;
+            await Future.wait([
+              for (var w = 0; w < workers; w++)
+                () async {
+                  while (cursor < batches.length) {
+                    final (batch, inspect) = batches[cursor++];
+                    final outcome = await _readBatch(kind, target, batch, inspect: inspect);
+                    if (outcome == null) continue;
+                    for (final r in batch) {
+                      if (!outcome.reclassified.containsKey(r.id)) {
+                        _put(_key(kind, target, r.id), outcome.found[r.id]);
+                      }
+                    }
+                    found.addAll(outcome.found);
+                    for (final entry in outcome.reclassified.entries) {
+                      reclassifiedRequests.add(_Request(entry.key, entry.value, null));
+                    }
                   }
-                  found.addAll(read);
+                }(),
+            ]);
+          }
+          if (kind == _Kind.songs) {
+            final missedWithIsrc = [
+              for (final r in unreadPlain)
+                if (!found.containsKey(r.id) && r.isrc != null && r.isrc!.isNotEmpty) r,
+            ];
+            if (missedWithIsrc.isNotEmpty) {
+              try {
+                final songs = await _songsByIsrc(target, [for (final r in missedWithIsrc) r.isrc!]).timeout(_isrcTimeout);
+                for (final r in missedWithIsrc) {
+                  if (songs[r.isrc!.toUpperCase()] case final names?) {
+                    found[r.id] = names;
+                    _put(_key(kind, target, r.id), names);
+                  }
                 }
-              }(),
-          ]);
+              } catch (_) {}
+            }
+          }
         }(),
     ]);
-    return found;
+
+    if (reclassifiedRequests.isNotEmpty) {
+      final reclassGroups = <OriginalNameTarget, List<_Request>>{};
+      for (final r in reclassifiedRequests) {
+        (reclassGroups[r.target] ??= []).add(r);
+      }
+      await Future.wait([
+        for (final MapEntry(key: target, value: group) in reclassGroups.entries)
+          () async {
+            final unread = <_Request>[];
+            for (final r in group) {
+              final key = _key(kind, target, r.id);
+              if (_cache.containsKey(key)) {
+                final hit = _cache[key];
+                if (hit != null) {
+                  found[r.id] = hit;
+                  finalTargets[r.id] = target;
+                }
+              } else {
+                unread.add(r);
+              }
+            }
+            for (var i = 0; i < unread.length; i += kind.batch) {
+              final batch = unread.sublist(i, (i + kind.batch).clamp(0, unread.length));
+              final outcome = await _readBatch(kind, target, batch, inspect: false);
+              if (outcome == null) continue;
+              for (final r in batch) {
+                final names = outcome.found[r.id];
+                _put(_key(kind, target, r.id), names);
+                if (names != null) {
+                  found[r.id] = names;
+                  finalTargets[r.id] = target;
+                }
+              }
+            }
+          }(),
+      ]);
+    }
+
+    return (names: found, targets: finalTargets);
   }
 
   void _put(String key, AppleMusicNames? names) {
@@ -505,18 +686,20 @@ final class AppleMusicNameResolver {
     }
   }
 
-  /// One batch's names: by id, then the songs missing by ISRC (timed out separately so id answers stand).
-  Future<Map<String, AppleMusicNames>?> _readBatch(
+  Future<({Map<String, AppleMusicNames> found, Map<String, OriginalNameTarget> reclassified})?> _readBatch(
     _Kind kind,
     OriginalNameTarget target,
-    List<_Request> requests,
-  ) async {
-    final verifyIds = {for (final r in requests) if (r.verifyNotJapanese) r.id};
+    List<_Request> requests, {
+    required bool inspect,
+  }) async {
+    final verifyIds = inspect ? {for (final r in requests) if (r.verifyNotJapanese) r.id} : const <String>{};
+    final checkChineseIds = inspect ? {for (final r in requests) if (r.checkChineseRegion) r.id} : const <String>{};
+    final needsNested = verifyIds.isNotEmpty || checkChineseIds.isNotEmpty;
     final query = <String, String>{
       'ids': requests.map((r) => r.id).join(','),
       'l': target.language,
-      if (verifyIds.isNotEmpty && kind == _Kind.artists) 'views': 'top-songs',
-      if (verifyIds.isNotEmpty && kind == _Kind.albums) 'include': 'tracks',
+      if (needsNested && kind == _Kind.artists) 'views': 'top-songs',
+      if (needsNested && kind == _Kind.albums) 'include': 'tracks',
     };
     final Map<String, Object?> response;
     try {
@@ -525,6 +708,7 @@ final class AppleMusicNameResolver {
       return null;
     }
     final found = <String, AppleMusicNames>{};
+    final reclassified = <String, OriginalNameTarget>{};
     for (final item in _data(response)) {
       final id = item['id'];
       final attributes = item['attributes'];
@@ -533,46 +717,59 @@ final class AppleMusicNameResolver {
       if (verifyIds.contains(id) && _isConfirmedNonWesternOrigin(kind, item, attrs)) {
         continue;
       }
+      if (checkChineseIds.contains(id)) {
+        final preferred = _preferredChineseTargetFromTracks(_nestedTracksFor(kind, item));
+        if (preferred != null && preferred != target) {
+          reclassified[id] = preferred;
+        }
+      }
       found[id] = AppleMusicNames(
         title: _text(attrs['name']),
         artist: _text(attrs['artistName']),
         album: _text(attrs['albumName']),
       );
     }
-    // A storefront may carry a song under an id of its own; the recording's ISRC still finds it.
-    if (kind == _Kind.songs) {
-      final byIsrc = [
-        for (final r in requests)
-          if (!found.containsKey(r.id) && r.isrc != null) r,
-      ];
-      if (byIsrc.isNotEmpty) {
-        // The ids' answer stands even when this second read fails or times out.
-        try {
-          final songs = await _songsByIsrc(target, [for (final r in byIsrc) r.isrc!]).timeout(batchTimeout);
-          for (final r in byIsrc) {
-            if (songs[r.isrc] case final names?) found[r.id] = names;
-          }
-        } catch (_) {
-          // Names by id only.
-        }
+    return (found: found, reclassified: reclassified);
+  }
+
+  static List<Map<String, Object?>> _nestedTracksFor(_Kind kind, Map<String, Object?> item) {
+    if (kind == _Kind.artists) {
+      final views = item['views'] is Map ? (item['views'] as Map).cast<String, Object?>() : null;
+      return _nestedData(views?['top-songs']);
+    } else if (kind == _Kind.albums) {
+      final rels = item['relationships'] is Map ? (item['relationships'] as Map).cast<String, Object?>() : null;
+      return _nestedData(rels?['tracks']);
+    }
+    return const [];
+  }
+
+  static OriginalNameTarget? _preferredChineseTargetFromTracks(List<Map<String, Object?>> nestedTracks) {
+    if (nestedTracks.isEmpty) return null;
+    var cn = 0;
+    var tw = 0;
+    var hk = 0;
+    for (final track in nestedTracks) {
+      final tAttrs = track['attributes'] is Map ? (track['attributes'] as Map).cast<String, Object?>() : null;
+      if (tAttrs == null) continue;
+      final t = OriginalNameTarget.forIsrc(_text(tAttrs['isrc']));
+      if (t == OriginalNameTarget.mainlandChina) {
+        cn++;
+      } else if (t == OriginalNameTarget.taiwan) {
+        tw++;
+      } else if (t == OriginalNameTarget.hongKong) {
+        hk++;
       }
     }
-    return found;
+    if (cn > 0 && cn >= tw + hk) return OriginalNameTarget.mainlandChina;
+    if (hk > 0 && hk > tw && cn == 0) return OriginalNameTarget.hongKong;
+    if (tw > 0) return OriginalNameTarget.taiwan;
+    return null;
   }
 
   static bool _isConfirmedNonWesternOrigin(_Kind kind, Map<String, Object?> item, Map<String, Object?> attrs) {
     final itemGenreTarget = OriginalNameTarget.forGenre(_genreString(attrs));
     if (itemGenreTarget != null && itemGenreTarget != OriginalNameTarget.unitedStates) return true;
-    final List<Map<String, Object?>> nestedTracks;
-    if (kind == _Kind.artists) {
-      final views = item['views'] is Map ? (item['views'] as Map).cast<String, Object?>() : null;
-      nestedTracks = _nestedData(views?['top-songs']);
-    } else if (kind == _Kind.albums) {
-      final rels = item['relationships'] is Map ? (item['relationships'] as Map).cast<String, Object?>() : null;
-      nestedTracks = _nestedData(rels?['tracks']);
-    } else {
-      return false;
-    }
+    final nestedTracks = _nestedTracksFor(kind, item);
     for (final track in nestedTracks) {
       final tAttrs = track['attributes'] is Map ? (track['attributes'] as Map).cast<String, Object?>() : null;
       if (tAttrs == null) continue;
@@ -654,23 +851,32 @@ final class AppleMusicNameResolver {
   static bool _isCatalogId(String id) => id.isNotEmpty && RegExp(r'^[0-9]+$').hasMatch(id);
 }
 
-/// [kind.batch]: Apple's most ids per request for the type (songs 300, albums 100, artists 25).
 enum _Kind {
-  songs('songs', 300),
-  albums('albums', 100),
-  artists('artists', 25);
+  songs('songs', 300, 300),
+  albums('albums', 100, AppleMusicNameResolver._inspectAlbumsBatch),
+  artists('artists', 25, AppleMusicNameResolver._inspectArtistsBatch);
 
-  const _Kind(this.path, this.batch);
+  const _Kind(this.path, this.batch, this.inspectBatch);
   final String path;
   final int batch;
+  final int inspectBatch;
 }
 
 final class _Request {
-  const _Request(this.id, this.target, this.isrc, {this.verifyNotJapanese = false});
+  const _Request(
+    this.id,
+    this.target,
+    this.isrc, {
+    this.verifyNotJapanese = false,
+    this.checkChineseRegion = false,
+  });
   final String id;
   final OriginalNameTarget target;
   final String? isrc;
   final bool verifyNotJapanese;
+  final bool checkChineseRegion;
+
+  bool get needsInspection => verifyNotJapanese || checkChineseRegion;
 }
 
 /// [t] under other names; everything else kept.
