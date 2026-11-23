@@ -62,6 +62,7 @@ internal fun TipIllustration(
             HomeBubbleTip.NoteMentions -> NoteMentionsDemo(playing)
             HomeBubbleTip.AlbumStickies -> AlbumStickiesDemo(playing)
             HomeBubbleTip.MentionedIn -> MentionedInDemo(playing)
+            HomeBubbleTip.CloudExportTransfer -> CloudExportTransferDemo(playing)
             HomeBubbleTip.MemorySearch -> MemorySearchDemo(playing)
             HomeBubbleTip.KeyboardShortcuts -> KeyboardShortcutsDemo(playing)
             HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)

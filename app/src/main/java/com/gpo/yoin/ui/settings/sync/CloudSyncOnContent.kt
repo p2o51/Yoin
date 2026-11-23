@@ -346,6 +346,8 @@ internal fun BackupGroup(
     titleRes: Int = R.string.settings_sync_section_backup,
     // Sync off: the export is this device's data, not the cloud's.
     exportTitleRes: Int = R.string.settings_sync_export_title,
+    // A row's modifier by its key ("export", "import", "transfer"): the Tips demo finds its rows by it.
+    itemModifier: (key: String) -> Modifier = { Modifier },
 ) {
     SettingsGroup(title = stringResource(titleRes)) {
         run {
@@ -356,7 +358,7 @@ internal fun BackupGroup(
                     summary = stringResource(R.string.settings_sync_export_summary),
                     onClick = actions.onExport,
                     trailing = { Chevron() },
-                    modifier = Modifier.testTag("cloud_sync_export"),
+                    modifier = itemModifier("export").testTag("cloud_sync_export"),
                 )
             }
         }
@@ -367,6 +369,7 @@ internal fun BackupGroup(
                 summary = stringResource(R.string.settings_sync_import_summary),
                 onClick = actions.onImport,
                 trailing = { Chevron() },
+                modifier = itemModifier("import"),
             )
         }
         if (includeTransfer) {
@@ -377,6 +380,7 @@ internal fun BackupGroup(
                     summary = stringResource(R.string.settings_xfer_summary),
                     onClick = { actions.onTransfer(TransferArgs()) },
                     trailing = { Chevron() },
+                    modifier = itemModifier("transfer"),
                 )
             }
         }

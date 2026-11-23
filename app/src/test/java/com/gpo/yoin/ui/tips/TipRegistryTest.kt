@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-/** Every tip says something in English and Chinese, and the 2026-11-23 album notes tips show on every Android. */
+/** Every tip says something in English and Chinese, and the 2026-11-23 notes and sync tips show on every Android. */
 @RunWith(RobolectricTestRunner::class)
 class TipRegistryTest {
 
@@ -42,8 +42,8 @@ class TipRegistryTest {
     }
 
     @Test
-    fun should_comeUpOnEveryAndroid_when_theTipIsAboutAlbumNotes() {
-        val new = listOf(HomeBubbleTip.AlbumStickies, HomeBubbleTip.MentionedIn)
+    fun should_comeUpOnEveryAndroid_when_theTipIsAboutAlbumNotesOrCloudSync() {
+        val new = listOf(HomeBubbleTip.AlbumStickies, HomeBubbleTip.MentionedIn, HomeBubbleTip.CloudExportTransfer)
         new.forEach { tip ->
             assertEquals(LocalDate.of(2026, 11, 23), tip.updated)
             assertTrue(tip in HomeBubbleTip.available(sdk = 26))
