@@ -78,11 +78,17 @@ class SingMixerAudioProcessor(
     private var alignOffset = 0L
     private var retryAfterFrame = 0L
     private var avail = 0f
+
+    /** Whether V was wanted at the last frame (for the log's V in / V out). */
+    private var wanted = false
     private var availRampFrames = 1
     private var availStep = 1f
     private var captureFrames = 1
     private var skipFrames = 0
     private val job = SingAlignJob(MAX_CAPTURE_FRAMES)
+
+    /** The mixer's log, written here without allocating, read on the align thread. */
+    val events = SingMixEvents()
 
     /** The gain applied to the last frame out, for tests and the controller's state. */
     val appliedGain: Float get() = currentGain
@@ -107,7 +113,7 @@ class SingMixerAudioProcessor(
             }
             inputAudioFormat.channelCount == 1 || inputAudioFormat.channelCount == 2 -> {
                 pendingMode = MODE_LIVE
-                (aligner as? SingAlignThread)?.prepare()
+                (aligner as? SingAlignThread)?.prepare(events)
                 inputAudioFormat
             }
             else -> notActive()
@@ -145,6 +151,13 @@ class SingMixerAudioProcessor(
             return
         }
         resetEpoch(known, streamMetadata.periodUid, base)
+        if (mode == MODE_LIVE && control.liveBinding != null) note(SingMixEvents.STREAM, if (known) base else -1L)
+    }
+
+    /** Logs [kind] at [frame] (through the align thread). */
+    private fun note(kind: Int, frame: Long) {
+        events.record(kind, frame, inputAudioFormat.sampleRate)
+        aligner.wake()
     }
 
     private fun resetEpoch(known: Boolean, periodUid: Any?, baseFrame: Long) {
@@ -157,6 +170,7 @@ class SingMixerAudioProcessor(
         alignOffset = 0L
         retryAfterFrame = 0L
         avail = 0f
+        wanted = false
         if (job.state == SingAlignJob.FILLING) job.state = SingAlignJob.IDLE
     }
 
@@ -223,7 +237,11 @@ class SingMixerAudioProcessor(
             val index = base + f
             // Before the track's frame 0 (priming Media3 didn't trim) there's no V: wait for it there.
             val want = readable && binding === desired && index >= 0 && coveredEnd - index > availRampFrames
-            if (want && !binding.engaged) engage(binding)
+            if (want != wanted) {
+                wanted = want
+                note(if (want) SingMixEvents.AVAIL_ON else SingMixEvents.AVAIL_OFF, index)
+            }
+            if (want && !binding.engaged) engage(binding, index)
             val g = nextGain()
             avail = if (want) minOf(1f, avail + availStep) else maxOf(0f, avail - availStep)
             val subtract = avail > 0f && readable && index >= 0 && index < coveredEnd && index < trackFrames
@@ -263,8 +281,9 @@ class SingMixerAudioProcessor(
     }
 
     /** V applies for [binding] for the first time: Sing cuts in, from 1.0 when it was just turned on. */
-    private fun engage(binding: SingLiveBinding) {
+    private fun engage(binding: SingLiveBinding, frame: Long) {
         binding.engaged = true
+        note(SingMixEvents.ENGAGED, frame)
         if (control.startAtUnity) {
             control.startAtUnity = false
             currentGain = 1f
@@ -275,6 +294,7 @@ class SingMixerAudioProcessor(
 
     private fun switchTo(binding: SingLiveBinding?) {
         active = binding
+        wanted = false
         aligned = false
         alignOffset = 0L
         retryAfterFrame = 0L

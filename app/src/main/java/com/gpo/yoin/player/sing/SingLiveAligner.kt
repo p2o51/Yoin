@@ -1,5 +1,6 @@
 package com.gpo.yoin.player.sing
 
+import android.util.Log
 import com.gpo.yoin.player.sing.dsp.Fft
 import java.util.concurrent.locks.LockSupport
 import kotlin.math.abs
@@ -130,6 +131,10 @@ class SingAlignJob(captureFrames: Int) {
 
     var result: SingLiveAligner.Result = SingLiveAligner.Result.NoMatch
 
+    // Executor side, for the log.
+    private var loggedEpoch = -1
+    private var misses = 0
+
     /** Runs the alignment (executor side): READY → DONE. */
     fun run() {
         val t = track
@@ -138,10 +143,32 @@ class SingAlignJob(captureFrames: Int) {
         } catch (e: RuntimeException) {
             SingLiveAligner.Result.NoMatch
         }
+        if (t != null) log(result, t.sampleRate)
         state = DONE
     }
 
+    /** Every match; a miss (quiet, no match) the first time after a flush, then every tenth. */
+    private fun log(result: SingLiveAligner.Result, sampleRate: Int) {
+        if (epoch != loggedEpoch) {
+            loggedEpoch = epoch
+            misses = 0
+        }
+        val at = "%.2f s".format(claimedStart.toDouble() / sampleRate)
+        when (result) {
+            is SingLiveAligner.Result.Found -> Log.d(
+                TAG,
+                "align at $at: offset ${result.offset} frames (${"%.1f".format(result.offset * 1000.0 / sampleRate)} ms), " +
+                    "correlation ${"%.4f".format(result.correlation)}" + if (misses > 0) " after $misses misses" else "",
+            )
+            else -> {
+                if (misses % 10 == 0) Log.d(TAG, "align at $at: ${if (result is SingLiveAligner.Result.Quiet) "too quiet" else "no match"} (miss ${misses + 1})")
+                misses++
+            }
+        }
+    }
+
     companion object {
+        private const val TAG = "YoinSing"
         const val IDLE = 0
         const val FILLING = 1
         const val READY = 2
@@ -153,6 +180,9 @@ class SingAlignJob(captureFrames: Int) {
 fun interface SingAlignExecutor {
     fun submit(job: SingAlignJob)
 
+    /** The mixer [SingMixEvents.record]ed something: log it (off the audio thread). */
+    fun wake() {}
+
     companion object {
         /** Runs the job right away, on the caller's thread: for tests. */
         val INLINE = SingAlignExecutor { it.run() }
@@ -160,11 +190,14 @@ fun interface SingAlignExecutor {
 }
 
 /**
- * One daemon thread for the mixer's alignments. [submit] only stores a reference and unparks the
- * thread: no allocation and no lock on the audio thread.
+ * One daemon thread for the mixer's alignments, which also writes the mixer's [SingMixEvents] to the
+ * log. [submit] and [wake] only store a reference and unpark the thread: no allocation and no lock on
+ * the audio thread.
  */
 class SingAlignThread : SingAlignExecutor {
     @Volatile private var pending: SingAlignJob? = null
+
+    @Volatile private var events: SingMixEvents? = null
 
     private val thread: Thread by lazy {
         Thread(::loop, "YoinSingAlign").apply {
@@ -175,7 +208,8 @@ class SingAlignThread : SingAlignExecutor {
     }
 
     /** Starts the thread (call off the audio thread, e.g. when the mixer is configured). */
-    fun prepare() {
+    fun prepare(events: SingMixEvents? = null) {
+        if (events != null) this.events = events
         thread
     }
 
@@ -184,8 +218,13 @@ class SingAlignThread : SingAlignExecutor {
         LockSupport.unpark(thread)
     }
 
+    override fun wake() {
+        LockSupport.unpark(thread)
+    }
+
     private fun loop() {
         while (true) {
+            events?.drainToLog()
             val job = pending
             if (job == null) {
                 LockSupport.park(this)

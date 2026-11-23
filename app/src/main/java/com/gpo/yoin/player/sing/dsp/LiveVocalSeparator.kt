@@ -18,9 +18,12 @@ import java.util.TreeMap
  * every frame under its samples, every core sample under the upsampling filter — it goes to the
  * [VocalSink], once.
  *
- * Memory: the 22.05 kHz signals come from [work] (memory-mapped on the device); the mix is resampled
- * down lazily, a block at a time, as chunks need it. Frames waiting for a neighbouring chunk hold their
- * spectrum (8 KB each) — a chunk's overlap at each edge of a stretch run so far.
+ * Memory: the 22.05 kHz signals come from [work] (memory-mapped on the device), which must hand out
+ * zeroed buffers (a fresh mapped file and [FloatBuffer.allocate] both are): V is summed into them, and
+ * a page of a mapped file is only touched — resident — once a chunk writes there. Per second of audio:
+ * 4 × 4 B × 22 050 ≈ 353 KB (mix L/R, V L/R at the core rate). The mix is resampled down lazily, a
+ * block at a time, as chunks need it. Frames waiting for a neighbouring chunk hold their spectrum
+ * (8 KB each) — a chunk's overlap at each edge of a stretch run so far.
  */
 class LiveVocalSeparator(
     private val mixLeft: FloatBuffer,
@@ -77,13 +80,6 @@ class LiveVocalSeparator(
     /** Whether V is final for the whole song. */
     val isFinished: Boolean get() = sourceDone.covers(0, frames)
 
-    init {
-        for (i in 0 until coreLength) {
-            vocalCoreL.put(i, 0f)
-            vocalCoreR.put(i, 0f)
-        }
-    }
-
     /**
      * Emits what is final before any chunk runs: everything, for a clip too short to separate (V is
      * silence); nothing otherwise.
@@ -108,19 +104,47 @@ class LiveVocalSeparator(
      */
     fun nextChunk(priorityFrame: Int): Int {
         val plan = plan ?: return -1
-        // V at a core sample needs frames k−1..k+2 of its hop block k, and the upsampler reaches a few
-        // core samples further: three frames back covers both.
-        val needed = (priorityFrame - 3).coerceIn(0, totalFrames - 1)
-        var first = plan.size - 1
-        for (i in 0 until plan.size) {
-            if (plan.starts[i] + plan.validFrames(i) > needed) {
-                first = i
-                break
-            }
-        }
+        val first = firstChunkFor(priorityFrame)
         for (i in first until plan.size) if (!chunkDone[i]) return i
         for (i in first - 1 downTo 0) if (!chunkDone[i]) return i
         return -1
+    }
+
+    /** The earliest chunk V at STFT frame [priorityFrame] depends on (see [nextChunk]). */
+    private fun firstChunkFor(priorityFrame: Int): Int {
+        val plan = checkNotNull(plan)
+        // V at a core sample needs frames k−1..k+2 of its hop block k, and the upsampler reaches a few
+        // core samples further: three frames back covers both.
+        val needed = (priorityFrame - 3).coerceIn(0, totalFrames - 1)
+        for (i in 0 until plan.size) {
+            if (plan.starts[i] + plan.validFrames(i) > needed) return i
+        }
+        return plan.size - 1
+    }
+
+    /**
+     * Where V would be final from source frame [sourceFrame] on — a source frame, or [Long.MAX_VALUE]
+     * when to the song's end — once the next [chunks] chunks [nextChunk] picks for that place have run
+     * (forwards from the first chunk under it; chunks already run come free). Conservative by the
+     * iSTFT's and the upsampler's reach. For planning how far ahead of the playhead to start.
+     */
+    fun finalEndAfter(sourceFrame: Long, chunks: Int): Long {
+        val plan = plan ?: return Long.MAX_VALUE
+        var i = firstChunkFor(frameAtSource(sourceFrame))
+        var left = chunks
+        while (i < plan.size) {
+            if (!chunkDone[i]) {
+                if (left == 0) break
+                left--
+            }
+            i++
+        }
+        if (i >= plan.size) return Long.MAX_VALUE
+        // Frames before chunk i's start have every chunk they need; hop block k needs frames k−1..k+2,
+        // so core samples are final below (start − 2) · HOP; then the upsampling filter's reach.
+        val coreEnd = maxOf(0L, (plan.starts[i] - 2).toLong() * HOP)
+        val end = Math.floorDiv(coreEnd * up.up - up.reach - 1, up.down.toLong()) + 1
+        return end.coerceIn(0L, frames.toLong())
     }
 
     /** Runs chunk [index] through [model] and hands every stretch of V it completes to [sink]. */

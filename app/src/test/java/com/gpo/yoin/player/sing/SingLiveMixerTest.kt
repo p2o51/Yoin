@@ -233,4 +233,31 @@ class SingLiveMixerTest {
         for (i in ramp + 10 until ramp * 2) assertEquals(xL[from + i], y[i * 2], 0f)
         assertEquals(0f, mixer.availability, 0f)
     }
+
+    @Test
+    fun should_noteEngagementAndVInOut_when_vocalMissingForAStretch() {
+        control.setTarget(0f, rampMs = 0)
+        val block = SingVocalTrack.BLOCK_FRAMES
+        val gapStart = block * 8
+        val gapEnd = block * 12
+        control.liveBinding = SingLiveBinding(track(listOf(0 until gapStart, gapEnd until frames)), "k", uid)
+        start()
+        play(0, frames)
+        val events = ArrayList<Pair<Int, Long>>()
+        mixer.events.drain { kind, frame, sampleRate ->
+            assertEquals(rate, sampleRate)
+            events += kind to frame
+        }
+        val kinds = events.map { it.first }
+        // A stream position, V in (engaging once), out before the gap, in after it — not per buffer.
+        assertEquals(
+            listOf(SingMixEvents.STREAM, SingMixEvents.AVAIL_ON, SingMixEvents.ENGAGED, SingMixEvents.AVAIL_OFF, SingMixEvents.AVAIL_ON),
+            kinds,
+        )
+        assertEquals(0L, events[0].second)
+        assertEquals(events[1].second, events[2].second)
+        assertEquals((gapStart - ramp).toLong(), events[3].second)
+        assertTrue(events[4].second >= gapEnd)
+    }
 }
+

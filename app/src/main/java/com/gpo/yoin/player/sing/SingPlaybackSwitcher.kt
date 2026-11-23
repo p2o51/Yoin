@@ -142,15 +142,21 @@ class SingPlaybackSwitcher(
         handoverBinding = binding
         handoverJob = scope.launch {
             val started = System.nanoTime()
-            while (isActive && !binding.engaged) {
-                if (System.nanoTime() - started > HANDOVER_TIMEOUT_MS * 1_000_000L) {
-                    // The mixer couldn't place the stream on the track (or playback is paused): don't
-                    // leave the UI waiting; V comes in whenever the mixer does place it.
-                    Log.w(TAG, "live Sing not engaged after $HANDOVER_TIMEOUT_MS ms; handing over anyway")
-                    break
-                }
-                delay(HANDOVER_POLL_MS)
+            // Playing: when the mixer first takes V out (the cut-in glide starts there). Paused: once V
+            // covers the Ready span at the playhead — the glide still waits for the first removal.
+            // The timeout: the mixer couldn't place the stream on the track; V comes in whenever it does.
+            var reason: SingReadiness.Handover? = null
+            while (isActive && reason == null) {
+                reason = SingReadiness.handover(
+                    engaged = binding.engaged,
+                    playing = player.isPlaying,
+                    coveredAtPlayhead = SingReadiness.isReadyAt(binding.track, player.currentPosition),
+                    elapsedMs = (System.nanoTime() - started) / 1_000_000,
+                    timeoutMs = HANDOVER_TIMEOUT_MS,
+                )
+                if (reason == null) delay(HANDOVER_POLL_MS)
             }
+            Log.d(TAG, "handover: $reason after ${(System.nanoTime() - started) / 1_000_000} ms")
             if (mixControl.liveBinding === binding) controller.onStreamHandedOver(request.key)
         }
     }
