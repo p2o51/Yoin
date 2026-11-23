@@ -356,6 +356,9 @@ internal class HomeCellFlips(
     private val widths = HashMap<HomeSection, Animatable<Float, AnimationVector1D>>()
     private val lastTarget = HashMap<HomeSection, Int>()
 
+    /** Cells whose move keeps their end edge nearer in place (a full row becoming the right half): content sits at the end. */
+    private val endAnchored = HashSet<HomeSection>()
+
     /** The feed composed [section] in the row [rowKey]: a change of row arms a move from its last place. */
     fun compose(section: HomeSection, rowKey: HomeSection) {
         val was = lastRow[section] ?: return
@@ -375,6 +378,7 @@ internal class HomeCellFlips(
         lastRow.keys.retainAll(keep)
         lastBounds.keys.retainAll(keep)
         lastTarget.keys.retainAll(keep)
+        endAnchored.retainAll(keep)
     }
 
     internal fun shows(section: HomeSection, rowKey: HomeSection): Boolean =
@@ -392,6 +396,7 @@ internal class HomeCellFlips(
         ) {
             val w = Animatable(last.toFloat())
             widths[section] = w
+            endAnchored.remove(section)
             scope.launch {
                 w.animateTo(target.toFloat(), spec())
                 if (widths[section] === w) widths.remove(section)
@@ -415,6 +420,9 @@ internal class HomeCellFlips(
 
     internal fun offsetOf(section: HomeSection) = offsets[section]?.value
 
+    /** [section]'s content keeps to its block's end edge while the width springs ([homeCellAnchorsEnd]). Draw only. */
+    internal fun anchorsEnd(section: HomeSection): Boolean = section in endAnchored
+
     internal fun placed(section: HomeSection, rowKey: HomeSection, coordinates: LayoutCoordinates, targetWidth: Float) {
         // A row fading out still places its old cell: it keeps no record.
         if (!shows(section, rowKey)) return
@@ -424,6 +432,11 @@ internal class HomeCellFlips(
         val from = pending.remove(section)
         if (from != null) {
             val delta = from.topLeft - topLeft
+            if (section != pinned() && homeCellAnchorsEnd(from.left, from.right, topLeft.x, topLeft.x + targetWidth)) {
+                endAnchored += section
+            } else {
+                endAnchored -= section
+            }
             if (section != pinned()) {
                 val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
                 offsets[section] = offset
@@ -485,7 +498,20 @@ internal class HomeCellMorph(private val flips: HomeCellFlips, private val secti
 
     /** How much wider the content lays out than the block draws now (< 0: narrower); 0 at rest. */
     fun contentExtra(): Int = flips.contentExtra(section)
+
+    /** The content keeps to the block's end edge, the one staying (nearly) in place. Draw only. */
+    fun anchorsEnd(): Boolean = flips.anchorsEnd(section)
 }
+
+/**
+ * A cell moving from [fromLeft]‥[fromRight] to [toLeft]‥[toRight] keeps its content at its end
+ * edge when that edge travels less than its start edge: a full row becoming the right half of a
+ * pair (a block dropped beside it, on its left) narrows from the left, its right edge staying,
+ * and its content sits in the right half from the first frame — never sliding across the half
+ * the incoming block lands in (2026-11-23). A move without a width change ties: start edge. Pure.
+ */
+internal fun homeCellAnchorsEnd(fromLeft: Float, fromRight: Float, toLeft: Float, toRight: Float): Boolean =
+    abs(fromRight - toRight) < abs(fromLeft - toLeft) - .5f
 
 /** The morph of the cell a block sits in; null outside two columns' cells. */
 internal val LocalHomeCellMorph = staticCompositionLocalOf<HomeCellMorph?> { null }
@@ -518,12 +544,20 @@ internal fun Modifier.homeCellMorphContent(morph: HomeCellMorph?): Modifier = if
     this
 } else {
     drawWithContent {
-        if (morph.contentExtra() > 0) {
-            clipRect(left = -size.width, top = -size.height, right = size.width, bottom = size.height * 2f) {
+        val extra = morph.contentExtra()
+        // Anchored at the end ([homeCellAnchorsEnd]): the content's end edge on the block's,
+        // so it moves with the block's end and is cut at its start edge instead.
+        val end = extra != 0 && morph.anchorsEnd()
+        val dx = if (end) -extra.toFloat() else 0f
+        when {
+            extra > 0 && end -> clipRect(left = 0f, top = -size.height, right = size.width * 2f, bottom = size.height * 2f) {
+                translate(left = dx) { this@drawWithContent.drawContent() }
+            }
+            extra > 0 -> clipRect(left = -size.width, top = -size.height, right = size.width, bottom = size.height * 2f) {
                 this@drawWithContent.drawContent()
             }
-        } else {
-            drawContent()
+            end -> translate(left = dx) { this@drawWithContent.drawContent() }
+            else -> drawContent()
         }
     }.layout { measurable, constraints ->
         if (!constraints.hasBoundedWidth) return@layout measurable.measure(constraints).let { layout(it.width, it.height) { it.place(0, 0) } }

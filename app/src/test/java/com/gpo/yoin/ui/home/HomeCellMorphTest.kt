@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -109,5 +110,22 @@ class HomeCellMorphTest {
         assertEquals(800, homeCellMorphContentWidth(boxWidth = 500, extra = 300))
         assertEquals(390, homeCellMorphContentWidth(boxWidth = 790, extra = -400))
         assertEquals(1, homeCellMorphContentWidth(boxWidth = 0, extra = -10))
+    }
+
+    @Test
+    fun should_keepContentAtTheEndEdge_when_aFullRowBecomesTheRightHalf() {
+        // Jump Back In (0‥1200) becomes the right half (620‥1200) as Activities is dropped on its left:
+        // its right edge stays, so its content sits in the right half, never across the incoming slot.
+        assertTrue(homeCellAnchorsEnd(fromLeft = 0f, fromRight = 1200f, toLeft = 620f, toRight = 1200f))
+        // The right half turning full widens leftward: revealed from its end edge too.
+        assertTrue(homeCellAnchorsEnd(fromLeft = 620f, fromRight = 1200f, toLeft = 0f, toRight = 1200f))
+    }
+
+    @Test
+    fun should_keepContentAtTheStartEdge_when_theLeftEdgeStaysOrTheCellOnlyMoves() {
+        assertFalse(homeCellAnchorsEnd(fromLeft = 0f, fromRight = 1200f, toLeft = 0f, toRight = 580f))
+        assertFalse(homeCellAnchorsEnd(fromLeft = 0f, fromRight = 580f, toLeft = 0f, toRight = 1200f))
+        // A swap of sides (same width) moves the whole cell: start edge, as before.
+        assertFalse(homeCellAnchorsEnd(fromLeft = 0f, fromRight = 580f, toLeft = 620f, toRight = 1200f))
     }
 }
