@@ -21,10 +21,10 @@ import kotlin.math.sqrt
  * 3. Chunks cross-faded (weighted OLA), DC restored as 0, iSTFT → V at 22.05 kHz.
  * 4. V → source rate; I = X − V from the same decoded samples.
  *
- * Every buffer is indexed from 0 with absolute gets and puts; on the device they are memory-mapped
- * work files, so a long song costs no heap. A frame's spectrum is added up only until its last chunk
- * is in, then inverted at once, so chunks can run in any order — the one under the play position
- * first ([ChunkPlan.order]).
+ * Every buffer is indexed from 0 and read and written in bulk through reused arrays; on the device
+ * they are memory-mapped work files, so a long song costs no heap. A frame's spectrum is added up only
+ * until its last chunk is in, then inverted at once, so chunks can run in any order — the one under
+ * the play position first ([ChunkPlan.order]).
  */
 class VocalSeparator(private val step: Int = LyraSingSpec.DEFAULT_STEP_FRAMES) {
 
@@ -47,10 +47,8 @@ class VocalSeparator(private val step: Int = LyraSingSpec.DEFAULT_STEP_FRAMES) {
         priorityFrame: Int = 0,
         progress: Progress = Progress { _, _ -> },
     ): Int {
-        for (i in 0 until length) {
-            vocalLeft.put(i, 0f)
-            vocalRight.put(i, 0f)
-        }
+        vocalLeft.zeroAt(0, length)
+        vocalRight.zeroAt(0, length)
         // Reflect padding needs more than half a window; a clip that short has nothing to sing.
         if (length <= N_FFT / 2) return 0
 
@@ -137,11 +135,18 @@ internal class ChunkRunner(val stft: Stft = Stft()) {
     val outR = DoubleArray(N_FFT)
     private val plane = MODEL_BINS * CHUNK_FRAMES
 
+    /** The chunk's samples, reflect padded: every frame's window, read from the signals at once. */
+    private val spanLeft = FloatArray(SPAN)
+    private val spanRight = FloatArray(SPAN)
+
     /** Frames [start, start + valid) of a [length]-sample core signal through [model]; returns the scale. */
     fun run(left: FloatBuffer, right: FloatBuffer, length: Int, start: Int, valid: Int, model: SeparationModel): Float {
         input.fill(0f)
+        val span = (valid - 1) * HOP + N_FFT
+        stft.padded(left, length, start * HOP - N_FFT / 2, spanLeft, span)
+        stft.padded(right, length, start * HOP - N_FFT / 2, spanRight, span)
         for (t in 0 until valid) {
-            stft.forwardPair(left, right, length, start + t, lRe, lIm, rRe, rIm)
+            stft.forwardPair(spanLeft, spanRight, t * HOP, lRe, lIm, rRe, rIm)
             for (b in 0 until MODEL_BINS) {
                 val at = b * CHUNK_FRAMES + t
                 input[at] = lRe[b + 1].toFloat()
@@ -176,6 +181,11 @@ internal class ChunkRunner(val stft: Stft = Stft()) {
         var sum = 0.0
         for (v in x) sum += v.toDouble() * v
         return sqrt(sum / x.size + RMS_EPSILON)
+    }
+
+    private companion object {
+        /** Samples under a whole chunk's frames. */
+        const val SPAN = (CHUNK_FRAMES - 1) * HOP + N_FFT
     }
 }
 
@@ -224,10 +234,8 @@ class FullBandSeparator(
         val n = minOf(frames, upLength)
         up.process(vocalCoreL, coreLength, vocalL, 0, n)
         up.process(vocalCoreR, coreLength, vocalR, 0, n)
-        for (i in n until frames) {
-            vocalL.put(i, 0f)
-            vocalR.put(i, 0f)
-        }
+        vocalL.zeroAt(n, frames)
+        vocalR.zeroAt(n, frames)
         return Result(vocalL, vocalR, chunks)
     }
 }
