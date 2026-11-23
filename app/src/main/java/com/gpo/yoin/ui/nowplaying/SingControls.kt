@@ -46,12 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,10 +81,8 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
-import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlinx.coroutines.delay
 
 /**
@@ -341,6 +341,8 @@ internal fun SingLyricsCapsuleKey(
     val thresholdPx = with(density) { 28.dp.toPx() }
     val micZonePx = with(density) { 34.dp.toPx() }
     val slopPx = with(density) { 5.dp.toPx() }
+    val gesturePadRightPx = with(density) { 16.dp.toPx() }
+    val gesturePadVerticalPx = with(density) { 8.dp.toPx() }
     val dismissState = remember(thresholdPx) { SingCapsuleDismissState(thresholdPx) }
 
     val shape = RoundedCornerShape(animatedCorner)
@@ -389,7 +391,22 @@ internal fun SingLyricsCapsuleKey(
                     IntOffset((overpullPx + shakePx).roundToInt(), 0)
                 }
                 .size(width = animatedWidth, height = iconSize)
-                .then(if (isActive) Modifier.systemGestureExclusion() else Modifier)
+                .then(
+                    if (isActive) {
+                        // Extend exclusion 16dp past the right edge (and 8dp vertically) so drags
+                        // starting just outside the capsule never trigger Android's edge back gesture.
+                        Modifier.systemGestureExclusion { coords ->
+                            Rect(
+                                left = 0f,
+                                top = -gesturePadVerticalPx,
+                                right = coords.size.width + gesturePadRightPx,
+                                bottom = coords.size.height + gesturePadVerticalPx,
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
                 .onSizeChanged { capsuleWidthPx = it.width.coerceAtLeast(1) }
                 .clip(shape)
                 .background(containerColor)
@@ -585,6 +602,8 @@ internal fun SingVocalSlider(
     morphProgress: Float = 1f,
     /** RatingBar's current 0..1 fill fraction so the fill glides continuously on morph. */
     fromRatingFraction: Float = 0f,
+    /** Optional frozen position used during exit morph so resetting 0% → 12% never flashes a fill. */
+    overridePosition: Float? = null,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
@@ -593,13 +612,13 @@ internal fun SingVocalSlider(
     var dragging by remember { mutableStateOf(false) }
     var trackDimensionPx by remember { mutableIntStateOf(1) }
 
-    val targetFraction = level.position.coerceIn(0f, 1f)
+    val targetFraction = (overridePosition ?: level.position).coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(
         targetValue = targetFraction,
         animationSpec = YoinMotion.spatialSpring(),
         label = "singVocalSliderFill",
     )
-    val vocalFraction = if (dragging) targetFraction else animatedFraction
+    val vocalFraction = if (dragging || overridePosition != null) targetFraction else animatedFraction
     val morph = morphProgress.coerceIn(0f, 1f)
     val shownFraction = (fromRatingFraction + (vocalFraction - fromRatingFraction) * morph).coerceIn(0f, 1f)
     val detentFraction = SingGainCurve.DEFAULT_POSITION
@@ -817,6 +836,12 @@ internal fun SingAwareRatingBarSlot(
     ratingBar: @Composable () -> Unit,
 ) {
     val active = showSing && sing != null
+    // Snapshot the live vocal level while active so exiting at 0% (which resets remembered level to 12%
+    // for the next session) morphs cleanly from 0% → rating without flashing a ~15% fill at the bottom.
+    var lastActivePosition by remember { mutableFloatStateOf(sing?.vocalLevel?.position ?: SingGainCurve.DEFAULT_POSITION) }
+    if (active && sing != null) {
+        lastActivePosition = sing.vocalLevel.position
+    }
     val morph by animateFloatAsState(
         targetValue = if (active) 1f else 0f,
         animationSpec = YoinMotion.spatialSpring(),
@@ -835,7 +860,7 @@ internal fun SingAwareRatingBarSlot(
                 ratingBar()
             }
         }
-        // Continuous morph overlay + active SingVocalSlider: glides fill smoothly from ratingFraction → vocalLevel.
+        // Continuous morph overlay + active SingVocalSlider: glides fill smoothly from ratingFraction ↔ vocalLevel.
         if (morph > 0.01f && sing != null) {
             SingVocalSlider(
                 level = sing.vocalLevel,
@@ -843,6 +868,7 @@ internal fun SingAwareRatingBarSlot(
                 orientation = orientation,
                 morphProgress = morph,
                 fromRatingFraction = ratingFraction,
+                overridePosition = if (active) null else lastActivePosition,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -850,14 +876,15 @@ internal fun SingAwareRatingBarSlot(
 }
 
 /**
- * Spatial-spring in-place morph between the Favorite heart circle and [SingExitButton].
- * The circular control smoothly rotates & scales in place on [YoinMotion.spatialSpring] with a light
- * elastic breath instead of abruptly crossfading.
+ * Restrained spatial-spring in-place morph between the Favorite heart circle and [SingExitButton].
+ * Keeps a steady `44.dp` circle with no extra bounce or shape wobble: background color blends
+ * continuously on [YoinMotion.spatialSpring] while the heart and `MicOff` glyphs cross-scale cleanly.
  */
 @Composable
 internal fun SingAwareFavoriteSlot(
     showSing: Boolean,
     sing: NowPlayingSingUi?,
+    isStarred: Boolean = false,
     modifier: Modifier = Modifier,
     favoriteButtons: @Composable () -> Unit,
 ) {
@@ -868,42 +895,58 @@ internal fun SingAwareFavoriteSlot(
         label = "singFavoriteMorphProgress",
     )
     val clamped = morph.coerceIn(0f, 1f)
-    val breathScale = 1f + 0.07f * sin(clamped * PI).toFloat()
+    val heartBg = if (isStarred) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val blendedBg = lerp(heartBg, MaterialTheme.colorScheme.primaryContainer, clamped)
 
     Box(
-        modifier = modifier.graphicsLayer {
-            scaleX = breathScale
-            scaleY = breathScale
-        },
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        if (clamped < 0.99f) {
+        if (clamped <= 0.01f) {
+            favoriteButtons()
+        } else if (clamped >= 0.99f && sing != null) {
+            SingExitButton(
+                onExit = sing.onExit,
+                isPreparing = sing.isPreparing,
+            )
+        } else {
+            // Mid-morph: one steady 44dp circle whose fill color blends continuously while icons swap cleanly.
             Box(
-                modifier = Modifier.graphicsLayer {
-                    val s = 1f - 0.35f * clamped
-                    scaleX = s
-                    scaleY = s
-                    rotationZ = -28f * clamped
-                    alpha = (1f - clamped * 1.35f).coerceIn(0f, 1f)
-                },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(blendedBg),
+                contentAlignment = Alignment.Center,
             ) {
-                favoriteButtons()
-            }
-        }
-        if (clamped > 0.01f && sing != null) {
-            Box(
-                modifier = Modifier.graphicsLayer {
-                    val s = 0.65f + 0.35f * clamped
-                    scaleX = s
-                    scaleY = s
-                    rotationZ = 28f * (1f - clamped)
-                    alpha = ((clamped - 0.12f) / 0.88f).coerceIn(0f, 1f)
-                },
-            ) {
-                SingExitButton(
-                    onExit = sing.onExit,
-                    isPreparing = sing.isPreparing,
-                )
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        val s = (1f - 0.18f * clamped).coerceAtLeast(0.8f)
+                        scaleX = s
+                        scaleY = s
+                        alpha = (1f - clamped * 1.4f).coerceIn(0f, 1f)
+                    },
+                ) {
+                    favoriteButtons()
+                }
+                if (sing != null) {
+                    Icon(
+                        imageVector = SingIcons.MicOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .graphicsLayer {
+                                val s = (0.82f + 0.18f * clamped).coerceIn(0.8f, 1f)
+                                scaleX = s
+                                scaleY = s
+                                alpha = ((clamped - 0.15f) / 0.85f).coerceIn(0f, 1f)
+                            },
+                    )
+                }
             }
         }
     }

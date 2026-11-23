@@ -1993,6 +1993,7 @@ private fun CompactPlayingContent(
                                     SingAwareFavoriteSlot(
                                         showSing = showPortraitSingInRating,
                                         sing = portraitSing,
+                                        isStarred = state.isStarred,
                                     ) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             if (state.serviceFeatures.supportsFavorites) {
@@ -2967,6 +2968,7 @@ private fun WidePlayingContent(
                                 SingAwareFavoriteSlot(
                                     showSing = showDualSingInRating,
                                     sing = dualSing,
+                                    isStarred = state.isStarred,
                                 ) {
                                     LandscapeFavoriteButtons(
                                         state = state,
@@ -3642,6 +3644,7 @@ private fun LandscapePlayingContent(
                 SingAwareFavoriteSlot(
                     showSing = showLandscapeSingInRating,
                     sing = landscapeSing,
+                    isStarred = state.isStarred,
                 ) {
                     LandscapeFavoriteButtons(
                         state = state,
@@ -3693,6 +3696,7 @@ private fun LandscapePlayingContent(
                 SingAwareFavoriteSlot(
                     showSing = showLandscapeSingInRating,
                     sing = landscapeSing,
+                    isStarred = state.isStarred,
                 ) {
                     LandscapeFavoriteButtons(
                         state = state,
