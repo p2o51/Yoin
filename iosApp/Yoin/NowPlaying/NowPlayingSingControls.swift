@@ -46,36 +46,17 @@ struct SingMicOffGlyph: View {
     }
 }
 
-/// Quiet rotating ring rendered inside the Sing button during `.preparing` — zero popups or banners.
-struct SingPreparingRing: View {
-    var color: Color
-    var lineWidth: CGFloat = 2
-    @State private var spinning = false
-
-    var body: some View {
-        Circle()
-            .trim(from: 0.08, to: 0.74)
-            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .onAppear {
-                spinning = false
-                withAnimation(.linear(duration: 1.05).repeatForever(autoreverses: false)) {
-                    spinning = true
-                }
-            }
-            .accessibilityHidden(true)
-    }
-}
-
 /// Full-Screen Lyrics 5th (LAST) control:
 /// - Off: `keySize × keySize` rounded square (`keySize * 0.31`) matching `LyricKeyRow`
-/// - Preparing: stays `keySize × keySize` with a quiet spinning ring around `yoin.mic` (tap cancels)
+/// - Preparing: native `ProgressView` tinted `onPrimaryContainer` (tap cancels, zero popups)
+/// - Failure: brief error-container tint flash + horizontal micro-shake (no modal/toast)
 /// - Active: expands in-place on `Yoin.spatial` into a `124pt × keySize` short `Capsule` vocal slider
 ///   with a subtle `12%` detent notch, left mic tap-to-exit, two-step anti-accidental-dismiss left-drag,
 ///   and **zero percentage text**.
 struct SingLyricsCapsuleKey: View {
     var phase: SingSessionController.Phase
     var level: Float
+    var failureTick: Int = 0
     var scheme: CoverScheme
     var keySize: CGFloat = 52
     var haptics: Bool = true
@@ -87,6 +68,8 @@ struct SingLyricsCapsuleKey: View {
     @State private var overpull: CGFloat = 0
     @State private var wasInDetent = false
     @State private var dragActive = false
+    @State private var errorFlash = false
+    @State private var errorShakeX: CGFloat = 0
 
     private var isActive: Bool { phase == .active }
     private var isPreparing: Bool { phase == .preparing }
@@ -103,26 +86,45 @@ struct SingLyricsCapsuleKey: View {
             }
         }
         .frame(width: isActive ? expandedWidth : keySize, height: keySize)
-        .offset(x: isActive ? -overpull * 6 : 0)
+        .offset(x: (isActive ? -overpull * 6 : 0) + errorShakeX)
         .animation(Yoin.spatial, value: isActive)
         .animation(Yoin.effects, value: isPreparing)
+        .animation(Yoin.effects, value: errorFlash)
+        .task(id: failureTick) {
+            guard failureTick > 0 else { return }
+            if haptics { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+            errorFlash = true
+            withAnimation(Yoin.spatialFast) { errorShakeX = -5 }
+            try? await Task.sleep(for: .milliseconds(70))
+            withAnimation(Yoin.spatialFast) { errorShakeX = 5 }
+            try? await Task.sleep(for: .milliseconds(70))
+            withAnimation(Yoin.spatialFast) { errorShakeX = -3 }
+            try? await Task.sleep(for: .milliseconds(70))
+            withAnimation(Yoin.spatial) { errorShakeX = 0 }
+            try? await Task.sleep(for: .milliseconds(260))
+            errorFlash = false
+        }
     }
 
     private var compactKey: some View {
-        Button {
+        let bg = errorFlash ? scheme.errorContainer : scheme.primaryContainer
+        let fg = errorFlash ? scheme.onErrorContainer : scheme.onPrimaryContainer
+        return Button {
             if haptics { UISelectionFeedbackGenerator().selectionChanged() }
             onToggle()
         } label: {
             ZStack {
-                YoinIcon("mic", size: 22)
-                    .foregroundStyle(scheme.onPrimaryContainer)
                 if isPreparing {
-                    SingPreparingRing(color: scheme.primary, lineWidth: 2)
-                        .padding(6)
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(fg)
+                } else {
+                    YoinIcon("mic", size: 22)
+                        .foregroundStyle(fg)
                 }
             }
             .frame(width: keySize, height: keySize)
-            .background(scheme.primaryContainer, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(bg, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
         .buttonStyle(PressScale())
@@ -328,11 +330,13 @@ struct SingExitCircleButton: View {
             onExit()
         } label: {
             ZStack {
-                SingMicOffGlyph(size: 22)
-                    .foregroundStyle(scheme.onPrimaryContainer)
                 if isPreparing {
-                    SingPreparingRing(color: scheme.primary, lineWidth: 2)
-                        .padding(4)
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(scheme.onPrimaryContainer)
+                } else {
+                    SingMicOffGlyph(size: 22)
+                        .foregroundStyle(scheme.onPrimaryContainer)
                 }
             }
             .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)

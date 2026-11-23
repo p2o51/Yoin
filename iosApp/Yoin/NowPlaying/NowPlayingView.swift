@@ -311,6 +311,8 @@ struct NowPlayingView: View, Equatable {
     /// Playing synced lyrics that follow the playhead, on the expanded
     /// Lyrics page, not selecting lines (Android lyricToolsIdleEligible).
     private var lyricToolsIdleEligible: Bool {
+        // Keep the lyric bar awake while Sing is preparing or active so the spinner / capsule never auto-hides.
+        guard !model.sing.isEnabled else { return false }
         // The expanded page's tools, or the enlarged column's tab-row tools at rest
         // (Android toolsOnScreen: the enlarged tablet's tab row).
         let enlargedRest = model.isPad && !panel && !wide && stage == .compact
@@ -1510,6 +1512,7 @@ struct NowPlayingView: View, Equatable {
                         SingLyricsCapsuleKey(
                             phase: model.sing.phase,
                             level: model.sing.sliderPosition,
+                            failureTick: model.sing.failureTick,
                             scheme: scheme,
                             keySize: keySize,
                             haptics: demo == nil,

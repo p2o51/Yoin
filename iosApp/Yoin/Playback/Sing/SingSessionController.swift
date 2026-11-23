@@ -26,6 +26,8 @@ final class SingSessionController {
     var sliderPosition: Float = SingGainCurve.defaultSlider
     /// Incremented when Sing is enabled from the Cover Long-Press menu so `NowPlayingView` expands to Full-Screen Lyrics.
     private(set) var pendingExpandToLyricsTick: Int = 0
+    /// Incremented whenever Sing preparation fails so the button shows a brief non-modal error cue.
+    private(set) var failureTick: Int = 0
 
     var isActive: Bool { phase == .active }
     var isPreparing: Bool { phase == .preparing }
@@ -182,25 +184,28 @@ final class SingSessionController {
                         },
                         onFailure: { [weak self] in
                             guard let self, self.activeTrackKey == trackKey else { return }
-                            self.isEnabled = false
-                            self.phase = .off
+                            self.failQuietly()
                         }
                     )
                     return
-                case .unavailable, .needsModelDownload:
-                    self.isEnabled = false
-                    self.phase = .off
-                    return
-                case .failed:
-                    // Quietly restore off state; original track continues uninterrupted with zero popups.
-                    self.isEnabled = false
-                    self.phase = .off
+                case .unavailable, .needsModelDownload, .failed:
+                    // Turn Sing off cleanly and emit a brief button-level error cue (no popups).
+                    self.failQuietly()
                     return
                 case .idle:
                     break
                 }
             }
         }
+    }
+
+    private func failQuietly() {
+        prepareTask?.cancel()
+        prepareTask = nil
+        activeTrackKey = nil
+        isEnabled = false
+        phase = .off
+        failureTick += 1
     }
 
     private static func rawSubsonicSongId(from track: PlayableTrack) -> String {
