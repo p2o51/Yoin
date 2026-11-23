@@ -26,6 +26,12 @@ lifecycleCompose = "2.9.0"
 media3 = "1.11.1"
 castFramework = "22.0.0"
 
+# Sing (on-device vocal separation, Lyra-Sing-Lite): ONNX Runtime's CPU/XNNPACK package. The full
+# onnxruntime-android is the only maintained Android artifact (onnxruntime-mobile stopped at 1.18 and
+# its .so is not 16 KB-aligned); app/build.gradle.kts packages its arm64-v8a library only.
+# 1.32.0 is also the version Prism's reference outputs come from. The desktop jar is for unit tests.
+onnxruntime = "1.32.0"
+
 # Google authorization (Drive appDataFolder cloud sync)
 playServicesAuth = "22.0.0"
 # Credential Manager account sheet in front of the Drive authorization
@@ -114,6 +120,10 @@ media3-session = { group = "androidx.media3", name = "media3-session", version.r
 media3-datasource = { group = "androidx.media3", name = "media3-datasource", version.ref = "media3" }
 media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "media3" }
+
+# ONNX Runtime (Sing)
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+onnxruntime-jvm = { group = "com.microsoft.onnxruntime", name = "onnxruntime", version.ref = "onnxruntime" }
 
 # Cast
 cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }

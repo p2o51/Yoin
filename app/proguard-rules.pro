@@ -80,3 +80,8 @@
 -keep class * implements com.google.firebase.components.ComponentRegistrar {
     <init>();
 }
+
+# ONNX Runtime (Sing): its native code creates and reads ai.onnxruntime objects through JNI by name, and the AAR
+# ships no keep rules for them. The telemetry classes it does keep are unused (its provider is removed in the manifest).
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 「跟唱」引擎。占位文案：界面上线前由 Rebecca 改写。 -->
+    <string name="sing_device_insufficient">这台设备分离人声不够快，可以试试用 Lyra 跟唱。</string>
+    <string name="sing_unavailable_provider">跟唱支持 Navidrome 和已下载的歌曲。</string>
+    <string name="sing_unavailable_no_source">现在读不到这首歌，无法跟唱。</string>
+    <string name="sing_unavailable_lyra_pending">Lyra 跟唱还没准备好。</string>
+    <string name="sing_failed_model">跟唱模型下载失败。</string>
+    <string name="sing_failed_generic">这首歌的跟唱没能准备好。</string>
+</resources>
