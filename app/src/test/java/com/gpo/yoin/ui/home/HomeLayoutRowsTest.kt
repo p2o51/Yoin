@@ -93,7 +93,9 @@ class HomeLayoutRowsTest {
 
         assertEquals(HomeRowPreset.XL, layout.rowsOf(HomeSection.JumpBackIn))
         assertEquals(HomeRowPreset.S, layout.rowsOf(HomeSection.Activities))
-        assertTrue(layout.sameSectionsAs(HomeLayout.reconcile(layout.toPrefs())))
+        // The whole document: the flags alone can't carry the memory's pairs this order doesn't show
+        // (Jump Back In | Activities shows, swapped, since 2026-11-23).
+        assertTrue(layout.sameSectionsAs(HomeLayout.fromDocument(layout.toDocument())))
     }
 
     @Test

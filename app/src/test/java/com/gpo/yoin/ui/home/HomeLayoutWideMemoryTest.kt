@@ -83,11 +83,33 @@ class HomeLayoutWideMemoryTest {
     }
 
     @Test
-    fun should_showBothFull_when_aPortraitReorderTurnsAPairAround() {
-        // Jump Back In before Activities: never shown as JBI | Activities, nor against the order.
+    fun should_pairSwapped_when_aPortraitReorderTurnsAPairAround() {
+        // Owner 2026-11-23: Jump Back In before Activities stays a pair, swapped: JBI left, Activities right.
         val turned = wide.withEnabledOrder(listOf(j, a) + wide.enabledSections.drop(2))
-        assertEquals(listOf(HomeFeedRow.Full(j), HomeFeedRow.Full(a)), turned.twoColumnRows().take(2))
+        assertEquals(HomeFeedRow.Halves(j, a), turned.twoColumnRows().first())
+        assertTrue(j in turned.halves() && a in turned.halves())
+        // The memory is untouched: it holds who pairs with whom, the order says who is left.
         assertEquals(widePairs, turned.widePairs)
+        assertSame(turned, turned.rememberingShownPairs())
+        assertTrue(turned.sameSectionsAs(HomeLayout.reconcile(turned.toPrefs())))
+        // Turned back, the original sides return.
+        val back = turned.withEnabledOrder(wide.enabledSections)
+        assertEquals(HomeFeedRow.Halves(a, j), back.twoColumnRows().first())
+        turned.assertPairsShareOneHeight()
+    }
+
+    @Test
+    fun should_matchPairsWhicheverSide_when_comparingMemories() {
+        assertTrue(homeSamePairs(mapOf(a to j, l to ra), mapOf(j to a, l to ra)))
+        assertFalse(homeSamePairs(mapOf(a to j), mapOf(a to m)))
+        assertFalse(homeSamePairs(mapOf(a to j), mapOf(a to j, l to ra)))
+    }
+
+    @Test
+    fun should_pairSwapped_when_theMemoryIsTurnedAround() {
+        assertEquals(mapOf(j to a), homeWidePairsAt(listOf(j, a, m), mapOf(a to j)))
+        // Two remembered pairs, one of them turned around, both show in order.
+        assertEquals(mapOf(j to a, ra to l), homeWidePairsAt(listOf(j, a, ra, l), mapOf(a to j, l to ra)))
     }
 
     @Test

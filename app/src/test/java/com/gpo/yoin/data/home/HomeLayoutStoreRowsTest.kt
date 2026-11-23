@@ -88,7 +88,12 @@ class HomeLayoutStoreRowsTest {
         store.setLayout(PROFILE, read.withRows(HomeSection.JumpBackIn, HomeRowPreset.L).toPrefs())
 
         val written = store.layoutFlow(PROFILE).first()!!.first { it.id == "jump_back_in" }
-        assertEquals(JsonObject(mapOf("density" to JsonPrimitive("airy"))), written.config)
+        // A layout stored without the two-column memory gets the large-screen default's pairs; Activities,
+        // appended right after Jump Back In, pairs with it swapped (owner 2026-11-23), so "span" joins the bag.
+        assertEquals(
+            JsonObject(mapOf("density" to JsonPrimitive("airy"), "span" to JsonPrimitive("half"))),
+            written.config,
+        )
     }
 
     @Test

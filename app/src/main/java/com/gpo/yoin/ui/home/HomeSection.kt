@@ -299,8 +299,8 @@ data class HomeSectionState(
  * [sections] is the order and visibility one column and two columns share. Who
  * pairs with whom in two columns is remembered apart, in [widePairs], and shown
  * wherever the order allows it: a remembered pair is a
- * row of two halves while both are on and the left one comes right before the
- * right one ([homeWidePairsAt]). The `half` flags are that result at this order,
+ * row of two halves while both are on and next to each other in the order, the
+ * one first in the order on the left ([homeWidePairsAt]). The `half` flags are that result at this order,
  * kept in step by every operation, so the feed and older builds read them as before.
  * Order and visibility edits leave the memory alone; two-column edits make it
  * what two columns show ([rememberingShownPairs]).
@@ -377,7 +377,7 @@ data class HomeLayout(
      */
     fun rememberingShownPairs(): HomeLayout {
         val shown = pairs
-        return if (shown == widePairs) this else copy(widePairs = shown)
+        return if (homeSamePairs(shown, widePairs)) this else copy(widePairs = shown)
     }
 
     /**
@@ -561,8 +561,11 @@ data class HomeLayout(
         )
     }
 
-    /** Same order, visibility and rows (and settings bags), and the same two-column memory. */
-    fun sameSectionsAs(other: HomeLayout): Boolean = sections == other.sections && widePairs == other.widePairs
+    /**
+     * Same order, visibility and rows (and settings bags), and the same two-column memory: the same
+     * pairs, whichever side each was remembered on (the order puts them left and right, [homeWidePairsAt]).
+     */
+    fun sameSectionsAs(other: HomeLayout): Boolean = sections == other.sections && homeSamePairs(widePairs, other.widePairs)
 
     /** The catalog arrangement — rows and the two-column memory back to their defaults too — keeping [retained]. */
     fun reset(): HomeLayout = if (isDefault) this else Default.copy(retained = retained)
@@ -784,10 +787,12 @@ data class HomeLayout(
 }
 
 /**
- * The remembered pairs ([memory], left → right, disjoint) that show at [order]
- * (the enabled order): the left one right before the right one, and both able to
- * share a row height ([homeCanPair]). A pair split up, turned around or with one
- * side hidden shows as two full rows and stays remembered. Pure.
+ * The remembered pairs ([memory], disjoint) that show at [order] (the enabled
+ * order), left → right as the order has them: the two right next to each other,
+ * both on, and able to share a row height ([homeCanPair]). A pair the order turned
+ * around (the remembered right one now first) still shows, swapped: the one first
+ * in the order on the left (owner 2026-11-23). A pair split up or with one side
+ * hidden shows as two full rows and stays remembered. Pure.
  */
 internal fun homeWidePairsAt(
     order: List<HomeSection>,
@@ -798,10 +803,15 @@ internal fun homeWidePairsAt(
     for (i in 0 until order.size - 1) {
         val left = order[i]
         val right = order[i + 1]
-        if (memory[left] == right && canPair(left, right)) shown[left] = right
+        val remembered = memory[left] == right || memory[right] == left
+        if (remembered && canPair(left, right)) shown[left] = right
     }
     return shown
 }
+
+/** [a] and [b] hold the same pairs, sides aside: a remembered pair shows in whichever order has it ([homeWidePairsAt]). Pure. */
+internal fun homeSamePairs(a: Map<HomeSection, HomeSection>, b: Map<HomeSection, HomeSection>): Boolean =
+    a.size == b.size && a.all { (left, right) -> b[left] == right || b[right] == left }
 
 /**
  * The pairs of an enabled order given as (section, half): halves pair two by
