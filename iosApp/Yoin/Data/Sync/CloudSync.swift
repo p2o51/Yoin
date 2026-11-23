@@ -259,6 +259,10 @@ final class CloudSync {
         await run { try await $0.dismissMigrationNotice() }
     }
 
+    func dismissPendingMigrationNotice() async {
+        await run { try await $0.dismissPendingMigrationNotice() }
+    }
+
     private func acquireGoogleAccessToken() async -> String? {
         if let debug { return debug.token }
         guard let clientID else { return nil }

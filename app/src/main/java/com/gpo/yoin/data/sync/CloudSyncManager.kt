@@ -292,6 +292,8 @@ class CloudSyncManager(
                 resetPublishBookkeeping()
                 dao.deleteMeta(SyncMetaKeys.PARTICIPATED)
                 dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
+                dao.deleteMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH)
+                dao.deleteMeta(SyncMetaKeys.MIGRATED_NOTICE)
             }
             // The reset epoch belongs to one Drive; the first cycle adopts this Drive's.
             if (previousOwner != about.permissionId) dao.deleteMeta(SyncMetaKeys.EPOCH)

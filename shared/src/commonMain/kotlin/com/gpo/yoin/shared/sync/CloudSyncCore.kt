@@ -157,6 +157,11 @@ class CloudSyncCore(
     private var lastCycleStartedAt = 0L
     private var lastBindings: BindingSnapshot? = null
     private var updateRequiredFrom: String? = null
+    @Volatile private var inTransaction = false
+
+    private fun safePersist() {
+        if (!inTransaction) persist()
+    }
 
     // ------------------------------------------------------------------ public API
 
@@ -439,6 +444,16 @@ class CloudSyncCore(
         if (listed) runCycle(force = true) else refreshState()
     }
 
+    /** Drops an unsendable pending migration notice (e.g. if the user signed out of the old backend). */
+    @Throws(Throwable::class)
+    suspend fun dismissPendingMigrationNotice() = run {
+        ensureInitialized()
+        mutex.withLock {
+            dao.deleteMeta(SyncMetaKeys.PENDING_MIGRATION)
+        }
+        refreshState()
+    }
+
     /**
      * Four-step guided sync location switch (docs/cloud-sync.md):
      * 1. Sync the current location cleanly (pull peers + purges, verify healthy two-way state), then back up.
@@ -473,13 +488,16 @@ class CloudSyncCore(
             val now = clock()
             val createdTargetIds = mutableListOf<String>()
             var targetTransportRef: SyncTransport? = null
+            var errorLocation = oldLocation
             try {
                 // Safety gates: must be enabled, two-way, and healthy on the current location.
                 check(isEnabled()) { "Turn on Cloud sync before switching sync locations." }
                 check(!readOnlyFirstPull || dao.meta(META_TWO_WAY) == "true") {
                     "Finish the initial sync before switching sync locations."
                 }
-                val preSyncError = cycle(oldLocation)
+                // Follow-the-leader switch (e.g. tapping "Switch to iCloud" on the MigratedElsewhere banner):
+                // allow pulling peers/purges from the old location when its marker already points to targetLocation.
+                val preSyncError = cycle(oldLocation, ignoreMigrationTo = targetLocation)
                 if (preSyncError != null) {
                     putMeta(SyncMetaKeys.LAST_ERROR, preSyncError)
                     return@withLock LocationSwitchResult(
@@ -505,6 +523,7 @@ class CloudSyncCore(
                 }
 
                 // Step 2: Connect target location and back up any existing files there before writing.
+                errorLocation = targetLocation
                 val targetTransport = transportFor(targetLocation, targetAccessToken)
                 targetTransportRef = targetTransport
                 val targetAbout = targetTransport.about()
@@ -525,162 +544,173 @@ class CloudSyncCore(
                     now,
                     (oldFiles.maxOfOrNull { it.resetEpoch() ?: it.migratedEpoch() ?: 0L } ?: 0L) + 1,
                 )
-                val markerId = runCatching { oldTransport.generateIds(1).first() }.getOrElse {
-                    Random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-                }
+                // If allocating a remote id fails here, leave it blank so retryPendingMigrationLocked allocates
+                // a valid backend-native id later (never pass a random hex id to Drive).
+                val markerId = runCatching { oldTransport.generateIds(1).first() }.getOrDefault("")
 
                 // Run target merge + upload + Step 3 read-back verification + Step 4 store commit atomically:
-                // any throw rolls back every SyncStore write (bindings, purges, records, meta, pending IDs).
+                // any throw rolls back every SyncStore write (bindings, purges, records, meta, pending IDs),
+                // and inTransaction suppresses disk flushes so a mid-switch kill never leaves mixed state.
                 lateinit var bindingsAfter: BindingSnapshot
                 lateinit var verifiedCounts: List<LocationSwitchAccountCount>
                 var verifiedTotalLive = 0
                 lateinit var snapshotSha256: String
 
                 dao.transaction {
-                    applyPurgeMarkers(targetFiles, targetEpoch, targetTransport)
-                    val targetDataFiles = targetFiles.filter {
-                        val kind = it.appProperties[SyncFileProps.KIND]
-                        kind == SyncFileProps.KIND_STATE || kind == SyncFileProps.KIND_ARTIFACTS
-                    }
-                    val (targetOwn, targetPeers) = targetDataFiles.partition {
-                        it.appProperties[SyncFileProps.DEVICE_ID] == me
-                    }
-                    for (peer in targetPeers) {
-                        val bytes = checkNotNull(targetTransport.download(peer.id)) {
-                            "Couldn't read ${peer.name} in the new location."
+                    inTransaction = true
+                    try {
+                        applyPurgeMarkers(targetFiles, targetEpoch, targetTransport)
+                        val targetDataFiles = targetFiles.filter {
+                            val kind = it.appProperties[SyncFileProps.KIND]
+                            kind == SyncFileProps.KIND_STATE || kind == SyncFileProps.KIND_ARTIFACTS
                         }
-                        val envelope = SnapshotCodec.decode(bytes)
-                        if (envelope.epoch < targetEpoch) continue
-                        engine.mergeRemote(peer, envelope)
-                    }
-
-                    bindingsAfter = refreshBindings()
-                    val captured = engine.capture(bindingsAfter.active)
-                    check(captured.failures.isEmpty()) { "Couldn't read local data cleanly before switching." }
-
-                    val keptTargetOwn = targetOwn.groupBy { it.fileKey() }.mapValues { (_, group) ->
-                        group.maxBy { it.version }
-                    }
-                    val outgoing = engine.outgoingFiles(epoch = targetEpoch, writtenAt = now, appVersionCode = versionCode)
-                    val uploadedByKey = LinkedHashMap<String, RemoteFile>()
-                    val expectedByFileId = LinkedHashMap<String, OutgoingFile>()
-                    for (file in outgoing) {
-                        val key = "${file.fileKind}:${file.shard}"
-                        val existing = keptTargetOwn[key]
-                        if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
-                        val uploaded = uploadTo(targetTransport, targetLocation, existing, file, me)
-                            ?: error("Failed to upload ${file.fileKind} to $targetLocation")
-                        if (existing == null) createdTargetIds += uploaded.id
-                        uploadedByKey[key] = uploaded
-                        expectedByFileId[uploaded.id] = file
-                    }
-
-                    // Step 3: Re-list AND read back every uploaded file to verify bytes, SHA-256, and decoded counts.
-                    val verifiedListing = targetTransport.list().associateBy { it.id }
-                    val stateUploaded = uploadedByKey[STATE_FILE_KEY]
-                    check(stateUploaded != null && uploadedByKey.values.all { verifiedListing.containsKey(it.id) }) {
-                        "Verification failed: uploaded files were not found in the new location."
-                    }
-                    val decodedCountsByScope = LinkedHashMap<String, Int>()
-                    var decodedTotalLive = 0
-                    val expectedFileHashes = ArrayList<String>()
-                    for ((key, uploaded) in uploadedByKey.entries.sortedBy { it.key }) {
-                        val expectedFile = expectedByFileId.getValue(uploaded.id)
-                        val readBack = checkNotNull(targetTransport.download(uploaded.id)) {
-                            "Verification failed: couldn't read back ${uploaded.name} from the new location."
+                        val (targetOwn, targetPeers) = targetDataFiles.partition {
+                            it.appProperties[SyncFileProps.DEVICE_ID] == me
                         }
-                        val expectedHash = CanonicalJson.sha256Hex(expectedFile.bytes)
-                        val actualHash = CanonicalJson.sha256Hex(readBack)
-                        check(readBack.contentEquals(expectedFile.bytes) && actualHash == expectedHash) {
-                            "Verification failed: checksum mismatch for ${uploaded.name}."
+                        for (peer in targetPeers) {
+                            val bytes = checkNotNull(targetTransport.download(peer.id)) {
+                                "Couldn't read ${peer.name} in the new location."
+                            }
+                            val envelope = SnapshotCodec.decode(bytes)
+                            if (envelope.epoch < targetEpoch) continue
+                            engine.mergeRemote(peer, envelope)
                         }
-                        expectedFileHashes += "$key:$actualHash"
-                        val envelope = SnapshotCodec.decode(readBack)
-                        for (record in envelope.records) {
-                            if (!record.deleted && record.kind != SyncKinds.ACCOUNT) {
-                                decodedTotalLive++
-                                if (record.scope != SyncFormat.GLOBAL_SCOPE) {
-                                    decodedCountsByScope[record.scope] = (decodedCountsByScope[record.scope] ?: 0) + 1
+
+                        bindingsAfter = refreshBindings()
+                        val captured = engine.capture(bindingsAfter.active)
+                        check(captured.failures.isEmpty()) { "Couldn't read local data cleanly before switching." }
+
+                        val keptTargetOwn = targetOwn.groupBy { it.fileKey() }.mapValues { (_, group) ->
+                            group.maxBy { it.version }
+                        }
+                        val outgoing = engine.outgoingFiles(epoch = targetEpoch, writtenAt = now, appVersionCode = versionCode)
+                        val uploadedByKey = LinkedHashMap<String, RemoteFile>()
+                        val expectedByFileId = LinkedHashMap<String, OutgoingFile>()
+                        for (file in outgoing) {
+                            val key = "${file.fileKind}:${file.shard}"
+                            val existing = keptTargetOwn[key]
+                            if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
+                            val uploaded = uploadTo(targetTransport, targetLocation, existing, file, me)
+                                ?: error("Failed to upload ${file.fileKind} to $targetLocation")
+                            if (existing == null) createdTargetIds += uploaded.id
+                            uploadedByKey[key] = uploaded
+                            expectedByFileId[uploaded.id] = file
+                        }
+
+                        // Step 3: Re-list AND read back every uploaded file to verify bytes, SHA-256, and decoded counts.
+                        val verifiedListing = targetTransport.list().associateBy { it.id }
+                        val stateUploaded = uploadedByKey[STATE_FILE_KEY]
+                        check(stateUploaded != null && uploadedByKey.values.all { verifiedListing.containsKey(it.id) }) {
+                            "Verification failed: uploaded files were not found in the new location."
+                        }
+                        val decodedCountsByScope = LinkedHashMap<String, Int>()
+                        var decodedTotalLive = 0
+                        val expectedFileHashes = ArrayList<String>()
+                        for ((key, uploaded) in uploadedByKey.entries.sortedBy { it.key }) {
+                            val expectedFile = expectedByFileId.getValue(uploaded.id)
+                            val readBack = checkNotNull(targetTransport.download(uploaded.id)) {
+                                "Verification failed: couldn't read back ${uploaded.name} from the new location."
+                            }
+                            val expectedHash = CanonicalJson.sha256Hex(expectedFile.bytes)
+                            val actualHash = CanonicalJson.sha256Hex(readBack)
+                            check(readBack.contentEquals(expectedFile.bytes) && actualHash == expectedHash) {
+                                "Verification failed: checksum mismatch for ${uploaded.name}."
+                            }
+                            expectedFileHashes += "$key:$actualHash"
+                            val envelope = SnapshotCodec.decode(readBack)
+                            for (record in envelope.records) {
+                                if (!record.deleted && record.kind != SyncKinds.ACCOUNT) {
+                                    decodedTotalLive++
+                                    if (record.scope != SyncFormat.GLOBAL_SCOPE) {
+                                        decodedCountsByScope[record.scope] = (decodedCountsByScope[record.scope] ?: 0) + 1
+                                    }
                                 }
                             }
                         }
-                    }
-                    val expectedLive = dao.allRecords().count { !it.deleted && it.kind != SyncKinds.ACCOUNT }
-                    check(decodedTotalLive == expectedLive) {
-                        "Verification failed: uploaded record count ($decodedTotalLive) did not match expected ($expectedLive)."
-                    }
-                    val expectedByScope = dao.allRecords()
-                        .filter { !it.deleted && it.scope != SyncFormat.GLOBAL_SCOPE && it.kind != SyncKinds.ACCOUNT }
-                        .groupingBy { it.scope }
-                        .eachCount()
-                    check(decodedCountsByScope == expectedByScope) {
-                        "Verification failed: per-account record counts did not match."
-                    }
-                    snapshotSha256 = CanonicalJson.sha256Hex(expectedFileHashes.joinToString("|"))
-                    verifiedTotalLive = decodedTotalLive
-                    verifiedCounts = computeAccountCounts(bindingsAfter, decodedCountsByScope)
+                        val expectedLive = dao.allRecords().count { !it.deleted && it.kind != SyncKinds.ACCOUNT }
+                        check(decodedTotalLive == expectedLive) {
+                            "Verification failed: uploaded record count ($decodedTotalLive) did not match expected ($expectedLive)."
+                        }
+                        val expectedByScope = dao.allRecords()
+                            .filter { !it.deleted && it.scope != SyncFormat.GLOBAL_SCOPE && it.kind != SyncKinds.ACCOUNT }
+                            .groupingBy { it.scope }
+                            .eachCount()
+                        check(decodedCountsByScope == expectedByScope) {
+                            "Verification failed: per-account record counts did not match."
+                        }
+                        snapshotSha256 = CanonicalJson.sha256Hex(expectedFileHashes.joinToString("|"))
+                        verifiedTotalLive = decodedTotalLive
+                        verifiedCounts = computeAccountCounts(bindingsAfter, decodedCountsByScope)
 
-                    // Step 4 (store commit): switch active location & bookkeeping atomically.
-                    resetPublishBookkeeping()
-                    dao.clearRemoteFiles()
-                    for ((key, uploaded) in uploadedByKey) {
-                        val file = expectedByFileId.getValue(uploaded.id)
-                        engine.markUploaded(file)
-                        dao.upsertRemoteFile(
-                            SyncRemoteFileEntity(
-                                fileId = uploaded.id,
-                                deviceId = me,
-                                fileKind = file.fileKind,
-                                shard = file.shard,
-                                version = uploaded.version,
-                                modifiedTime = uploaded.modifiedTime,
-                                deviceName = deviceName(),
-                                writtenAt = now,
-                                own = true,
-                            ),
-                        )
+                        // Step 4 (store commit): switch active location & bookkeeping atomically.
+                        resetPublishBookkeeping()
+                        dao.clearRemoteFiles()
+                        for ((_, uploaded) in uploadedByKey) {
+                            val file = expectedByFileId.getValue(uploaded.id)
+                            engine.markUploaded(file)
+                            dao.upsertRemoteFile(
+                                SyncRemoteFileEntity(
+                                    fileId = uploaded.id,
+                                    deviceId = me,
+                                    fileKind = file.fileKind,
+                                    shard = file.shard,
+                                    version = uploaded.version,
+                                    modifiedTime = uploaded.modifiedTime,
+                                    deviceName = deviceName(),
+                                    writtenAt = now,
+                                    own = true,
+                                ),
+                            )
+                        }
+                        putMeta(SyncMetaKeys.SYNC_LOCATION, targetLocation)
+                        putOwnerPermissionId(targetLocation, targetAbout.permissionId)
+                        putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, targetAbout.permissionId)
+                        if (targetLocation == SyncLocations.GOOGLE_DRIVE) {
+                            targetAbout.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) }
+                                ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
+                            targetAbout.displayName?.let { putMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME, it) }
+                                ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME)
+                        }
+                        putMeta(SyncMetaKeys.EPOCH, targetEpoch.toString())
+                        putMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH, targetMaxMigratedEpoch.toString())
+                        putMeta(SyncMetaKeys.ENABLED, "true")
+                        putMeta(SyncMetaKeys.PARTICIPATED, "true")
+                        putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
+                        putMeta(META_TWO_WAY, "true")
+                        putMeta(SyncMetaKeys.LAST_SYNC_AT, now.toString())
+                        dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
+                        putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|$markerId")
+                    } finally {
+                        inTransaction = false
                     }
-                    putMeta(SyncMetaKeys.SYNC_LOCATION, targetLocation)
-                    putOwnerPermissionId(targetLocation, targetAbout.permissionId)
-                    putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, targetAbout.permissionId)
-                    if (targetLocation == SyncLocations.GOOGLE_DRIVE) {
-                        targetAbout.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) }
-                            ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
-                        targetAbout.displayName?.let { putMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME, it) }
-                            ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME)
-                    }
-                    putMeta(SyncMetaKeys.EPOCH, targetEpoch.toString())
-                    putMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH, targetMaxMigratedEpoch.toString())
-                    putMeta(SyncMetaKeys.ENABLED, "true")
-                    putMeta(SyncMetaKeys.PARTICIPATED, "true")
-                    putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
-                    putMeta(META_TWO_WAY, "true")
-                    putMeta(SyncMetaKeys.LAST_SYNC_AT, now.toString())
-                    dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
-                    putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|$markerId")
                 }
 
-                // Store transaction succeeded: now safely apply merged target records to local domain stores & persist.
-                engine.apply(bindingsAfter.active)
-                persist()
+                // Store transaction committed: NEVER delete these committed target files on any later error/cancel!
+                createdTargetIds.clear()
+                safePersist()
+
+                // Apply merged target records locally (best-effort after commit; any skipped record applies next cycle).
+                runCatching { engine.apply(bindingsAfter.active) }
+                safePersist()
 
                 // Write migration marker to the old location using the authenticated Step 1 transport.
                 // If this fails, PENDING_MIGRATION stays persisted so subsequent cycles retry automatically.
                 var markerWritten = false
                 var oldCleared = false
                 val markerResult = runCatching {
+                    val resolvedMarkerId = markerId.ifEmpty { oldTransport.generateIds(1).first() }
                     writeMigrationMarker(
                         transport = oldTransport,
-                        markerId = markerId,
+                        markerId = resolvedMarkerId,
                         markerEpoch = markerEpoch,
                         targetLocation = targetLocation,
                         at = now,
                     )
                     dao.deleteMeta(SyncMetaKeys.PENDING_MIGRATION)
-                    persist()
+                    safePersist()
                     markerWritten = true
                     if (clearOldCopy) {
-                        deleteOldLocationDataFiles(oldFiles, keepMigrationId = markerId, transport = oldTransport)
+                        deleteOldLocationDataFiles(oldFiles, keepMigrationId = resolvedMarkerId, transport = oldTransport)
                         oldCleared = true
                     }
                 }
@@ -711,7 +741,7 @@ class CloudSyncCore(
                     succeeded = false,
                     fromLocation = oldLocation,
                     toLocation = targetLocation,
-                    error = describe(error, targetLocation),
+                    error = describe(error, errorLocation),
                 )
             } catch (error: Exception) {
                 cleanupAbortedTargetUploads(targetTransportRef, createdTargetIds)
@@ -729,8 +759,9 @@ class CloudSyncCore(
     }
 
     /**
-     * Optional Step 4 cleanup after a switch: backs up [oldLocation] first, then deletes old state/artifact files
-     * while preserving migration markers, all scope purge markers, and the newest reset marker.
+     * Optional Step 4 cleanup after a switch: verifies account ownership, backs up [oldLocation] first, then
+     * deletes old state/artifact files while preserving migration markers, all scope purge markers, and the
+     * newest reset marker.
      */
     @Throws(Throwable::class)
     suspend fun clearOldLocationCopy(oldLocation: String, accessToken: String? = null): String? = run {
@@ -738,6 +769,15 @@ class CloudSyncCore(
             mutex.withLock {
                 check(oldLocation != activeLocation()) { "Cannot clear the active sync location." }
                 val oldTransport = transportFor(oldLocation, accessToken)
+                val about = oldTransport.about()
+                val owner = ownerPermissionId(oldLocation)
+                check(owner != null && owner == about.permissionId) {
+                    if (oldLocation == SyncLocations.ICLOUD) {
+                        "Sign in to the same iCloud account before removing the old copy."
+                    } else {
+                        "Sign in to the same Google account before removing the old Drive copy."
+                    }
+                }
                 val files = oldTransport.list()
                 if (backupSink != null && files.isNotEmpty()) {
                     checkNotNull(backupAll(files, oldTransport, locationOverride = oldLocation)) {
@@ -948,7 +988,7 @@ class CloudSyncCore(
         try {
             block()
         } finally {
-            persist()
+            safePersist()
         }
     }
 
@@ -1016,7 +1056,7 @@ class CloudSyncCore(
     }
 
     /** One network cycle. Returns a LAST_ERROR code, or null when everything went through. */
-    private suspend fun cycle(location: String): String? {
+    private suspend fun cycle(location: String, ignoreMigrationTo: String? = null): String? {
         val transport = activeTransport(location)
         val engine = engine()
         val me = deviceId()
@@ -1086,7 +1126,7 @@ class CloudSyncCore(
                     .getOrNull()
                 val target = decoded?.targetLocation
                     ?: newestMigration.appProperties[SyncFileProps.TARGET_LOCATION].orEmpty()
-                if (target.isNotEmpty() && target != location) {
+                if (target.isNotEmpty() && target != location && target != ignoreMigrationTo) {
                     val by = decoded?.deviceName.orEmpty()
                     return "$CODE_MIGRATED_PREFIX$target|$by"
                 }
@@ -1243,7 +1283,7 @@ class CloudSyncCore(
         val pendingKey = SyncMetaKeys.PENDING_FILE_ID_PREFIX + "$location:${file.fileKind}:${file.shard}"
         val id = dao.meta(pendingKey) ?: transport.generateIds(1).first().also {
             putMeta(pendingKey, it)
-            persist()
+            safePersist()
         }
         val name = if (file.fileKind == SyncFileProps.KIND_STATE) {
             SyncFileProps.stateFileName(me)
@@ -1352,15 +1392,30 @@ class CloudSyncCore(
             return
         }
         val oldTransport = activeTransport(oldLocation)
-        writeMigrationMarker(
-            transport = oldTransport,
-            markerId = markerId,
-            markerEpoch = markerEpoch,
-            targetLocation = targetLocation,
-            at = clock(),
-        )
+        val resolvedId = markerId.ifEmpty {
+            oldTransport.generateIds(1).first().also { fresh ->
+                putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|$fresh")
+                safePersist()
+            }
+        }
+        try {
+            writeMigrationMarker(
+                transport = oldTransport,
+                markerId = resolvedId,
+                markerEpoch = markerEpoch,
+                targetLocation = targetLocation,
+                at = clock(),
+            )
+        } catch (error: SyncTransportException.Server) {
+            // Backend rejected a pre-allocated id (e.g. Drive 400): clear id so next retry allocates a fresh one.
+            if (error.code == 400 && markerId.isNotEmpty()) {
+                putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|")
+                safePersist()
+            }
+            throw error
+        }
         dao.deleteMeta(SyncMetaKeys.PENDING_MIGRATION)
-        persist()
+        safePersist()
     }
 
     /**

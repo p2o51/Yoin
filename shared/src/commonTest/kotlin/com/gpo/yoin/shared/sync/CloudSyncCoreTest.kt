@@ -699,6 +699,45 @@ class CloudSyncCoreTest {
 
         // Simulate 1-hour token refresh (new token string forces IdentityCheckedTokens to re-verify against Drive owner).
         currentGoogleToken = "token-v2-refreshed"
+        // A token from a different Google account must be rejected before deleting anything.
+        val otherDrive = FakeDrive()
+        val wrongAccountCore = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "token-v1"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { provider ->
+                val raw = otherDrive.transport()
+                object : SyncTransport by raw {
+                    override suspend fun about(): GoogleAccountInfo {
+                        val tok = provider.token()
+                        return if (tok == "wrong-user-token") {
+                            GoogleAccountInfo("perm-OTHER", "other@example.com", "Other")
+                        } else {
+                            GoogleAccountInfo("perm-1", "me@example.com", "Me")
+                        }
+                    }
+                }
+            },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = Backups(),
+            icloudTransport = icloudTransport,
+        )
+        assertNull(wrongAccountCore.enable("token-v1"))
+        now += 1_000
+        assertTrue(wrongAccountCore.switchLocation(SyncLocations.ICLOUD).succeeded)
+        val countBeforeWrongClean = otherDrive.files.size
+        val wrongErr = wrongAccountCore.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE, accessToken = "wrong-user-token")
+        assertNotNull(wrongErr)
+        assertEquals(countBeforeWrongClean, otherDrive.files.size)
+
+        // Same Google account after token refresh succeeds cleanly.
         assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
         assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
     }
@@ -736,14 +775,13 @@ class CloudSyncCoreTest {
         now += 1_000
         assertNull(devB.enable("token"))
 
-        // A switches Drive -> iCloud, then B switches Drive -> iCloud (leaving B's migration marker on Drive).
+        // A switches Drive -> iCloud, then B sees the MigratedElsewhere banner and directly taps
+        // "Switch to iCloud" WITHOUT dismissing first (follow-the-leader banner flow).
         now += 1_000
         assertTrue(devA.switchLocation(SyncLocations.ICLOUD).succeeded)
         now += 1_000
         devB.syncNow()
         assertIs<CloudSyncPhase.MigratedElsewhere>(devB.currentState().phase)
-        now += 1_000
-        devB.dismissMigrationNotice()
         now += 1_000
         assertTrue(devB.switchLocation(SyncLocations.ICLOUD).succeeded)
 

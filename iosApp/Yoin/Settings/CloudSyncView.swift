@@ -330,6 +330,9 @@ struct CloudSyncView: View {
                     String(localized: "Migration notice pending"),
                     String(localized: "Other devices on your previous sync location haven't been notified yet. Yoin will retry automatically.")
                 )))
+                rows.append(AnyView(action(String(localized: "Dismiss"), ink: app.onSurfaceVariant, disabled: sync.working) {
+                    Task { await sync.dismissPendingMigrationNotice() }
+                }))
             }
             rows.append(AnyView(action(state.phase is CloudSyncPhaseSyncing ? String(localized: "Syncing…") : String(localized: "Sync now"), ink: app.primary,
                                        disabled: state.phase is CloudSyncPhaseSyncing) { Task { await sync.syncNow() } }))

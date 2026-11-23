@@ -429,10 +429,10 @@ actor LiveCloudKitStore: CloudKitStore {
 
     // MARK: - Private CloudKit helpers
 
-    private static func configure(_ op: CKOperation) {
+    private static func configure(_ op: CKOperation, transferAsset: Bool = false) {
         op.qualityOfService = .userInitiated
         op.configuration.timeoutIntervalForRequest = 30
-        op.configuration.timeoutIntervalForResource = 60
+        op.configuration.timeoutIntervalForResource = transferAsset ? 300 : 60
     }
 
     private func ensureZone() async throws {
@@ -469,7 +469,7 @@ actor LiveCloudKitStore: CloudKitStore {
         let db = self.database
         let op = CKFetchRecordsOperation(recordIDs: [recordID])
         op.desiredKeys = desiredKeys
-        Self.configure(op)
+        Self.configure(op, transferAsset: desiredKeys.contains(Field.payload))
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let box = SavedRecordBox()
@@ -552,7 +552,7 @@ actor LiveCloudKitStore: CloudKitStore {
         let op = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
         op.savePolicy = policy
         op.isAtomic = true
-        Self.configure(op)
+        Self.configure(op, transferAsset: true)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let box = SavedRecordBox()
