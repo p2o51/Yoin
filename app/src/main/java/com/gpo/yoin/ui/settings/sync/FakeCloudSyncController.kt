@@ -7,7 +7,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.sync.CloudAccountContent
 import com.gpo.yoin.data.sync.CloudAccountRow
+import com.gpo.yoin.data.sync.CloudAboutEntry
+import com.gpo.yoin.data.sync.CloudAlbumEntry
+import com.gpo.yoin.data.sync.CloudDataSummary
+import com.gpo.yoin.data.sync.CloudDeviceFiles
+import com.gpo.yoin.data.sync.CloudFile
+import com.gpo.yoin.data.sync.CloudGlobalContent
+import com.gpo.yoin.data.sync.CloudGlobalCounts
+import com.gpo.yoin.data.sync.CloudMemoryTitle
+import com.gpo.yoin.data.sync.CloudNote
+import com.gpo.yoin.data.sync.CloudPlaylistBackupEntry
+import com.gpo.yoin.data.sync.CloudScopeCounts
+import com.gpo.yoin.data.sync.CloudSongRating
+import com.gpo.yoin.data.sync.CloudTranslationEntry
 import com.gpo.yoin.data.sync.CloudSyncController
 import com.gpo.yoin.data.sync.CloudSyncPhase
 import com.gpo.yoin.data.sync.CloudSyncState
@@ -46,6 +60,17 @@ class FakeCloudSyncController(
     var completeTurnOnResult: TurnOnStep = TurnOnStep.Started
 
     var deleteCloudDataResult: Result<Unit> = Result.success(Unit)
+
+    var removeAccountResult: Result<Unit> = Result.success(Unit)
+
+    /** Where [startFreshAccount] leaves the profile (start fresh may be put off, or need a sign-in). */
+    var startFreshStatus: SyncAccountStatus = SyncAccountStatus.Syncing
+
+    /** What the read-only 云端数据 views answer. */
+    var filesResult: Result<List<CloudDeviceFiles>> = Result.success(CloudSyncSamples.files(clock()))
+    var summaryResult: CloudDataSummary = CloudSyncSamples.summary
+    var accountContentResult: CloudAccountContent = CloudSyncSamples.accountContent(clock())
+    var globalContentResult: CloudGlobalContent = CloudSyncSamples.globalContent(clock())
 
     fun setState(state: CloudSyncState) {
         _state.value = state
@@ -114,12 +139,41 @@ class FakeCloudSyncController(
 
     override fun startFreshAccount(localProfileId: String) {
         _calls += "startFreshAccount($localProfileId)"
-        setAccountStatus(localProfileId, SyncAccountStatus.Syncing)
+        setAccountStatus(localProfileId, startFreshStatus)
     }
 
     override fun removeDevice(deviceId: String) {
         _calls += "removeDevice($deviceId)"
         _state.update { state -> state.copy(devices = state.devices.filterNot { it.deviceId == deviceId }) }
+    }
+
+    override suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit> {
+        _calls += "removeAccountFromCloud($syncProfileId)"
+        if (removeAccountResult.isFailure) return removeAccountResult
+        _state.update { state ->
+            state.copy(
+                cloudOnlyAccounts = state.cloudOnlyAccounts.filterNot { it.syncProfileId == syncProfileId },
+                accounts = state.accounts.map { row ->
+                    if (row.syncProfileId == syncProfileId) row.copy(status = SyncAccountStatus.RemovedFromCloud) else row
+                },
+            )
+        }
+        return removeAccountResult
+    }
+
+    override suspend fun cloudFiles(): Result<List<CloudDeviceFiles>> {
+        return filesResult
+    }
+
+    override suspend fun cloudDataSummary(): CloudDataSummary = summaryResult
+
+    override suspend fun cloudAccountContent(syncProfileId: String): CloudAccountContent = accountContentResult
+
+    override suspend fun cloudGlobalContent(): CloudGlobalContent = globalContentResult
+
+    override fun resumeAccountSync(localProfileId: String) {
+        _calls += "resumeAccountSync($localProfileId)"
+        setAccountStatus(localProfileId, SyncAccountStatus.Syncing)
     }
 
     private fun setAccountStatus(localProfileId: String, status: SyncAccountStatus) {
@@ -161,7 +215,7 @@ object CloudSyncSamples {
     )
 
     val accounts = listOf(
-        SyncAccountRow("p1", MediaId.PROVIDER_SUBSONIC, "demo", SyncAccountStatus.Syncing),
+        SyncAccountRow("p1", MediaId.PROVIDER_SUBSONIC, "demo", SyncAccountStatus.Syncing, syncProfileId = "s-9a8b7c"),
         SyncAccountRow("p2", MediaId.PROVIDER_SPOTIFY, "Chen", SyncAccountStatus.NeedsIdentity),
         SyncAccountRow(
             "p3",
@@ -179,6 +233,81 @@ object CloudSyncSamples {
     )
 
     val off = CloudSyncState()
+
+    /** The prototype's sample (artifacts/sync-proto/data.js): three local accounts, two only in the cloud. */
+    val protoCloudOnly = listOf(
+        CloudAccountRow("sp-old", MediaId.PROVIDER_SPOTIFY, "mika.old", hint = null, fromDeviceName = "Pixel 7"),
+        CloudAccountRow("am-us", MediaId.PROVIDER_APPLE_MUSIC, "Apple Music", hint = null, fromDeviceName = "iPad Air"),
+    )
+
+    val protoAccounts = listOf(
+        SyncAccountRow("nav", MediaId.PROVIDER_SUBSONIC, "mika", SyncAccountStatus.Syncing, syncProfileId = "s-nav"),
+        SyncAccountRow("sp", MediaId.PROVIDER_SPOTIFY, "Mika", SyncAccountStatus.Syncing, syncProfileId = "sp-mika"),
+        SyncAccountRow("am", MediaId.PROVIDER_APPLE_MUSIC, "Apple Music", SyncAccountStatus.Syncing, syncProfileId = "am-cn"),
+        SyncAccountRow("old", MediaId.PROVIDER_SPOTIFY, "Chen", SyncAccountStatus.RemovedFromCloud, syncProfileId = "sp-chen"),
+    )
+
+    val summary = CloudDataSummary(
+        scopes = mapOf(
+            "s-nav" to CloudScopeCounts(notes = 128, albums = 43, songRatings = 89, memoryTitles = 6, songsWithData = 168),
+            "sp-mika" to CloudScopeCounts(notes = 64, albums = 21, songRatings = 140, memoryTitles = 4, songsWithData = 171),
+            "am-cn" to CloudScopeCounts(notes = 37, albums = 12, songRatings = 55, memoryTitles = 3, songsWithData = 74),
+            "sp-old" to CloudScopeCounts(notes = 212, albums = 58, songRatings = 176, memoryTitles = 9, songsWithData = 230),
+            "am-us" to CloudScopeCounts(notes = 18, albums = 9, songRatings = 26, memoryTitles = 2, songsWithData = 40),
+            "s-9a8b7c" to CloudScopeCounts(notes = 12, albums = 3, songRatings = 8, memoryTitles = 1, songsWithData = 20),
+            "s-1d2e3f" to CloudScopeCounts(notes = 40, albums = 9, songRatings = 31, songsWithData = 52),
+        ),
+        global = CloudGlobalCounts(playlistBackups = 4, translations = 212, songAbout = 37),
+    )
+
+    fun files(now: Long): List<CloudDeviceFiles> = listOf(
+        device("7f3a", "Pixel Tablet", true, now - 3 * Minute, listOf(46, 52, 38, 21, 9)),
+        device("c21e", "iPad Air", false, now - 125 * Minute, listOf(44, 50, 37, 19, 8)),
+        device("0b9d", "Pixel 7", false, now - 99 * Day, listOf(31, 27, 18, 8, 4)),
+    )
+
+    private fun device(id: String, name: String, me: Boolean, last: Long, kb: List<Int>) = CloudDeviceFiles(
+        deviceId = id,
+        deviceName = name,
+        isThisDevice = me,
+        lastSyncAt = last,
+        files = kb.mapIndexed { index, size ->
+            if (index == 0) {
+                CloudFile("yoin-state-$id.json.gz", size * 1024L, "state", last)
+            } else {
+                CloudFile("yoin-artifacts-$id-${index - 1}.json.gz", size * 1024L, "artifacts", last)
+            }
+        },
+    )
+
+    fun accountContent(now: Long) = CloudAccountContent(
+        notes = listOf(
+            CloudNote("n1", "分裂", "伊能静", "副歌前那半拍停顿，像是把一句话咽回去。", 72_000, now - 20 * Day), // i18n-allow: sample data or a symbol around data
+            CloudNote("n2", "关不住", "伊能静", "鼓一进来整首歌就亮了，适合冬天早上骑车。", 48_000, now - 26 * Day), // i18n-allow: sample data or a symbol around data
+            CloudNote("n3", "Heaven or Las Vegas", "Cocteau Twins", "这里的吉他像水面反光，第一次听是在夜班巴士上。", 201_000, now - 54 * Day), // i18n-allow: sample data or a symbol around data
+        ),
+        albums = listOf(
+            CloudAlbumEntry("al1", "关不住", "伊能静", 9.0f, "写给离开的人，也写给自己。整张专辑的编曲很克制。", now - 41 * Day), // i18n-allow: sample data or a symbol around data
+            CloudAlbumEntry("al2", "夏 / 狂熱", "苏打绿", 8.5f, null, now - 90 * Day), // i18n-allow: sample data or a symbol around data
+        ),
+        songRatings = listOf(
+            CloudSongRating("t1", "Andromeda", "Weyes Blood", 9.0f, now - 70 * Day),
+            CloudSongRating("t2", "他夏了夏天", "苏打绿", 8.0f, now - 90 * Day), // i18n-allow: sample data or a symbol around data
+        ),
+        titles = listOf(
+            CloudMemoryTitle("冬天骑车的那几首", custom = false, subject = "关不住", updatedAt = now - 10 * Day), // i18n-allow: sample data or a symbol around data
+            CloudMemoryTitle("关不住的十月", custom = true, subject = "关不住", updatedAt = now - 40 * Day), // i18n-allow: sample data or a symbol around data
+        ),
+    )
+
+    fun globalContent(now: Long) = CloudGlobalContent(
+        playlistBackups = listOf(
+            CloudPlaylistBackupEntry("深夜开车", 42, MediaId.PROVIDER_SPOTIFY, "Mika", now - 21 * Day), // i18n-allow: sample data or a symbol around data
+            CloudPlaylistBackupEntry("Navidrome 收藏", 118, MediaId.PROVIDER_SUBSONIC, "mika @ music.home.arpa", now - 34 * Day), // i18n-allow: sample data or a symbol around data
+        ),
+        translations = listOf(CloudTranslationEntry("Andromeda", "Weyes Blood", "subsonic:tr-1", "zh-Hans")),
+        about = listOf(CloudAboutEntry("Andromeda", "Weyes Blood", "这首歌写的是什么？", "把爱情比作仙女座：遥远、需要主动去够…", now - 5 * Day)), // i18n-allow: sample data or a symbol around data
+    )
 
     val unavailable = CloudSyncState(phase = CloudSyncPhase.Unavailable(updateRequired = false))
 
@@ -218,9 +347,17 @@ object CloudSyncSamples {
 
     fun cloudCopyRemoved(now: Long) = on(now, CloudSyncPhase.CloudCopyRemoved)
 
+    /** The prototype's s1 page: synced accounts, two only in the cloud, one removed from the cloud. */
+    fun proto(now: Long) = on(now, CloudSyncPhase.UpToDate).copy(
+        account = GoogleAccountUi(email = "mika.demo@gmail.com", displayName = "Mika"),
+        accounts = protoAccounts,
+        cloudOnlyAccounts = protoCloudOnly,
+        lastSummary = null,
+    )
+
     fun accountChanged(now: Long) = on(now, CloudSyncPhase.UpToDate).copy(
         accounts = listOf(
-            SyncAccountRow("p1", MediaId.PROVIDER_SUBSONIC, "demo", SyncAccountStatus.AccountChanged),
+            SyncAccountRow("p1", MediaId.PROVIDER_SUBSONIC, "demo", SyncAccountStatus.AccountChanged, syncProfileId = "s-9a8b7c"),
             SyncAccountRow("p2", MediaId.PROVIDER_SPOTIFY, "Chen", SyncAccountStatus.NeedsReconnect),
         ),
     )

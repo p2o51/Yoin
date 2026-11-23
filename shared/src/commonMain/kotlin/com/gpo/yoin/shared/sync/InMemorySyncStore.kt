@@ -81,6 +81,10 @@ class InMemorySyncStore : SyncStore {
         touch()
     }
 
+    override suspend fun deleteRecord(kind: String, scope: String, key: String) {
+        if (records.remove(Rk(kind, scope, key)) != null) touch()
+    }
+
     // ---- local state
     override suspend fun getLocalState(kind: String, scope: String, key: String) = states[Rk(kind, scope, key)]
 
@@ -139,6 +143,15 @@ class InMemorySyncStore : SyncStore {
 
     override suspend fun deleteBinding(localProfileId: String) {
         if (bindingsByProfile.remove(localProfileId) != null) touch()
+    }
+
+    override suspend fun updateBindingStates(fromState: String, state: String) {
+        for ((id, binding) in bindingsByProfile.toList()) {
+            if (binding.state == fromState) {
+                bindingsByProfile[id] = binding.copy(state = state)
+                touch()
+            }
+        }
     }
 
     // ---- remote files

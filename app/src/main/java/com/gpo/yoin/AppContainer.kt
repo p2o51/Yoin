@@ -520,6 +520,18 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** Export / import backups and Memories transfers (docs/cloud-sync.md「导出与导入」「转移 Memories」). */
+    val memoriesPortability: com.gpo.yoin.data.sync.backup.MemoriesPortability by lazy {
+        com.gpo.yoin.data.sync.backup.MemoriesPortability(
+            context = context,
+            db = database,
+            profileManager = profileManager,
+            cloudSync = cloudSync,
+            versionName = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+        )
+    }
+
     val castManager: CastManager by lazy {
         CastManager(context).also { it.initialize() }
     }
