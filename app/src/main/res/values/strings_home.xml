@@ -253,6 +253,13 @@
     <!-- Copy by Gemini 4 Argon (.argon/notes-mention-tip), line revised in review 2026-11-23. -->
     <string name="home_tip_note_mentions_title">Mention in notes</string>
     <string name="home_tip_note_mentions">Type @ in a note or review to mention a song, album, or artist</string>
+    <!-- Copy by Rebecca, 2026-11-23. -->
+    <string name="home_tip_album_stickies_title">Album notes</string>
+    <string name="home_tip_album_stickies">Tap an empty spot in an album\'s Scrapbook to stick notes onto the whole album</string>
+    <string name="home_tip_mentioned_in_title">Mentioned in</string>
+    <string name="home_tip_mentioned_in">Scroll to the bottom of an album\'s Scrapbook to see every note and review that mentions it</string>
+    <string name="home_tip_cloud_export_transfer_title">Export and transfer Memories</string>
+    <string name="home_tip_cloud_export_transfer">In Settings › Cloud sync, download all your data anytime or move your Memories to another account</string>
     <string name="home_tip_memory_search_title">Search your Memories</string>
     <string name="home_tip_memory_search">Library search finds your notes and Memories too</string>
     <string name="home_tip_library_search_title">Quick search</string>

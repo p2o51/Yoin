@@ -5,6 +5,7 @@ package com.gpo.yoin.ui.detail
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -160,6 +161,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import com.gpo.yoin.data.notes.BacklinkTarget
 import com.gpo.yoin.data.notes.BacklinkTrack
+import com.gpo.yoin.data.notes.NoteBacklink
 import com.gpo.yoin.ui.notes.rememberNoteBacklinks
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
@@ -356,6 +358,11 @@ internal fun AlbumScrapbookPage(
     onFocused: () -> Unit = {},
     // The track sheet's lyrics and Gemini's state and outcomes.
     feeds: ScrapSheetFeeds = ScrapSheetFeeds.None,
+    // The Tips demos drive the page from outside: its stickies, its scroll, and 被提及 without a database
+    // (null: the page's own, and the account's backlinks).
+    stickyEditing: StickyEditing? = null,
+    scrollState: ScrollState? = null,
+    backlinks: List<NoteBacklink>? = null,
 ) {
     when (state) {
         // Room answers within a frame or two; a quiet page beats a spinner flash.
@@ -379,6 +386,9 @@ internal fun AlbumScrapbookPage(
             focusEdit = focusEdit,
             onFocused = onFocused,
             feeds = feeds,
+            stickyEditing = stickyEditing ?: remember { StickyEditing() },
+            scrollState = scrollState ?: rememberScrollState(),
+            backlinks = backlinks,
             modifier = modifier,
         )
     }
@@ -405,11 +415,12 @@ private fun ScrapbookPaper(
     focusEdit: AlbumScrapbookAboutRef?,
     onFocused: () -> Unit,
     feeds: ScrapSheetFeeds,
+    // An album sticky being written in place (the dashed sticky, a sticky tapped, or bare paper tapped).
+    stickyEditing: StickyEditing,
+    scrollState: ScrollState,
+    backlinks: List<NoteBacklink>?,
     modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberScrollState()
-    // An album sticky being written in place (the dashed sticky, a sticky tapped, or bare paper tapped).
-    val stickyEditing = remember { StickyEditing() }
     val paperScope = rememberCoroutineScope()
     // The open track sheet: which track, on which tab, and the About row it opened editing.
     var trackSheet by remember { mutableStateOf<ScrapSheetOpen?>(null) }
@@ -604,8 +615,9 @@ private fun ScrapbookPaper(
                         )
                     }
                 }
+                val accountBacklinks = rememberNoteBacklinks(backlinkTarget.takeIf { backlinks == null })
                 BacklinksSection(
-                    backlinks = rememberNoteBacklinks(backlinkTarget),
+                    backlinks = backlinks ?: accountBacklinks,
                     albumSeed = content.albumId,
                     colors = colors,
                     modifier = Modifier.width(contentWidth).padding(top = 28.dp),
