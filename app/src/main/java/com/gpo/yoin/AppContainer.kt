@@ -486,13 +486,17 @@ class AppContainer(private val context: Context) {
                 appleMusicNameRegionStore.remove(profileId)
                 // Ratings it still owed its server can't be sent now (I10).
                 database.localRatingDao().clearPendingForProfile(profileId)
-                runCatching { cloudSync.onProfileDeleted(profileId) }
-                runCatching {
-                    com.gpo.yoin.edition.EditionFeatures.onProfileDeleted(
-                        context = context,
-                        container = this,
-                        profileId = profileId,
-                    )
+                // Run sync & edition cleanup on applicationScope so ProfileManager.delete() never
+                // blocks on an in-flight sync cycle or gets aborted if the user leaves Settings.
+                applicationScope.launch {
+                    runCatching { cloudSync.onProfileDeleted(profileId) }
+                    runCatching {
+                        com.gpo.yoin.edition.EditionFeatures.onProfileDeleted(
+                            context = context,
+                            container = this@AppContainer,
+                            profileId = profileId,
+                        )
+                    }
                 }
             },
         ).also { manager ->

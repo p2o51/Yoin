@@ -71,6 +71,7 @@ object EditionFeatures {
                 LyraSyncTransport.pinned(creds.authForProfile(pinnedProfileId), http = syncHttpClient)
             },
             profileIdFromToken = LyraSyncAuthorizer::profileIdFromToken,
+            resolveCurrentProfileId = { creds.currentAuth()?.profileId?.takeIf { it.isNotBlank() } },
         )
     }
 

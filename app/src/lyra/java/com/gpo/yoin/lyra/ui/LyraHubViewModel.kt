@@ -313,12 +313,10 @@ class LyraHubViewModel(
                     if (!canOpen) {
                         failedCount += 1
                     } else {
-                        val meta = resolveFileMeta(uri)
-                        val name = meta.first ?: "audio-${System.currentTimeMillis()}-$idx.bin"
-                        val size = meta.second
+                        val name = resolveFileMeta(uri).first ?: "audio-${System.currentTimeMillis()}-$idx.bin"
                         ready += LyraUploadPart(
                             filename = name,
-                            contentLength = size,
+                            contentLength = -1L,
                             openStream = { appContext.contentResolver.openInputStream(uri) },
                         )
                     }
@@ -330,31 +328,43 @@ class LyraHubViewModel(
                 _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_failed, localFailures.coerceAtLeast(uris.size)))
                 return@launch
             }
-            runCatching { session.api.uploadInboxParts(auth, parts) }
-                .onSuccess { resp ->
-                    _ui.update { it.copy(inboxBusy = false) }
-                    val totalFailed = localFailures + resp.failed.size
-                    val succeededCount = if (resp.items.isNotEmpty()) {
+            var succeededCount = 0
+            var totalFailed = localFailures
+            var lastError: Throwable? = null
+            for (part in parts) {
+                val res = runCatching { session.api.uploadInboxParts(auth, listOf(part)) }
+                res.onSuccess { resp ->
+                    totalFailed += resp.failed.size
+                    succeededCount += if (resp.items.isNotEmpty()) {
                         resp.items.size
                     } else {
-                        (parts.size - resp.failed.size).coerceAtLeast(0)
+                        (1 - resp.failed.size).coerceAtLeast(0)
                     }
-                    when {
-                        totalFailed == 0 ->
-                            _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_done))
-                        succeededCount > 0 ->
-                            _messages.trySend(
-                                appContext.getString(R.string.lyra_inbox_upload_partial, succeededCount, totalFailed),
-                            )
-                        else ->
-                            _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_failed, totalFailed))
+                }.onFailure { err ->
+                    if (err is kotlinx.coroutines.CancellationException) throw err
+                    if (err is LyraApiException && err.code == 401) {
+                        _ui.update { it.copy(inboxBusy = false, inboxNeedsAdminToken = true) }
+                        postError(err)
+                        return@launch
                     }
-                    loadInboxAndLater()
+                    totalFailed += 1
+                    lastError = err
                 }
-                .onFailure { err ->
-                    _ui.update { it.copy(inboxBusy = false, inboxNeedsAdminToken = err is LyraApiException && err.code == 401) }
-                    postError(err)
-                }
+            }
+            _ui.update { it.copy(inboxBusy = false) }
+            when {
+                totalFailed == 0 ->
+                    _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_done))
+                succeededCount > 0 ->
+                    _messages.trySend(
+                        appContext.getString(R.string.lyra_inbox_upload_partial, succeededCount, totalFailed),
+                    )
+                lastError != null && localFailures == 0 ->
+                    postError(lastError!!)
+                else ->
+                    _messages.trySend(appContext.getString(R.string.lyra_inbox_upload_failed, totalFailed))
+            }
+            if (succeededCount > 0) loadInboxAndLater()
         }
     }
 

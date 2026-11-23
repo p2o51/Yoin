@@ -351,23 +351,25 @@ class CloudSyncManager(
         }
     }
 
-    /** Turns sync off cleanly when the local profile pinned to an edition backend (e.g. Lyra) is removed. */
+    /**
+     * Turns sync off immediately when the local profile pinned to an edition backend (e.g. Lyra)
+     * is removed. Never blocks on an in-flight sync lock: marks sync disabled and cancels any
+     * running cycle right away so UI and future cycles see the disabled state immediately.
+     */
     suspend fun onProfileDeleted(profileId: String) = withIo {
         if (backendOverride == null) return@withIo
         if (hooks == null && !syncDbFile().exists()) return@withIo
-        ensureInitialized()
-        var turnedOff = false
-        mutex.withLock {
-            if (dao.meta(SyncMetaKeys.BACKEND_PROFILE_ID) == profileId) {
+        withContext(NonCancellable) {
+            ensureInitialized()
+            val pinned = dao.meta(SyncMetaKeys.BACKEND_PROFILE_ID)
+            if (pinned == profileId) {
                 putMeta(SyncMetaKeys.ENABLED, "false")
                 dao.deleteMeta(SyncMetaKeys.BACKEND_PROFILE_ID)
                 dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
-                turnedOff = true
+                launchedCycle?.cancel()
+                stopObservers()
+                refreshState()
             }
-        }
-        if (turnedOff) {
-            stopObservers()
-            refreshState()
         }
     }
 
@@ -573,6 +575,12 @@ class CloudSyncManager(
         val about = activeTransport.about()
         val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
         if (owner != null && owner != about.permissionId) return CODE_ACCOUNT_MISMATCH
+        // Migrate pre-pinning installs on their first verified cycle so sync stays bound to one server.
+        if (backendOverride != null && dao.meta(SyncMetaKeys.BACKEND_PROFILE_ID).isNullOrBlank()) {
+            backendOverride.resolveCurrentProfileId()?.let { currentId ->
+                putMeta(SyncMetaKeys.BACKEND_PROFILE_ID, currentId)
+            }
+        }
 
         val files = activeTransport.list()
 
@@ -1309,4 +1317,5 @@ class SyncBackendOverride(
     val backendName: String = "Lyra",
     val resolveTransport: suspend (pinnedProfileId: String?) -> SyncTransport = { transport },
     val profileIdFromToken: (String) -> String? = { null },
+    val resolveCurrentProfileId: suspend () -> String? = { null },
 )

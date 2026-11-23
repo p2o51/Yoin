@@ -309,11 +309,11 @@ class LyraSessionManager(
             liveUpdate.showActive(active)
         } else if (completedNow.isNotEmpty()) {
             liveUpdate.showCompleted(completedNow.first())
-            if (completedNow.any { it.isDone }) {
-                container.notifyLibraryContentChanged()
-            }
         } else {
             liveUpdate.clear()
+        }
+        if (completedNow.any { it.isDone }) {
+            container.notifyLibraryContentChanged()
         }
     }
 

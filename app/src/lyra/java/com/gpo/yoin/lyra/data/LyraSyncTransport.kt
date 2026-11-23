@@ -98,21 +98,37 @@ class LyraSyncTransport(
         val auth = requireAuth()
         // Pass every non-blank appProperty (including scope, targetLocation, and future keys) so
         // purge/migration markers never lose metadata on round-trip.
-        val params = buildMap {
-            put("name", name)
-            appProperties.forEach { (key, value) ->
-                if (key.isNotBlank() && value.isNotBlank() && key !in RESERVED_QUERY_KEYS) {
-                    put(key, value)
+        val allProps = appProperties.filter { (key, value) ->
+            key.isNotBlank() && value.isNotBlank() && key !in RESERVED_QUERY_KEYS
+        }
+        val legacyProps = allProps.filterKeys { it in LEGACY_PROP_KEYS }
+        val hasExtraProps = allProps.size > legacyProps.size
+
+        suspend fun postCreate(props: Map<String, String>): RemoteFile {
+            val params = buildMap {
+                put("name", name)
+                putAll(props)
+            }
+            val url = syncUrl(auth, listOf("files", fileId), queryParams = params)
+            val body = bytes.toRequestBody(mimeType.toMediaType())
+            return send(requestBuilder(url).post(body).build(), accept = setOf(409)) { response ->
+                if (response.code == 409) {
+                    throw SyncTransportException.AlreadyExists("Lyra sync file $fileId already exists")
                 }
+                decode<LyraSyncFileDto>(response).toRemoteFile()
             }
         }
-        val url = syncUrl(auth, listOf("files", fileId), queryParams = params)
-        val body = bytes.toRequestBody(mimeType.toMediaType())
-        send(requestBuilder(url).post(body).build(), accept = setOf(409)) { response ->
-            if (response.code == 409) {
-                throw SyncTransportException.AlreadyExists("Lyra sync file $fileId already exists")
+
+        try {
+            postCreate(allProps)
+        } catch (error: SyncTransportException.Server) {
+            // Backward compatibility with older Lyra servers (pre-lyra#2) whose strict AppPropertyKeys
+            // allowlist returns HTTP 400 on newer keys like `scope` or `targetLocation`.
+            if (error.code == 400 && hasExtraProps) {
+                postCreate(legacyProps)
+            } else {
+                throw error
             }
-            decode<LyraSyncFileDto>(response).toRemoteFile()
         }
     }
 
@@ -166,7 +182,11 @@ class LyraSyncTransport(
             413 -> SyncTransportException.Server(413, "Lyra sync payload too large: $body")
             429 -> {
                 val lower = body.lowercase()
-                val isAuthThrottle = "auth" in lower || "credential" in lower || "login" in lower || "password" in lower
+                val isAuthThrottle = "subsoniccode" in lower ||
+                    "auth" in lower ||
+                    "credential" in lower ||
+                    "login" in lower ||
+                    "password" in lower
                 if (isAuthThrottle) {
                     SyncTransportException.Unauthorized("Lyra authentication rate-limited ($code): $body")
                 } else {
@@ -242,6 +262,13 @@ class LyraSyncTransport(
         private val GZIP_MEDIA_TYPE = "application/gzip".toMediaType()
         private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
         private val RESERVED_QUERY_KEYS = setOf("name", "u", "t", "s", "v", "c", "f")
+        private val LEGACY_PROP_KEYS = setOf(
+            com.gpo.yoin.data.sync.SyncFileProps.KIND,
+            com.gpo.yoin.data.sync.SyncFileProps.DEVICE_ID,
+            com.gpo.yoin.data.sync.SyncFileProps.SHARD,
+            com.gpo.yoin.data.sync.SyncFileProps.SCHEMA,
+            com.gpo.yoin.data.sync.SyncFileProps.EPOCH,
+        )
 
         /** Returns a transport pinned to a single resolved [LyraServerAuth] snapshot for one cycle. */
         fun pinned(auth: LyraServerAuth?, http: OkHttpClient = defaultHttpClient()): LyraSyncTransport =

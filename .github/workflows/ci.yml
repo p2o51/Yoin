@@ -112,7 +112,7 @@ jobs:
           key: robolectric-${{ steps.robolectric.outputs.version }}
           restore-keys: robolectric-
       - name: Unit tests
-        run: ./gradlew :app:testStandardDebugUnitTest :app:testLyraDebugUnitTest :shared:testAndroidHostTest -PyoinSymbolsDir=yoin-symbols
+        run: ./gradlew :app:testStandardDebugUnitTest :app:testLyraDebugUnitTest :shared:testAndroidHostTest :playground:track-match:test -PyoinSymbolsDir=yoin-symbols
       - name: Upload test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

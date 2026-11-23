@@ -16,7 +16,7 @@ The gate is the single status check enforced by branch protection, so individual
 jobs can be renamed or added without reconfiguring the protected branch.
 
 - **ktlint** — `./gradlew ktlintCheck`
-- **Unit tests** — `./gradlew :app:testStandardDebugUnitTest :app:testLyraDebugUnitTest :shared:testAndroidHostTest` (Standard & Lyra edition JVM/Robolectric tests + KMP `:shared`)
+- **Unit tests** — `./gradlew :app:testStandardDebugUnitTest :app:testLyraDebugUnitTest :shared:testAndroidHostTest :playground:track-match:test` (Standard & Lyra edition JVM/Robolectric tests, KMP `:shared`, and the playground module)
 - **Android Lint** — `./gradlew :app:lintStandardDebug :app:lintLyraDebug`, gated against `app/lint-baseline.xml`
 - **Assemble debug APK** — `./gradlew :app:assembleStandardDebug :app:assembleLyraDebug` (standard debug APK uploaded as a build artifact)
 

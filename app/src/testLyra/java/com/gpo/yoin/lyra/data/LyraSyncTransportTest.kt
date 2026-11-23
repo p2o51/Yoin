@@ -191,7 +191,7 @@ class LyraSyncTransportTest {
         assertNotNull(rate)
         assertEquals(12_000L, rate?.retryAfterMs)
 
-        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"error":"too many failed auth attempts"}"""))
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"subsonicCode":40,"error":"too many attempts"}"""))
         val authThrottle = runCatching { transport.list() }.exceptionOrNull()
         assertTrue(authThrottle is SyncTransportException.Unauthorized)
 
@@ -207,5 +207,39 @@ class LyraSyncTransportTest {
         )
         val networkErr = runCatching { deadTransport.about() }.exceptionOrNull()
         assertTrue(networkErr is SyncTransportException.Network)
+    }
+
+    @Test
+    fun createRetriesWithLegacyAppPropertiesWhenOlderServerRejectsExtraKeysWith400() = runTest {
+        val payload = byteArrayOf(1, 2, 3)
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"unknown appProperty scope"}"""))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(201)
+                .setBody(
+                    """{"id":"lyf_p1","name":"yoin-purge-1-dev1.json","version":1,"size":3,"appProperties":{"yoinKind":"purge","deviceId":"dev1","epoch":"1"}}""",
+                ),
+        )
+
+        val created = transport.create(
+            fileId = "lyf_p1",
+            name = "yoin-purge-1-dev1.json",
+            appProperties = mapOf(
+                SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
+                SyncFileProps.DEVICE_ID to "dev1",
+                SyncFileProps.EPOCH to "1",
+                SyncFileProps.SCOPE to "s-abc",
+            ),
+            mimeType = "application/json",
+            bytes = payload,
+        )
+        assertEquals("lyf_p1", created.id)
+
+        val firstReq = server.takeRequest()
+        assertEquals("s-abc", firstReq.requestUrl?.queryParameter(SyncFileProps.SCOPE))
+
+        val retryReq = server.takeRequest()
+        assertNull("Legacy fallback must strip unknown key", retryReq.requestUrl?.queryParameter(SyncFileProps.SCOPE))
+        assertEquals(SyncFileProps.KIND_PURGE, retryReq.requestUrl?.queryParameter(SyncFileProps.KIND))
     }
 }

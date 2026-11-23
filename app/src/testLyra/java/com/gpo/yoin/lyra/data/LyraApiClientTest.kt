@@ -1,7 +1,14 @@
 package com.gpo.yoin.lyra.data
 
 import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -255,5 +262,57 @@ class LyraApiClientTest {
         val bodyText = req.body.readUtf8()
         assertTrue(bodyText.contains("filename=\"ok.flac\""))
         assertTrue(bodyText.contains("FLAC_DATA"))
+    }
+
+    @Test
+    fun streamEventsCancelsPromptlyWhenStreamStalls() = runBlocking {
+        // Server holds headers/body open for 15 seconds (simulating an idle SSE heartbeat gap).
+        server.enqueue(
+            MockResponse()
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody("retry: 3000\n\n: keepalive\n\n")
+                .throttleBody(1, 15, TimeUnit.SECONDS),
+        )
+
+        val job = launch(Dispatchers.IO) {
+            client.streamEvents(auth(), ticket = "tkt-slow") {}
+        }
+        delay(200L)
+        val startedCancelMs = System.currentTimeMillis()
+        job.cancel()
+        withTimeout(3_000L) { job.join() }
+        val elapsedMs = System.currentTimeMillis() - startedCancelMs
+        assertTrue("Expected SSE cancellation under 2s, took ${elapsedMs}ms", elapsedMs < 2_000L)
+    }
+
+    @Test
+    fun uploadInboxPartsWrapsSecurityExceptionAsIoExceptionWithoutCrashing() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"items":[]}"""))
+        val err = runCatching {
+            client.uploadInboxParts(
+                auth = auth(adminToken = "adm-9"),
+                parts = listOf(
+                    LyraUploadPart(
+                        filename = "revoked.flac",
+                        contentLength = 1234L,
+                        openStream = { throw SecurityException("URI permission expired") },
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue("Expected IOException wrapper, got $err", err is IOException)
+    }
+
+    @Test
+    fun validateAdminTokenFallsBackAcrossAdminEndpointsWhenInboxIs404() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"inbox disabled"}"""))
+        server.enqueue(MockResponse().setBody("""{"items":[]}"""))
+
+        client.validateAdminToken(auth(adminToken = "adm-ok"))
+        val req1 = server.takeRequest()
+        val req2 = server.takeRequest()
+        assertEquals("/api/v1/inbox", req1.requestUrl?.encodedPath)
+        assertEquals("/api/v1/later", req2.requestUrl?.encodedPath)
+        assertEquals("Bearer adm-ok", req2.getHeader("Authorization"))
     }
 }

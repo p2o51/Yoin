@@ -8,10 +8,13 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -181,50 +184,77 @@ class LyraApiClient(
             .get()
             .build()
         val call = sseHttp.newCall(req)
-        val cancelHandle = currentCoroutineContext().job.invokeOnCompletion {
-            runCatching { call.cancel() }
-        }
-        try {
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw parseApiError(response.code, response.body.string())
+        coroutineScope {
+            val cancelWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    runCatching { call.cancel() }
                 }
-                val reader = BufferedReader(InputStreamReader(response.body.byteStream(), Charsets.UTF_8))
-                val dataLines = StringBuilder()
-                while (currentCoroutineContext().isActive) {
-                    val line = reader.readLine() ?: break
-                    when {
-                        line.isEmpty() -> {
-                            if (dataLines.isNotEmpty()) {
-                                val raw = dataLines.toString().trim()
-                                dataLines.clear()
-                                runCatching { json.decodeFromString(LyraEvent.serializer(), raw) }
-                                    .getOrNull()
-                                    ?.let { onEvent(it) }
+            }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw parseApiError(response.code, response.body.string())
+                    }
+                    val reader = BufferedReader(InputStreamReader(response.body.byteStream(), Charsets.UTF_8))
+                    val dataLines = StringBuilder()
+                    while (currentCoroutineContext().isActive) {
+                        val line = reader.readLine() ?: break
+                        when {
+                            line.isEmpty() -> {
+                                if (dataLines.isNotEmpty()) {
+                                    val raw = dataLines.toString().trim()
+                                    dataLines.clear()
+                                    runCatching { json.decodeFromString(LyraEvent.serializer(), raw) }
+                                        .getOrNull()
+                                        ?.let { onEvent(it) }
+                                }
                             }
-                        }
-                        line.startsWith("data:") -> {
-                            if (dataLines.isNotEmpty()) dataLines.append('\n')
-                            dataLines.append(line.removePrefix("data:").trimStart())
+                            line.startsWith("data:") -> {
+                                if (dataLines.isNotEmpty()) dataLines.append('\n')
+                                dataLines.append(line.removePrefix("data:").trimStart())
+                            }
                         }
                     }
                 }
+            } catch (error: IOException) {
+                if (!currentCoroutineContext().isActive || call.isCanceled()) {
+                    throw CancellationException("SSE stream cancelled", error)
+                }
+                throw error
+            } finally {
+                cancelWatcher.cancel()
             }
-        } catch (error: IOException) {
-            if (!currentCoroutineContext().isActive || call.isCanceled()) {
-                throw CancellationException("SSE stream cancelled", error)
-            }
-            throw error
-        } finally {
-            cancelHandle.dispose()
         }
     }
 
     // ── Admin-authenticated Inbox, Listen Later & Share Passes ───────────
 
-    /** Verifies that [auth.adminToken] is accepted by an admin-only endpoint (`GET /api/v1/inbox`). */
+    /**
+     * Verifies that [auth.adminToken] is accepted by an admin-only endpoint.
+     * Falls through 404s in case an optional admin module (e.g. inbox) is disabled on the server.
+     */
     suspend fun validateAdminToken(auth: LyraServerAuth) {
-        listInbox(auth, all = false)
+        val probes: List<suspend () -> Unit> = listOf(
+            { listInbox(auth, all = false) },
+            { listLater(auth) },
+            { listShares(auth) },
+        )
+        var last404: LyraApiException? = null
+        for (probe in probes) {
+            try {
+                probe()
+                return
+            } catch (err: LyraApiException) {
+                if (err.code == 404) {
+                    last404 = err
+                    continue
+                }
+                throw err
+            }
+        }
+        if (last404 != null) throw last404
     }
 
     suspend fun listInbox(auth: LyraServerAuth, all: Boolean = false): List<LyraInboxItem> = withContext(Dispatchers.IO) {
@@ -388,14 +418,30 @@ class LyraApiClient(
     ) : RequestBody() {
         override fun contentType(): MediaType = OCTET_STREAM
 
-        override fun contentLength(): Long = part.contentLength
+        // Always use chunked transfer encoding: ContentProvider OpenableColumns.SIZE is often
+        // stale or 0, which causes OkHttp ProtocolException on byte-count mismatch.
+        override fun contentLength(): Long = -1L
 
         override fun isOneShot(): Boolean = true
 
         override fun writeTo(sink: BufferedSink) {
-            val stream = part.openStream() ?: throw IOException("Couldn't open ${part.filename}")
-            stream.source().use { source ->
-                sink.writeAll(source)
+            val stream = try {
+                part.openStream()
+            } catch (error: IOException) {
+                throw error
+            } catch (error: Throwable) {
+                // Convert SecurityException / IllegalArgumentException from ContentProvider into
+                // IOException so OkHttp never crashes its dispatcher thread.
+                throw IOException("Couldn't open ${part.filename}: ${error.message}", error)
+            } ?: throw IOException("Couldn't open ${part.filename}")
+            try {
+                stream.source().use { source ->
+                    sink.writeAll(source)
+                }
+            } catch (error: IOException) {
+                throw error
+            } catch (error: Throwable) {
+                throw IOException("Couldn't stream ${part.filename}: ${error.message}", error)
             }
         }
     }
