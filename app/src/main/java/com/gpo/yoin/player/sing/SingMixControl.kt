@@ -64,6 +64,12 @@ class SingMixControl {
         private set
 
     /**
+     * The song the live mixer takes the vocal out of (on-device Sing), set by [SingPlaybackSwitcher];
+     * null: the original passes through. See [SingMixerAudioProcessor].
+     */
+    @Volatile var liveBinding: SingLiveBinding? = null
+
+    /**
      * Set when Sing turns on: the next Sing stream starts at gain 1.0 — the mix, so swapping the
      * original stream for the 4-channel one is inaudible — and glides from there to [targetGain]
      * along [SingRampCurve.EaseOutCubic].
@@ -97,4 +103,14 @@ class SingMixControl {
 
         val IDENTITY = intArrayOf(0, 1, 2, 3)
     }
+}
+
+/**
+ * A song's [track] bound to the live mixer, for the request [requestKey], and the player's period it
+ * plays as ([periodUid], from the player's timeline; null: not checked). The mixer sets [engaged] the
+ * first time V applies — the moment Sing audibly cuts in, which [SingPlaybackSwitcher] hands to
+ * [SingController.onStreamHandedOver].
+ */
+class SingLiveBinding(val track: SingVocalTrack, val requestKey: String, val periodUid: Any?) {
+    @Volatile var engaged: Boolean = false
 }
