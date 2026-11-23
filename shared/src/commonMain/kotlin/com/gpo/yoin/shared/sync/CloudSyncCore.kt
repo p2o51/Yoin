@@ -690,7 +690,10 @@ class CloudSyncCore(
                 safePersist()
 
                 // Apply merged target records locally (best-effort after commit; any skipped record applies next cycle).
-                runCatching { engine.apply(bindingsAfter.active) }
+                val applyResult = runCatching { engine.apply(bindingsAfter.active) }
+                if (applyResult.exceptionOrNull() is CancellationException) {
+                    throw applyResult.exceptionOrNull()!!
+                }
                 safePersist()
 
                 // Write migration marker to the old location using the authenticated Step 1 transport.
@@ -698,7 +701,12 @@ class CloudSyncCore(
                 var markerWritten = false
                 var oldCleared = false
                 val markerResult = runCatching {
-                    val resolvedMarkerId = markerId.ifEmpty { oldTransport.generateIds(1).first() }
+                    val resolvedMarkerId = markerId.ifEmpty {
+                        oldTransport.generateIds(1).first().also { fresh ->
+                            putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|$fresh")
+                            safePersist()
+                        }
+                    }
                     writeMigrationMarker(
                         transport = oldTransport,
                         markerId = resolvedMarkerId,
@@ -1408,7 +1416,7 @@ class CloudSyncCore(
             )
         } catch (error: SyncTransportException.Server) {
             // Backend rejected a pre-allocated id (e.g. Drive 400): clear id so next retry allocates a fresh one.
-            if (error.code == 400 && markerId.isNotEmpty()) {
+            if (error.code == 400 && resolvedId.isNotEmpty()) {
                 putMeta(SyncMetaKeys.PENDING_MIGRATION, "$oldLocation|$targetLocation|$markerEpoch|")
                 safePersist()
             }
