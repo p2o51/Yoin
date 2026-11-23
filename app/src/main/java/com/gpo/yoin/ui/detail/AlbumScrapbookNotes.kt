@@ -98,9 +98,12 @@ import com.gpo.yoin.ui.theme.YoinMotion
 internal val LocalScrapChecklistToggle =
     androidx.compose.runtime.staticCompositionLocalOf<((String, Int, Boolean) -> Unit)?> { null }
 
-/** What the album's stickies are doing: shown, or one being written. */
+/**
+ * What the album's stickies are doing: shown, or one being written. [autoFocus]: an opened sticky takes
+ * the focus (and the keyboard comes up); the Tips demo opens one without it.
+ */
 @Stable
-internal class StickyEditing {
+internal class StickyEditing(val autoFocus: Boolean = true) {
     /** Null: nothing open; [NEW]: the dashed sticky became an editor; else the note id being edited. */
     var open by mutableStateOf<String?>(null)
         private set
@@ -155,7 +158,14 @@ internal fun StickyPile(
         stickies.forEach { sticky ->
             if (editing.open == sticky.noteId) {
                 editing.editor?.let { editor ->
-                    StickyEditor(editor, sticky.tilt, colors, onSave = { onSave(sticky.noteId, it) }, onCancel = editing::close)
+                    StickyEditor(
+                        editor,
+                        sticky.tilt,
+                        colors,
+                        editing.autoFocus,
+                        onSave = { onSave(sticky.noteId, it) },
+                        onCancel = editing::close,
+                    )
                 }
             } else {
                 Sticky(sticky, colors, onClick = { editing.startEdit(sticky) })
@@ -163,7 +173,14 @@ internal fun StickyPile(
         }
         if (editing.open == StickyEditing.NEW) {
             editing.editor?.let { editor ->
-                StickyEditor(editor, 0.6f, colors, onSave = { onSave(StickyEditing.NEW, it) }, onCancel = editing::close)
+                StickyEditor(
+                    editor,
+                    0.6f,
+                    colors,
+                    editing.autoFocus,
+                    onSave = { onSave(StickyEditing.NEW, it) },
+                    onCancel = editing::close,
+                )
             }
         } else if (editing.open == null) {
             DashedSticky(colors, onClick = editing::startNew)
@@ -230,11 +247,12 @@ private fun StickyEditor(
     editor: NoteEditorState,
     tilt: Float,
     colors: ScrapbookColors,
+    autoFocus: Boolean,
     onSave: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(editor) { runCatching { focus.requestFocus() } }
+    LaunchedEffect(editor) { if (autoFocus) runCatching { focus.requestFocus() } }
     Column(
         modifier = Modifier
             .scrapLayer(tilt * 0.4f, depth = 0.45f)

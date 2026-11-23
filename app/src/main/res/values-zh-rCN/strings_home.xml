@@ -228,6 +228,12 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
     <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
+    <string name="home_tip_album_stickies_title">专辑笔记</string>
+    <string name="home_tip_album_stickies">轻点专辑剪贴簿的空白处，可以给整张专辑贴上多张笔记</string>
+    <string name="home_tip_mentioned_in_title">被提及</string>
+    <string name="home_tip_mentioned_in">翻到专辑剪贴簿最下方，可以看到哪些笔记和乐评提到过它</string>
+    <string name="home_tip_cloud_export_transfer_title">导出与转移 Memories</string>
+    <string name="home_tip_cloud_export_transfer">在设置 › 云同步里，可随时下载全部数据，也能把 Memories 转给另一个账号</string>
     <string name="home_tip_memory_search_title">搜索 Memories</string>
     <string name="home_tip_memory_search">在资料库搜索，也能找到你的笔记和 Memories</string>
     <string name="home_tip_library_search_title">快速搜索</string>
