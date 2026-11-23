@@ -94,7 +94,7 @@ internal fun SyncLocationPage(account: String?, onBack: () -> Unit, snackbarHost
                             MetaGroup.Plain(stringResource(R.string.settings_sync_location_cloudkit)),
                             MetaGroup.Plain(stringResource(R.string.settings_sync_location_apple_devices)),
                         ),
-                        pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
+                        pill = { SyncPill(stringResource(R.string.settings_sync_location_apple_only), SyncPillTone.Muted) },
                         selected = false,
                         enabled = false,
                         onClick = {
@@ -453,10 +453,10 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
                 SettingsItem(
                     icon = YoinSymbols.Cloud,
                     title = stringResource(
-                        if (manifest.source.location == BackupFormat.LOCATION_GOOGLE_DRIVE) {
-                            R.string.settings_sync_google_drive
-                        } else {
-                            R.string.settings_sync_import_this_device
+                        when (manifest.source.location) {
+                            BackupFormat.LOCATION_GOOGLE_DRIVE -> R.string.settings_sync_google_drive
+                            BackupFormat.LOCATION_ICLOUD -> R.string.settings_sync_location_icloud
+                            else -> R.string.settings_sync_import_this_device
                         },
                     ),
                     summaryContent = {

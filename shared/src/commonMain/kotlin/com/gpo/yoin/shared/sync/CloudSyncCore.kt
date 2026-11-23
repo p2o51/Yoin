@@ -61,6 +61,8 @@ class CloudSyncCore(
      */
     private val readOnlyFirstPull: Boolean = false,
     private val backupSink: SyncBackupSink? = null,
+    /** Native iCloud (CloudKit Private Database) transport on Apple platforms; null on non-Apple builds. */
+    private val icloudTransport: SyncTransport? = null,
 ) {
     private val mutex = Mutex()
     private val dao: SyncStore get() = store
@@ -75,7 +77,17 @@ class CloudSyncCore(
 
     fun currentState(): CloudSyncState = _state.value
 
-    private val transport: SyncTransport by lazy { transportFactory(IdentityCheckedTokens(tokens)) }
+    private val driveTransport: SyncTransport by lazy { transportFactory(IdentityCheckedTokens(tokens)) }
+
+    private suspend fun activeLocation(): String =
+        dao.meta(SyncMetaKeys.SYNC_LOCATION)?.takeIf { it.isNotEmpty() } ?: SyncLocations.GOOGLE_DRIVE
+
+    private suspend fun activeTransport(location: String? = null): SyncTransport =
+        when (location ?: activeLocation()) {
+            SyncLocations.ICLOUD -> icloudTransport
+                ?: throw SyncTransportException.Misconfigured("iCloud sync isn't available in this build of Yoin.")
+            else -> driveTransport
+        }
 
     private fun clientFor(accessToken: String): SyncTransport = transportFactory(
         object : SyncTokenProvider {
@@ -84,6 +96,12 @@ class CloudSyncCore(
             override suspend fun invalidate(token: String) = Unit
         },
     )
+
+    private fun transportFor(location: String, accessToken: String?): SyncTransport = when (location) {
+        SyncLocations.ICLOUD -> icloudTransport
+            ?: throw SyncTransportException.Misconfigured("iCloud sync isn't available in this build of Yoin.")
+        else -> if (accessToken != null) clientFor(accessToken) else driveTransport
+    }
 
     /**
      * Each token string is checked once against the stored Google identity before any request uses it,
@@ -140,41 +158,60 @@ class CloudSyncCore(
     suspend fun googleEmail(): String? = run { dao.meta(SyncMetaKeys.GOOGLE_EMAIL) }
 
     /**
-     * Turn on (or reconnect) with a fresh access token for the account the user just chose.
+     * Turn on (or reconnect) Google Drive with a fresh access token for the account the user just chose.
      * Returns null when sync started, or a user-facing message.
      */
     @Throws(Throwable::class)
-    suspend fun enable(accessToken: String): String? = run {
+    suspend fun enable(accessToken: String): String? = enableLocation(SyncLocations.GOOGLE_DRIVE, accessToken)
+
+    /**
+     * Turn on (or reconnect) iCloud (CloudKit Private Database) without OAuth sign-in.
+     * Returns null when sync started, or a user-facing message.
+     */
+    @Throws(Throwable::class)
+    suspend fun enableICloud(): String? = enableLocation(SyncLocations.ICLOUD, accessToken = null)
+
+    /**
+     * Turn on (or reconnect) cloud sync for [location] ([SyncLocations.GOOGLE_DRIVE] or [SyncLocations.ICLOUD]).
+     * Returns null when sync started, or a user-facing message.
+     */
+    @Throws(Throwable::class)
+    suspend fun enableLocation(location: String, accessToken: String? = null): String? = run {
         ensureInitialized()
         val about = try {
-            clientFor(accessToken).about()
+            transportFor(location, accessToken).about()
         } catch (error: SyncTransportException.Misconfigured) {
             return@run "Cloud sync isn't available in this build of Yoin."
         } catch (error: SyncTransportException) {
-            return@run describe(error)
+            return@run describe(error, location)
         }
         mutex.withLock {
+            val previousLocation = activeLocation()
             val previousOwner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
             val replicaOwner = dao.meta(SyncMetaKeys.REPLICA_PERMISSION_ID)
-            val otherDrive = (previousOwner != null && previousOwner != about.permissionId) ||
+            val otherStore = previousLocation != location ||
+                (previousOwner != null && previousOwner != about.permissionId) ||
                 (replicaOwner != null && replicaOwner != about.permissionId)
-            if (otherDrive) {
-                // Different Google account: the replica describes another Drive. Domain data stays.
+            if (otherStore) {
+                // Different backend or account: the replica describes another cloud copy. Domain data stays.
                 engine().clearReplica()
                 resetPublishBookkeeping()
                 dao.deleteMeta(SyncMetaKeys.PARTICIPATED)
                 dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
+                dao.deleteMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH)
             }
-            // The reset epoch belongs to one Drive; the first cycle adopts this Drive's.
-            if (previousOwner != about.permissionId) {
+            // The reset epoch belongs to one cloud store; the first cycle adopts this store's.
+            if (previousLocation != location || previousOwner != about.permissionId) {
                 dao.deleteMeta(SyncMetaKeys.EPOCH)
-                // A new Drive: pull it read-only (and back it up) before the first write again.
+                // A new cloud store: pull it read-only (and back it up) before the first write again.
                 dao.deleteMeta(META_TWO_WAY)
             }
+            putMeta(SyncMetaKeys.SYNC_LOCATION, location)
             putMeta(SyncMetaKeys.GOOGLE_PERMISSION_ID, about.permissionId)
             putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, about.permissionId)
             about.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) } ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
             about.displayName?.let { putMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME, it) }
+                ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME)
             dao.deleteMeta(SyncMetaKeys.MISCONFIGURED_FOR)
             dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
             putMeta(SyncMetaKeys.ENABLED, "true")
@@ -229,16 +266,27 @@ class CloudSyncCore(
     /** All devices: write a reset marker, turn off here, delete every Yoin file. Null on success, else a message. */
     @Throws(Throwable::class)
     suspend fun deleteCloudData(): String? = run {
+        var location = SyncLocations.GOOGLE_DRIVE
         val result = runCatching {
             mutex.withLock {
+                location = activeLocation()
+                val transport = activeTransport(location)
                 // Never act on whatever account a token happens to come from.
                 val about = transport.about()
                 val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-                check(owner != null && owner == about.permissionId) { "Reconnect Google before deleting cloud data." }
+                check(owner != null && owner == about.permissionId) {
+                    if (location == SyncLocations.ICLOUD) {
+                        "Sign in to the same iCloud account before deleting cloud data."
+                    } else {
+                        "Reconnect Google before deleting cloud data."
+                    }
+                }
                 val files = transport.list()
                 // Never delete without a local copy of what is there.
                 if (backupSink != null && dao.meta(SyncMetaKeys.PENDING_RESET) == null) {
-                    checkNotNull(backupAll(files)) { "Couldn't back up your Drive data first; nothing was deleted." }
+                    checkNotNull(backupAll(files, transport)) {
+                        "Couldn't back up your cloud data first; nothing was deleted."
+                    }
                 }
                 val pending = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset)
                 // Strictly newer than every marker any device has seen, whatever the local clock says.
@@ -250,7 +298,7 @@ class CloudSyncCore(
                 val markerId = pending?.second ?: transport.generateIds(1).first()
                 putMeta(SyncMetaKeys.PENDING_RESET, "$epoch|$markerId")
                 persist()
-                finishReset(epoch, markerId, files)
+                finishReset(epoch, markerId, files, transport)
             }
             // No token revoke: other devices need the grant to read the marker and turn themselves off.
             Unit
@@ -258,7 +306,361 @@ class CloudSyncCore(
         refreshState()
         result.exceptionOrNull()?.let { error ->
             if (error is CancellationException) throw error
-            (error as? SyncTransportException)?.let(::describe) ?: (error.message ?: "Couldn't delete cloud data.")
+            (error as? SyncTransportException)?.let { describe(it, location) }
+                ?: (error.message ?: "Couldn't delete cloud data.")
+        }
+    }
+
+    /**
+     * Remove one music account ([syncProfileId]) from the active cloud location (Drive or iCloud) across all
+     * devices by writing a [ScopePurgeMarker] and purging the local replica. Local domain data stays.
+     * Returns null on success, or a user-facing error message.
+     */
+    @Throws(Throwable::class)
+    suspend fun removeAccountFromCloud(syncProfileId: String): String? = run {
+        ensureInitialized()
+        var location = SyncLocations.GOOGLE_DRIVE
+        val result = runCatching {
+            require(syncProfileId.isNotEmpty()) { "No account to remove." }
+            mutex.withLock {
+                check(isEnabled()) { "Turn on Cloud sync to remove an account from the cloud." }
+                location = activeLocation()
+                val transport = activeTransport(location)
+                val about = transport.about()
+                val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
+                check(owner != null && owner == about.permissionId) {
+                    if (location == SyncLocations.ICLOUD) {
+                        "Sign in to the same iCloud account before removing an account."
+                    } else {
+                        "Reconnect Google before removing an account."
+                    }
+                }
+                val files = transport.list()
+                val resetEpoch = dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() ?: 0L
+                val engine = engine()
+                val newestRecord = maxOf(
+                    dao.recordsInScope(syncProfileId).maxOfOrNull { it.ts } ?: 0L,
+                    dao.getRecord(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, syncProfileId)?.ts ?: 0L,
+                )
+                val previousMarker = files
+                    .filter {
+                        it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE &&
+                            it.appProperties[SyncFileProps.SCOPE] == syncProfileId
+                    }
+                    .maxOfOrNull { it.appProperties[SyncFileProps.EPOCH]?.toLongOrNull() ?: 0L } ?: 0L
+                val epoch = maxOf(
+                    clock(),
+                    newestRecord,
+                    previousMarker + 1,
+                    (engine.purgedScopes()[syncProfileId] ?: 0L) + 1,
+                    resetEpoch,
+                )
+                val markerId = transport.generateIds(1).first()
+                transport.create(
+                    fileId = markerId,
+                    name = SyncFileProps.purgeFileName(epoch, deviceId()),
+                    appProperties = mapOf(
+                        SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
+                        SyncFileProps.EPOCH to epoch.toString(),
+                        SyncFileProps.SCOPE to syncProfileId,
+                        SyncFileProps.DEVICE_ID to deviceId(),
+                    ),
+                    mimeType = "application/json",
+                    bytes = SnapshotCodec.encodePurge(
+                        ScopePurgeMarker(
+                            scope = syncProfileId,
+                            epoch = epoch,
+                            at = clock(),
+                            deviceId = deviceId(),
+                            deviceName = deviceName(),
+                        ),
+                    ),
+                )
+                engine.applyScopePurge(syncProfileId, epoch)
+                binder.markPurged(syncProfileId)
+                refreshBindings()
+                persist()
+            }
+        }
+        if (result.isSuccess) {
+            runCycle(force = true)
+            return@run null
+        }
+        refreshState()
+        result.exceptionOrNull()?.let { error ->
+            if (error is CancellationException) throw error
+            (error as? SyncTransportException)?.let { describe(it, location) }
+                ?: (error.message ?: "Couldn't remove account from cloud.")
+        }
+    }
+
+    /**
+     * Dismisses a [CloudSyncPhase.MigratedElsewhere] banner and continues syncing with the current location.
+     */
+    @Throws(Throwable::class)
+    suspend fun dismissMigrationNotice() = run {
+        ensureInitialized()
+        mutex.withLock {
+            val location = activeLocation()
+            val files = runCatching { activeTransport(location).list() }.getOrDefault(emptyList())
+            val newestEpoch = files
+                .filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED }
+                .maxOfOrNull { it.appProperties[SyncFileProps.EPOCH]?.toLongOrNull() ?: 0L }
+                ?: clock()
+            putMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH, maxOf(newestEpoch, clock()).toString())
+            dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
+        }
+        runCycle(force = true)
+    }
+
+    /**
+     * Four-step guided sync location switch (docs/cloud-sync.md):
+     * 1. Export & verify snapshot (capture local edits, compute SHA-256, take backup via [backupSink]).
+     * 2. Connect [targetLocation], merge any pre-existing data there, and upload full state + artifacts.
+     * 3. Verify uploaded files exist on [targetLocation] and compute per-account live record counts.
+     * 4. Commit switch, write [MigrationMarker] into the old location, and optionally delete old files.
+     *
+     * Any failure in steps 1–3 leaves the old location and stored sync_location untouched.
+     */
+    @Throws(Throwable::class)
+    suspend fun switchLocation(
+        targetLocation: String,
+        targetAccessToken: String? = null,
+        clearOldCopy: Boolean = false,
+    ): LocationSwitchResult = run {
+        ensureInitialized()
+        val oldLocation = activeLocation()
+        if (oldLocation == targetLocation) {
+            return@run LocationSwitchResult(
+                succeeded = false,
+                fromLocation = oldLocation,
+                toLocation = targetLocation,
+                error = "Already syncing with this location.",
+            )
+        }
+        val outcome = mutex.withLock {
+            val engine = engine()
+            val me = deviceId()
+            val now = clock()
+            try {
+                // Step 1: Capture latest local edits, compute snapshot SHA-256, and back up old location.
+                val bindingsBefore = refreshBindings()
+                engine.capture(bindingsBefore.active)
+                val oldTransport = runCatching { activeTransport(oldLocation) }.getOrNull()
+                val oldFiles = oldTransport?.let { runCatching { it.list() }.getOrNull() }.orEmpty()
+                val backupFolder = if (backupSink != null && oldTransport != null && oldFiles.isNotEmpty()) {
+                    runCatching { backupAll(oldFiles, oldTransport) }.getOrNull()
+                } else {
+                    null
+                }
+                val preOutgoing = engine.outgoingFiles(epoch = 0L, writtenAt = now, appVersionCode = versionCode)
+                val snapshotSha256 = CanonicalJson.sha256Hex(
+                    preOutgoing.joinToString("|") { "${it.fileKind}:${it.shard}:${it.contentHash}" },
+                )
+
+                // Step 2: Connect target location, adopt its epoch, merge any existing peer data, then publish.
+                val targetTransport = transportFor(targetLocation, targetAccessToken)
+                val targetAbout = targetTransport.about()
+                val targetFiles = targetTransport.list()
+                val targetEpoch = targetFiles
+                    .filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_RESET }
+                    .maxOfOrNull { it.appProperties[SyncFileProps.EPOCH]?.toLongOrNull() ?: 0L } ?: 0L
+
+                applyPurgeMarkers(targetFiles, targetEpoch, targetTransport)
+                val targetDataFiles = targetFiles.filter {
+                    val kind = it.appProperties[SyncFileProps.KIND]
+                    kind == SyncFileProps.KIND_STATE || kind == SyncFileProps.KIND_ARTIFACTS
+                }
+                val (targetOwn, targetPeers) = targetDataFiles.partition {
+                    it.appProperties[SyncFileProps.DEVICE_ID] == me
+                }
+                for (peer in targetPeers) {
+                    val bytes = targetTransport.download(peer.id) ?: continue
+                    val envelope = runCatching { SnapshotCodec.decode(bytes) }.getOrNull() ?: continue
+                    if (envelope.epoch < targetEpoch) continue
+                    runCatching { engine.mergeRemote(peer, envelope) }
+                }
+
+                val bindingsAfter = refreshBindings()
+                engine.capture(bindingsAfter.active)
+                engine.apply(bindingsAfter.active)
+
+                val keptTargetOwn = targetOwn.groupBy { it.fileKey() }.mapValues { (_, group) ->
+                    group.maxBy { it.version }
+                }
+                val outgoing = engine.outgoingFiles(epoch = targetEpoch, writtenAt = now, appVersionCode = versionCode)
+                val uploadedIds = LinkedHashMap<String, RemoteFile>()
+                for (file in outgoing) {
+                    val key = "${file.fileKind}:${file.shard}"
+                    val existing = keptTargetOwn[key]
+                    if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
+                    val uploaded = uploadTo(targetTransport, existing, file, me)
+                        ?: error("Failed to upload ${file.fileKind} to $targetLocation")
+                    uploadedIds[key] = uploaded
+                }
+
+                // Step 3: Verify our uploaded files are visible on target and count live records per account.
+                val verifiedListing = targetTransport.list().associateBy { it.id }
+                val stateUploaded = uploadedIds[STATE_FILE_KEY]
+                val countsVerified = stateUploaded != null && verifiedListing.containsKey(stateUploaded.id) &&
+                    uploadedIds.values.all { verifiedListing.containsKey(it.id) }
+                check(countsVerified) { "Verification failed: uploaded files were not found in the new location." }
+
+                val counts = computeAccountCounts(bindingsAfter)
+                val totalLive = dao.allRecords().count { !it.deleted && it.kind != SyncKinds.ACCOUNT }
+
+                // Step 4: Commit new location, write migration marker to old location, optionally clear old copy.
+                resetPublishBookkeeping()
+                dao.clearRemoteFiles()
+                for ((key, uploaded) in uploadedIds) {
+                    val file = outgoing.first { "${it.fileKind}:${it.shard}" == key }
+                    engine.markUploaded(file)
+                    dao.upsertRemoteFile(
+                        SyncRemoteFileEntity(
+                            fileId = uploaded.id,
+                            deviceId = me,
+                            fileKind = file.fileKind,
+                            shard = file.shard,
+                            version = uploaded.version,
+                            modifiedTime = uploaded.modifiedTime,
+                            deviceName = deviceName(),
+                            writtenAt = now,
+                            own = true,
+                        ),
+                    )
+                }
+                putMeta(SyncMetaKeys.SYNC_LOCATION, targetLocation)
+                putMeta(SyncMetaKeys.GOOGLE_PERMISSION_ID, targetAbout.permissionId)
+                putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, targetAbout.permissionId)
+                targetAbout.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) }
+                    ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
+                targetAbout.displayName?.let { putMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME, it) }
+                    ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_DISPLAY_NAME)
+                putMeta(SyncMetaKeys.EPOCH, targetEpoch.toString())
+                putMeta(SyncMetaKeys.ENABLED, "true")
+                putMeta(SyncMetaKeys.PARTICIPATED, "true")
+                putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
+                putMeta(META_TWO_WAY, "true")
+                putMeta(SyncMetaKeys.LAST_SYNC_AT, now.toString())
+                dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
+                dao.deleteMeta(SyncMetaKeys.ACK_MIGRATED_EPOCH)
+                persist()
+
+                var markerWritten = false
+                var oldCleared = false
+                if (oldTransport != null) {
+                    val markerResult = runCatching {
+                        val markerEpoch = maxOf(
+                            now,
+                            (oldFiles.maxOfOrNull { it.resetEpoch() ?: it.migratedEpoch() ?: 0L } ?: 0L) + 1,
+                        )
+                        val markerId = oldTransport.generateIds(1).first()
+                        oldTransport.create(
+                            fileId = markerId,
+                            name = SyncFileProps.migratedFileName(markerEpoch, me),
+                            appProperties = mapOf(
+                                SyncFileProps.KIND to SyncFileProps.KIND_MIGRATED,
+                                SyncFileProps.EPOCH to markerEpoch.toString(),
+                                SyncFileProps.DEVICE_ID to me,
+                                SyncFileProps.TARGET_LOCATION to targetLocation,
+                            ),
+                            mimeType = "application/json",
+                            bytes = SnapshotCodec.encodeMigration(
+                                MigrationMarker(
+                                    epoch = markerEpoch,
+                                    at = now,
+                                    deviceId = me,
+                                    deviceName = deviceName(),
+                                    targetLocation = targetLocation,
+                                ),
+                            ),
+                        )
+                        markerWritten = true
+                        if (clearOldCopy) {
+                            deleteYoinFilesExcept(oldFiles, markerId, oldTransport)
+                            oldCleared = true
+                        }
+                    }
+                    if (markerResult.isFailure && markerResult.exceptionOrNull() is CancellationException) {
+                        throw markerResult.exceptionOrNull()!!
+                    }
+                }
+
+                LocationSwitchResult(
+                    succeeded = true,
+                    fromLocation = oldLocation,
+                    toLocation = targetLocation,
+                    snapshotSha256 = snapshotSha256,
+                    backupFolder = backupFolder,
+                    totalLiveRecords = totalLive,
+                    accountCounts = counts,
+                    countsVerified = true,
+                    migrationMarkerWritten = markerWritten,
+                    oldCopyCleared = oldCleared,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: SyncTransportException) {
+                LocationSwitchResult(
+                    succeeded = false,
+                    fromLocation = oldLocation,
+                    toLocation = targetLocation,
+                    error = describe(error, targetLocation),
+                )
+            } catch (error: Exception) {
+                LocationSwitchResult(
+                    succeeded = false,
+                    fromLocation = oldLocation,
+                    toLocation = targetLocation,
+                    error = error.message ?: "Couldn't switch sync location.",
+                )
+            }
+        }
+        refreshState()
+        outcome
+    }
+
+    /** Optional Step 4 cleanup after a switch: deletes old Yoin files at [oldLocation] except migration markers. */
+    @Throws(Throwable::class)
+    suspend fun clearOldLocationCopy(oldLocation: String, accessToken: String? = null): String? = run {
+        val result = runCatching {
+            mutex.withLock {
+                check(oldLocation != activeLocation()) { "Cannot clear the active sync location." }
+                val oldTransport = transportFor(oldLocation, accessToken)
+                val files = oldTransport.list()
+                files.filter {
+                    it.isYoinFile() && it.appProperties[SyncFileProps.KIND] != SyncFileProps.KIND_MIGRATED
+                }.forEach { file ->
+                    check(oldTransport.delete(file.id)) { "Couldn't delete ${file.name}" }
+                }
+            }
+        }
+        result.exceptionOrNull()?.let { error ->
+            if (error is CancellationException) throw error
+            (error as? SyncTransportException)?.let { describe(it, oldLocation) }
+                ?: (error.message ?: "Couldn't clear old sync copy.")
+        }
+    }
+
+    private suspend fun computeAccountCounts(bindings: BindingSnapshot): List<LocationSwitchAccountCount> {
+        val names = LinkedHashMap<String, String>()
+        for (row in bindings.rows) {
+            row.syncProfileId?.let { names[it] = row.displayName }
+        }
+        for (cloud in bindings.cloudOnly) {
+            if (cloud.syncProfileId !in names) {
+                names[cloud.syncProfileId] = cloud.displayName.ifEmpty { cloud.provider }
+            }
+        }
+        val byScope = dao.allRecords()
+            .filter { !it.deleted && it.scope != SyncFormat.GLOBAL_SCOPE && it.kind != SyncKinds.ACCOUNT }
+            .groupBy { it.scope }
+        return (names.keys + byScope.keys).distinct().map { scope ->
+            LocationSwitchAccountCount(
+                scope = scope,
+                displayName = names[scope] ?: scope,
+                liveRecords = byScope[scope]?.size ?: 0,
+            )
         }
     }
 
@@ -320,11 +722,12 @@ class CloudSyncCore(
         notUploaded
     }
 
-    /** Delete another device's files from Drive (it re-uploads if it is still alive). */
+    /** Delete another device's files from the active cloud store (it re-uploads if it is still alive). */
     @Throws(Throwable::class)
     suspend fun removeDevice(deviceId: String) = run {
         mutex.withLock {
             runCatching {
+                val transport = activeTransport()
                 dao.remoteFiles().filter { it.deviceId == deviceId && !it.own }.forEach { file ->
                     if (transport.delete(file.fileId)) dao.deleteRemoteFile(file.fileId)
                 }
@@ -358,13 +761,14 @@ class CloudSyncCore(
             lastCycleStartedAt = clock()
             setPhase(CloudSyncPhase.Syncing)
             var detail: String? = null
+            val location = activeLocation()
             val outcome = try {
-                cycle()
+                cycle(location)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: SyncTransportException) {
                 detail = error.toString()
-                handleTransportError(error)
+                handleTransportError(error, location)
             } catch (error: Exception) {
                 detail = error.toString()
                 ERROR_PREFIX + (error.message ?: error::class.simpleName)
@@ -380,10 +784,10 @@ class CloudSyncCore(
     }
 
     /**
-     * Applies every scope purge marker ("remove this account from the cloud", written by Android) this device
-     * hasn't applied yet, newest per scope, before any peer file is merged (docs/cloud-sync.md).
+     * Applies every scope purge marker ("remove this account from the cloud") this device hasn't applied yet,
+     * newest per scope, before any peer file is merged (docs/cloud-sync.md).
      */
-    private suspend fun applyPurgeMarkers(files: List<RemoteFile>, resetEpoch: Long) {
+    private suspend fun applyPurgeMarkers(files: List<RemoteFile>, resetEpoch: Long, transport: SyncTransport) {
         val markers = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE }
         if (markers.isEmpty()) return
         val engine = engine()
@@ -409,7 +813,8 @@ class CloudSyncCore(
     }
 
     /** One network cycle. Returns a LAST_ERROR code, or null when everything went through. */
-    private suspend fun cycle(): String? {
+    private suspend fun cycle(location: String): String? {
+        val transport = activeTransport(location)
         val engine = engine()
         val me = deviceId()
 
@@ -425,7 +830,7 @@ class CloudSyncCore(
         val newestEpoch = newest?.appProperties?.get(SyncFileProps.EPOCH)?.toLongOrNull() ?: 0L
         var myEpoch = dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() ?: 0L
         if (newestEpoch < myEpoch) {
-            // The epoch belongs to the Drive: a lower one means a different (or wiped) Drive.
+            // The epoch belongs to the store: a lower one means a different (or wiped) store.
             putMeta(SyncMetaKeys.EPOCH, newestEpoch.toString())
             myEpoch = newestEpoch
         }
@@ -457,7 +862,27 @@ class CloudSyncCore(
             myEpoch = newestEpoch
         }
 
-        applyPurgeMarkers(files, myEpoch)
+        // Another device migrated this cloud copy to a new location: pause publishing here until the user decides.
+        val ackMigratedEpoch = dao.meta(SyncMetaKeys.ACK_MIGRATED_EPOCH)?.toLongOrNull() ?: 0L
+        val newestMigration = files
+            .filter {
+                it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED &&
+                    it.appProperties[SyncFileProps.DEVICE_ID] != me
+            }
+            .maxByOrNull { it.migratedEpoch() ?: 0L }
+        val newestMigrationEpoch = newestMigration?.migratedEpoch() ?: 0L
+        if (newestMigration != null && newestMigrationEpoch > maxOf(myEpoch, ackMigratedEpoch)) {
+            val decoded = runCatching { transport.download(newestMigration.id)?.let(SnapshotCodec::decodeMigration) }
+                .getOrNull()
+            val target = decoded?.targetLocation
+                ?: newestMigration.appProperties[SyncFileProps.TARGET_LOCATION].orEmpty()
+            if (target.isNotEmpty() && target != location) {
+                val by = decoded?.deviceName.orEmpty()
+                return "$CODE_MIGRATED_PREFIX$target|$by"
+            }
+        }
+
+        applyPurgeMarkers(files, myEpoch, transport)
 
         val dataFiles = files.filter {
             val kind = it.appProperties[SyncFileProps.KIND]
@@ -546,13 +971,14 @@ class CloudSyncCore(
             // is tried again next cycle (a peer file stays unmerged until it reads).
             val mapped = applied.failures.isEmpty() && captured.failures.isEmpty() && unaccounted.isEmpty() &&
                 updateRequiredFrom == null
-            val backup = backupAll(files)
+            val backup = backupAll(files, transport)
             if (mapped && backup != null) putMeta(META_TWO_WAY, "true")
             putMeta(SyncMetaKeys.LAST_SYNC_AT, clock().toString())
             updateRequiredFrom?.let { return CODE_UPDATE_PREFIX + it }
-            if (backup == null) return ERROR_PREFIX + "Couldn't back up your Drive data on this device."
+            val storeName = if (location == SyncLocations.ICLOUD) "iCloud" else "Drive"
+            if (backup == null) return ERROR_PREFIX + "Couldn't back up your $storeName data on this device."
             if (unaccounted.isNotEmpty()) {
-                return ERROR_PREFIX + "Couldn't read ${unaccounted.size} sync file(s) in Drive yet; this device stays read-only."
+                return ERROR_PREFIX + "Couldn't read ${unaccounted.size} sync file(s) in $storeName yet; this device stays read-only."
             }
             return null
         }
@@ -566,7 +992,7 @@ class CloudSyncCore(
             if (existing != null && engine.lastUploadedHash(file.fileKind, file.shard) == file.contentHash) continue
             // Don't create empty artifact shards; the state file always exists once we publish.
             if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
-            val uploaded = upload(existing, file, me) ?: continue
+            val uploaded = uploadTo(transport, existing, file, me) ?: continue
             putMeta(SyncMetaKeys.PARTICIPATED, "true")
             if (file.fileKind == SyncFileProps.KIND_STATE) putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
             engine.markUploaded(file)
@@ -593,7 +1019,12 @@ class CloudSyncCore(
         return null
     }
 
-    private suspend fun upload(existing: RemoteFile?, file: OutgoingFile, me: String): RemoteFile? {
+    private suspend fun uploadTo(
+        transport: SyncTransport,
+        existing: RemoteFile?,
+        file: OutgoingFile,
+        me: String,
+    ): RemoteFile? {
         if (existing != null) {
             transport.update(existing.id, file.bytes)?.let { return it }
         }
@@ -672,9 +1103,10 @@ class CloudSyncCore(
             mutex.withLock {
                 val (epoch, markerId) = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset)
                     ?: return@withLock
+                val transport = activeTransport()
                 val about = transport.about()
                 if (about.permissionId != dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)) return@withLock
-                finishReset(epoch, markerId, transport.list())
+                finishReset(epoch, markerId, transport.list(), transport)
             }
         }
         refreshState()
@@ -682,11 +1114,16 @@ class CloudSyncCore(
 
     /**
      * The reset state machine after PENDING_RESET = "[epoch]|[markerId]" is on disk: (1) make sure the marker
-     * exists in Drive (create it, or find it already there), (2) turn this device off in the new epoch with
+     * exists in the store (create it, or find it already there), (2) turn this device off in the new epoch with
      * an empty replica, (3) delete every other Yoin file, (4) clear PENDING_RESET. Safe to run again from
      * any step; files are only deleted once peers can see the marker that explains why.
      */
-    private suspend fun finishReset(epoch: Long, markerId: String, files: List<RemoteFile>) {
+    private suspend fun finishReset(
+        epoch: Long,
+        markerId: String,
+        files: List<RemoteFile>,
+        transport: SyncTransport,
+    ) {
         if (files.none { it.id == markerId }) {
             try {
                 transport.create(
@@ -718,18 +1155,18 @@ class CloudSyncCore(
             putMeta(SyncMetaKeys.ENABLED, "false")
             persist()
         }
-        deleteYoinFilesExcept(files, markerId)
+        deleteYoinFilesExcept(files, markerId, transport)
         dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
     }
 
-    private suspend fun deleteYoinFilesExcept(files: List<RemoteFile>, keepId: String) {
+    private suspend fun deleteYoinFilesExcept(files: List<RemoteFile>, keepId: String, transport: SyncTransport) {
         files.filter { it.isYoinFile() && it.id != keepId }.forEach { file ->
             check(transport.delete(file.id)) { "Couldn't delete ${file.name}" }
         }
     }
 
     /** Downloads every file in [files] and hands them to [backupSink]; the folder name, or null. */
-    private suspend fun backupAll(files: List<RemoteFile>): String? {
+    private suspend fun backupAll(files: List<RemoteFile>, transport: SyncTransport): String? {
         val sink = backupSink ?: return "none"
         val downloaded = files.map { file ->
             SyncBackupFile(file.id, file.name, file.version, file.modifiedTime, file.size, file.appProperties,
@@ -739,6 +1176,7 @@ class CloudSyncCore(
             mapOf(
                 "takenAt" to kotlinx.serialization.json.JsonPrimitive(clock()),
                 "deviceId" to kotlinx.serialization.json.JsonPrimitive(deviceId()),
+                "location" to kotlinx.serialization.json.JsonPrimitive(activeLocation()),
                 "googlePermissionId" to kotlinx.serialization.json.JsonPrimitive(dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)),
                 "files" to kotlinx.serialization.json.JsonArray(
                     downloaded.map { f ->
@@ -763,10 +1201,13 @@ class CloudSyncCore(
         return folder
     }
 
-    /** Backs up the whole appDataFolder now (Settings › Export backup); the folder name, or null. */
+    /** Backs up the whole active cloud store now (Settings › Export backup); the folder name, or null. */
     @Throws(Throwable::class)
     suspend fun backupNow(): String? = run {
-        mutex.withLock { backupAll(transport.list()) }.also { refreshState() }
+        mutex.withLock {
+            val transport = activeTransport()
+            backupAll(transport.list(), transport)
+        }.also { refreshState() }
     }
 
     private fun parsePendingReset(value: String): Pair<Long, String>? {
@@ -791,11 +1232,12 @@ class CloudSyncCore(
 
     private suspend fun refreshState() {
         val enabled = isEnabled()
+        val location = activeLocation()
         val lastError = dao.meta(SyncMetaKeys.LAST_ERROR)
         val phase = when {
             !enabled -> offPhase(lastError)
             mutex.isLocked && _state.value.phase == CloudSyncPhase.Syncing -> CloudSyncPhase.Syncing
-            else -> onPhase(lastError)
+            else -> onPhase(lastError, location)
         }
         val me = deviceId()
         val thisDevice = SyncDeviceRow(
@@ -830,6 +1272,7 @@ class CloudSyncCore(
                 lastSummary = dao.meta(SyncMetaKeys.LAST_SUMMARY),
                 readOnly = readOnlyFirstPull && enabled && dao.meta(META_TWO_WAY) != "true",
                 lastBackup = dao.meta(META_LAST_BACKUP),
+                location = location,
             ),
         )
     }
@@ -849,13 +1292,19 @@ class CloudSyncCore(
         return CloudSyncPhase.Off
     }
 
-    private suspend fun onPhase(lastError: String?): CloudSyncPhase = when {
+    private suspend fun onPhase(lastError: String?, location: String): CloudSyncPhase = when {
         lastError == null -> CloudSyncPhase.UpToDate
         lastError == CODE_REAUTH || lastError == CODE_ACCOUNT_MISMATCH -> CloudSyncPhase.NeedsReauth
         lastError == CODE_OFFLINE -> CloudSyncPhase.Offline
         lastError == CODE_STORAGE -> CloudSyncPhase.StorageFull
         lastError == CODE_CLOUD_COPY_REMOVED -> CloudSyncPhase.CloudCopyRemoved
-        lastError == CODE_MISCONFIGURED -> CloudSyncPhase.Error("Google Drive isn't set up for this build of Yoin.")
+        lastError == CODE_MISCONFIGURED -> CloudSyncPhase.Error(
+            if (location == SyncLocations.ICLOUD) {
+                "iCloud isn't set up for this build of Yoin."
+            } else {
+                "Google Drive isn't set up for this build of Yoin."
+            },
+        )
         lastError == CODE_REVIEW -> {
             val held = engine().heldReview()
             if (held == null) {
@@ -871,26 +1320,56 @@ class CloudSyncCore(
         }
         lastError.startsWith(CODE_UPDATE_PREFIX) ->
             CloudSyncPhase.UpdateRequired(lastError.removePrefix(CODE_UPDATE_PREFIX).ifBlank { null })
+        lastError.startsWith(CODE_MIGRATED_PREFIX) -> {
+            val body = lastError.removePrefix(CODE_MIGRATED_PREFIX)
+            val target = body.substringBefore('|')
+            val device = body.substringAfter('|', "").ifBlank { null }
+            CloudSyncPhase.MigratedElsewhere(target, device)
+        }
         lastError.startsWith(ERROR_PREFIX) -> CloudSyncPhase.Error(lastError.removePrefix(ERROR_PREFIX))
         else -> CloudSyncPhase.Error(lastError)
     }
 
-    private fun handleTransportError(error: SyncTransportException): String = when (error) {
+    private fun handleTransportError(error: SyncTransportException, location: String): String = when (error) {
         is SyncTransportException.Unauthorized -> CODE_REAUTH
         is SyncTransportException.Misconfigured -> CODE_MISCONFIGURED
         is SyncTransportException.StorageFull -> CODE_STORAGE
         is SyncTransportException.RateLimited, is SyncTransportException.Network -> CODE_OFFLINE
-        is SyncTransportException.AlreadyExists, is SyncTransportException.Server -> ERROR_PREFIX + describe(error)
+        is SyncTransportException.AlreadyExists, is SyncTransportException.Server ->
+            ERROR_PREFIX + describe(error, location)
     }
 
-    private fun describe(error: SyncTransportException): String = when (error) {
-        is SyncTransportException.Network -> "Couldn't reach Google. Check your connection."
-        is SyncTransportException.StorageFull -> "Your Google storage is full."
-        is SyncTransportException.Misconfigured -> "Cloud sync isn't available in this build of Yoin."
-        is SyncTransportException.Unauthorized -> "Google needs your permission again."
-        is SyncTransportException.RateLimited -> "Google asked Yoin to slow down. Trying again later."
-        is SyncTransportException.Server -> "Google Drive error (${error.code})."
-        is SyncTransportException.AlreadyExists -> "Google Drive conflict."
+    private fun describe(error: SyncTransportException, location: String = SyncLocations.GOOGLE_DRIVE): String {
+        val isICloud = location == SyncLocations.ICLOUD
+        return when (error) {
+            is SyncTransportException.Network -> if (isICloud) {
+                "Couldn't reach iCloud. Check your connection."
+            } else {
+                "Couldn't reach Google. Check your connection."
+            }
+            is SyncTransportException.StorageFull -> if (isICloud) {
+                "Your iCloud storage is full."
+            } else {
+                "Your Google storage is full."
+            }
+            is SyncTransportException.Misconfigured -> "Cloud sync isn't available in this build of Yoin."
+            is SyncTransportException.Unauthorized -> if (isICloud) {
+                "Sign in to iCloud in Settings to use iCloud sync."
+            } else {
+                "Google needs your permission again."
+            }
+            is SyncTransportException.RateLimited -> if (isICloud) {
+                "iCloud asked Yoin to slow down. Trying again later."
+            } else {
+                "Google asked Yoin to slow down. Trying again later."
+            }
+            is SyncTransportException.Server -> if (isICloud) {
+                "iCloud error (${error.code})."
+            } else {
+                "Google Drive error (${error.code})."
+            }
+            is SyncTransportException.AlreadyExists -> if (isICloud) "iCloud conflict." else "Google Drive conflict."
+        }
     }
 
     // ---- meta helpers
@@ -924,6 +1403,10 @@ class CloudSyncCore(
         ?.takeIf { appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_RESET }
         ?.toLongOrNull()
 
+    private fun RemoteFile.migratedEpoch(): Long? = appProperties[SyncFileProps.EPOCH]
+        ?.takeIf { appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED }
+        ?.toLongOrNull()
+
     private fun RemoteFile.fileKey(): String =
         "${appProperties[SyncFileProps.KIND]}:${appProperties[SyncFileProps.SHARD] ?: "0"}"
 
@@ -945,6 +1428,7 @@ class CloudSyncCore(
             SyncFileProps.KIND_STATE,
             SyncFileProps.KIND_ARTIFACTS,
             SyncFileProps.KIND_RESET,
+            SyncFileProps.KIND_MIGRATED,
         )
 
         // LAST_ERROR codes (Android's).
@@ -958,6 +1442,7 @@ class CloudSyncCore(
         const val CODE_DELETED_HERE = "deleted_here"
         const val CODE_RESET_PREFIX = "reset:"
         const val CODE_UPDATE_PREFIX = "update:"
+        const val CODE_MIGRATED_PREFIX = "migrated:"
         const val ERROR_PREFIX = "error:"
     }
 }

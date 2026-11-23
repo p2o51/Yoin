@@ -10,13 +10,13 @@
 
 四端复用相同的同步数据契约与合并语义（Core 引擎已在 `:shared` 的 `CloudSyncCore` / `SyncEngine` 中跨平台对齐）：
 
-| 平台 | Google OAuth 方式 | 引擎实现 | Drive `appDataFolder` 远端文件 | 本地防克隆副本库（不入系统备份） |
+| 平台 | 同步位置与鉴权方式 | 引擎实现 | 远端存储形态（同一套 `SyncContracts` 线协议） | 本地防克隆副本库（不入系统备份） |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android** (`app/`) | Credential Manager + Play Services Drive Auth | Kotlin 同步引擎 + Room 副本库 | 共享 `SyncContracts` 线协议文件：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-<epoch>-<设备ID>.json` | `no_backup/yoin-sync.db` |
-| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | `GoogleSignIn` | `:shared` `CloudSyncCore` (`SyncEngine`, `DriveAppDataClient`) | 同上共享 `SyncContracts` 线协议文件 | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `keychain-access-groups`） |
-| **HarmonyOS** (`harmony/`) | Loopback OAuth PKCE | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
+| **Android** (`app/`) | Google Drive（Credential Manager + Play Services Drive Auth） | Kotlin 同步引擎 + Room 副本库 | `appDataFolder`：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-*`、`yoin-purge-*`、`yoin-migrated-*` | `no_backup/yoin-sync.db` |
+| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | **iCloud（CloudKit 私有库，免登录）** 或 Google Drive（`GoogleSignIn`） | `:shared` `CloudSyncCore`（`SyncEngine`、`DriveAppDataClient`、`CloudKitSyncTransport`） | 同上线协议；iCloud 存入私有库自定义 Zone `YoinSyncZone` 的 `YoinSyncFile`（元数据字段 + `CKAsset` 存 `.json.gz`，绕开 1 MB 上限） | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `iCloud.com.gpo.yoin` CloudKit 与 `keychain-access-groups`） |
+| **HarmonyOS** (`harmony/`) | Google Drive（Loopback OAuth PKCE） | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
 
-> 注：所有平台均必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。
+> 注：Google Drive 各平台必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。iCloud（CloudKit）仅支持 Apple 设备（iOS / iPadOS / macOS），与 Android / 鸿蒙互通请继续使用 Google Drive 或通过「导出 / 导入备份文件」迁移。
 
 ## 评估结论
 
@@ -56,11 +56,12 @@
 ## 怎么存
 
 ```
-Drive appDataFolder（隐藏，只有 Yoin 能读写）
+Drive appDataFolder / CloudKit Private Database (iCloud.com.gpo.yoin / YoinSyncZone)
   yoin-state-<设备ID>.json.gz            每台设备一份：笔记/评分/布局/设置/账号描述 + 墓碑
   yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask、歌单备份
   yoin-reset-<时间>-<设备ID>.json         「删除云端数据」留下的标记
   yoin-purge-<时间>-<设备ID>.json         「从云端移除这个账号」留下的标记（见下文）
+  yoin-migrated-<时间>-<设备ID>.json      「切换同步位置」留在旧位置的迁移提示标记（含 targetLocation）
 ```
 
 - 每台设备上传的是**完整副本**（含别的设备来的数据），所以任何一台设备丢了，数据都还在。

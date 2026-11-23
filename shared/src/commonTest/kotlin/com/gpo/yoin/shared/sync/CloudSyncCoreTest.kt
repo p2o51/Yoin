@@ -354,4 +354,137 @@ class CloudSyncCoreTest {
         assertEquals("uploaded", domain.note("n1")?.content)
         assertEquals(SyncAccountStatus.Syncing, core.currentState().accounts.single().status)
     }
+
+    @Test
+    fun should_syncTwoAppleDevicesThroughICloudAndSupportAccountPurge() = runTest {
+        val icloud = FakeDrive()
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val ipadDomain = FakeSyncDomain().apply { profileList += profile }
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("iCloud must not ask for Google tokens")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("iCloud must not construct Drive client") },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        val ipad = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(ipadDomain, it) },
+            profiles = { ipadDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("iCloud must not ask for Google tokens")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("iCloud must not construct Drive client") },
+            deviceName = { "iPad Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+
+        iphoneDomain.putNote(note("n1", "from iphone via icloud"))
+        assertNull(iphone.enableICloud())
+        assertEquals(SyncLocations.ICLOUD, iphone.currentState().location)
+        assertEquals(CloudSyncPhase.UpToDate, iphone.currentState().phase)
+
+        now += 1_000
+        assertNull(ipad.enableICloud())
+        assertEquals("from iphone via icloud", ipadDomain.note("n1")?.content)
+        val scope = iphone.currentState().accounts.single().syncProfileId
+        assertNotNull(scope)
+
+        // Remove account from iCloud: writes yoin-purge-* marker, purges iPhone replica, stops iPad from re-uploading.
+        now += 1_000
+        assertNull(iphone.removeAccountFromCloud(scope))
+        assertEquals(SyncAccountStatus.RemovedFromCloud, iphone.currentState().accounts.single().status)
+        assertTrue(icloud.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE })
+
+        now += 1_000
+        ipad.syncNow()
+        assertEquals(SyncAccountStatus.RemovedFromCloud, ipad.currentState().accounts.single().status)
+        // Local data on both devices stays intact.
+        assertEquals("from iphone via icloud", iphoneDomain.note("n1")?.content)
+        assertEquals("from iphone via icloud", ipadDomain.note("n1")?.content)
+    }
+
+    @Test
+    fun should_switchFromDriveToICloudWith4StepVerificationAndNotifyPeers() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val backups = Backups()
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = backups,
+            icloudTransport = icloudTransport,
+        )
+        val (peerOnDrive, _) = device("Pixel Tablet", readOnly = false)
+
+        iphoneDomain.putNote(note("n1", "carry over"))
+        assertNull(iphone.enable("token"))
+        now += 1_000
+        assertNull(peerOnDrive.enable("token"))
+
+        // If target fails mid-switch, old Drive location stays untouched.
+        icloud.offline = true
+        val failed = iphone.switchLocation(SyncLocations.ICLOUD)
+        assertTrue(!failed.succeeded)
+        assertEquals(SyncLocations.GOOGLE_DRIVE, iphone.currentState().location)
+        assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+
+        // Target online: switch succeeds, verifies counts, keeps old copy, writes migration marker to Drive.
+        icloud.offline = false
+        now += 1_000
+        val result = iphone.switchLocation(SyncLocations.ICLOUD, clearOldCopy = false)
+        assertTrue(result.succeeded)
+        assertTrue(result.countsVerified)
+        assertTrue(result.migrationMarkerWritten)
+        assertTrue(!result.oldCopyCleared)
+        assertNotNull(result.snapshotSha256)
+        assertEquals(1, result.totalLiveRecords)
+        assertEquals(SyncLocations.ICLOUD, iphone.currentState().location)
+        assertTrue(icloud.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
+        assertTrue(drive.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+
+        // Peer still on Drive sees MigratedElsewhere banner and pauses publishing until user dismisses.
+        now += 1_000
+        peerOnDrive.syncNow()
+        val phase = assertIs<CloudSyncPhase.MigratedElsewhere>(peerOnDrive.currentState().phase)
+        assertEquals(SyncLocations.ICLOUD, phase.targetLocation)
+        assertEquals("iPhone 17 Pro", phase.deviceName)
+
+        // Dismissing migration notice resumes syncing on Drive.
+        now += 1_000
+        peerOnDrive.dismissMigrationNotice()
+        assertEquals(CloudSyncPhase.UpToDate, peerOnDrive.currentState().phase)
+
+        // Optional Step 4 cleanup deletes old Drive files except the migration marker.
+        assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
+        assertTrue(drive.files.values.all { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+    }
 }

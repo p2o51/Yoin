@@ -7,21 +7,15 @@ import YoinShared
 extension CloudSyncKit: @retroactive @unchecked Sendable {}
 extension CloudSyncCore: @retroactive @unchecked Sendable {}
 extension CloudSyncState: @retroactive @unchecked Sendable {}
+extension LocationSwitchResult: @retroactive @unchecked Sendable {}
 
-/// Cloud sync on iOS (docs/cloud-sync.md; iosApp/docs/cloud-sync-ios.md).
+/// Cloud sync on iOS / iPadOS / macOS (docs/cloud-sync.md; iosApp/docs/cloud-sync-ios.md).
 ///
-/// The sync itself is the shared Kotlin (`CloudSyncKit` / `CloudSyncCore`,
-/// YoinShared): the same files in the user's Drive appDataFolder as Android,
-/// the same merge and conflict rules. This side supplies what is per platform:
-/// the Google sign-in (GoogleSignIn-iOS, scope drive.appdata only), the stores
-/// (`SyncDomainBridge`), the sync store's file, the backups, and when cycles
-/// run (foreground at most once a minute, 8 s after a local change, on
-/// background with pending changes, Sync now).
-///
-/// Safety for the first real account: the first cycle only pulls (Android's
-/// data lands in the iOS stores, nothing is written to Drive) and saves every
-/// appDataFolder file under Application Support/Yoin/sync-backups/<time>/.
-/// Two-way sync starts with the next cycle.
+/// The sync itself is the shared Kotlin (`CloudSyncKit` / `CloudSyncCore`, YoinShared): the same wire
+/// files, merge and conflict rules across Google Drive (`appDataFolder`) and iCloud (CloudKit Private
+/// Database, `YoinSyncZone` / `YoinSyncFile` + `CKAsset`). This side supplies what is per platform:
+/// iCloud CloudKit transport, Google sign-in (GoogleSignIn-iOS, scope drive.appdata only), the stores
+/// (`SyncDomainBridge`), the sync store's file, the backups, and when cycles run.
 @MainActor
 @Observable
 final class CloudSync {
@@ -31,12 +25,13 @@ final class CloudSync {
 
     private(set) var state = CloudSyncState(phase: CloudSyncPhaseOff.shared, account: nil, lastSyncAt: nil,
                                             pendingChanges: false, accounts: [], cloudOnlyAccounts: [], devices: [],
-                                            lastSummary: nil, readOnly: false, lastBackup: nil)
+                                            lastSummary: nil, readOnly: false, lastBackup: nil,
+                                            location: SyncLocations.shared.GOOGLE_DRIVE)
     private(set) var working = false
     /// The last action's message for the page (a failed sign-in, a failed delete).
     var message: String?
     /// Accounts whose Start fresh was put off: the old account still has changes that aren't in the
-    /// Drive (`CloudSyncFreshHold`). Their row says so under "Paused".
+    /// cloud (`CloudSyncFreshHold`). Their row says so under "Paused".
     private(set) var freshHeld: Set<String> = []
 
     /// DEBUG fake Drive: `-syncDebugBaseURL http://127.0.0.1:8765/ -syncDebugToken x`.
@@ -45,7 +40,11 @@ final class CloudSync {
     /// The Google client ID from Info.plist (GIDClientID ← Config/GoogleSignIn.xcconfig), when it is real.
     let clientID: String?
 
-    var isConfigured: Bool { clientID != nil || debug != nil }
+    var isGoogleConfigured: Bool { clientID != nil || debug != nil }
+    /// iCloud (CloudKit) is built in on Apple devices, so Cloud sync is always available on iOS / iPadOS / macOS.
+    var isConfigured: Bool { true }
+    var isICloud: Bool { state.location == SyncLocations.shared.ICLOUD }
+    var activeLocationName: String { isICloud ? String(localized: "iCloud") : String(localized: "Google Drive") }
 
     @ObservationIgnored private var kit: CloudSyncKit?
     @ObservationIgnored private var accounts: (@MainActor () -> SyncDomainBridge.Accounts)?
@@ -85,7 +84,8 @@ final class CloudSync {
             versionCode: Int32(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1") ?? 1,
             apiBase: debug.map { $0.base + "drive/v3/" },
             uploadBase: debug.map { $0.base + "upload/drive/v3/" },
-            backupSink: BackupFolder()
+            backupSink: BackupFolder(),
+            icloudTransport: CloudKitSyncTransport()
         )
         self.kit = kit
         kit.core.onStateChange = { [weak self] state in
@@ -141,40 +141,124 @@ final class CloudSync {
 
     // MARK: Actions
 
-    /// Turn on (or reconnect): Google sign-in asking only for drive.appdata, then the first (read-only) pull.
-    func turnOn() async {
-        guard let kit, isConfigured else { return }
+    /// Turn on (or reconnect) with iCloud (CloudKit Private Database): no sign-in prompt needed.
+    func turnOnWithICloud() async {
+        guard let kit else { return }
         message = nil
         working = true
         defer { working = false }
-        let token: String
-        if let debug {
-            token = debug.token
-        } else {
-            guard let clientID else { return }
-            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-            guard let presenter = Self.presenter() else { return }
-            do {
-                let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: nil,
-                                                                        additionalScopes: [Self.driveScope])
-                var user = result.user
-                if !(user.grantedScopes ?? []).contains(Self.driveScope) {
-                    user = try await user.addScopes([Self.driveScope], presenting: presenter).user
-                }
-                guard (user.grantedScopes ?? []).contains(Self.driveScope) else {
-                    message = "Google didn't allow Drive access."
-                    return
-                }
-                token = user.accessToken.tokenString
-            } catch {
-                if (error as NSError).code != GIDSignInError.canceled.rawValue { message = error.localizedDescription }
-                return
-            }
+        do {
+            if let failure = try await kit.core.enableICloud() { message = failure }
+        } catch {
+            message = error.localizedDescription
         }
+    }
+
+    /// Turn on (or reconnect) Google Drive: asks only for drive.appdata, then runs the first (read-only) pull.
+    func turnOn() async {
+        guard let kit, isGoogleConfigured else { return }
+        message = nil
+        working = true
+        defer { working = false }
+        guard let token = await acquireGoogleAccessToken() else { return }
         do {
             if let failure = try await kit.core.enable(accessToken: token) { message = failure }
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    /// Four-step guided switch between Google Drive and iCloud (export & verify -> import -> verify counts -> old copy).
+    func switchLocation(to targetLocation: String, clearOldCopy: Bool = false) async -> LocationSwitchResult? {
+        guard let kit else { return nil }
+        message = nil
+        working = true
+        defer { working = false }
+        var token: String?
+        if targetLocation == SyncLocations.shared.GOOGLE_DRIVE {
+            guard isGoogleConfigured else {
+                message = String(localized: "Google Drive isn't configured in this build of Yoin.")
+                return nil
+            }
+            guard let acquired = await acquireGoogleAccessToken() else { return nil }
+            token = acquired
+        }
+        do {
+            let result = try await kit.core.switchLocation(
+                targetLocation: targetLocation,
+                targetAccessToken: token,
+                clearOldCopy: clearOldCopy
+            )
+            if !result.succeeded, let err = result.error { message = err }
+            return result
+        } catch {
+            message = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Optional Step 4 cleanup after switching: clears old Yoin files at [oldLocation], keeping the migration marker.
+    func clearOldLocationCopy(oldLocation: String) async -> String? {
+        guard let kit else { return String(localized: "Cloud sync isn't ready.") }
+        message = nil
+        working = true
+        defer { working = false }
+        var token: String?
+        if oldLocation == SyncLocations.shared.GOOGLE_DRIVE, let debug {
+            token = debug.token
+        }
+        do {
+            let failure = try await kit.core.clearOldLocationCopy(oldLocation: oldLocation, accessToken: token)
+            if let failure { message = failure }
+            return failure
+        } catch {
+            message = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func removeAccountFromCloud(_ syncProfileId: String) async {
+        guard let kit else { return }
+        message = nil
+        working = true
+        defer { working = false }
+        do {
+            if let failure = try await kit.core.removeAccountFromCloud(syncProfileId: syncProfileId) {
+                message = failure
+            }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    func resumeAccountSync(_ localProfileId: String) async {
+        await run { try await $0.resumeAccountSync(localProfileId: localProfileId) }
+    }
+
+    func dismissMigrationNotice() async {
+        await run { try await $0.dismissMigrationNotice() }
+    }
+
+    private func acquireGoogleAccessToken() async -> String? {
+        if let debug { return debug.token }
+        guard let clientID else { return nil }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+        guard let presenter = Self.presenter() else { return nil }
+        do {
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: nil,
+                                                                    additionalScopes: [Self.driveScope])
+            var user = result.user
+            if !(user.grantedScopes ?? []).contains(Self.driveScope) {
+                user = try await user.addScopes([Self.driveScope], presenting: presenter).user
+            }
+            guard (user.grantedScopes ?? []).contains(Self.driveScope) else {
+                message = String(localized: "Google didn't allow Drive access.")
+                return nil
+            }
+            return user.accessToken.tokenString
+        } catch {
+            if (error as NSError).code != GIDSignInError.canceled.rawValue { message = error.localizedDescription }
+            return nil
         }
     }
 
@@ -185,6 +269,7 @@ final class CloudSync {
     /// All devices: Android's flow (back up first, reset marker, turn off here, delete Yoin's files).
     func deleteCloudData() async {
         guard let kit else { return }
+        let wasICloud = isICloud
         working = true
         defer { working = false }
         do {
@@ -192,7 +277,7 @@ final class CloudSync {
         } catch {
             message = error.localizedDescription
         }
-        if message == nil, debug == nil { GIDSignIn.sharedInstance.signOut() }
+        if message == nil, !wasICloud, debug == nil { GIDSignIn.sharedInstance.signOut() }
     }
 
     /// Deletes another device's copy from the Drive (never this device's: the engine only drops files it doesn't own).
@@ -233,7 +318,9 @@ final class CloudSync {
         working = true
         defer { working = false }
         guard let name = try? await kit.core.backupNow() else {
-            message = "Couldn't back up your Drive data."
+            message = isICloud
+                ? String(localized: "Couldn't back up your iCloud data.")
+                : String(localized: "Couldn't back up your Drive data.")
             return nil
         }
         return BackupFolder.root.appendingPathComponent(name, isDirectory: true)
@@ -289,11 +376,12 @@ final class CloudSync {
             account: GoogleAccountUi(email: "listener@example.com", displayName: "Listener"),
             lastSyncAt: KotlinLong(value: now - 3 * 3_600_000), pendingChanges: true,
             accounts: [SyncAccountRow(localProfileId: profile, provider: "subsonic", displayName: "demo",
-                                      status: SyncAccountStatusAccountChanged.shared)],
+                                      status: SyncAccountStatusAccountChanged.shared, syncProfileId: nil)],
             cloudOnlyAccounts: [],
             devices: [SyncDeviceRow(deviceId: "this", name: UIDevice.current.model, isThisDevice: true,
                                     lastSyncAt: KotlinLong(value: now - 3 * 3_600_000))],
-            lastSummary: nil, readOnly: false, lastBackup: nil)
+            lastSummary: nil, readOnly: false, lastBackup: nil,
+            location: SyncLocations.shared.GOOGLE_DRIVE)
         Task {
             try? await Task.sleep(for: .seconds(4))
             freshHeld = CloudSyncFreshHold.after(freshHeld, profile: profile, notUploaded: 2, state: state)

@@ -1171,6 +1171,7 @@ class CloudSyncManager(
             SyncFileProps.KIND_ARTIFACTS,
             SyncFileProps.KIND_RESET,
             SyncFileProps.KIND_PURGE,
+            SyncFileProps.KIND_MIGRATED,
         )
 
         // LAST_ERROR codes

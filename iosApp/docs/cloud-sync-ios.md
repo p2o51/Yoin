@@ -14,6 +14,16 @@ Product rules: `docs/cloud-sync.md`. This page covers what the iPhone app adds a
 
 Both values live in `iosApp/Config/GoogleSignIn.xcconfig` (an iOS client ID is public, not a secret). `project.yml` uses that file as the Yoin target's config and writes `GIDClientID` and the `CFBundleURLTypes` scheme into Info.plist. When the values say `YOIN_GOOGLE_NOT_CONFIGURED`, the Cloud sync page shows "Not configured" and sign-in is off. Sign-in uses GoogleSignIn-iOS 9.x (Swift Package, `project.yml › packages`); `.onOpenURL` hands Google's redirect back (`App/YoinApp.swift`); tokens are refreshed before each Drive call (`refreshTokensIfNeeded`).
 
+## iCloud (CloudKit Private Database)
+
+Apple devices (iOS / iPadOS / macOS) also support **iCloud** as a sync location with zero OAuth sign-in:
+
+- **Container & Entitlements**: `iCloud.com.gpo.yoin` (`com.apple.developer.icloud-services = [CloudKit]`, `com.apple.developer.icloud-container-identifiers = [iCloud.com.gpo.yoin]` in `Yoin.entitlements` / `project.yml`).
+- **Storage layout (`CloudKitSyncTransport`)**: Private Database custom zone `YoinSyncZone`, record type `YoinSyncFile` keyed by `recordName = fileId`. Metadata fields (`name`, `mimeType`, `size`, `version`, `modifiedAt`, `appPropertiesJson`) live directly on the `CKRecord`; the `.json.gz` / `.json` bytes live in a `CKAsset` (`payload`), bypassing CloudKit's 1 MB record limit.
+- **Zero-index, strongly consistent listing**: `list()` uses `CKFetchRecordZoneChangesOperation` with `desiredKeys` omitting `payload`, so listing never downloads `CKAsset` bytes and requires no `CKQuery` indexes in CloudKit Dashboard.
+- **Switching locations**: Settings › Cloud sync › Sync location (`SyncLocationView`) runs the 4-step verified migration (export & verify SHA-256 → connect & merge target → verify uploaded files & counts → write `yoin-migrated-*` marker to the old location and optionally clear old files).
+- **One-time CloudKit Dashboard step before TestFlight / App Store release**: Run a Debug build once on a signed-in Apple device (creating `YoinSyncZone` and `YoinSyncFile` in Development via Just-in-Time Schema), then open **CloudKit Console › `iCloud.com.gpo.yoin` › Deploy Schema Changes… → Production**.
+
 ## What's shared, what's iOS
 
 Shared Kotlin (`shared/src/commonMain/kotlin/com/gpo/yoin/shared/sync`, YoinShared):

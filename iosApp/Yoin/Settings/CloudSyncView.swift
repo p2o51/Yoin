@@ -79,22 +79,24 @@ enum CloudSyncFreshHold {
 enum CloudSyncTexts {
     @MainActor
     static func summary(_ sync: CloudSync) -> String {
-        guard sync.isConfigured else { return String(localized: "Not configured") }
         let s = sync.state
+        let isICloud = s.location == SyncLocations.shared.ICLOUD
         switch s.phase {
         case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
         case is CloudSyncPhaseOffline: return s.pendingChanges ? String(localized: "Changes waiting to upload") : String(localized: "Offline")
-        case is CloudSyncPhaseNeedsReauth: return String(localized: "Reconnect Google")
-        case is CloudSyncPhaseStorageFull: return String(localized: "Google storage full")
-        case is CloudSyncPhaseCloudCopyRemoved: return String(localized: "Drive copy removed")
+        case is CloudSyncPhaseNeedsReauth: return isICloud ? String(localized: "Sign in to iCloud") : String(localized: "Reconnect Google")
+        case is CloudSyncPhaseStorageFull: return isICloud ? String(localized: "iCloud storage full") : String(localized: "Google storage full")
+        case is CloudSyncPhaseCloudCopyRemoved: return isICloud ? String(localized: "iCloud copy removed") : String(localized: "Drive copy removed")
         case is CloudSyncPhaseUpdateRequired: return String(localized: "Update Yoin")
         case is CloudSyncPhaseNeedsReview: return String(localized: "Needs review")
+        case is CloudSyncPhaseMigratedElsewhere: return String(localized: "Sync location changed")
         case is CloudSyncPhaseError: return String(localized: "Couldn't sync")
         case let r as CloudSyncPhaseResetElsewhere:
             return r.deviceName.map { "Turned off on \($0)" } ?? String(localized: "Turned off on another device")
         case is CloudSyncPhaseUpToDate:
             if s.pendingChanges { return String(localized: "Changes waiting to upload") }
-            return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? String(localized: "On")
+            let location = isICloud ? String(localized: "iCloud") : String(localized: "Google Drive")
+            return s.lastSyncAt.map { "\(location) · Synced \(relative($0.int64Value))" } ?? location
         default: return String(localized: "Off")
         }
     }
@@ -119,6 +121,8 @@ struct CloudSyncView: View {
     @State private var confirmDelete = false
     @State private var confirmFresh: SyncAccountRow?
     @State private var confirmRemoveDevice: SyncDeviceRow?
+    @State private var confirmRemoveAccount: (scope: String, name: String)?
+    @State private var openLocation = false
     @State private var export: URL?
     /// The service setup an Add on a cloud-only account opened.
     @State private var setup: ServiceSetupRequest?
@@ -182,7 +186,8 @@ struct CloudSyncView: View {
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
-        // A saved account joins the sync: refresh so it picks up what the Drive holds (Android onAdd).
+        .navigationDestination(isPresented: $openLocation) { SyncLocationView() }
+        // A saved account joins the sync: refresh so it picks up what the cloud holds (Android onAdd).
         .onChange(of: model.profiles.profiles.map(\.id)) { old, new in
             if new.count > old.count, enabled { Task { await sync.syncNow() } }
         }
@@ -190,7 +195,20 @@ struct CloudSyncView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { Task { await sync.deleteCloudData() } }
         } message: {
-            Text("Deletes Yoin's data from your Google Drive for all devices, and turns sync off on them. Data on this device stays.")
+            Text(sync.isICloud
+                 ? String(localized: "Deletes Yoin's data from your iCloud for all devices, and turns sync off on them. Data on this device stays.")
+                 : String(localized: "Deletes Yoin's data from your Google Drive for all devices, and turns sync off on them. Data on this device stays."))
+        }
+        .alert("Remove \(confirmRemoveAccount?.name ?? "") from cloud?",
+               isPresented: Binding(get: { confirmRemoveAccount != nil }, set: { if !$0 { confirmRemoveAccount = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                if let target = confirmRemoveAccount {
+                    Task { await sync.removeAccountFromCloud(target.scope) }
+                }
+            }
+        } message: {
+            Text(String(localized: "Stops syncing this account and removes its data from \(sync.activeLocationName) on all devices. Data on this device stays."))
         }
         .alert("Start fresh as this account?", isPresented: Binding(get: { confirmFresh != nil },
                                                                      set: { if !$0 { confirmFresh = nil } })) {
@@ -199,7 +217,7 @@ struct CloudSyncView: View {
                 if let r = confirmFresh { Task { await sync.startFresh(r.localProfileId) } }
             }
         } message: {
-            Text("“\(confirmFresh?.displayName ?? "")” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your Drive and your other devices keep the old ones.")
+            Text("“\(confirmFresh?.displayName ?? "")” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your cloud copy and your other devices keep the old ones.")
         }
         .alert("Remove \(confirmRemoveDevice?.name ?? "") from sync?",
                isPresented: Binding(get: { confirmRemoveDevice != nil }, set: { if !$0 { confirmRemoveDevice = nil } })) {
@@ -208,7 +226,9 @@ struct CloudSyncView: View {
                 if let d = confirmRemoveDevice, CloudSyncDevices.canRemove(d) { Task { await sync.removeDevice(d.deviceId) } }
             }
         } message: {
-            Text("Deletes this device's copy from your Google Drive. If it's still syncing, it uploads again the next time it syncs.")
+            Text(sync.isICloud
+                 ? String(localized: "Deletes this device's copy from your iCloud. If it's still syncing, it uploads again the next time it syncs.")
+                 : String(localized: "Deletes this device's copy from your Google Drive. If it's still syncing, it uploads again the next time it syncs."))
         }
         .sheet(item: Binding(get: { export.map(ShareItem.init) }, set: { if $0 == nil { export = nil } })) { item in
             ShareSheet(url: item.url)
@@ -226,9 +246,16 @@ struct CloudSyncView: View {
                 .padding(.horizontal, 8)
         }
         whatYouGet
-        group(String(localized: "Google account")) {
-            [AnyView(action(sync.working ? String(localized: "Waiting for Google…") : String(localized: "Turn on with Google"), ink: app.primary,
-                            disabled: sync.working) { Task { await sync.turnOn() } })]
+        group(String(localized: "Sync location")) {
+            var rows: [AnyView] = [
+                AnyView(action(sync.working ? String(localized: "Connecting to iCloud…") : String(localized: "Turn on with iCloud"),
+                               ink: app.primary, disabled: sync.working) { Task { await sync.turnOnWithICloud() } }),
+            ]
+            if sync.isGoogleConfigured {
+                rows.append(AnyView(action(sync.working ? String(localized: "Waiting for Google…") : String(localized: "Turn on with Google"),
+                                           ink: app.primary, disabled: sync.working) { Task { await sync.turnOn() } }))
+            }
+            return rows
         }
     }
 
@@ -262,16 +289,38 @@ struct CloudSyncView: View {
     // MARK: On
 
     @ViewBuilder private var onGroups: some View {
-        group(String(localized: "Google account")) {
-            var rows: [AnyView] = [AnyView(info(state.account?.email ?? state.account?.displayName ?? String(localized: "Google account"),
-                                                status))]
+        group(String(localized: "Sync location")) {
+            var rows: [AnyView] = [
+                AnyView(locationHeroRow),
+                AnyView(info(sync.isICloud
+                             ? String(localized: "iCloud Private Database")
+                             : (state.account?.email ?? state.account?.displayName ?? String(localized: "Google account")),
+                             status)),
+            ]
+            if let migrated = state.phase as? CloudSyncPhaseMigratedElsewhere {
+                let targetName = migrated.targetLocation == SyncLocations.shared.ICLOUD
+                    ? String(localized: "iCloud")
+                    : String(localized: "Google Drive")
+                let detail = migrated.deviceName.map {
+                    String(localized: "Cloud sync was moved to \(targetName) on \($0).")
+                } ?? String(localized: "Cloud sync was moved to \(targetName) on another device.")
+                rows.append(AnyView(info(String(localized: "Sync location changed"), detail)))
+                rows.append(AnyView(action(String(localized: "Switch to \(targetName)"), ink: app.primary, disabled: sync.working) {
+                    openLocation = true
+                }))
+                rows.append(AnyView(action(String(localized: "Keep using \(sync.activeLocationName)"), ink: app.onSurfaceVariant, disabled: sync.working) {
+                    Task { await sync.dismissMigrationNotice() }
+                }))
+            }
             if let review = state.phase as? CloudSyncPhaseNeedsReview {
                 rows.append(AnyView(info("\(review.count) notes disappeared from \(review.accountName)", nil)))
                 rows.append(AnyView(action(String(localized: "Restore here"), ink: app.primary) { Task { await sync.resolveReview(restore: true) } }))
                 rows.append(AnyView(action(String(localized: "Delete on all devices"), ink: app.error) { Task { await sync.resolveReview(restore: false) } }))
             }
             if state.phase is CloudSyncPhaseNeedsReauth {
-                rows.append(AnyView(action(String(localized: "Sign in"), ink: app.primary) { Task { await sync.turnOn() } }))
+                rows.append(AnyView(action(sync.isICloud ? String(localized: "Retry iCloud") : String(localized: "Sign in"), ink: app.primary) {
+                    Task { if sync.isICloud { await sync.turnOnWithICloud() } else { await sync.turnOn() } }
+                }))
             }
             if state.phase is CloudSyncPhaseCloudCopyRemoved {
                 rows.append(AnyView(action(String(localized: "Upload again"), ink: app.primary) { Task { await sync.uploadAgain() } }))
@@ -284,7 +333,7 @@ struct CloudSyncView: View {
             group(String(localized: "Accounts")) { state.accounts.map { AnyView(accountRow($0)) } }
         }
         if !state.cloudOnlyAccounts.isEmpty {
-            group(String(localized: "In your Drive, not on this device")) {
+            group(sync.isICloud ? String(localized: "In your iCloud, not on this device") : String(localized: "In your Drive, not on this device")) {
                 state.cloudOnlyAccounts.map { a in AnyView(cloudOnlyRow(a)) }
             }
         }
@@ -294,7 +343,8 @@ struct CloudSyncView: View {
             }
         }
         group(String(localized: "Backups")) {
-            [AnyView(info("Drive backup", state.lastBackup ?? String(localized: "None yet"))),
+            [AnyView(info(sync.isICloud ? String(localized: "iCloud backup") : String(localized: "Drive backup"),
+                          state.lastBackup ?? String(localized: "None yet"))),
              AnyView(action(String(localized: "Back up and export"), ink: app.primary, disabled: sync.working) {
                  Task {
                      if await sync.backupNow() != nil { export = sync.exportLatestBackup() }
@@ -309,11 +359,46 @@ struct CloudSyncView: View {
         }
     }
 
+    private var locationHeroRow: some View {
+        HStack(spacing: 14) {
+            YoinIcon("cloud", size: 24)
+                .foregroundStyle(app.onPrimaryContainer)
+                .frame(width: 48, height: 48)
+                .background(app.primaryContainer, in: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "Sync location"))
+                    .yoinRole(Tokens.type.labelMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+                Text(sync.activeLocationName)
+                    .yoinRole(Tokens.type.titleLarge)
+                    .foregroundStyle(app.onSurface)
+            }
+            Spacer(minLength: 8)
+            Button { openLocation = true } label: {
+                HStack(spacing: 4) {
+                    Text(String(localized: "Change"))
+                        .yoinRole(Tokens.type.labelLarge)
+                    YoinIcon("chevron_right", size: 16)
+                }
+                .foregroundStyle(app.onSecondaryContainer)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 36)
+                .background(app.secondaryContainer, in: .capsule)
+            }
+            .buttonStyle(PressScale())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
     private var status: String {
-        if state.readOnly { return String(localized: "Reading your Drive") }
+        if state.readOnly {
+            return sync.isICloud ? String(localized: "Reading your iCloud") : String(localized: "Reading your Drive")
+        }
         switch state.phase {
         case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
-        case is CloudSyncPhaseOffline: return String(localized: "Can't reach Google")
+        case is CloudSyncPhaseOffline:
+            return sync.isICloud ? String(localized: "Can't reach iCloud") : String(localized: "Can't reach Google")
         case let e as CloudSyncPhaseError: return e.message
         default:
             if state.pendingChanges { return String(localized: "Changes waiting to upload") }
@@ -381,10 +466,31 @@ struct CloudSyncView: View {
             if sync.freshHeld.contains(a.localProfileId) { waiting = String(localized: "Changes waiting to upload") }
             buttons.append((String(localized: "Keep syncing as before"), { Task { await sync.keepAsBefore(a.localProfileId) } }))
             buttons.append((String(localized: "Start fresh"), { confirmFresh = a }))
+        case is SyncAccountStatusRemovedFromCloud:
+            label = String(localized: "Removed from cloud")
+            buttons.append((String(localized: "Resume syncing"), { Task { await sync.resumeAccountSync(a.localProfileId) } }))
         default: label = ""
         }
         return VStack(alignment: .leading, spacing: 8) {
-            info(a.displayName, label, note: waiting)
+            HStack(spacing: 8) {
+                info(a.displayName, label, note: waiting)
+                Spacer(minLength: 0)
+                if a.status is SyncAccountStatusSyncing, let scope = a.syncProfileId {
+                    Menu {
+                        Button(role: .destructive) {
+                            confirmRemoveAccount = (scope, a.displayName)
+                        } label: {
+                            Label("Remove from cloud", systemImage: "trash")
+                        }
+                    } label: {
+                        YoinIcon("more_vertical", size: 22)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .frame(width: 48, height: 48)
+                            .contentShape(.rect)
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
             if !buttons.isEmpty {
                 HStack(spacing: 16) {
                     ForEach(buttons.indices, id: \.self) { i in
@@ -423,7 +529,7 @@ struct CloudSyncView: View {
     /// Android's "Good to know" (CloudSyncScreen, parity D-U3): where the data lives and what that means.
     private var goodToKnow: some View {
         group(String(localized: "Good to know")) {
-            Self.goodToKnowLines.map { line in
+            Self.goodToKnowLines(isICloud: enabled && sync.isICloud).map { line in
                 AnyView(Text(line)
                     .yoinRole(Tokens.type.bodyMedium)
                     .foregroundStyle(app.onSurfaceVariant)
@@ -434,10 +540,17 @@ struct CloudSyncView: View {
         }
     }
 
-    static var goodToKnowLines: [String] {
-        [String(localized: "Saved in a hidden Yoin folder in your own Google Drive. It's protected by your Google account, not end-to-end encrypted, and counts toward your storage."),
-         String(localized: "Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device."),
-         String(localized: "Listening history stays on each device.")]
+    static var goodToKnowLines: [String] { goodToKnowLines(isICloud: false) }
+
+    static func goodToKnowLines(isICloud: Bool) -> [String] {
+        let storageLine = isICloud
+            ? String(localized: "Saved in your private iCloud database (CloudKit) across your Apple devices. Protected by your Apple Account and counts toward your iCloud storage.")
+            : String(localized: "Saved in a hidden Yoin folder in your own Google Drive. It's protected by your Google account, not end-to-end encrypted, and counts toward your storage.")
+        return [
+            storageLine,
+            String(localized: "Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device."),
+            String(localized: "Listening history stays on each device."),
+        ]
     }
 
     // MARK: Pieces (ServerSettingsView's)
