@@ -48,6 +48,14 @@ internal enum class HomeBubbleTip(
 ) {
     AppleMusicSongNames(R.string.home_tip_apple_music_names_title, R.string.home_tip_apple_music_names, day(2026, 11, 23), { YoinSymbols.Translate }),
     NoteMentions(R.string.home_tip_note_mentions_title, R.string.home_tip_note_mentions, day(2026, 11, 23), { YoinSymbols.At }),
+    AlbumStickies(R.string.home_tip_album_stickies_title, R.string.home_tip_album_stickies, day(2026, 11, 23), { YoinSymbols.Note }),
+    MentionedIn(R.string.home_tip_mentioned_in_title, R.string.home_tip_mentioned_in, day(2026, 11, 23), { YoinSymbols.Link }),
+    CloudExportTransfer(
+        R.string.home_tip_cloud_export_transfer_title,
+        R.string.home_tip_cloud_export_transfer,
+        day(2026, 11, 23),
+        { YoinSymbols.Cloud },
+    ),
     MemorySearch(R.string.home_tip_memory_search_title, R.string.home_tip_memory_search, day(2026, 11, 20), { YoinSymbols.Search }),
     KeyboardShortcuts(R.string.home_tip_keyboard_shortcuts_title, R.string.home_tip_keyboard_shortcuts, day(2026, 11, 13), { YoinSymbols.Keyboard }),
     VolumeLeveling(R.string.home_tip_volume_leveling_title, R.string.home_tip_volume_leveling, day(2026, 11, 13), { YoinSymbols.VolumeUp }),
