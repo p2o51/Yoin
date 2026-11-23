@@ -28,7 +28,7 @@
 - **Spotify**：读取个人资料库，通过 Spotify 应用或 Spotify Connect 远程播放与控场。当已登录的 Spotify 账号正在播放，Android 首页顶部会浮出曲目胶囊，轻点即可切换。
 - **Apple Music**：浏览个人资料库与完整曲库，通过 Apple MusicKit 原生播放。
 - **快速切换**：长按顶栏头像并滑动即可切到另一个账号；首页的“在你的其他资料里”组件还会列出其他账号常听的专辑与播放列表，点按即可切换并播放。
-- **本地优先**：没有广告，不设 Yoin 账号，Yoin 不收集你听了什么。评分、笔记和播放记录保存在本机；音源密码和令牌经系统安全密钥库加密保存在本机，不进入系统备份。评分与笔记可通过你的 Google Drive（应用专用的 `app-data` 隐藏空间）在不同设备之间自动同步。
+- **本地优先**：没有广告，不设 Yoin 账号，Yoin 不收集你听了什么。评分、笔记和播放记录保存在本机；音源密码和令牌经系统安全密钥库加密保存在本机，不进入系统备份。评分、笔记与歌单备份可通过你的 Google Drive（应用专用的 `app-data` 隐藏空间）或 Apple 端私有 iCloud 数据库（CloudKit）在设备之间同步。
 
 ## 从掌心到大屏，处处合手。
 
@@ -65,16 +65,16 @@
 ### Android（`app/`，版本号见 [`gradle/libs.versions.toml`](gradle/libs.versions.toml)）
 
 - **基础环境**：Kotlin 2.4.21、AGP 9.2.1、`minSdk` 26、`targetSdk` 36、`compileSdk` 37
-- **界面与动效**：Jetpack Compose (BOM 2026.09.00)、Material 3 `1.5.0-alpha27` (Expressive APIs)、Material 3 Adaptive `1.3.0`、`androidx.window` `1.5.1`、Navigation 3 `1.1.2`、Glance `1.2.0`（桌面小组件）
+- **界面与动效**：Jetpack Compose (BOM 2026.11.01)、Material 3 `1.5.0` (Expressive APIs)、Material 3 Adaptive `1.3.0`、`androidx.window` `1.5.1`、Navigation 3 `1.1.2`、Glance `1.2.0`（桌面小组件）
 - **播放内核**：Media3 `1.11.1`（`MediaSession` + Cast）、Spotify App Remote、Apple MusicKit
-- **本地存储、同步与端侧 AI**：Room `2.8.5`、AndroidKeyStore AES-GCM 凭证加密、Google Drive `appDataFolder` 同步、Retrofit `3.0.0`、OkHttp `5.5.1`、Coil `3.4.0`、ML Kit GenAI Prompt `1.0.0-beta4`（端侧 Gemini Nano）
+- **本地存储、同步与端侧 AI**：Room `2.8.5`、AndroidKeyStore AES-GCM 凭证加密、Google Drive `appDataFolder` 同步、Retrofit `3.0.0`、OkHttp `5.5.1`、Coil `3.4.0`、ML Kit GenAI Prompt `1.0.0-beta5`（端侧 Gemini Nano）
 - **测试**：JUnit 4、Robolectric `4.17`、Turbine `1.2.1`、MockK `1.14.11`
 
 ### iOS 与 iPadOS（`iosApp/`）
 
 - **基础与界面**：Swift 6.0（严格并发检查）、SwiftUI、iOS 26（Liquid Glass 与 Yoin 自定义玻璃层级）、iPad 分栏自适应布局、XcodeGen（`project.yml`）
 - **播放内核**：`AVPlayer` + `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`（Subsonic）、`MusicKit` for Swift（Apple Music）、`SpotifyiOS` `5.0.1` App Remote + Web API（Spotify）
-- **存储、同步与端侧 AI**：Keychain 凭证加密存储、`GoogleSignIn` `9.2.0`（与 Android 互通的 `drive.appdata` 云同步）、Apple Intelligence / Foundation Models（端侧歌词卡片生成）
+- **存储、同步与端侧 AI**：Keychain 凭证加密存储、`GoogleSignIn` `9.2.0`（与 Android 互通的 `drive.appdata` 云同步）与 Apple iCloud（CloudKit 私有库，支持四步校验迁移）、Apple Intelligence / Foundation Models（端侧歌词卡片生成）
 - **小组件与实时活动**：WidgetKit 与 ActivityKit（`YoinWidgets`）
 
 ### 鸿蒙（`harmony/`）
@@ -95,7 +95,7 @@ flowchart TD
     PM --> Sub["Subsonic / OpenSubsonic"]
     PM --> Spo["Spotify (Web API + App Remote / Connect)"]
     PM --> App["Apple Music (MusicKit)"]
-    Repo --> Local[("本地数据库 + Google Drive appDataFolder")]
+    Repo --> Local[("本地数据库 + Google Drive / iCloud")]
     VM --> Play["播放控制层"]
     Play --> Stream["Media3 / AVPlayer / OHOS AVPlayer"]
     Play --> Remote["Spotify App Remote"]
