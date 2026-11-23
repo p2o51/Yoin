@@ -621,6 +621,31 @@ private fun lerp(start: Dp, stop: Dp, fraction: Float): Dp = start + (stop - sta
 
 private object SeamViewportKey
 private object SeamHostKey
+private object SeamHoldKey
+
+/**
+ * Holds everything inside it whole while [held]: no dots, no lip, no lifted text — it draws
+ * straight through. For an element that floats over the scrolled content (Home's carried block):
+ * its dissolve would open holes onto the rows passing under it, not onto the page. Read in draw.
+ */
+internal fun Modifier.seamHold(held: () -> Boolean): Modifier = this then SeamHoldElement(held)
+
+private data class SeamHoldElement(val held: () -> Boolean) : ModifierNodeElement<SeamHoldNode>() {
+    override fun create() = SeamHoldNode(held)
+    override fun update(node: SeamHoldNode) {
+        node.held = held
+    }
+    override fun InspectorInfo.inspectableProperties() {
+        name = "seamHold"
+    }
+}
+
+private class SeamHoldNode(var held: () -> Boolean) : Modifier.Node(), TraversableNode {
+    override val traverseKey: Any get() = SeamHoldKey
+}
+
+/** Whether [hold] (a [seamHold] around an element) holds it whole now (a snapshot read). */
+private fun heldBy(hold: SeamHoldNode?): Boolean = hold != null && hold.isAttached && hold.held()
 
 internal fun LazyGridState.seamScrolledPx(): Float =
     if (firstVisibleItemIndex > 0) Float.POSITIVE_INFINITY else firstVisibleItemScrollOffset.toFloat()
@@ -717,6 +742,17 @@ private abstract class SeamNode :
         private set
     private var viewportLookedUp = false
     private var cachedViewport: SeamViewportNode? = null
+    private var holdLookedUp = false
+    private var cachedHold: SeamHoldNode? = null
+
+    /** A [seamHold] around this element holds it whole now. Snapshot read: call it in draw / the layer block. */
+    protected fun held(): Boolean {
+        if (!holdLookedUp) {
+            cachedHold = findNearestAncestor(SeamHoldKey) as? SeamHoldNode
+            holdLookedUp = true
+        }
+        return heldBy(cachedHold)
+    }
 
     // Lazy items are subcomposed children of the container's layout node, so
     // the viewport is an ancestor in the node tree. Re-resolved per attach.
@@ -772,6 +808,8 @@ private abstract class SeamNode :
         nearField = false
         viewportLookedUp = false
         cachedViewport = null
+        holdLookedUp = false
+        cachedHold = null
     }
 }
 
@@ -863,7 +901,7 @@ private class SeamDissolveNode :
     // Runs inside the placement layer (a layout node's own drawing belongs to
     // its content), so the lifted text is drawn by [SeamPrintNode] outside it.
     override fun ContentDrawScope.draw() {
-        if (deferred || shaderMode) {
+        if (deferred || shaderMode || held()) {
             drawContent()
         } else {
             val viewport = viewport()
@@ -983,7 +1021,7 @@ private class SeamDissolveNode :
     private fun GraphicsLayerScope.shaderEffect(size: Size): RenderEffect? {
         placed.intValue
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
-        if (deferred || size.isEmpty()) return null
+        if (deferred || size.isEmpty() || held()) return null
         val viewport = viewport() ?: return null
         val top = if (nearTop) configureTop(viewport, size) else null
         val cookie = if (nearTop) configureCookie(viewport, size) else null
@@ -1194,7 +1232,12 @@ private class SeamPrintNode :
      * the tide it stays whole, so its text stays in it. Snapshot reads — read
      * in draw by both sides.
      */
-    val lifting: Boolean get() = liftForField || (liftForTop && (topViewport?.topStyle ?: SeamTopPreference.style).liftsText)
+    val lifting: Boolean
+        get() = !heldBy(hold) &&
+            (liftForField || (liftForTop && (topViewport?.topStyle ?: SeamTopPreference.style).liftsText))
+
+    /** A [seamHold] around this print: held, nothing breaks up, so no text is lifted. */
+    private var hold: SeamHoldNode? = null
 
     /** The viewport whose chrome seam sets [liftForTop] (a style preview pins its own look). */
     var topViewport: SeamViewportNode? = null
@@ -1202,10 +1245,12 @@ private class SeamPrintNode :
 
     override fun onAttach() {
         outer = findNearestAncestor(SeamHostKey) as? SeamPrintNode
+        hold = findNearestAncestor(SeamHoldKey) as? SeamHoldNode
     }
 
     override fun onDetach() {
         outer = null
+        hold = null
         topViewport = null
         liftForTop = false
         liftForField = false

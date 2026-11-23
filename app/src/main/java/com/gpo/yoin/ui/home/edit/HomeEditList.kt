@@ -377,7 +377,8 @@ internal fun HomeEditList(
                                 placementSpec = if (carried) null else placement,
                                 fadeOutSpec = if (dragOn) null else specs.effectsOut,
                             )
-                            .dragZIndex { if (engine.carries(row)) 1f else 0f },
+                            // The carried strip over every row, from its lift until it has landed.
+                            .dragZIndex { if (engine.drawsOnTop(row)) 1f else 0f },
                         horizontalArrangement = Arrangement.spacedBy(HomeSpanTokens.ColumnGap),
                     ) {
                         row.sections().forEach { section ->
@@ -391,7 +392,7 @@ internal fun HomeEditList(
                                     targets = targets,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .dragZIndex { if (engine.dragging == section) 1f else 0f },
+                                        .dragZIndex { if (engine.drawsOnTop(section)) 1f else 0f },
                                 )
                             }
                         }

@@ -321,6 +321,18 @@ internal class HomeDragEngine(
     fun carries(row: HomeFeedRow): Boolean = dragging?.let { it in row.sections() } == true
 
     /**
+     * [section] draws over every other block and row: lifted, dragged, or gliding into its slot
+     * (rows scrolling under it at the edge never cover it). Read at placement.
+     */
+    fun drawsOnTop(section: HomeSection): Boolean = dragging == section || settling == section || liftSection == section
+
+    /** [row] holds a block that [drawsOnTop]. Read at placement. */
+    fun drawsOnTop(row: HomeFeedRow): Boolean = row.sections().any(::drawsOnTop)
+
+    /** The block that [drawsOnTop], if any. Read at placement. */
+    val onTopSection: HomeSection? get() = dragging ?: settling ?: liftSection
+
+    /**
      * [section]'s offset from its laid-out place: under the finger while
      * dragged, gliding home while it settles. [inList]: the pinched list's
      * strip asks, not the feed's block. [width] is the block's width as the

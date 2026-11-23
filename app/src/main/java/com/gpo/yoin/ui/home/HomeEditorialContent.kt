@@ -1820,7 +1820,7 @@ private fun LazyItemScope.HomeFeedRowItem(
         gap = HomeSpanTokens.ColumnGap,
         flips = if (twoColumn) env.flips else null,
         grid = grid,
-        onTop = { engine.dragging },
+        onTop = { engine.onTopSection },
         cells = env.cells,
         data = { section -> homeFeedRowCell(section, left, right)?.let { HomeFeedCellData(it, env) } },
         modifier = Modifier
@@ -1848,8 +1848,9 @@ private fun LazyItemScope.HomeFeedRowItem(
                 // new row would compose the cell afresh beside the fading one.
                 fadeOutSpec = if (twoColumn && deps.controller.isEditing) null else specs.effectsOut,
             )
-            // The dragged block draws over the rows it crosses.
-            .dragZIndex { if (engine.carries(row)) 1f else 0f },
+            // The carried block draws over the rows it crosses, the ones the edge scroll brings under
+            // it included, from its lift until it has landed.
+            .dragZIndex { if (engine.drawsOnTop(row)) 1f else 0f },
     )
 }
 

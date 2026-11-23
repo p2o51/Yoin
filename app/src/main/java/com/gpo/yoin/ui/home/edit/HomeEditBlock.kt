@@ -91,6 +91,7 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.GrabPointer
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamHold
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.component.YoinDropdownMenu
@@ -330,6 +331,9 @@ internal fun HomeEditBlock(
             // Dragged, the block follows the finger, placed against this frame's layout; dropped, it
             // glides into its slot.
             .dragFollow(engine, section, inList = false, box = deps.targets::boxCoordinates)
+            // Carried, it floats over the rows: the scroll edges' dissolve would open holes in it onto
+            // the rows passing under it (edge scroll, 2026-11-23), so it stays whole until it lands.
+            .seamHold { engine.liftSection == section }
             .blockLayer { outset ->
                 var scale = motion.hideScale(section)
                 var pivotX = size.width / 2f
