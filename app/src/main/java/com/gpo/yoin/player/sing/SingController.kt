@@ -133,7 +133,20 @@ class SingController(
         }
     }
 
-    /** Called by [SingPlaybackSwitcher] once the quad stream is pre-buffered and active in ExoPlayer. */
+    /**
+     * Where the listener is in the playing song, from [SingPlaybackSwitcher] (every half second and on
+     * seeks while Sing is on): the on-device engine separates from there.
+     */
+    fun onPlayhead(positionMs: Long, playing: Boolean) {
+        val request = _state.value.request ?: return
+        if (!_state.value.enabled) return
+        selector.providerFor(request.songId.provider).onPlayhead(request, positionMs, playing)
+    }
+
+    /**
+     * Called by [SingPlaybackSwitcher] once Sing is audible: the quad stream swapped in, or (live) the
+     * mixer first taking the vocal out of the original.
+     */
     fun onStreamHandedOver(requestKey: String) {
         _state.update { s ->
             if (s.enabled && s.request?.key == requestKey) s.copy(handedOver = true) else s

@@ -12,13 +12,13 @@ class SingDeviceGateTest {
     @Test
     fun should_pass_when_fastCoolAndQuad() {
         assertEquals(Verdict.Sufficient(400), SingDeviceGate.evaluate(400, thermalStatus = 0))
-        assertEquals(Verdict.Sufficient(2_000), SingDeviceGate.evaluate(2_000, thermalStatus = 1))
+        assertEquals(Verdict.Sufficient(1_500), SingDeviceGate.evaluate(1_500, thermalStatus = 1))
     }
 
     @Test
-    fun should_reportInsufficient_when_chunkSlowerThan2s() {
-        val v = SingDeviceGate.evaluate(2_001, 0)
-        assertEquals(Verdict.Insufficient(Why.TooSlow, 2_001), v)
+    fun should_reportInsufficient_when_chunkTooSlowForLive() {
+        val v = SingDeviceGate.evaluate(1_501, 0)
+        assertEquals(Verdict.Insufficient(Why.TooSlow, 1_501), v)
         assertEquals(SingUnavailableReason.DeviceInsufficient, (v as Verdict.Insufficient).reason)
         assertEquals(com.gpo.yoin.R.string.sing_device_insufficient, v.reason.messageRes)
     }
@@ -55,8 +55,8 @@ class SingDeviceGateTest {
     @Test
     fun should_stopAfterWarmUp_when_warmUpAlreadyTooSlow() {
         val clock = longArrayOf(0)
-        val model = FakeModel(clock, listOf(4_500))
-        assertEquals(4_500L, SingDeviceGate.benchmarkChunkMs(model) { clock[0] })
+        val model = FakeModel(clock, listOf(3_500))
+        assertEquals(3_500L, SingDeviceGate.benchmarkChunkMs(model) { clock[0] })
         assertEquals(1, model.calls)
     }
 }

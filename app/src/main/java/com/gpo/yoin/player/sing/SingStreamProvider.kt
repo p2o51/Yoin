@@ -32,6 +32,12 @@ interface SingStreamProvider {
 
     /** Whether this provider can sing at all right now (e.g. the device gate's last answer). */
     fun availability(): SingAvailability = SingAvailability.Available
+
+    /**
+     * Where the listener is in [request]'s song ([playing] or paused), reported every half second and
+     * on every seek while Sing is on — the on-device engine separates from there.
+     */
+    fun onPlayhead(request: SingRequest, positionMs: Long, playing: Boolean) {}
 }
 
 /**
@@ -84,7 +90,10 @@ enum class SingFailure(@param:StringRes @get:StringRes val messageRes: Int) {
     Remote(R.string.sing_failed_generic),
 }
 
-/** Where the 4-channel stream is; the switcher plays either through the same sink and mixer. */
+/**
+ * Where the Sing audio is: a 4-channel stream ([LocalFile], [Remote]) the switcher swaps in, or a
+ * vocal track the live mixer subtracts from the original as it plays ([Live]).
+ */
 sealed interface SingSource {
     /** See [SingMixControl.channelMap]; identity unless a decoder was found to reorder channels. */
     val channelMap: IntArray
@@ -109,6 +118,15 @@ sealed interface SingSource {
             other is Remote && other.uri == uri && other.headers == headers && other.channelMap.contentEquals(channelMap)
 
         override fun hashCode(): Int = (uri.hashCode() * 31 + headers.hashCode()) * 31 + channelMap.contentHashCode()
+    }
+
+    /**
+     * The on-device engine's vocal stem, filling while the song plays (complete on a cache hit). Ready
+     * means V covers the next few seconds from the playhead; no stream is swapped — the mixer takes V
+     * out of the original ([SingMixerAudioProcessor], live mode).
+     */
+    data class Live(val track: SingVocalTrack) : SingSource {
+        override val channelMap: IntArray get() = SingMixControl.IDENTITY
     }
 
     companion object {
