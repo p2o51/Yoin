@@ -48,6 +48,12 @@ enum Tips {
 
     /// Every tip, in the order the bubble goes through them.
     static let catalog: [Tip] = [
+        // iCloud (CloudKit) sync location (Settings › Cloud sync › Sync location, Apple platforms only).
+        Tip(id: "ICloudSync", icon: "cloud", updated: "2026-11-23",
+            title: "iCloud sync",
+            text: "Choose iCloud under Sync location in Settings › Cloud sync to sync across your Apple devices",
+            titleZhHans: "iCloud 云同步",
+            textZhHans: "在设置 › 云同步的同步位置里，可以切换用 iCloud 在 Apple 设备间同步"),
         // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's wired keys
         // in YoinCommands (Space, ←/→ seek ±5s, ⌘←/⌘→ skip, ⌘F focus cover, ⌘L lyrics, ⌘⇧P Now Playing,
         // ⌘K search, Esc / ⌘[ back).
