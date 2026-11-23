@@ -412,6 +412,25 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 - **桌面与系统微件**：Glance `PlayWidget` / `MemoryWidget`（Android）、WidgetKit + ActivityKit 实时活动（iOS/macOS）、FormKit `PlayCard` / `MemoryCard` 1×2 / 2×2 / 2×4 服务卡片与下载 Live View（HarmonyOS）。
 - **跨源播放实验（2026-10-20）** — 目前仅有 DUMP 权限保护的 debug 原型，没有产品入口、歌单持久化或跨源输出承诺。优先验证 Apple Music → 受控 Subsonic 音源 → Apple Music；每项持有明确的来源账号，不切换浏览账号来交接。旧后端必须由新鲜原生状态确认停止后才能启动下游；不确定或超时即停止调度。MusicKit 的单项结束回调还包含 Stop / Skip，只有归属于本次队列、无主动中断且有真实曲尾进度的最终项终止，才映射 Media3 `STATE_ENDED`；循环播放不走此终态。首次起播与显式恢复位置分别确认。Spotify 先独立验证真实 MediaSession / 前台服务的连接寿命，WakeLock 只作限时对照，不用伪造播放状态保活。
 
+### 🎤 跟唱（Sing）引擎（2026-11-23，Android 引擎先行，暂无界面）
+
+把正在放的歌里的人声压低，按滑杆比例混回去。**这一步只有引擎**：没有可见界面、没有设置项，对外只有 `player/sing/` 里的内部 API；什么都不调用时，播放链路行为不变。
+
+- **能用的地方**：Navidrome/Subsonic 的歌，在线播放或已下载都可以（`Capability.SING`，只有 Subsonic 声明）。Spotify、Apple Music 由各自的播放器出声，音频不经过 Yoin 的输出链，所以不支持。
+- **来源选择**（`SingProviderSelector`）：Lyra 在线 → 服务端路径（Rebecca 接，目前是 `LyraSingStreamProvider` 占位）；Navidrome/离线缓存 → 本机分离；Spotify/Apple Music → 不可用。
+- **唯一的接缝 `SingStreamProvider`**：输入 `SingRequest`（`MediaId` + profileId + 原始流 url + 播放位置），输出 `Flow<SingStatus>`：`Unavailable(原因)` / `Preparing(进度)` / `Ready(SingSource)` / `Failed(原因)`。`SingSource` 要么是本机缓存文件 `LocalFile`，要么是远端 `Remote(uri)`。两种来源走同一条播放链路。
+- **四声道格式（Android、iOS、Lyra 服务端共用）**：AAC-LC 四声道，装在 MP4（.m4a）里，声道顺序 CH0=I_L、CH1=I_R、CH2=V_L、CH3=V_R（伴奏、人声），采样率和时间轴与原曲一致。Lyra 服务端地址是 `/api/v1/sing/{id}/quad.m4a`（audio/mp4，支持 Range/206，鉴权与其他 /api/v1 路由一样用 Subsonic 的 u/t/s 查询参数），文件做 faststart。本机用 MediaMuxer 写，moov 在文件尾，本地播放不受影响。AAC 的四声道没有纯“quad”布局，编解码器可能换序或折成立体声：首次使用时 `QuadChannelOrderProbe` 用四个不同频率的音在本机编解码一遍，得到声道映射交给混音器；解不出四声道的设备判为不支持。`androidTest/QuadAacRoundTripTest` 在真机上验证顺序。
+- **混音器**（`SingMixerAudioProcessor`，在 `DefaultAudioSink` 处理链最前，ReplayGain 之前）：四声道输入输出立体声 Y_L = I_L + g·V_L，Y_R = I_R + g·V_R；其他声道数（以及没开跟唱时的四声道文件）原样通过。支持 16-bit 和 float PCM。g 的每次变化都逐样本线性过渡 20 ms，不会咔哒。
+- **滑杆曲线**（`SingGainCurve`）：位置 p∈[0,1]，g = 10^(−48·(1−p)/20)，最后 5% 线性收到 0（p=0 静音，p=1 原曲）。默认 12%（Apple Music 跟唱的比例）；增益落在 10%–13.5% 时吸附到 12%，界面在吸附时给一下轻触感。
+- **开关过程**：打开时先 g=1.0（等于原曲，所以切流听不出来），换上四声道流后 250 ms 平滑降到滑杆位置；关闭时 250 ms 升回 1.0 再换回原流。换流由 `SingPlaybackSwitcher` 在 `PlaybackService` 里做：原地替换当前曲目的 uri（id、元数据不变）并 seek 回原位置，file:// 通过 `DefaultDataSource` 读。DLNA 输出时不切。
+- **切歌**：跟唱保持开启并延续到下一首。新歌在流准备好之前按原曲播放（人声满音量），准备好后同样从 1.0 滑入；不支持的歌显示 `Unavailable`，跟唱仍开着，只有用户退出才关。
+- **控制器 API**（`SingController`，界面以后绑定）：`availability`（当前曲目能否跟唱及原因）、`enter()`/`exit()`、`mode`（Off / Preparing(进度) / Ready / Unavailable / Failed）、`vocalLevel` + `setVocalLevel(p)`。owner 定的界面方向（以后做）：长按 Now Playing 封面出现「跟唱」；跟唱时评分条变成人声音量（0–100%，默认 12%，10–12% 附近轻吸附），心形按钮变成跟唱按钮（再点退出），歌词展开，左下角一个胶囊控件。
+- **本机分离 Lyra-Sing-Lite**（ONNX Runtime Android 1.32.0，CPU/XNNPACK）：模型不打进 APK，第一次使用时从配置的地址下载（地址待 owner 定，可能是 GitHub Release 附件；现在是占位的 `.invalid` 地址），校验 SHA-256 后才加载。默认 fp32；fp16 只允许在 CPU/XNNPACK 上用；不用 int8。管线与 Prism `lyra-sing-lite`（训练代码的 `torch.stft`）一致：解码一次成立体声 float（单声道复制成双声道，多声道按 −3 dB 折叠并归一），线性相位重采样到 22,050 Hz（复刻 `scipy.signal.resample_poly`），STFT n_fft=1024、hop=256、周期 Hann、center=True 反射填充；去掉直流取 1..512 bin；每 256 帧一块、块起点间隔 160 帧、对称 Hann 交叉淡化（下限 1e-4），输入 [1,4,512,256]、顺序 [L_re,L_im,R_re,R_im]，每块按 RMS 归一（sqrt(mean(x²)+1e-6)）再乘回；直流补 0，iSTFT，升回原采样率得 V，I = X − V 用同一份解码数据算（避免 MP3 前导样本错位，编码器延迟/填充按 Media3 的方式裁掉）。超过 48 kHz 的源先降到 48 kHz。
+- **快速起步与尽快空闲**：先算播放位置所在的那一块，再按顺序算完整首（之前的部分倒序补齐），每帧凑齐所有块后立即逆变换，整首不需要常驻频谱内存，中间信号放在内存映射的临时文件里。推理一结束就关闭 ORT 会话，然后编码成四声道 .m4a 写进 LRU 缓存（`cacheDir/sing`，默认上限 1 GB，可调）。再次播放同一首直接命中缓存，零计算。**部分完成的结果还不能边算边播**，要等整首算完才切流（后续可做）。
+- **设备门槛**（`SingDeviceGate`）：第一次打开前先用一块静音数据跑一次（先预热一次）；一块超过 2.0 s（约 RTF 0.7）、或系统温控已到 MODERATE 及以上、或解不出四声道，就判定“设备不够”，给出字符串 `sing_device_insufficient`，界面可以建议改用 Lyra。结果按设备指纹和模型记住，温控每次都重新看。
+- **体积**：只打包 arm64-v8a 的 ORT 库（32 位和 x86 设备太慢，门槛本来也过不了），APK 增加约 36 MB（.so 不压缩存放，下载体积约 +14 MB）；要更小只能自己编裁剪算子的 ORT（预计 3–5 MB）。ORT Android 包自带一个启动时上报使用情况的 telemetry provider，已在 manifest 里移除，会话也关掉了 telemetry。
+- **文案**：`strings_sing.xml` 里都是占位，界面上线前由 Rebecca 写定。
+
 ### 📚 Library
 
 - 分类浏览：歌单 / 歌手 / 专辑 / 歌曲 / 收藏。收藏标签只在「收藏」和「资料库」是两回事的服务上出现（Subsonic）。Spotify 的资料库本身就是收藏：喜欢一首歌就是把它加进 Liked Songs，专辑是保存的，歌手是关注的。所以 Spotify 下不显示收藏标签（2026-10-10 拍板），由 `ServiceFeatures.favoritesAreLibrary` 显式标记，不从能力组合推断。Apple Music 没有收藏能力，也不显示
