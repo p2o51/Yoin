@@ -507,16 +507,17 @@ internal fun Modifier.homeCellMorphBlock(morph: HomeCellMorph?): Modifier = if (
  * springs to whatever width the block is drawn at (the same constraints each
  * frame, so it isn't measured again), cut off at the block's edge while it
  * is the wider of the two.
+ *
+ * The cut is drawn OUTSIDE the layout, at the block's width: inside it, its
+ * size was the content's own (the wider one), so nothing was cut, and a
+ * widening block drew the cards of its final width past its edge (Jump Back
+ * In's covers over the next column, a dragged block's shelf off the screen,
+ * 2026-11-23).
  */
 internal fun Modifier.homeCellMorphContent(morph: HomeCellMorph?): Modifier = if (morph == null) {
     this
 } else {
-    layout { measurable, constraints ->
-        if (!constraints.hasBoundedWidth) return@layout measurable.measure(constraints).let { layout(it.width, it.height) { it.place(0, 0) } }
-        val w = homeCellMorphContentWidth(constraints.maxWidth, morph.contentExtra())
-        val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
-        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
-    }.drawWithContent {
+    drawWithContent {
         if (morph.contentExtra() > 0) {
             clipRect(left = -size.width, top = -size.height, right = size.width, bottom = size.height * 2f) {
                 this@drawWithContent.drawContent()
@@ -524,6 +525,11 @@ internal fun Modifier.homeCellMorphContent(morph: HomeCellMorph?): Modifier = if
         } else {
             drawContent()
         }
+    }.layout { measurable, constraints ->
+        if (!constraints.hasBoundedWidth) return@layout measurable.measure(constraints).let { layout(it.width, it.height) { it.place(0, 0) } }
+        val w = homeCellMorphContentWidth(constraints.maxWidth, morph.contentExtra())
+        val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
     }
 }
 

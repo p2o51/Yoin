@@ -2226,6 +2226,8 @@ private data class BentoContent(
     // The row preset (D1). Not part of the crossfade's key: a preset change
     // updates in place (edit mode's resize interpolates it card by card).
     val preset: HomeRowPreset,
+    // The composition it shows in (HomeContentGenerations): the crossfade's key.
+    val generation: Int = 0,
 )
 
 /** Enough recent entries to fill the widest bento (13 slots) and still find an album / playlist hero. */
@@ -2289,20 +2291,24 @@ private fun ActivityBento(
         val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
         val heightSpec = YoinMotion.spatialSpring<Float>()
         val cardScope = LocalHomeEditCardScope.current
-        // A width class (or the stagger seed) changes the composition: the old
-        // one fades out — with its OWN entries — while the new fades in, and
-        // the section's height springs between them — never a hard cut. Data
-        // changes inside one composition update in place (contentKey), and so
-        // does a row preset.
+        // A stagger seed changing at the same width changes the composition:
+        // the old one fades out — with its OWN entries — while the new fades
+        // in, and the section's height springs between them — never a hard
+        // cut. A width class change (the column or the panel moving, a
+        // rotation, a block turning half ⇄ full) re-seats the bento in place,
+        // in the one composition: the crossfade ghosted the page at the tap
+        // (2026-11-12), and a swap with no fade still laid the old bento out
+        // beside the new one for a frame (2026-11-23). Data changes inside one
+        // composition update in place (contentKey), and so does a row preset.
+        val generations = remember { HomeContentGenerations<ActivityBentoSpec>() }
+        val generation = generations.of(spec) { old, new -> old.recipe == new.recipe && old.units == new.units }
         val swap = remember { HomeInstantSwap() }
         AnimatedContent(
-            targetState = BentoContent(spec, hero, candidates, rowsPreset),
-            contentKey = { it.spec },
+            targetState = BentoContent(spec, hero, candidates, rowsPreset, generation),
+            contentKey = { it.generation },
             transitionSpec = {
-                // A width class change (the column or the panel moving, a
-                // rotation) re-seats in place, once — the crossfade ghosted
-                // the page at the tap (2026-11-12). A stagger-seed change at
-                // the same width still fades.
+                // Only a change at the same width gets here as a new composition. Should a width
+                // change ever arrive with it, it still swaps at once.
                 val widthChanged = initialState.spec.recipe != targetState.spec.recipe ||
                     initialState.spec.units != targetState.spec.units
                 swap.instant = reduced || widthChanged

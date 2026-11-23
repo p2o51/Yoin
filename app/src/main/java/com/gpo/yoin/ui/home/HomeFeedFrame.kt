@@ -286,3 +286,33 @@ internal class HomeInstantSwap {
 internal fun Modifier.drawIncomingOnly(swap: HomeInstantSwap, outgoing: () -> Boolean): Modifier = drawWithContent {
     if (!(swap.instant && outgoing())) drawContent()
 }
+
+/**
+ * The composition an AnimatedContent shows its state in, as a number to key
+ * its content by (contentKey): a new one only for a change at the same width
+ * ([sameWidth]: a template, a seed, a removal), which crossfades. A change
+ * that comes with the width (a block turning half ⇄ full, a rotation, the
+ * Now Playing panel) keeps the composition and lays it out again, in place.
+ * Keyed by the width too, the change swapped compositions: for the frame the
+ * swap takes, the outgoing one was still composed and measured at the new
+ * width beside the incoming one, which laid the section out twice in one
+ * long frame (~200ms on the tablet as Activities' bento turned half ⇄ full,
+ * 2026-11-23). Read in composition.
+ */
+internal class HomeContentGenerations<K> {
+    private var last: K? = null
+    private var started = false
+    private var generation = 0
+
+    fun of(key: K, sameWidth: (old: K, new: K) -> Boolean): Int {
+        @Suppress("UNCHECKED_CAST")
+        generation = homeContentGeneration(generation, if (started) last as K else key, key, sameWidth)
+        last = key
+        started = true
+        return generation
+    }
+}
+
+/** The composition after [generation] for a change from [old] to [new]: the next one only for a change at the same width. Pure. */
+internal fun <K> homeContentGeneration(generation: Int, old: K, new: K, sameWidth: (old: K, new: K) -> Boolean): Int =
+    if (old != new && sameWidth(old, new)) generation + 1 else generation

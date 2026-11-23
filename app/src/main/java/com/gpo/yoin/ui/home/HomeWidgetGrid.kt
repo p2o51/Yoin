@@ -230,7 +230,12 @@ internal fun HomeWidgetGridSection(
     // does — the crossfade below on the effects springs, the height on the spatial one —
     // instead of its neighbours snapping into its place.
     val removals = rememberShelfRemovals(cards)
-    val content = JbiContent(gridSpec, cards, layout, rows, removals)
+    // A template or removal change at the same width crossfades into a new composition; a new grid
+    // spec (the width moving) re-seats the shelf in the one it has (HomeContentGenerations).
+    val generations = remember { HomeContentGenerations<JbiContent>() }
+    val packed = JbiContent(gridSpec, cards, layout, rows, removals)
+    val generation = generations.of(packed) { old, new -> old.key != new.key && old.spec == new.spec }
+    val content = packed.copy(generation = generation)
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val heightSpec = YoinMotion.spatialSpring<Float>()
     val cardScope = LocalHomeEditCardScope.current
@@ -242,13 +247,15 @@ internal fun HomeWidgetGridSection(
     ) {
         HomeSectionTitle(text = title)
         Box {
-            // A column-count, template or path change re-packs the grid: crossfade
+            // A template or removal change at the same width re-packs the grid: crossfade
             // it, with the section's height on a spatial spring — never a hard cut.
-            // A row preset updates in place (edit mode's resize interpolates it).
+            // A column-count or path change (the width moving) re-packs it in the one
+            // composition, and a row preset updates in place (edit mode's resize
+            // interpolates it).
             val swap = remember { HomeInstantSwap() }
             AnimatedContent(
                 targetState = content,
-                contentKey = { it.key },
+                contentKey = { it.generation },
                 transitionSpec = {
                     // A new grid SPEC is the width moving (the column or the
                     // Now Playing panel opening or closing, a rotation): the
@@ -637,7 +644,10 @@ private data class JbiContent(
     val rows: HomeRowPreset,
     // How many times cards have been taken off the shelf ([ShelfRemovals]).
     val removals: Int = 0,
+    // The composition it shows in (HomeContentGenerations): the crossfade's key.
+    val generation: Int = 0,
 ) {
+    /** What re-packs the grid: its template (or spec) and removals. */
     val key: Any get() = (layout?.template ?: spec) to removals
 }
 

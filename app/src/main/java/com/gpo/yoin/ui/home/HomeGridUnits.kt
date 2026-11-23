@@ -511,8 +511,14 @@ internal fun homeGridCellX(column: Int, span: Int, columns: Int, widthPx: Int, g
 /**
  * [cells] laid out on the grid: every cell exactly [rowHeight] tall (a unit), rows [rowGap] apart,
  * [columns] equal columns [gap] apart across the width. [stretchLast]: the last cell takes what is left
- * of its row. A cell that moves (a unit count or a width changed) springs to its new place on the
- * spatial spring; one that appears fades in on the effects spring.
+ * of its row. A unit count changing at the same width moves each cell to its new place on the spatial
+ * spring; one that appears fades in on the effects spring, one that goes fades out where it was.
+ *
+ * A width (or column count) change re-seats every cell in place, at once: no cell springs from where
+ * the old width had it, none fades in or out. Springing there, a block turning half ⇄ full drew its
+ * cards at the old layout's places over the new one's (Jump Back In's covers and signal cards sliding
+ * across each other while the new row faded in over them, and the going ones fading out past the
+ * narrowed block, 2026-11-23), and kept the old width's cells composed beside the new ones.
  */
 @Composable
 internal fun HomeGridCells(
@@ -539,9 +545,17 @@ internal fun HomeGridCells(
     val leaving = androidx.compose.runtime.remember { LinkedHashMap<Any, HomeGridLeaving>() }
     var leavingVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     leavingVersion // read: a finished fade recomposes the leaving cell away
+    // The column count and width the cells were last seated at: a change of either re-seats them at once.
+    val seat = androidx.compose.runtime.remember { HomeGridSeat() }
+    val reseat = homeGridReseats(seat.composedColumns, columns)
+    seat.composedColumns = columns
     val currentKeys = cells.map(key)
     val currentSet = currentKeys.toHashSet()
-    if (!reduced) {
+    if (reseat) {
+        // The width moved: the cells the old width had and this one hasn't go now, with any still fading.
+        leaving.keys.forEach { places.remove(it) }
+        leaving.clear()
+    } else if (!reduced) {
         lastSeen.forEach { (k, drawn) ->
             if (k !in currentSet && k !in leaving) {
                 val leave = HomeGridLeaving(drawn)
@@ -557,7 +571,8 @@ internal fun HomeGridCells(
         content = {
             cells.forEachIndexed { i, cell ->
                 androidx.compose.runtime.key(currentKeys[i]) {
-                    HomeGridFadeIn(reduced) { content(cell) }
+                    // A cell the new width brings in is simply there, like the rest of the new layout.
+                    HomeGridFadeIn(reduced || reseat) { content(cell) }
                 }
             }
             leavingNow.forEach { (k, leave) ->
@@ -596,15 +611,22 @@ internal fun HomeGridCells(
         }
         val rows = (cells.maxOfOrNull { it.row } ?: -1) + 1
         val height = if (rows <= 0) 0 else rows * unit + (rows - 1) * rowGapPx
+        // Measured at another width (or column count) than last time: every cell is placed where this
+        // width puts it, this frame (a snap launched would land a frame late, drawn at the old place).
+        val snap = reduced || homeGridReseats(seat.width, width) || homeGridReseats(seat.columns, columns)
+        seat.width = width
+        seat.columns = columns
         layout(width, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
             placed.forEach { (placeable, target, k) ->
-                val place = places.getOrPut(k) { HomeGridPlace(target) }
-                if (k in currentSet && place.target != target) {
-                    place.target = target
-                    if (reduced) {
-                        scope.launch { place.offset.snapTo(target) }
-                    } else {
-                        scope.launch { place.offset.animateTo(target, spec) }
+                var place = places.getOrPut(k) { HomeGridPlace(target) }
+                if (k in currentSet) {
+                    if (snap && (place.target != target || place.offset.value != target)) {
+                        place = HomeGridPlace(target)
+                        places[k] = place
+                    } else if (place.target != target) {
+                        place.target = target
+                        val moving = place
+                        scope.launch { moving.offset.animateTo(target, spec) }
                     }
                 }
                 placeable.placeRelative(place.offset.value)
@@ -612,6 +634,19 @@ internal fun HomeGridCells(
         }
     }
 }
+
+/** What [HomeGridCells] was last seated at: the column count it composed, the width and columns it measured (0: not yet). */
+private class HomeGridSeat {
+    var composedColumns = 0
+    var width = 0
+    var columns = 0
+}
+
+/**
+ * The grid moves from [last] (a width or column count it was seated at; 0 for none yet) to [now]: its
+ * cells re-seat in place, at once, instead of springing from the old layout's places. Pure.
+ */
+internal fun homeGridReseats(last: Int, now: Int): Boolean = last != 0 && last != now
 
 /** A key's cell and the content lambda it was last drawn with. */
 private class HomeGridDrawn(val cell: HomeGridCell, val content: @Composable (HomeGridCell) -> Unit)
