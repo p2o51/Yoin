@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.flowOf
 
 /**
  * The one seam between Sing playback and whoever makes the 4-channel stream. The on-device engine
- * ([OnDeviceSingStreamProvider]) is one implementation; the Lyra server client (Rebecca) is another
- * ([LyraSingStreamProvider], a stub for now). [SingProviderSelector] picks one per song; the playback
+ * ([OnDeviceSingStreamProvider]) is one implementation; the Lyra server client
+ * ([LyraSingStreamProvider]) is another. [SingProviderSelector] picks one per song; the playback
  * side ([SingPlaybackSwitcher] → [SingMixerAudioProcessor]) takes either kind of [SingSource] through
  * the same pipeline.
  *
@@ -122,16 +122,4 @@ object UnavailableSingStreamProvider : SingStreamProvider {
         flowOf(SingStatus.Unavailable(SingUnavailableReason.ProviderUnsupported))
 
     override fun availability(): SingAvailability = SingAvailability.Unavailable(SingUnavailableReason.ProviderUnsupported)
-}
-
-/**
- * The Lyra server path (Rebecca builds it on this seam): GET `/api/v1/sing/{id}/quad.m4a` with the
- * profile's Subsonic auth → [SingSource.Remote]. Until then it reports [SingUnavailableReason.LyraPending]
- * and the selector only picks it when Lyra is online, which nothing reports yet.
- */
-class LyraSingStreamProvider : SingStreamProvider {
-    override fun stream(request: SingRequest): Flow<SingStatus> =
-        flowOf(SingStatus.Unavailable(SingUnavailableReason.LyraPending))
-
-    override fun availability(): SingAvailability = SingAvailability.Unavailable(SingUnavailableReason.LyraPending)
 }

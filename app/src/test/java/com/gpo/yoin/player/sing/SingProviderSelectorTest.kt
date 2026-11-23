@@ -17,7 +17,9 @@ class SingProviderSelectorTest {
     private val onDevice = object : SingStreamProvider {
         override fun stream(request: SingRequest): Flow<SingStatus> = flowOf(SingStatus.Preparing())
     }
-    private val lyra = LyraSingStreamProvider()
+    private val lyra = object : SingStreamProvider {
+        override fun stream(request: SingRequest): Flow<SingStatus> = flowOf(SingStatus.Preparing())
+    }
 
     @Test
     fun should_declareSingOnlyForSubsonic_when_catalogRead() {
@@ -50,11 +52,5 @@ class SingProviderSelectorTest {
             assertEquals(SingStatus.Unavailable(SingUnavailableReason.ProviderUnsupported), p.stream(request).first())
             assertEquals(SingAvailability.Unavailable(SingUnavailableReason.ProviderUnsupported), p.availability())
         }
-    }
-
-    @Test
-    fun should_reportPending_when_lyraStubAsked() = runTest {
-        val status = lyra.stream(SingRequest(MediaId.subsonic("1"), "p")).first()
-        assertEquals(SingStatus.Unavailable(SingUnavailableReason.LyraPending), status)
     }
 }

@@ -13,7 +13,7 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
  */
 class SingProviderSelector(
     private val onDevice: SingStreamProvider,
-    private val lyra: SingStreamProvider = LyraSingStreamProvider(),
+    private val lyra: SingStreamProvider = UnavailableSingStreamProvider,
     private val isLyraOnline: () -> Boolean = { false },
 ) {
     fun providerFor(providerId: String): SingStreamProvider = when {
