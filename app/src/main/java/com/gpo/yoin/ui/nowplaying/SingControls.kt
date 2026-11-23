@@ -57,7 +57,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -341,7 +343,6 @@ internal fun SingLyricsCapsuleKey(
     val thresholdPx = with(density) { 28.dp.toPx() }
     val micZonePx = with(density) { 34.dp.toPx() }
     val slopPx = with(density) { 5.dp.toPx() }
-    val gesturePadRightPx = with(density) { 16.dp.toPx() }
     val gesturePadVerticalPx = with(density) { 8.dp.toPx() }
     val dismissState = remember(thresholdPx) { SingCapsuleDismissState(thresholdPx) }
 
@@ -393,13 +394,17 @@ internal fun SingLyricsCapsuleKey(
                 .size(width = animatedWidth, height = iconSize)
                 .then(
                     if (isActive) {
-                        // Extend exclusion 16dp past the right edge (and 8dp vertically) so drags
-                        // starting just outside the capsule never trigger Android's edge back gesture.
+                        // Extend exclusion all the way to the window's right edge (and 8dp vertically)
+                        // so starting a drag in the margin between the capsule and screen edge never
+                        // triggers Android's edge back gesture.
                         Modifier.systemGestureExclusion { coords ->
+                            val rootWidth = coords.findRootCoordinates().size.width.toFloat()
+                            val rightToScreenEdge = (rootWidth - coords.positionInRoot().x)
+                                .coerceAtLeast(coords.size.width.toFloat())
                             Rect(
                                 left = 0f,
                                 top = -gesturePadVerticalPx,
-                                right = coords.size.width + gesturePadRightPx,
+                                right = rightToScreenEdge,
                                 bottom = coords.size.height + gesturePadVerticalPx,
                             )
                         }
@@ -839,7 +844,7 @@ internal fun SingAwareRatingBarSlot(
     // Snapshot the live vocal level while active so exiting at 0% (which resets remembered level to 12%
     // for the next session) morphs cleanly from 0% → rating without flashing a ~15% fill at the bottom.
     var lastActivePosition by remember { mutableFloatStateOf(sing?.vocalLevel?.position ?: SingGainCurve.DEFAULT_POSITION) }
-    if (active && sing != null) {
+    if (showSing && sing != null) {
         lastActivePosition = sing.vocalLevel.position
     }
     val morph by animateFloatAsState(
