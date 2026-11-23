@@ -2428,6 +2428,7 @@ private fun CompactPlayingContent(
                                                 onCollapseRequest = onAskBarCollapseRequested,
                                                 onDismissError = onDismissAskError,
                                                 asked = aboutUiState.askedQuestions(),
+                                                aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
                                             )
                                             NowPlayingDetailPage.Note -> NoteWriteBar(
                                                 state = noteBar,
@@ -3185,6 +3186,7 @@ private fun WidePlayingContent(
                                             onCollapseRequest = onAskBarCollapseRequested,
                                             onDismissError = onDismissAskError,
                                             asked = aboutUiState.askedQuestions(),
+                                            aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
                                         )
                                         NowPlayingDetailPage.Note -> NoteWriteBar(
                                             state = noteBar,
@@ -3967,6 +3969,7 @@ private fun LandscapePlayingContent(
                                 onCollapseRequest = onAskBarCollapseRequested,
                                 onDismissError = onDismissAskError,
                                 asked = aboutUiState.askedQuestions(),
+                                aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
                                 // Taller than the header: it hangs from the
                                 // header's top and grows down over the page.
                                 modifier = actionsModifier

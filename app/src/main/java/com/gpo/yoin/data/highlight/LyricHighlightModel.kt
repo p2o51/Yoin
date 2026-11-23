@@ -8,10 +8,13 @@ import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
+import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
+import com.google.mlkit.genai.prompt.generateTypedContentRequest
 import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
+import kotlin.reflect.KClass
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -37,6 +40,25 @@ sealed interface NanoAnswer {
     data class Failed(val code: Int?) : NanoAnswer
 }
 
+/**
+ * One typed structured-output answer from Gemini Nano (`@Generable` + `generateTypedContentRequest`).
+ * Returns [Unsupported] on older AICore builds or test fakes so callers fall back seamlessly to plain [NanoAnswer].
+ */
+sealed interface NanoTypedAnswer<out T : Any> {
+    data class Value<T : Any>(val value: T) : NanoTypedAnswer<T>
+
+    /** Device's AICore doesn't support constrained structured output; caller should fall back to text mode. */
+    data object Unsupported : NanoTypedAnswer<Nothing>
+
+    data object Busy : NanoTypedAnswer<Nothing>
+
+    data object QuotaExhausted : NanoTypedAnswer<Nothing>
+
+    data object NotForeground : NanoTypedAnswer<Nothing>
+
+    data class Failed(val code: Int?) : NanoTypedAnswer<Nothing>
+}
+
 /** The model seam, so [LyricHighlightProcessor] is testable without AICore. */
 interface LyricHighlightModel {
     suspend fun status(): NanoStatus
@@ -53,6 +75,31 @@ interface LyricHighlightModel {
     val downloadFailure: String? get() = null
 
     suspend fun answer(prompt: String): NanoAnswer
+
+    /**
+     * Generates a response with custom decoding limits (used by Home daily greetings and About follow-ups).
+     * Implementations that only override [answer] with a single prompt keep working through this default.
+     */
+    suspend fun answer(
+        prompt: String,
+        maxOutputTokens: Int,
+        temperature: Float = 0.2f,
+        topK: Int = 16,
+    ): NanoAnswer = answer(prompt)
+
+    /**
+     * Generates a constrained structured-output response into a `@Generable` Kotlin class [schema] using ML Kit
+     * GenAI's official `generateTypedContentRequest` API (1.0.0-beta5+). Defaults to [NanoTypedAnswer.Unsupported]
+     * so fakes and older devices transparently fall back to raw [answer].
+     */
+    suspend fun <T : Any> answerTyped(
+        schema: KClass<T>,
+        userPrompt: String,
+        systemInstruction: String? = null,
+        maxOutputTokens: Int,
+        temperature: Float = 0.2f,
+        topK: Int = 16,
+    ): NanoTypedAnswer<T> = NanoTypedAnswer.Unsupported
 }
 
 /**
@@ -65,6 +112,7 @@ interface LyricHighlightModel {
 class GeminiNanoLyricModel : LyricHighlightModel {
     private val lock = Mutex()
     private var client: GenerativeModel? = null
+    private var structuredOutputAvailable: Boolean? = null
 
     @Volatile
     override var unavailableReason: String? = null
@@ -121,6 +169,7 @@ class GeminiNanoLyricModel : LyricHighlightModel {
             // A client that failed to set up is not reused: the next check builds a fresh one.
             runCatching { client?.close() }
             client = null
+            structuredOutputAvailable = null
             NanoStatus.UNAVAILABLE
         }
     }
@@ -129,6 +178,7 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         if (preference == wanted) return
         runCatching { client?.close() }
         client = null
+        structuredOutputAvailable = null
         preference = wanted
     }
 
@@ -164,14 +214,27 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         }
     }
 
-    override suspend fun answer(prompt: String): NanoAnswer = lock.withLock {
+    override suspend fun answer(prompt: String): NanoAnswer =
+        answer(
+            prompt = prompt,
+            maxOutputTokens = LyricHighlightPrompt.MAX_OUTPUT_TOKENS,
+            temperature = 0.2f,
+            topK = 16,
+        )
+
+    override suspend fun answer(
+        prompt: String,
+        maxOutputTokens: Int,
+        temperature: Float,
+        topK: Int,
+    ): NanoAnswer = lock.withLock {
         try {
             val response = client().generateContent(
                 generateContentRequest(TextPart(prompt)) {
-                    temperature = 0.2f
-                    topK = 16
+                    this.temperature = temperature
+                    this.topK = topK
                     candidateCount = 1
-                    maxOutputTokens = LyricHighlightPrompt.MAX_OUTPUT_TOKENS
+                    this.maxOutputTokens = maxOutputTokens
                 },
             )
             val text = response.candidates.firstOrNull()?.text
@@ -194,9 +257,69 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         }
     }
 
+    override suspend fun <T : Any> answerTyped(
+        schema: KClass<T>,
+        userPrompt: String,
+        systemInstruction: String?,
+        maxOutputTokens: Int,
+        temperature: Float,
+        topK: Int,
+    ): NanoTypedAnswer<T> = lock.withLock {
+        if (!supportsStructuredOutputLocked()) return@withLock NanoTypedAnswer.Unsupported
+        try {
+            val baseRequest = if (systemInstruction != null) {
+                generateContentRequest(SystemInstruction(systemInstruction), TextPart(userPrompt)) {
+                    this.temperature = temperature
+                    this.topK = topK
+                    candidateCount = 1
+                    this.maxOutputTokens = maxOutputTokens
+                }
+            } else {
+                generateContentRequest(TextPart(userPrompt)) {
+                    this.temperature = temperature
+                    this.topK = topK
+                    candidateCount = 1
+                    this.maxOutputTokens = maxOutputTokens
+                }
+            }
+            val response = client().generateContent(generateTypedContentRequest(baseRequest, schema))
+            val value = response.candidates.firstOrNull()?.response
+            if (value == null) NanoTypedAnswer.Failed(null) else NanoTypedAnswer.Value(value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: GenAiException) {
+            when (e.errorCode) {
+                GenAiException.ErrorCode.BUSY -> NanoTypedAnswer.Busy
+                GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED -> NanoTypedAnswer.QuotaExhausted
+                GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED -> NanoTypedAnswer.NotForeground
+                GenAiException.ErrorCode.NOT_SUPPORTED -> {
+                    structuredOutputAvailable = false
+                    Log.i(TAG, "Gemini Nano structured output NOT_SUPPORTED; falling back to text")
+                    NanoTypedAnswer.Unsupported
+                }
+                else -> {
+                    Log.w(TAG, "Gemini Nano structured output failed: ${e.errorCode} ${e.message}")
+                    NanoTypedAnswer.Failed(e.errorCode)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gemini Nano structured output failed", e)
+            NanoTypedAnswer.Failed(null)
+        }
+    }
+
+    private suspend fun supportsStructuredOutputLocked(): Boolean {
+        structuredOutputAvailable?.let { return it }
+        val supported = runCatching { client().isStructuredOutputFeatureAvailable() }.getOrDefault(false)
+        structuredOutputAvailable = supported
+        Log.i(TAG, "Gemini Nano structured output (${preferenceName(preference)}): $supported")
+        return supported
+    }
+
     fun close() {
         client?.close()
         client = null
+        structuredOutputAvailable = null
     }
 
     private companion object {
