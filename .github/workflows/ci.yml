@@ -111,8 +111,10 @@ jobs:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ steps.robolectric.outputs.version }}
           restore-keys: robolectric-
-      - name: Unit tests
-        run: ./gradlew :app:testStandardDebugUnitTest :app:testLyraDebugUnitTest :shared:testAndroidHostTest :playground:track-match:test -PyoinSymbolsDir=yoin-symbols
+      - name: Unit tests (standard + shared + track-match)
+        run: ./gradlew :app:testStandardDebugUnitTest :shared:testAndroidHostTest :playground:track-match:test -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+      - name: Unit tests (lyra)
+        run: ./gradlew :app:testLyraDebugUnitTest -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
       - name: Upload test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -146,8 +148,10 @@ jobs:
           java-version: '17'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6.4.0
-      - name: Android Lint (fails only on issues not in lint-baseline.xml)
-        run: ./gradlew :app:lintStandardDebug :app:lintLyraDebug -PyoinSymbolsDir=yoin-symbols
+      - name: Android Lint — standard (fails only on issues not in lint-baseline.xml)
+        run: ./gradlew :app:lintStandardDebug -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+      - name: Android Lint — lyra (fails only on issues not in lint-baseline.xml)
+        run: ./gradlew :app:lintLyraDebug -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
       - name: Upload lint report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -183,8 +187,10 @@ jobs:
           java-version: '17'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6.4.0
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleStandardDebug :app:assembleLyraDebug -PyoinSymbolsDir=yoin-symbols
+      - name: Assemble debug APK (standard)
+        run: ./gradlew :app:assembleStandardDebug -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+      - name: Assemble debug APK (lyra)
+        run: ./gradlew :app:assembleLyraDebug -PyoinSymbolsDir=yoin-symbols -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
       - name: Upload debug APK
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
