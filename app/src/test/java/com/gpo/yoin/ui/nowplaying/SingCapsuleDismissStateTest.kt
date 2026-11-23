@@ -39,4 +39,31 @@ class SingCapsuleDismissStateTest {
         assertEquals(SingCapsuleDismissState.StepResult.Dismiss, dismiss)
         state.end()
     }
+
+    @Test
+    fun should_suppressLyricToolsAutoHide_while_singIsPreparingOrActive() {
+        assertTrue(
+            lyricToolsIdleEligible(
+                isPlaying = true,
+                hasSyncedLyrics = true,
+                autoScroll = true,
+                lyricsPageSelected = true,
+                toolsOnScreen = true,
+                selectingLines = false,
+                singEnabled = false,
+            ),
+        )
+        assertEquals(
+            false,
+            lyricToolsIdleEligible(
+                isPlaying = true,
+                hasSyncedLyrics = true,
+                autoScroll = true,
+                lyricsPageSelected = true,
+                toolsOnScreen = true,
+                selectingLines = false,
+                singEnabled = true,
+            ),
+        )
+    }
 }

@@ -99,6 +99,29 @@ class SingControllerTest {
     }
 
     @Test
+    fun should_turnOffAndBumpFailureTick_when_streamFails() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = controller(provider)
+        c.onCurrentItem(song1)
+        assertTrue(c.enter())
+        assertEquals(0, c.failureTick.value)
+
+        provider.flows.getValue(song1.key).value = SingStatus.Failed(SingFailure.Decode, "decode error")
+        assertFalse(c.state.value.enabled)
+        assertEquals(SingMode.Off, c.mode.value)
+        assertEquals(1, c.failureTick.value)
+
+        // Next song does NOT auto-prepare & fail again because Sing cleanly turned off.
+        c.onCurrentItem(song2)
+        assertFalse(c.state.value.enabled)
+        assertEquals(SingMode.Off, c.mode.value)
+
+        // Single tap immediately retries.
+        assertTrue(c.enter())
+        assertTrue(c.state.value.enabled)
+    }
+
+    @Test
     fun should_ramp20msAndSnap_when_sliderMoves() = runTest(UnconfinedTestDispatcher()) {
         val c = controller(FakeProvider())
         c.onCurrentItem(song1)

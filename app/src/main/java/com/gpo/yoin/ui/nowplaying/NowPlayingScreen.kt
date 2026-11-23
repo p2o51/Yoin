@@ -1635,6 +1635,7 @@ private fun CompactPlayingContent(
         val showSpine = spineBand >= SpineMinWidth
         val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
         val lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics
+        val portraitSingEnabled = LocalNowPlayingSing.current?.isEnabled == true
         val idleEligible = lyricToolsIdleEligible(
             isPlaying = state.isPlaying,
             hasSyncedLyrics = hasSyncedLyrics,
@@ -1642,6 +1643,7 @@ private fun CompactPlayingContent(
             lyricsPageSelected = lyricsPageSelected,
             toolsOnScreen = stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs,
             selectingLines = lyricsSelection.active,
+            singEnabled = portraitSingEnabled,
         )
         LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
         // Once the expanded Lyrics pane leaves composition (back to Compact/Focus, or
@@ -2691,6 +2693,7 @@ private fun WidePlayingContent(
     }
     val lyricToolsIdle = rememberLyricToolsIdleState()
     val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
+    val dualSingEnabled = LocalNowPlayingSing.current?.isEnabled == true
     val idleEligible = lyricToolsIdleEligible(
         isPlaying = state.isPlaying,
         hasSyncedLyrics = hasSyncedLyrics,
@@ -2698,6 +2701,7 @@ private fun WidePlayingContent(
         lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics,
         toolsOnScreen = true,
         selectingLines = lyricsSelection.active,
+        singEnabled = dualSingEnabled,
     )
     LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
     LyricsSelectionHost(
@@ -3429,6 +3433,7 @@ private fun LandscapePlayingContent(
     // touch while synced lyrics play, the transport's buttons and times step
     // away (the progress bar stays) and the lyrics spread down.
     val focusIdle = rememberLyricToolsIdleState()
+    val landscapeSingEnabled = LocalNowPlayingSing.current?.isEnabled == true
     val idleEligible = lyricToolsIdleEligible(
         isPlaying = state.isPlaying,
         hasSyncedLyrics = hasSyncedLyrics,
@@ -3436,6 +3441,7 @@ private fun LandscapePlayingContent(
         lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics,
         toolsOnScreen = expanded,
         selectingLines = lyricsSelection.active,
+        singEnabled = landscapeSingEnabled,
     )
     LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
     val expandedMounted = expanded || detailProgress > HiddenLayerVisibilityThreshold

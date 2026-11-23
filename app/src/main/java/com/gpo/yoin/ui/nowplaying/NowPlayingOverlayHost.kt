@@ -136,6 +136,7 @@ fun NowPlayingOverlayHost(
     val singMode by container.singController.mode.collectAsState()
     val singVocalLevel by container.singController.vocalLevel.collectAsState()
     val singAvailability by container.singController.availability.collectAsState()
+    val singFailureTick by container.singController.failureTick.collectAsState()
     // The cover's long-press song menu (LocalNowPlayingCoverMenu): this
     // window's navigation, playlist sheet and snackbar.
     val currentOnAlbumClick by rememberUpdatedState(onAlbumClick)
@@ -618,11 +619,12 @@ fun NowPlayingOverlayHost(
                     singAvailability is com.gpo.yoin.player.sing.SingAvailability.Available ||
                         singMode !is com.gpo.yoin.player.sing.SingMode.Off
                     )
-                val singUi = remember(singMode, singVocalLevel, singSupported, dualPaneNowPlaying) {
+                val singUi = remember(singMode, singVocalLevel, singSupported, singFailureTick, dualPaneNowPlaying) {
                     NowPlayingSingUi(
                         mode = singMode,
                         vocalLevel = singVocalLevel,
                         isSupported = singSupported,
+                        failureTick = singFailureTick,
                         onEnter = { expandToLyrics ->
                             if (container.singController.enter() && expandToLyrics) {
                                 viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)

@@ -73,6 +73,8 @@ class SingController(
         val status: SingStatus? = null,
         /** True once [SingPlaybackSwitcher] has pre-buffered and swapped in the quad stream. */
         val handedOver: Boolean = false,
+        /** Bumped whenever preparation fails so the UI can play a brief non-modal error cue. */
+        val failureTick: Int = 0,
     )
 
     private val _state = MutableStateFlow(State())
@@ -81,6 +83,8 @@ class SingController(
     val mode: StateFlow<SingMode> = _state.map(::modeOf).stateIn(scope, SharingStarted.Eagerly, SingMode.Off)
 
     val vocalLevel: StateFlow<VocalLevel> = _state.map { it.vocalLevel }.stateIn(scope, SharingStarted.Eagerly, VocalLevel.DEFAULT)
+
+    val failureTick: StateFlow<Int> = _state.map { it.failureTick }.stateIn(scope, SharingStarted.Eagerly, 0)
 
     private val _availability = MutableStateFlow<SingAvailability>(SingAvailability.Unavailable(SingUnavailableReason.NoSource))
     val availability: StateFlow<SingAvailability> = _availability.asStateFlow()
@@ -176,6 +180,26 @@ class SingController(
         val provider = selector.providerFor(request.songId.provider)
         statusJob = scope.launch {
             provider.stream(request).collect { status ->
+                if (status is SingStatus.Failed) {
+                    // Turn Sing off cleanly on failure so track changes don't loop failures
+                    // and a single tap retries; bump failureTick for a brief button-only cue.
+                    mixControl.startAtUnity = false
+                    _state.update {
+                        if (it.request?.key == request.key) {
+                            it.copy(
+                                enabled = false,
+                                request = null,
+                                status = null,
+                                handedOver = false,
+                                failureTick = it.failureTick + 1,
+                            )
+                        } else {
+                            it
+                        }
+                    }
+                    refreshAvailability()
+                    return@collect
+                }
                 _state.update { if (it.request?.key == request.key) it.copy(status = status) else it }
                 if (status is SingStatus.Unavailable) refreshAvailability()
             }

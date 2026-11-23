@@ -3,10 +3,11 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
@@ -39,7 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,9 +53,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
@@ -84,6 +83,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /**
  * Sing state & actions provided to Now Playing surfaces (cover menu, lyrics action bar, rating slots).
@@ -94,6 +94,7 @@ internal data class NowPlayingSingUi(
     val mode: SingMode,
     val vocalLevel: VocalLevel,
     val isSupported: Boolean,
+    val failureTick: Int = 0,
     val onEnter: (expandToLyrics: Boolean) -> Unit,
     val onExit: () -> Unit,
     val onSetVocalLevel: (Float) -> Unit,
@@ -281,47 +282,11 @@ internal class SingCapsuleDismissState(
 }
 
 /**
- * Quiet frame-driven rotating arc drawn inside the Sing button during [SingMode.Preparing].
- * Zero popups or banners; avoids raw `tween(` / `spring(` APIs.
- */
-@Composable
-private fun SingPreparingRing(
-    color: Color,
-    strokeWidth: Dp = 2.dp,
-    modifier: Modifier = Modifier,
-) {
-    var angleDeg by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        var lastNanos = 0L
-        while (true) {
-            withFrameNanos { frameNanos ->
-                if (lastNanos != 0L) {
-                    val dtSec = (frameNanos - lastNanos) / 1_000_000_000f
-                    angleDeg = (angleDeg + dtSec * 340f) % 360f
-                }
-                lastNanos = frameNanos
-            }
-        }
-    }
-    Canvas(modifier = modifier.fillMaxSize()) {
-        val strokePx = strokeWidth.toPx()
-        val inset = strokePx / 2f
-        drawArc(
-            color = color,
-            startAngle = angleDeg,
-            sweepAngle = 235f,
-            useCenter = false,
-            topLeft = Offset(inset, inset),
-            size = Size(size.width - strokePx, size.height - strokePx),
-            style = Stroke(width = strokePx, cap = StrokeCap.Round),
-        )
-    }
-}
-
-/**
  * Full-Screen Lyrics 5th (LAST) control:
  * - Off: `iconSize × iconSize` rounded square (`iconSize * 0.31`) matching [LyricsActionIcon].
- * - Preparing: stays `iconSize × iconSize` with a quiet spinning ring inside (tap cancels, zero popups).
+ * - Preparing: stays `iconSize × iconSize` with a crisp `CircularProgressIndicator` (`22.dp`, `2.dp`,
+ *   `onPrimaryContainer`, matching `TrackLibraryButton`; tap cancels, zero popups).
+ * - Failure: brief horizontal micro-shake + `errorContainer` tint flash (no modal/toast).
  * - Active ([SingMode.Ready]): expands on [YoinMotion.defaultSpatialSpec] into a `124.dp` short Capsule
  *   (flush with the 364dp row: `4*52 + 4*8 + 124 = 364`), with live vocal fill, subtle 12% detent notch,
  *   left mic tap-to-exit, two-step anti-accidental-dismiss left-drag, and **zero percentage text**.
@@ -353,6 +318,8 @@ internal fun SingLyricsCapsuleKey(
 
     var dragging by remember { mutableStateOf(false) }
     var overpull by remember { mutableFloatStateOf(0f) }
+    var errorFlash by remember { mutableStateOf(false) }
+    val errorShakeDp = remember { Animatable(0f) }
     val animatedOverpull by animateFloatAsState(
         targetValue = overpull,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
@@ -360,14 +327,44 @@ internal fun SingLyricsCapsuleKey(
     )
     val latestSing by rememberUpdatedState(sing)
     val latestHaptics by rememberUpdatedState(haptics)
+
+    LaunchedEffect(sing.failureTick) {
+        if (sing.failureTick <= 0) return@LaunchedEffect
+        latestHaptics.performReject()
+        errorFlash = true
+        try {
+            errorShakeDp.snapTo(6f)
+            errorShakeDp.animateTo(0f, animationSpec = YoinMotion.mascotShakeSpring())
+            delay(220L)
+        } finally {
+            errorFlash = false
+        }
+    }
+
     val thresholdPx = with(density) { 28.dp.toPx() }
     val micZonePx = with(density) { 34.dp.toPx() }
     val slopPx = with(density) { 5.dp.toPx() }
     val dismissState = remember(thresholdPx) { SingCapsuleDismissState(thresholdPx) }
 
     val shape = RoundedCornerShape(animatedCorner)
-    val containerColor = MaterialTheme.colorScheme.primaryContainer
-    val contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val containerColor by animateColorAsState(
+        targetValue = if (errorFlash && !isActive) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        },
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "singContainerColor",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (errorFlash && !isActive) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        },
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "singContentColor",
+    )
     val fillColor = MaterialTheme.colorScheme.primary
     val onFillColor = MaterialTheme.colorScheme.onPrimary
     val singLabel = stringResource(R.string.np_sing)
@@ -388,8 +385,9 @@ internal fun SingLyricsCapsuleKey(
         Box(
             modifier = modifier
                 .offset {
-                    val shiftPx = if (isActive) (-animatedOverpull * 6.dp.toPx()).roundToInt() else 0
-                    IntOffset(shiftPx, 0)
+                    val overpullPx = if (isActive) (-animatedOverpull * 6.dp.toPx()) else 0f
+                    val shakePx = errorShakeDp.value.dp.toPx()
+                    IntOffset((overpullPx + shakePx).roundToInt(), 0)
                 }
                 .size(width = animatedWidth, height = iconSize)
                 .onSizeChanged { capsuleWidthPx = it.width.coerceAtLeast(1) }
@@ -549,18 +547,29 @@ internal fun SingLyricsCapsuleKey(
                     )
                 }
             } else {
-                Icon(
-                    imageVector = SingIcons.Mic,
-                    contentDescription = null,
-                    tint = contentColor,
-                    modifier = Modifier.size(22.dp),
-                )
-                if (isPreparing) {
-                    SingPreparingRing(
-                        color = fillColor,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.padding(6.dp),
-                    )
+                AnimatedContent(
+                    targetState = isPreparing,
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    contentAlignment = Alignment.Center,
+                    label = "singKeyContent",
+                ) { preparing ->
+                    if (preparing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = contentColor,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = SingIcons.Mic,
+                            contentDescription = null,
+                            tint = contentColor,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
             }
         }
@@ -766,17 +775,18 @@ internal fun SingExitButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = SingIcons.MicOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.size(22.dp),
-        )
         if (isPreparing) {
-            SingPreparingRing(
-                color = MaterialTheme.colorScheme.primary,
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
                 strokeWidth = 2.dp,
-                modifier = Modifier.padding(4.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        } else {
+            Icon(
+                imageVector = SingIcons.MicOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(22.dp),
             )
         }
     }
