@@ -1,6 +1,5 @@
 package com.gpo.yoin.data.sync.backup
 
-import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.TrackAlbumLink
 import com.gpo.yoin.data.local.YoinDatabase
@@ -120,7 +119,8 @@ data class ImportResult(
  *    and a text the local review already contains is not added again;
  *  - song / album notes keep their ids; an id owned by another profile here gets a [MigrationIds] copy;
  *  - tombstones never delete anything (an import only adds); album notes and track→album links
- *    ([BackupKinds]) go into the domain only, never into the replica.
+ *    ([BackupKinds]) go into the domain only, never into the replica. Album notes, backup-only in older
+ *    files, are a sync kind now and merge like song notes.
  *
  * Importing the same file twice changes nothing the second time.
  */
@@ -326,9 +326,11 @@ class BackupImporter(
         label: String,
     ): ImportCounts {
         var key = record.key
-        if (adapter.kind == SyncKinds.SONG_NOTE && profileId != null && key !in rows) {
-            val owner = db.syncDomainDao().noteById(key)
-            if (needsCopyId(owner?.profileId, profileId, srcScope, dstScope)) {
+        // Notes (song and album) have global ids: another profile's or another account's go in as copies.
+        if (profileId != null && key !in rows && (adapter.kind == SyncKinds.SONG_NOTE || adapter.kind == SyncKinds.ALBUM_NOTE)) {
+            val dao = db.syncDomainDao()
+            val owner = if (adapter.kind == SyncKinds.SONG_NOTE) dao.noteById(key)?.profileId else dao.albumNoteById(key)?.profileId
+            if (needsCopyId(owner, profileId, srcScope, dstScope)) {
                 key = MigrationIds.derive(srcScope, record.key, dstScope)
             }
         }
@@ -387,28 +389,6 @@ class BackupImporter(
     ): ImportCounts {
         val dao = db.syncDomainDao()
         return when (record.kind) {
-            BackupKinds.ALBUM_NOTE -> {
-                val note = albumNoteOf(record.key, profileId, payload) ?: return ImportCounts(skipped = 1)
-                var id = note.id
-                var existing = dao.albumNoteById(id)
-                if (needsCopyId(existing?.profileId, profileId, srcScope, dstScope)) {
-                    id = MigrationIds.derive(srcScope, note.id, dstScope)
-                    existing = dao.albumNoteById(id)
-                }
-                val incoming = note.copy(id = id)
-                when {
-                    existing == null -> {
-                        dao.writeAlbumNote(incoming)
-                        ImportCounts(written = 1)
-                    }
-                    existing == incoming -> ImportCounts(unchanged = 1)
-                    incoming.updatedAt > existing.updatedAt -> {
-                        dao.writeAlbumNote(incoming)
-                        ImportCounts(written = 1)
-                    }
-                    else -> ImportCounts(keptLocal = 1)
-                }
-            }
             BackupKinds.TRACK_ALBUM_LINK -> {
                 val provider = payload.requiredString(BackupFields.PROVIDER) ?: return ImportCounts(skipped = 1)
                 val trackId = payload.requiredString(BackupFields.TRACK_ID) ?: return ImportCounts(skipped = 1)
@@ -474,17 +454,5 @@ class BackupImporter(
 
         /** The text field of the one KEEP_BOTH_TEXT kind (album_review). */
         const val TEXT_FIELD = "review"
-
-        fun albumNoteOf(id: String, profileId: String, payload: JsonObject): AlbumNote? = AlbumNote(
-            id = id,
-            profileId = profileId,
-            albumId = payload.requiredString(BackupFields.ALBUM_ID)?.takeIf(String::isNotEmpty) ?: return null,
-            provider = payload.requiredString(BackupFields.PROVIDER)?.takeIf(String::isNotEmpty) ?: return null,
-            content = payload.requiredString(BackupFields.CONTENT) ?: return null,
-            createdAt = payload.requiredLong(BackupFields.CREATED_AT) ?: return null,
-            updatedAt = payload.requiredLong(BackupFields.UPDATED_AT) ?: return null,
-            albumName = payload.requiredString(BackupFields.ALBUM_NAME).orEmpty(),
-            artist = payload.requiredString(BackupFields.ARTIST).orEmpty(),
-        )
     }
 }

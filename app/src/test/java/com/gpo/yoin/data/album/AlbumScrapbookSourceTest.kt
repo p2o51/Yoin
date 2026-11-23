@@ -173,9 +173,14 @@ class AlbumScrapbookSourceTest {
         dao.insert(albumNote("other-provider", provider = MediaId.PROVIDER_SPOTIFY, createdAt = 6L, updatedAt = 92L))
         dao.insert(albumNote("other-album", albumId = "al-2", createdAt = 7L, updatedAt = 93L))
 
-        val note = source().observe(query()).first().albumNote
+        val data = source().observe(query()).first()
 
-        assertEquals(AlbumScrapbookAlbumNote(id = "latest", content = "The latest words", updatedAt = 30L), note)
+        assertEquals(
+            AlbumScrapbookAlbumNote(id = "latest", content = "The latest words", updatedAt = 30L, createdAt = 2L),
+            data.albumNote,
+        )
+        // every note of this album, account and provider, oldest first (an album holds any number)
+        assertEquals(listOf("first", "latest", "middle"), data.albumNotes.map(AlbumScrapbookAlbumNote::id))
     }
 
     @Test

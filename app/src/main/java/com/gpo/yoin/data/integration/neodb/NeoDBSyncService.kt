@@ -6,6 +6,7 @@ import com.gpo.yoin.data.local.ExternalMapping
 import com.gpo.yoin.data.local.ExternalMappingDao
 import com.gpo.yoin.data.local.NeoDBConfigDao
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.shared.notes.NoteMarkup
 import kotlin.math.roundToInt
 
 /**
@@ -19,6 +20,12 @@ import kotlin.math.roundToInt
  *    Mark 的短评 `comment_text`，并删掉远端 Review；更长 → `Review.body`，
  *    并清空短评；清空文字 → 两边都清。拉取时 Review 优先，没有 Review 才
  *    取短评。song_notes 仅用于 AlbumDetail 展示，不推 NeoDB。
+ *  - 格式和提及（notes revamp, owner 2026-11-22）：长评（Review.body，Markdown）
+ *    推 [neoDbReviewText]——提及 `[@名字](yoin:…)` 变成纯文字的名字，其余轻量
+ *    Markdown 原样；短评（comment_text 不渲染 Markdown）推 [neoDbShortCommentText]
+ *    ——纯文字，不带任何标记。长短按纯文字的字数算。拉回来时远端若正是本地那段
+ *    投影（长评比 Markdown 投影、短评比纯文字），保留本地原文
+ *    （[neoDbHoldsLocalReview]），一次 pull 不会冲掉提及和格式。
  *  - Mark 覆写雷：POST `/api/me/shelf/item/{uuid}` 会整体覆写 —— 先 GET
  *    合并 tags + comment_text + visibility 再 POST，避免把其它客户端
  *    写的字段清掉。
@@ -81,8 +88,11 @@ class NeoDBSyncService internal constructor(
         val itemUuid = resolveAlbumUuid(album, session)
             ?: error("无法在 NeoDB 上找到对应专辑")
 
-        val text = local.review.orEmpty()
-        val short = text.isNotBlank() && isNeoDbShortComment(text)
+        // What NeoDB gets: a long review's body keeps its Markdown with mentions as names; a short
+        // comment (no Markdown rendering there) gets the plain words.
+        val text = neoDbReviewText(local.review)
+        val shortText = neoDbShortCommentText(local.review)
+        val short = text.isNotBlank() && isNeoDbShortComment(shortText)
         // The mark carries the rating and, for a short text, the text itself:
         // rewrite it when either changed (review-only edits included — a long
         // text clears the short comment it replaces).
@@ -98,7 +108,7 @@ class NeoDBSyncService internal constructor(
                 },
                 commentText = when {
                     !local.reviewNeedsSync -> existing?.commentText
-                    short -> text
+                    short -> shortText
                     // Long or cleared: the short comment goes (the API clears an
                     // absent comment_text; send "" to say so on purpose).
                     else -> ""
@@ -195,10 +205,14 @@ class NeoDBSyncService internal constructor(
             existingUuid = existing?.neoDbReviewUuid,
         )
         // Review first; a short text lives in the mark's comment (see pushAlbum).
-        val remoteText = reviewLookup?.body?.takeIf(String::isNotBlank)
-            ?: remote?.commentText?.takeIf(String::isNotBlank)
+        val remoteReview = reviewLookup?.body?.takeIf(String::isNotBlank)
+        val remoteText = remoteReview ?: remote?.commentText?.takeIf(String::isNotBlank)
         val mergedReview = when {
             existing?.reviewNeedsSync == true -> existing.review
+            // NeoDB holds what Yoin sent (its projection): keep the words with their mentions and Markdown.
+            remoteText != null &&
+                neoDbHoldsLocalReview(existing?.review, remoteText, asShortComment = remoteReview == null) ->
+                existing?.review
             remoteText != null -> remoteText
             reviewLookup != null -> reviewLookup.body
             else -> existing?.review
@@ -317,3 +331,20 @@ internal const val NeoDbShortCommentMax = 360
 /** [text] fits NeoDB's short comment ([NeoDbShortCommentMax] characters, counted as code points). */
 internal fun isNeoDbShortComment(text: String): Boolean = text.codePointCount(0, text.length) <= NeoDbShortCommentMax
 
+
+/** The review as NeoDB gets it: mentions flattened to their names, every other character as written. */
+internal fun neoDbReviewText(review: String?): String = review?.let(NoteMarkup::toNeoDb).orEmpty()
+
+/** The review as a NeoDB short comment gets it: plain words, mentions as names, no Markdown marks. */
+internal fun neoDbShortCommentText(review: String?): String = review?.let { NoteMarkup.plainText(it) }.orEmpty()
+
+/**
+ * [remote] is what Yoin would send for [local]: for a Review body ([asShortComment] false) the Markdown
+ * projection, for a short comment the plain words. Whitespace at the ends doesn't count (NeoDB may trim).
+ * Then the local text (mentions, formatting) stays as it is.
+ */
+internal fun neoDbHoldsLocalReview(local: String?, remote: String, asShortComment: Boolean): Boolean {
+    if (local.isNullOrBlank()) return false
+    val sent = if (asShortComment) neoDbShortCommentText(local) else neoDbReviewText(local)
+    return sent.trim() == remote.trim()
+}

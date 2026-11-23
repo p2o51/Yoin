@@ -261,7 +261,7 @@ data class MemoryItems(
                             p.requiredLong("generatedAt") ?: record.ts,
                         )
                     }
-                    BackupKinds.ALBUM_NOTE -> {
+                    SyncKinds.ALBUM_NOTE -> {
                         val provider = p.requiredString(BackupFields.PROVIDER) ?: continue
                         albumNotes += SourceAlbumNote(
                             id = record.key,

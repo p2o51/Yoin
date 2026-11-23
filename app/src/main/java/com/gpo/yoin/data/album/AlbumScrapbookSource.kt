@@ -30,9 +30,11 @@ import kotlinx.coroutines.flow.map
  * same server never mix); About rows are shared reference material keyed by normalized title / artist /
  * album, so they are read by album key and matched back to the tracks here.
  *
- * An album has ONE album note (owner, 2026-10-05). Nothing writes `album_notes` any more (legacy rows
- * only), so the scrapbook reads just the latest row by updatedAt — the same row the Memories diary shows
- * ([latestAlbumNote]) — profile- and provider-scoped like the rest.
+ * Album notes: an album holds any number again (owner 2026-11-22, notes revamp; it was one, 2026-10-05).
+ * The scrapbook reads them all ([AlbumScrapbookData.albumNotes], profile- and provider-scoped like the
+ * rest) and, until the stickies are drawn one per note, shows the latest row by updatedAt — the same row
+ * the Memories diary shows ([latestAlbumNote]). They are written through YoinRepository.addAlbumNote /
+ * editAlbumNoteById (ScrapEdit.NewAlbumNote / AlbumNoteText).
  */
 
 /** What the scrapbook asks about: the album and its tracks in album order. */
@@ -63,8 +65,10 @@ data class AlbumScrapbookData(
     val memoryTitle: String? = null,
     /** The user's own name for the album's Memory (album_memory_titles); beats [memoryTitle]. */
     val memoryTitleUser: String? = null,
-    /** The album's one album note (the latest legacy row), if any. */
+    /** The album note the opening's sticky shows: the latest by updatedAt, if any. */
     val albumNote: AlbumScrapbookAlbumNote? = null,
+    /** Every non-blank album note, oldest first (by createdAt). */
+    val albumNotes: List<AlbumScrapbookAlbumNote> = emptyList(),
 ) {
     companion object {
         val Empty = AlbumScrapbookData()
@@ -85,12 +89,13 @@ data class AlbumScrapbookAbout(
     val facts: List<AlbumScrapbookFact> = emptyList(),
 )
 
-/** The album's own note: one per album, shown as the opening's sticky. */
+/** One of the album's own notes (the opening's sticky). */
 data class AlbumScrapbookAlbumNote(
     val id: String,
     /** Trimmed, never blank. */
     val content: String,
     val updatedAt: Long,
+    val createdAt: Long = updatedAt,
 )
 
 data class AlbumScrapbookAsk(
@@ -206,9 +211,9 @@ class RoomAlbumScrapbookSource(
                 }.getOrNull(),
             )
         }
-        val albumNote = albumNoteDao
+        val albumNotes = albumNoteDao
             .observeForAlbum(query.albumId.rawId, query.albumId.provider, profileId)
-            .map(::latestAlbumNote)
+            .map { rows -> latestAlbumNote(rows) to albumNoteList(rows) }
         // Live: a rename on page 2 or in Memories shows at once.
         val userTitle = memoryTitleDao
             ?.observe(profileId, query.albumId.provider, query.albumId.rawId)
@@ -216,7 +221,13 @@ class RoomAlbumScrapbookSource(
             ?: flowOf(null)
         val titles = combine(memoryTitle, userTitle) { ai, user -> ai to user }
         val perTrack = combine(ratings, notes, counts) { r, n, c -> Triple(r, n, c) }
-        return combine(perTrack, about, plays, titles, albumNote) { (r, n, c), byTrack, albumPlays, (title, user), note ->
+        return combine(
+            perTrack,
+            about,
+            plays,
+            titles,
+            albumNotes,
+        ) { (r, n, c), byTrack, albumPlays, (title, user), (note, notes) ->
             AlbumScrapbookData(
                 ratings = r.toMap(),
                 notes = n.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.timelineOrder() },
@@ -226,22 +237,28 @@ class RoomAlbumScrapbookSource(
                 memoryTitle = title,
                 memoryTitleUser = user,
                 albumNote = note,
+                albumNotes = notes,
             )
         }
     }
 }
 
+/** The album's non-blank notes, oldest first ([rows] come in the DAO's createdAt order). */
+fun albumNoteList(rows: List<AlbumNote>): List<AlbumScrapbookAlbumNote> =
+    rows.filter { it.content.isNotBlank() }.map { it.toScrapbookNote() }
+
+private fun AlbumNote.toScrapbookNote() =
+    AlbumScrapbookAlbumNote(id = id, content = content.trim(), updatedAt = updatedAt, createdAt = createdAt)
+
 /**
- * The album's one album note: the latest non-blank row by updatedAt. [rows] come in the DAO's createdAt
+ * The album note the sticky shows: the latest non-blank row by updatedAt. [rows] come in the DAO's createdAt
  * order, so a tie keeps the earlier-created row — the same pick as the Memories diary's `diaryAlbumNotes`.
  */
 fun latestAlbumNote(rows: List<AlbumNote>): AlbumScrapbookAlbumNote? =
     rows
         .filter { it.content.isNotBlank() }
         .maxByOrNull(AlbumNote::updatedAt)
-        ?.let { note ->
-            AlbumScrapbookAlbumNote(id = note.id, content = note.content.trim(), updatedAt = note.updatedAt)
-        }
+        ?.toScrapbookNote()
 
 /** Notes as the scrapbook lists them: anchored ones along the song, then the unanchored by when they were written. */
 fun List<AlbumScrapbookNote>.timelineOrder(): List<AlbumScrapbookNote> =

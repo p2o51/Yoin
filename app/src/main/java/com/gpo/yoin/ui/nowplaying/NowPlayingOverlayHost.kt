@@ -687,6 +687,7 @@ fun NowPlayingOverlayHost(
                         onSaveNote = viewModel::saveCurrentNote,
                         onDeleteNote = viewModel::deleteNote,
                         onRealignNote = viewModel::realignNote,
+                        onToggleNoteChecklist = viewModel::toggleNoteChecklist,
                         devicesState = devicesState,
                         onRefreshDevices = viewModel::refreshDevices,
                         onSelectDevice = viewModel::selectDevice,

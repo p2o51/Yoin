@@ -140,7 +140,9 @@ class BackupImportTest {
         assertTrue(result.cloudOnlyMerged > 0)
         assertNotNull(dao.getRecord(SyncKinds.SONG_NOTE, scope, "n1"))
         assertNotNull("its descriptor comes along", dao.getRecord(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, scope))
-        assertNull("backup-only kinds never enter the replica", dao.getRecord(BackupKinds.ALBUM_NOTE, scope, "an1"))
+        // album notes are a sync kind: a cloud-only account's go into the replica like song notes
+        assertNotNull(dao.getRecord(SyncKinds.ALBUM_NOTE, scope, "an1"))
+        assertNull("backup-only kinds never enter the replica", dao.getRecord(BackupKinds.TRACK_ALBUM_LINK, scope, SyncFormat.compositeKey("subsonic", "t1")))
         assertTrue(dao.remoteFiles().isEmpty())
 
         val again = tablet.importer().apply(tablet.importer().plan(backup, dao), replica = dao, engine = engine)

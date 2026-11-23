@@ -153,8 +153,15 @@ import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.MetaGroup
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.gpo.yoin.data.notes.BacklinkTarget
+import com.gpo.yoin.data.notes.BacklinkTrack
+import com.gpo.yoin.ui.notes.rememberNoteBacklinks
+import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.dashedOutline
@@ -313,7 +320,7 @@ private val LocalScrapMotion = staticCompositionLocalOf { ScrapMotion({ 0f }, 0f
  * 3° further while away, settling to its own angle. Read in the layer only.
  */
 @Composable
-private fun Modifier.scrapLayer(tilt: Float, depth: Float): Modifier {
+internal fun Modifier.scrapLayer(tilt: Float, depth: Float): Modifier {
     val motion = LocalScrapMotion.current
     return graphicsLayer {
         val off = motion.offset()
@@ -401,6 +408,9 @@ private fun ScrapbookPaper(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    // An album sticky being written in place (the dashed sticky, a sticky tapped, or bare paper tapped).
+    val stickyEditing = remember { StickyEditing() }
+    val paperScope = rememberCoroutineScope()
     // The open track sheet: which track, on which tab, and the About row it opened editing.
     var trackSheet by remember { mutableStateOf<ScrapSheetOpen?>(null) }
     // Where each piece sits in the scrolling column, for "View in Scrapbook".
@@ -435,6 +445,7 @@ private fun ScrapbookPaper(
     val snackbarScope = rememberCoroutineScope()
     val undoLabel = stringResource(R.string.detail_scrap_undo)
     val regeneratedLabel = stringResource(R.string.detail_scrap_regenerated)
+    val stickyDeletedLabel = stringResource(R.string.notes_sticky_deleted)
     val context = LocalContext.current
     val latestOnEdit by rememberUpdatedState(onEdit)
     val onNotice: (ScrapNotice) -> Unit = { notice ->
@@ -469,7 +480,11 @@ private fun ScrapbookPaper(
         val motion = remember(widthPx, reduced, pageOffset) {
             ScrapMotion(offset = if (reduced) ({ 0f }) else pageOffset, widthPx = widthPx)
         }
-        CompositionLocalProvider(LocalScrapMotion provides motion) {
+        val latestEdit by rememberUpdatedState(onEdit)
+        val checklistToggle = remember {
+            { noteId: String, line: Int, album: Boolean -> latestEdit(ScrapEdit.ToggleChecklist(noteId, line, album)) }
+        }
+        CompositionLocalProvider(LocalScrapMotion provides motion, LocalScrapChecklistToggle provides checklistToggle) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -481,6 +496,16 @@ private fun ScrapbookPaper(
                     ) { scrollState.value.toFloat() }
                     .verticalScroll(scrollState)
                     .heightIn(min = maxHeight)
+                    // A tap on bare paper starts an album note at the top (prototype scenario 5);
+                    // pieces take their own taps first.
+                    .pointerInput(stickyEditing) {
+                        detectTapGestures {
+                            if (stickyEditing.open == null) {
+                                stickyEditing.startNew()
+                                paperScope.launch { scrollState.animateScrollTo(0, focusSpatial) }
+                            }
+                        }
+                    }
                     // The paper scrolls with the pieces.
                     .dottedPaper(colors.dots)
                     // 4 + the dots' own cell inset ≈ the 16dp above the dots.
@@ -518,6 +543,29 @@ private fun ScrapbookPaper(
                                 stamped = stamped,
                                 onStamped = onStamped,
                                 modifier = slot,
+                                stickyPile = { m ->
+                                    StickyPile(
+                                        stickies = piece.stickies,
+                                        editing = stickyEditing,
+                                        colors = colors,
+                                        onSave = { open, text ->
+                                            stickySave(open, text)?.let { edit ->
+                                                onEdit(edit)
+                                                if (edit is ScrapEdit.AlbumNoteText && edit.text.isBlank()) {
+                                                    onNotice(
+                                                        ScrapNotice(
+                                                            stickyDeletedLabel,
+                                                            YoinSymbols.Delete,
+                                                            ScrapEdit.RestoreAlbumNote(edit.noteId),
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                            stickyEditing.close()
+                                        },
+                                        modifier = m,
+                                    )
+                                },
                             )
                             is ScrapPiece.TrackCluster -> TrackCluster(
                                 piece = piece,
@@ -543,6 +591,25 @@ private fun ScrapbookPaper(
                         }
                     }
                 }
+                // 被提及: the writings elsewhere that mention this album or its songs (the page's last block).
+                val backlinkTarget = remember(content.albumId, content.albumName, content.artistName, content.songs) {
+                    MediaId.parseOrNull(content.albumId)?.let { id ->
+                        BacklinkTarget.Album(
+                            id = id,
+                            title = content.albumName,
+                            artist = content.artistName,
+                            tracks = content.songs.mapNotNull { song ->
+                                MediaId.parseOrNull(song.id)?.let { BacklinkTrack(it, song.title, song.artist) }
+                            },
+                        )
+                    }
+                }
+                BacklinksSection(
+                    backlinks = rememberNoteBacklinks(backlinkTarget),
+                    albumSeed = content.albumId,
+                    colors = colors,
+                    modifier = Modifier.width(contentWidth).padding(top = 28.dp),
+                )
             }
         }
         // The track sheet carries this host while it is open; after it closes the notice sits here,
@@ -808,13 +875,17 @@ private fun Opening(
     stamped: Boolean,
     onStamped: () -> Unit,
     modifier: Modifier = Modifier,
+    // The album's stickies and the dashed one to write the next (AlbumScrapbookNotes.kt).
+    stickyPile: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val coverSide = if (wide) ScrapbookLayout.CoverSideWide else ScrapbookLayout.CoverSide
     val emblemSize = if (wide) ScrapbookLayout.EmblemSizeWide else ScrapbookLayout.EmblemSize
     val title = piece.title
     // A long review gets the full width under the cover instead of a narrow column beside it; on a
     // phone the column beside the cover belongs to the title when there is one.
-    val reviewBeside = (wide || piece.review == null || weightedLength(piece.review) <= OpeningBesideBudget) &&
+    // Measured on the words as read (mention links and Markdown marks don't take room).
+    val reviewWords = piece.review?.let(NoteMarkup::plainText)
+    val reviewBeside = (wide || reviewWords == null || weightedLength(reviewWords) <= OpeningBesideBudget) &&
         (wide || title == null)
     val review: @Composable (Modifier) -> Unit = { m ->
         if (piece.review != null) {
@@ -832,7 +903,7 @@ private fun Opening(
             BlankReview(piece.reviewTilt, colors, onEditReview, m)
         }
     }
-    val albumNote: (@Composable (Modifier) -> Unit)? = piece.albumNote?.let { text ->
+    val albumNote: (@Composable (Modifier) -> Unit)? = stickyPile ?: piece.albumNote?.let { text ->
         { m -> AlbumNoteSticky(text, piece.albumNoteTilt, colors, m) }
     }
     ScrapStack(mirror = false, modifier = modifier.fillMaxWidth()) {
@@ -915,7 +986,8 @@ private fun Opening(
 /**
  * The album's one album note (D3's sticky): secondaryContainer paper with a folded bottom-right corner, in
  * the listener's own face. Told apart by paper and fold alone — no label, and no rail (the rail is the
- * track notes'). Read-only: nothing writes album notes any more.
+ * track notes'). Drawn from the stored Markdown ([NoteMarkupText]). Writing it from the page (one sticky
+ * per note) is the notes revamp's phase B; the data side already takes any number (ScrapEdit.NewAlbumNote).
  */
 @Composable
 private fun AlbumNoteSticky(
@@ -924,11 +996,12 @@ private fun AlbumNoteSticky(
     colors: ScrapbookColors,
     modifier: Modifier = Modifier,
 ) {
-    val description = stringResource(R.string.detail_scrap_cd_album_note, text)
-    Text(
+    val description = stringResource(R.string.detail_scrap_cd_album_note, NoteMarkup.plainText(text))
+    NoteMarkupText(
         text = text,
         style = userTextStyle().copy(fontSize = 14.5.sp),
         color = colors.onSticky,
+        mentionColor = colors.onSticky,
         modifier = modifier
             .scrapLayer(tilt, depth = 0.45f)
             .seamFade()
@@ -941,7 +1014,7 @@ private fun AlbumNoteSticky(
 }
 
 /** D3's sticky width: 72% of the space it is given, at most 280dp (a fixed sheet, not as wide as its words). */
-private fun Modifier.stickyWidth(): Modifier = layout { measurable, constraints ->
+internal fun Modifier.stickyWidth(): Modifier = layout { measurable, constraints ->
     val width = min((constraints.maxWidth * 0.72f).roundToInt(), ScrapbookLayout.StickyMaxWidth.roundToPx())
         .coerceIn(constraints.minWidth, constraints.maxWidth)
     val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
@@ -1048,7 +1121,7 @@ private fun ReviewClipping(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
+        NoteMarkupText(
             text = review,
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontFamily = GoogleSansFlex,
@@ -1057,6 +1130,7 @@ private fun ReviewClipping(
                 letterSpacing = 0.sp,
             ),
             color = colors.onReview,
+            mentionColor = colors.onReview,
         )
         // When it was written, quietly at the foot (owner 2026-10-05).
         if (writtenAt != null) {
@@ -1612,10 +1686,11 @@ private val NoteStampColumn = 42.dp
 @Composable
 private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -> Unit) {
     val at = line.positionMs?.let(::formatNotePosition)
+    val words = remember(line.text) { NoteMarkup.plainText(line.text) }
     val description = if (at != null) {
-        stringResource(R.string.detail_scrap_cd_note_at, at, line.text)
+        stringResource(R.string.detail_scrap_cd_note_at, at, words)
     } else {
-        stringResource(R.string.detail_scrap_cd_note, line.text)
+        stringResource(R.string.detail_scrap_cd_note, words)
     }
     val playLabel = if (at != null) {
         stringResource(R.string.detail_scrap_cd_play_from, at)
@@ -1651,10 +1726,13 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
                 .width(NoteStampColumn)
                 .alignByBaseline(),
         )
-        Text(
+        val toggle = LocalScrapChecklistToggle.current
+        NoteMarkupText(
             text = line.text,
+            onToggleChecklist = toggle?.let { t -> { index -> t(line.noteId, index, false) } },
             style = userTextStyle(),
             color = colors.onNote,
+            mentionColor = colors.ink,
             modifier = Modifier
                 .weight(1f)
                 .alignByBaseline(),
@@ -2024,13 +2102,13 @@ private val TicketShape: Shape = object : Shape {
 }
 
 /** The sticky's corner fold: legs of this length (D3: a 12px cut on the diagonal ≈ 17dp legs). */
-private val StickyFold = 17.dp
+internal val StickyFold = 17.dp
 
 /** How much of the secondary ink the fold carries over the sticky's paper (D3 prototype: 32%). */
 private const val StickyFoldInk = 0.32f
 
 /** Card corners (16dp continuous) with the bottom-right corner cut off on the diagonal where it folds over. */
-private val StickyShape: Shape = object : Shape {
+internal val StickyShape: Shape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val card = YoinContainerShapes.Card.createOutline(size, layoutDirection, density)
         val body = Path().apply {
@@ -2057,7 +2135,7 @@ private val StickyShape: Shape = object : Shape {
 }
 
 /** The folded-over flap: the triangle on the paper's side of the fold line, its inner corner rounded by [r]. */
-private fun stickyFoldPath(size: Size, f: Float, r: Float): Path = Path().apply {
+internal fun stickyFoldPath(size: Size, f: Float, r: Float): Path = Path().apply {
     val x = size.width - f
     val y = size.height - f
     moveTo(x, size.height)
