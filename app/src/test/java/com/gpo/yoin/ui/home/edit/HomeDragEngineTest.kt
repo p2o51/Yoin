@@ -34,6 +34,9 @@ class HomeDragEngineTest {
         private val pairs: Map<HomeSection, HomeSection> = emptyMap(),
     ) : HomeDragHost {
         var engine: HomeDragEngine? = null
+
+        /** The arrangement laid out, when it lags the drag's (a change not laid out yet). */
+        var shown: DragArrangement? = null
         val scrolls = mutableListOf<Float>()
         private var scrolled = 0f
 
@@ -44,7 +47,7 @@ class HomeDragEngineTest {
         override fun pairs(): Map<HomeSection, HomeSection> = pairs
 
         override fun visibleRows(): List<DragItemBand> {
-            val live = engine?.arrangement ?: DragArrangement(order, if (twoColumn) pairs else emptyMap())
+            val live = shown ?: engine?.arrangement ?: DragArrangement(order, if (twoColumn) pairs else emptyMap())
             var y = Top - scrolled
             return dragRows(live.ids, live.pairs, twoColumn).map { row ->
                 DragItemBand(row.first, y, y + RowHeight).also { y += RowHeight + Gap }
@@ -244,6 +247,66 @@ class HomeDragEngineTest {
         assertEquals(255f, rig.engine.translation(JumpBackIn, inList = false, width = 745f).x, .5f)
         // Full width: in its row, not half off the screen with the finger on its 190/490 mark.
         assertEquals(0f, rig.engine.translation(JumpBackIn, inList = false, width = 1000f).x, .5f)
+    }
+
+    @Test
+    fun should_pairWhereFingerLetGo_when_releasedBeforeAFrameDecided() = runEditClockTest { scope ->
+        // Jump Back In 100..400, Activities 418..718, All Memories 736..1036, all full rows.
+        val host = FakeHost(twoColumn = true, order = listOf(JumpBackIn, Activities, MemoryGrid))
+        val rig = Rig(scope, this, host, specs)
+        rig.lift(Activities, x = 900f, y = 568f)
+        // A quick drag up: the last frame sees the finger still in its own row…
+        rig.moveTo(900f, 450f)
+        frames()
+        assertEquals(listOf(JumpBackIn, Activities, MemoryGrid), rig.engine.arrangement?.ids)
+
+        // …and it lets go over Jump Back In's middle, 90% across, before another frame.
+        rig.moveTo(900f, 250f)
+        rig.engine.release(cancelled = false, uptimeMs = 0L)
+
+        assertEquals(
+            listOf(DragArrangement(listOf(JumpBackIn, Activities, MemoryGrid), mapOf(JumpBackIn to Activities))),
+            rig.arrangements,
+        )
+    }
+
+    @Test
+    fun should_decideFromLaidOutLayout_when_lastChangeNotLaidOutAtRelease() = runEditClockTest { scope ->
+        val host = FakeHost(twoColumn = true, order = listOf(JumpBackIn, Activities, MemoryGrid))
+        val rig = Rig(scope, this, host, specs)
+        val before = DragArrangement(listOf(JumpBackIn, Activities, MemoryGrid), emptyMap())
+        // Grabbed low in its block (282px down), the block placed in the layout before any change.
+        rig.lift(Activities, x = 900f, y = 700f)
+        assertEquals(Offset(0f, 0f), rig.engine.dragOffset(Activities, inList = false, width = 1000f, placedAt = Offset(0f, 418f)))
+        host.shown = before
+        // A frame decides on a finger still in its own row: its top past the half-travel line, the rows swap…
+        rig.moveTo(900f, 530f)
+        frames()
+        assertEquals(listOf(Activities, JumpBackIn, MemoryGrid), rig.engine.arrangement?.ids)
+
+        // …but the list still shows the rows before it when the finger lets go over Jump Back In's middle.
+        rig.moveTo(900f, 250f)
+        rig.engine.release(cancelled = false, uptimeMs = 0L)
+
+        assertEquals(listOf(DragArrangement(listOf(JumpBackIn, Activities, MemoryGrid), mapOf(JumpBackIn to Activities))), rig.arrangements)
+    }
+
+    @Test
+    fun should_glideFromWhereDrawnIntoWhereverPlaced_when_dropped() = runEditClockTest { scope ->
+        val rig = Rig(scope, this, FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid)), specs)
+        rig.lift(MadeForYou, x = 500f, y = 568f)
+        rig.moveTo(500f, 600f)
+        frames()
+        // Placed at its slot (418), drawn 32px lower under the finger.
+        assertEquals(Offset(0f, 32f), rig.engine.dragOffset(MadeForYou, inList = false, width = 1000f, placedAt = Offset(0f, 418f)))
+
+        rig.engine.release(cancelled = false, uptimeMs = 0L)
+
+        // The glide starts where it was drawn, against wherever this frame places it (here 400).
+        assertEquals(Offset(0f, 50f), rig.engine.settleOffset(MadeForYou, inList = false, placedAt = Offset(0f, 400f)))
+        assertNull(rig.engine.dragOffset(MadeForYou, inList = false, width = 1000f, placedAt = Offset(0f, 400f)))
+        frames(60)
+        assertNull(rig.engine.settleOffset(MadeForYou, inList = false, placedAt = Offset(0f, 400f)))
     }
 
     @Test

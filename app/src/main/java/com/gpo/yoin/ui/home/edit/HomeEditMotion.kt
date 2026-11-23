@@ -111,6 +111,9 @@ internal class HomeEditTargets {
         box = coords
     }
 
+    /** The page Box's coordinates: the space every edit geometry lives in. */
+    fun boxCoordinates(): LayoutCoordinates? = box
+
     fun isExcluded(positionInBox: Offset): Boolean =
         registrations.any { (key, node) -> key !is HandleKey && node.contains(positionInBox) }
 

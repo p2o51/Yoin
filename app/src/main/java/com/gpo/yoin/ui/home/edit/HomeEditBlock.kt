@@ -327,6 +327,9 @@ internal fun HomeEditBlock(
                     else -> 0f
                 }
             }
+            // Dragged, the block follows the finger, placed against this frame's layout; dropped, it
+            // glides into its slot.
+            .dragFollow(engine, section, inList = false, box = deps.targets::boxCoordinates)
             .blockLayer { outset ->
                 var scale = motion.hideScale(section)
                 var pivotX = size.width / 2f
@@ -349,10 +352,6 @@ internal fun HomeEditBlock(
                 if (size.width > 0f && size.height > 0f) {
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
-                // Dragged, the block follows the finger; dropped, it glides into its slot.
-                val offset = engine.translation(section, inList = false, width = size.width - 2 * outset.x)
-                translationX = offset.x
-                translationY = offset.y
                 // The list's cover on/off, not its progress: every block's layer re-runs on the flip, not each frame.
                 alpha = if (engine.feedHidden) 0f else motion.hideAlpha(section)
             }

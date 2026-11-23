@@ -447,10 +447,9 @@ private fun HomeEditListStrip(
             .height(height)
             // Where it lands while it follows the finger (rule 4).
             .dragSlotMark(engine, section, inList = true, fill = liftedPlate, stroke = colors.outlineVariant)
+            // Dragged, it follows the finger, placed against this frame's layout; dropped, it glides home.
+            .dragFollow(engine, section, inList = true, box = targets::boxCoordinates)
             .graphicsLayer {
-                val offset = engine.translation(section, inList = true, width = size.width)
-                translationX = offset.x
-                translationY = offset.y
                 val lift = if (engine.liftSection == section) engine.lift.value.coerceIn(0f, 1f) else 0f
                 val scale = liftScale(lift)
                 scaleX = scale

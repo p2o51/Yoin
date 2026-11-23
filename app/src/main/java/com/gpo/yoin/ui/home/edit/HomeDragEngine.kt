@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -17,8 +18,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -26,9 +29,9 @@ import com.gpo.yoin.ui.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeSection
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /** A laid-out row item, keyed by its first section, and its vertical extent in Box px. */
@@ -222,9 +225,14 @@ internal class HomeDragEngine(
     var settling: HomeSection? by mutableStateOf(null)
         private set
 
-    /** The settle's offset from the slot (px). Layer only. */
-    val settleX = Animatable(0f)
-    val settleY = Animatable(0f)
+    /** The glide's way from where the block was let go (0) into its slot (1). Placement only. */
+    private val settleProgress = Animatable(0f)
+
+    // Where the gliding block was let go: its top-left in Box px (null: it lands in its slot at once).
+    private var settleFrom: Offset? = null
+
+    // The arrangement the gliding block landed in, and the list it was dragged in.
+    private var landed: DragArrangement? = null
 
     /** The finger's x in Box px, set by the gesture before each event (two-column drops read it). */
     var fingerX: Float = Float.NaN
@@ -239,8 +247,21 @@ internal class HomeDragEngine(
     /** A drag is on: Undo and the other edits wait for its drop. */
     val isCarrying: Boolean get() = dragging != null
 
-    // The finger in Box px: written by every move, read by the dragged block's layer alone.
+    // The finger in Box px: written by every move, read by the dragged block's placement alone.
     private var finger by mutableStateOf(Offset.Zero)
+
+    // Written on every frame of a drag, before the frame's layout: the dragged block's placement
+    // reads it, so it is placed again after the list has laid out its scroll or step, in that frame.
+    private var frameTick by mutableIntStateOf(0)
+
+    // Where the dragged block was last drawn (its top-left in Box px; unspecified before): its glide home starts there.
+    private var lastDrawn = Offset.Unspecified
+
+    // The finger where the last decision was made, the arrangement (and side) before the last
+    // change, and the arrangement the dragged block was last placed in (the one the list laid out).
+    private var decidedAt = Offset.Unspecified
+    private var beforeStep: Pair<DragArrangement, HomeDragLane?>? = null
+    private var laidOut: DragArrangement? = null
 
     // The finger's offset from the dragged block's top-left at the start.
     private var grab = Offset.Zero
@@ -310,8 +331,45 @@ internal class HomeDragEngine(
             val at = layoutTopLeft(host, live, section) ?: return Offset.Zero
             return dragTopLeft(host, width) - at
         }
-        if (settling == section) return Offset(settleX.value, settleY.value)
+        if (settling == section) {
+            val host = active ?: return Offset.Zero
+            val at = landed?.let { layoutTopLeft(host, it, section) } ?: return Offset.Zero
+            return settleOffset(section, inList, at) ?: Offset.Zero
+        }
         return Offset.Zero
+    }
+
+    /**
+     * [section]'s offset from where it is placed now, [placedAt] (Box px),
+     * while it glides from where it was let go into that place. Null when it
+     * isn't gliding there. Read in placement ([dragFollow]): the glide ends in
+     * the slot this frame's layout gives it, a step or a scroll at the drop included.
+     */
+    fun settleOffset(section: HomeSection, inList: Boolean, placedAt: Offset): Offset? {
+        if (settling != section || inList != activeList) return null
+        val from = settleFrom ?: return null
+        return (from - placedAt) * (1f - settleProgress.value)
+    }
+
+    /**
+     * [section]'s offset from where it is placed now, [placedAt] (its
+     * top-left in Box px, as this frame's layout put it), while it is dragged
+     * ([inList]: the pinched list's strip): under the finger, [width] wide as
+     * drawn. Null when it isn't dragged there. Read in placement ([dragFollow]):
+     * the block moves with the frame's own layout. Measured against the list's
+     * layout info instead (written as the list measures, seen by a layer only a
+     * frame later) it drew a frame behind every edge-scroll step and every
+     * reorder: the block jumped by the step and snapped back under the finger.
+     */
+    fun dragOffset(section: HomeSection, inList: Boolean, width: Float, placedAt: Offset): Offset? {
+        if (dragging != section || inList != activeList) return null
+        val host = active ?: return null
+        // Every frame of the drag re-places the dragged block (a scroll or a step may have moved its row).
+        frameTick
+        val topLeft = dragTopLeft(host, width)
+        lastDrawn = topLeft
+        laidOut = arrangement
+        return topLeft - placedAt
     }
 
     /**
@@ -333,18 +391,22 @@ internal class HomeDragEngine(
         val at = layoutTopLeft(host, before, dragged) ?: return
         val lane = dragLaneOf(dragged, rowsOf(before, twoColumn))
         val x = fingerX.takeUnless { it.isNaN() } ?: at.x
-        val shown = at + if (settling == dragged) Offset(settleX.value, settleY.value) else Offset.Zero
+        // Picked up again mid-glide: from where it is drawn on its way.
+        val shown = settleFrom?.takeIf { settling == dragged }?.let { from -> at + (from - at) * (1f - settleProgress.value) } ?: at
         settleJob?.cancel()
         settleJob = null
         settling = null
-        scope.launchNow { settleX.snapTo(0f) }
-        scope.launchNow { settleY.snapTo(0f) }
+        settleFrom = null
         active = host
         activeList = host.isList
         finger = Offset(x, fingerY)
         grab = finger - shown
         grabWidth = Float.NaN
         drawnWidth = Float.NaN
+        lastDrawn = Offset.Unspecified
+        decidedAt = Offset.Unspecified
+        beforeStep = null
+        laidOut = null
         side = lane.takeIf { it != HomeDragLane.Full }
         origin = before
         travel = 0f
@@ -381,7 +443,33 @@ internal class HomeDragEngine(
             dropLift(0f)
             return
         }
+        if (!cancelled) decideOnRelease()
         finish(keep = !cancelled, glide = true)
+    }
+
+    // The finger's last moves, since the last frame decided: a quick drag lets go within a frame or
+    // two of arriving (moves batched with the up never reach a frame at all), and the drop landed
+    // where the finger was a frame or more before (in list mode, a quick drag up onto a full strip
+    // at 90% across swapped rows instead of pairing; a slow one paired). Decided now, against the
+    // layout the list shows: the live arrangement, or the one before the last change if that
+    // change (decided on an older finger) isn't laid out yet. No travel wait: the finger let go here.
+    private fun decideOnRelease() {
+        val host = active ?: return
+        val dragged = dragging ?: return
+        val live = arrangement ?: return
+        if (finger == decidedAt) return
+        val twoColumn = host.twoColumn()
+        val prior = beforeStep
+        val (base, baseSide) = if (prior != null && laidOut != null && laidOut != live && laidOut == prior.first) prior else live to side
+        val rows = rowsOf(base, twoColumn)
+        val k = dragRowIndexOf(dragged, rows)
+        if (k < 0) return
+        val visible = host.visibleRows()
+        if (!dragLayoutFollows(visible.map { it.key }, rows, rows[k].first)) return
+        val step = decide(host, dragged, base, baseSide, rows, k, visible, twoColumn)
+        arrangement = step?.arrangement ?: base
+        side = if (step != null) step.side else baseSide
+        decidedAt = finger
     }
 
     /**
@@ -424,10 +512,9 @@ internal class HomeDragEngine(
         dragging = null
         arrangement = null
         settling = null
+        settleFrom = null
         side = null
         pendingExit = null
-        scope.launchNow { settleX.snapTo(0f) }
-        scope.launchNow { settleY.snapTo(0f) }
         snapLiftToRest()
         motion.carryActive = false
     }
@@ -438,12 +525,12 @@ internal class HomeDragEngine(
         val dragged = dragging ?: return
         val before = origin ?: DragArrangement(emptyList(), emptyMap())
         val live = arrangement ?: before
+        // Where the block was last drawn (as its placement measured it): it glides from there into
+        // whatever slot the layout gives it, the one it was dropped in or (rolled back) the one it left.
         val from = when {
-            !glide -> Offset.Zero
-            keep -> translation(dragged, activeList, drawnWidth)
-            // Back to its slot before the lift, as near as this layout tells.
-            else -> active?.let { host -> layoutTopLeft(host, before, dragged)?.let { dragTopLeft(host, drawnWidth) - it } }
-                ?: translation(dragged, activeList, drawnWidth)
+            !glide -> null
+            lastDrawn.isSpecified -> lastDrawn
+            else -> active?.let { dragTopLeft(it, drawnWidth) }
         }
         frameJob?.cancel()
         frameJob = null
@@ -453,6 +540,7 @@ internal class HomeDragEngine(
         arrangement = null
         side = null
         motion.carryActive = false
+        landed = if (keep) live else before
         settle(dragged, from, if (changed) before.ids.filterIndexed { index, s -> live.ids.getOrNull(index) != s } else emptyList())
         liftJob = scope.launchNow {
             lift.animateTo(0f, specs.liftDown)
@@ -478,6 +566,7 @@ internal class HomeDragEngine(
     }
 
     private fun frame(dt: Float) {
+        frameTick++
         val host = active ?: return
         val dragged = dragging ?: return
         val live = arrangement ?: return
@@ -487,10 +576,12 @@ internal class HomeDragEngine(
         if (k < 0) return
         val visible = host.visibleRows()
         if (travel >= travelPx && dragLayoutFollows(visible.map { it.key }, rows, rows[k].first)) {
-            val step = decide(host, dragged, live, rows, k, visible, twoColumn)
+            val step = decide(host, dragged, live, side, rows, k, visible, twoColumn)
+            decidedAt = finger
             if (step != null) {
                 // A frame that reorders doesn't scroll as well: the held position is this layout's.
                 host.holdScroll()
+                beforeStep = live to side
                 arrangement = step.arrangement
                 side = step.side
                 travel = 0f
@@ -534,6 +625,7 @@ internal class HomeDragEngine(
         host: HomeDragHost,
         dragged: HomeSection,
         live: DragArrangement,
+        side: HomeDragLane?,
         rows: List<HomeFeedRow>,
         k: Int,
         visible: List<DragItemBand>,
@@ -560,16 +652,16 @@ internal class HomeDragEngine(
     }
 
     // The dropped block glides home, then it and the blocks it [moved] are kicked.
-    private fun settle(section: HomeSection, from: Offset, moved: List<HomeSection>) {
+    private fun settle(section: HomeSection, from: Offset?, moved: List<HomeSection>) {
         settling = section
+        settleFrom = from
         settleJob = scope.launchNow {
-            settleX.snapTo(from.x)
-            settleY.snapTo(from.y)
-            coroutineScope {
-                launch { settleX.animateTo(0f, specs.settlePx) }
-                settleY.animateTo(0f, specs.settlePx)
+            settleProgress.snapTo(0f)
+            settleProgress.animateTo(1f, specs.liftDown)
+            if (settling == section) {
+                settling = null
+                settleFrom = null
             }
-            if (settling == section) settling = null
             motion.touch()
             motion.impulse(section, HomeEditTokens.KickDrop)
             moved.forEach { if (it != section) motion.impulse(it, HomeEditTokens.KickNeighbour) }
@@ -661,6 +753,42 @@ internal fun Modifier.dragSlotMark(
         cornerRadius = CornerRadius((radius - w / 2f).coerceAtLeast(0f)),
         style = Stroke(w),
     )
+}
+
+/**
+ * A dragged block (or the pinched list's strip) placed under the finger in
+ * the placement pass, against where this frame's layout put it ([box]: the
+ * page Box's coordinates), and dropped, gliding from where it was let go
+ * into its slot ([HomeDragEngine.dragOffset], [HomeDragEngine.settleOffset]).
+ * Put it outside the block's own layer and inside its slot mark.
+ */
+internal fun Modifier.dragFollow(
+    engine: HomeDragEngine,
+    section: HomeSection,
+    inList: Boolean,
+    box: () -> LayoutCoordinates?,
+): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    layout(placeable.width, placeable.height) {
+        val dragged = engine.dragging == section
+        val offset = if (dragged || engine.settling == section) {
+            val origin = box()?.takeIf { it.isAttached }
+            val here = coordinates?.takeIf { it.isAttached }
+            if (origin != null && here != null) {
+                val at = origin.localPositionOf(here, Offset.Zero)
+                if (dragged) {
+                    engine.dragOffset(section, inList, placeable.width.toFloat(), at)
+                } else {
+                    engine.settleOffset(section, inList, at)
+                }
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        if (offset == null) placeable.place(0, 0) else placeable.place(offset.x.roundToInt(), offset.y.roundToInt())
+    }
 }
 
 /** A `zIndex` read in the placement pass, so a change re-places the item without recomposing it. */
