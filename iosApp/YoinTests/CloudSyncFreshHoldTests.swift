@@ -12,9 +12,11 @@ final class CloudSyncFreshHoldTests: XCTestCase {
         CloudSyncState(phase: pending ? CloudSyncPhaseOffline.shared : CloudSyncPhaseUpToDate.shared, account: nil,
                        lastSyncAt: nil, pendingChanges: pending,
                        accounts: accounts.map {
-                           SyncAccountRow(localProfileId: $0.id, provider: "subsonic", displayName: $0.id, status: $0.status)
+                           SyncAccountRow(localProfileId: $0.id, provider: "subsonic", displayName: $0.id,
+                                          status: $0.status, syncProfileId: nil)
                        },
-                       cloudOnlyAccounts: [], devices: [], lastSummary: nil, readOnly: false, lastBackup: nil)
+                       cloudOnlyAccounts: [], devices: [], lastSummary: nil, readOnly: false, lastBackup: nil,
+                       location: SyncLocations.shared.GOOGLE_DRIVE, pendingMigrationNotice: false)
     }
 
     func test_should_holdTheAccount_when_startFreshComesBackWithChangesNotUploaded() {

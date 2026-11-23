@@ -354,4 +354,581 @@ class CloudSyncCoreTest {
         assertEquals("uploaded", domain.note("n1")?.content)
         assertEquals(SyncAccountStatus.Syncing, core.currentState().accounts.single().status)
     }
+
+    @Test
+    fun should_syncTwoAppleDevicesThroughICloudAndSupportAccountPurge() = runTest {
+        val icloud = FakeDrive()
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val ipadDomain = FakeSyncDomain().apply { profileList += profile }
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("iCloud must not ask for Google tokens")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("iCloud must not construct Drive client") },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        val ipad = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(ipadDomain, it) },
+            profiles = { ipadDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("iCloud must not ask for Google tokens")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("iCloud must not construct Drive client") },
+            deviceName = { "iPad Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+
+        iphoneDomain.putNote(note("n1", "from iphone via icloud"))
+        assertNull(iphone.enableICloud())
+        assertEquals(SyncLocations.ICLOUD, iphone.currentState().location)
+        assertEquals(CloudSyncPhase.UpToDate, iphone.currentState().phase)
+
+        now += 1_000
+        assertNull(ipad.enableICloud())
+        assertEquals("from iphone via icloud", ipadDomain.note("n1")?.content)
+        val scope = iphone.currentState().accounts.single().syncProfileId
+        assertNotNull(scope)
+
+        // Remove account from iCloud: writes yoin-purge-* marker, purges iPhone replica, stops iPad from re-uploading.
+        now += 1_000
+        assertNull(iphone.removeAccountFromCloud(scope))
+        assertEquals(SyncAccountStatus.RemovedFromCloud, iphone.currentState().accounts.single().status)
+        assertTrue(icloud.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE })
+
+        now += 1_000
+        ipad.syncNow()
+        assertEquals(SyncAccountStatus.RemovedFromCloud, ipad.currentState().accounts.single().status)
+        // Local data on both devices stays intact.
+        assertEquals("from iphone via icloud", iphoneDomain.note("n1")?.content)
+        assertEquals("from iphone via icloud", ipadDomain.note("n1")?.content)
+    }
+
+    @Test
+    fun should_switchFromDriveToICloudWith4StepVerificationAndNotifyPeers() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val backups = Backups()
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = backups,
+            icloudTransport = icloudTransport,
+        )
+        val (peerOnDrive, _) = device("Pixel Tablet", readOnly = false)
+
+        iphoneDomain.putNote(note("n1", "carry over"))
+        assertNull(iphone.enable("token"))
+        now += 1_000
+        assertNull(peerOnDrive.enable("token"))
+
+        // If target fails mid-switch, old Drive location stays untouched.
+        icloud.offline = true
+        val failed = iphone.switchLocation(SyncLocations.ICLOUD)
+        assertTrue(!failed.succeeded)
+        assertEquals(SyncLocations.GOOGLE_DRIVE, iphone.currentState().location)
+        assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+
+        // Target online: switch succeeds, verifies counts, keeps old copy, writes migration marker to Drive.
+        icloud.offline = false
+        now += 1_000
+        val result = iphone.switchLocation(SyncLocations.ICLOUD, clearOldCopy = false)
+        assertTrue(result.succeeded)
+        assertTrue(result.countsVerified)
+        assertTrue(result.migrationMarkerWritten)
+        assertTrue(!result.oldCopyCleared)
+        assertNotNull(result.snapshotSha256)
+        assertEquals(1, result.totalLiveRecords)
+        assertEquals(SyncLocations.ICLOUD, iphone.currentState().location)
+        assertTrue(icloud.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
+        assertTrue(drive.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+
+        // Peer still on Drive sees MigratedElsewhere banner and pauses publishing until user dismisses.
+        now += 1_000
+        peerOnDrive.syncNow()
+        val phase = assertIs<CloudSyncPhase.MigratedElsewhere>(peerOnDrive.currentState().phase)
+        assertEquals(SyncLocations.ICLOUD, phase.targetLocation)
+        assertEquals("iPhone 17 Pro", phase.deviceName)
+
+        // Dismissing migration notice resumes syncing on Drive.
+        now += 1_000
+        peerOnDrive.dismissMigrationNotice()
+        assertEquals(CloudSyncPhase.UpToDate, peerOnDrive.currentState().phase)
+
+        // Optional Step 4 cleanup deletes old Drive files except the migration marker.
+        assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
+        assertTrue(drive.files.values.all { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+    }
+
+    @Test
+    fun should_pullPeerChangesBeforeSwitchingSoNothingIsLostOnCleanup() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val backups = Backups()
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = backups,
+            icloudTransport = icloudTransport,
+        )
+        val (pixel, pixelDomain) = device("Pixel Tablet", readOnly = false)
+
+        iphoneDomain.putNote(note("n1", "from iphone"))
+        assertNull(iphone.enable("token"))
+        now += 1_000
+        assertNull(pixel.enable("token"))
+
+        // Pixel adds n2 to Drive AFTER iPhone's last sync; iPhone switches without calling syncNow() first.
+        now += 1_000
+        pixelDomain.putNote(note("n2", "from pixel before switch"))
+        pixel.localChanged()
+
+        now += 1_000
+        val result = iphone.switchLocation(SyncLocations.ICLOUD, clearOldCopy = false)
+        assertTrue(result.succeeded)
+        assertEquals("from pixel before switch", iphoneDomain.note("n2")?.content)
+        assertEquals(2, result.totalLiveRecords)
+
+        // Even after clearing Drive, iCloud has both n1 and n2 (verified by second Apple device).
+        assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
+        val ipadDomain = FakeSyncDomain().apply { profileList += profile }
+        val ipad = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(ipadDomain, it) },
+            profiles = { ipadDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("unused")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("unused") },
+            deviceName = { "iPad Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        now += 1_000
+        assertNull(ipad.enableICloud())
+        assertEquals("from iphone", ipadDomain.note("n1")?.content)
+        assertEquals("from pixel before switch", ipadDomain.note("n2")?.content)
+    }
+
+    @Test
+    fun should_requireBackupAndPreserveResetAndPurgeMarkersWhenClearingOldCopy() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        var failBackup = false
+        val backups = object : SyncBackupSink {
+            var count = 0
+            override fun save(files: List<SyncBackupFile>, manifestJson: String): String? {
+                if (failBackup) return null
+                count++
+                return "backup-$count"
+            }
+        }
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = backups,
+            icloudTransport = icloudTransport,
+        )
+        // Plant an older reset marker and a scope purge marker on Drive before iPhone joins at that epoch.
+        drive.files["reset-old"] = FakeDrive.File(
+            "reset-old", "yoin-reset-100-old.json",
+            mapOf(SyncFileProps.KIND to SyncFileProps.KIND_RESET, SyncFileProps.EPOCH to "100", SyncFileProps.DEVICE_ID to "old"),
+            "{}".encodeToByteArray(), 1L,
+        )
+        drive.files["purge-1"] = FakeDrive.File(
+            "purge-1", "yoin-purge-200-old.json",
+            mapOf(
+                SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
+                SyncFileProps.EPOCH to "200",
+                SyncFileProps.SCOPE to "sp-removed",
+                SyncFileProps.DEVICE_ID to "old",
+            ),
+            "{}".encodeToByteArray(), 1L,
+        )
+
+        iphoneDomain.putNote(note("n1", "keep"))
+        assertNull(iphone.enable("token"))
+
+        now += 1_000
+        assertTrue(iphone.switchLocation(SyncLocations.ICLOUD, clearOldCopy = false).succeeded)
+
+        // When backup fails, clearOldLocationCopy must refuse and delete nothing.
+        val countBefore = drive.files.size
+        failBackup = true
+        val err = iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE)
+        assertNotNull(err)
+        assertEquals(countBefore, drive.files.size)
+
+        // When backup succeeds, clearOldLocationCopy backs up first, removes state files,
+        // and preserves migrated + purge + newest reset markers.
+        failBackup = false
+        val backupsBefore = backups.count
+        assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
+        assertEquals(backupsBefore + 1, backups.count)
+        assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
+        assertTrue(drive.files.containsKey("reset-old"))
+        assertTrue(drive.files.containsKey("purge-1"))
+        assertTrue(drive.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+    }
+
+    @Test
+    fun should_keepDriveIdentityIntactAfterSwitchingToICloudEvenAcrossTokenRefresh() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        var currentGoogleToken = "token-v1"
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = currentGoogleToken
+                override suspend fun invalidate(token: String) = Unit
+            },
+            // Invoke provider.token() on every Drive call so IdentityCheckedTokens is exercised for real!
+            transportFactory = { provider ->
+                val raw = drive.transport()
+                object : SyncTransport {
+                    override suspend fun list(): List<RemoteFile> {
+                        provider.token()
+                        return raw.list()
+                    }
+                    override suspend fun download(fileId: String): ByteArray? {
+                        provider.token()
+                        return raw.download(fileId)
+                    }
+                    override suspend fun create(
+                        fileId: String,
+                        name: String,
+                        appProperties: Map<String, String>,
+                        mimeType: String,
+                        bytes: ByteArray,
+                    ): RemoteFile {
+                        provider.token()
+                        return raw.create(fileId, name, appProperties, mimeType, bytes)
+                    }
+                    override suspend fun update(fileId: String, bytes: ByteArray): RemoteFile? {
+                        provider.token()
+                        return raw.update(fileId, bytes)
+                    }
+                    override suspend fun delete(fileId: String): Boolean {
+                        provider.token()
+                        return raw.delete(fileId)
+                    }
+                    override suspend fun generateIds(count: Int): List<String> {
+                        provider.token()
+                        return raw.generateIds(count)
+                    }
+                    override suspend fun about(): GoogleAccountInfo {
+                        provider.token()
+                        return raw.about()
+                    }
+                }
+            },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = Backups(),
+            icloudTransport = icloudTransport,
+        )
+
+        iphoneDomain.putNote(note("n1", "drive note"))
+        assertNull(iphone.enable("token-v1"))
+        now += 1_000
+        assertTrue(iphone.switchLocation(SyncLocations.ICLOUD).succeeded)
+
+        // Simulate 1-hour token refresh (new token string forces IdentityCheckedTokens to re-verify against Drive owner).
+        currentGoogleToken = "token-v2-refreshed"
+        // A token from a different Google account must be rejected before deleting anything.
+        val otherDrive = FakeDrive()
+        val wrongAccountCore = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "token-v1"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { provider ->
+                val raw = otherDrive.transport()
+                object : SyncTransport by raw {
+                    override suspend fun about(): GoogleAccountInfo {
+                        val tok = provider.token()
+                        return if (tok == "wrong-user-token") {
+                            GoogleAccountInfo("perm-OTHER", "other@example.com", "Other")
+                        } else {
+                            GoogleAccountInfo("perm-1", "me@example.com", "Me")
+                        }
+                    }
+                }
+            },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            backupSink = Backups(),
+            icloudTransport = icloudTransport,
+        )
+        assertNull(wrongAccountCore.enable("token-v1"))
+        now += 1_000
+        assertTrue(wrongAccountCore.switchLocation(SyncLocations.ICLOUD).succeeded)
+        val countBeforeWrongClean = otherDrive.files.size
+        val wrongErr = wrongAccountCore.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE, accessToken = "wrong-user-token")
+        assertNotNull(wrongErr)
+        assertEquals(countBeforeWrongClean, otherDrive.files.size)
+
+        // Same Google account after token refresh succeeds cleanly.
+        assertNull(iphone.clearOldLocationCopy(SyncLocations.GOOGLE_DRIVE))
+        assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
+    }
+
+    @Test
+    fun should_notBounceBackOnStaleMigrationMarkerWhenSwitchingBackToOldLocation() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        fun appleDevice(name: String): Pair<CloudSyncCore, FakeSyncDomain> {
+            val dom = FakeSyncDomain().apply { profileList += profile }
+            val core = CloudSyncCore(
+                store = InMemorySyncStore(),
+                adapters = { SharedSyncAdapters.create(dom, it) },
+                profiles = { dom.profiles() },
+                tokens = object : SyncTokenProvider {
+                    override suspend fun token() = "t"
+                    override suspend fun invalidate(token: String) = Unit
+                },
+                transportFactory = { drive.transport() },
+                deviceName = { name },
+                versionCode = 36,
+                clock = { now },
+                readOnlyFirstPull = false,
+                icloudTransport = icloudTransport,
+            )
+            return core to dom
+        }
+
+        val (devA, domA) = appleDevice("iPhone")
+        val (devB, _) = appleDevice("iPad")
+        domA.putNote(note("n1", "hello"))
+        assertNull(devA.enable("token"))
+        now += 1_000
+        assertNull(devB.enable("token"))
+
+        // A switches Drive -> iCloud, then B sees the MigratedElsewhere banner and directly taps
+        // "Switch to iCloud" WITHOUT dismissing first (follow-the-leader banner flow).
+        now += 1_000
+        assertTrue(devA.switchLocation(SyncLocations.ICLOUD).succeeded)
+        now += 1_000
+        devB.syncNow()
+        assertIs<CloudSyncPhase.MigratedElsewhere>(devB.currentState().phase)
+        now += 1_000
+        assertTrue(devB.switchLocation(SyncLocations.ICLOUD).succeeded)
+
+        // A switches back iCloud -> Drive; A must NOT bounce back to iCloud on B's older Drive marker!
+        now += 1_000
+        val back = devA.switchLocation(SyncLocations.GOOGLE_DRIVE, targetAccessToken = "token")
+        assertTrue(back.succeeded)
+        assertEquals(SyncLocations.GOOGLE_DRIVE, devA.currentState().location)
+        now += 1_000
+        devA.syncNow()
+        assertEquals(CloudSyncPhase.UpToDate, devA.currentState().phase)
+    }
+
+    @Test
+    fun should_persistPendingMigrationAndRetryAutomaticallyWhenMarkerWriteFails() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        iphoneDomain.putNote(note("n1", "note"))
+        assertNull(iphone.enable("token"))
+
+        // Drive fails creates right when Step 4 writes the migration marker.
+        drive.failCreates = true
+        now += 1_000
+        val res = iphone.switchLocation(SyncLocations.ICLOUD)
+        assertTrue(res.succeeded)
+        assertTrue(!res.migrationMarkerWritten)
+        assertTrue(iphone.currentState().pendingMigrationNotice)
+        assertTrue(drive.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+
+        // Drive recovers: next sync cycle automatically writes the pending migration marker and clears the flag.
+        drive.failCreates = false
+        now += 1_000
+        iphone.syncNow()
+        assertTrue(!iphone.currentState().pendingMigrationNotice)
+        assertTrue(drive.files.values.any { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_MIGRATED })
+    }
+
+    @Test
+    fun should_rollBackStoreCleanlyAndDeleteOrphanUploadsWhenVerificationFails() = runTest {
+        val icloud = FakeDrive()
+        var corruptReadBack = false
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+            override suspend fun download(fileId: String): ByteArray? {
+                val real = icloud.transport().download(fileId)
+                return if (corruptReadBack && real != null) real.copyOf().also { it[0] = (it[0].toInt() xor 0xFF).toByte() } else real
+            }
+        }
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val iphone = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(iphoneDomain, it) },
+            profiles = { iphoneDomain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = "t"
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { drive.transport() },
+            deviceName = { "iPhone 17 Pro" },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        iphoneDomain.putNote(note("n1", "local"))
+        assertNull(iphone.enable("token"))
+        val scope = iphone.currentState().accounts.single().syncProfileId!!
+
+        // Plant a purge marker on iCloud for this scope; if switch fails during Step 3 verification,
+        // the purge must be rolled back (account stays Syncing on Drive) and orphan iCloud upload deleted.
+        icloud.files["purge-target"] = FakeDrive.File(
+            "purge-target", "yoin-purge-${now + 500}-other.json",
+            mapOf(
+                SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
+                SyncFileProps.EPOCH to (now + 500).toString(),
+                SyncFileProps.SCOPE to scope,
+                SyncFileProps.DEVICE_ID to "other",
+            ),
+            "{}".encodeToByteArray(), 1L,
+        )
+
+        corruptReadBack = true
+        now += 1_000
+        val failed = iphone.switchLocation(SyncLocations.ICLOUD)
+        assertTrue(!failed.succeeded)
+        assertEquals(SyncLocations.GOOGLE_DRIVE, iphone.currentState().location)
+        assertEquals(SyncAccountStatus.Syncing, iphone.currentState().accounts.single().status)
+        // Orphan newly uploaded state file on iCloud was cleaned up.
+        assertTrue(icloud.files.values.none { it.props[SyncFileProps.KIND] == SyncFileProps.KIND_STATE })
+    }
+
+    @Test
+    fun should_notSuppressFutureMigrationMarkersWhenLocalClockIsAhead() = runTest {
+        val (peer, _) = device("iPad", readOnly = false)
+        assertNull(peer.enable("token"))
+
+        // Peer's local clock is far ahead (+10 hours) of the remote migration marker's epoch.
+        val marker1Epoch = now + 1_000
+        drive.files["mig-1"] = FakeDrive.File(
+            "mig-1", SyncFileProps.migratedFileName(marker1Epoch, "other"),
+            mapOf(
+                SyncFileProps.KIND to SyncFileProps.KIND_MIGRATED,
+                SyncFileProps.EPOCH to marker1Epoch.toString(),
+                SyncFileProps.DEVICE_ID to "other",
+                SyncFileProps.TARGET_LOCATION to SyncLocations.ICLOUD,
+            ),
+            "{}".encodeToByteArray(), 1L,
+        )
+        now += 36_000_000 // +10h clock skew
+        peer.syncNow()
+        assertIs<CloudSyncPhase.MigratedElsewhere>(peer.currentState().phase)
+
+        // Dismiss records marker1Epoch (NOT peer's skewed clock).
+        peer.dismissMigrationNotice()
+        assertEquals(CloudSyncPhase.UpToDate, peer.currentState().phase)
+
+        // A newer marker with epoch = marker1Epoch + 5000 (still < skewed local clock) MUST still trigger!
+        val marker2Epoch = marker1Epoch + 5_000
+        drive.files["mig-2"] = FakeDrive.File(
+            "mig-2", SyncFileProps.migratedFileName(marker2Epoch, "other"),
+            mapOf(
+                SyncFileProps.KIND to SyncFileProps.KIND_MIGRATED,
+                SyncFileProps.EPOCH to marker2Epoch.toString(),
+                SyncFileProps.DEVICE_ID to "other",
+                SyncFileProps.TARGET_LOCATION to SyncLocations.ICLOUD,
+            ),
+            "{}".encodeToByteArray(), 1L,
+        )
+        peer.syncNow()
+        assertIs<CloudSyncPhase.MigratedElsewhere>(peer.currentState().phase)
+    }
 }

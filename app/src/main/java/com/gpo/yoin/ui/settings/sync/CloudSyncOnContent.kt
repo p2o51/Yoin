@@ -132,6 +132,7 @@ internal data class CloudSyncOnActions(
     val onTransfer: (TransferArgs) -> Unit = {},
     val onRequestRemove: (CloudAccountRef) -> Unit = {},
     val onResumeAccount: (String) -> Unit = {},
+    val onDismissMigrationNotice: () -> Unit = {},
     val onRequestChangedChoice: (String) -> Unit = {},
 )
 
@@ -157,6 +158,29 @@ internal fun CloudSyncOnContent(
                 )
             }
             item(key = "status") { SyncStatusRow(state = state, now = now, onSyncNow = actions.onSyncNow) }
+            state.migratedNotice?.let { notice ->
+                item(key = "migratedNotice") {
+                    val targetName = if (notice.targetLocation == "icloud") {
+                        stringResource(R.string.settings_sync_location_icloud)
+                    } else {
+                        notice.targetLocation
+                    }
+                    val body = if (notice.deviceName != null) {
+                        stringResource(R.string.settings_sync_migrated_notice_device, notice.deviceName, targetName)
+                    } else {
+                        stringResource(R.string.settings_sync_migrated_notice_other, targetName)
+                    }
+                    ActionPanel(text = body) {
+                        OutlinedButton(
+                            onClick = {
+                                haptics.performClick()
+                                actions.onDismissMigrationNotice()
+                            },
+                            modifier = Modifier.handPointer(),
+                        ) { Text(stringResource(R.string.settings_sync_migrated_notice_dismiss)) }
+                    }
+                }
+            }
             when (val phase = state.phase) {
                 CloudSyncPhase.NeedsReauth -> item(key = "reauth") {
                     ActionPanel(text = stringResource(R.string.settings_sync_reauth_body)) {

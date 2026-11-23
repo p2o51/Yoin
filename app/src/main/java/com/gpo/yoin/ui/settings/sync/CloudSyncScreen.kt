@@ -225,6 +225,7 @@ fun CloudSyncScreen(
         onAddCloudAccount = { service -> serviceSetupLauncher.launch(ServiceSetupRequest(service)) },
         onRemoveFromCloud = { account -> viewModel.removeFromCloud(account.syncProfileId, account.displayName) },
         onResumeAccount = viewModel::resumeAccountSync,
+        onDismissMigrationNotice = viewModel::dismissMigrationNotice,
         onOpenLocation = { context.startActivity(SyncLocationActivity.intent(context)) },
         onOpenFiles = { context.startActivity(CloudDataActivity.filesIntent(context)) },
         onOpenAccount = { account -> context.startActivity(CloudDataActivity.accountIntent(context, account)) },
@@ -295,6 +296,7 @@ fun CloudSyncContent(
     onAddCloudAccount: (SetupService) -> Unit = {},
     onRemoveFromCloud: (CloudAccountRef) -> Unit = {},
     onResumeAccount: (localProfileId: String) -> Unit = {},
+    onDismissMigrationNotice: () -> Unit = {},
     onOpenLocation: () -> Unit = {},
     onOpenFiles: () -> Unit = {},
     onOpenAccount: (CloudAccountRef) -> Unit = {},
@@ -429,6 +431,7 @@ fun CloudSyncContent(
                                     onTransfer = onTransfer,
                                     onRequestRemove = { removeScope = it.syncProfileId },
                                     onResumeAccount = onResumeAccount,
+                                    onDismissMigrationNotice = onDismissMigrationNotice,
                                     onRequestChangedChoice = { changedProfileId = it },
                                 ),
                             )

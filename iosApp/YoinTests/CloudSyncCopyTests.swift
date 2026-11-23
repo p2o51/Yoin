@@ -11,6 +11,11 @@ final class CloudSyncCopyTests: XCTestCase {
         XCTAssertTrue(lines[0].contains(zh ? "不是端到端加密" : "not end-to-end encrypted"))
         XCTAssertTrue(lines[0].contains("Google Drive"))
         XCTAssertTrue(lines[1].contains(zh ? "密码" : "passwords"))
+
+        let icloudLines = CloudSyncView.goodToKnowLines(isICloud: true)
+        XCTAssertEqual(icloudLines.count, 3)
+        XCTAssertTrue(icloudLines[0].contains("iCloud"))
+        XCTAssertTrue(icloudLines[0].contains("CloudKit"))
     }
 
     func test_should_listWhatSyncsInChinese_when_chinese() {

@@ -10,9 +10,11 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
+import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.create
 import platform.Foundation.timeIntervalSince1970
+import platform.posix.memcpy
 import platform.zlib.MAX_WBITS
 import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_DEFAULT_COMPRESSION
@@ -109,9 +111,25 @@ actual fun syncNowMillis(): Long = (NSDate().timeIntervalSince1970 * 1000.0).toL
 internal actual fun syncMainContext(): kotlin.coroutines.CoroutineContext = kotlinx.coroutines.Dispatchers.Main
 
 /** Swift: the backup file's bytes as Data (nil when it vanished). */
-fun SyncBackupFile.nsData(): platform.Foundation.NSData? = bytes?.let { b ->
-    if (b.isEmpty()) return@let platform.Foundation.NSData()
-    b.usePinned { pinned ->
-        platform.Foundation.NSData.create(bytes = pinned.addressOf(0), length = b.size.toULong())
+fun SyncBackupFile.nsData(): NSData? = bytes?.let(SyncByteBridge::toNSData)
+
+/** Swift ↔ Kotlin ByteArray conversion helpers for native CloudKit transport. */
+object SyncByteBridge {
+    fun toNSData(bytes: ByteArray): NSData {
+        if (bytes.isEmpty()) return NSData()
+        return bytes.usePinned { pinned ->
+            NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
+        }
+    }
+
+    fun toByteArray(data: NSData): ByteArray {
+        val len = data.length.toInt()
+        if (len <= 0) return ByteArray(0)
+        val out = ByteArray(len)
+        val src = data.bytes ?: return ByteArray(0)
+        out.usePinned { pinned ->
+            memcpy(pinned.addressOf(0), src, data.length)
+        }
+        return out
     }
 }

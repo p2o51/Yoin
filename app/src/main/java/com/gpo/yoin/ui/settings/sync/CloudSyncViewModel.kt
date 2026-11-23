@@ -242,6 +242,8 @@ class CloudSyncViewModel(
         )
     }
 
+    fun dismissMigrationNotice() = controller.dismissMigrationNotice()
+
     /**
      * "Transfer Memories from previous account" for a profile signed in as someone else: sync as the new account
      * (start fresh, which leaves the previous account's data in the cloud only), then copy the previous

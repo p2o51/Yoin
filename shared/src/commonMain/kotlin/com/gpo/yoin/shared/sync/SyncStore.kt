@@ -154,7 +154,20 @@ object SyncMetaKeys {
     /** Prefix: "last_uploaded_hash:<fileKind>:<shard>". */
     const val LAST_UPLOADED_HASH_PREFIX = "last_uploaded_hash:"
 
-    /** Prefix: "pending_file_id:<fileKind>:<shard>" = pre-allocated Drive id for our not-yet-created file. */
+    /** Active sync location ([SyncLocations.GOOGLE_DRIVE] or [SyncLocations.ICLOUD]); absent = google_drive. */
+    const val SYNC_LOCATION = "sync_location"
+
+    /** Per-location account identities so Drive and iCloud never overwrite each other's permissionId. */
+    const val DRIVE_PERMISSION_ID = "drive_permission_id"
+    const val ICLOUD_PERMISSION_ID = "icloud_permission_id"
+
+    /** Newest [SyncFileProps.KIND_MIGRATED] epoch explicitly dismissed or observed on join for the current location. */
+    const val ACK_MIGRATED_EPOCH = "ack_migrated_epoch"
+
+    /** "<oldLocation>|<targetLocation>|<epoch>|<markerId>" of a migration notice still waiting to be written. */
+    const val PENDING_MIGRATION = "pending_migration"
+
+    /** Prefix: "pending_file_id:<location>:<fileKind>:<shard>" = pre-allocated id for our not-yet-created file. */
     const val PENDING_FILE_ID_PREFIX = "pending_file_id:"
 }
 

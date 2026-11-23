@@ -159,6 +159,19 @@ data class ScopePurgeMarker(
     @SerialName("deviceName") val deviceName: String,
 )
 
+/**
+ * Written into an old sync location when a device switches to [targetLocation] (e.g. Google Drive -> iCloud).
+ * Older builds skip files of unknown kinds cleanly.
+ */
+@Serializable
+data class MigrationMarker(
+    @SerialName("epoch") val epoch: Long,
+    @SerialName("at") val at: Long,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("deviceName") val deviceName: String,
+    @SerialName("targetLocation") val targetLocation: String,
+)
+
 /** Drive appProperties keys/values used to identify Yoin files (never identify files by name). */
 object SyncFileProps {
     const val KIND = "yoinKind"
@@ -170,12 +183,18 @@ object SyncFileProps {
     /** The scope a [KIND_PURGE] marker removes. */
     const val SCOPE = "scope"
 
+    /** The destination sync location a [KIND_MIGRATED] marker points to. */
+    const val TARGET_LOCATION = "targetLocation"
+
     const val KIND_STATE = "state"
     const val KIND_ARTIFACTS = "artifacts"
     const val KIND_RESET = "reset"
 
     /** A [ScopePurgeMarker]. Older builds ignore this kind (they only read state/artifacts/reset). */
     const val KIND_PURGE = "purge"
+
+    /** A [MigrationMarker] written when an Apple device migrates to iCloud. */
+    const val KIND_MIGRATED = "migrated"
 
     fun stateFileName(deviceId: String) = "yoin-state-$deviceId.json.gz"
 
@@ -184,6 +203,8 @@ object SyncFileProps {
     fun resetFileName(epoch: Long, deviceId: String) = "yoin-reset-$epoch-$deviceId.json"
 
     fun purgeFileName(epoch: Long, deviceId: String) = "yoin-purge-$epoch-$deviceId.json"
+
+    fun migratedFileName(epoch: Long, deviceId: String) = "yoin-migrated-$epoch-$deviceId.json"
 }
 
 // ---- Domain bridge

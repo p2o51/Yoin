@@ -94,7 +94,7 @@ internal fun SyncLocationPage(account: String?, onBack: () -> Unit, snackbarHost
                             MetaGroup.Plain(stringResource(R.string.settings_sync_location_cloudkit)),
                             MetaGroup.Plain(stringResource(R.string.settings_sync_location_apple_devices)),
                         ),
-                        pill = { SyncPill(stringResource(R.string.settings_sync_location_soon), SyncPillTone.Muted) },
+                        pill = { SyncPill(stringResource(R.string.settings_sync_location_apple_only), SyncPillTone.Muted) },
                         selected = false,
                         enabled = false,
                         onClick = {

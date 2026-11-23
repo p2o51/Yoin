@@ -11087,6 +11087,726 @@
           }
         }
       }
+    },
+    "Sync location": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步位置"
+          }
+        }
+      }
+    },
+    "Choose where Cloud sync stores its data. Switching exports and verifies a snapshot, imports it, and checks the counts before it completes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择云同步的存储位置。切换时将先导出校验、导入并核对数量，确认后再完成切换。"
+          }
+        }
+      }
+    },
+    "Sync service": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步服务"
+          }
+        }
+      }
+    },
+    "iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud"
+          }
+        }
+      }
+    },
+    "Google Drive": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Drive"
+          }
+        }
+      }
+    },
+    "Lyra": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyra"
+          }
+        }
+      }
+    },
+    "CloudKit  Apple devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CloudKit  Apple 设备"
+          }
+        }
+      }
+    },
+    "Cross-platform": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跨平台"
+          }
+        }
+      }
+    },
+    "Self-hosted server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自建服务器"
+          }
+        }
+      }
+    },
+    "Coming soon": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将支持"
+          }
+        }
+      }
+    },
+    "Syncing to Lyra is coming soon.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyra 同步即将推出。"
+          }
+        }
+      }
+    },
+    "How switching works": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换流程"
+          }
+        }
+      }
+    },
+    "Export and verify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出并校验"
+          }
+        }
+      }
+    },
+    "Export a full snapshot from the current location and check its SHA-256": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从当前位置导出完整快照并核对 SHA-256"
+          }
+        }
+      }
+    },
+    "Import to new service": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入新位置"
+          }
+        }
+      }
+    },
+    "Connect to the new service and merge with the sync rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接目标服务并按同步规则合并"
+          }
+        }
+      }
+    },
+    "Verify counts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核对数量"
+          }
+        }
+      }
+    },
+    "Compare record counts account by account, then switch once they match": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逐账号核对记录数，确认一致后切换"
+          }
+        }
+      }
+    },
+    "Clean up old copy (optional)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理旧副本（可选）"
+          }
+        }
+      }
+    },
+    "Keep the copy in the old location, and delete it later if you like": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可保留原位置的副本，日后再删除"
+          }
+        }
+      }
+    },
+    "Switching only changes where the cloud copy lives. Data on this device isn't affected.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换仅改变云端存储位置，此设备上的数据不受影响。"
+          }
+        }
+      }
+    },
+    "Switching…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在切换…"
+          }
+        }
+      }
+    },
+    "Current sync location": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前同步位置"
+          }
+        }
+      }
+    },
+    "Switched to %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换到 %@"
+          }
+        }
+      }
+    },
+    "Counts verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数量核对一致"
+          }
+        }
+      }
+    },
+    "%lld records uploaded and verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已上传并校验 %lld 条记录"
+          }
+        }
+      }
+    },
+    "Snapshot SHA-256": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快照 SHA-256"
+          }
+        }
+      }
+    },
+    "%lld records": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条记录"
+          }
+        }
+      }
+    },
+    "Old copy in %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的旧副本"
+          }
+        }
+      }
+    },
+    "Old copy removed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧副本已删除"
+          }
+        }
+      }
+    },
+    "Old copy kept": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧副本已保留"
+          }
+        }
+      }
+    },
+    "Files in %@ were cleared. Other devices will see the migration notice.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清理 %@ 中的旧文件，其他设备下次同步时会看到迁移提示。"
+          }
+        }
+      }
+    },
+    "Your copy in %@ stays untouched. You can remove it now or later.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的数据保持不变，你可以现在或之后再清理。"
+          }
+        }
+      }
+    },
+    "Removing…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移除…"
+          }
+        }
+      }
+    },
+    "Remove old copy from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@ 中的旧副本"
+          }
+        }
+      }
+    },
+    "Couldn't switch sync location.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换同步位置。"
+          }
+        }
+      }
+    },
+    "Sign in to iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 iCloud"
+          }
+        }
+      }
+    },
+    "iCloud storage full": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 空间已满"
+          }
+        }
+      }
+    },
+    "iCloud copy removed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 副本已移除"
+          }
+        }
+      }
+    },
+    "Sync location changed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步位置已更换"
+          }
+        }
+      }
+    },
+    "Change": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改"
+          }
+        }
+      }
+    },
+    "Connecting to iCloud…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接 iCloud…"
+          }
+        }
+      }
+    },
+    "Turn on with iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 iCloud 开启"
+          }
+        }
+      }
+    },
+    "iCloud Private Database": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 私有数据库"
+          }
+        }
+      }
+    },
+    "Cloud sync was moved to %@ on %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云同步已在 %2$@ 上切换到 %1$@。"
+          }
+        }
+      }
+    },
+    "Cloud sync was moved to %@ on another device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云同步已在其他设备上切换到 %@。"
+          }
+        }
+      }
+    },
+    "Keep using %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用 %@"
+          }
+        }
+      }
+    },
+    "Retry iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试 iCloud"
+          }
+        }
+      }
+    },
+    "In your iCloud, not on this device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你的 iCloud 中，未在此设备上"
+          }
+        }
+      }
+    },
+    "iCloud backup": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 备份"
+          }
+        }
+      }
+    },
+    "Drive backup": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drive 备份"
+          }
+        }
+      }
+    },
+    "Reading your iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取你的 iCloud"
+          }
+        }
+      }
+    },
+    "Can't reach iCloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 iCloud"
+          }
+        }
+      }
+    },
+    "Deletes Yoin's data from your iCloud for all devices, and turns sync off on them. Data on this device stays.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会从你的 iCloud 中删除所有设备的 Yoin 数据，并在其他设备上关闭同步。此设备上的数据会保留。"
+          }
+        }
+      }
+    },
+    "Deletes this device's copy from your iCloud. If it's still syncing, it uploads again the next time it syncs.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会从你的 iCloud 中删除此设备的副本。如果该设备仍在同步，下次同步时会重新上传。"
+          }
+        }
+      }
+    },
+    "Remove %@ from cloud?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从云端移除 %@？"
+          }
+        }
+      }
+    },
+    "Stops syncing this account and removes its data from %@ on all devices. Data on this device stays.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止同步此账号，并从 %@ 中移除所有设备上的对应数据。此设备上的数据会保留。"
+          }
+        }
+      }
+    },
+    "“%@” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your cloud copy and your other devices keep the old ones.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”现在登录了另一个账号。此前同步的笔记与评分将从此设备移除，后续将作为新账号同步。你的云端副本与其他设备仍保留旧数据。"
+          }
+        }
+      }
+    },
+    "Remove from cloud": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从云端移除"
+          }
+        }
+      }
+    },
+    "Resume syncing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复同步"
+          }
+        }
+      }
+    },
+    "Saved in your private iCloud database (CloudKit) across your Apple devices. Protected by your Apple Account and counts toward your iCloud storage.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存在你自己的 iCloud 私有数据库（CloudKit）中，在你的 Apple 设备间同步。受 Apple 账号保护，并计入你的 iCloud 存储空间。"
+          }
+        }
+      }
+    },
+    "Google Drive isn't configured in this build of Yoin.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 Yoin 未配置 Google Drive。"
+          }
+        }
+      }
+    },
+    "Cloud sync isn't ready.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云同步尚未就绪。"
+          }
+        }
+      }
+    },
+    "Couldn't back up your iCloud data.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法备份你的 iCloud 数据。"
+          }
+        }
+      }
+    },
+    "Couldn't back up your Drive data.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法备份你的 Drive 数据。"
+          }
+        }
+      }
+    },
+    "Remove old copy from %@?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@ 中的旧副本？"
+          }
+        }
+      }
+    },
+    "Yoin will back up %@ on this device first, then delete the old synced files there. Other devices that still use %@ will stop seeing updates from this device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yoin 会先在此设备上备份 %1$@ 的数据，再删除其中的旧同步文件。仍在使用 %2$@ 的其他设备将不再收到此设备的更新。"
+          }
+        }
+      }
+    },
+    "iCloud only syncs Apple devices. Any Android or HarmonyOS devices using Google Drive will stay on Drive and stop receiving updates from this device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 仅同步 Apple 设备。正在使用 Google Drive 的 Android 或鸿蒙设备会继续留在 Drive，不再收到此设备的更新。"
+          }
+        }
+      }
+    },
+    "Migration notice pending": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迁移提示待发送"
+          }
+        }
+      }
+    },
+    "Couldn't notify other devices on %@ yet. Yoin will retry automatically on the next sync.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时未能通知仍在 %@ 上的其他设备，下次同步时 Yoin 会自动重试。"
+          }
+        }
+      }
+    },
+    "Other devices on your previous sync location haven't been notified yet. Yoin will retry automatically.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此前同步位置上的其他设备尚未收到迁移提示，Yoin 会自动重试。"
+          }
+        }
+      }
+    },
+    "Sign in to Google to remove the old Drive copy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先登录 Google 以移除旧的 Drive 副本。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

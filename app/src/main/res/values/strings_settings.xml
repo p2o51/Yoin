@@ -541,9 +541,13 @@
     <string name="settings_sync_location_icloud">iCloud</string>
     <string name="settings_sync_location_cloudkit">CloudKit</string>
     <string name="settings_sync_location_apple_devices">Apple devices</string>
+    <string name="settings_sync_location_apple_only">Apple only</string>
     <string name="settings_sync_location_lyra">Lyra</string>
     <string name="settings_sync_location_lyra_summary">Self-hosted server</string>
-    <string name="settings_sync_location_icloud_soon">iCloud (CloudKit) works on Apple devices only. Coming soon.</string>
+    <string name="settings_sync_location_icloud_soon">iCloud (CloudKit) is available on Apple devices only. On Android, use Google Drive or export a backup file.</string>
+    <string name="settings_sync_migrated_notice_device">%1$s moved cloud sync to %2$s. This device continues syncing on Google Drive.</string>
+    <string name="settings_sync_migrated_notice_other">Another device moved cloud sync to %1$s. This device continues syncing on Google Drive.</string>
+    <string name="settings_sync_migrated_notice_dismiss">Got it</string>
     <string name="settings_sync_location_lyra_soon">Syncing to Lyra is coming soon.</string>
     <string name="settings_sync_location_steps">How switching works</string>
     <string name="settings_sync_location_step1">Export and verify</string>

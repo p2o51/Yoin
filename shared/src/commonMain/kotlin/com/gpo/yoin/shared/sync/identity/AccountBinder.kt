@@ -155,6 +155,7 @@ class AccountBinder(
                     provider = profile.provider,
                     displayName = profile.displayName,
                     status = status ?: SyncAccountStatus.NotSynced(appleCandidates),
+                    syncProfileId = bindingsByProfile[profile.id]?.syncProfileId,
                 )
             }
             BindingSnapshot(active = active, rows = rows, cloudOnly = cloudOnly, newlyBound = newlyBound)
