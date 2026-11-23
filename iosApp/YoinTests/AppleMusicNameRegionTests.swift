@@ -354,4 +354,43 @@ final class AppleMusicNameRegionTests: XCTestCase {
         XCTAssertEqual(renamedAlbum.artist, "Muse")
         XCTAssertEqual(renamedAlbum.tracks.map(\.artist), ["Muse"])
     }
+
+    func test_should_notCrash_when_twoMissedAlbumsShareSameArtistId() async {
+        let res = AppleMusicNameResolver(
+            catalog: { storefront, kind, ids, _ in
+                if storefront == "tw" && kind == "artists" {
+                    return Dictionary(uniqueKeysWithValues: ids.map { ($0, .init(title: "王菲", artist: nil, album: nil)) })
+                }
+                return [:]
+            },
+            byIsrc: { _, _, _ in [:] },
+            catalogResources: { storefront, kind, query in
+                if storefront == "jp" && kind == "albums" {
+                    return [
+                        .init(id: "8001", names: .init(title: "フェイ・ウォン 1", artist: "フェイ・ウォン", album: nil),
+                              genre: "マンドポップ", artistIds: ["99001"], nestedTrackIsrcs: ["TW0019900001"], nestedTrackGenres: ["マンドポップ"], nestedTrackNames: ["紅豆"]),
+                        .init(id: "8002", names: .init(title: "フェイ・ウォン 2", artist: "フェイ・ウォン", album: nil),
+                              genre: "マンドポップ", artistIds: ["99001"], nestedTrackIsrcs: ["TW0019900002"], nestedTrackGenres: ["マンドポップ"], nestedTrackNames: ["悶"]),
+                    ]
+                }
+                if storefront == "tw" && kind == "artists" {
+                    return [
+                        .init(id: "99001", names: .init(title: "王菲", artist: nil, album: nil),
+                              genre: "Mandopop", artistIds: [], nestedTrackIsrcs: ["TW0019900001"], nestedTrackGenres: ["Mandopop"], nestedTrackNames: ["紅豆"]),
+                    ]
+                }
+                return []
+            }
+        )
+        let albums = [
+            AMAlbum(resourceId: "8001", isLibrary: false, catalogId: "8001", title: "Faye 1", artist: "フェイ・ウォン",
+                    artistId: nil, artwork: nil, releaseDate: nil, dateAdded: nil, trackCount: 1, isSingle: false,
+                    isCompilation: false, genre: "マンドポップ", tracks: []),
+            AMAlbum(resourceId: "8002", isLibrary: false, catalogId: "8002", title: "Faye 2", artist: "フェイ・ウォン",
+                    artistId: nil, artwork: nil, releaseDate: nil, dateAdded: nil, trackCount: 1, isSingle: false,
+                    isCompilation: false, genre: "マンドポップ", tracks: []),
+        ]
+        let renamed = await res.albums(.original, accountStorefront: "jp", albums)
+        XCTAssertEqual(renamed.map(\.artist), ["王菲", "王菲"])
+    }
 }

@@ -661,9 +661,14 @@ final class AppleMusicNameResolver {
     }
 
     private func resolveWithTargets(_ kind: Kind, _ requests: [Request]) async -> ResolvedBatch {
-        let groups = Dictionary(grouping: requests, by: \.target)
+        var seenIds = Set<String>()
+        let distinctRequests = requests.filter { seenIds.insert($0.id).inserted }
+        let groups = Dictionary(grouping: distinctRequests, by: \.target)
         var finalNames: [String: Names] = [:]
-        var finalTargets: [String: OriginalNameTarget] = Dictionary(uniqueKeysWithValues: requests.map { ($0.id, $0.target) })
+        var finalTargets: [String: OriginalNameTarget] = Dictionary(
+            distinctRequests.map { ($0.id, $0.target) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
         var reclassified: [Request] = []
 
         let tasks = groups.map { target, share in
@@ -878,9 +883,11 @@ final class AppleMusicNameResolver {
         }
         guard !plans.isEmpty else { return [:] }
 
+        var seenArtistIds = Set<String>()
         let artistRequests = plans.flatMap { p in
-            p.artistIds.map { artistId in
-                Request(
+            p.artistIds.compactMap { artistId -> Request? in
+                guard seenArtistIds.insert(artistId).inserted else { return nil }
+                return Request(
                     id: artistId,
                     target: p.target,
                     isrc: nil,
