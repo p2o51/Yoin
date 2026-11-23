@@ -365,7 +365,7 @@ class HomeEditGestureMachineTest {
         fireNext()
         fireNext()
         assertEquals(listOf(ConsumeOther), machine.handle(OtherPointer))
-        moveBy(0f, 40f)
+        moveBy(0f, 40f, t = 500L)
         assertEquals(listOf(ConsumeOther), machine.handle(OtherPointer))
         // The state is unchanged by the other finger.
         assertEquals(HomeEditGestureState.Carry, machine.state)

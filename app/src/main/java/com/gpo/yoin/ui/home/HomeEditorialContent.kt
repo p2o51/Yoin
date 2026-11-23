@@ -177,6 +177,7 @@ import com.gpo.yoin.ui.home.edit.HomeDragEngine
 import com.gpo.yoin.ui.home.edit.HomeEditBlock
 import com.gpo.yoin.ui.home.edit.HomeEditChange
 import com.gpo.yoin.ui.home.edit.HomeEditClock
+import com.gpo.yoin.ui.home.edit.HomeEditFlingWatch
 import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.home.edit.HomeEditDeps
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
@@ -785,9 +786,16 @@ internal fun HomeEditorialContent(
             if (engine.list.on) editListHitTester.hitTest(position) else hitTester.hitTest(position)
         }
     }
-    val isFlingInProgress: () -> Boolean = remember(listState, editListState, engine) {
-        { if (engine.list.on) editListState.isScrollInProgress else listState.isScrollInProgress }
+    // A fling of the feed or the pinched list, or one stopped less than FlingStopMs ago: a press
+    // then is the scroll's and never lifts a block.
+    val flingWatch = remember(listState, editListState) {
+        HomeEditFlingWatch(inProgress = { listState.isScrollInProgress || editListState.isScrollInProgress })
     }
+    LaunchedEffect(flingWatch) {
+        snapshotFlow { listState.isScrollInProgress || editListState.isScrollInProgress }
+            .collect(flingWatch::onScrolling)
+    }
+    val isFlingInProgress: () -> Boolean = remember(flingWatch) { flingWatch::flinging }
     // P on the move, a drag, the list coming or going, a charge, or a scroll while editing (the
     // feed's or the pinched list's): vote the panel's high rate for exactly as long. Read only in
     // HomeFrameRateVote's scope: a flip (a charge, a drag starting or ending, P settling) must not

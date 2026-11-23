@@ -200,4 +200,27 @@ class HomeEditGesturesTest {
         assertFalse(controller.isEditing)
         assertEquals(0, clicks)
     }
+
+    @Test
+    fun should_notLift_when_cardPressedWhileFeedFlings() {
+        setPage(sectionHeight = 300)
+        rule.onNodeWithTag("card").performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertTrue(controller.isEditing)
+
+        // A fast swipe flings the feed; the next press lands while it still runs and is held past the body hold.
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("page").performTouchInput { swipeUp(startY = bottom - 10f, endY = centerY, durationMillis = 60L) }
+        rule.mainClock.advanceTimeBy(32L)
+        assertTrue(listState.isScrollInProgress)
+        rule.onNodeWithTag("page").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(500L)
+
+        assertEquals(null, engine.liftSection)
+        rule.onNodeWithTag("page").performTouchInput { up() }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        assertTrue(controller.isEditing)
+        assertEquals(null, engine.dragging)
+    }
 }
