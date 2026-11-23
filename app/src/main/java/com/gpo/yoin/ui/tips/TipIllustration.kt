@@ -60,6 +60,8 @@ internal fun TipIllustration(
     ) {
         when (tip) {
             HomeBubbleTip.NoteMentions -> NoteMentionsDemo(playing)
+            HomeBubbleTip.AlbumStickies -> AlbumStickiesDemo(playing)
+            HomeBubbleTip.MentionedIn -> MentionedInDemo(playing)
             HomeBubbleTip.MemorySearch -> MemorySearchDemo(playing)
             HomeBubbleTip.KeyboardShortcuts -> KeyboardShortcutsDemo(playing)
             HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
