@@ -11,6 +11,7 @@ import 'continueon/continue_on_card.dart';
 import 'continueon/continue_on_controller.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/cache/cover_cache.dart';
+import 'data/cache/cover_color_cache.dart';
 import 'data/backup/playlist_backup_providers.dart';
 import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
@@ -57,12 +58,19 @@ Future<void> main() async {
     CoverDiskCache(directory: platform.appFiles.cacheDirectory, freeBytes: platform.appFiles.cacheFreeBytes),
   );
   ArtworkRetryWatcher.start(platform.networkBearer);
+  // Preload the compact cover-colour cache alongside system motion settings so
+  // previously seen covers paint in their true colours on Frame 1 without waiting
+  // for image decode or isolate quantisation.
+  final colorCacheReady = CoverColorStore.install(platform.appFiles.cacheDirectory);
   // Reduce motion is known before the first frame, so a cold start under 减弱动画 or power saving skips
   // Home's intro bloom (Android reads it synchronously); a plugin that never answers can't hold the launch.
-  await platform.systemMotion.read().timeout(
-    systemMotionFirstReadTimeout,
-    onTimeout: () => SystemMotionSettings.normal,
-  );
+  await Future.wait<void>([
+    platform.systemMotion.read().timeout(
+      systemMotionFirstReadTimeout,
+      onTimeout: () => SystemMotionSettings.normal,
+    ),
+    colorCacheReady.timeout(const Duration(milliseconds: 120), onTimeout: () {}),
+  ]);
   runApp(
     ProviderScope(
       overrides: [

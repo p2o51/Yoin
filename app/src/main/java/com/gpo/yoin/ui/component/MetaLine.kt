@@ -94,6 +94,30 @@ fun MetaLine(
     }
 }
 
+/**
+ * [MetaLine]'s groups, wrapping onto up to [maxRows] rows instead of dropping the ones that don't fit (account
+ * cards: four counts on a phone). Groups still never join with a glyph; whole groups move to the next row.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun MetaFlow(
+    groups: List<MetaGroup>,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodySmall,
+    maxRows: Int = 2,
+    color: Color = Color.Unspecified,
+) {
+    val ink = color.takeOrElse { MaterialTheme.colorScheme.onSurface }
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(MetaGroupGap),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        maxLines = maxRows,
+    ) {
+        groups.forEach { group -> MetaGroupText(group, style, 1, ink, inkIsTheme = color == Color.Unspecified) }
+    }
+}
+
 @Composable
 private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink: Color, inkIsTheme: Boolean) {
     val scheme = MaterialTheme.colorScheme

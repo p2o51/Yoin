@@ -233,15 +233,7 @@ class SettingsViewModel(
         _deleteConfirmState.value = DeleteConfirmState.Hidden
         viewModelScope.launch {
             try {
-                val wasActive = profileManager.activeProfileId.value == pending.profileId
-                profileManager.delete(pending.profileId)
-                container.profileAvatarStore.remove(pending.profileId)
-                if (wasActive) {
-                    // If delete removed the active profile, AppContainer needs to
-                    // refresh downstream VMs (same as a switch).
-                    container.notifyMusicConfigurationChanged()
-                    container.playbackManager.disconnect()
-                }
+                removeProfileCard(container, pending.profileId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

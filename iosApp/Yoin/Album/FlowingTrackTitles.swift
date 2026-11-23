@@ -31,17 +31,29 @@ struct FlowingTrackTitles: View {
     }
 
     private var text: Text {
-        var out = Text(verbatim: "")
-        for (i, t) in titles.enumerated() {
+        let pieces = titles.enumerated().map { i, t in
             let units = t.unicodeScalars.reduce(0) { $0 + ($1.value > 0x2E80 ? 2 : 1) }
             let title = units <= 16 ? t.replacingOccurrences(of: " ", with: "\u{00A0}") : t
-            let piece = Text(verbatim: title)
+            return Text(verbatim: title)
                 .font(.gsf(28))
                 .foregroundStyle(i.isMultiple(of: 2) ? primary : variant)
                 .customAttribute(TrackTitleIndex(index: i))
-            out = i == 0 ? piece : Text("\(out)\(Text(verbatim: " ").font(.gsf(28)))\(piece)")
         }
-        return out
+        return Self.joined(pieces[...])
+    }
+
+    /// The titles joined by spaces as a balanced tree, not a chain. Each `Text("\(a) \(b)")` nests a
+    /// level that SwiftUI resolves recursively on the main thread; chained one title at a time, a long
+    /// playlist (Apple Music's Favourite Songs) nested thousands deep and overflowed the stack as its
+    /// page opened. Balanced, the depth is log2(count).
+    private static func joined(_ pieces: ArraySlice<Text>) -> Text {
+        switch pieces.count {
+        case 0: return Text(verbatim: "")
+        case 1: return pieces[pieces.startIndex]
+        default:
+            let mid = pieces.startIndex + pieces.count / 2
+            return Text("\(joined(pieces[..<mid]))\(Text(verbatim: " ").font(.gsf(28)))\(joined(pieces[mid...]))")
+        }
     }
 
     private func tap(_ location: CGPoint) {

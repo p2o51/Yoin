@@ -48,7 +48,12 @@ if (releaseTaskRequested && !hasReleaseKeystore) {
 
 android {
     namespace = "com.gpo.yoin"
-    compileSdk = 37
+    // Compose foundation 1.13 (BOM 2026.11) needs the 37.1 minor SDK.
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "com.gpo.yoin"
