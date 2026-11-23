@@ -3,6 +3,7 @@ package com.gpo.yoin.data.highlight
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.model.Lyrics
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -11,7 +12,7 @@ import org.junit.Test
 class LyricHighlightPromptTest {
 
     private fun synced(vararg lines: String): Lyrics.Synced =
-        Lyrics.Synced(lines.mapIndexed { i, text -> LyricLine(startMs = i * 1_000L, text = text) })
+        Lyrics.Synced(lines.mapIndexed { i, text -> LyricLine(startMs = i * 2_000L, text = text) })
 
     private val song = synced(
         "我把你说过的晚安",
@@ -22,21 +23,45 @@ class LyricHighlightPromptTest {
         "潮水退了又涨",
         "灯塔还亮着",
         "...",
-        "你在哪里",
+        "你在哪里寻找远方",
     )
 
     @Test
-    fun should_numberSungLinesOnce_when_preparing() {
+    fun should_numberSungLinesOnce_andTrackStanzaBreaks_when_preparing() {
         val prepared = LyricHighlightPrompt.prepare(song)!!
 
         assertEquals(
-            listOf("我把你说过的晚安", "折成纸船放回海里", "潮水退了又涨", "灯塔还亮着", "你在哪里"),
+            listOf("我把你说过的晚安", "折成纸船放回海里", "潮水退了又涨", "灯塔还亮着", "你在哪里寻找远方"),
             prepared.lines.map { it.text },
         )
         assertEquals(listOf(1, 2, 3, 4, 5), prepared.lines.map { it.number })
-        // The first occurrence keeps its time.
+        // Blank/(Instrumental) and "..." advance the stanza counter.
+        assertEquals(listOf(0, 0, 1, 1, 2), prepared.lines.map { it.stanza })
         assertEquals(0L, prepared.lines.first().startMs)
-        assertEquals(5_000L, prepared.lines[2].startMs)
+        assertEquals(10_000L, prepared.lines[2].startMs)
+    }
+
+    @Test
+    fun should_splitStanzaOnLongSyncedInterlude() {
+        val interlude = Lyrics.Synced(
+            listOf(
+                LyricLine(startMs = 0L, text = "太阳公公出来了 他对我呀笑呀笑"),
+                LyricLine(startMs = 4_000L, text = "我爱你 你知不知道"),
+                // 10-second instrumental break into chorus
+                LyricLine(startMs = 14_000L, text = "曾经在我眼前 却又消失不见"),
+                LyricLine(startMs = 18_000L, text = "这是今天的第六遍"),
+            ),
+        )
+        val prepared = LyricHighlightPrompt.prepare(interlude)!!
+
+        assertEquals(listOf(0, 0, 1, 1), prepared.lines.map { it.stanza })
+        val prompt = LyricHighlightPrompt.userPrompt("我爱你", "卢广仲", prepared)
+        // A blank line separates stanza 0 from stanza 1 so Nano sees the musical break.
+        assertTrue(prompt.contains("2. 我爱你 你知不知道\n\n3. 曾经在我眼前 却又消失不见\n"))
+
+        // Regression from owner screenshot: asking for 1-3 stops at the stanza break, leaving 1-2 intact.
+        val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared)!!
+        assertEquals("太阳公公出来了 他对我呀笑呀笑\n我爱你 你知不知道", pick.text)
     }
 
     @Test
@@ -45,10 +70,13 @@ class LyricHighlightPromptTest {
     }
 
     @Test
-    fun should_readUnsyncedLyrics_withoutTimes() {
-        val prepared = LyricHighlightPrompt.prepare(Lyrics.Unsynced("one\ntwo\nthree\nfour"))!!
+    fun should_readUnsyncedLyrics_andPreserveBlankLineStanzas() {
+        val prepared = LyricHighlightPrompt.prepare(
+            Lyrics.Unsynced("First line of verse\nSecond line of verse\n\nFirst line of chorus\nSecond line of chorus"),
+        )!!
         assertEquals(4, prepared.lines.size)
         assertTrue(prepared.lines.all { it.startMs == null })
+        assertEquals(listOf(0, 0, 1, 1), prepared.lines.map { it.stanza })
     }
 
     @Test
@@ -60,26 +88,58 @@ class LyricHighlightPromptTest {
     }
 
     @Test
-    fun should_returnOriginalLines_when_answerIsValidJson() {
-        val prepared = LyricHighlightPrompt.prepare(song)!!
+    fun should_returnOriginalLines_forOneTwoOrThreeLinePicks() {
+        val verse = synced(
+            "我把你说过的晚安折成纸船",
+            "潮水退了又涨灯塔还亮着",
+            "你在海风里回头看了我一眼",
+            "从此夜色都有了你的名字",
+        )
+        val prepared = LyricHighlightPrompt.prepare(verse)!!
 
-        val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared)!!
-
-        assertEquals("我把你说过的晚安\n折成纸船放回海里", pick.text)
-        assertEquals(0L, pick.startMs)
+        // 1 line (< 4 lines, substantive)
+        assertEquals(
+            "我把你说过的晚安折成纸船",
+            LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 1}", prepared)!!.text,
+        )
+        // 2 lines
+        assertEquals(
+            "我把你说过的晚安折成纸船\n潮水退了又涨灯塔还亮着",
+            LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared)!!.text,
+        )
+        // 3 lines
+        assertEquals(
+            "我把你说过的晚安折成纸船\n潮水退了又涨灯塔还亮着\n你在海风里回头看了我一眼",
+            LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared)!!.text,
+        )
+        // 4 lines rejected (must be < 4; never silently chop the 4th line)
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 4}", prepared))
     }
 
     @Test
-    fun should_acceptNearMisses_when_parsing() {
+    fun should_acceptNearMisses_withoutGluingUnaskedLines() {
         val prepared = LyricHighlightPrompt.prepare(song)!!
 
-        // One line asked for: the next line joins it, or for the song's last line the one before (2-4 lines).
-        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("```json\n{\"start\":4,\"end\":4}\n```", prepared)!!.text)
+        assertEquals(
+            "潮水退了又涨\n灯塔还亮着",
+            LyricHighlightPrompt.parse("```json\n{\"start\":3,\"end\":4}\n```", prepared)!!.text,
+        )
         assertEquals("潮水退了又涨\n灯塔还亮着", LyricHighlightPrompt.parse("3-4", prepared)!!.text)
-        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("5", prepared)!!.text)
-        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("{\"start\": 5}", prepared)!!.text)
-        // Running one past the song's end keeps what is there.
-        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("{\"start\": 5, \"end\": 6}", prepared)!!.text)
+        // Single substantive line stands on its own without pulling line 4 across a stanza break.
+        assertEquals("你在哪里寻找远方", LyricHighlightPrompt.parse("5", prepared)!!.text)
+        assertEquals("你在哪里寻找远方", LyricHighlightPrompt.parse("{\"start\": 5}", prepared)!!.text)
+    }
+
+    @Test
+    fun should_rejectTinyOneLineStubs_andCrossStanzaSingleLineRemnants() {
+        val prepared = LyricHighlightPrompt.prepare(
+            synced("晚安", "折成纸船放回海里", "", "潮水退了又涨", "灯塔还亮着"),
+        )!!
+
+        // Too short to stand alone as a 1-line highlight.
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 1}", prepared))
+        // Asking 2-3 crosses the blank line after line 2, leaving only 1 stub line -> rejected.
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 2, \"end\": 3}", prepared))
     }
 
     @Test
@@ -90,55 +150,66 @@ class LyricHighlightPromptTest {
         assertNull(LyricHighlightPrompt.parse("The best line is about the lighthouse.", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 0, \"end\": 1}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 2}", prepared))
-        // Far more lines than a card holds: the opening lines are kept (here up to the song's next gap).
-        assertEquals("我把你说过的晚安\n折成纸船放回海里", LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared)!!.text)
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared))
     }
 
     @Test
-    fun should_stopAtAGapInTheSong_when_neighbouringNumbersAreFarApart() {
-        val prepared = LyricHighlightPrompt.prepare(song)!!
-
-        // Line 3 comes after a left-out repeat, so it is another part of the song.
-        val pick = LyricHighlightPrompt.parse("```json\n{\"start\": 1, \"end\": 3}\n```", prepared)!!
-        assertEquals("我把你说过的晚安\n折成纸船放回海里", pick.text)
-
-        // Three lines that follow each other are kept whole.
-        val three = LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 5}", prepared)!!
-        assertEquals("潮水退了又涨\n灯塔还亮着\n你在哪里", three.text)
-    }
-
-    @Test
-    fun should_endThePassage_when_aLineEchoesOnePicked() {
-        val prepared = LyricHighlightPrompt.prepare(synced("我在升华 盛开着花", "盛开着花", "风吹过来", "four"))!!
+    fun should_skipEchoes_withinTheSameStanza() {
+        val prepared = LyricHighlightPrompt.prepare(
+            synced("我在升华 盛开着花", "盛开着花", "风吹过来带走所有遗憾", "夜色温柔"),
+        )!!
 
         val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared)!!
-        assertEquals("我在升华 盛开着花\n风吹过来", pick.text)
+        assertEquals("我在升华 盛开着花\n风吹过来带走所有遗憾", pick.text)
     }
 
     @Test
-    fun should_changeFingerprint_when_promptVersionChanges() {
-        assertTrue(LyricHighlightPrompt.prepare(song)!!.fingerprint.startsWith(LyricHighlightPrompt.PROMPT_VERSION))
+    fun should_rejectInsteadOfTailChopping_when_pickExceedsCharLimit() {
+        val long = "x".repeat(135)
+        val prepared = LyricHighlightPrompt.prepare(synced("short one here", long, "three here", "four here"))!!
+
+        // v5 rejects over-long picks rather than silently chopping the second line off.
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared))
+
+        val tooLongSingle = LyricHighlightPrompt.prepare(synced("y".repeat(150), "two", "three", "four"))!!
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 1}", tooLongSingle))
     }
 
     @Test
-    fun should_keepFirstLine_when_twoLinesRunTooLong() {
-        val long = "x".repeat(105)
-        val prepared = LyricHighlightPrompt.prepare(synced("short one", long, "three", "four"))!!
+    fun should_rejectPicksEndingMidClause() {
+        val prepared = LyricHighlightPrompt.prepare(
+            synced(
+                "We drove past the harbor lights",
+                "Waiting for the rain and",
+                "如果明天太阳不再升起，",
+                "我还是会记得你",
+            ),
+        )!!
 
-        val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared)!!
-        assertEquals("short one", pick.text)
+        assertTrue(LyricHighlightPrompt.endsIncomplete("Waiting for the rain and"))
+        assertTrue(LyricHighlightPrompt.endsIncomplete("如果明天太阳不再升起，"))
+        assertTrue(LyricHighlightPrompt.endsIncomplete("你走之后因为"))
+        assertFalse(LyricHighlightPrompt.endsIncomplete("我还是会记得你"))
+        assertFalse(LyricHighlightPrompt.endsIncomplete("Time stands still in the quiet room."))
 
-        val tooLong = LyricHighlightPrompt.prepare(synced("y".repeat(120), "two", "three", "four"))!!
-        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 1}", tooLong))
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared))
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 2, \"end\": 3}", prepared))
+        assertEquals("如果明天太阳不再升起，\n我还是会记得你", LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 4}", prepared)!!.text)
     }
 
     @Test
-    fun should_listEveryLine_when_buildingPrompt() {
+    fun should_useV5PromptVersionPrefix() {
+        assertEquals("v5:", LyricHighlightPrompt.PROMPT_VERSION)
+        assertTrue(LyricHighlightPrompt.prepare(song)!!.fingerprint.startsWith("v5:"))
+    }
+
+    @Test
+    fun should_listEveryLine_withStanzaBreaks_when_buildingPrompt() {
         val prepared = LyricHighlightPrompt.prepare(song)!!
         val prompt = LyricHighlightPrompt.userPrompt("潮汐表", "森川", prepared)
 
         assertTrue(prompt.startsWith("Song: 潮汐表 — 森川\n"))
-        assertTrue(prompt.contains("1. 我把你说过的晚安\n"))
-        assertTrue(prompt.contains("5. 你在哪里\n"))
+        assertTrue(prompt.contains("1. 我把你说过的晚安\n2. 折成纸船放回海里\n\n3. 潮水退了又涨\n"))
+        assertTrue(prompt.contains("4. 灯塔还亮着\n\n5. 你在哪里寻找远方\n"))
     }
 }

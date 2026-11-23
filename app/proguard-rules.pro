@@ -67,6 +67,8 @@
 # beta. Keep it whole so a release build talks to AICore exactly like the debug build that was tested.
 -keep class com.google.mlkit.genai.** { *; }
 -keep class com.google.android.gms.internal.mlkit_genai_prompt.** { *; }
+-keep @com.google.mlkit.genai.schema.annotations.Generable class * { *; }
+-keep class * implements com.google.mlkit.genai.schema.guided.GenerableProvider { *; }
 -dontwarn com.google.mlkit.genai.**
 
 # ML Kit (and any Firebase-style SDK) lists its ComponentRegistrar classes in manifest meta-data and creates them

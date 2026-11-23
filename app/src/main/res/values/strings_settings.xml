@@ -417,9 +417,13 @@
     <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
     <string name="labs_features_section">Experimental features</string>
     <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play from that line</string>
+    <string name="labs_greetings_title">Home greetings</string>
+    <string name="labs_greetings_detail">Write short morning, afternoon, and evening greetings on this phone ahead of time</string>
+    <string name="labs_about_followups_title">Suggested About questions</string>
+    <string name="labs_about_followups_detail">Suggest a few follow-up questions on this phone from a song\'s About notes</string>
     <string name="nano_diag_title">Gemini Nano diagnostics</string>
-    <string name="nano_diag_entry_detail">See what Android says about the model on this phone</string>
-    <string name="nano_diag_intro">What Android (AICore) says about Gemini Nano on this phone, for each model version. Useful when a supported phone says it isn\'t supported.</string>
+    <string name="nano_diag_entry_detail">Check model availability and run a test</string>
+    <string name="nano_diag_intro">Check Gemini Nano availability and system components on this device, or troubleshoot why a supported phone shows unavailable.</string>
     <string name="nano_diag_models_section">Model versions</string>
     <string name="nano_diag_variant_unavailable">Not available</string>
     <string name="nano_diag_actions_section">Try</string>
