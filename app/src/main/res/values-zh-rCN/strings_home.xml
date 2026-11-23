@@ -218,7 +218,7 @@
     <string name="home_tip_downloads_title">离线下载</string>
     <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 账号 › 当前账号 › 存储 › 下载</string>
     <string name="home_tip_edit_home_title">重新排版首页</string>
-    <string name="home_tip_edit_home">长按首页，重新排版</string>
+    <string name="home_tip_edit_home">编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排</string>
     <string name="home_tip_pull_memories_title">Memories</string>
     <string name="home_tip_pull_memories">首页往下拉，打开 Memories</string>
     <string name="home_tip_cover_menu_title">歌曲菜单</string>

@@ -54,8 +54,6 @@ import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinButtonGroup
-import com.gpo.yoin.ui.experience.LocalMotionProfile
-import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.home.HomeAccountButton
 import com.gpo.yoin.ui.home.HomeAccountFanState
 import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
@@ -69,14 +67,8 @@ import com.gpo.yoin.ui.home.LyricHighlightSection
 import com.gpo.yoin.ui.home.MemoryBubbleController
 import com.gpo.yoin.ui.home.MemoryBubbleOverlay
 import com.gpo.yoin.ui.home.edit.HomeEditCardScope
-import com.gpo.yoin.ui.home.edit.HomeEditClock
-import com.gpo.yoin.ui.home.edit.HomeEditFeedback
-import com.gpo.yoin.ui.home.edit.HomeEditMotion
-import com.gpo.yoin.ui.home.edit.HomeEditSafeArea
-import com.gpo.yoin.ui.home.edit.HomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
-import com.gpo.yoin.ui.home.edit.rememberHomeEditSpecs
 import com.gpo.yoin.ui.home.memoryBubbleFreeSpan
 import com.gpo.yoin.ui.home.memoryBubblePage
 import com.gpo.yoin.ui.home.memoryBubbleTitle
@@ -103,77 +95,255 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.CoroutineScope
+import kotlin.math.roundToInt
 
 /*
  * Home on the demo phone: the real header (greeting, "Home" → "Edit Home",
- * the Memories arrow), the real Jump Back In grid with its real edit-mode
- * wiggle, and the real bar — idle Home | Library, or [Undo] [Done] in edit.
+ * the Memories arrow), the real Jump Back In grid (or a scene's own body),
+ * and the real bar — idle Home | Library, or [Undo] [Done] in edit.
  */
 
-/** Long-press Home → the cards wiggle and the bar offers Done; Done ends it. */
+/**
+ * Rearranging Home on a tablet on its side (two columns): long-press Home into edit mode, pinch
+ * the sections into a list and back out, long-press a section and drag it up, then drop one
+ * beside another and the two share a row. The real header and bar; the sections are drawn
+ * simply (plate, title, covers, handle), each step as the app answers it.
+ */
 @Composable
 internal fun EditHomeDemo(playing: Boolean) {
     var editing by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val spatial = YoinMotion.spatialSpring<Float>()
-    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val scope = rememberCoroutineScope()
-    val specs = rememberHomeEditSpecs(reduced)
-    val editingNow by androidx.compose.runtime.rememberUpdatedState(editing)
-    val reducedNow by androidx.compose.runtime.rememberUpdatedState(reduced)
-    val motion = remember(specs) {
-        HomeEditMotion(
-            scope = scope,
-            specs = specs,
-            style = HomeWiggleStyle(),
-            reduced = { reducedNow },
-            progress = { progress.value },
-            editing = { editingNow },
-            feedback = HomeEditFeedback.None,
-        )
-    }
-    val cardScope = remember(motion) {
-        HomeEditCardScope(
-            section = HomeSection.JumpBackIn,
-            motion = motion,
-            interactive = { !editingNow },
-            enterEdit = { editing = true },
-            blockTopInBox = { DemoBlockTopPx },
-            blockCoordinates = { null },
-            safeArea = { HomeEditSafeArea(top = 0f, bottom = DemoSafeBottomPx) },
-            liftGain = { 1f },
-        )
-    }
-    LaunchedEffect(motion) {
-        motion.displayed = listOf(HomeSection.JumpBackIn)
-        motion.runEntryEffects()
-    }
+    val state = remember { DemoEditFeed() }
     LaunchedEffect(editing) {
-        motion.setEnvelope()
-        if (editing) motion.touch()
         progress.animateTo(if (editing) 1f else 0f, spatial)
     }
-    HomeEditClock(motion)
-    DemoPhone(playing = playing, script = {
+    DemoPhone(playing = playing, wide = true, script = {
         editing = false
-        delay(300)
-        moveTo("jbi", fx = 0.17f, fy = 0.3f)
+        state.reset()
+        delay(400)
+        // Long-press Home: edit mode.
+        moveTo(DemoEditFeed.keyOf(HomeSection.JumpBackIn), fx = 0.3f, fy = 0.55f)
         hold { editing = true }
+        delay(700)
+        // Pinch: the sections close into a list, then open back out.
+        val centre = at(DemoEditFeed.FeedKey)
+        pinch(centre.x, centre.y, fromGap = 0.34f, toGap = 0.12f, ms = 650) { p -> scope.launch { state.list.snapTo(p) } }
+        delay(900)
+        pinch(centre.x, centre.y, fromGap = 0.12f, toGap = 0.34f, ms = 650) { p -> scope.launch { state.list.snapTo(1f - p) } }
+        delay(500)
+        // Long-press drag: Your Playlists up above Recently Added.
+        moveTo(DemoEditFeed.keyOf(HomeSection.YourPlaylists), fx = 0.5f, fy = 0.5f)
+        hold { state.pick(scope, HomeSection.YourPlaylists) }
+        val up = at(DemoEditFeed.keyOf(HomeSection.RecentlyAdded), fx = 0.5f, fy = 0.5f)
+        drag(up.x, up.y, ms = 700) { p -> state.carry(scope, HomeSection.YourPlaylists, slot = 2f - p, left = 0f, width = 1f) }
+        state.drop(scope, HomeSection.YourPlaylists, slot = 1f, left = 0f, width = 1f)
+        delay(600)
+        // Drop beside: Recently Added onto the right of Your Playlists, and the two share a row.
+        moveTo(DemoEditFeed.keyOf(HomeSection.RecentlyAdded), fx = 0.5f, fy = 0.5f)
+        hold { state.pick(scope, HomeSection.RecentlyAdded) }
+        val beside = at(DemoEditFeed.keyOf(HomeSection.YourPlaylists), fx = 0.8f, fy = 0.5f)
+        drag(beside.x, beside.y, ms = 800) { p ->
+            state.carry(scope, HomeSection.RecentlyAdded, slot = 2f - p, left = 0.5f * p, width = 1f - 0.5f * p)
+            if (p > 0.6f) state.makeRoom(scope, HomeSection.YourPlaylists)
+        }
+        state.drop(scope, HomeSection.RecentlyAdded, slot = 1f, left = 0.5f, width = 0.5f)
         lift()
-        delay(2_200)
+        delay(1_600)
         moveTo("bar", fx = 0.75f)
         tap { editing = false }
-        delay(600)
+        delay(900)
     }) {
         DemoHomePage(
             editProgress = { progress.value },
             editing = editing,
             onEnterEdit = { editing = true },
             onDone = { editing = false },
-            cardScope = cardScope,
+            cardScope = null,
+            body = {
+                DemoEditFeedBody(
+                    state = state,
+                    editProgress = { progress.value },
+                    modifier = Modifier.demoLongPress { editing = true },
+                )
+            },
         )
     }
 }
+
+/**
+ * The demo's three sections: each one's row ([slot], from the top), its left edge and its width
+ * (fractions of the feed: 0 / 1 full, 0.5 / 0.5 the right half), how far it is lifted, and how far
+ * the feed is pinched into a list ([list]). The carried one follows the finger; the rest spring.
+ */
+@Stable
+private class DemoEditFeed {
+    val list = Animatable(0f)
+    val lift = Animatable(0f)
+    var carried: HomeSection? by mutableStateOf(null)
+        private set
+    private val slots = Sections.associateWith { Animatable(Sections.indexOf(it).toFloat()) }
+    private val lefts = Sections.associateWith { Animatable(0f) }
+    private val widths = Sections.associateWith { Animatable(1f) }
+
+    fun slot(section: HomeSection): Float = slots.getValue(section).value
+    fun left(section: HomeSection): Float = lefts.getValue(section).value
+    fun width(section: HomeSection): Float = widths.getValue(section).value
+
+    suspend fun reset() {
+        carried = null
+        lift.snapTo(0f)
+        list.snapTo(0f)
+        Sections.forEachIndexed { i, section ->
+            slots.getValue(section).snapTo(i.toFloat())
+            lefts.getValue(section).snapTo(0f)
+            widths.getValue(section).snapTo(1f)
+        }
+    }
+
+    fun pick(scope: CoroutineScope, section: HomeSection) {
+        carried = section
+        scope.launch { lift.animateTo(1f, spring(stiffness = Spring.StiffnessMedium)) }
+    }
+
+    /** The carried one under the finger. Carried straight up past the middle of the row above, that one moves down. */
+    fun carry(scope: CoroutineScope, section: HomeSection, slot: Float, left: Float, width: Float) {
+        scope.launch {
+            slots.getValue(section).snapTo(slot)
+            lefts.getValue(section).snapTo(left)
+            widths.getValue(section).snapTo(width)
+        }
+        if (left == 0f && slot < 1.5f) {
+            val above = Sections.firstOrNull { it != section && slots.getValue(it).targetValue == 1f }
+            if (above != null) scope.launch { slots.getValue(above).animateTo(2f, Settle) }
+        }
+    }
+
+    /** A pair forming: [section] narrows to the left half for the one coming beside it. */
+    fun makeRoom(scope: CoroutineScope, section: HomeSection) {
+        val w = widths.getValue(section)
+        if (w.targetValue != 0.5f) scope.launch { w.animateTo(0.5f, Settle) }
+    }
+
+    suspend fun drop(scope: CoroutineScope, section: HomeSection, slot: Float, left: Float, width: Float) {
+        coroutineScope {
+            launch { slots.getValue(section).animateTo(slot, Settle) }
+            launch { lefts.getValue(section).animateTo(left, Settle) }
+            launch { widths.getValue(section).animateTo(width, Settle) }
+            launch { lift.animateTo(0f, Settle) }
+        }
+        carried = null
+    }
+
+    companion object {
+        val Sections = listOf(HomeSection.JumpBackIn, HomeSection.RecentlyAdded, HomeSection.YourPlaylists)
+        const val FeedKey = "edit-feed"
+        fun keyOf(section: HomeSection): String = "edit-${section.id}"
+        private val Settle = spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+    }
+}
+
+/** The sections as edit mode draws them: a plate (with edit mode), title, covers (gone in the list) and handle. */
+@Composable
+private fun DemoEditFeedBody(state: DemoEditFeed, editProgress: () -> Float, modifier: Modifier = Modifier) {
+    val covers = demoCoverUrls()
+    val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(DemoFeedRow * DemoEditFeed.Sections.size + DemoFeedGap * (DemoEditFeed.Sections.size - 1))
+            .demoTarget(DemoEditFeed.FeedKey),
+    ) {
+        DemoEditFeed.Sections.forEachIndexed { index, section ->
+            val title = stringResource(section.titleRes)
+            Box(
+                modifier = Modifier
+                    .zIndex(if (state.carried == section) 1f else 0f)
+                    .layout { measurable, constraints ->
+                        val list = state.list.value
+                        val gap = lerp(DemoFeedGap, DemoListGap, list).roundToPx()
+                        val rowH = lerp(DemoFeedRow, DemoListRow, list).roundToPx()
+                        val colGap = DemoFeedGap.roundToPx()
+                        val full = constraints.maxWidth
+                        val w = (state.width(section) * (full + colGap) - colGap).roundToInt().coerceAtLeast(1)
+                        val x = (state.left(section) * (full + colGap)).roundToInt()
+                        val y = (state.slot(section) * (rowH + gap)).roundToInt()
+                        val placeable = measurable.measure(Constraints.fixed(w, rowH))
+                        layout(full, rowH) { placeable.place(x, y) }
+                    }
+                    .graphicsLayer {
+                        val lift = if (state.carried == section) state.lift.value else 0f
+                        val scale = 1f + 0.03f * lift
+                        scaleX = scale
+                        scaleY = scale
+                        shadowElevation = with(density) { 12.dp.toPx() } * lift
+                        shape = DemoPlateShape
+                        clip = true
+                    }
+                    .drawBehind { drawRect(colors.surfaceContainerHigh, alpha = editProgress().coerceIn(0f, 1f)) }
+                    .demoTarget(DemoEditFeed.keyOf(section)),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = colors.onSurface,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = YoinSymbols.DragHandle,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant,
+                            modifier = Modifier.graphicsLayer { alpha = editProgress().coerceIn(0f, 1f) },
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.graphicsLayer { alpha = 1f - state.list.value.coerceIn(0f, 1f) },
+                    ) {
+                        repeat(DemoCoversPerRow) { i ->
+                            ExpressiveMediaArtwork(
+                                model = covers.getOrNull((index * 3 + i) % covers.size.coerceAtLeast(1)),
+                                contentDescription = null,
+                                modifier = Modifier.size(DemoCover),
+                                shape = YoinArtworkShapes.Thumb,
+                                fallbackIcon = YoinSymbols.Album,
+                                tonalElevation = 0.dp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun lerp(start: Dp, stop: Dp, fraction: Float): Dp = start + (stop - start) * fraction.coerceIn(0f, 1f)
+
+private val DemoPlateShape = RoundedCornerShape(20.dp)
+private val DemoFeedRow = 116.dp
+private val DemoListRow = 48.dp
+private val DemoFeedGap = 16.dp
+private val DemoListGap = 8.dp
+private val DemoCover = 60.dp
+private const val DemoCoversPerRow = 10
 
 /** Pull Home down → Memories comes down over it; its Home pill sends it back up. */
 @Composable
@@ -709,8 +879,5 @@ private const val PullTravel = 0.45f
 /** A user's pull past this opens Memories; short of it, Home springs back. */
 private const val OpenAt = 0.25f
 
-/** The wiggle's edge band reads the block as well inside the screen. */
-private const val DemoBlockTopPx = 400f
-private const val DemoSafeBottomPx = 100_000f
 
 private val DemoScreenHeight = ScreenWidth * (300f / 168f)

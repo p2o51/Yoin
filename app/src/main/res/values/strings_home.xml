@@ -239,7 +239,7 @@
     <string name="home_tip_downloads_title">Offline downloads</string>
     <string name="home_tip_downloads">Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Accounts › your active account › Storage › Downloads</string>
     <string name="home_tip_edit_home_title">Rearrange Home</string>
-    <string name="home_tip_edit_home">Long-press Home to rearrange sections</string>
+    <string name="home_tip_edit_home">While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large screens.</string>
     <string name="home_tip_pull_memories_title">Memories</string>
     <string name="home_tip_pull_memories">Pull down on Home to open Memories</string>
     <string name="home_tip_cover_menu_title">Song options</string>
