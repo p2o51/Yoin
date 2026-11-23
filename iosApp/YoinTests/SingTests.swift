@@ -220,4 +220,105 @@ final class SingTests: XCTestCase {
         XCTAssertNil(hitOld, "Oldest entry should have been evicted past 1500B limit")
         XCTAssertNotNil(hitNew, "Newest entry should remain cached")
     }
+
+    // MARK: - 7. Ease-out cut-in (~0.95s) & ease-in-out cut-out (~0.75s) vocal curves
+
+    func test_should_applyEaseOutCutIn_and_easeInOutCutOut_sampleBySample() {
+        let sr = 8000.0 // 8 kHz (minimum downmixer rate) so 8000 samples == 1.0 s
+        let mixer = SingQuadDownmixer(initialGain: 1.0, sampleRate: sr)
+        let frames = 8000
+        let zeros = [Float](repeating: 0, count: frames)
+        let ones = [Float](repeating: 1, count: frames)
+        var outL = [Float](repeating: 0, count: frames)
+        var outR = [Float](repeating: 0, count: frames)
+
+        // Ease-out cubic over 1.0s from 1.0 -> 0.12: at 50% (sample 3999), progress = 1 - 0.5^3 = 0.875
+        // Expected gain at 50% = 1.0 + (0.12 - 1.0) * 0.875 = 0.23
+        mixer.setVocalGain(0.12, rampSeconds: 1.0, curve: .easeOutCubic)
+        mixer.processNonInterleaved(frameCount: frames, iL: zeros, iR: zeros, vL: ones, vR: ones, outL: &outL, outR: &outR)
+        XCTAssertEqual(outL[0], 1.0, accuracy: 0.01)
+        XCTAssertEqual(outL[3999], 0.23, accuracy: 0.015, "Ease-out cubic should drop faster early and settle softly")
+        XCTAssertEqual(outL[7999], 0.12, accuracy: 1e-5)
+        for i in 1..<frames {
+            XCTAssertLessThanOrEqual(outL[i], outL[i - 1] + 1e-6, "Ease-out cut-in must be monotonically decreasing")
+        }
+
+        // Ease-in-out exit over 0.8s (6400 samples) from 0.12 -> 1.0: at 50% (sample 3199), gain == 0.56
+        mixer.setVocalGain(1.0, rampSeconds: 0.8, curve: .easeInOut)
+        mixer.processNonInterleaved(frameCount: frames, iL: zeros, iR: zeros, vL: ones, vR: ones, outL: &outL, outR: &outR)
+        XCTAssertEqual(outL[0], 0.12, accuracy: 0.01)
+        XCTAssertEqual(outL[3199], 0.56, accuracy: 0.015)
+        XCTAssertEqual(outL[6399], 1.0, accuracy: 1e-5)
+        XCTAssertEqual(outL[7999], 1.0, accuracy: 1e-5)
+        for i in 1..<6400 {
+            XCTAssertGreaterThanOrEqual(outL[i], outL[i - 1] - 1e-6, "Ease-in-out exit must be monotonically rising")
+        }
+    }
+
+    // MARK: - 8. Two-step anti-accidental-dismiss left-drag rule
+
+    func test_should_requireReleaseAtZeroBeforeLeftDragDismissesSing() {
+        var gesture = SingCapsuleDismissGesture(dismissThresholdPt: 28)
+
+        // Step 1: Start from 0.40 and drag way past the left edge (-400pt) in ONE continuous gesture -> NEVER dismiss!
+        gesture.begin(currentLevel: 0.40)
+        let r1 = gesture.drag(translationX: -400, trackWidth: 108)
+        XCTAssertEqual(r1, .update(level: 0, overpullProgress: 0))
+        let r2 = gesture.drag(translationX: -800, trackWidth: 108)
+        XCTAssertEqual(r2, .update(level: 0, overpullProgress: 0))
+        gesture.end()
+
+        // Step 2a: Now parked at 0%, lift finger and start a NEW gesture dragging right -> raises vocal, no dismiss.
+        gesture.begin(currentLevel: 0.0)
+        let rRight = gesture.drag(translationX: 54, trackWidth: 108)
+        if case .update(let level, let pull) = rRight {
+            XCTAssertEqual(level, 0.5, accuracy: 0.02)
+            XCTAssertEqual(pull, 0)
+        } else {
+            XCTFail("Dragging right from 0% should raise vocal level, not dismiss")
+        }
+        gesture.end()
+
+        // Step 2b: Parked at 0%, lift finger and start a NEW gesture dragging left:
+        // below threshold -> elastic overpull feedback; at/past threshold -> dismiss!
+        gesture.begin(currentLevel: 0.0)
+        let rPartial = gesture.drag(translationX: -14, trackWidth: 108)
+        XCTAssertEqual(rPartial, .update(level: 0, overpullProgress: 0.5))
+        let rDismiss = gesture.drag(translationX: -30, trackWidth: 108)
+        XCTAssertEqual(rDismiss, .dismiss)
+        gesture.end()
+    }
+
+    // MARK: - 9. Session controller DRM gating & cover-menu lyrics expansion
+
+    @MainActor
+    func test_should_hideSingForCommercialDRM_and_expandLyricsFromCoverMenu() {
+        let controller = SingSessionController()
+        let spotifyTrack = PlayableTrack(
+            id: "sp1", provider: SpotifyMapping.provider, title: "T", artist: "A", album: "Al",
+            durationSec: 180, streamURL: URL(string: "https://open.spotify.com/track/sp1")!
+        )
+        let appleTrack = PlayableTrack(
+            id: "am1", provider: AppleMusicMapping.provider, title: "T", artist: "A", album: "Al",
+            durationSec: 180, streamURL: URL(string: "https://music.apple.com/song/am1")!
+        )
+        let subsonicTrack = PlayableTrack(
+            id: "sub1", provider: "subsonic", title: "T", artist: "A", album: "Al",
+            durationSec: 180, streamURL: URL(string: "https://lyra.local/rest/stream?id=sub1")!
+        )
+
+        XCTAssertFalse(controller.supportsSing(spotifyTrack))
+        XCTAssertFalse(controller.supportsSing(appleTrack))
+        XCTAssertTrue(controller.supportsSing(subsonicTrack))
+
+        XCTAssertEqual(controller.pendingExpandToLyricsTick, 0)
+        controller.enter(track: subsonicTrack, openLyrics: true)
+        XCTAssertEqual(controller.pendingExpandToLyricsTick, 1)
+        XCTAssertTrue(controller.isEnabled)
+        XCTAssertEqual(controller.phase, .preparing)
+
+        controller.exit()
+        XCTAssertFalse(controller.isEnabled)
+        XCTAssertEqual(controller.phase, .off)
+    }
 }

@@ -6,16 +6,19 @@ import os
 /// Lock-free, real-time 4-channel quad → 2-channel stereo vocal mixer:
 /// - Input layout (iron rule): `[CH0 = I_L, CH1 = I_R, CH2 = V_L, CH3 = V_R]`
 /// - Output: `Y_L = I_L + g * V_L`, `Y_R = I_R + g * V_R`
-/// - Applies a `20 ms` (or custom, e.g. `250 ms` cut-in) per-sample linear gain ramp so dragging
-///   the vocal slider never clicks or zips.
+/// - Applies per-sample gain ramps (`20 ms` linear for drags, `~0.95 s` ease-out cubic for Sing cut-in,
+///   `~0.75 s` ease-in-out for Sing exit) so transitions are silky and completely click-free.
 final class SingQuadDownmixer: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock(initialState: State())
 
     private struct State {
         var currentGain: Float = 1.0
+        var rampStartGain: Float = 1.0
         var targetGain: Float = 1.0
-        var rampFramesRemaining: Int = 0
-        var gainStepPerFrame: Float = 0
+        var rampTotalFrames: Int = 0
+        var rampElapsedFrames: Int = 0
+        var rampCurve: SingRampCurve = .linear
+        var rampGeneration: UInt64 = 0
         var sampleRate: Double = 44_100
     }
 
@@ -23,6 +26,7 @@ final class SingQuadDownmixer: @unchecked Sendable {
         lock.withLock { s in
             let g = max(0, min(1, initialGain))
             s.currentGain = g
+            s.rampStartGain = g
             s.targetGain = g
             s.sampleRate = max(8_000, sampleRate)
         }
@@ -34,26 +38,38 @@ final class SingQuadDownmixer: @unchecked Sendable {
         }
     }
 
-    /// Updates target vocal linear gain `g ∈ [0, 1]` with a linear ramp over `rampSeconds` (default `20 ms`).
-    func setVocalGain(_ gain: Float, rampSeconds: Double = SingGainCurve.smoothingWindowSeconds) {
+    /// Updates target vocal linear gain `g ∈ [0, 1]` with a per-sample ramp over `rampSeconds` using `curve`.
+    func setVocalGain(
+        _ gain: Float,
+        rampSeconds: Double = SingGainCurve.smoothingWindowSeconds,
+        curve: SingRampCurve = .linear
+    ) {
         let clamped = max(0, min(1, gain))
         lock.withLock { s in
+            s.rampGeneration &+= 1
             s.targetGain = clamped
+            s.rampCurve = curve
             let frames = max(0, Int((s.sampleRate * max(0, rampSeconds)).rounded()))
             if frames <= 1 {
                 s.currentGain = clamped
-                s.rampFramesRemaining = 0
-                s.gainStepPerFrame = 0
+                s.rampStartGain = clamped
+                s.rampTotalFrames = 0
+                s.rampElapsedFrames = 0
             } else {
-                s.rampFramesRemaining = frames
-                s.gainStepPerFrame = (clamped - s.currentGain) / Float(frames)
+                s.rampStartGain = s.currentGain
+                s.rampTotalFrames = frames
+                s.rampElapsedFrames = 0
             }
         }
     }
 
     /// Updates target vocal gain from a UI slider position `0.0 ... 1.0`.
-    func setSliderPosition(_ position: Float, rampSeconds: Double = SingGainCurve.smoothingWindowSeconds) {
-        setVocalGain(SingGainCurve.linearGain(forSlider: position), rampSeconds: rampSeconds)
+    func setSliderPosition(
+        _ position: Float,
+        rampSeconds: Double = SingGainCurve.smoothingWindowSeconds,
+        curve: SingRampCurve = .linear
+    ) {
+        setVocalGain(SingGainCurve.linearGain(forSlider: position), rampSeconds: rampSeconds, curve: curve)
     }
 
     var currentGain: Float {
@@ -76,33 +92,49 @@ final class SingQuadDownmixer: @unchecked Sendable {
         outR: UnsafeMutablePointer<Float>
     ) {
         guard frameCount > 0 else { return }
-        var (g, target, remaining, step) = lock.withLock { s in
-            (s.currentGain, s.targetGain, s.rampFramesRemaining, s.gainStepPerFrame)
+        let snap = lock.withLock { $0 }
+        var g = snap.currentGain
+        var elapsed = snap.rampElapsedFrames
+        let total = snap.rampTotalFrames
+        let start = snap.rampStartGain
+        let target = snap.targetGain
+        let curve = snap.rampCurve
+        let gen = snap.rampGeneration
+
+        if total == 0 || elapsed >= total {
+            for i in 0..<frameCount {
+                outL[i] = iL[i] + g * vL[i]
+                outR[i] = iR[i] + g * vR[i]
+            }
+            return
         }
 
-        if remaining == 0 {
-            for i in 0..<frameCount {
-                outL[i] = iL[i] + g * vL[i]
-                outR[i] = iR[i] + g * vR[i]
-            }
-        } else {
-            for i in 0..<frameCount {
-                if remaining > 0 {
-                    g += step
-                    remaining -= 1
-                    if remaining == 0 { g = target }
+        let delta = target - start
+        let invTotal = 1.0 / Float(total)
+        for i in 0..<frameCount {
+            if elapsed < total {
+                elapsed += 1
+                if elapsed >= total {
+                    g = target
+                } else {
+                    g = start + delta * curve.evaluate(Float(elapsed) * invTotal)
                 }
-                outL[i] = iL[i] + g * vL[i]
-                outR[i] = iR[i] + g * vR[i]
             }
-            let finalGain = g
-            let finalRemaining = remaining
-            let expectedTarget = target
-            lock.withLock { s in
-                if s.targetGain == expectedTarget {
-                    s.currentGain = finalGain
-                    s.rampFramesRemaining = finalRemaining
-                    if finalRemaining == 0 { s.gainStepPerFrame = 0 }
+            outL[i] = iL[i] + g * vL[i]
+            outR[i] = iR[i] + g * vR[i]
+        }
+
+        let finalGain = g
+        let finalElapsed = elapsed
+        lock.withLock { s in
+            if s.rampGeneration == gen {
+                s.currentGain = finalGain
+                if finalElapsed >= total {
+                    s.rampTotalFrames = 0
+                    s.rampElapsedFrames = 0
+                    s.rampStartGain = finalGain
+                } else {
+                    s.rampElapsedFrames = finalElapsed
                 }
             }
         }
@@ -115,29 +147,108 @@ final class SingQuadDownmixer: @unchecked Sendable {
         stereoOut: UnsafeMutablePointer<Float>
     ) {
         guard frameCount > 0 else { return }
-        var (g, target, remaining, step) = lock.withLock { s in
-            (s.currentGain, s.targetGain, s.rampFramesRemaining, s.gainStepPerFrame)
+        let snap = lock.withLock { $0 }
+        var g = snap.currentGain
+        var elapsed = snap.rampElapsedFrames
+        let total = snap.rampTotalFrames
+        let start = snap.rampStartGain
+        let target = snap.targetGain
+        let curve = snap.rampCurve
+        let gen = snap.rampGeneration
+
+        if total == 0 || elapsed >= total {
+            for i in 0..<frameCount {
+                let base = i * 4
+                stereoOut[i * 2] = quad[base] + g * quad[base + 2]
+                stereoOut[i * 2 + 1] = quad[base + 1] + g * quad[base + 3]
+            }
+            return
         }
-        let initialRemaining = remaining
+
+        let delta = target - start
+        let invTotal = 1.0 / Float(total)
         for i in 0..<frameCount {
-            if remaining > 0 {
-                g += step
-                remaining -= 1
-                if remaining == 0 { g = target }
+            if elapsed < total {
+                elapsed += 1
+                if elapsed >= total {
+                    g = target
+                } else {
+                    g = start + delta * curve.evaluate(Float(elapsed) * invTotal)
+                }
             }
             let base = i * 4
             stereoOut[i * 2] = quad[base] + g * quad[base + 2]
             stereoOut[i * 2 + 1] = quad[base + 1] + g * quad[base + 3]
         }
-        if remaining != initialRemaining {
-            let finalGain = g
-            let finalRemaining = remaining
-            let expectedTarget = target
-            lock.withLock { s in
-                if s.targetGain == expectedTarget {
-                    s.currentGain = finalGain
-                    s.rampFramesRemaining = finalRemaining
-                    if finalRemaining == 0 { s.gainStepPerFrame = 0 }
+
+        let finalGain = g
+        let finalElapsed = elapsed
+        lock.withLock { s in
+            if s.rampGeneration == gen {
+                s.currentGain = finalGain
+                if finalElapsed >= total {
+                    s.rampTotalFrames = 0
+                    s.rampElapsedFrames = 0
+                    s.rampStartGain = finalGain
+                } else {
+                    s.rampElapsedFrames = finalElapsed
+                }
+            }
+        }
+    }
+
+    /// Mixes interleaved 4-channel float samples in-place (`FL/FR = I + g*V`, `BL/BR = 0`).
+    func processInterleavedInPlace(frameCount: Int, quad: UnsafeMutablePointer<Float>) {
+        guard frameCount > 0 else { return }
+        let snap = lock.withLock { $0 }
+        var g = snap.currentGain
+        var elapsed = snap.rampElapsedFrames
+        let total = snap.rampTotalFrames
+        let start = snap.rampStartGain
+        let target = snap.targetGain
+        let curve = snap.rampCurve
+        let gen = snap.rampGeneration
+
+        if total == 0 || elapsed >= total {
+            for i in 0..<frameCount {
+                let base = i * 4
+                quad[base] = quad[base] + g * quad[base + 2]
+                quad[base + 1] = quad[base + 1] + g * quad[base + 3]
+                quad[base + 2] = 0
+                quad[base + 3] = 0
+            }
+            return
+        }
+
+        let delta = target - start
+        let invTotal = 1.0 / Float(total)
+        for i in 0..<frameCount {
+            if elapsed < total {
+                elapsed += 1
+                if elapsed >= total {
+                    g = target
+                } else {
+                    g = start + delta * curve.evaluate(Float(elapsed) * invTotal)
+                }
+            }
+            let base = i * 4
+            quad[base] = quad[base] + g * quad[base + 2]
+            quad[base + 1] = quad[base + 1] + g * quad[base + 3]
+            quad[base + 2] = 0
+            quad[base + 3] = 0
+        }
+
+        let finalGain = g
+        let finalElapsed = elapsed
+        lock.withLock { s in
+            if s.rampGeneration == gen {
+                s.currentGain = finalGain
+                if finalElapsed >= total {
+                    s.rampTotalFrames = 0
+                    s.rampElapsedFrames = 0
+                    s.rampStartGain = finalGain
+                } else {
+                    s.rampElapsedFrames = finalElapsed
                 }
             }
         }
@@ -146,10 +257,6 @@ final class SingQuadDownmixer: @unchecked Sendable {
 
 /// Attaches a real-time 4ch→2ch `MTAudioProcessingTap` onto an `AVAssetTrack` for local `quad.m4a` files
 /// or direct HTTPS `quad.m4a` URLs (never custom `AVAssetResourceLoaderDelegate` schemes).
-///
-/// Note: `MTAudioProcessingTap` receives 4 non-interleaved float buffers from the 4-channel Quad AAC track;
-/// channels 0 and 1 are overwritten in place with `I_L + g * V_L` and `I_R + g * V_R`, while channels 2 and 3
-/// are zeroed so CoreAudio's downstream quad→stereo output carries purely the mixed stereo signal.
 enum SingQuadAudioTap {
     private final class TapContext {
         let mixer: SingQuadDownmixer
@@ -201,38 +308,7 @@ enum SingQuadAudioTap {
                     memset(p3, 0, frames * MemoryLayout<Float>.size)
                 } else if !ctx.isNonInterleaved, ctx.channelCount == 4, buffers.count == 1,
                           let base = buffers[0].mData?.assumingMemoryBound(to: Float.self) {
-                    var g = ctx.mixer.currentGain
-                    let target = ctx.mixer.targetGain
-                    // Interleaved quad in-place fallback: mix into FL/FR and zero BL/BR.
-                    if g == target {
-                        for i in 0..<frames {
-                            let idx = i * 4
-                            base[idx] = base[idx] + g * base[idx + 2]
-                            base[idx + 1] = base[idx + 1] + g * base[idx + 3]
-                            base[idx + 2] = 0
-                            base[idx + 3] = 0
-                        }
-                    } else {
-                        for i in 0..<frames {
-                            let idx = i * 4
-                            var outL: Float = 0
-                            var outR: Float = 0
-                            ctx.mixer.processNonInterleaved(
-                                frameCount: 1,
-                                iL: base.advanced(by: idx),
-                                iR: base.advanced(by: idx + 1),
-                                vL: base.advanced(by: idx + 2),
-                                vR: base.advanced(by: idx + 3),
-                                outL: &outL,
-                                outR: &outR
-                            )
-                            base[idx] = outL
-                            base[idx + 1] = outR
-                            base[idx + 2] = 0
-                            base[idx + 3] = 0
-                            g = ctx.mixer.currentGain
-                        }
-                    }
+                    ctx.mixer.processInterleavedInPlace(frameCount: frames, quad: base)
                 }
             }
         )
