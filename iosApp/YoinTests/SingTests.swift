@@ -18,21 +18,20 @@ final class SingTests: XCTestCase {
         XCTAssertEqual(spec.binCount, 513)
         XCTAssertEqual(spec.frameCount, 17)
 
-        // Golden complex bins generated directly by infer_and_eval.py's scipy.signal.stft * sum(periodicHann).
+        // Golden complex bins generated directly by torch.stft(n_fft=1024, hop=256, center=True, pad_mode="reflect", normalized=False).
         let golden: [(Int, Int, Float, Float)] = [
-            (0, 4, -0.003811, 0.0),
-            (20, 4, 45.901623, 103.494789),
-            (21, 4, -42.008335, -94.714523),
-            (82, 7, 59.671463, 13.307509),
-            (512, 5, 0.000064, 0.0),
+            (0, 0, 7.976996, 0.0),
+            (0, 4, -0.003803, 0.0),
+            (20, 4, 45.901787, 103.494751),
+            (21, 4, -42.008430, -94.714455),
+            (82, 7, 59.671608, 13.306963),
+            (512, 5, 0.000001, 0.0),
+            (20, 16, -99.211082, -12.615911),
         ]
         for (bin, frame, expRe, expIm) in golden {
             let idx = bin * spec.frameCount + frame
-            // Unnormalized FFT bins scale by ~512 (win_scale); check normalized error < 1e-4 (actual < 2e-6).
-            let tolRe = max(Float(1e-4), abs(expRe) * 1e-4)
-            let tolIm = max(Float(1e-4), abs(expIm) * 1e-4)
-            XCTAssertEqual(spec.real[idx], expRe, accuracy: tolRe, "real mismatch at (\(bin), \(frame))")
-            XCTAssertEqual(spec.imag[idx], expIm, accuracy: tolIm, "imag mismatch at (\(bin), \(frame))")
+            XCTAssertEqual(spec.real[idx], expRe, accuracy: 1e-4, "real mismatch at (\(bin), \(frame))")
+            XCTAssertEqual(spec.imag[idx], expIm, accuracy: 1e-4, "imag mismatch at (\(bin), \(frame))")
         }
 
         let reconstructed = SingDSP.istft(spec, targetLength: n)

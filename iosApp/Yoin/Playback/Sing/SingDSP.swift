@@ -43,20 +43,30 @@ enum SingDSP {
         var imag: [Float]
     }
 
-    /// Forward real-to-complex STFT matching `torch.stft(center=True, normalized=False, window=periodicHann)`
-    /// and `scipy.signal.stft(..., boundary="zeros", padded=True) * sum(win)`.
+    /// Forward real-to-complex STFT matching `torch.stft(center=True, pad_mode="reflect", normalized=False, window=periodicHann)`.
     static func stft(_ signal: [Float]) -> Spectrogram {
         let pad = halfFFT
         let nSig = signal.count
-        // Match scipy.signal.stft(boundary="zeros", padded=True):
-        // left pad = n_fft/2, right pad >= n_fft/2 so trailing samples are covered cleanly by hopLength.
-        let rightExtra = (hopLength - ((nSig + pad) % hopLength)) % hopLength
-        let paddedCount = pad + nSig + pad + rightExtra
+        let paddedCount = pad + nSig + pad
         var padded = [Float](repeating: 0, count: paddedCount)
         if nSig > 0 {
             signal.withUnsafeBufferPointer { src in
                 padded.withUnsafeMutableBufferPointer { dst in
                     memcpy(dst.baseAddress!.advanced(by: pad), src.baseAddress!, nSig * MemoryLayout<Float>.size)
+                }
+            }
+            // PyTorch reflect padding: left mirrors signal[pad], ..., signal[1]; right mirrors signal[n-2], ..., signal[n-1-pad].
+            if nSig > 1 {
+                for i in 0..<pad {
+                    let leftSrc = reflectIndex(pad - i, count: nSig)
+                    padded[i] = signal[leftSrc]
+                    let rightSrc = reflectIndex((nSig - 2) - i, count: nSig)
+                    padded[pad + nSig + i] = signal[rightSrc]
+                }
+            } else {
+                for i in 0..<pad {
+                    padded[i] = signal[0]
+                    padded[pad + nSig + i] = signal[0]
                 }
             }
         }
@@ -107,6 +117,15 @@ enum SingDSP {
         }
 
         return Spectrogram(binCount: nBins, frameCount: frameCount, real: outReal, imag: outImag)
+    }
+
+    /// Wraps any out-of-bounds index by triangle reflection in `0 ..< count` (matching `torch.nn.functional.pad(..., mode="reflect")`).
+    private static func reflectIndex(_ idx: Int, count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        let period = 2 * (count - 1)
+        var m = idx % period
+        if m < 0 { m += period }
+        return m < count ? m : (period - m)
     }
 
     /// Inverse STFT matching `torch.istft(center=True, normalized=False, window=periodicHann)`
