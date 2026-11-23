@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -8,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_color_utilities/material_color_utilities.dart' show QuantizerCelebi, Score;
 
 import '../app/providers.dart';
+import '../data/cache/cover_cache.dart';
+import '../detail/detail_palette.dart' show rememberCoverSeed;
 import '../nowplaying/player_snapshot.dart';
 import '../ui/component/artwork_image.dart';
 import 'theme.dart';
@@ -100,9 +103,35 @@ class NetworkCoverColorLoader implements CoverColorLoader {
   const NetworkCoverColorLoader();
 
   static const int decodeSize = 200;
+  static const int _cacheCapacity = 64;
+  static final LinkedHashMap<String, CoverColors> _cache = LinkedHashMap();
+  static final Map<String, Future<CoverColors?>> _inFlight = {};
 
   @override
-  Future<CoverColors?> load(String url) async {
+  Future<CoverColors?> load(String url) {
+    final key = coverCacheKey(url);
+    final hit = _cache.remove(key);
+    if (hit != null) {
+      _cache[key] = hit;
+      return SynchronousFuture(hit);
+    }
+    return _inFlight[key] ??= _loadUncached(url).then((colors) {
+      _inFlight.remove(key);
+      if (colors != null) {
+        _cache[key] = colors;
+        while (_cache.length > _cacheCapacity) {
+          _cache.remove(_cache.keys.first);
+        }
+        rememberCoverSeed(url, colors.seed);
+      }
+      return colors;
+    }, onError: (Object error) {
+      _inFlight.remove(key);
+      throw error;
+    });
+  }
+
+  static Future<CoverColors?> _loadUncached(String url) async {
     final provider = artworkImageProvider(url, cacheWidth: decodeSize, cacheHeight: decodeSize);
     final completer = Completer<ui.Image?>();
     final stream = provider.resolve(ImageConfiguration.empty);
@@ -141,8 +170,14 @@ class NetworkCoverColorLoader implements CoverColorLoader {
 
 Future<(int, List<int>, int, List<int>, List<int>)?> _extract((Uint8List, int, int) input) async {
   final (rgba, width, height) = input;
+  // Cap quantized pixels to ~112×112 (matching Android Palette.DEFAULT_RESIZE_BITMAP_AREA)
+  // so Celebi runs ~3x faster on 200×200 decodes while preserving full resolution for the 24×24 field.
+  final total = rgba.length ~/ 4;
+  if (total == 0) return null;
+  final step = math.max(1, total ~/ 12544);
   final pixels = <int>[];
-  for (var i = 0; i + 3 < rgba.length; i += 4) {
+  for (var p = 0; p < total; p += step) {
+    final i = p * 4;
     if (rgba[i + 3] < 255) continue;
     pixels.add(0xFF000000 | (rgba[i] << 16) | (rgba[i + 1] << 8) | rgba[i + 2]);
   }

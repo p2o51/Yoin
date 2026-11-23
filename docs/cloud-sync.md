@@ -10,13 +10,13 @@
 
 四端复用相同的同步数据契约与合并语义（Core 引擎已在 `:shared` 的 `CloudSyncCore` / `SyncEngine` 中跨平台对齐）：
 
-| 平台 | Google OAuth 方式 | 引擎实现 | Drive `appDataFolder` 远端文件 | 本地防克隆副本库（不入系统备份） |
+| 平台 | 同步位置与鉴权方式 | 引擎实现 | 远端存储形态（同一套 `SyncContracts` 线协议） | 本地防克隆副本库（不入系统备份） |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android** (`app/`) | Credential Manager + Play Services Drive Auth | Kotlin 同步引擎 + Room 副本库 | 共享 `SyncContracts` 线协议文件：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-<epoch>-<设备ID>.json` | `no_backup/yoin-sync.db` |
-| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | `GoogleSignIn` | `:shared` `CloudSyncCore` (`SyncEngine`, `DriveAppDataClient`) | 同上共享 `SyncContracts` 线协议文件 | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `keychain-access-groups`） |
-| **HarmonyOS** (`harmony/`) | Loopback OAuth PKCE | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
+| **Android** (`app/`) | Google Drive（Credential Manager + Play Services Drive Auth） | Kotlin 同步引擎 + Room 副本库 | `appDataFolder`：`yoin-state-<设备ID>.json.gz`、`yoin-artifacts-<设备ID>-<0..3>.json.gz`、`yoin-reset-*`、`yoin-purge-*`、`yoin-migrated-*` | `no_backup/yoin-sync.db` |
+| **iOS & iPadOS / macOS** (`iosApp/` on `main`) | **iCloud（CloudKit 私有库，免登录）** 或 Google Drive（`GoogleSignIn`） | `:shared` `CloudSyncCore`（`SyncEngine`、`DriveAppDataClient`、`CloudKitSyncTransport`） | 同上线协议；iCloud 存入私有库自定义 Zone `YoinSyncZone` 的 `YoinSyncFile`（元数据字段 + `CKAsset` 存 `.json.gz`，绕开 1 MB 上限） | `Application Support/Yoin/sync/yoin-sync.json`；Keychain 存 OAuth 凭据（`Yoin.entitlements` 含 `iCloud.com.gpo.yoin` CloudKit 与 `keychain-access-groups`） |
+| **HarmonyOS** (`harmony/`) | Google Drive（Loopback OAuth PKCE） | Dart 移植 `SyncEngine` + `CloudSyncPlugin.ets` | 同上共享 `SyncContracts` 线协议文件 | Ability `filesDir` 下的 `yoin-sync.json.gz` (`harmony/docs/cloud-sync.md`)；Asset Store Kit (`SecretStore`) 存凭据 |
 
-> 注：所有平台均必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。
+> 注：Google Drive 各平台必须在**同一个** Google Cloud 项目下配置各自平台的 OAuth Client ID，否则不同平台或构建会看到彼此隔离的 `appDataFolder`。iCloud（CloudKit）仅支持 Apple 设备（iOS / iPadOS / macOS），与 Android / 鸿蒙互通请继续使用 Google Drive 或通过「导出 / 导入备份文件」迁移。
 
 ## 评估结论
 
@@ -37,6 +37,7 @@
 | 数据 | 归属 | 合并方式 |
 |---|---|---|
 | 歌曲笔记 | 按音乐账号 | 删除会同步（墓碑）；批量消失会先暂停问你 |
+| 专辑笔记（`album_note`，2026-11-23 笔记改版起；一张专辑可多条） | 按音乐账号 | 同歌曲笔记：按笔记 id，最后修改为准，删除会同步（墓碑），同时一边改一边删时留下改的那条；Android 发布，iOS / HarmonyOS 暂无适配器时把记录原样带着再发布（不写库、不丢墓碑）。旧备份里只在备份中的 `album_note` 记录同名同字段，导入时照普通同步类型合并，每条只写一次 |
 | 单曲评分、专辑评分 | 按音乐账号 | 最后修改的为准（取消评分 = 0，也是一个值） |
 | 专辑长评 | 按音乐账号 | 两台设备同时改：**两段都保留**，中间用「设备 · 日期」分隔 |
 | 首页布局 | 按音乐账号 | 最后修改的为准；「恢复默认」会同步（本机删掉布局行 = 默认） |
@@ -48,15 +49,19 @@
 | 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」、Apple Music 店面） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
 | 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md`） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
 
+笔记和长评里的格式和提及（`[@名字](yoin:…)`，见 `docs/design.md` 专辑详情「笔记的文字格式」）就是文字的一部分，原样同步；两台设备同时改长评时拼接两段也不会弄坏格式。
+
 **不同步**：密码、Token、API Key（音源 / NeoDB / 在线 AI / 外部搜索）、Apple Music 服务地址、当前激活的账号、头像、播放历史/活动记录（每台设备各自保留）、各种音频与封面缓存、`ScreenCorners`（每台设备屏幕物理圆角不同）、手打的歌词（v1 暂不；从搜索面板选的歌词会随 AI 译文的快照带过去，带「用户选择」标记）。
 
 ## 怎么存
 
 ```
-Drive appDataFolder（隐藏，只有 Yoin 能读写）
+Drive appDataFolder / CloudKit Private Database (iCloud.com.gpo.yoin / YoinSyncZone)
   yoin-state-<设备ID>.json.gz            每台设备一份：笔记/评分/布局/设置/账号描述 + 墓碑
   yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask、歌单备份
   yoin-reset-<时间>-<设备ID>.json         「删除云端数据」留下的标记
+  yoin-purge-<时间>-<设备ID>.json         「从云端移除这个账号」留下的标记（见下文）
+  yoin-migrated-<时间>-<设备ID>.json      「切换同步位置」留在旧位置的迁移提示标记（含 targetLocation）
 ```
 
 - 每台设备上传的是**完整副本**（含别的设备来的数据），所以任何一台设备丢了，数据都还在。
@@ -96,6 +101,87 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
   - 不撤销 Google 授权：撤销是按账号生效的，其他设备会因此读不到重置标记。想彻底断开，可在 Google 账号 › 第三方应用与服务里移除 Yoin。
 - **被别的设备「移出同步」**：这台设备下次同步时发现只有自己的文件没了（别的设备还在），会自动重新上传；只有所有设备的文件都没了（比如在 Drive 设置里删了隐藏数据）才停下来问你。
 
+## 从云端移除一个账号
+
+「删除云端数据」是全部删掉；只想让**一个**音乐账号的数据离开 Drive（换了服务、Memories 已经转移到新账号、旧服务器不用了），用「从云端移除」（`CloudSyncController.removeAccountFromCloud`）。入口会放在云同步页的账号行和「Drive 里有，本机没有」（界面待做，数据层已就绪）。
+
+- 写一个清除标记：`yoin-purge-<epoch>-<设备ID>.json`，`appProperties` 为 `yoinKind=purge`、`scope=<syncProfileId>`、`epoch`、`deviceId`；内容是 `ScopePurgeMarker`（`scope`、`epoch`、`at`、`deviceId`、`deviceName`）。和重置标记一样先确认当前 Google 账号就是同步用的那个。
+- epoch 不早于本机副本里这个账号的任何版本，也比这个账号以前的清除标记新。
+- **每台看到标记的设备**（发起的那台立刻，其他设备下次同步时、合并别的设备文件之前）：
+  - 从本机副本删掉这个账号的全部记录和它的账号描述，记住 `purged_scope:<scope> = epoch`（`sync_meta`）。
+  - 这个账号在本机的绑定变成「已从云端移除」（`sync_bindings.state = purged`，界面 `SyncAccountStatus.RemovedFromCloud`）：不再采集、不再写回、不再描述。之后才加进来的同一个账号也直接是这个状态，不会把数据传回去。
+  - **本机数据都还在**，和「删除云端数据」一样，只是不再同步。
+  - 自己上传的文件从此不再含这个账号，并在信封里写上 `"purges": {"<scope>": epoch}`，表示「我知道这次清除」。
+- 合并别的设备文件时，这个账号的记录**只从声明知道这次清除的文件里收**，而且只收 epoch 之后的版本；其余（还没看到标记的设备、旧版本 Yoin 转发的旧副本，哪怕时钟跑在前面）一律丢掉。
+- 想重新同步：在某台设备上点「重新开始同步」（`resumeAccountSync`），它重新加入这个账号，新版本的时间都排在 epoch 之后；其他设备仍是「已从云端移除」，要在各自设备上再点一次。
+- 账号描述（全局记录，key = 这个账号的 scope）跟着它的账号走：重新同步后它的新版本同样排在 epoch 之后，别的设备才会收。
+- 「删除云端数据」也会删掉清除标记；本机副本清空时清除记录一起清空，「已从云端移除」的绑定恢复正常（新 Drive、或重置之后没有可清除的东西了）。
+
+**兼容性（线协议没有破坏）**：
+
+- 旧版本只认 `state` / `artifacts` / `reset` 三种 `yoinKind`，其余文件直接跳过；信封按 `ignoreUnknownKeys` 解析，新增的 `purges` 字段被忽略；不带 `purges` 的信封照旧可读（字段可空、为空时不写，所以没有清除时文件字节与以前完全一样，golden 测试不变）。
+- 代价：旧版本不懂清除，会继续把这个账号的旧数据留在自己的文件里传回去。新版本不收这些记录，但 Drive 里旧版本的文件要等那台设备更新后才干净。旧版本「删除云端数据」不会删清除标记（只删它认识的三种），留着无害。
+- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎没有改，行为等同旧版本。
+
+## 导出与导入
+
+设置 › 同步与备份将可以把**全部**同步数据导出成一个文件（界面待做，数据层已就绪），放到任何地方（SAF 选位置）；不登录 Google、没有 Play 服务也能用。数据层：`data/sync/backup/`（入口 `MemoriesPortability`）。
+
+文件名 `yoin-backup-YYYY-MM-DD.zip`，里面：
+
+```
+manifest.json          格式与版本、导出时间、来源（google-drive / this-device）、设备 ID 与名称、
+                       App 版本、每个账号的描述（服务、名称、「用户名 @ 主机」、店面；不含任何凭据）、
+                       每个账号每类的条数、data/snapshot.json 的 SHA-256 / 字节数 / 条数 / 墓碑数
+data/snapshot.json     一个 SyncEnvelope（fileClass = "backup"），records 就是 Drive 状态文件里的
+                       WireRecord：版本、上一版本、墓碑、scope（syncProfileId）原样保留
+readable/<账号>/<专辑>.md         给人看的：专辑 → 歌曲（评分、带时间与播放位置的笔记）、乐评、专辑笔记、标题
+readable/<账号>/_未归入专辑的歌曲.md  还不知道专辑的歌曲
+readable/global/歌单备份.md        歌单备份列表（含曲目）
+```
+
+- **内容 = 本机此刻同步会上传的东西**：本机副本里的全部记录（所有账号，包括「Drive 里有，本机没有」的、墓碑、本版本不认识的类型），再叠上本机数据库的现状——和副本一致的行保留原版本；同步后改过的行按采集规则生成本机的新版本；同步过、现在被删掉的笔记 / 专辑标题写成墓碑。并发的乐评不在导出时合并，下次同步照常处理。
+- **没开过云同步**也能导出：直接用各适配器的投影；账号的 scope 和绑定时会得到的一样（Subsonic 指纹、本机已知的 Spotify 用户），算不出来的（Apple Music、没解析过的 Spotify）用 `local-<本机 profile id>`。同一账号在本机有两个 profile 时，后一个也用 `local-…`，不混在一起。
+- **墓碑保留**：快照是无损的，墓碑能防止导回同步副本时把删掉的笔记复活；导入到本机数据时墓碑什么也不删。
+- 额外带一类只在备份里的记录：`track_album_link`（歌曲 → 专辑，key = `provider␟trackId`）。它不同步，导入时只写本机数据库，**永远不进同步副本和 Drive**。专辑笔记（`album_note`）自笔记改版起是普通同步类型，和歌曲笔记一样从同步适配器进备份；旧版备份里作为只在备份中的 `album_note` 记录也照样能导入（同一形状，走同步合并，按 id 去重）。迁移 Memories 时，笔记、专辑笔记和长评里指向被重新匹配的歌曲 / 专辑的提及（`[@名字](yoin:…)`）改指目标账号的 id（`NoteMarkup.rewriteMentions`），名字和其余文字不动。
+- 白名单和同步完全一样：所有值都来自适配器投影、副本里已经过白名单的 payload，或账号描述的那几个字段。密码、Token、API Key 永不进入文件（有哨兵测试）。
+- readable/ 只给人看，导入时不读。名字只用本机已有的信息（Yoin 自己的播放记录、笔记里的歌名、专辑笔记里的专辑名），不联网；不知道名字的写 id。
+
+**导入**：
+
+1. 读文件，校验 `format = yoin-backup`、`formatVersion`（比本机新就提示更新）、快照 SHA-256、快照的同步 schema。
+2. 生成导入计划（`ImportPlan`）：每个账号对到本机 profile——同步绑定或指纹相同即自动对上；`local-<id>` 在原设备上对回原 profile；对不上的列出同服务的 profile 让你选，或者「只放在云端」（有同步副本且是真正的同步 scope 时可选：并入副本，下次同步上传，之后可以从它转移 Memories；这个账号已「从云端移除」时不提供——`wasPurged`，并入也会被逐条拒绝——改为导进本机账号，或先重新开始同步），或者先不导（文件里的数据仍可直接作为转移来源）。
+3. 按同步引擎的规则合并进本机数据库，之后由同步引擎当作本机改动上传：
+   - 最后修改的为准（记录版本时间 vs 行自己的 updatedAt），相同的值不动；本机同步副本里已有更新的版本（比如删除）时以副本为准。
+   - 专辑长评两段都保留：本机的在前，备份的跟在「— <导出设备> · 日期 —」下面；本机已经包含那段文字就不再加。
+   - 同一账号的笔记 id 不变；导进另一个账号（scope 不同），或某个 id 在本机属于别的 profile 时，用和转移一样的 `mig-` id 另存一份。
+   - 墓碑一律不执行：导入只会增加，不会删除。
+   - 某类数据在本机读不出来时，这一类整个跳过，不写（结果里列出这些类）。
+4. **幂等**：同一个文件导两次，第二次什么都不改。
+
+## 转移 Memories
+
+把一个账号的 Memories **复制**（不是移动）到本机另一个 profile。来源可以是本机 profile、只在云端的账号（直接读本机同步副本，不用重新登录），或者一个备份文件里的账号。数据层：`data/transfer/memories/`（`MemoryTransfer`，入口 `MemoriesPortability.planTransfer / runTransfer`）。
+
+复制的内容：歌曲笔记、单曲评分、专辑评分与长评、专辑笔记、你改过的专辑标题（`ALBUM_TITLE`）、AI 拟题（`MEMORY_TITLE`）与 AI 文案（`MEMORY_COPY`）、歌曲 → 专辑关联（`track_album_links`）。
+
+**id 怎么对上**：
+
+- 两边在同一个 id 空间里就原样复制 key：同一服务，并且是 Spotify、Apple Music 曲库目录 id（纯数字；`library:…` 和裸的 `i.` / `l.` 资料库 id 不算），或同一台 Subsonic 服务器（按「主机[:端口]」比较）。歌曲和专辑各自判断：目录里的歌挂在资料库专辑 id 上，专辑那一侧仍要匹配。
+- 否则（换 Subsonic 服务器、跨服务、Apple Music 的个人资料库 id `library:i.…` / `library:l.…`）生成匹配计划（`TransferPlan`）：
+  - 歌曲：先 ISRC，再标题 + 艺人 + 时长（`TrackMatcher`，和歌单迁移同一套规则）；本地信息不够或搜索没定下来时，才向来源服务要一次 ISRC。
+  - 专辑：先看这张专辑里已匹配的歌在目标上大多属于哪张专辑；没有再按专辑名 + 艺人搜索。
+  - 结果分三档：已匹配 / 不确定（最多 3 个候选，不点选就不复制）/ 没找到。UI 可以 `pickTrack` / `pickAlbum` 指定。实际搜索由 UI 层提供的 `MemoryCatalog` 完成。
+- 笔记（歌曲与专辑）用新的确定性 id：`mig-` + sha256(来源 scope ␟ 原 id ␟ 目标 scope) 的前 16 位十六进制（␟ = U+001F）。不会和原笔记冲突，同一份复制在任何设备上 id 都一样。
+
+**目标里已经有东西时**：笔记两份都留；评分、标题以后改的为准；长评两段都留，来源的那段放在「— 来自 <来源账号名>」下面；目标自己的 AI 拟题优先。专辑行写入时 `ratingNeedsSync = false`、`reviewNeedsSync = false`，不会推到 NeoDB；单曲评分也不推到目标服务。
+
+**重跑**：每对（来源 scope，目标 profile）有一本转移账本，存在同步数据库的 `sync_meta` 里（`transfer:<hash>:<条目>`，不改任何表结构）：已复制的条目跳过并报告跳过了多少；之前匹配上的和你点选过的直接沿用；之前没找到的重新找。
+
+歌曲 → 专辑关联：除了 `track_album_links` 里的，有笔记或评分、但只有播放记录知道专辑的歌也会带上一条（来源 `play`）；匹配到的歌按目标上那首歌的专辑补一条。
+
+复制写进的是目标 profile 的本机数据，同步引擎把它们当成目标账号自己的改动上传。
+
 ## 必须由你在 Google Cloud 完成的配置
 
 Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这个 App：
@@ -119,5 +205,6 @@ Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这
 - WorkManager 后台补传
 - 手打歌词单独同步（缓存规则已改为用户选的行不按天数过期、整体 10 MiB LRU，见 `data/lyrics/LyricsCachePolicy.kt`，前提已具备）
 - 播放历史（按月分块文件）
-- 「从 Drive 移除某个账号」、自动清理长期不活跃设备的文件
-- 无 Google Play 服务设备的手动导出/导入
+- 自动清理长期不活跃设备的文件
+- iOS 发起「从云端移除」与对应界面；HarmonyOS 应用清除标记（见「从云端移除一个账号」）
+- 转移后在本机删掉旧账号卡片的入口（All Memories / 搜索会合并所有本机账号，不删会看到两份）

@@ -166,4 +166,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.state<_WindowState>(find.byType(_Window)).field.attached, isFalse);
   });
+
+  testWidgets('should_dropHalftoneField_when_barScrollHideFadesBarOut', (tester) async {
+    final field = await pump(tester);
+    expect(maskLayers(tester), 1);
+
+    // Scrolling up hides the floating bar / Now Playing pill while keeping it mounted.
+    field.visibility = 0.5;
+    await tester.pump();
+    expect(field.reveal, closeTo(0.5, 0.01));
+
+    field.visibility = 0.0;
+    await tester.pump();
+    expect(field.reveal, 0);
+    expect(maskLayers(tester), 0, reason: 'no ghost halftone once the bar is hidden by scroll-hide');
+
+    // Scrolling back down brings the bar and its halftone field back.
+    field.visibility = 1.0;
+    await tester.pump();
+    expect(field.reveal, closeTo(1, 0.01));
+    expect(maskLayers(tester), 1);
+  });
 }

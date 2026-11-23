@@ -48,7 +48,12 @@ if (releaseTaskRequested && !hasReleaseKeystore) {
 
 android {
     namespace = "com.gpo.yoin"
-    compileSdk = 37
+    // Compose foundation 1.13 (BOM 2026.11) needs the 37.1 minor SDK.
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "com.gpo.yoin"
@@ -230,6 +235,7 @@ dependencies {
     implementation(libs.media3.cast)
     implementation(libs.cast.framework)
     implementation(libs.genai.prompt)
+    ksp(libs.genai.schema.compiler)
     // Google authorization for optional Drive appDataFolder cloud sync
     implementation(libs.play.services.auth) {
         // Declared by the 22.0.0 POM but referenced by no Play services class; sync has its own Task.await().

@@ -1,35 +1,69 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import '../data/cache/cover_cache.dart';
+import '../data/cache/cover_color_cache.dart';
 import '../theme/color_scheme.dart';
 import '../theme/motion.dart';
+import '../theme/playback_theme.dart' show pickCoverSeed;
 import '../ui/component/artwork_image.dart';
 import '../ui/component/artwork_retry.dart';
 
 /// Pixels the seed is read from (decoded small, off the UI isolate).
 const _seedDecodeSize = 96;
+const _seedCacheCapacity = 256;
 
 final _seedCache = <String, Color?>{};
 final _seedInFlight = <String, Future<Color?>>{};
 
+void _putSeedMemory(String key, Color? seed) {
+  _seedCache.remove(key);
+  _seedCache[key] = seed;
+  while (_seedCache.length > _seedCacheCapacity) {
+    _seedCache.remove(_seedCache.keys.first);
+  }
+}
+
+/// Records an already-extracted seed (e.g. from Now Playing's [PlaybackTheme])
+/// so opening Album Detail for that cover has its colour on Frame 1.
+void rememberCoverSeed(String url, Color seed) {
+  final key = coverCacheKey(url);
+  _putSeedMemory(key, seed);
+  CoverColorStore.instance.putSeed(key, seed.toARGB32());
+}
+
 /// The SPEC_2025 seed for a cover (Android CoverSeedExtractor): decode the
-/// image small, Celebi-quantize, Score; cached by URL. null when the image
-/// can't be read. A cover that failed to load is not remembered:
-/// [onLoadFailed] hears why, and the next call reads it again.
+/// image small, Celebi-quantize, Score; cached by normalized cover key and
+/// persisted across launches. null when the image can't be read. A cover that
+/// failed to load is not remembered: [onLoadFailed] hears why, and the next
+/// call reads it again.
 Future<Color?> coverSeedColor(String url, {ValueChanged<Object>? onLoadFailed}) {
-  if (_seedCache.containsKey(url)) return Future.value(_seedCache[url]);
-  final read = _seedInFlight[url] ??= _readSeed(url).then(
+  final key = coverCacheKey(url);
+  if (_seedCache.containsKey(key)) {
+    final hit = _seedCache.remove(key);
+    _seedCache[key] = hit;
+    return SynchronousFuture(hit);
+  }
+  final stored = CoverColorStore.instance.get(key)?.seedArgb;
+  if (stored != null) {
+    final color = Color(stored);
+    _putSeedMemory(key, color);
+    return SynchronousFuture(color);
+  }
+  final read = _seedInFlight[key] ??= _readSeed(url).then(
     (seed) {
-      _seedCache[url] = seed;
-      _seedInFlight.remove(url);
+      _putSeedMemory(key, seed);
+      if (seed != null) CoverColorStore.instance.putSeed(key, seed.toARGB32());
+      _seedInFlight.remove(key);
       return seed;
     },
     onError: (Object error) {
-      _seedInFlight.remove(url);
+      _seedInFlight.remove(key);
       throw error;
     },
   );
@@ -44,7 +78,21 @@ Future<Color?> coverSeedColor(String url, {ValueChanged<Object>? onLoadFailed}) 
 
 /// The seed for [url] when it has been read already (no wait, no frame with
 /// the app's colours first); null otherwise.
-Color? cachedCoverSeed(String url) => _seedCache[url];
+Color? cachedCoverSeed(String url) {
+  final key = coverCacheKey(url);
+  if (_seedCache.containsKey(key)) {
+    final hit = _seedCache.remove(key);
+    _seedCache[key] = hit;
+    return hit;
+  }
+  final stored = CoverColorStore.instance.get(key)?.seedArgb;
+  if (stored != null) {
+    final color = Color(stored);
+    _putSeedMemory(key, color);
+    return color;
+  }
+  return null;
+}
 
 Future<Color?> _readSeed(String url) async {
   final provider = artworkImageProvider(url, cacheWidth: _seedDecodeSize, cacheHeight: _seedDecodeSize);
@@ -74,16 +122,19 @@ Future<Color?> _readSeed(String url) async {
 
 /// RGBA bytes → the Score-picked seed ARGB (pure; runs in an isolate).
 Future<int?> seedFromRgba(Uint8List rgba) async {
+  final total = rgba.length ~/ 4;
+  if (total == 0) return null;
+  final step = math.max(1, total ~/ 12544);
   final pixels = <int>[];
-  for (var i = 0; i + 3 < rgba.length; i += 4) {
+  for (var p = 0; p < total; p += step) {
+    final i = p * 4;
     final a = rgba[i + 3];
     if (a < 255) continue;
     pixels.add((a << 24) | (rgba[i] << 16) | (rgba[i + 1] << 8) | rgba[i + 2]);
   }
   if (pixels.isEmpty) return null;
   final result = await QuantizerCelebi().quantize(pixels, 128);
-  final ranked = Score.score(result.colorToCount, desired: 1);
-  return ranked.isEmpty ? null : ranked.first;
+  return pickCoverSeed(result.colorToCount);
 }
 
 /// The page colours a detail page draws with (Android DetailPageColors).
@@ -160,6 +211,8 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
   void initState() {
     super.initState();
     _t.animation.addListener(_tick);
+    final url = widget.coverUrl;
+    if (url != null) _seed = cachedCoverSeed(url);
     _resolve();
   }
 
@@ -168,7 +221,14 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
     super.didUpdateWidget(old);
     if (old.coverUrl != widget.coverUrl) {
       _retry.reset();
-      _resolve();
+      final url = widget.coverUrl;
+      final cached = url == null ? null : cachedCoverSeed(url);
+      if (cached != null) {
+        _seed = cached;
+        _retarget(animate: _to != null);
+      } else {
+        _resolve();
+      }
     }
   }
 
@@ -184,6 +244,7 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
   void _resolve() {
     final url = widget.coverUrl;
     if (url == null) return;
+    if (_seed != null && cachedCoverSeed(url) == _seed) return;
     _retry.requested();
     void failed(Object error) {
       if (!mounted || widget.coverUrl != url) return;

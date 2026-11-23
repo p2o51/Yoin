@@ -31,6 +31,10 @@ data class CloudSyncState(
     val readOnly: Boolean = false,
     /** Folder name of the newest local backup of the appDataFolder, if any. */
     val lastBackup: String? = null,
+    /** Active cloud sync backend ([SyncLocations.GOOGLE_DRIVE] or [SyncLocations.ICLOUD]). */
+    val location: String = SyncLocations.GOOGLE_DRIVE,
+    /** True when a migration marker still needs to be retried on the previous sync location. */
+    val pendingMigrationNotice: Boolean = false,
 ) {
     val enabled: Boolean get() = phase.enabled
 }
@@ -97,6 +101,11 @@ sealed interface CloudSyncPhase {
         override val enabled = true
     }
 
+    /** Another device migrated this sync copy to [targetLocation]; uploads here pause until the user decides. */
+    data class MigratedElsewhere(val targetLocation: String, val deviceName: String?) : CloudSyncPhase {
+        override val enabled = true
+    }
+
     data class Error(val message: String) : CloudSyncPhase {
         override val enabled = true
     }
@@ -108,6 +117,7 @@ data class SyncAccountRow(
     val provider: String,
     val displayName: String,
     val status: SyncAccountStatus,
+    val syncProfileId: String? = null,
 )
 
 sealed interface SyncAccountStatus {
@@ -126,6 +136,9 @@ sealed interface SyncAccountStatus {
 
     /** Signed in as a different account than the one this profile synced as. */
     data object AccountChanged : SyncAccountStatus
+
+    /** Removed from the cloud (on any device): not synced here until resumed. */
+    data object RemovedFromCloud : SyncAccountStatus
 }
 
 /** An account whose data is in Drive but not connected on this device. */
@@ -160,8 +173,31 @@ val CloudSyncPhase.wireName: String
         is CloudSyncPhase.NeedsReview -> "needs_review"
         CloudSyncPhase.CloudCopyRemoved -> "cloud_copy_removed"
         is CloudSyncPhase.UpdateRequired -> "update_required"
+        is CloudSyncPhase.MigratedElsewhere -> "migrated_elsewhere"
         is CloudSyncPhase.Error -> "error"
     }
+
+/** One account's verified live record count during a 4-step sync location switch. */
+data class LocationSwitchAccountCount(
+    val scope: String,
+    val displayName: String,
+    val liveRecords: Int,
+)
+
+/** Outcome of the 4-step guided sync location switch (Export & verify -> Import -> Verify counts -> Old copy). */
+data class LocationSwitchResult(
+    val succeeded: Boolean,
+    val fromLocation: String,
+    val toLocation: String,
+    val snapshotSha256: String? = null,
+    val backupFolder: String? = null,
+    val totalLiveRecords: Int = 0,
+    val accountCounts: List<LocationSwitchAccountCount> = emptyList(),
+    val countsVerified: Boolean = false,
+    val migrationMarkerWritten: Boolean = false,
+    val oldCopyCleared: Boolean = false,
+    val error: String? = null,
+)
 
 /** One appDataFolder file as backed up before this device first writes to Drive. */
 class SyncBackupFile(

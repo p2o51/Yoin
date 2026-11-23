@@ -8,6 +8,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gpo.yoin.data.notes.LocalMentionResolver
+import com.gpo.yoin.data.notes.MentionAccount
+import com.gpo.yoin.data.notes.MentionResolver
+import com.gpo.yoin.data.notes.NoteBacklinkRepository
+import com.gpo.yoin.data.notes.RoomMentionNameLookup
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.album.TrackAlbumLinkEnricher
 import com.gpo.yoin.data.cache.DetailCacheStore
@@ -515,6 +520,18 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** Export / import backups and Memories transfers (docs/cloud-sync.md「导出与导入」「转移 Memories」). */
+    val memoriesPortability: com.gpo.yoin.data.sync.backup.MemoriesPortability by lazy {
+        com.gpo.yoin.data.sync.backup.MemoriesPortability(
+            context = context,
+            db = database,
+            profileManager = profileManager,
+            cloudSync = cloudSync,
+            versionName = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+        )
+    }
+
     val castManager: CastManager by lazy {
         CastManager(context).also { it.initialize() }
     }
@@ -552,9 +569,19 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** Shared Gemini Nano client serialized via its internal mutex across all on-device features. */
+    private val geminiNanoModel: com.gpo.yoin.data.highlight.GeminiNanoLyricModel by lazy {
+        com.gpo.yoin.data.highlight.GeminiNanoLyricModel()
+    }
+
+    /** Cached 3-slot daily Home greetings pre-generated on-device so Home opens with zero wait. */
+    val homeGreetingStore: com.gpo.yoin.data.highlight.HomeGreetingStore by lazy {
+        com.gpo.yoin.data.highlight.HomeGreetingStore(context)
+    }
+
     /**
      * Gemini Nano lyric highlights for Home's 「歌词一句」 (data/highlight/): picked a few at a time while Yoin is
-     * in the foreground, on devices with Nano only.
+     * in the foreground, on devices with Nano only. Also drives once-a-day 3-slot Home greeting pre-generation.
      */
     val lyricHighlightProcessor: com.gpo.yoin.data.highlight.LyricHighlightProcessor by lazy {
         com.gpo.yoin.data.highlight.LyricHighlightProcessor(
@@ -562,10 +589,27 @@ class AppContainer(private val context: Context) {
             repository = repository,
             dao = database.lyricHighlightDao(),
             albumRatingDao = database.albumRatingDao(),
-            model = com.gpo.yoin.data.highlight.GeminiNanoLyricModel(),
+            model = geminiNanoModel,
             currentTrack = { playbackManager.playbackState.value.currentTrack },
             profileStartupDone = profileStartupDone,
             testMode = BuildConfig.NANO_TEST,
+            playHistoryDao = database.playHistoryDao(),
+            homeGreetingStore = homeGreetingStore,
+        )
+    }
+
+    /** On-device suggested follow-up questions for Now Playing's About -> Ask Gemini bar. */
+    val aboutFollowUpGenerator: com.gpo.yoin.data.highlight.AboutFollowUpGenerator by lazy {
+        com.gpo.yoin.data.highlight.AboutFollowUpGenerator(
+            model = geminiNanoModel,
+            status = lyricHighlightProcessor.status,
+            enabled = lyricHighlightProcessor.aboutFollowUpsEnabled,
+            isForeground = {
+                androidx.lifecycle.ProcessLifecycleOwner.get()
+                    .lifecycle
+                    .currentState
+                    .isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            },
         )
     }
 
@@ -831,6 +875,19 @@ class AppContainer(private val context: Context) {
             detailCacheStore = detailCacheStore,
             aiProviderStore = aiProviderStore,
         )
+    }
+
+    /** Mentions in notes, resolved for the account in use (notes revamp; data/notes/MentionResolver). */
+    val mentionResolver: MentionResolver by lazy {
+        LocalMentionResolver(
+            account = { profileManager.activeProfile.value?.let { MentionAccount(it.id, it.provider) } },
+            names = RoomMentionNameLookup(database.noteMentionDao()),
+        )
+    }
+
+    /** 被提及: the account in use's writings that mention an album, track or artist (data/notes/NoteBacklinks). */
+    val noteBacklinks: NoteBacklinkRepository by lazy {
+        NoteBacklinkRepository(database.noteMentionDao(), profileManager.activeProfileId)
     }
 
     /** AI settings v2: service, tier and the non-Gemini keys (data/local/AiProviderStore). */

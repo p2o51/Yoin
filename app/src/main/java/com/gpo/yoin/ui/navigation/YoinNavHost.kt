@@ -679,9 +679,19 @@ private fun YoinShell(
     // A page opened over the shell (a detail page above all) hands its bar
     // back to this one when it leaves, predictive back included, so the bar
     // has to be there under it. The page's own bar rises into place on open
-    // (DETAIL_EXTRA_BAR_RISES); this one comes back unseen once the page
-    // covers the window, or rises on return if the page left before that.
+    // (DETAIL_EXTRA_BAR_RISES); this one comes back unseen while nothing of
+    // this window is seen, and rises on return only if nothing did that.
+    // An opaque page (Settings) stops the shell: ON_STOP. A detail Activity
+    // is translucent and only PAUSES it (CoveredWindowAnimationGate), so
+    // ON_STOP never came and the bar stayed scrolled away under the page,
+    // then rose again on ON_RESUME after the page's bar had already risen
+    // and handed back — the second pop on return to Home (owner 2026-11-21).
+    // Its back revealing this window is the unseen moment: the page still
+    // covers it all on that first frame, its bar resting on this one's spot.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { barScrollHide.showUnseen() }
+    LaunchedEffect(barScrollHide) {
+        experienceSessionStore.windowBeneathRevealed.collect(barScrollHide::onWindowRevealed)
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { barScrollHide.show() }
     LaunchedEffect(barScrollHide) {
         snapshotFlow { barScrollHide.fraction >= 0.5f }

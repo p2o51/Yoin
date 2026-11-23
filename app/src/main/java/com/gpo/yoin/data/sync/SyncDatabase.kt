@@ -117,7 +117,7 @@ data class SyncBindingEntity(
     val provider: String,
     /** sha256 of the account fingerprint this binding was made for; null for Apple Music (explicit links). */
     val fingerprintHash: String?,
-    /** [STATE_ACTIVE] or [STATE_PAUSED_MISMATCH]. */
+    /** [STATE_ACTIVE], [STATE_PAUSED_MISMATCH] or [STATE_PURGED]. */
     val state: String,
     /** Fingerprint hash observed when the state became PAUSED_MISMATCH. */
     val observedFingerprintHash: String?,
@@ -126,6 +126,13 @@ data class SyncBindingEntity(
     companion object {
         const val STATE_ACTIVE = "active"
         const val STATE_PAUSED_MISMATCH = "paused_mismatch"
+
+        /**
+         * The account was removed from the cloud (a scope purge marker): nothing of it is captured, applied
+         * or described until the user resumes it on this device. Sticky: a matching fingerprint never
+         * resumes it on its own.
+         */
+        const val STATE_PURGED = "purged"
     }
 }
 
@@ -184,6 +191,12 @@ object SyncMetaKeys {
     /** "<epoch>|<markerFileId>" of a "delete cloud data" that has not finished deleting files yet. */
     const val PENDING_RESET = "pending_reset"
 
+    /**
+     * Prefix: "purged_scope:<syncProfileId>" = epoch of the newest scope purge applied here. Records of that
+     * scope at or before the epoch are never merged or published again; new local versions are stamped after it.
+     */
+    const val PURGED_SCOPE_PREFIX = "purged_scope:"
+
     /** Prefix: "spotify_uid:<localProfileId>" = "<userId>|<refreshTokenHash16>". */
     const val SPOTIFY_UID_PREFIX = "spotify_uid:"
 
@@ -192,6 +205,12 @@ object SyncMetaKeys {
 
     /** Prefix: "pending_file_id:<fileKind>:<shard>" = pre-allocated Drive id for our not-yet-created file. */
     const val PENDING_FILE_ID_PREFIX = "pending_file_id:"
+
+    /** Newest [SyncFileProps.KIND_MIGRATED] epoch dismissed on this device. */
+    const val ACK_MIGRATED_EPOCH = "ack_migrated_epoch"
+
+    /** "<epoch>|<targetLocation>|<deviceName>" of an unacknowledged migration marker seen from another device. */
+    const val MIGRATED_NOTICE = "migrated_notice"
 }
 
 @Dao
@@ -220,6 +239,9 @@ interface SyncDao {
 
     @Upsert
     suspend fun upsertRecords(records: List<SyncRecordEntity>)
+
+    @Query("DELETE FROM sync_records WHERE kind = :kind AND scope = :scope AND `key` = :key")
+    suspend fun deleteRecord(kind: String, scope: String, key: String)
 
     @Query("DELETE FROM sync_records")
     suspend fun clearRecords()
@@ -273,6 +295,9 @@ interface SyncDao {
 
     @Query("DELETE FROM sync_bindings WHERE localProfileId = :localProfileId")
     suspend fun deleteBinding(localProfileId: String)
+
+    @Query("UPDATE sync_bindings SET state = :state WHERE state = :fromState")
+    suspend fun updateBindingStates(fromState: String, state: String)
 
     // ---- remote files
     @Query("SELECT * FROM sync_remote_files")
