@@ -235,7 +235,10 @@ final class AppleMusicSource implements MusicSource {
 
   static String? _firstGenre(AppleMusicJson attributes) {
     final genres = attributes['genreNames'];
-    if (genres is List && genres.isNotEmpty && genres.first is String) return genres.first as String;
+    if (genres is List) {
+      final parts = [for (final g in genres) if (g is String && g.trim().isNotEmpty) g.trim()];
+      if (parts.isNotEmpty) return parts.join(', ');
+    }
     return null;
   }
 

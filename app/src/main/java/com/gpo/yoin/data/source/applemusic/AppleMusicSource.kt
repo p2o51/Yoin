@@ -168,7 +168,7 @@ class AppleMusicSource(
         }
         val catalogId = catalog?.text("id")
         val genre = (resource.attributes()["genreNames"] ?: catalog?.attributes()?.get("genreNames"))
-            ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull
+            ?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.joinToString(", ")?.ifBlank { null }
         return AppleMusicNameResolver.ArtistHint(catalogId = catalogId, genre = genre)
     }
 
@@ -990,7 +990,8 @@ class AppleMusicSource(
             return Album(
                 catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
                 a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
-                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
+                (a["genreNames"] ?: catalog?.attributes()?.get("genreNames"))
+                    ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
                 libraryAddedAt = a.text("dateAdded")
             )
         }

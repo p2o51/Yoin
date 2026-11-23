@@ -165,6 +165,8 @@ final class OriginalNameTarget {
   static const japan = OriginalNameTarget('jp', 'ja');
   static const korea = OriginalNameTarget('kr', 'ko');
   static const mainlandChina = OriginalNameTarget('cn', 'zh-Hans-CN');
+  static const taiwan = OriginalNameTarget('tw', 'zh-Hant-TW');
+  static const hongKong = OriginalNameTarget('hk', 'zh-Hant-HK');
   static const unitedStates = OriginalNameTarget('us', 'en-US');
   static const _thailand = OriginalNameTarget('th', 'th');
   static const _russia = OriginalNameTarget('ru', 'ru');
@@ -207,18 +209,23 @@ final class OriginalNameTarget {
   };
 
   /// The language a song was released in, as well as its metadata tells: its
-  /// genre first (J-Pop, Mandopop…, in English or in Chinese as the CN
+  /// genre first (J-Pop, Mandopop…, in English, Chinese, or Japanese as the
   /// storefront writes them), then the country its ISRC was registered in
   /// (including Western/Latin countries when the shown text was transliterated
-  /// into Katakana/Hangul/Han), then the script its shown names are written in.
+  /// into Katakana/Hangul/Han), then Katakana transliteration of Western names,
+  /// then the script its shown names are written in.
   static OriginalNameTarget? detect({String? title, String? artist, String? genre, String? isrc}) {
     final shown = '${title ?? ''} ${artist ?? ''}';
     final byGenre = forGenre(genre);
-    if (byGenre != null) return byGenre;
     final byIsrc = forIsrc(isrc);
+    if (byGenre != null) {
+      final resolved = (_isChinese(byGenre) && byIsrc != null && _isChinese(byIsrc)) ? byIsrc : byGenre;
+      return (_isChinese(resolved) && !_needsChineseRecovery(title, artist)) ? null : resolved;
+    }
     if (byIsrc != null) {
-      if (byIsrc != unitedStates || shown.runes.any(_isNonLatinLetter)) return byIsrc;
-      return null;
+      if (byIsrc == unitedStates) return shown.runes.any(_isNonLatinLetter) ? unitedStates : null;
+      if (_isChinese(byIsrc) && !_needsChineseRecovery(title, artist)) return null;
+      return byIsrc;
     }
     if (_looksLikeKatakanaTransliteration(shown)) return unitedStates;
     return forScript(shown);
@@ -228,21 +235,38 @@ final class OriginalNameTarget {
     final g = genre?.trim().toLowerCase() ?? '';
     if (g.isEmpty) return null;
     bool has(List<String> markers) => markers.any(g.contains);
-    if (has(const ['j-pop', 'japanese', 'anime', '日本流行', '日语流行', '日語流行', '动漫', '動漫'])) return japan;
-    if (has(const ['k-pop', 'korean', '韩国流行', '韓國流行', '韩语流行', '韓語流行'])) return korea;
+    if (has(const [
+      'j-pop',
+      'j-rock',
+      'japanese',
+      'anime',
+      'enka',
+      'kayokyoku',
+      '日本流行',
+      '日语流行',
+      '日語流行',
+      '动漫',
+      '動漫',
+      'アニメ',
+      '邦楽',
+      '日本のポップ',
+      '演歌',
+      '歌謡曲',
+    ])) {
+      return japan;
+    }
+    if (has(const ['k-pop', 'korean', '韩国流行', '韓國流行', '韩语流行', '韓語流行', '韓国'])) return korea;
+    if (has(const ['cantopop', 'hong kong', '粤语流行', '粵語流行', 'カントポップ', '広東ポップ'])) return hongKong;
     if (has(const [
       'mandopop',
-      'cantopop',
       'chinese',
-      'hong kong',
       'c-pop',
       '国语流行',
       '國語流行',
       '华语流行',
       '華語流行',
       '中文流行',
-      '粤语流行',
-      '粵語流行',
+      'マンドポップ',
     ])) {
       return mainlandChina;
     }
@@ -265,16 +289,19 @@ final class OriginalNameTarget {
     return switch (prefix) {
       'JP' => japan,
       'KR' => korea,
-      'CN' || 'HK' || 'MO' || 'TW' => mainlandChina,
+      'CN' => mainlandChina,
+      'TW' => taiwan,
+      'HK' || 'MO' => hongKong,
       _ => _latinIsrcCountries.contains(prefix) ? unitedStates : null,
     };
   }
 
-  /// Kana is Japanese and Hangul Korean; Han alone is Chinese. Latin script says nothing.
+  /// Kana is Japanese and Hangul Korean. Han alone is shared across Japanese
+  /// Kanji ("藤井 風"), Traditional Chinese ("張懸"), and Simplified Chinese, so
+  /// Han without Chinese genre/ISRC stays put.
   static OriginalNameTarget? forScript(String text) {
     if (text.runes.any(_isKana)) return japan;
     if (text.runes.any(_isHangul)) return korea;
-    if (text.runes.any(_isHan)) return mainlandChina;
     return null;
   }
 
@@ -282,9 +309,16 @@ final class OriginalNameTarget {
   /// instead of the shown ones. A fixed region shows whatever its storefront
   /// calls the item. [AppleMusicNameRegion.original] asks for names in the
   /// item's own script: for [unitedStates], accept a Latin name that drops
-  /// Katakana/Hangul/Han transliteration; for non-Latin targets, require a
-  /// non-Latin letter (and Han for Chinese).
-  static bool accepts(AppleMusicNameRegion region, OriginalNameTarget target, String? shown, String? resolved) {
+  /// Katakana/Hangul/Han transliteration; for [korea] artist names, preserve
+  /// international/shown names (NewJeans, ROSÉ, IVE, ILLIT); for Chinese
+  /// targets, only replace text without existing Han characters.
+  static bool accepts(
+    AppleMusicNameRegion region,
+    OriginalNameTarget target,
+    String? shown,
+    String? resolved, {
+    bool isArtist = false,
+  }) {
     final answer = resolved?.trim() ?? '';
     if (answer.isEmpty || answer == shown?.trim()) return false;
     if (region != AppleMusicNameRegion.original) return true;
@@ -294,8 +328,24 @@ final class OriginalNameTarget {
       final shownNonLatin = shownText.runes.where(_isNonLatinLetter).length;
       return answer.runes.any(_isLatinLetter) && answerNonLatin < shownNonLatin;
     }
+    if (isArtist && target == korea) return false;
     if (!answer.runes.any(_isNonLatinLetter)) return false;
-    return target != mainlandChina || answer.runes.any(_isHan);
+    if (_isChinese(target)) {
+      final shownText = shown?.trim() ?? '';
+      return answer.runes.any(_isHan) && !shownText.runes.any(_isHan);
+    }
+    return true;
+  }
+
+  static bool _isChinese(OriginalNameTarget target) =>
+      target == mainlandChina || target == taiwan || target == hongKong;
+
+  static bool _needsChineseRecovery(String? title, String? artist) {
+    final parts = [
+      if (title != null && title.trim().isNotEmpty) title.trim(),
+      if (artist != null && artist.trim().isNotEmpty) artist.trim(),
+    ];
+    return parts.isEmpty || parts.any((p) => !p.runes.any(_isHan));
   }
 
   static bool _isHiragana(int c) => c >= 0x3040 && c <= 0x309F;
@@ -305,8 +355,7 @@ final class OriginalNameTarget {
   static bool _isKana(int c) => (c >= 0x3040 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF);
 
   static bool _looksLikeKatakanaTransliteration(String text) {
-    if (!text.contains('・')) return false;
-    if (text.runes.any(_isHiragana) || text.runes.any(_isHan)) return false;
+    if (text.runes.any(_isHiragana) || text.runes.any(_isHan) || text.runes.any(_isHangul)) return false;
     return text.runes.any(_isKatakana);
   }
 

@@ -99,6 +99,8 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
         val Japan = OriginalNameTarget("jp", "ja")
         val Korea = OriginalNameTarget("kr", "ko")
         val MainlandChina = OriginalNameTarget("cn", "zh-Hans-CN")
+        val Taiwan = OriginalNameTarget("tw", "zh-Hant-TW")
+        val HongKong = OriginalNameTarget("hk", "zh-Hant-HK")
         val UnitedStates = OriginalNameTarget("us", "en-US")
         private val Thailand = OriginalNameTarget("th", "th")
         private val Russia = OriginalNameTarget("ru", "ru")
@@ -134,20 +136,27 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
 
         /**
          * The language a song was released in, as well as its metadata tells: its genre first (J-Pop,
-         * Mandopop…, in English or in Chinese as the CN storefront writes them), then the country its
+         * Mandopop…, in English, Chinese, or Japanese as the storefront writes them), then the country its
          * ISRC was registered in (including Western/Latin countries when the shown text was transliterated
-         * into Katakana/Hangul/Han), then the script its shown names are written in. Null when nothing
-         * points at a different script/storefront.
+         * into Katakana/Hangul/Han), then Katakana transliteration of Western names, then the script its
+         * shown names are written in. Null when nothing points at a different script/storefront.
          */
         fun detect(title: String?, artist: String?, genre: String?, isrc: String?): OriginalNameTarget? {
             val shown = "${title.orEmpty()} ${artist.orEmpty()}"
-            forGenre(genre)?.let { return it }
-            forIsrc(isrc)?.let { target ->
-                if (target != UnitedStates || nonLatinLetters(shown) > 0) return target
-                return null
+            val byGenre = forGenre(genre)
+            val byIsrc = forIsrc(isrc)
+            if (byGenre != null) {
+                val resolved = if (isChinese(byGenre) && byIsrc != null && isChinese(byIsrc)) byIsrc else byGenre
+                return if (isChinese(resolved) && !needsChineseRecovery(title, artist)) null else resolved
             }
-            // Albums (and ISRC-less items) on Japan's storefront transliterate multi-word Western names
-            // with Katakana + middle dot ('・') and no Hiragana/Han (e.g. "テイラー・スウィフト").
+            if (byIsrc != null) {
+                if (byIsrc == UnitedStates) return if (nonLatinLetters(shown) > 0) UnitedStates else null
+                if (isChinese(byIsrc) && !needsChineseRecovery(title, artist)) return null
+                return byIsrc
+            }
+            // Albums and artists on Japan's storefront transliterate Western names into Katakana with no
+            // Hiragana/Han/Hangul (both multi-word "テイラー・スウィフト" and single-word "ミューズ", "ビョーク").
+            // Japanese Katakana artists/songs (e.g. "ヨルシカ") are matched as Japan above via genre/ISRC.
             if (looksLikeKatakanaTransliteration(shown)) return UnitedStates
             return forScript(shown)
         }
@@ -157,11 +166,16 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
             if (g.isEmpty()) return null
             fun has(vararg markers: String) = markers.any { it in g }
             return when {
-                has("j-pop", "japanese", "anime", "日本流行", "日语流行", "日語流行", "动漫", "動漫") -> Japan
-                has("k-pop", "korean", "韩国流行", "韓國流行", "韩语流行", "韓語流行") -> Korea
                 has(
-                    "mandopop", "cantopop", "chinese", "hong kong", "c-pop",
-                    "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "粤语流行", "粵語流行",
+                    "j-pop", "j-rock", "japanese", "anime", "enka", "kayokyoku",
+                    "日本流行", "日语流行", "日語流行", "动漫", "動漫",
+                    "アニメ", "邦楽", "日本のポップ", "演歌", "歌謡曲",
+                ) -> Japan
+                has("k-pop", "korean", "韩国流行", "韓國流行", "韩语流行", "韓語流行", "韓国") -> Korea
+                has("cantopop", "hong kong", "粤语流行", "粵語流行", "カントポップ", "広東ポップ") -> HongKong
+                has(
+                    "mandopop", "chinese", "c-pop",
+                    "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "マンドポップ",
                 ) -> MainlandChina
                 has("thai") -> Thailand
                 has("russian") -> Russia
@@ -181,17 +195,21 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
             return when (prefix) {
                 "JP" -> Japan
                 "KR" -> Korea
-                "CN", "HK", "MO", "TW" -> MainlandChina
+                "CN" -> MainlandChina
+                "TW" -> Taiwan
+                "HK", "MO" -> HongKong
                 in LATIN_ISRC_COUNTRIES -> UnitedStates
                 else -> null
             }
         }
 
-        /** Kana is Japanese and Hangul Korean; Han alone is Chinese. Latin script says nothing. */
+        /**
+         * Kana is Japanese and Hangul Korean. Han alone is shared across Japanese Kanji (e.g. "藤井 風"),
+         * Traditional Chinese ("張懸"), and Simplified Chinese, so Han without Chinese genre/ISRC stays put.
+         */
         fun forScript(text: String): OriginalNameTarget? = when {
             text.any(::isKana) -> Japan
             text.any(::isHangul) -> Korea
-            hasHan(text) -> MainlandChina
             else -> null
         }
 
@@ -199,14 +217,17 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
          * Whether names a storefront answered for [target] are worth showing instead of the shown ones. A
          * fixed region shows whatever its storefront calls the item. [AppleMusicNameRegion.Original] asks
          * for names in the item's own script: for [UnitedStates], accept a Latin name that removes
-         * Katakana/Hangul/Han transliteration; for non-Latin targets, require a non-Latin letter (and Han
-         * for Chinese).
+         * Katakana/Hangul/Han transliteration; for [Korea] artist names, preserve official international
+         * names (e.g. NewJeans, ROSÉ, IVE, ILLIT) instead of Hangul transliterations; for Chinese targets,
+         * only replace text that does not already contain Han characters (protecting Japanese Kanji and
+         * Traditional Chinese from being simplified).
          */
         fun accepts(
             region: AppleMusicNameRegion,
             target: OriginalNameTarget,
             shown: String?,
             resolved: String?,
+            isArtist: Boolean = false,
         ): Boolean {
             val answer = resolved?.trim().orEmpty()
             if (answer.isEmpty() || answer == shown?.trim()) return false
@@ -215,8 +236,24 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
                 val shownText = shown?.trim().orEmpty()
                 return latinLetters(answer) > 0 && nonLatinLetters(answer) < nonLatinLetters(shownText)
             }
+            if (isArtist && target == Korea) return false
             if (nonLatinLetters(answer) == 0) return false
-            return target != MainlandChina || hasHan(answer)
+            if (isChinese(target)) {
+                val shownText = shown?.trim().orEmpty()
+                return hasHan(answer) && !hasHan(shownText)
+            }
+            return true
+        }
+
+        private fun isChinese(target: OriginalNameTarget) =
+            target == MainlandChina || target == Taiwan || target == HongKong
+
+        private fun needsChineseRecovery(title: String?, artist: String?): Boolean {
+            val parts = listOfNotNull(
+                title?.trim()?.takeIf { it.isNotEmpty() },
+                artist?.trim()?.takeIf { it.isNotEmpty() },
+            )
+            return parts.isEmpty() || parts.any { !hasHan(it) }
         }
 
         private fun isHiragana(c: Char) = c.code in 0x3040..0x309F
@@ -225,8 +262,7 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
         private fun isHangul(c: Char) = c.code in 0xAC00..0xD7AF || c.code in 0x1100..0x11FF || c.code in 0x3130..0x318F
 
         private fun looksLikeKatakanaTransliteration(text: String): Boolean {
-            if (!text.contains('・')) return false
-            if (text.any(::isHiragana) || hasHan(text)) return false
+            if (text.any(::isHiragana) || hasHan(text) || text.any(::isHangul)) return false
             return text.any(::isKatakana)
         }
 

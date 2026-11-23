@@ -331,26 +331,36 @@ class AppleMusicApiClientTest {
     @Test
     fun should_lookUpIsrcsInBatchesAndKeyByEachSongsIsrc_when_resolvingCatalogSongs() = runTest {
         val codes = (0 until 26).map { "USQE9210" + it.toString().padStart(4, '0') }
-        server.enqueue(
-            MockResponse().setBody(
-                """{"data":[""" +
-                    """{"id":"1","type":"songs","attributes":{"name":"Entropy","isrc":"usqe92100000"}},""" +
-                    """{"id":"2","type":"songs","attributes":{"name":"Entropy","isrc":"USQE92100000"}},""" +
-                    """{"id":"3","type":"songs","attributes":{"name":"Other","isrc":"ZZZZ99999999"}}""" +
-                    """]}"""
-            )
-        )
-        server.enqueue(MockResponse().setBody("""{"data":[]}"""))
+        val recorded = java.util.concurrent.CopyOnWriteArrayList<okhttp3.mockwebserver.RecordedRequest>()
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                recorded += request
+                val filter = request.requestUrl?.queryParameter("filter[isrc]").orEmpty()
+                return if ("USQE92100000" in filter) {
+                    MockResponse().setBody(
+                        """{"data":[""" +
+                            """{"id":"1","type":"songs","attributes":{"name":"Entropy","isrc":"usqe92100000"}},""" +
+                            """{"id":"2","type":"songs","attributes":{"name":"Entropy","isrc":"USQE92100000"}},""" +
+                            """{"id":"3","type":"songs","attributes":{"name":"Other","isrc":"ZZZZ99999999"}}""" +
+                            """]}"""
+                    )
+                } else {
+                    MockResponse().setBody("""{"data":[]}""")
+                }
+            }
+        }
 
         val found = client.catalogSongsByIsrc("jp", codes + "not-an-isrc")
 
         assertEquals(listOf("1", "2"), found["USQE92100000"]!!.map { it.catalogId })
         assertEquals(setOf("USQE92100000"), found.keys)
-        val first = server.takeRequest()
-        assertEquals("/v1/catalog/jp/songs", first.requestUrl!!.encodedPath)
-        assertEquals(codes.take(25).joinToString(","), first.requestUrl!!.queryParameter("filter[isrc]"))
-        assertNull(first.getHeader("Music-User-Token"))
-        assertEquals(codes.drop(25).single(), server.takeRequest().requestUrl!!.queryParameter("filter[isrc]"))
+        assertEquals(2, recorded.size)
+        assertTrue(recorded.all { it.requestUrl!!.encodedPath == "/v1/catalog/jp/songs" })
+        assertTrue(recorded.all { it.getHeader("Music-User-Token") == null })
+        assertEquals(
+            setOf(codes.take(25).joinToString(","), codes.drop(25).single()),
+            recorded.mapNotNull { it.requestUrl!!.queryParameter("filter[isrc]") }.toSet(),
+        )
     }
 
     @Test

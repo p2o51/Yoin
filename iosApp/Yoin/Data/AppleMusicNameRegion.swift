@@ -108,6 +108,8 @@ struct OriginalNameTarget: Hashable, Sendable {
     static let japan = OriginalNameTarget(storefront: "jp", language: "ja")
     static let korea = OriginalNameTarget(storefront: "kr", language: "ko")
     static let mainlandChina = OriginalNameTarget(storefront: "cn", language: "zh-Hans-CN")
+    static let taiwan = OriginalNameTarget(storefront: "tw", language: "zh-Hant-TW")
+    static let hongKong = OriginalNameTarget(storefront: "hk", language: "zh-Hant-HK")
     static let unitedStates = OriginalNameTarget(storefront: "us", language: "en-US")
     static let thailand = OriginalNameTarget(storefront: "th", language: "th")
     static let russia = OriginalNameTarget(storefront: "ru", language: "ru")
@@ -136,15 +138,24 @@ struct OriginalNameTarget: Hashable, Sendable {
     }
 
     /// The language a song was released in, as well as its metadata tells: its genre first (J-Pop,
-    /// Mandopop…, in English or in Chinese as the CN storefront writes them), then the country its ISRC was
-    /// registered in (including Western/Latin countries when the shown text was transliterated into
-    /// Katakana/Hangul/Han), then the script its shown names are written in.
+    /// Mandopop…, in English, Chinese, or Japanese as the storefront writes them), then the country its ISRC
+    /// was registered in (including Western/Latin countries when the shown text was transliterated into
+    /// Katakana/Hangul/Han), then Katakana transliteration of Western names, then the script its shown names
+    /// are written in.
     static func detect(title: String?, artist: String?, genre: String?, isrc: String?) -> OriginalNameTarget? {
         let shown = "\(title ?? "") \(artist ?? "")"
-        if let byGenre = forGenre(genre) { return byGenre }
-        if let byIsrc = forIsrc(isrc) {
-            if byIsrc != .unitedStates || shown.unicodeScalars.contains(where: isNonLatinLetter) { return byIsrc }
-            return nil
+        let byGenre = forGenre(genre)
+        let byIsrc = forIsrc(isrc)
+        if let byGenre {
+            let resolved = (isChinese(byGenre) && byIsrc.map(isChinese) == true) ? byIsrc! : byGenre
+            return (isChinese(resolved) && !needsChineseRecovery(title: title, artist: artist)) ? nil : resolved
+        }
+        if let byIsrc {
+            if byIsrc == .unitedStates {
+                return shown.unicodeScalars.contains(where: isNonLatinLetter) ? .unitedStates : nil
+            }
+            if isChinese(byIsrc) && !needsChineseRecovery(title: title, artist: artist) { return nil }
+            return byIsrc
         }
         if looksLikeKatakanaTransliteration(shown) { return .unitedStates }
         return forScript(shown)
@@ -154,10 +165,13 @@ struct OriginalNameTarget: Hashable, Sendable {
         let g = genre?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         guard !g.isEmpty else { return nil }
         func has(_ markers: String...) -> Bool { markers.contains { g.contains($0) } }
-        if has("j-pop", "japanese", "anime", "日本流行", "日语流行", "日語流行", "动漫", "動漫") { return .japan }
-        if has("k-pop", "korean", "韩国流行", "韓國流行", "韩语流行", "韓語流行") { return .korea }
-        if has("mandopop", "cantopop", "chinese", "hong kong", "c-pop",
-               "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "粤语流行", "粵語流行") { return .mainlandChina }
+        if has("j-pop", "j-rock", "japanese", "anime", "enka", "kayokyoku",
+               "日本流行", "日语流行", "日語流行", "动漫", "動漫",
+               "アニメ", "邦楽", "日本のポップ", "演歌", "歌謡曲") { return .japan }
+        if has("k-pop", "korean", "韩国流行", "韓國流行", "韩语流行", "韓語流行", "韓国") { return .korea }
+        if has("cantopop", "hong kong", "粤语流行", "粵語流行", "カントポップ", "広東ポップ") { return .hongKong }
+        if has("mandopop", "chinese", "c-pop",
+               "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "マンドポップ") { return .mainlandChina }
         if has("thai") { return .thailand }
         if has("russian") { return .russia }
         if has("ukrain") { return .ukraine }
@@ -176,25 +190,30 @@ struct OriginalNameTarget: Hashable, Sendable {
         switch prefix {
         case "JP": return .japan
         case "KR": return .korea
-        case "CN", "HK", "MO", "TW": return .mainlandChina
+        case "CN": return .mainlandChina
+        case "TW": return .taiwan
+        case "HK", "MO": return .hongKong
         default: return latinIsrcCountries.contains(prefix) ? .unitedStates : nil
         }
     }
 
-    /// Kana is Japanese and Hangul Korean; Han alone is Chinese. Latin script says nothing.
+    /// Kana is Japanese and Hangul Korean. Han alone is shared across Japanese Kanji ("藤井 風"),
+    /// Traditional Chinese ("張懸"), and Simplified Chinese, so Han without Chinese genre/ISRC stays put.
     static func forScript(_ text: String) -> OriginalNameTarget? {
         let scalars = text.unicodeScalars
         if scalars.contains(where: isKana) { return .japan }
         if scalars.contains(where: isHangul) { return .korea }
-        if scalars.contains(where: isHan) { return .mainlandChina }
         return nil
     }
 
     /// Whether names a storefront answered for [target] are worth showing instead of the shown ones. A fixed
     /// region shows whatever its storefront calls the item. `.original` asks for names in the item's own
     /// script: for `.unitedStates`, accept a Latin name that drops Katakana/Hangul/Han transliteration; for
-    /// non-Latin targets, require a non-Latin letter (and Han for Chinese).
-    static func accepts(_ region: AppleMusicNameRegion, target: OriginalNameTarget, shown: String?, resolved: String?) -> Bool {
+    /// `.korea` artist names, keep official international names (NewJeans, ROSÉ, IVE, ILLIT); for Chinese
+    /// targets, only replace text without existing Han characters (protecting Japanese Kanji and Traditional
+    /// Chinese from being simplified).
+    static func accepts(_ region: AppleMusicNameRegion, target: OriginalNameTarget, shown: String?, resolved: String?,
+                        isArtist: Bool = false) -> Bool {
         let answer = resolved?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if answer.isEmpty || answer == shown?.trimmingCharacters(in: .whitespacesAndNewlines) { return false }
         if region != .original { return true }
@@ -204,8 +223,22 @@ struct OriginalNameTarget: Hashable, Sendable {
             let shownNonLatin = shownText.unicodeScalars.filter(isNonLatinLetter).count
             return answer.unicodeScalars.contains(where: isLatinLetter) && answerNonLatin < shownNonLatin
         }
+        if isArtist && target == .korea { return false }
         guard answer.unicodeScalars.contains(where: isNonLatinLetter) else { return false }
-        return target != .mainlandChina || answer.unicodeScalars.contains(where: isHan)
+        if isChinese(target) {
+            let shownText = shown?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return answer.unicodeScalars.contains(where: isHan) && !shownText.unicodeScalars.contains(where: isHan)
+        }
+        return true
+    }
+
+    private static func isChinese(_ target: OriginalNameTarget) -> Bool {
+        target == .mainlandChina || target == .taiwan || target == .hongKong
+    }
+
+    private static func needsChineseRecovery(title: String?, artist: String?) -> Bool {
+        let parts = [title, artist].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return parts.isEmpty || parts.contains { !$0.unicodeScalars.contains(where: isHan) }
     }
 
     // MARK: Scripts (Java's Character.UnicodeScript ranges, the parts names use)
@@ -221,9 +254,10 @@ struct OriginalNameTarget: Hashable, Sendable {
     }
 
     static func looksLikeKatakanaTransliteration(_ text: String) -> Bool {
-        guard text.contains("・") else { return false }
         let scalars = text.unicodeScalars
-        if scalars.contains(where: isHiragana) || scalars.contains(where: isHan) { return false }
+        if scalars.contains(where: isHiragana) || scalars.contains(where: isHan) || scalars.contains(where: isHangul) {
+            return false
+        }
         return scalars.contains(where: isKatakana)
     }
 
@@ -337,6 +371,8 @@ final class AppleMusicNameResolver {
     static let cacheSize = 4000
     /// How long a list waits on one batch of names before it opens under the names it has.
     static let batchTimeout: Duration = .seconds(4)
+    /// Bounded parallelism for multi-batch region lookups.
+    static let maxConcurrentBatches = 4
 
     private let catalog: Catalog
     private let byIsrc: ByIsrc
@@ -371,19 +407,22 @@ final class AppleMusicNameResolver {
             guard let id = s.catalogId, let request = requests[id], let found = names[id] else { return s }
             var out = s
             out.title = Self.pick(region, request.target, s.title, found.title)
-            out.artist = Self.pick(region, request.target, s.artist, found.artist)
+            out.artist = Self.pick(region, request.target, s.artist, found.artist, isArtist: true)
             out.album = Self.pick(region, request.target, s.album, found.album)
             return out
         }
     }
 
-    func albums(_ region: AppleMusicNameRegion, accountStorefront: String?, _ albums: [AMAlbum]) async -> [AMAlbum] {
+    func albums(_ region: AppleMusicNameRegion, accountStorefront: String?, _ albums: [AMAlbum],
+                isrcByAlbumId: [String: String] = [:]) async -> [AMAlbum] {
         guard region != .off, !albums.isEmpty else { return albums }
         var requests: [String: Request] = [:]
         for a in albums {
-            // An album's genre says its language as a song's does; its tracks' ISRCs aren't in a list's answer.
+            // An album's genre says its language as a song's does; album pages also pass a unanimous track ISRC.
             guard let id = a.catalogId,
-                  let target = OriginalNameTarget.forRegion(region, title: a.title, artist: a.artist, genre: a.genre, isrc: nil),
+                  let target = OriginalNameTarget.forRegion(
+                      region, title: a.title, artist: a.artist, genre: a.genre, isrc: isrcByAlbumId[id]
+                  ),
                   target.storefront != accountStorefront else { continue }
             requests[id] = Request(id: id, target: target, isrc: nil)
         }
@@ -393,7 +432,7 @@ final class AppleMusicNameResolver {
             guard let id = a.catalogId, let request = requests[id], let found = names[id] else { return a }
             var out = a
             out.title = Self.pick(region, request.target, a.title, found.title)
-            out.artist = Self.pick(region, request.target, a.artist, found.artist)
+            out.artist = Self.pick(region, request.target, a.artist, found.artist, isArtist: true)
             return out
         }
     }
@@ -406,6 +445,7 @@ final class AppleMusicNameResolver {
                   !id.isEmpty, id.allSatisfy(\.isNumber),
                   let target = OriginalNameTarget.forRegion(region, title: nil, artist: artist.name, genre: artist.genre, isrc: nil),
                   target.storefront != accountStorefront else { continue }
+            if region == .original && target == .korea { continue }
             requests[id] = Request(id: id, target: target, isrc: nil)
         }
         guard !requests.isEmpty else { return artists }
@@ -413,22 +453,48 @@ final class AppleMusicNameResolver {
         return artists.map { artist in
             guard let id = artist.catalogId, let request = requests[id], let found = names[id] else { return artist }
             var out = artist
-            out.name = Self.pick(region, request.target, artist.name, found.title)
+            out.name = Self.pick(region, request.target, artist.name, found.title, isArtist: true)
             return out
         }
     }
 
-    /// An album page: the album and its tracklist, renamed together (both asked at once, as on Android).
+    /// An album page: the album and its tracklist, renamed together with consistent header/track artist names.
     func album(_ region: AppleMusicNameRegion, accountStorefront: String?, _ album: AMAlbum) async -> AMAlbum {
         guard region != .off else { return album }
+        var isrcMap: [String: String] = [:]
+        if let albumId = album.catalogId, let unanimous = Self.unanimousTrackIsrc(album.tracks) {
+            isrcMap[albumId] = unanimous
+        }
         async let tracks = songs(region, accountStorefront: accountStorefront, album.tracks)
-        var out = await albums(region, accountStorefront: accountStorefront, [album])[0]
-        out.tracks = await tracks
+        var out = await albums(region, accountStorefront: accountStorefront, [album], isrcByAlbumId: isrcMap)[0]
+        let renamedTracks = await tracks
+        out.tracks = renamedTracks
+        if out.artist == album.artist, !album.artist.isEmpty,
+           let consensus = Self.consensusTrackArtist(originalArtist: album.artist, before: album.tracks, after: renamedTracks) {
+            out.artist = consensus
+        }
         return out
     }
 
-    private static func pick(_ region: AppleMusicNameRegion, _ target: OriginalNameTarget, _ shown: String, _ found: String?) -> String {
-        guard OriginalNameTarget.accepts(region, target: target, shown: shown, resolved: found), let found else { return shown }
+    private static func unanimousTrackIsrc(_ tracks: [AMSong]) -> String? {
+        let isrcs = tracks.compactMap(\.isrc).filter { !$0.isEmpty }
+        guard !isrcs.isEmpty else { return nil }
+        let targets = Set(isrcs.compactMap(OriginalNameTarget.forIsrc))
+        return targets.count == 1 ? isrcs.first : nil
+    }
+
+    private static func consensusTrackArtist(originalArtist: String, before: [AMSong], after: [AMSong]) -> String? {
+        let renamed = Set(zip(before, after).compactMap { prev, next -> String? in
+            guard prev.artist == originalArtist, !next.artist.isEmpty, next.artist != originalArtist else { return nil }
+            return next.artist
+        })
+        return renamed.count == 1 ? renamed.first : nil
+    }
+
+    private static func pick(_ region: AppleMusicNameRegion, _ target: OriginalNameTarget, _ shown: String, _ found: String?,
+                             isArtist: Bool = false) -> String {
+        guard OriginalNameTarget.accepts(region, target: target, shown: shown, resolved: found, isArtist: isArtist),
+              let found else { return shown }
         return found.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -453,8 +519,8 @@ final class AppleMusicNameResolver {
         }
     }
 
-    /// One storefront's share of [resolve]: cached answers, then the rest batch by batch, each kept as it
-    /// lands, so a long list that runs out of time keeps what it read.
+    /// One storefront's share of [resolve]: cached answers, then the rest in bounded concurrent waves,
+    /// caching each finished batch without letting one timed-out batch abort the rest.
     private func resolve(_ kind: Kind, _ target: OriginalNameTarget, _ requests: [Request]) async -> [String: Names] {
         var known: [String: Names] = [:]
         var unread: [Request] = []
@@ -466,25 +532,47 @@ final class AppleMusicNameResolver {
                 unread.append(request)
             }
         }
-        for start in stride(from: 0, to: unread.count, by: kind.batch) {
-            let batch = Array(unread[start..<min(start + kind.batch, unread.count)])
-            guard !Task.isCancelled, let read = await withTimeout({ [self] in try await self.read(kind, target, batch) })
-            else { break }
-            for request in batch { store(Self.key(kind, target, request.id), read[request.id]) }
-            known.merge(read) { _, new in new }
+        guard !unread.isEmpty else { return known }
+        let batches = stride(from: 0, to: unread.count, by: kind.batch).map { start in
+            Array(unread[start..<min(start + kind.batch, unread.count)])
+        }
+        for waveStart in stride(from: 0, to: batches.count, by: Self.maxConcurrentBatches) {
+            guard !Task.isCancelled else { break }
+            let wave = batches[waveStart..<min(waveStart + Self.maxConcurrentBatches, batches.count)]
+            let tasks = wave.map { batch in
+                (batch, Task { @MainActor [self] in await self.readBatch(kind, target, batch) })
+            }
+            let waveResults: [([Request], [String: Names]?)] = await withTaskCancellationHandler {
+                var results: [([Request], [String: Names]?)] = []
+                for (batch, task) in tasks {
+                    results.append((batch, await task.value))
+                }
+                return results
+            } onCancel: {
+                for (_, task) in tasks { task.cancel() }
+            }
+            for (batch, read) in waveResults {
+                guard let read else { continue }
+                for request in batch { store(Self.key(kind, target, request.id), read[request.id]) }
+                known.merge(read) { _, new in new }
+            }
         }
         return known
     }
 
-    /// One batch's names: by id, then the songs missing by ISRC.
-    private func read(_ kind: Kind, _ target: OriginalNameTarget, _ requests: [Request]) async throws -> [String: Names] {
-        var found = try await catalog(target.storefront, kind.rawValue, requests.map(\.id), target.language)
+    /// One batch's names: by id, then the songs missing by ISRC (timed out separately so id answers stand).
+    private func readBatch(_ kind: Kind, _ target: OriginalNameTarget, _ requests: [Request]) async -> [String: Names]? {
+        guard var found = await withTimeout({ [self] in
+            try await self.catalog(target.storefront, kind.rawValue, requests.map(\.id), target.language)
+        }) else { return nil }
         // A storefront may carry a song under an id of its own; the recording's ISRC still finds it.
         if kind == .songs {
             let missing = requests.filter { found[$0.id] == nil && $0.isrc != nil }
             if !missing.isEmpty {
-                // The ids' answer stands even when this second read fails.
-                let songs = (try? await byIsrc(target.storefront, missing.compactMap(\.isrc), target.language)) ?? [:]
+                // The ids' answer stands even when this second read fails or times out.
+                let songs = await withTimeout({ [self] in
+                    try await self.byIsrc(target.storefront, missing.compactMap(\.isrc), target.language)
+                }) ?? [:]
                 for request in missing {
                     if let isrc = request.isrc, let names = songs[isrc] { found[request.id] = names }
                 }

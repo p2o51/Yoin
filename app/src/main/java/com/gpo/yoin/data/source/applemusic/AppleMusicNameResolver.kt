@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -56,20 +58,30 @@ internal class AppleMusicNameResolver(
             val found = names[id] ?: return@map track
             track.copy(
                 title = pick(region, request.target, track.title, found.title),
-                artist = pick(region, request.target, track.artist, found.artist),
+                artist = pick(region, request.target, track.artist, found.artist, isArtist = true),
                 album = pick(region, request.target, track.album, found.album),
             )
         }
     }
 
-    suspend fun albums(region: AppleMusicNameRegion, accountStorefront: String?, albums: List<Album>): List<Album> {
+    suspend fun albums(
+        region: AppleMusicNameRegion,
+        accountStorefront: String?,
+        albums: List<Album>,
+        isrcByAlbumId: Map<String, String> = emptyMap(),
+    ): List<Album> {
         if (region == AppleMusicNameRegion.Off || albums.isEmpty()) return albums
         val requests = albums.mapNotNull { album ->
             val id = album.id.rawId.takeIf { album.id.provider == MediaId.PROVIDER_APPLE_MUSIC && it.isCatalogId() }
                 ?: return@mapNotNull null
-            // An album's genre says its language as a song's does; its tracks' ISRCs aren't in a list's answer.
-            val target = OriginalNameTarget.forRegion(region, album.name, album.artist, album.genre, isrc = null)
-                ?: return@mapNotNull null
+            // An album's genre says its language as a song's does; album pages also pass a unanimous track ISRC.
+            val target = OriginalNameTarget.forRegion(
+                region,
+                album.name,
+                album.artist,
+                album.genre,
+                isrc = isrcByAlbumId[id],
+            ) ?: return@mapNotNull null
             if (target.storefront == accountStorefront) return@mapNotNull null
             Request(id, target, isrc = null)
         }
@@ -81,7 +93,7 @@ internal class AppleMusicNameResolver(
             val found = names[album.id.rawId] ?: return@map album
             album.copy(
                 name = pick(region, request.target, album.name, found.title) ?: album.name,
-                artist = pick(region, request.target, album.artist, found.artist),
+                artist = pick(region, request.target, album.artist, found.artist, isArtist = true),
             )
         }
     }
@@ -117,6 +129,7 @@ internal class AppleMusicNameResolver(
                 isrc = null,
             ) ?: return@forEachIndexed
             if (target.storefront == accountStorefront) return@forEachIndexed
+            if (region == AppleMusicNameRegion.Original && target == OriginalNameTarget.Korea) return@forEachIndexed
             val request = Request(id, target, isrc = null)
             requests += request
             byIndex[index] = request
@@ -126,25 +139,61 @@ internal class AppleMusicNameResolver(
         return artists.mapIndexed { index, artist ->
             val request = byIndex[index] ?: return@mapIndexed artist
             val found = names[request.id] ?: return@mapIndexed artist
-            artist.copy(name = pick(region, request.target, artist.name, found.title) ?: artist.name)
+            artist.copy(name = pick(region, request.target, artist.name, found.title, isArtist = true) ?: artist.name)
         }
     }
 
-    /** An album page: the album and its tracklist, renamed together. */
+    /** An album page: the album and its tracklist, renamed together with consistent header/track artist names. */
     suspend fun album(region: AppleMusicNameRegion, accountStorefront: String?, album: Album): Album {
         if (region == AppleMusicNameRegion.Off) return album
+        val unanimousIsrc = unanimousTrackIsrc(album.tracks)
+        val isrcMap = if (unanimousIsrc != null) mapOf(album.id.rawId to unanimousIsrc) else emptyMap()
         return coroutineScope {
-            val tracks = async { tracks(region, accountStorefront, album.tracks) }
-            val renamed = albums(region, accountStorefront, listOf(album)).first()
-            renamed.copy(tracks = tracks.await())
+            val tracksJob = async { tracks(region, accountStorefront, album.tracks) }
+            val renamed = albums(region, accountStorefront, listOf(album), isrcByAlbumId = isrcMap).first()
+            val renamedTracks = tracksJob.await()
+            val consistentArtist = if (renamed.artist == album.artist && !album.artist.isNullOrBlank()) {
+                consensusTrackArtist(album.artist, album.tracks, renamedTracks) ?: renamed.artist
+            } else {
+                renamed.artist
+            }
+            renamed.copy(artist = consistentArtist, tracks = renamedTracks)
         }
     }
 
-    private fun pick(region: AppleMusicNameRegion, target: OriginalNameTarget, shown: String?, found: String?) =
-        if (OriginalNameTarget.accepts(region, target, shown, found)) found?.trim() else shown
+    private fun unanimousTrackIsrc(tracks: List<Track>): String? {
+        val isrcs = tracks.mapNotNull { it.extras[Track.EXTRA_ISRC]?.takeIf(String::isNotBlank) }
+        if (isrcs.isEmpty()) return null
+        val targets = isrcs.mapNotNull { OriginalNameTarget.forIsrc(it) }.distinct()
+        return if (targets.size == 1) isrcs.first() else null
+    }
+
+    private fun consensusTrackArtist(
+        originalArtist: String,
+        originalTracks: List<Track>,
+        renamedTracks: List<Track>,
+    ): String? {
+        val renamed = originalTracks.zip(renamedTracks).mapNotNull { (before, after) ->
+            if (before.artist == originalArtist && !after.artist.isNullOrBlank() && after.artist != originalArtist) {
+                after.artist
+            } else {
+                null
+            }
+        }.distinct()
+        return renamed.singleOrNull()
+    }
+
+    private fun pick(
+        region: AppleMusicNameRegion,
+        target: OriginalNameTarget,
+        shown: String?,
+        found: String?,
+        isArtist: Boolean = false,
+    ) = if (OriginalNameTarget.accepts(region, target, shown, found, isArtist = isArtist)) found?.trim() else shown
 
     /** Catalog id → its names, for every request that has an answer (cached or read now). */
     private suspend fun resolve(kind: Kind, requests: List<Request>): Map<String, Names> = coroutineScope {
+        val semaphore = Semaphore(MAX_CONCURRENT_BATCHES)
         requests.distinctBy { it.id }.groupBy { it.target }.map { (target, group) ->
             async {
                 val known = mutableMapOf<String, Names>()
@@ -158,32 +207,42 @@ internal class AppleMusicNameResolver(
                         }
                     }
                 }
-                // Batch by batch, each kept as it lands: a long list that runs out of time keeps what it read.
-                for (batch in unread.chunked(kind.batch)) {
-                    val read = try {
-                        withTimeoutOrNull(BATCH_TIMEOUT_MS) { read(kind, target, batch) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        null
-                    } ?: break
-                    synchronized(cache) {
-                        batch.forEach { cache[key(kind, target, it.id)] = read[it.id] }
+                val batchResults = unread.chunked(kind.batch).map { batch ->
+                    async {
+                        semaphore.withPermit {
+                            val read = readBatch(kind, target, batch) ?: return@withPermit null
+                            synchronized(cache) {
+                                batch.forEach { cache[key(kind, target, it.id)] = read[it.id] }
+                            }
+                            read
+                        }
                     }
-                    known += read
-                }
+                }.awaitAll()
+                batchResults.forEach { read -> if (read != null) known += read }
                 known
             }
         }.awaitAll().fold(emptyMap()) { all, group -> all + group }
     }
 
-    /** One batch's names: by id, then the songs missing by ISRC. */
-    private suspend fun read(kind: Kind, target: OriginalNameTarget, requests: List<Request>): Map<String, Names> {
+    /** One batch's names: by id, then the songs missing by ISRC (timed out separately so id answers stand). */
+    private suspend fun readBatch(
+        kind: Kind,
+        target: OriginalNameTarget,
+        requests: List<Request>,
+    ): Map<String, Names>? {
+        val response = try {
+            withTimeoutOrNull(BATCH_TIMEOUT_MS) {
+                catalog(
+                    listOf("v1", "catalog", target.storefront, kind.path),
+                    mapOf("ids" to requests.joinToString(",") { it.id }, "l" to target.language),
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return null
         val found = mutableMapOf<String, Names>()
-        val response = catalog(
-            listOf("v1", "catalog", target.storefront, kind.path),
-            mapOf("ids" to requests.joinToString(",") { it.id }, "l" to target.language),
-        )
         (response["data"] as? JsonArray).orEmpty().forEach { resource ->
             val item = resource as? JsonObject ?: return@forEach
             val id = item.text("id") ?: return@forEach
@@ -198,9 +257,11 @@ internal class AppleMusicNameResolver(
         if (kind == Kind.Songs) {
             val byIsrc = requests.filter { it.id !in found && it.isrc != null }
             if (byIsrc.isNotEmpty()) {
-                // The ids' answer stands even when this second read fails.
+                // The ids' answer stands even when this second read fails or times out.
                 val songs = try {
-                    songsByIsrc(target.storefront, byIsrc.mapNotNull { it.isrc }, target.language)
+                    withTimeoutOrNull(BATCH_TIMEOUT_MS) {
+                        songsByIsrc(target.storefront, byIsrc.mapNotNull { it.isrc }, target.language)
+                    }.orEmpty()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -242,5 +303,8 @@ internal class AppleMusicNameResolver(
 
         /** How long a list waits on one batch of names before it opens under the names it has. */
         const val BATCH_TIMEOUT_MS = 4_000L
+
+        /** Bounded parallelism for multi-batch region lookups (e.g. full library under a fixed storefront). */
+        const val MAX_CONCURRENT_BATCHES = 4
     }
 }

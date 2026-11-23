@@ -275,12 +275,24 @@ final class AppleMusicSource {
     /// Songs by ISRC in another storefront and language: ISRC → the first song's names. Nothing is kept for
     /// playback (the songs are that storefront's).
     private func namesByIsrc(storefront: String, isrcs: [String], language: String) async throws -> [String: AppleMusicNameResolver.Names] {
+        let batches = AppleMusicMapping.isrcBatches(isrcs)
+        guard !batches.isEmpty else { return [:] }
         var found: [String: AppleMusicNameResolver.Names] = [:]
-        for batch in AppleMusicMapping.isrcBatches(isrcs) {
-            let root = try await get("/v1/catalog/\(storefront)/songs", ["filter[isrc]": batch.joined(separator: ","), "l": language])
-            let songs = AppleMusicJSON.resources(root).compactMap(AppleMusicMapping.song)
-            for (code, list) in AppleMusicMapping.groupByIsrc(songs, batch: batch) where found[code] == nil {
-                if let s = list.first { found[code] = .init(title: s.title, artist: s.artist, album: s.album) }
+        let maxConcurrency = AppleMusicNameResolver.maxConcurrentBatches
+        for waveStart in stride(from: 0, to: batches.count, by: maxConcurrency) {
+            let wave = batches[waveStart..<min(waveStart + maxConcurrency, batches.count)]
+            let tasks = wave.map { batch in
+                (batch, Task { @MainActor [self] in
+                    let root = try await self.get("/v1/catalog/\(storefront)/songs", ["filter[isrc]": batch.joined(separator: ","), "l": language])
+                    return AppleMusicJSON.resources(root).compactMap(AppleMusicMapping.song)
+                })
+            }
+            defer { for (_, task) in tasks { task.cancel() } }
+            for (batch, task) in tasks {
+                let songs = try await task.value
+                for (code, list) in AppleMusicMapping.groupByIsrc(songs, batch: batch) where found[code] == nil {
+                    if let s = list.first { found[code] = .init(title: s.title, artist: s.artist, album: s.album) }
+                }
             }
         }
         return found

@@ -56,8 +56,15 @@ class AppleMusicNameResolverTest {
         assertEquals(OriginalNameTarget.Japan, OriginalNameTarget.detect("Sunny", "Yorushika", "J-Pop", "USXXX0000001"))
         assertEquals(OriginalNameTarget.Korea, OriginalNameTarget.detect("Love", "Someone", null, "KRA401500001"))
         assertEquals(OriginalNameTarget.MainlandChina, OriginalNameTarget.detect("x", "y", "华语流行", null))
+        assertEquals(OriginalNameTarget.Taiwan, OriginalNameTarget.detect("Sunny Day", "Jay Chou", "Mandopop", "TWA011900001"))
+        assertEquals(OriginalNameTarget.HongKong, OriginalNameTarget.detect("x", "y", "Cantopop", null))
         assertEquals(OriginalNameTarget.Japan, OriginalNameTarget.detect("夜に駆ける", "YOASOBI", null, null))
-        assertEquals(OriginalNameTarget.MainlandChina, OriginalNameTarget.detect("晴天", "周杰伦", null, null))
+        // Han-only names without Chinese genre/ISRC (e.g. Japanese Kanji "藤井 風") must not route to CN.
+        assertNull(OriginalNameTarget.detect("晴天", "周杰伦", null, null))
+        assertNull(OriginalNameTarget.detect(null, "藤井 風", null, null))
+        // Already-Han Traditional Chinese items stay put instead of being simplified via CN.
+        assertNull(OriginalNameTarget.detect("我要給世界最悠長的濕吻", "徐佳瑩", "Mandopop", "TWA011900001"))
+        assertNull(OriginalNameTarget.detect(null, "張懸", "Mandopop", null))
         assertNull(OriginalNameTarget.detect("Bad Guy", "Billie Eilish", "Alternative", "USUM71900764"))
     }
 
@@ -68,9 +75,26 @@ class AppleMusicNameResolverTest {
         assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.Japan, "Sunny", "Haru"))
         // A Chinese name has Han characters; kana alone is not one.
         assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.MainlandChina, "x", "かな"))
-        // A fixed region shows what its storefront calls the song.
+        // Already-Han names (Japanese Kanji or Traditional Chinese) are never overwritten by CN/TW/HK in Original mode.
+        assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.MainlandChina, "藤井 風", "藤井风"))
+        assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.MainlandChina, "張懸", "张悬"))
+        assertTrue(OriginalNameTarget.accepts(original, OriginalNameTarget.Taiwan, "Rainie Yang", "楊丞琳"))
+        // K-Pop artist names stay international in Original mode while Korean song titles still restore.
+        assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.Korea, "NewJeans", "뉴진스", isArtist = true))
+        assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.Korea, "ROSÉ", "로제", isArtist = true))
+        assertEquals(false, OriginalNameTarget.accepts(original, OriginalNameTarget.Korea, "少女時代", "소녀시대", isArtist = true))
+        assertTrue(OriginalNameTarget.accepts(original, OriginalNameTarget.Korea, "Good Day", "좋은 날", isArtist = false))
+        // A fixed region shows what its storefront calls the song/artist.
         assertTrue(
             OriginalNameTarget.accepts(AppleMusicNameRegion.Japan, OriginalNameTarget.Japan, "Kim Petras", "キム"),
+        )
+        assertTrue(
+            OriginalNameTarget.accepts(
+                AppleMusicNameRegion.MainlandChina,
+                OriginalNameTarget.MainlandChina,
+                "張懸",
+                "张悬",
+            ),
         )
     }
 
@@ -264,5 +288,83 @@ class AppleMusicNameResolverTest {
         )
         assertEquals("Taylor Swift", renamed[0].name)
         assertEquals("ヨルシカ", renamed[1].name)
+    }
+
+    @Test fun original_onJpStorefront_recoversSingleWordKatakana_andProtectsJpTwAndKpopArtists() = runTest {
+        answers = { read ->
+            when (read.segments.last()) {
+                "artists" -> """{"data":[
+                    {"id":"101","type":"artists","attributes":{"name":"Muse"}},
+                    {"id":"102","type":"artists","attributes":{"name":"Björk"}}
+                ]}"""
+                "albums" -> """{"data":[{"id":"201","type":"albums","attributes":{"name":"Absolution","artistName":"Muse"}}]}"""
+                else -> """{"data":[${song("301", "Time Is Running Out", "Muse", "Absolution")}]}"""
+            }
+        }
+        val artists = listOf(
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "101"), "ミューズ", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "102"), "ビョーク", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "103"), "藤井 風", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "104"), "張懸", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "105"), "NewJeans", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "106"), "ヨルシカ", null, null),
+        )
+        val renamedArtists = resolver.artists(AppleMusicNameRegion.Original, "jp", artists) { a ->
+            val genre = when (a.id.rawId) {
+                "101" -> "Alternative"
+                "102" -> "Electronic"
+                "104" -> "Mandopop"
+                "105" -> "K-Pop"
+                "106" -> "アニメ"
+                else -> null
+            }
+            AppleMusicNameResolver.ArtistHint(catalogId = a.id.rawId, genre = genre)
+        }
+        assertEquals(listOf("Muse", "Björk", "藤井 風", "張懸", "NewJeans", "ヨルシカ"), renamedArtists.map { it.name })
+        assertEquals(1, reads.size)
+        assertEquals("us", reads.single().segments[2])
+
+        val album = Album(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "201"),
+            name = "Absolution",
+            artist = "ミューズ",
+            artistId = null,
+            coverArt = null,
+            songCount = 1,
+            durationSec = null,
+            year = null,
+            genre = "Alternative",
+            tracks = listOf(track("301", "Time Is Running Out", "ミューズ", genre = "Alternative", isrc = "GBAHT0300001")),
+        )
+        val renamedAlbum = resolver.album(AppleMusicNameRegion.Original, "jp", album)
+        assertEquals("Muse", renamedAlbum.artist)
+        assertEquals("Muse", renamedAlbum.tracks.single().artist)
+    }
+
+    @Test fun albumPage_syncsHeaderArtistFromRenamedTracksWhenAlbumLookupMisses() = runTest {
+        answers = { read ->
+            if (read.segments.last() == "albums") {
+                """{"data":[]}"""
+            } else {
+                """{"data":[${song("301", "Time Is Running Out", "Muse", "Absolution")}]}"""
+            }
+        }
+        val album = Album(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "201"),
+            name = "Absolution",
+            artist = "ミューズ",
+            artistId = null,
+            coverArt = null,
+            songCount = 1,
+            durationSec = null,
+            year = null,
+            genre = "Alternative",
+            tracks = listOf(track("301", "Time Is Running Out", "ミューズ", genre = "Alternative", isrc = "GBAHT0300001")),
+        )
+
+        val renamed = resolver.album(AppleMusicNameRegion.Original, "jp", album)
+
+        assertEquals("Muse", renamed.artist)
+        assertEquals("Muse", renamed.tracks.single().artist)
     }
 }
