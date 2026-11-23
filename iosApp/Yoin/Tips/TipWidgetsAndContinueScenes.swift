@@ -655,6 +655,54 @@ struct AppleMusicSongNamesDemo: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .background(row, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .safeAreaPadding(.top, DemoPhoneMetrics.statusBar)
+            .scrollDisabled(true)
+        }
+    }
+
+    private func optionRow(
+        title: String,
+        subtitle: String? = nil,
+        selected: Bool,
+        app: CoverScheme,
+        action: @escaping () -> Void,
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
+                    if let subtitle {
+                        Text(subtitle)
+                            .yoinRole(Tokens.type.labelSmall)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
+                Spacer()
+                if selected {
+                    YoinIcon("check", size: 16)
+                        .foregroundStyle(app.primary)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private extension AppleMusicNameRegion {
+    var isStorefront: Bool {
+        if case .storefront = self { return true }
+        return false
+    }
+}
+
 // MARK: - iCloud Sync
 
 /// Interactive preview of Settings › Cloud sync › Sync location (`ICloudSync`) switching from Google Drive to iCloud.
@@ -739,9 +787,6 @@ struct ICloudSyncDemo: View {
         }
     }
 
-    private func optionRow(
-        title: String,
-        subtitle: String? = nil,
     private func locationRow(
         icon: String,
         title: String,
@@ -751,7 +796,6 @@ struct ICloudSyncDemo: View {
         action: @escaping () -> Void,
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
             HStack(spacing: 12) {
                 YoinIcon(icon, size: 18)
                     .foregroundStyle(selected ? app.primary : app.onSurfaceVariant)
@@ -759,11 +803,6 @@ struct ICloudSyncDemo: View {
                     Text(title)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurface)
-                    if let subtitle {
-                        Text(subtitle)
-                            .yoinRole(Tokens.type.labelSmall)
-                            .foregroundStyle(app.onSurfaceVariant)
-                    }
                     Text(subtitle)
                         .yoinRole(Tokens.type.labelSmall)
                         .foregroundStyle(app.onSurfaceVariant)
@@ -781,12 +820,6 @@ struct ICloudSyncDemo: View {
         }
         .buttonStyle(.plain)
     }
-}
-
-private extension AppleMusicNameRegion {
-    var isStorefront: Bool {
-        if case .storefront = self { return true }
-        return false
 
     private func stepRow(_ title: String, done: Bool, app: CoverScheme) -> some View {
         HStack(spacing: 10) {
