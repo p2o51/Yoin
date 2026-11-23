@@ -9,15 +9,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 /**
- * The one seam between Sing playback and whoever makes the 4-channel stream. The on-device engine
- * ([OnDeviceSingStreamProvider]) is one implementation; the Lyra server client (Rebecca) is another
- * ([LyraSingStreamProvider], a stub for now). [SingProviderSelector] picks one per song; the playback
- * side ([SingPlaybackSwitcher] → [SingMixerAudioProcessor]) takes either kind of [SingSource] through
- * the same pipeline.
+ * The one seam between Sing playback and whoever makes the Sing audio. The on-device engine
+ * ([OnDeviceSingStreamProvider]) is one implementation — a vocal track the mixer subtracts live
+ * ([SingSource.Live]); the Lyra server client (Rebecca) is another ([LyraSingStreamProvider], a stub
+ * for now) — a 4-channel stream. [SingProviderSelector] picks one per song; the playback side
+ * ([SingPlaybackSwitcher] → [SingMixerAudioProcessor]) takes every kind of [SingSource].
  *
- * The stream format both sides share: AAC-LC, 4 channels, in an MP4 (.m4a), channel order
- * CH0 = I_L, CH1 = I_R, CH2 = V_L, CH3 = V_R (instrumental, vocal), same sample rate and timeline as
- * the original song.
+ * The 4-channel format (Lyra, and the first on-device engine): AAC-LC, 4 channels, in an MP4 (.m4a),
+ * channel order CH0 = I_L, CH1 = I_R, CH2 = V_L, CH3 = V_R (instrumental, vocal), same sample rate and
+ * timeline as the original song.
  */
 interface SingStreamProvider {
     /**
