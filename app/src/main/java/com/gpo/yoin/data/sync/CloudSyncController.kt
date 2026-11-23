@@ -58,6 +58,9 @@ interface CloudSyncController {
     /** An account removed from the cloud starts syncing again from this device ([SyncAccountStatus.RemovedFromCloud]). */
     fun resumeAccountSync(localProfileId: String)
 
+    /** Dismisses a [CloudMigrationNotice] banner after another device switched sync locations. */
+    fun dismissMigrationNotice() = Unit
+
     // ---- Read-only views for the 云端数据 section ([CloudDataViews]); nothing here writes.
 
     /** Yoin's files in the sync location, per device (names, sizes). Lists Drive: needs the network and sync on. */
@@ -96,9 +99,16 @@ data class CloudSyncState(
     val devices: List<SyncDeviceRow> = emptyList(),
     /** One-line result of the last notable sync, e.g. "Restored 128 notes for alice". */
     val lastSummary: String? = null,
+    /** Non-null when another device moved its cloud sync to a different backend (e.g. iCloud). */
+    val migratedNotice: CloudMigrationNotice? = null,
 ) {
     val enabled: Boolean get() = phase.enabled
 }
+
+data class CloudMigrationNotice(
+    val targetLocation: String,
+    val deviceName: String?,
+)
 
 data class GoogleAccountUi(val email: String?, val displayName: String?)
 

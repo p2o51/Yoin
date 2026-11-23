@@ -205,6 +205,12 @@ object SyncMetaKeys {
 
     /** Prefix: "pending_file_id:<fileKind>:<shard>" = pre-allocated Drive id for our not-yet-created file. */
     const val PENDING_FILE_ID_PREFIX = "pending_file_id:"
+
+    /** Newest [SyncFileProps.KIND_MIGRATED] epoch dismissed on this device. */
+    const val ACK_MIGRATED_EPOCH = "ack_migrated_epoch"
+
+    /** "<epoch>|<targetLocation>|<deviceName>" of an unacknowledged migration marker seen from another device. */
+    const val MIGRATED_NOTICE = "migrated_notice"
 }
 
 @Dao

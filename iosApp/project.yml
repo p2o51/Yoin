@@ -71,6 +71,10 @@ targets:
     entitlements:
       path: Yoin/Yoin.entitlements
       properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.gpo.yoin
+        com.apple.developer.icloud-services:
+          - CloudKit
         com.apple.security.application-groups:
           - group.com.gpo.yoin
         keychain-access-groups:
