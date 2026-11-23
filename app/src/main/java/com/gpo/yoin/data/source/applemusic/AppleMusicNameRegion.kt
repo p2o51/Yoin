@@ -176,7 +176,7 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
                 has(
                     "mandopop", "chinese", "c-pop",
                     "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "マンドポップ",
-                ) -> MainlandChina
+                ) -> Taiwan
                 has("thai") -> Thailand
                 has("russian") -> Russia
                 has("ukrain") -> Ukraine
@@ -245,8 +245,24 @@ data class OriginalNameTarget(val storefront: String, val language: String) {
             return true
         }
 
-        private fun isChinese(target: OriginalNameTarget) =
+        /**
+         * True when [detect] routed to [UnitedStates] solely from pure-Katakana script without genre or ISRC
+         * confirmation — the resolver verifies against Apple's track/top-song ISRCs so native Japanese Katakana
+         * acts (e.g. ヨルシカ, サカナクション, ササノマリイ) are never romanized.
+         */
+        fun isKatakanaSpeculative(title: String?, artist: String?, genre: String?, isrc: String?): Boolean {
+            if (forGenre(genre) != null || forIsrc(isrc) != null) return false
+            return looksLikeKatakanaTransliteration("${title.orEmpty()} ${artist.orEmpty()}")
+        }
+
+        fun hasJapaneseScript(text: String): Boolean = text.any(::isHiragana) || hasHan(text)
+
+        fun isChinese(target: OriginalNameTarget) =
             target == MainlandChina || target == Taiwan || target == HongKong
+
+        fun hasNonLatin(text: String): Boolean = nonLatinLetters(text) > 0
+
+        fun hasHanText(text: String): Boolean = hasHan(text)
 
         private fun needsChineseRecovery(title: String?, artist: String?): Boolean {
             val parts = listOfNotNull(

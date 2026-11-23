@@ -189,7 +189,11 @@ void main() {
     test('should_detectLanguage_when_genreIsrcOrScriptTells', () {
       expect(OriginalNameTarget.detect(genre: 'J-Pop'), OriginalNameTarget.japan);
       expect(OriginalNameTarget.detect(genre: 'アニメ'), OriginalNameTarget.japan);
-      expect(OriginalNameTarget.detect(genre: '华语流行'), OriginalNameTarget.mainlandChina);
+      expect(OriginalNameTarget.detect(genre: '华语流行'), OriginalNameTarget.taiwan);
+      expect(
+        OriginalNameTarget.detect(title: 'x', artist: 'y', genre: 'Mandopop', isrc: 'CNXXX1900001'),
+        OriginalNameTarget.mainlandChina,
+      );
       expect(
         OriginalNameTarget.detect(title: 'Sunny Day', artist: 'Jay Chou', genre: 'Mandopop', isrc: 'TWA011900001'),
         OriginalNameTarget.taiwan,

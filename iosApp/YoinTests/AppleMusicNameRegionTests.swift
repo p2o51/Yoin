@@ -44,7 +44,8 @@ final class AppleMusicNameRegionTests: XCTestCase {
     func test_should_go_by_genre_then_isrc_then_script_when_detecting_a_songs_language() {
         XCTAssertEqual(OriginalNameTarget.detect(title: "Sunny", artist: "Yorushika", genre: "J-Pop", isrc: "USXXX0000001"), .japan)
         XCTAssertEqual(OriginalNameTarget.detect(title: "Love", artist: "Someone", genre: nil, isrc: "KRA401500001"), .korea)
-        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "华语流行", isrc: nil), .mainlandChina)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "华语流行", isrc: nil), .taiwan)
+        XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "Mandopop", isrc: "CNXXX1900001"), .mainlandChina)
         XCTAssertEqual(OriginalNameTarget.detect(title: "Sunny Day", artist: "Jay Chou", genre: "Mandopop", isrc: "TWA011900001"), .taiwan)
         XCTAssertEqual(OriginalNameTarget.detect(title: "x", artist: "y", genre: "Cantopop", isrc: nil), .hongKong)
         XCTAssertEqual(OriginalNameTarget.detect(title: "夜に駆ける", artist: "YOASOBI", genre: nil, isrc: nil), .japan)
@@ -57,7 +58,7 @@ final class AppleMusicNameRegionTests: XCTestCase {
     }
 
     func test_should_name_the_storefront_and_language_when_a_genre_or_isrc_points_at_one() {
-        XCTAssertEqual(OriginalNameTarget.forGenre("Mandopop"), OriginalNameTarget(storefront: "cn", language: "zh-Hans-CN"))
+        XCTAssertEqual(OriginalNameTarget.forGenre("Mandopop"), OriginalNameTarget(storefront: "tw", language: "zh-Hant-TW"))
         XCTAssertEqual(OriginalNameTarget.forGenre("Cantopop"), OriginalNameTarget(storefront: "hk", language: "zh-Hant-HK"))
         XCTAssertEqual(OriginalNameTarget.forGenre("K-Pop"), OriginalNameTarget(storefront: "kr", language: "ko"))
         XCTAssertEqual(OriginalNameTarget.forGenre(" Anime "), OriginalNameTarget(storefront: "jp", language: "ja"))

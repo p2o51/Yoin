@@ -268,7 +268,7 @@ final class OriginalNameTarget {
       '中文流行',
       'マンドポップ',
     ])) {
-      return mainlandChina;
+      return taiwan;
     }
     if (has(const ['thai'])) return _thailand;
     if (has(const ['russian'])) return _russia;
@@ -336,6 +336,19 @@ final class OriginalNameTarget {
     }
     return true;
   }
+
+  static bool isKatakanaSpeculative({String? title, String? artist, String? genre, String? isrc}) {
+    if (forGenre(genre) != null || forIsrc(isrc) != null) return false;
+    return _looksLikeKatakanaTransliteration('${title ?? ''} ${artist ?? ''}');
+  }
+
+  static bool hasJapaneseScript(String text) => text.runes.any(_isHiragana) || text.runes.any(_isHan);
+
+  static bool isChinese(OriginalNameTarget target) => _isChinese(target);
+
+  static bool hasNonLatin(String text) => text.runes.any(_isNonLatinLetter);
+
+  static bool hasHanText(String text) => text.runes.any(_isHan);
 
   static bool _isChinese(OriginalNameTarget target) =>
       target == mainlandChina || target == taiwan || target == hongKong;

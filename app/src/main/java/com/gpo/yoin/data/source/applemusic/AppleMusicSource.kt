@@ -648,7 +648,7 @@ class AppleMusicSource(
             albums = regionalAlbums(
                 results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
             ),
-            artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
+            artists = regionalArtists(results["library-artists"]?.jsonObject?.resources().orEmpty()),
             playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::listedPlaylist)
         )
     }

@@ -89,6 +89,11 @@ final class AppleMusicSource {
         byIsrc: { [weak self] storefront, isrcs, language in
             guard let self else { return [:] }
             return try await self.namesByIsrc(storefront: storefront, isrcs: isrcs, language: language)
+        },
+        catalogResources: { [weak self] storefront, kind, query in
+            guard let self else { return [] }
+            let root = try await self.get("/v1/catalog/\(storefront)/\(kind)", query)
+            return AppleMusicNameResolver.parseResources(in: AppleMusicJSON.resources(root))
         })
 
     init() {

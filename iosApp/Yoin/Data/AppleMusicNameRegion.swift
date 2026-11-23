@@ -171,7 +171,7 @@ struct OriginalNameTarget: Hashable, Sendable {
         if has("k-pop", "korean", "韩国流行", "韓國流行", "韩语流行", "韓語流行", "韓国") { return .korea }
         if has("cantopop", "hong kong", "粤语流行", "粵語流行", "カントポップ", "広東ポップ") { return .hongKong }
         if has("mandopop", "chinese", "c-pop",
-               "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "マンドポップ") { return .mainlandChina }
+               "国语流行", "國語流行", "华语流行", "華語流行", "中文流行", "マンドポップ") { return .taiwan }
         if has("thai") { return .thailand }
         if has("russian") { return .russia }
         if has("ukrain") { return .ukraine }
@@ -232,8 +232,25 @@ struct OriginalNameTarget: Hashable, Sendable {
         return true
     }
 
-    private static func isChinese(_ target: OriginalNameTarget) -> Bool {
+    static func isKatakanaSpeculative(title: String?, artist: String?, genre: String?, isrc: String?) -> Bool {
+        if forGenre(genre) != nil || forIsrc(isrc) != nil { return false }
+        return looksLikeKatakanaTransliteration("\(title ?? "") \(artist ?? "")")
+    }
+
+    static func hasJapaneseScript(_ text: String) -> Bool {
+        text.unicodeScalars.contains { isHiragana($0) || isHan($0) }
+    }
+
+    static func isChinese(_ target: OriginalNameTarget) -> Bool {
         target == .mainlandChina || target == .taiwan || target == .hongKong
+    }
+
+    static func hasNonLatin(_ text: String) -> Bool {
+        text.unicodeScalars.contains(where: isNonLatinLetter)
+    }
+
+    static func hasHanText(_ text: String) -> Bool {
+        text.unicodeScalars.contains(where: isHan)
     }
 
     private static func needsChineseRecovery(title: String?, artist: String?) -> Bool {
@@ -348,12 +365,35 @@ final class AppleMusicNameResolver {
         var album: String?
     }
 
+    /// Sendable projection of one Apple Music catalog resource (`attributes` + `relationships`/`views` metadata)
+    /// used to verify Japanese origin on speculative Katakana lookups and recover missed regional-edition albums.
+    struct CatalogResourceInfo: Sendable {
+        var id: String
+        var names: Names
+        var genre: String?
+        var artistId: String?
+        var nestedTrackIsrcs: [String]
+        var nestedTrackGenres: [String]
+        var nestedTrackNames: [String]
+    }
+
     /// One catalog read: `/v1/catalog/{storefront}/{kind}?ids=…&l=…`, answered with its `data` resources'
     /// names by id.
     typealias Catalog = @MainActor (_ storefront: String, _ kind: String, _ ids: [String], _ language: String)
         async throws -> [String: Names]
+    /// Raw catalog read with arbitrary query parameters (`views=top-songs`, `include=artists,tracks`),
+    /// returning Sendable resource projections.
+    typealias CatalogResources = @MainActor (_ storefront: String, _ kind: String, _ query: [String: String])
+        async throws -> [CatalogResourceInfo]
     /// Catalog songs by ISRC in a storefront and language: ISRC → the first song's names.
     typealias ByIsrc = @MainActor (_ storefront: String, _ isrcs: [String], _ language: String) async throws -> [String: Names]
+
+    private struct SourceAlbumFallback: Sendable {
+        var artistId: String?
+        var firstTrackIsrc: String?
+        var hasJapaneseScript: Bool
+        var genre: String?
+    }
 
     enum Kind: String, Sendable {
         case songs, albums, artists
@@ -370,18 +410,24 @@ final class AppleMusicNameResolver {
     /// Items whose names are kept: a large playlist's worth.
     static let cacheSize = 4000
     /// How long a list waits on one batch of names before it opens under the names it has.
-    static let batchTimeout: Duration = .seconds(4)
+    static let batchTimeout: Duration = .seconds(6)
     /// Bounded parallelism for multi-batch region lookups.
-    static let maxConcurrentBatches = 4
+    static let maxConcurrentBatches = 6
 
     private let catalog: Catalog
+    private let catalogResources: CatalogResources?
     private let byIsrc: ByIsrc
     private let timeout: Duration
     private var cache: [String: Names?] = [:]
     private var order: [String] = []
+    private var sourceAlbumCache: [String: SourceAlbumFallback?] = [:]
 
-    init(timeout: Duration = AppleMusicNameResolver.batchTimeout, catalog: @escaping Catalog, byIsrc: @escaping ByIsrc) {
+    init(timeout: Duration = AppleMusicNameResolver.batchTimeout,
+         catalog: @escaping Catalog,
+         byIsrc: @escaping ByIsrc,
+         catalogResources: CatalogResources? = nil) {
         self.catalog = catalog
+        self.catalogResources = catalogResources
         self.byIsrc = byIsrc
         self.timeout = timeout
     }
@@ -390,6 +436,7 @@ final class AppleMusicNameResolver {
         var id: String
         var target: OriginalNameTarget
         var isrc: String?
+        var verifyNotJapanese: Bool = false
     }
 
     func songs(_ region: AppleMusicNameRegion, accountStorefront: String?, _ songs: [AMSong]) async -> [AMSong] {
@@ -419,20 +466,35 @@ final class AppleMusicNameResolver {
         var requests: [String: Request] = [:]
         for a in albums {
             // An album's genre says its language as a song's does; album pages also pass a unanimous track ISRC.
-            guard let id = a.catalogId,
-                  let target = OriginalNameTarget.forRegion(
-                      region, title: a.title, artist: a.artist, genre: a.genre, isrc: isrcByAlbumId[id]
+            guard let id = a.catalogId else { continue }
+            let isrc = isrcByAlbumId[id]
+            guard let target = OriginalNameTarget.forRegion(
+                      region, title: a.title, artist: a.artist, genre: a.genre, isrc: isrc
                   ),
                   target.storefront != accountStorefront else { continue }
-            requests[id] = Request(id: id, target: target, isrc: nil)
+            let speculative = region == .original && target == .unitedStates &&
+                OriginalNameTarget.isKatakanaSpeculative(title: a.title, artist: a.artist, genre: a.genre, isrc: isrc)
+            requests[id] = Request(id: id, target: target, isrc: nil, verifyNotJapanese: speculative)
         }
         guard !requests.isEmpty else { return albums }
-        let names = await resolve(.albums, Array(requests.values))
+        var names = await resolve(.albums, Array(requests.values))
+        var effectiveTarget: [String: OriginalNameTarget] = requests.mapValues(\.target)
+        let missed = requests.values.filter { names[$0.id] == nil }
+        if !missed.isEmpty, let accountStorefront, !accountStorefront.isEmpty, catalogResources != nil {
+            let albumsById = Dictionary(albums.compactMap { a in a.catalogId.map { ($0, a) } }, uniquingKeysWith: { a, _ in a })
+            let recovered = await resolveMissedAlbumsViaSourceStorefront(
+                region: region, accountStorefront: accountStorefront, missed: missed, albumsById: albumsById
+            )
+            for (id, pair) in recovered {
+                names[id] = pair.0
+                effectiveTarget[id] = pair.1
+            }
+        }
         return albums.map { a in
-            guard let id = a.catalogId, let request = requests[id], let found = names[id] else { return a }
+            guard let id = a.catalogId, let target = effectiveTarget[id], let found = names[id] else { return a }
             var out = a
-            out.title = Self.pick(region, request.target, a.title, found.title)
-            out.artist = Self.pick(region, request.target, a.artist, found.artist, isArtist: true)
+            out.title = Self.pick(region, target, a.title, found.title)
+            out.artist = Self.pick(region, target, a.artist, found.artist, isArtist: true)
             return out
         }
     }
@@ -446,7 +508,9 @@ final class AppleMusicNameResolver {
                   let target = OriginalNameTarget.forRegion(region, title: nil, artist: artist.name, genre: artist.genre, isrc: nil),
                   target.storefront != accountStorefront else { continue }
             if region == .original && target == .korea { continue }
-            requests[id] = Request(id: id, target: target, isrc: nil)
+            let speculative = region == .original && target == .unitedStates &&
+                OriginalNameTarget.isKatakanaSpeculative(title: nil, artist: artist.name, genre: artist.genre, isrc: nil)
+            requests[id] = Request(id: id, target: target, isrc: nil, verifyNotJapanese: speculative)
         }
         guard !requests.isEmpty else { return artists }
         let names = await resolve(.artists, Array(requests.values))
@@ -562,9 +626,22 @@ final class AppleMusicNameResolver {
 
     /// One batch's names: by id, then the songs missing by ISRC (timed out separately so id answers stand).
     private func readBatch(_ kind: Kind, _ target: OriginalNameTarget, _ requests: [Request]) async -> [String: Names]? {
-        guard var found = await withTimeout({ [self] in
-            try await self.catalog(target.storefront, kind.rawValue, requests.map(\.id), target.language)
-        }) else { return nil }
+        let verifyIds = Set(requests.filter(\.verifyNotJapanese).map(\.id))
+        var found: [String: Names]
+        if !verifyIds.isEmpty, let catalogResources, kind == .artists || kind == .albums {
+            var query: [String: String] = ["ids": requests.map(\.id).joined(separator: ","), "l": target.language]
+            if kind == .artists { query["views"] = "top-songs" }
+            if kind == .albums { query["include"] = "tracks" }
+            guard let resources = await withTimeoutResources({
+                try await catalogResources(target.storefront, kind.rawValue, query)
+            }) else { return nil }
+            found = Self.names(in: resources, verifyNonWesternIds: verifyIds)
+        } else {
+            guard let map = await withTimeout({ [self] in
+                try await self.catalog(target.storefront, kind.rawValue, requests.map(\.id), target.language)
+            }) else { return nil }
+            found = map
+        }
         // A storefront may carry a song under an id of its own; the recording's ISRC still finds it.
         if kind == .songs {
             let missing = requests.filter { found[$0.id] == nil && $0.isrc != nil }
@@ -579,6 +656,148 @@ final class AppleMusicNameResolver {
             }
         }
         return found
+    }
+
+    private func resolveMissedAlbumsViaSourceStorefront(
+        region: AppleMusicNameRegion,
+        accountStorefront: String,
+        missed: [Request],
+        albumsById: [String: AMAlbum]
+    ) async -> [String: (Names, OriginalNameTarget)] {
+        let sourceInfo = await fetchSourceAlbumFallbacks(accountStorefront: accountStorefront, albumIds: missed.map(\.id))
+        guard !sourceInfo.isEmpty else { return [:] }
+
+        struct Plan {
+            var albumId: String
+            var target: OriginalNameTarget
+            var artistId: String?
+            var isrc: String?
+            var needsTitleByIsrc: Bool
+            var verifyArtistNotJapanese: Bool
+        }
+
+        var plans: [Plan] = []
+        for req in missed {
+            guard let info = sourceInfo[req.id] else { continue }
+            let album = albumsById[req.id]
+            let effectiveTarget: OriginalNameTarget
+            if region == .original {
+                let byIsrc = OriginalNameTarget.forIsrc(info.firstTrackIsrc)
+                let byGenre = OriginalNameTarget.forGenre(info.genre)
+                if let byIsrc, byIsrc.storefront == accountStorefront { continue }
+                if byIsrc == .unitedStates {
+                    effectiveTarget = .unitedStates
+                } else if let byIsrc {
+                    effectiveTarget = byIsrc
+                } else if let byGenre, byGenre.storefront == accountStorefront {
+                    continue
+                } else if req.verifyNotJapanese && info.hasJapaneseScript {
+                    continue
+                } else {
+                    effectiveTarget = req.target
+                }
+            } else {
+                effectiveTarget = req.target
+            }
+            guard effectiveTarget.storefront != accountStorefront else { continue }
+            if region == .original && effectiveTarget == .korea { continue }
+
+            let title = album?.title ?? ""
+            let needsTitle = region != .original ||
+                (effectiveTarget == .unitedStates && OriginalNameTarget.hasNonLatin(title)) ||
+                (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title))
+            let confirmedNonJp = info.firstTrackIsrc != nil && OriginalNameTarget.forIsrc(info.firstTrackIsrc) != nil
+            let artistId = info.artistId.flatMap { !$0.isEmpty && $0.allSatisfy(\.isNumber) ? $0 : nil }
+            plans.append(Plan(
+                albumId: req.id,
+                target: effectiveTarget,
+                artistId: artistId,
+                isrc: info.firstTrackIsrc,
+                needsTitleByIsrc: needsTitle && !(info.firstTrackIsrc?.isEmpty ?? true),
+                verifyArtistNotJapanese: req.verifyNotJapanese && !confirmedNonJp
+            ))
+        }
+        guard !plans.isEmpty else { return [:] }
+
+        let artistRequests = plans.compactMap { p -> Request? in
+            guard let artistId = p.artistId else { return nil }
+            return Request(id: artistId, target: p.target, isrc: nil, verifyNotJapanese: p.verifyArtistNotJapanese)
+        }
+        let resolvedArtists: [String: Names] = artistRequests.isEmpty ? [:] : await resolve(.artists, artistRequests)
+
+        var resolvedIsrcs: [OriginalNameTarget: [String: Names]] = [:]
+        let isrcGroups = Dictionary(grouping: plans.filter { $0.needsTitleByIsrc && $0.isrc != nil }, by: \.target)
+        for (target, group) in isrcGroups {
+            let codes = Array(Set(group.compactMap(\.isrc)))
+            resolvedIsrcs[target] = await withTimeout({ [self] in
+                try await self.byIsrc(target.storefront, codes, target.language)
+            }) ?? [:]
+        }
+
+        var out: [String: (Names, OriginalNameTarget)] = [:]
+        for p in plans {
+            let artistName = p.artistId.flatMap { resolvedArtists[$0]?.title }
+            let songMatch = p.isrc.flatMap { resolvedIsrcs[p.target]?[$0] }
+            let title = songMatch?.album
+            let artist = artistName ?? songMatch?.artist
+            if title != nil || artist != nil {
+                let resolved = Names(title: title, artist: artist, album: nil)
+                out[p.albumId] = (resolved, p.target)
+                store(Self.key(.albums, p.target, p.albumId), resolved)
+            }
+        }
+        return out
+    }
+
+    private func fetchSourceAlbumFallbacks(accountStorefront: String, albumIds: [String]) async -> [String: SourceAlbumFallback] {
+        guard let catalogResources else { return [:] }
+        var known: [String: SourceAlbumFallback] = [:]
+        var unread: [String] = []
+        for id in Array(Set(albumIds)) {
+            let k = "\(accountStorefront)|\(id)"
+            if let hit = sourceAlbumCache[k] {
+                if let hit { known[id] = hit }
+            } else {
+                unread.append(id)
+            }
+        }
+        guard !unread.isEmpty else { return known }
+        for start in stride(from: 0, to: unread.count, by: Kind.albums.batch) {
+            let batch = Array(unread[start..<min(start + Kind.albums.batch, unread.count)])
+            guard let resources = await withTimeoutResources({
+                try await catalogResources(accountStorefront, Kind.albums.rawValue, [
+                    "ids": batch.joined(separator: ","),
+                    "include": "artists,tracks",
+                ])
+            }) else { continue }
+            var parsed: [String: SourceAlbumFallback] = [:]
+            for r in resources {
+                parsed[r.id] = SourceAlbumFallback(
+                    artistId: r.artistId,
+                    firstTrackIsrc: r.nestedTrackIsrcs.first,
+                    hasJapaneseScript: r.nestedTrackNames.contains { OriginalNameTarget.hasJapaneseScript($0) },
+                    genre: r.genre
+                )
+            }
+            for id in batch { sourceAlbumCache["\(accountStorefront)|\(id)"] = parsed[id] }
+            known.merge(parsed) { _, new in new }
+        }
+        return known
+    }
+
+    private func withTimeoutResources(_ body: @escaping @Sendable @MainActor () async throws -> [CatalogResourceInfo]) async -> [CatalogResourceInfo]? {
+        let work = Task { @MainActor in try await body() }
+        let timeout = timeout
+        let timer = Task {
+            try await Task.sleep(for: timeout)
+            work.cancel()
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            try? await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     /// [body]'s answer, or nil when it fails or [timeout] passes first (then it is cancelled).
@@ -619,5 +838,80 @@ final class AppleMusicNameResolver {
                             album: AppleMusicJSON.string(a, "albumName"))
         }
         return out
+    }
+
+    nonisolated static func parseResources(in resources: [AppleMusicJSON.Object]) -> [CatalogResourceInfo] {
+        var out: [CatalogResourceInfo] = []
+        for r in resources {
+            guard let id = r["id"] as? String, let a = r["attributes"] as? AppleMusicJSON.Object else { continue }
+            let names = Names(
+                title: AppleMusicJSON.string(a, "name"),
+                artist: AppleMusicJSON.string(a, "artistName"),
+                album: AppleMusicJSON.string(a, "albumName")
+            )
+            let rels = r["relationships"] as? AppleMusicJSON.Object
+            let views = r["views"] as? AppleMusicJSON.Object
+            let artistsData = nestedData(rels?["artists"])
+            let artistId = artistsData.first?["id"] as? String
+            let tracksData = nestedData(rels?["tracks"]) + nestedData(views?["top-songs"])
+            var isrcs: [String] = []
+            var trackGenres: [String] = []
+            var trackNames: [String] = []
+            for track in tracksData {
+                guard let tAttrs = track["attributes"] as? AppleMusicJSON.Object else { continue }
+                if let code = AppleMusicJSON.string(tAttrs, "isrc") { isrcs.append(code) }
+                if let g = genreString(tAttrs) { trackGenres.append(g) }
+                if let n = AppleMusicJSON.string(tAttrs, "name") { trackNames.append(n) }
+            }
+            out.append(CatalogResourceInfo(
+                id: id,
+                names: names,
+                genre: genreString(a),
+                artistId: artistId,
+                nestedTrackIsrcs: isrcs,
+                nestedTrackGenres: trackGenres,
+                nestedTrackNames: trackNames
+            ))
+        }
+        return out
+    }
+
+    private nonisolated static func names(
+        in resources: [CatalogResourceInfo],
+        verifyNonWesternIds: Set<String>
+    ) -> [String: Names] {
+        var out: [String: Names] = [:]
+        for r in resources {
+            if verifyNonWesternIds.contains(r.id) && isConfirmedNonWesternOrigin(r) {
+                continue
+            }
+            out[r.id] = r.names
+        }
+        return out
+    }
+
+    private nonisolated static func isConfirmedNonWesternOrigin(_ r: CatalogResourceInfo) -> Bool {
+        if let g = OriginalNameTarget.forGenre(r.genre), g != .unitedStates { return true }
+        for isrc in r.nestedTrackIsrcs {
+            if let t = OriginalNameTarget.forIsrc(isrc), t != .unitedStates { return true }
+        }
+        for genre in r.nestedTrackGenres {
+            if let t = OriginalNameTarget.forGenre(genre), t != .unitedStates { return true }
+        }
+        for name in r.nestedTrackNames {
+            if OriginalNameTarget.hasJapaneseScript(name) { return true }
+        }
+        return false
+    }
+
+    private nonisolated static func nestedData(_ container: Any?) -> [AppleMusicJSON.Object] {
+        guard let dict = container as? AppleMusicJSON.Object,
+              let list = dict["data"] as? [AppleMusicJSON.Object] else { return [] }
+        return list
+    }
+
+    private nonisolated static func genreString(_ attrs: AppleMusicJSON.Object?) -> String? {
+        guard let list = attrs?["genreNames"] as? [String], !list.isEmpty else { return nil }
+        return list.joined(separator: ", ")
     }
 }

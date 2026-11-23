@@ -1,13 +1,15 @@
-/// Renames songs and albums after another storefront's names, as an
+/// Renames songs, albums, and artists after another storefront's names, as an
 /// account's [AppleMusicNameRegion] asks (Android AppleMusicNameResolver.kt).
 ///
 /// Items are grouped by the storefront they ask ([OriginalNameTarget.forRegion]);
 /// each group is one request per batch of catalog ids (`GET
-/// /v1/catalog/{storefront}/songs?ids=…&l=…`), and songs that storefront
-/// doesn't know by their id are asked for once more by ISRC. Answers, misses
-/// included, are kept in memory, so a list read again costs nothing. Names
-/// are a nicety: a batch that fails or takes longer than [batchTimeout] keeps
-/// the names it had, and a storefront the account is in already is never asked.
+/// /v1/catalog/{storefront}/songs?ids=…&l=…`). Songs absent in the target
+/// storefront fall back to ISRC lookup; regional-edition albums absent in the
+/// target storefront fall back to their global catalog artist ID (and track
+/// ISRC) read from the account's storefront. Speculative pure-Katakana lookups
+/// in [AppleMusicNameRegion.original] verify track/top-song ISRCs so native
+/// Japanese Katakana acts (ヨルシカ, サカナクション, ササノマリイ) are never
+/// romanized.
 library;
 
 import 'dart:async';
@@ -34,8 +36,16 @@ final class AppleMusicNames {
   final String? album;
 }
 
+final class _SourceAlbumFallback {
+  const _SourceAlbumFallback({this.artistId, this.firstTrackIsrc, required this.hasJapaneseScript, this.genre});
+  final String? artistId;
+  final String? firstTrackIsrc;
+  final bool hasJapaneseScript;
+  final String? genre;
+}
+
 final class AppleMusicNameResolver {
-  AppleMusicNameResolver({required AppleMusicCatalogRead catalog, this.batchTimeout = const Duration(seconds: 4)})
+  AppleMusicNameResolver({required AppleMusicCatalogRead catalog, this.batchTimeout = const Duration(seconds: 6)})
     : _catalog = catalog;
 
   final AppleMusicCatalogRead _catalog;
@@ -47,9 +57,10 @@ final class AppleMusicNameResolver {
   static const cacheSize = 4000;
 
   /// Bounded parallelism for multi-batch region lookups.
-  static const maxConcurrentBatches = 4;
+  static const maxConcurrentBatches = 6;
 
   final _cache = <String, AppleMusicNames?>{}; // insertion order = least recently used first
+  final _sourceAlbumCache = <String, _SourceAlbumFallback?>{};
 
   Future<List<Track>> tracks(
     AppleMusicNameRegion region,
@@ -106,28 +117,53 @@ final class AppleMusicNameResolver {
     for (var i = 0; i < albums.length; i++) {
       final a = albums[i];
       if (a.id.provider != MediaId.providerAppleMusic || !_isCatalogId(a.id.rawId)) continue;
+      final isrc = isrcByAlbumId[a.id.rawId];
       // An album's genre says its language as a song's does; album pages also pass a unanimous track ISRC.
       final target = OriginalNameTarget.forRegion(
         region,
         title: a.name,
         artist: a.artist,
         genre: a.genre,
-        isrc: isrcByAlbumId[a.id.rawId],
+        isrc: isrc,
       );
       if (target == null || target.storefront == accountStorefront) continue;
-      final r = _Request(a.id.rawId, target, null);
+      final speculative = region == AppleMusicNameRegion.original &&
+          target == OriginalNameTarget.unitedStates &&
+          OriginalNameTarget.isKatakanaSpeculative(title: a.name, artist: a.artist, genre: a.genre, isrc: isrc);
+      final r = _Request(a.id.rawId, target, null, verifyNotJapanese: speculative);
       requests.add(r);
       byAlbum[i] = r;
     }
     if (requests.isEmpty) return albums;
-    final names = await _resolve(_Kind.albums, requests);
+    final names = Map<String, AppleMusicNames>.from(await _resolve(_Kind.albums, requests));
+    final effectiveTarget = <String, OriginalNameTarget>{for (final r in requests) r.id: r.target};
+    final missed = [for (final r in requests) if (!names.containsKey(r.id)) r];
+    if (missed.isNotEmpty && accountStorefront != null && accountStorefront.isNotEmpty) {
+      final albumsById = {for (final a in albums) a.id.rawId: a};
+      final recovered = await _resolveMissedAlbumsViaSourceStorefront(
+        region,
+        accountStorefront,
+        missed,
+        albumsById,
+      );
+      for (final entry in recovered.entries) {
+        names[entry.key] = entry.value.$1;
+        effectiveTarget[entry.key] = entry.value.$2;
+      }
+    }
     return [
       for (var i = 0; i < albums.length; i++)
         if (byAlbum[i] case final r? when names[r.id] != null)
           renamedAlbum(
             albums[i],
-            name: _pick(region, r.target, albums[i].name, names[r.id]!.title) ?? albums[i].name,
-            artist: _pick(region, r.target, albums[i].artist, names[r.id]!.artist, isArtist: true),
+            name: _pick(region, effectiveTarget[r.id] ?? r.target, albums[i].name, names[r.id]!.title) ?? albums[i].name,
+            artist: _pick(
+              region,
+              effectiveTarget[r.id] ?? r.target,
+              albums[i].artist,
+              names[r.id]!.artist,
+              isArtist: true,
+            ),
           )
         else
           albums[i],
@@ -152,7 +188,10 @@ final class AppleMusicNameResolver {
       final target = OriginalNameTarget.forRegion(region, artist: a.name, genre: k.genre);
       if (target == null || target.storefront == accountStorefront) continue;
       if (region == AppleMusicNameRegion.original && target == OriginalNameTarget.korea) continue;
-      final r = _Request(id, target, null);
+      final speculative = region == AppleMusicNameRegion.original &&
+          target == OriginalNameTarget.unitedStates &&
+          OriginalNameTarget.isKatakanaSpeculative(artist: a.name, genre: k.genre);
+      final r = _Request(id, target, null, verifyNotJapanese: speculative);
       requests.add(r);
       byArtist[i] = r;
     }
@@ -191,6 +230,189 @@ final class AppleMusicNameResolver {
       artist = _consensusTrackArtist(album.artist!, album.tracks, renamedTracks) ?? artist;
     }
     return renamedAlbum(renamed, name: renamed.name, artist: artist, tracks: renamedTracks);
+  }
+
+  Future<Map<String, (AppleMusicNames, OriginalNameTarget)>> _resolveMissedAlbumsViaSourceStorefront(
+    AppleMusicNameRegion region,
+    String accountStorefront,
+    List<_Request> missed,
+    Map<String, Album> albumsById,
+  ) async {
+    final sourceInfo = await _fetchSourceAlbumFallbacks(accountStorefront, [for (final r in missed) r.id]);
+    if (sourceInfo.isEmpty) return const {};
+
+    final plans = <({
+      String albumId,
+      OriginalNameTarget target,
+      String? artistId,
+      String? isrc,
+      bool needsTitleByIsrc,
+      bool verifyArtistNotJapanese,
+    })>[];
+
+    for (final req in missed) {
+      final info = sourceInfo[req.id];
+      if (info == null) continue;
+      final album = albumsById[req.id];
+      OriginalNameTarget effectiveTarget;
+      if (region == AppleMusicNameRegion.original) {
+        final byIsrc = OriginalNameTarget.forIsrc(info.firstTrackIsrc);
+        final byGenre = OriginalNameTarget.forGenre(info.genre);
+        if (byIsrc != null && byIsrc.storefront == accountStorefront) continue;
+        if (byIsrc == OriginalNameTarget.unitedStates) {
+          effectiveTarget = OriginalNameTarget.unitedStates;
+        } else if (byIsrc != null) {
+          effectiveTarget = byIsrc;
+        } else if (byGenre != null && byGenre.storefront == accountStorefront) {
+          continue;
+        } else if (req.verifyNotJapanese && info.hasJapaneseScript) {
+          continue;
+        } else {
+          effectiveTarget = req.target;
+        }
+      } else {
+        effectiveTarget = req.target;
+      }
+      if (effectiveTarget.storefront == accountStorefront) continue;
+      if (region == AppleMusicNameRegion.original && effectiveTarget == OriginalNameTarget.korea) continue;
+
+      final title = album?.name ?? '';
+      final needsTitle = region != AppleMusicNameRegion.original ||
+          (effectiveTarget == OriginalNameTarget.unitedStates && OriginalNameTarget.hasNonLatin(title)) ||
+          (OriginalNameTarget.isChinese(effectiveTarget) && !OriginalNameTarget.hasHanText(title));
+      final confirmedNonJapanese =
+          info.firstTrackIsrc != null && OriginalNameTarget.forIsrc(info.firstTrackIsrc) != null;
+      final artistId = (info.artistId != null && _isCatalogId(info.artistId!)) ? info.artistId : null;
+      plans.add((
+        albumId: req.id,
+        target: effectiveTarget,
+        artistId: artistId,
+        isrc: info.firstTrackIsrc,
+        needsTitleByIsrc: needsTitle && info.firstTrackIsrc != null && info.firstTrackIsrc!.isNotEmpty,
+        verifyArtistNotJapanese: req.verifyNotJapanese && !confirmedNonJapanese,
+      ));
+    }
+    if (plans.isEmpty) return const {};
+
+    final artistRequests = [
+      for (final p in plans)
+        if (p.artistId != null) _Request(p.artistId!, p.target, null, verifyNotJapanese: p.verifyArtistNotJapanese),
+    ];
+    final isrcGroups = <OriginalNameTarget, List<String>>{};
+    for (final p in plans) {
+      if (p.needsTitleByIsrc && p.isrc != null) {
+        (isrcGroups[p.target] ??= []).add(p.isrc!);
+      }
+    }
+
+    final results = await Future.wait([
+      artistRequests.isEmpty ? Future.value(const <String, AppleMusicNames>{}) : _resolve(_Kind.artists, artistRequests),
+      Future.wait([
+        for (final entry in isrcGroups.entries)
+          () async {
+            try {
+              final songs = await _songsByIsrc(entry.key, entry.value).timeout(batchTimeout);
+              return MapEntry(entry.key, songs);
+            } catch (_) {
+              return MapEntry(entry.key, const <String, AppleMusicNames>{});
+            }
+          }(),
+      ]),
+    ]);
+
+    final resolvedArtists = results[0] as Map<String, AppleMusicNames>;
+    final resolvedIsrcs = Map<OriginalNameTarget, Map<String, AppleMusicNames>>.fromEntries(
+      results[1] as List<MapEntry<OriginalNameTarget, Map<String, AppleMusicNames>>>,
+    );
+
+    final out = <String, (AppleMusicNames, OriginalNameTarget)>{};
+    for (final p in plans) {
+      final artistName = p.artistId != null ? resolvedArtists[p.artistId!]?.title : null;
+      final targetIsrcs = resolvedIsrcs[p.target];
+      final songMatch = (p.isrc != null && targetIsrcs != null) ? targetIsrcs[p.isrc!.toUpperCase()] : null;
+      final title = songMatch?.album;
+      final artist = artistName ?? songMatch?.artist;
+      if (title != null || artist != null) {
+        final resolved = AppleMusicNames(title: title, artist: artist);
+        out[p.albumId] = (resolved, p.target);
+        _put(_key(_Kind.albums, p.target, p.albumId), resolved);
+      }
+    }
+    return out;
+  }
+
+  Future<Map<String, _SourceAlbumFallback>> _fetchSourceAlbumFallbacks(
+    String accountStorefront,
+    List<String> albumIds,
+  ) async {
+    final known = <String, _SourceAlbumFallback>{};
+    final unread = <String>[];
+    for (final id in albumIds.toSet()) {
+      final k = '$accountStorefront|$id';
+      if (_sourceAlbumCache.containsKey(k)) {
+        final hit = _sourceAlbumCache[k];
+        if (hit != null) known[id] = hit;
+      } else {
+        unread.add(id);
+      }
+    }
+    if (unread.isEmpty) return known;
+    final batches = <List<String>>[
+      for (var i = 0; i < unread.length; i += _Kind.albums.batch)
+        unread.sublist(i, (i + _Kind.albums.batch).clamp(0, unread.length)),
+    ];
+    var cursor = 0;
+    final workers = batches.length < maxConcurrentBatches ? batches.length : maxConcurrentBatches;
+    await Future.wait([
+      for (var w = 0; w < workers; w++)
+        () async {
+          while (cursor < batches.length) {
+            final batch = batches[cursor++];
+            Map<String, Object?> response;
+            try {
+              response = await _catalog(
+                ['v1', 'catalog', accountStorefront, _Kind.albums.path],
+                {'ids': batch.join(','), 'include': 'artists,tracks'},
+              ).timeout(batchTimeout);
+            } catch (_) {
+              continue;
+            }
+            final parsed = <String, _SourceAlbumFallback>{};
+            for (final item in _data(response)) {
+              final id = item['id'];
+              if (id is! String) continue;
+              final attrs = item['attributes'] is Map ? (item['attributes'] as Map).cast<String, Object?>() : null;
+              final rels = item['relationships'] is Map ? (item['relationships'] as Map).cast<String, Object?>() : null;
+              final artistsData = _nestedData(rels?['artists']);
+              final artistId = artistsData.isNotEmpty ? _text(artistsData.first['id']) : null;
+              final tracksData = _nestedData(rels?['tracks']);
+              String? firstIsrc;
+              var hasJpScript = false;
+              for (final track in tracksData) {
+                final tAttrs = track['attributes'] is Map ? (track['attributes'] as Map).cast<String, Object?>() : null;
+                if (tAttrs == null) continue;
+                firstIsrc ??= _text(tAttrs['isrc']);
+                final tName = _text(tAttrs['name']) ?? '';
+                if (OriginalNameTarget.hasJapaneseScript(tName)) hasJpScript = true;
+              }
+              parsed[id] = _SourceAlbumFallback(
+                artistId: artistId,
+                firstTrackIsrc: firstIsrc,
+                hasJapaneseScript: hasJpScript,
+                genre: _genreString(attrs),
+              );
+            }
+            for (final id in batch) {
+              _sourceAlbumCache['$accountStorefront|$id'] = parsed[id];
+              while (_sourceAlbumCache.length > cacheSize) {
+                _sourceAlbumCache.remove(_sourceAlbumCache.keys.first);
+              }
+            }
+            known.addAll(parsed);
+          }
+        }(),
+    ]);
+    return known;
   }
 
   static String? _unanimousTrackIsrc(List<Track> tracks, AppleMusicSongKeys keys) {
@@ -289,12 +511,16 @@ final class AppleMusicNameResolver {
     OriginalNameTarget target,
     List<_Request> requests,
   ) async {
+    final verifyIds = {for (final r in requests) if (r.verifyNotJapanese) r.id};
+    final query = <String, String>{
+      'ids': requests.map((r) => r.id).join(','),
+      'l': target.language,
+      if (verifyIds.isNotEmpty && kind == _Kind.artists) 'views': 'top-songs',
+      if (verifyIds.isNotEmpty && kind == _Kind.albums) 'include': 'tracks',
+    };
     final Map<String, Object?> response;
     try {
-      response = await _catalog(
-        ['v1', 'catalog', target.storefront, kind.path],
-        {'ids': requests.map((r) => r.id).join(','), 'l': target.language},
-      ).timeout(batchTimeout);
+      response = await _catalog(['v1', 'catalog', target.storefront, kind.path], query).timeout(batchTimeout);
     } catch (_) {
       return null;
     }
@@ -303,10 +529,14 @@ final class AppleMusicNameResolver {
       final id = item['id'];
       final attributes = item['attributes'];
       if (id is! String || attributes is! Map) continue;
+      final attrs = attributes.cast<String, Object?>();
+      if (verifyIds.contains(id) && _isConfirmedNonWesternOrigin(kind, item, attrs)) {
+        continue;
+      }
       found[id] = AppleMusicNames(
-        title: _text(attributes['name']),
-        artist: _text(attributes['artistName']),
-        album: _text(attributes['albumName']),
+        title: _text(attrs['name']),
+        artist: _text(attrs['artistName']),
+        album: _text(attrs['albumName']),
       );
     }
     // A storefront may carry a song under an id of its own; the recording's ISRC still finds it.
@@ -328,6 +558,46 @@ final class AppleMusicNameResolver {
       }
     }
     return found;
+  }
+
+  static bool _isConfirmedNonWesternOrigin(_Kind kind, Map<String, Object?> item, Map<String, Object?> attrs) {
+    final itemGenreTarget = OriginalNameTarget.forGenre(_genreString(attrs));
+    if (itemGenreTarget != null && itemGenreTarget != OriginalNameTarget.unitedStates) return true;
+    final List<Map<String, Object?>> nestedTracks;
+    if (kind == _Kind.artists) {
+      final views = item['views'] is Map ? (item['views'] as Map).cast<String, Object?>() : null;
+      nestedTracks = _nestedData(views?['top-songs']);
+    } else if (kind == _Kind.albums) {
+      final rels = item['relationships'] is Map ? (item['relationships'] as Map).cast<String, Object?>() : null;
+      nestedTracks = _nestedData(rels?['tracks']);
+    } else {
+      return false;
+    }
+    for (final track in nestedTracks) {
+      final tAttrs = track['attributes'] is Map ? (track['attributes'] as Map).cast<String, Object?>() : null;
+      if (tAttrs == null) continue;
+      final isrcTarget = OriginalNameTarget.forIsrc(_text(tAttrs['isrc']));
+      if (isrcTarget != null && isrcTarget != OriginalNameTarget.unitedStates) return true;
+      final genreTarget = OriginalNameTarget.forGenre(_genreString(tAttrs));
+      if (genreTarget != null && genreTarget != OriginalNameTarget.unitedStates) return true;
+      final name = _text(tAttrs['name']) ?? '';
+      if (OriginalNameTarget.hasJapaneseScript(name)) return true;
+    }
+    return false;
+  }
+
+  static List<Map<String, Object?>> _nestedData(Object? container) {
+    if (container is! Map) return const [];
+    final data = container['data'];
+    if (data is! List) return const [];
+    return [for (final el in data) if (el is Map) el.cast<String, Object?>()];
+  }
+
+  static String? _genreString(Map<String, Object?>? attrs) {
+    final genres = attrs?['genreNames'];
+    if (genres is! List) return null;
+    final joined = genres.whereType<String>().join(', ');
+    return joined.isEmpty ? null : joined;
   }
 
   /// The first catalog song for each ISRC (`songs?filter[isrc]=…`), at most 25 codes a request.
@@ -396,10 +666,11 @@ enum _Kind {
 }
 
 final class _Request {
-  const _Request(this.id, this.target, this.isrc);
+  const _Request(this.id, this.target, this.isrc, {this.verifyNotJapanese = false});
   final String id;
   final OriginalNameTarget target;
   final String? isrc;
+  final bool verifyNotJapanese;
 }
 
 /// [t] under other names; everything else kept.

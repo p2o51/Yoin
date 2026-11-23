@@ -55,7 +55,9 @@ class AppleMusicNameResolverTest {
     @Test fun detect_goesByGenre_thenIsrc_thenScript() {
         assertEquals(OriginalNameTarget.Japan, OriginalNameTarget.detect("Sunny", "Yorushika", "J-Pop", "USXXX0000001"))
         assertEquals(OriginalNameTarget.Korea, OriginalNameTarget.detect("Love", "Someone", null, "KRA401500001"))
-        assertEquals(OriginalNameTarget.MainlandChina, OriginalNameTarget.detect("x", "y", "华语流行", null))
+        assertEquals(OriginalNameTarget.Taiwan, OriginalNameTarget.detect("x", "y", "华语流行", null))
+        assertEquals(OriginalNameTarget.MainlandChina, OriginalNameTarget.detect("x", "y", "Mandopop", "CNXXX1900001"))
+        assertEquals(OriginalNameTarget.Taiwan, OriginalNameTarget.detect("Deserts Chang", null, "Mandopop", null))
         assertEquals(OriginalNameTarget.Taiwan, OriginalNameTarget.detect("Sunny Day", "Jay Chou", "Mandopop", "TWA011900001"))
         assertEquals(OriginalNameTarget.HongKong, OriginalNameTarget.detect("x", "y", "Cantopop", null))
         assertEquals(OriginalNameTarget.Japan, OriginalNameTarget.detect("夜に駆ける", "YOASOBI", null, null))
@@ -283,7 +285,12 @@ class AppleMusicNameResolverTest {
         }
 
         assertEquals(
-            listOf(Read(listOf("v1", "catalog", "us", "artists"), mapOf("ids" to "159260351", "l" to "en-US"))),
+            listOf(
+                Read(
+                    listOf("v1", "catalog", "us", "artists"),
+                    mapOf("ids" to "159260351", "l" to "en-US", "views" to "top-songs"),
+                ),
+            ),
             reads,
         )
         assertEquals("Taylor Swift", renamed[0].name)
@@ -366,5 +373,100 @@ class AppleMusicNameResolverTest {
 
         assertEquals("Muse", renamed.artist)
         assertEquals("Muse", renamed.tracks.single().artist)
+    }
+
+    @Test fun original_protectsNativeJapaneseKatakanaArtistsAndAlbumsViaTopSongsAndTrackIsrcs() = runTest {
+        answers = { read ->
+            when {
+                read.segments == listOf("v1", "catalog", "us", "artists") -> """{"data":[
+                    {"id":"1250709916","type":"artists","attributes":{"name":"Yorushika","genreNames":["Alternative"]},
+                     "views":{"top-songs":{"data":[{"id":"s1","attributes":{"name":"晴る","isrc":"JPPO02400001"}}]}}
+                    },
+                    {"id":"252312257","type":"artists","attributes":{"name":"sakanaction","genreNames":["Rock"]},
+                     "views":{"top-songs":{"data":[{"id":"s2","attributes":{"name":"新宝島","isrc":"JPVI01500001"}}]}}
+                    },
+                    {"id":"164483115","type":"artists","attributes":{"name":"HAIM","genreNames":["Alternative"]},
+                     "views":{"top-songs":{"data":[{"id":"s3","attributes":{"name":"The Wire","isrc":"USUM71300001"}}]}}
+                    }
+                ]}"""
+                read.segments == listOf("v1", "catalog", "us", "albums") -> """{"data":[
+                    {"id":"a-yoru","type":"albums","attributes":{"name":"Elma","artistName":"Yorushika","genreNames":["Alternative"]},
+                     "relationships":{"tracks":{"data":[{"id":"t1","attributes":{"name":"車窓","isrc":"JPPO01900001"}}]}}
+                    }
+                ]}"""
+                else -> """{"data":[]}"""
+            }
+        }
+        val artists = listOf(
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1250709916"), "ヨルシカ", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "252312257"), "サカナクション", null, null),
+            Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "164483115"), "ハイム", null, null),
+        )
+        val renamedArtists = resolver.artists(AppleMusicNameRegion.Original, "jp", artists) { a ->
+            AppleMusicNameResolver.ArtistHint(catalogId = a.id.rawId, genre = "Alternative")
+        }
+        assertEquals(listOf("ヨルシカ", "サカナクション", "HAIM"), renamedArtists.map { it.name })
+
+        val elma = Album(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "a-yoru".replace("a-yoru", "9001")),
+            name = "エルマ",
+            artist = "ヨルシカ",
+            artistId = null,
+            coverArt = null,
+            songCount = 1,
+            durationSec = null,
+            year = null,
+            genre = "Alternative",
+            tracks = emptyList(),
+        )
+        answers = { read ->
+            if (read.segments == listOf("v1", "catalog", "us", "albums")) {
+                """{"data":[
+                    {"id":"9001","type":"albums","attributes":{"name":"Elma","artistName":"Yorushika","genreNames":["Alternative"]},
+                     "relationships":{"tracks":{"data":[{"id":"t1","attributes":{"name":"車窓","isrc":"JPPO01900001"}}]}}
+                    }
+                ]}"""
+            } else {
+                """{"data":[]}"""
+            }
+        }
+        val renamedElma = resolver.albums(AppleMusicNameRegion.Original, "jp", listOf(elma)).single()
+        assertEquals("エルマ", renamedElma.name)
+        assertEquals("ヨルシカ", renamedElma.artist)
+    }
+
+    @Test fun original_recoversMissedJpRegionalEditionAlbumsViaGlobalArtistIdAndTrackIsrc() = runTest {
+        answers = { read ->
+            when {
+                // Regional JP album IDs (Red, Pure Heroine, Tanya Chua) miss in target storefront.
+                read.segments == listOf("v1", "catalog", "us", "albums") -> """{"data":[]}"""
+                read.segments == listOf("v1", "catalog", "tw", "albums") -> """{"data":[]}"""
+                // Source storefront (jp) returns global catalog artist IDs & first-track ISRCs in one batch.
+                read.segments == listOf("v1", "catalog", "jp", "albums") -> """{"data":[
+                    {"id":"5001","type":"albums","attributes":{"name":"Red","artistName":"テイラー・スウィフト","genreNames":["Pop"]},
+                     "relationships":{"artists":{"data":[{"id":"159260351"}]},"tracks":{"data":[{"id":"t1","attributes":{"name":"State of Grace","isrc":"USCJY1231001"}}]}}
+                    },
+                    {"id":"5002","type":"albums","attributes":{"name":"我要給世界最悠長的濕吻","artistName":"タニア・チュア","genreNames":["Mandopop"]},
+                     "relationships":{"artists":{"data":[{"id":"300999"}]},"tracks":{"data":[{"id":"t2","attributes":{"name":"遺書","isrc":"TWA011800001"}}]}}
+                    }
+                ]}"""
+                read.segments == listOf("v1", "catalog", "us", "artists") -> """{"data":[
+                    {"id":"159260351","type":"artists","attributes":{"name":"Taylor Swift"}}
+                ]}"""
+                read.segments == listOf("v1", "catalog", "tw", "artists") -> """{"data":[
+                    {"id":"300999","type":"artists","attributes":{"name":"蔡健雅"}}
+                ]}"""
+                else -> """{"data":[]}"""
+            }
+        }
+        val red = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "5001"), "Red", "テイラー・スウィフト", null, null, 1, null, null, "Pop")
+        val tanya = Album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "5002"), "我要給世界最悠長的濕吻", "タニア・チュア", null, null, 1, null, null, "Mandopop")
+
+        val renamed = resolver.albums(AppleMusicNameRegion.Original, "jp", listOf(red, tanya))
+
+        assertEquals("Taylor Swift", renamed[0].artist)
+        assertEquals("Red", renamed[0].name)
+        assertEquals("蔡健雅", renamed[1].artist)
+        assertEquals("我要給世界最悠長的濕吻", renamed[1].name)
     }
 }
