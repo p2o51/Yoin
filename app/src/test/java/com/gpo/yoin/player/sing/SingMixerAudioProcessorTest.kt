@@ -40,8 +40,20 @@ class SingMixerAudioProcessorTest {
     }
 
     @Test
-    fun should_passThrough_when_stereo() {
-        configure(2)
+    fun should_beLiveAndPassThrough_when_stereoWithNothingBound() {
+        val out = configure(2)
+        assertTrue(mixer.isActive) // live mode: ready to take a vocal out when Sing binds one
+        assertEquals(2, out.channelCount)
+        val b = ByteBuffer.allocateDirect(4 * 8).order(ByteOrder.nativeOrder())
+        repeat(8) { b.putFloat(it * 0.1f) }
+        b.flip()
+        val y = mixFloat(b)
+        for (i in 0 until 8) assertEquals(i * 0.1f, y[i], 0f)
+    }
+
+    @Test
+    fun should_passThrough_when_moreThanTwoChannelsAndNotQuadSing() {
+        configure(6)
         assertFalse(mixer.isActive)
     }
 

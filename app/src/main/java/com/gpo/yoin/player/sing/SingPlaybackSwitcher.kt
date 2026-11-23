@@ -1,10 +1,12 @@
 package com.gpo.yoin.player.sing
 
 import android.net.Uri
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -15,20 +17,26 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Puts a song's Sing stream in the local player and takes it out again (PlaybackService).
+ * Connects [SingController] to the local player (PlaybackService), while Sing is on.
  *
- * Swap in: for a remote Lyra `quad.m4a`, prefetches the faststart header + a few seconds around the
- * current playhead into ExoPlayer's stream cache on [ioDispatcher] while the original stereo track
- * keeps playing uninterrupted (button keeps spinning quietly). Once buffered, swaps the current item
- * in at the exact live playhead at gain 1.0 (inaudible cut-in), signals [SingController.onStreamHandedOver]
- * so the UI capsule expands in sync, and the mixer glides smoothly along [SingRampCurve.EaseOutCubic].
+ * **Live** ([SingSource.Live], the on-device engine): nothing in the queue changes. The current song's
+ * vocal track is bound to the mixer ([SingMixControl.liveBinding], with the player's period uid for
+ * the song), which takes V out of the playing original once it has placed the stream on the track;
+ * the moment it first does — Sing audibly cutting in — goes to [SingController.onStreamHandedOver].
+ * Sing off: after the ~750 ms glide back to 1.0 the binding goes. A new song while Sing stays on plays
+ * as it is until its own track is Ready, then binds. The playhead goes to the engine every half second
+ * and on every seek ([SingController.onPlayhead]), so it separates where the listener is.
  *
- * Swap out (Sing off): waits for the ~750 ms ease-in-out glide back to 1.0 before restoring every Sing
- * item in the queue to its original stereo URL.
+ * **Swap** ([SingSource.LocalFile], [SingSource.Remote] — the Lyra server's quad.m4a): for remote
+ * streams, prefetches the faststart header + a few seconds around the live playhead into ExoPlayer's
+ * cache while the original stereo track plays uninterrupted, then replaces the item at gain 1.0 and
+ * signals [SingController.onStreamHandedOver] in sync with the ~950 ms ease-out glide. Sing off: after
+ * the ~750 ms glide back to 1.0, every Sing item in the queue gets its original url back.
  */
 @OptIn(UnstableApi::class)
 class SingPlaybackSwitcher(
@@ -46,6 +54,11 @@ class SingPlaybackSwitcher(
     private var restoreJob: Job? = null
     private var swapJob: Job? = null
     private var pendingSwapKey: String? = null
+    private var unbindJob: Job? = null
+    private var handoverJob: Job? = null
+    private var handoverBinding: SingLiveBinding? = null
+    private var tickJob: Job? = null
+    private val mixControl get() = controller.mixControl
 
     fun start() {
         player.addListener(this)
@@ -54,6 +67,9 @@ class SingPlaybackSwitcher(
     }
 
     fun release() {
+        tickJob?.cancel()
+        handoverJob?.cancel()
+        unbindJob?.cancel()
         swapJob?.cancel()
         swapJob = null
         restoreJob?.cancel()
@@ -67,11 +83,30 @@ class SingPlaybackSwitcher(
         controller.onCurrentItem(mediaItem?.let(::requestFor), singing = mediaItem?.singTag() != null)
     }
 
+    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+        // A seek: tell the engine at once, so it separates from the new place.
+        if (controller.state.value.enabled) reportPlayhead()
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (controller.state.value.enabled) reportPlayhead()
+    }
+
     private fun apply(state: SingController.State) {
         if (!state.enabled) {
             swapJob?.cancel()
             swapJob = null
             pendingSwapKey = null
+            tickJob?.cancel()
+            tickJob = null
+            handoverJob?.cancel()
+            if (mixControl.liveBinding != null && unbindJob?.isActive != true) {
+                unbindJob = scope.launch {
+                    // V glides out (g to 1.0) first; unbound earlier, the mixer would fade V out itself.
+                    delay(SingMixControl.CUT_OUT_GLIDE_MS.toLong() + UNBIND_MARGIN_MS)
+                    if (!controller.state.value.enabled) mixControl.liveBinding = null
+                }
+            }
             if (restoreJob?.isActive != true && hasSingItems()) {
                 restoreJob = scope.launch {
                     delay(SingMixControl.CUT_OUT_GLIDE_MS.toLong())
@@ -81,23 +116,32 @@ class SingPlaybackSwitcher(
             return
         }
         restoreJob?.cancel()
+        unbindJob?.cancel()
+        if (tickJob?.isActive != true) tickJob = scope.launch { tickPlayhead() }
+        val request = state.request
+        // Bound to a song Sing no longer works on (the track changed): let it go.
+        mixControl.liveBinding?.let { if (it.requestKey != request?.key) mixControl.liveBinding = null }
         val status = state.status as? SingStatus.Ready ?: return
-        val request = state.request ?: return
+        request ?: return
         if (!isLocalOutput() || player.mediaItemCount == 0) return
         val index = player.currentMediaItemIndex
         val current = player.getMediaItemAt(index)
-        if (current.singTag()?.source == status.source) {
+        val source = status.source
+        if (source is SingSource.Live) {
+            if (requestFor(current)?.key == request.key) bindLive(request, source)
+            return
+        }
+        if (current.singTag()?.source == source) {
             controller.onStreamHandedOver(request.key)
             return
         }
         if (requestFor(current)?.key != request.key) return
 
-        val swapKey = "${request.key}:${status.source}"
+        val swapKey = "${request.key}:$source"
         if (pendingSwapKey == swapKey && swapJob?.isActive == true) return
         swapJob?.cancel()
         pendingSwapKey = swapKey
 
-        val source = status.source
         if (source is SingSource.Remote && prebufferDataSourceFactory != null) {
             val initialPosMs = player.currentPosition.coerceAtLeast(0L)
             swapJob = scope.launch {
@@ -117,6 +161,58 @@ class SingPlaybackSwitcher(
             pendingSwapKey = null
             swapIn(index, current, source, request.key)
         }
+    }
+
+    /** Binds [source]'s track for [request] (once), and hands over when the mixer first applies it. */
+    private fun bindLive(request: SingRequest, source: SingSource.Live) {
+        val bound = mixControl.liveBinding
+        val binding = if (bound != null && bound.requestKey == request.key && bound.track === source.track) {
+            bound
+        } else {
+            SingLiveBinding(source.track, request.key, currentPeriodUid()).also { mixControl.liveBinding = it }
+        }
+        if (binding.engaged) {
+            // Back on before the old binding went: no new cut-in to wait for.
+            mixControl.startAtUnity = false
+            controller.onStreamHandedOver(request.key)
+            return
+        }
+        if (handoverJob?.isActive == true && handoverBinding === binding) return
+        handoverJob?.cancel()
+        handoverBinding = binding
+        handoverJob = scope.launch {
+            val started = System.nanoTime()
+            while (isActive && !binding.engaged) {
+                if (System.nanoTime() - started > HANDOVER_TIMEOUT_MS * 1_000_000L) {
+                    // The mixer couldn't place the stream on the track (or playback is paused): don't
+                    // leave the UI waiting; V comes in whenever the mixer does place it.
+                    Log.w(TAG, "live Sing not engaged after $HANDOVER_TIMEOUT_MS ms; handing over anyway")
+                    break
+                }
+                delay(HANDOVER_POLL_MS)
+            }
+            if (mixControl.liveBinding === binding) controller.onStreamHandedOver(request.key)
+        }
+    }
+
+    private suspend fun tickPlayhead() {
+        while (true) {
+            reportPlayhead()
+            delay(PLAYHEAD_TICK_MS)
+        }
+    }
+
+    private fun reportPlayhead() {
+        val position = player.currentPosition
+        if (position == C.TIME_UNSET) return
+        controller.onPlayhead(position, player.isPlaying)
+    }
+
+    /** The current item's period uid in the player's timeline, as the audio sink's flushes carry it. */
+    private fun currentPeriodUid(): Any? {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return null
+        return runCatching { timeline.getPeriod(player.currentPeriodIndex, Timeline.Period(), true).uid }.getOrNull()
     }
 
     private suspend fun prebufferRemoteQuad(
@@ -152,6 +248,7 @@ class SingPlaybackSwitcher(
         val uri = when (source) {
             is SingSource.LocalFile -> Uri.fromFile(source.file)
             is SingSource.Remote -> source.uri
+            is SingSource.Live -> return
         }
         val original = current.singTag()
         val item = current.buildUpon()
@@ -213,6 +310,11 @@ class SingPlaybackSwitcher(
         /** PlaybackManager's extras key for the neutral MediaId string. */
         const val EXTRA_MEDIA_ID = "media_id"
 
+        private const val TAG = "YoinSing"
+        private const val PLAYHEAD_TICK_MS = 500L
+        private const val HANDOVER_POLL_MS = 30L
+        private const val HANDOVER_TIMEOUT_MS = 8_000L
+        private const val UNBIND_MARGIN_MS = 100L
         private const val PREBUFFER_HEADER_BYTES = 64L * 1024L
         private const val PREBUFFER_WINDOW_BYTES = 224L * 1024L
         private const val APPROX_QUAD_BYTES_PER_SEC = 32L * 1024L

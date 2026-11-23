@@ -32,6 +32,12 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
 
     val isIdentity: Boolean get() = up == 1 && down == 1
 
+    /**
+     * How far the filter reaches, in upsampled units: output m reads input j for
+     * ceil((m·down − reach)/up) ≤ j ≤ floor((m·down + reach)/up). 0 for the identity.
+     */
+    val reach: Int get() = if (isIdentity) 0 else halfLength
+
     /** `ceil(inputLength · up / down)`, as scipy sizes the output. */
     fun outputLength(inputLength: Int): Int {
         val n = inputLength.toLong() * up
@@ -43,10 +49,20 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
         process(input, inputLength, output, 0, outputLength(inputLength))
     }
 
-    /** Output samples [fromOutput, toOutput) only, so a long signal can be done in blocks. */
-    fun process(input: FloatBuffer, inputLength: Int, output: FloatBuffer, fromOutput: Int, toOutput: Int) {
+    /**
+     * Output samples [fromOutput, toOutput) only, so a long signal can be done in blocks; sample m goes
+     * to [output] index m − [outputOffset].
+     */
+    fun process(
+        input: FloatBuffer,
+        inputLength: Int,
+        output: FloatBuffer,
+        fromOutput: Int,
+        toOutput: Int,
+        outputOffset: Int = 0,
+    ) {
         if (isIdentity) {
-            for (m in fromOutput until toOutput) output.put(m, input.get(m))
+            for (m in fromOutput until toOutput) output.put(m - outputOffset, input.get(m))
             return
         }
         val last = taps.size - 1
@@ -63,7 +79,7 @@ class PolyphaseResampler(fromRate: Int, toRate: Int) {
                 j++
                 k -= up
             }
-            output.put(m, acc.toFloat())
+            output.put(m - outputOffset, acc.toFloat())
         }
     }
 

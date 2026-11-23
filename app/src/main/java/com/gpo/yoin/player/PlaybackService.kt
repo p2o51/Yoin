@@ -123,8 +123,9 @@ class PlaybackService : MediaSessionService() {
             },
         )
 
-        // Sing: a 4-channel [I_L, I_R, V_L, V_R] stream leaves the mixer as stereo at the vocal level
-        // (player/sing/). First in the chain, so volume leveling sees the stereo it always sees.
+        // Sing (player/sing/): live, the mixer takes the separated vocal out of the playing original;
+        // a 4-channel [I_L, I_R, V_L, V_R] stream (Lyra) leaves it as stereo at the vocal level. First
+        // in the chain, so volume leveling sees the stereo it always sees.
         val singController = container.singController
         val singMixer = SingMixerAudioProcessor(singController.mixControl)
 

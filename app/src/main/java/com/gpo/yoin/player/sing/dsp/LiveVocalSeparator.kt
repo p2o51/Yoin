@@ -1,0 +1,307 @@
+package com.gpo.yoin.player.sing.dsp
+
+import com.gpo.yoin.player.sing.dsp.LyraSingSpec.CORE_RATE
+import com.gpo.yoin.player.sing.dsp.LyraSingSpec.HOP
+import com.gpo.yoin.player.sing.dsp.LyraSingSpec.N_FFT
+import java.nio.FloatBuffer
+import java.util.TreeMap
+
+/**
+ * [FullBandSeparator] a chunk at a time, for Sing while the song plays: the same pipeline on the same
+ * signals — X decoded once, resampled to 22.05 kHz, STFT over the whole song (reflect padding only at
+ * the song's true ends), the same chunk plan and cross-fade — so a chunk's edges come out exactly as
+ * in a whole-song run, whatever order the chunks go in. Only float rounding differs (the order sums
+ * are taken in).
+ *
+ * The caller picks each chunk with [nextChunk] (where the listener is, see there) and runs it with
+ * [runChunk]; as soon as a stretch of V at the source rate is final — every chunk under its frames,
+ * every frame under its samples, every core sample under the upsampling filter — it goes to the
+ * [VocalSink], once.
+ *
+ * Memory: the 22.05 kHz signals come from [work] (memory-mapped on the device); the mix is resampled
+ * down lazily, a block at a time, as chunks need it. Frames waiting for a neighbouring chunk hold their
+ * spectrum (8 KB each) — a chunk's overlap at each edge of a stretch run so far.
+ */
+class LiveVocalSeparator(
+    private val mixLeft: FloatBuffer,
+    private val mixRight: FloatBuffer,
+    val frames: Int,
+    val sampleRate: Int,
+    work: (floats: Int) -> FloatBuffer = { FloatBuffer.allocate(it) },
+    step: Int = LyraSingSpec.DEFAULT_STEP_FRAMES,
+) {
+    /** Receives final V for source frames [from, to), at index (frame − [offset]) of [left]/[right]. */
+    fun interface VocalSink {
+        fun onVocal(from: Int, to: Int, left: FloatBuffer, right: FloatBuffer, offset: Int)
+    }
+
+    private val down = PolyphaseResampler(sampleRate, CORE_RATE)
+    private val up = PolyphaseResampler(CORE_RATE, sampleRate)
+
+    /** The song's length at 22.05 kHz. */
+    val coreLength: Int = down.outputLength(frames)
+    private val coreL = work(coreLength)
+    private val coreR = work(coreLength)
+    private val coreDown = BooleanArray((coreLength + CORE_BLOCK - 1) / CORE_BLOCK)
+    private val vocalCoreL = work(coreLength)
+    private val vocalCoreR = work(coreLength)
+
+    /** Source frames below this come from the upsampled vocal; the rest (rounding) is silence. */
+    private val upValid = minOf(frames, up.outputLength(coreLength))
+
+    private val runner = ChunkRunner()
+    private val stft = runner.stft
+
+    /** A clip no longer than half a window has nothing to sing: V is silence throughout. */
+    private val silent = coreLength <= N_FFT / 2
+    val totalFrames: Int = if (silent) 0 else stft.frameCount(coreLength)
+    private val plan: ChunkPlan? = if (silent) null else ChunkPlan(totalFrames, step)
+    private val chunkDone = BooleanArray(plan?.size ?: 0)
+    private val remaining: IntArray = plan?.coverage() ?: IntArray(0)
+    private val pending = HashMap<Int, FrameSum>()
+    private val inverted = BooleanArray(totalFrames)
+
+    /** Hop blocks of core samples ([HOP] each); block k is final once frames k−1..k+2 are inverted. */
+    private val hopBlocks = (coreLength + HOP - 1) / HOP
+    private val coreFinal = BooleanArray(hopBlocks)
+    private val sourceDone = IntervalSet()
+
+    private var scratchL = FloatBuffer.allocate(0)
+    private var scratchR = FloatBuffer.allocate(0)
+
+    val chunkCount: Int get() = chunkDone.size
+
+    var chunksDone: Int = 0
+        private set
+
+    /** Whether V is final for the whole song. */
+    val isFinished: Boolean get() = sourceDone.covers(0, frames)
+
+    init {
+        for (i in 0 until coreLength) {
+            vocalCoreL.put(i, 0f)
+            vocalCoreR.put(i, 0f)
+        }
+    }
+
+    /**
+     * Emits what is final before any chunk runs: everything, for a clip too short to separate (V is
+     * silence); nothing otherwise.
+     */
+    fun start(sink: VocalSink) {
+        if (silent) emit(0, frames, sink)
+    }
+
+    /** The STFT frame under source frame [sourceFrame]. */
+    fun frameAtSource(sourceFrame: Long): Int {
+        val core = sourceFrame.coerceAtLeast(0L) * CORE_RATE / sampleRate
+        return ((core + HOP / 2) / HOP).toInt().coerceIn(0, maxOf(0, totalFrames - 1))
+    }
+
+    fun isChunkDone(index: Int): Boolean = chunkDone[index]
+
+    /**
+     * The chunk to run next for a listener at STFT frame [priorityFrame]: the first chunk not yet run
+     * among those from the earliest one V at that frame depends on (so the play position is final as
+     * soon as possible), forwards to the end of the song; once those are all done, the earlier ones,
+     * nearest first. −1 when every chunk has run.
+     */
+    fun nextChunk(priorityFrame: Int): Int {
+        val plan = plan ?: return -1
+        // V at a core sample needs frames k−1..k+2 of its hop block k, and the upsampler reaches a few
+        // core samples further: three frames back covers both.
+        val needed = (priorityFrame - 3).coerceIn(0, totalFrames - 1)
+        var first = plan.size - 1
+        for (i in 0 until plan.size) {
+            if (plan.starts[i] + plan.validFrames(i) > needed) {
+                first = i
+                break
+            }
+        }
+        for (i in first until plan.size) if (!chunkDone[i]) return i
+        for (i in first - 1 downTo 0) if (!chunkDone[i]) return i
+        return -1
+    }
+
+    /** Runs chunk [index] through [model] and hands every stretch of V it completes to [sink]. */
+    fun runChunk(index: Int, model: SeparationModel, sink: VocalSink) {
+        val plan = checkNotNull(plan) { "nothing to separate" }
+        check(!chunkDone[index]) { "chunk $index already run" }
+        val start = plan.starts[index]
+        val valid = plan.validFrames(index)
+        ensureCore(start, valid)
+        val scale = runner.run(coreL, coreR, coreLength, start, valid, model)
+        val newlyFinal = ArrayList<Int>()
+        for (t in 0 until valid) {
+            val frame = start + t
+            val sum = pending.getOrPut(frame) { FrameSum() }
+            runner.accumulate(sum, t, scale, ChunkPlan.CROSSFADE[t])
+            if (--remaining[frame] == 0) {
+                pending.remove(frame)
+                runner.invert(sum)
+                stft.overlapAdd(frame, runner.outL, vocalCoreL, coreLength)
+                stft.overlapAdd(frame, runner.outR, vocalCoreR, coreLength)
+                inverted[frame] = true
+                for (k in maxOf(0, frame - 2)..minOf(hopBlocks - 1, frame + 1)) {
+                    if (!coreFinal[k] && hopBlockReady(k)) {
+                        finishHopBlock(k)
+                        newlyFinal += k
+                    }
+                }
+            }
+        }
+        chunkDone[index] = true
+        chunksDone++
+        emitFinal(newlyFinal, sink)
+    }
+
+    private fun hopBlockReady(k: Int): Boolean {
+        for (f in maxOf(0, k - 1)..minOf(totalFrames - 1, k + 2)) if (!inverted[f]) return false
+        return true
+    }
+
+    /** Every frame over block [k] is in: divide by the window² envelope, as [Stft.normalize] does. */
+    private fun finishHopBlock(k: Int) {
+        coreFinal[k] = true
+        for (i in k * HOP until minOf(coreLength, (k + 1) * HOP)) {
+            val envelope = stft.envelope(i, totalFrames)
+            vocalCoreL.put(i, (vocalCoreL.get(i) / envelope).toFloat())
+            vocalCoreR.put(i, (vocalCoreR.get(i) / envelope).toFloat())
+        }
+    }
+
+    /** Hands out the source frames the newly final core [blocks] complete. */
+    private fun emitFinal(blocks: List<Int>, sink: VocalSink) {
+        var lastRunEnd = -1
+        for (k in blocks.sorted()) {
+            if (k <= lastRunEnd) continue
+            var a = k
+            while (a > 0 && coreFinal[a - 1]) a--
+            var b = k
+            while (b < hopBlocks - 1 && coreFinal[b + 1]) b++
+            lastRunEnd = b
+            val coreFrom = a * HOP
+            val coreTo = minOf(coreLength, (b + 1) * HOP)
+            val (lo, hi) = sourceRange(coreFrom, coreTo) ?: continue
+            for ((from, to) in sourceDone.gaps(lo, hi)) emit(from, to, sink)
+        }
+    }
+
+    /**
+     * The source frames [lo, hi) whose upsampling filter reads only core samples in [coreFrom, coreTo)
+     * (or past the song's ends, which read as zero): output m reads core j from ⌈(m·down − reach)/up⌉
+     * to ⌊(m·down + reach)/up⌋.
+     */
+    private fun sourceRange(coreFrom: Int, coreTo: Int): Pair<Int, Int>? {
+        val u = up.up.toLong()
+        val d = up.down.toLong()
+        val reach = up.reach.toLong()
+        val lo = if (coreFrom == 0) 0L else Math.floorDiv((coreFrom - 1) * u + reach, d) + 1
+        val hi = if (coreTo == coreLength) frames.toLong() else Math.floorDiv(coreTo * u - reach - 1, d) + 1
+        val from = lo.coerceIn(0L, frames.toLong()).toInt()
+        val to = hi.coerceIn(0L, frames.toLong()).toInt()
+        return if (from < to) from to to else null
+    }
+
+    private fun emit(from: Int, to: Int, sink: VocalSink) {
+        var at = from
+        while (at < to) {
+            val end = minOf(to, at + EMIT_BLOCK)
+            val count = end - at
+            if (scratchL.capacity() < count) {
+                scratchL = FloatBuffer.allocate(count)
+                scratchR = FloatBuffer.allocate(count)
+            }
+            val upEnd = minOf(end, upValid)
+            if (!silent && at < upEnd) {
+                up.process(vocalCoreL, coreLength, scratchL, at, upEnd, outputOffset = at)
+                up.process(vocalCoreR, coreLength, scratchR, at, upEnd, outputOffset = at)
+            }
+            val zeroFrom = if (silent) at else maxOf(at, upEnd)
+            for (m in zeroFrom until end) {
+                scratchL.put(m - at, 0f)
+                scratchR.put(m - at, 0f)
+            }
+            sink.onVocal(at, end, scratchL, scratchR, at)
+            sourceDone.add(at, end)
+            at = end
+        }
+    }
+
+    /** Resamples the mix down to 22.05 kHz where chunk frames [start, start + valid) read it. */
+    private fun ensureCore(start: Int, valid: Int) {
+        val lo = start * HOP - N_FFT / 2
+        val hi = (start + valid - 1) * HOP + N_FFT / 2
+        downRange(maxOf(0, lo), minOf(coreLength, hi))
+        // Reflect padding reads up to half a window in from either end.
+        if (lo < 0) downRange(0, minOf(coreLength, N_FFT / 2 + 1))
+        if (hi > coreLength) downRange(maxOf(0, coreLength - N_FFT / 2 - 1), coreLength)
+    }
+
+    private fun downRange(from: Int, to: Int) {
+        if (from >= to) return
+        for (block in from / CORE_BLOCK..(to - 1) / CORE_BLOCK) {
+            if (coreDown[block]) continue
+            val s = block * CORE_BLOCK
+            val e = minOf(coreLength, s + CORE_BLOCK)
+            down.process(mixLeft, frames, coreL, s, e)
+            down.process(mixRight, frames, coreR, s, e)
+            coreDown[block] = true
+        }
+    }
+
+    companion object {
+        /** Core samples resampled down at a time. */
+        private const val CORE_BLOCK = 8192
+
+        /** Source frames handed to the sink at a time. */
+        private const val EMIT_BLOCK = 65_536
+    }
+}
+
+/** Disjoint half-open int ranges, merged as they're added. */
+internal class IntervalSet {
+    private val ranges = TreeMap<Int, Int>()
+
+    fun add(from: Int, to: Int) {
+        if (from >= to) return
+        var start = from
+        var end = to
+        val floor = ranges.floorEntry(start)
+        if (floor != null && floor.value >= start) {
+            start = floor.key
+            end = maxOf(end, floor.value)
+            ranges.remove(floor.key)
+        }
+        while (true) {
+            val next = ranges.ceilingEntry(start) ?: break
+            if (next.key > end) break
+            end = maxOf(end, next.value)
+            ranges.remove(next.key)
+        }
+        ranges[start] = end
+    }
+
+    fun covers(from: Int, to: Int): Boolean {
+        if (from >= to) return true
+        val entry = ranges.floorEntry(from) ?: return false
+        return entry.value >= to
+    }
+
+    /** The parts of [from, to) not in the set, in order. */
+    fun gaps(from: Int, to: Int): List<Pair<Int, Int>> {
+        val out = ArrayList<Pair<Int, Int>>()
+        var at = from
+        ranges.floorEntry(from)?.let { if (it.value > at) at = it.value }
+        while (at < to) {
+            val next = ranges.ceilingEntry(at)
+            if (next == null || next.key >= to) {
+                out += at to to
+                break
+            }
+            if (next.key > at) out += at to next.key
+            at = maxOf(at, next.value)
+        }
+        return out
+    }
+}

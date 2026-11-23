@@ -54,60 +54,27 @@ class VocalSeparator(private val step: Int = LyraSingSpec.DEFAULT_STEP_FRAMES) {
         // Reflect padding needs more than half a window; a clip that short has nothing to sing.
         if (length <= N_FFT / 2) return 0
 
-        val stft = Stft()
+        val runner = ChunkRunner()
+        val stft = runner.stft
         val totalFrames = stft.frameCount(length)
         val plan = ChunkPlan(totalFrames, step)
         val remaining = plan.coverage()
         val pending = HashMap<Int, FrameSum>()
 
-        val input = FloatArray(CHUNK_FLOATS)
-        val output = FloatArray(CHUNK_FLOATS)
-        val lRe = DoubleArray(ONE_SIDED_BINS)
-        val lIm = DoubleArray(ONE_SIDED_BINS)
-        val rRe = DoubleArray(ONE_SIDED_BINS)
-        val rIm = DoubleArray(ONE_SIDED_BINS)
-        val outL = DoubleArray(N_FFT)
-        val outR = DoubleArray(N_FFT)
-        val plane = MODEL_BINS * CHUNK_FRAMES
-
         val order = plan.order(priorityFrame)
         for ((done, chunk) in order.withIndex()) {
             val start = plan.starts[chunk]
             val valid = plan.validFrames(chunk)
-            input.fill(0f)
-            for (t in 0 until valid) {
-                stft.forwardPair(left, right, length, start + t, lRe, lIm, rRe, rIm)
-                for (b in 0 until MODEL_BINS) {
-                    val at = b * CHUNK_FRAMES + t
-                    input[at] = lRe[b + 1].toFloat()
-                    input[plane + at] = lIm[b + 1].toFloat()
-                    input[2 * plane + at] = rRe[b + 1].toFloat()
-                    input[3 * plane + at] = rIm[b + 1].toFloat()
-                }
-            }
-            val rms = rms(input)
-            val inverse = (1.0 / rms).toFloat()
-            for (i in input.indices) input[i] *= inverse
-            model.run(input, output)
-            val scale = rms.toFloat()
-
+            val scale = runner.run(left, right, length, start, valid, model)
             for (t in 0 until valid) {
                 val frame = start + t
-                val weight = ChunkPlan.CROSSFADE[t]
                 val sum = pending.getOrPut(frame) { FrameSum() }
-                sum.weight += weight
-                for (c in 0 until 4) {
-                    val base = c * plane
-                    val dest = c * MODEL_BINS
-                    for (b in 0 until MODEL_BINS) {
-                        sum.values[dest + b] += output[base + b * CHUNK_FRAMES + t] * scale * weight
-                    }
-                }
+                runner.accumulate(sum, t, scale, ChunkPlan.CROSSFADE[t])
                 if (--remaining[frame] == 0) {
                     pending.remove(frame)
-                    sum.invert(stft, lRe, lIm, rRe, rIm, outL, outR)
-                    stft.overlapAdd(frame, outL, vocalLeft, length)
-                    stft.overlapAdd(frame, outR, vocalRight, length)
+                    runner.invert(sum)
+                    stft.overlapAdd(frame, runner.outL, vocalLeft, length)
+                    stft.overlapAdd(frame, runner.outR, vocalRight, length)
                 }
             }
             progress.onChunk(done + 1, plan.size)
@@ -118,44 +85,97 @@ class VocalSeparator(private val step: Int = LyraSingSpec.DEFAULT_STEP_FRAMES) {
         return plan.size
     }
 
+    companion object {
+        /** The STFT frame (at 22.05 kHz, hop 256) nearest a play position. */
+        fun frameAt(positionMs: Long): Int = ((positionMs.coerceAtLeast(0L) * CORE_RATE / 1000L + HOP / 2) / HOP).toInt()
+    }
+}
+
+/** A frame's spectrum summed over the chunks that cover it (weighted), until its last chunk is in. */
+internal class FrameSum {
+    val values = FloatArray(4 * MODEL_BINS)
+    var weight = 0f
+
+    fun invert(
+        stft: Stft,
+        lRe: DoubleArray,
+        lIm: DoubleArray,
+        rRe: DoubleArray,
+        rIm: DoubleArray,
+        outL: DoubleArray,
+        outR: DoubleArray,
+    ) {
+        val w = maxOf(weight, 1e-8f)
+        lRe[0] = 0.0
+        lIm[0] = 0.0
+        rRe[0] = 0.0
+        rIm[0] = 0.0
+        for (b in 0 until MODEL_BINS) {
+            lRe[b + 1] = (values[b] / w).toDouble()
+            lIm[b + 1] = (values[MODEL_BINS + b] / w).toDouble()
+            rRe[b + 1] = (values[2 * MODEL_BINS + b] / w).toDouble()
+            rIm[b + 1] = (values[3 * MODEL_BINS + b] / w).toDouble()
+        }
+        stft.inversePair(lRe, lIm, rRe, rIm, outL, outR)
+    }
+}
+
+/**
+ * One model chunk, as the whole-song [VocalSeparator] and the live [LiveVocalSeparator] both run it:
+ * the chunk's frames' spectra (bins 1..512) into `[1, 4, 512, 256]`, divided by the chunk's RMS,
+ * through the model; [accumulate] adds the output, scaled back, into a frame's [FrameSum]; [invert]
+ * turns a complete frame into its windowed time signal in [outL]/[outR].
+ */
+internal class ChunkRunner(val stft: Stft = Stft()) {
+    private val input = FloatArray(CHUNK_FLOATS)
+    private val output = FloatArray(CHUNK_FLOATS)
+    private val lRe = DoubleArray(ONE_SIDED_BINS)
+    private val lIm = DoubleArray(ONE_SIDED_BINS)
+    private val rRe = DoubleArray(ONE_SIDED_BINS)
+    private val rIm = DoubleArray(ONE_SIDED_BINS)
+    val outL = DoubleArray(N_FFT)
+    val outR = DoubleArray(N_FFT)
+    private val plane = MODEL_BINS * CHUNK_FRAMES
+
+    /** Frames [start, start + valid) of a [length]-sample core signal through [model]; returns the scale. */
+    fun run(left: FloatBuffer, right: FloatBuffer, length: Int, start: Int, valid: Int, model: SeparationModel): Float {
+        input.fill(0f)
+        for (t in 0 until valid) {
+            stft.forwardPair(left, right, length, start + t, lRe, lIm, rRe, rIm)
+            for (b in 0 until MODEL_BINS) {
+                val at = b * CHUNK_FRAMES + t
+                input[at] = lRe[b + 1].toFloat()
+                input[plane + at] = lIm[b + 1].toFloat()
+                input[2 * plane + at] = rRe[b + 1].toFloat()
+                input[3 * plane + at] = rIm[b + 1].toFloat()
+            }
+        }
+        val rms = rms(input)
+        val inverse = (1.0 / rms).toFloat()
+        for (i in input.indices) input[i] *= inverse
+        model.run(input, output)
+        return rms.toFloat()
+    }
+
+    /** Adds chunk frame [t] of the last [run], times [scale] and the cross-fade [weight], into [sum]. */
+    fun accumulate(sum: FrameSum, t: Int, scale: Float, weight: Float) {
+        sum.weight += weight
+        for (c in 0 until 4) {
+            val base = c * plane
+            val dest = c * MODEL_BINS
+            for (b in 0 until MODEL_BINS) {
+                sum.values[dest + b] += output[base + b * CHUNK_FRAMES + t] * scale * weight
+            }
+        }
+    }
+
+    fun invert(sum: FrameSum) = sum.invert(stft, lRe, lIm, rRe, rIm, outL, outR)
+
     /** The chunk's RMS over all four planes, zero padding included: sqrt(mean(x²) + 1e-6). */
     private fun rms(x: FloatArray): Double {
         var sum = 0.0
         for (v in x) sum += v.toDouble() * v
         return sqrt(sum / x.size + RMS_EPSILON)
-    }
-
-    private class FrameSum {
-        val values = FloatArray(4 * MODEL_BINS)
-        var weight = 0f
-
-        fun invert(
-            stft: Stft,
-            lRe: DoubleArray,
-            lIm: DoubleArray,
-            rRe: DoubleArray,
-            rIm: DoubleArray,
-            outL: DoubleArray,
-            outR: DoubleArray,
-        ) {
-            val w = maxOf(weight, 1e-8f)
-            lRe[0] = 0.0
-            lIm[0] = 0.0
-            rRe[0] = 0.0
-            rIm[0] = 0.0
-            for (b in 0 until MODEL_BINS) {
-                lRe[b + 1] = (values[b] / w).toDouble()
-                lIm[b + 1] = (values[MODEL_BINS + b] / w).toDouble()
-                rRe[b + 1] = (values[2 * MODEL_BINS + b] / w).toDouble()
-                rIm[b + 1] = (values[3 * MODEL_BINS + b] / w).toDouble()
-            }
-            stft.inversePair(lRe, lIm, rRe, rIm, outL, outR)
-        }
-    }
-
-    companion object {
-        /** The STFT frame (at 22.05 kHz, hop 256) nearest a play position. */
-        fun frameAt(positionMs: Long): Int = ((positionMs.coerceAtLeast(0L) * CORE_RATE / 1000L + HOP / 2) / HOP).toInt()
     }
 }
 

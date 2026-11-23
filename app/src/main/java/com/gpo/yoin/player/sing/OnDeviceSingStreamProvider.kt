@@ -13,15 +13,15 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.player.OfflineFirstDataSource
 import com.gpo.yoin.player.mediaCacheDataSourceFactory
-import com.gpo.yoin.player.sing.dsp.FullBandSeparator
-import com.gpo.yoin.player.sing.dsp.PolyphaseResampler
-import com.gpo.yoin.player.sing.dsp.VocalSeparator
+import com.gpo.yoin.player.sing.dsp.LiveVocalSeparator
+import com.gpo.yoin.player.sing.dsp.LyraSingSpec
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -34,15 +34,23 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 
 /**
- * Lyra-Sing-Lite on this device, for Subsonic songs (streamed or downloaded).
+ * Lyra-Sing-Lite on this device, for Subsonic songs (streamed or downloaded), live: the original keeps
+ * playing and the mixer takes the vocal out of it ([SingMixerAudioProcessor]) as soon as the vocal
+ * stem V covers the next few seconds.
  *
- * Race to idle: a song asked for once is separated whole — the chunk under the play position first,
- * then the rest at several times real time — written as a 4-channel .m4a into [cache], and the ORT
- * session is closed the moment the last chunk is through. Asked again, the song costs nothing: a
- * cache hit is [SingStatus.Ready] at once.
+ * A request decodes the song once (X, as Media3 plays it: encoder delay and padding trimmed), writes
+ * X's mono reference into a fresh [SingVocalTrack], and separates chunk by chunk
+ * ([LiveVocalSeparator]) from where the listener is — far enough ahead of a moving playhead that the
+ * first [READY_AHEAD_MS] are in by the time it gets there — then on to the end, then the beginning.
+ * [SingStatus.Ready] ([SingSource.Live]) comes once V covers [READY_AHEAD_MS] from the playhead; the
+ * work goes on to the end, following seeks ([onPlayhead]).
+ *
+ * Race to idle: a song started is separated whole, the ORT session closed the moment the last chunk is
+ * through, and the finished track kept in [cache]. Asked again, the song costs nothing: a cache hit is
+ * the same live path with every block already in.
  *
  * One song at a time; a request for another song cancels the one in progress (the listener moved on).
- * The first request runs the device gate ([SingDeviceGate] + [QuadChannelOrderProbe]) once.
+ * The first request runs the device gate ([SingDeviceGate]) once.
  */
 @OptIn(UnstableApi::class)
 class OnDeviceSingStreamProvider(
@@ -61,20 +69,37 @@ class OnDeviceSingStreamProvider(
 
     @Volatile private var benchmarkMs: Long? = null
 
-    @Volatile private var probe: QuadChannelOrderProbe.Result? = null
+    @Volatile private var gateRestored = false
+
+    /** Milliseconds per chunk, as measured on the songs so far (the gate's benchmark to begin with). */
+    @Volatile private var chunkMs: Double? = null
+
+    private val playheads = ConcurrentHashMap<String, Playhead>()
+
+    /** When each request started, for a playhead estimate before the first report. */
+    private val requestNanos = ConcurrentHashMap<String, Long>()
+
+    /** The last track handed out, so a repeated request for the same song maps nothing new. */
+    @Volatile private var lastTrack: Pair<String, SingVocalTrack>? = null
+
+    private class Playhead(val positionMs: Long, val atNanos: Long, val playing: Boolean)
 
     /** The gate's last answer (null before the first Sing). */
     @Volatile var verdict: SingDeviceGate.Verdict? = null
         private set
 
     override fun stream(request: SingRequest): Flow<SingStatus> = flow {
-        val hit = cache.get(cacheKey(request))
-        val map = knownChannelMap()
-        if (hit != null && map != null) {
-            emit(SingStatus.Ready(SingSource.LocalFile(hit, map)))
+        val running = jobs[request.key]?.isActive == true
+        val hit = if (running) null else cachedTrack(request)
+        if (hit != null) {
+            emit(SingStatus.Ready(SingSource.Live(hit)))
             return@flow
         }
         emitAll(start(request))
+    }
+
+    override fun onPlayhead(request: SingRequest, positionMs: Long, playing: Boolean) {
+        playheads[request.key] = Playhead(positionMs.coerceAtLeast(0L), System.nanoTime(), playing)
     }
 
     /**
@@ -82,12 +107,10 @@ class OnDeviceSingStreamProvider(
      * Before the first gate run it's available: the gate runs on the first Sing.
      */
     override fun availability(): SingAvailability {
-        if (probe == null) restoreGate()
-        val known = probe ?: return SingAvailability.Available
+        if (!gateRestored) restoreGate()
+        val ms = benchmarkMs ?: return SingAvailability.Available
         val thermal = SingDeviceGate.thermalStatus(context.getSystemService(PowerManager::class.java))
-        val quad = known is QuadChannelOrderProbe.Result.Quad
-        if (quad && benchmarkMs == null) return SingAvailability.Available
-        return when (val v = SingDeviceGate.evaluate(benchmarkMs, thermal, quad)) {
+        return when (val v = SingDeviceGate.evaluate(ms, thermal)) {
             is SingDeviceGate.Verdict.Sufficient -> SingAvailability.Available
             is SingDeviceGate.Verdict.Insufficient -> SingAvailability.Unavailable(v.reason)
         }
@@ -95,6 +118,7 @@ class OnDeviceSingStreamProvider(
 
     override fun cancel(request: SingRequest) {
         jobs.remove(request.key)?.cancel()
+        playheads.remove(request.key)
     }
 
     private fun start(request: SingRequest): MutableStateFlow<SingStatus> {
@@ -103,6 +127,11 @@ class OnDeviceSingStreamProvider(
         if (running?.isActive == true) return state
         // The listener moved on: stop the other song's work.
         jobs.keys.filter { it != request.key }.forEach { jobs.remove(it)?.cancel() }
+        // Its status (holding its mapped track) goes too.
+        states.keys.removeAll { it != request.key }
+        playheads.keys.removeAll { it != request.key }
+        requestNanos.keys.removeAll { it != request.key }
+        requestNanos[request.key] = System.nanoTime()
         state.value = SingStatus.Preparing()
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
@@ -133,11 +162,11 @@ class OnDeviceSingStreamProvider(
         val gate = gate(model)
         verdict = gate
         if (gate is SingDeviceGate.Verdict.Insufficient) return SingStatus.Unavailable(gate.reason)
-        val map = (probe as QuadChannelOrderProbe.Result.Quad).map
 
         val key = cacheKey(request)
-        cache.get(key)?.let { return SingStatus.Ready(SingSource.LocalFile(it, map)) }
+        cachedTrack(request)?.let { return SingStatus.Ready(SingSource.Live(it)) }
         val uri = request.streamUri ?: return SingStatus.Unavailable(SingUnavailableReason.NoSource)
+        val started = System.nanoTime()
 
         SingWorkDir(File(context.cacheDir, WORK_DIR)).use { work ->
             state.value = SingStatus.Preparing(0.05f, SingStatus.Preparing.Stage.Reading)
@@ -145,7 +174,7 @@ class OnDeviceSingStreamProvider(
             val mix = try {
                 copySource(uri, sourceFile)
                 currentCoroutineContextCheck()
-                fitForAac(SingPcmDecoder.decode(sourceFile, work) { !isActiveFor(request) }, work)
+                SingPcmDecoder.decode(sourceFile, work) { !isActiveFor(request) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -154,77 +183,146 @@ class OnDeviceSingStreamProvider(
             } finally {
                 sourceFile.delete()
             }
+            if (mix.frames > SingVocalTrack.MAX_FRAMES) return SingStatus.Failed(SingFailure.Decode, "song too long")
+            val decodedMs = (System.nanoTime() - started) / 1_000_000
 
-            state.value = SingStatus.Preparing(0.1f, SingStatus.Preparing.Stage.Working)
-            val started = System.nanoTime()
-            val separated = try {
-                val session = OrtSeparationModel.open(model, threads, modelStore.config.execution)
-                var closed = false
-                try {
-                    FullBandSeparator(VocalSeparator(), work::floats).separate(
-                        mix.left, mix.right, mix.frames, mix.sampleRate, session,
-                        priorityPositionMs = request.positionMs,
-                        progress = { done, total ->
-                            if (!isActiveFor(request)) throw CancellationException("Sing cancelled")
-                            state.value = SingStatus.Preparing(0.1f + 0.8f * done / total, SingStatus.Preparing.Stage.Working)
-                        },
-                        afterModel = {
-                            session.close()
-                            closed = true
-                        },
-                    )
-                } finally {
-                    if (!closed) session.close()
-                }
+            val part = cache.partFile(key)
+            var committed = false
+            try {
+                val track = SingVocalTrack.create(part, mix.sampleRate, mix.frames)
+                track.writeReference(mix.left, mix.right)
+                separate(request, state, model, mix, track, work)
+                track.finish()
+                track.file = cache.commit(key, part)
+                committed = true
+                lastTrack = key to track
+                val seconds = mix.frames.toDouble() / mix.sampleRate
+                Log.d(
+                    TAG,
+                    "separated ${"%.1f".format(seconds)} s in ${(System.nanoTime() - started) / 1_000_000} ms " +
+                        "(decode $decodedMs ms, ${"%.0f".format(chunkMs ?: 0.0)} ms/chunk)",
+                )
+                return SingStatus.Ready(SingSource.Live(track))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "separation failed", e)
                 return SingStatus.Failed(SingFailure.Inference, e.message)
-            }
-            val seconds = mix.frames.toDouble() / mix.sampleRate
-            Log.d(TAG, "separated ${"%.1f".format(seconds)} s in ${(System.nanoTime() - started) / 1_000_000} ms (${separated.chunks} chunks)")
-
-            state.value = SingStatus.Preparing(0.9f, SingStatus.Preparing.Stage.Saving)
-            val part = cache.partFile(key)
-            try {
-                QuadAacEncoder.encode(
-                    part, mix.sampleRate, mix.frames,
-                    QuadAacEncoder.singSource(mix, separated.vocalLeft, separated.vocalRight),
-                ) { !isActiveFor(request) }
-                return SingStatus.Ready(SingSource.LocalFile(cache.commit(key, part), map))
-            } catch (e: CancellationException) {
-                part.delete()
-                throw e
-            } catch (e: Exception) {
-                part.delete()
-                Log.w(TAG, "encode failed", e)
-                return SingStatus.Failed(SingFailure.Encode, e.message)
+            } finally {
+                if (!committed) part.delete()
             }
         }
     }
 
     /**
-     * The device gate: the 4-channel round trip, then one timed chunk — once per device build and
-     * model (kept in prefs), so a later Sing, a cache hit above all, costs no compute. Heat is checked
-     * every time.
+     * Runs every chunk of the song, the listener's first, writing V into [track] as it's final, and
+     * says [SingStatus.Ready] once V covers [READY_AHEAD_MS] from the playhead.
+     */
+    private suspend fun separate(
+        request: SingRequest,
+        state: MutableStateFlow<SingStatus>,
+        model: File,
+        mix: DecodedPcm,
+        track: SingVocalTrack,
+        work: SingWorkDir,
+    ) {
+        val rate = mix.sampleRate
+        val separator = LiveVocalSeparator(mix.left, mix.right, mix.frames, rate, work::floats)
+        val sink = LiveVocalSeparator.VocalSink { from, to, left, right, offset -> track.writeVocal(from, to, left, right, offset) }
+        separator.start(sink)
+        val readyFrames = READY_AHEAD_MS * rate / 1000
+        var ready = false
+        var run = 0
+        val session = OrtSeparationModel.open(model, threads, modelStore.config.execution)
+        try {
+            while (true) {
+                currentCoroutineContextCheck()
+                if (!isActiveFor(request)) throw CancellationException("Sing cancelled")
+                val playhead = playheadMs(request)
+                val playFrame = playhead.positionMs * rate / 1000
+                // Where V should start: the playhead itself when V is there (the forward sweep then
+                // extends it), else as far ahead as the playhead moves while the first chunks run.
+                val lead = when {
+                    !playhead.playing || track.isCovered(playFrame, playFrame + 1) -> 0L
+                    !ready -> leadMs(READY_AHEAD_MS)
+                    else -> leadMs(0)
+                }
+                val chunk = separator.nextChunk(separator.frameAtSource((playhead.positionMs + lead) * rate / 1000))
+                if (chunk < 0) break
+                val t0 = System.nanoTime()
+                separator.runChunk(chunk, session, sink)
+                recordChunk((System.nanoTime() - t0) / 1e6)
+                run++
+                if (!ready) {
+                    val now = playheadMs(request).positionMs * rate / 1000
+                    if (track.isCovered(now, now + readyFrames)) {
+                        ready = true
+                        state.value = SingStatus.Ready(SingSource.Live(track))
+                    } else {
+                        val expected = READY_AHEAD_MS / STEP_AUDIO_MS + 2.0
+                        state.value = SingStatus.Preparing(
+                            (0.1f + 0.85f * (run / expected).toFloat()).coerceAtMost(0.95f),
+                            SingStatus.Preparing.Stage.Working,
+                        )
+                    }
+                }
+            }
+        } finally {
+            // Race to idle: the model is done with this song.
+            session.close()
+        }
+        check(separator.isFinished && track.isComplete) { "vocal track incomplete" }
+    }
+
+    /** How long the next chunks take to cover [aheadMs] of audio, plus the chunk before them. */
+    private fun leadMs(aheadMs: Int): Long {
+        val perChunk = chunkMs ?: benchmarkMs?.toDouble() ?: DEFAULT_CHUNK_MS
+        val chunks = aheadMs / STEP_AUDIO_MS + 2.0
+        return (chunks * perChunk).toLong().coerceIn(0L, MAX_LEAD_MS)
+    }
+
+    private fun recordChunk(ms: Double) {
+        val previous = chunkMs
+        chunkMs = if (previous == null) ms else previous * 0.8 + ms * 0.2
+    }
+
+    /** The listener's position now: the last report, moved on by the time since if playing. */
+    private fun playheadMs(request: SingRequest): Playhead {
+        val now = System.nanoTime()
+        val known = playheads[request.key]
+            ?: Playhead(request.positionMs, requestNanos[request.key] ?: now, playing = true)
+        val position = if (known.playing) known.positionMs + (now - known.atNanos) / 1_000_000 else known.positionMs
+        return Playhead(position, now, known.playing)
+    }
+
+    /** The finished track for [request] in the cache, mapped (null on a miss or a broken file). */
+    private fun cachedTrack(request: SingRequest): SingVocalTrack? {
+        val key = cacheKey(request)
+        lastTrack?.let { (k, track) -> if (k == key && track.isComplete) return track }
+        val file = cache.get(key) ?: return null
+        val track = SingVocalTrack.open(file)
+        if (track == null) {
+            cache.remove(key)
+            return null
+        }
+        lastTrack = key to track
+        return track
+    }
+
+    /**
+     * The device gate: one timed chunk — once per device build and model (kept in prefs), so a later
+     * Sing, a cache hit above all, costs no compute. Heat is checked every time.
      */
     private suspend fun gate(model: File): SingDeviceGate.Verdict = gateMutex.withLock {
         val thermal = SingDeviceGate.thermalStatus(context.getSystemService(PowerManager::class.java))
-        if (probe == null) restoreGate()
-        if (probe == null) {
-            probe = runCatching { QuadChannelOrderProbe.run(context.cacheDir) }
-                .onFailure { Log.w(TAG, "quad probe failed", it) }
-                .getOrElse { QuadChannelOrderProbe.Result.NotQuad(0) }
-        }
-        val quad = probe is QuadChannelOrderProbe.Result.Quad
-        if (benchmarkMs == null && quad) {
+        if (!gateRestored) restoreGate()
+        if (benchmarkMs == null) {
             benchmarkMs = runCatching {
                 OrtSeparationModel.open(model, threads, modelStore.config.execution).use { SingDeviceGate.benchmarkChunkMs(it) }
             }.onFailure { Log.w(TAG, "benchmark failed", it) }.getOrNull()
+            saveGate()
         }
-        saveGate()
-        SingDeviceGate.evaluate(benchmarkMs, thermal, quad).also { Log.d(TAG, "gate: $it (probe $probe)") }
+        SingDeviceGate.evaluate(benchmarkMs, thermal).also { Log.d(TAG, "gate: $it") }
     }
 
     private val gatePrefs by lazy { context.getSharedPreferences(GATE_PREFS, Context.MODE_PRIVATE) }
@@ -232,32 +330,16 @@ class OnDeviceSingStreamProvider(
     private fun gateFingerprint() = "${android.os.Build.FINGERPRINT}|${modelStore.config.sha256}|$threads|${modelStore.config.execution}"
 
     private fun restoreGate() {
+        gateRestored = true
         if (gatePrefs.getString(KEY_FINGERPRINT, null) != gateFingerprint()) return
-        val map = gatePrefs.getString(KEY_MAP, null)
-        probe = when {
-            map != null -> QuadChannelOrderProbe.Result.Quad(map.split(',').map(String::toInt).toIntArray())
-            gatePrefs.contains(KEY_NOT_QUAD) -> QuadChannelOrderProbe.Result.NotQuad(gatePrefs.getInt(KEY_NOT_QUAD, 0))
-            else -> null
-        }
         benchmarkMs = gatePrefs.getLong(KEY_BENCHMARK_MS, -1L).takeIf { it >= 0 }
     }
 
     private fun saveGate() {
-        val result = probe ?: return
         gatePrefs.edit {
             putString(KEY_FINGERPRINT, gateFingerprint())
-            when (result) {
-                is QuadChannelOrderProbe.Result.Quad -> putString(KEY_MAP, result.map.joinToString(",")).remove(KEY_NOT_QUAD)
-                is QuadChannelOrderProbe.Result.NotQuad -> putInt(KEY_NOT_QUAD, result.channels).remove(KEY_MAP)
-            }
             benchmarkMs?.let { putLong(KEY_BENCHMARK_MS, it) } ?: remove(KEY_BENCHMARK_MS)
         }
-    }
-
-    /** Restores the remembered channel map (if any), so a cache hit needs no gate run at all. */
-    private fun knownChannelMap(): IntArray? {
-        if (probe == null) restoreGate()
-        return (probe as? QuadChannelOrderProbe.Result.Quad)?.map
     }
 
     private fun copySource(uri: String, into: File) {
@@ -277,18 +359,6 @@ class OnDeviceSingStreamProvider(
         }
     }
 
-    /** AAC tops out at 48 kHz here; a hi-res source is separated and stored at 48 kHz. */
-    private fun fitForAac(pcm: DecodedPcm, work: SingWorkDir): DecodedPcm {
-        if (pcm.sampleRate <= QuadAacEncoder.MAX_RATE) return pcm
-        val down = PolyphaseResampler(pcm.sampleRate, QuadAacEncoder.MAX_RATE)
-        val frames = down.outputLength(pcm.frames)
-        val left = work.floats(frames)
-        val right = work.floats(frames)
-        down.process(pcm.left, pcm.frames, left)
-        down.process(pcm.right, pcm.frames, right)
-        return DecodedPcm(left, right, frames, QuadAacEncoder.MAX_RATE)
-    }
-
     private fun cacheKey(request: SingRequest) = SingCache.keyFor(request, modelStore.config.sha256)
 
     private fun isActiveFor(request: SingRequest): Boolean = jobs[request.key]?.isActive == true
@@ -298,21 +368,37 @@ class OnDeviceSingStreamProvider(
     companion object {
         private const val TAG = "YoinSing"
         const val WORK_DIR = "sing-work"
-        const val CACHE_DIR = "sing"
+        const val CACHE_DIR = "sing-vocal"
         const val MODEL_DIR = "sing-model"
+
+        /** Where the quad .m4a results of the first engine were kept; cleared on start. */
+        private const val LEGACY_CACHE_DIR = "sing"
         private const val GATE_PREFS = "sing_gate"
         private const val KEY_FINGERPRINT = "fingerprint"
-        private const val KEY_MAP = "channel_map"
-        private const val KEY_NOT_QUAD = "not_quad_channels"
         private const val KEY_BENCHMARK_MS = "benchmark_ms"
+
+        /** Sing is Ready once V covers this much from the playhead. */
+        const val READY_AHEAD_MS = 8_000
+
+        /** Audio one chunk step adds: 160 frames × hop 256 at 22.05 kHz (~1.86 s). */
+        private const val STEP_AUDIO_MS = LyraSingSpec.DEFAULT_STEP_FRAMES * LyraSingSpec.HOP * 1000.0 / LyraSingSpec.CORE_RATE
+
+        /** Until a chunk has been timed on this device. */
+        private const val DEFAULT_CHUNK_MS = 1_500.0
+        private const val MAX_LEAD_MS = 20_000L
 
         /** The engine as the app runs it: model in noBackupFilesDir, results in the cache dir. */
         fun create(context: Context, downloads: OfflineDownloads, scope: CoroutineScope): OnDeviceSingStreamProvider {
             val http = OkHttpClient()
+            val cache = SingCache(File(context.cacheDir, CACHE_DIR), suffix = SingVocalTrack.SUFFIX)
+            scope.launch(Dispatchers.IO) {
+                File(context.cacheDir, LEGACY_CACHE_DIR).deleteRecursively()
+                cache.clearParts()
+            }
             return OnDeviceSingStreamProvider(
                 context = context,
                 modelStore = SingModelStore(File(context.noBackupFilesDir, MODEL_DIR), http),
-                cache = SingCache(File(context.cacheDir, CACHE_DIR)),
+                cache = cache,
                 sourceFactory = OfflineFirstDataSource.Factory(
                     downloads = downloads.downloadCache,
                     fallback = mediaCacheDataSourceFactory(downloads.streamCache, OkHttpDataSource.Factory(http)),
@@ -323,7 +409,10 @@ class OnDeviceSingStreamProvider(
             )
         }
 
-        /** Big cores only, roughly: half the cores, 2..4. */
+        /**
+         * Big cores only, roughly: half the cores, 2..4. (On a Pixel Tablet that's 4 threads, ~150 % CPU
+         * and ~1.6× real time; live Sing needs > 1×.)
+         */
         fun defaultThreads(): Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 4)
     }
 }

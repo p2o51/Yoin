@@ -53,6 +53,22 @@ object SingFixtures {
         return left to right
     }
 
+    /**
+     * [synth] plus noise common to both channels. [synth]'s own noise is opposite in L and R and its
+     * tones repeat every second, so its mono fold-down is periodic; this one isn't — for alignment.
+     */
+    fun aperiodicSynth(frames: Int, rate: Int): Pair<FloatArray, FloatArray> {
+        val (left, right) = synth(frames, rate)
+        var state = 777L
+        for (i in 0 until frames) {
+            state = (state * 6364136223846793005L + 1442695040888963407L)
+            val noise = ((state ushr 33).toDouble() / (1L shl 31) - 0.5).toFloat() * 0.1f
+            left[i] += noise
+            right[i] += noise
+        }
+        return left to right
+    }
+
     fun FloatArray.slice(from: Int, count: Int): FloatArray = copyOfRange(from, from + count)
 
     fun FloatArray.buffer(): FloatBuffer = FloatBuffer.wrap(this)

@@ -188,6 +188,10 @@ class LyraSingStreamProvider(
         fallback?.cancel(request)
     }
 
+    override fun onPlayhead(request: SingRequest, positionMs: Long, playing: Boolean) {
+        fallback?.onPlayhead(request, positionMs, playing)
+    }
+
     override fun stream(request: SingRequest): Flow<SingStatus> = channelFlow {
         cancelledKeys.remove(request.key)
         val credentials = credentialsProvider()

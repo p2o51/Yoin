@@ -7,14 +7,18 @@ import com.gpo.yoin.player.sing.dsp.SeparationModel
 
 /**
  * Whether this device should separate on its own. Before Sing first turns on, one silent chunk
- * (~3 s of audio) goes through the model; a chunk slower than [MAX_CHUNK_MS] (RTF > ~0.7 on a
- * 2.97 s chunk), a device already throttling for heat, or a decoder that won't give 4 channels back
- * makes it [Verdict.Insufficient], and the UI can suggest Lyra instead
- * ([SingUnavailableReason.DeviceInsufficient]).
+ * (~3 s of audio) goes through the model; a chunk slower than [MAX_CHUNK_MS], or a device already
+ * throttling for heat, makes it [Verdict.Insufficient], and the UI can suggest Lyra instead
+ * ([SingUnavailableReason.DeviceInsufficient]). ([Why.NoQuadDecode] is for the Lyra quad stream; live
+ * on-device Sing plays the original and needs no 4-channel decode.)
  */
 object SingDeviceGate {
-    /** Slowest acceptable chunk. 2.0 s of work for 2.97 s of audio is an RTF of ~0.67. */
-    const val MAX_CHUNK_MS = 2_000L
+    /**
+     * Slowest acceptable chunk. Live Sing separates while the song plays, and each chunk adds one step
+     * of audio (160 frames, ~1.86 s): 1.5 s of work per step keeps ~1.24× ahead of real time, with some
+     * room for a warmer device. (A Pixel Tablet does a chunk in ~1.1 s, ~1.6×.)
+     */
+    const val MAX_CHUNK_MS = 1_500L
 
     /**
      * `PowerManager.THERMAL_STATUS_MODERATE` (2) and up count as throttling. LIGHT (1) is "UX not

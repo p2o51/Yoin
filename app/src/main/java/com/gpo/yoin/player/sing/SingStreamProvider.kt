@@ -9,15 +9,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 /**
- * The one seam between Sing playback and whoever makes the 4-channel stream. The on-device engine
- * ([OnDeviceSingStreamProvider]) is one implementation; the Lyra server client
- * ([LyraSingStreamProvider]) is another. [SingProviderSelector] picks one per song; the playback
- * side ([SingPlaybackSwitcher] → [SingMixerAudioProcessor]) takes either kind of [SingSource] through
- * the same pipeline.
+ * The one seam between Sing playback and whoever makes the Sing audio. The on-device engine
+ * ([OnDeviceSingStreamProvider]) is one implementation — a vocal track the mixer subtracts live
+ * ([SingSource.Live]); the Lyra server client ([LyraSingStreamProvider]) is another — a 4-channel
+ * stream ([SingSource.Remote]). [SingProviderSelector] picks one per song; the playback side
+ * ([SingPlaybackSwitcher] → [SingMixerAudioProcessor]) takes every kind of [SingSource].
  *
- * The stream format both sides share: AAC-LC, 4 channels, in an MP4 (.m4a), channel order
- * CH0 = I_L, CH1 = I_R, CH2 = V_L, CH3 = V_R (instrumental, vocal), same sample rate and timeline as
- * the original song.
+ * The 4-channel format (Lyra, and the first on-device engine): AAC-LC, 4 channels, in an MP4 (.m4a),
+ * channel order CH0 = I_L, CH1 = I_R, CH2 = V_L, CH3 = V_R (instrumental, vocal), same sample rate and
+ * timeline as the original song.
  */
 interface SingStreamProvider {
     /**
@@ -32,6 +32,12 @@ interface SingStreamProvider {
 
     /** Whether this provider can sing at all right now (e.g. the device gate's last answer). */
     fun availability(): SingAvailability = SingAvailability.Available
+
+    /**
+     * Where the listener is in [request]'s song ([playing] or paused), reported every half second and
+     * on every seek while Sing is on — the on-device engine separates from there.
+     */
+    fun onPlayhead(request: SingRequest, positionMs: Long, playing: Boolean) {}
 }
 
 /**
@@ -84,7 +90,10 @@ enum class SingFailure(@param:StringRes @get:StringRes val messageRes: Int) {
     Remote(R.string.sing_failed_generic),
 }
 
-/** Where the 4-channel stream is; the switcher plays either through the same sink and mixer. */
+/**
+ * Where the Sing audio is: a 4-channel stream ([LocalFile], [Remote]) the switcher swaps in, or a
+ * vocal track the live mixer subtracts from the original as it plays ([Live]).
+ */
 sealed interface SingSource {
     /** See [SingMixControl.channelMap]; identity unless a decoder was found to reorder channels. */
     val channelMap: IntArray
@@ -109,6 +118,15 @@ sealed interface SingSource {
             other is Remote && other.uri == uri && other.headers == headers && other.channelMap.contentEquals(channelMap)
 
         override fun hashCode(): Int = (uri.hashCode() * 31 + headers.hashCode()) * 31 + channelMap.contentHashCode()
+    }
+
+    /**
+     * The on-device engine's vocal stem, filling while the song plays (complete on a cache hit). Ready
+     * means V covers the next few seconds from the playhead; no stream is swapped — the mixer takes V
+     * out of the original ([SingMixerAudioProcessor], live mode).
+     */
+    data class Live(val track: SingVocalTrack) : SingSource {
+        override val channelMap: IntArray get() = SingMixControl.IDENTITY
     }
 
     companion object {

@@ -7,6 +7,7 @@ import com.gpo.yoin.player.sing.SingFixtures.slice
 import com.gpo.yoin.player.sing.SingFixtures.snrDb
 import com.gpo.yoin.player.sing.SingFixtures.toArray
 import com.gpo.yoin.player.sing.dsp.FullBandSeparator
+import com.gpo.yoin.player.sing.dsp.LiveVocalSeparator
 import com.gpo.yoin.player.sing.dsp.LyraSingSpec
 import java.io.File
 import org.junit.Assert.assertTrue
@@ -62,6 +63,38 @@ class LyraSingModelParityTest {
             val ms = (System.nanoTime() - started) / 1e6
             val m = expected.size / 2
             report("real clip @ $rate Hz", expected.slice(0, m), result.vocalLeft.toArray(m), expected.slice(m, m), result.vocalRight.toArray(m), ms, result.chunks)
+        }
+    }
+
+    /** Live Sing (chunks in the listener's order, a seek) against the whole-song run, with the real model. */
+    @Test
+    fun should_matchWholeSong_when_separatedLive() {
+        model().use { model ->
+            val rate = 44_100
+            val frames = 20 * rate
+            val (left, right) = SingFixtures.aperiodicSynth(frames, rate)
+            val whole = FullBandSeparator().separate(left.buffer(), right.buffer(), frames, rate, model)
+            val live = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+            val gotL = FloatArray(frames)
+            val gotR = FloatArray(frames)
+            val sink = LiveVocalSeparator.VocalSink { from, to, l, r, offset ->
+                for (i in from until to) {
+                    gotL[i] = l.get(i - offset)
+                    gotR[i] = r.get(i - offset)
+                }
+            }
+            live.start(sink)
+            var run = 0
+            while (true) {
+                val at = if (run < 3) 12L * rate else 2L * rate
+                val chunk = live.nextChunk(live.frameAtSource(at))
+                if (chunk < 0) break
+                live.runChunk(chunk, model, sink)
+                run++
+            }
+            val err = maxOf(maxAbsError(whole.vocalLeft.toArray(frames), gotL), maxAbsError(whole.vocalRight.toArray(frames), gotR))
+            println("live vs whole song (real model, 20 s, $run chunks): max |error| $err")
+            assertTrue("live vs whole: $err", err <= 1e-5)
         }
     }
 
