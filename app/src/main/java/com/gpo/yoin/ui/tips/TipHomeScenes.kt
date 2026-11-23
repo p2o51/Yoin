@@ -216,7 +216,7 @@ private class DemoEditFeed {
 
     fun pick(scope: CoroutineScope, section: HomeSection) {
         carried = section
-        scope.launch { lift.animateTo(1f, YoinMotion.effectsSpring()) }
+        scope.launch { lift.animateTo(1f, YoinMotion.stageSettleSpring()) }
     }
 
     /** The carried one under the finger. Carried straight up past the middle of the row above, that one moves down. */
