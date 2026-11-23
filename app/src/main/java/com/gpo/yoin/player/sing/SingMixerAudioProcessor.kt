@@ -221,7 +221,8 @@ class SingMixerAudioProcessor(
                 }
             }
             val index = base + f
-            val want = readable && binding === desired && coveredEnd - index > availRampFrames
+            // Before the track's frame 0 (priming Media3 didn't trim) there's no V: wait for it there.
+            val want = readable && binding === desired && index >= 0 && coveredEnd - index > availRampFrames
             if (want && !binding.engaged) engage(binding)
             val g = nextGain()
             avail = if (want) minOf(1f, avail + availStep) else maxOf(0f, avail - availStep)
