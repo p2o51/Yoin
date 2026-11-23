@@ -4,14 +4,16 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * Finished Sing streams (4-channel .m4a), least recently used out first once the directory passes
- * [maxBytes] (1 GB unless set). A hit marks the file used by moving its modification time to [clock];
+ * Finished Sing results — the on-device engine's vocal tracks ([SingVocalTrack], [suffix] `.vtrack`) —
+ * least recently used out first once the directory passes [maxBytes] (1 GB unless set; a 4-minute
+ * song at 44.1 kHz is ~64 MB). A hit marks the file used by moving its modification time to [clock];
  * nothing else is kept on the side, so a cleared app cache is simply a cold cache.
  */
 class SingCache(
     val dir: File,
     @Volatile var maxBytes: Long = DEFAULT_MAX_BYTES,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val suffix: String = SUFFIX,
 ) {
     /** The cached stream for [key], marked as just used; null on a miss. */
     @Synchronized
@@ -64,9 +66,15 @@ class SingCache(
         }
     }
 
-    fun fileFor(key: String): File = File(dir, name(key) + SUFFIX)
+    fun fileFor(key: String): File = File(dir, name(key) + suffix)
 
-    private fun entries(): List<File> = dir.listFiles { f -> f.isFile && f.name.endsWith(SUFFIX) }?.toList().orEmpty()
+    /** Deletes scratch files left by work that never finished (a process that died mid-song). */
+    @Synchronized
+    fun clearParts() {
+        dir.listFiles { f -> f.isFile && f.name.endsWith(PART_SUFFIX) }?.forEach { it.delete() }
+    }
+
+    private fun entries(): List<File> = dir.listFiles { f -> f.isFile && f.name.endsWith(suffix) }?.toList().orEmpty()
 
     companion object {
         const val DEFAULT_MAX_BYTES = 1L shl 30
