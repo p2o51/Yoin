@@ -23,6 +23,7 @@ import com.gpo.yoin.data.sync.engine.OutgoingFile
 import com.gpo.yoin.data.sync.engine.SnapshotCodec
 import com.gpo.yoin.data.sync.engine.SyncEngine
 import com.gpo.yoin.data.sync.engine.SyncSchemaTooNewException
+import com.gpo.yoin.data.sync.engine.toWire
 import com.gpo.yoin.data.sync.identity.AccountBinder
 import com.gpo.yoin.data.sync.identity.AccountKeys
 import com.gpo.yoin.data.sync.identity.BindingSnapshot
@@ -561,6 +562,8 @@ class CloudSyncManager(
             myEpoch = newestEpoch
         }
 
+        applyPurgeMarkers(files, myEpoch)
+
         val dataFiles = files.filter {
             val kind = it.appProperties[SyncFileProps.KIND]
             kind == SyncFileProps.KIND_STATE || kind == SyncFileProps.KIND_ARTIFACTS
@@ -669,6 +672,177 @@ class CloudSyncManager(
         return null
     }
 
+    /**
+     * Applies every scope purge marker in Drive this device hasn't applied yet (newest per scope), before any
+     * peer file is merged. Markers older than the current reset epoch predate a "delete cloud data" and mean
+     * nothing any more.
+     */
+    private suspend fun applyPurgeMarkers(files: List<RemoteFile>, resetEpoch: Long) {
+        val markers = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE }
+        if (markers.isEmpty()) return
+        val engine = engine()
+        val applied = engine.purgedScopes()
+        val newest = HashMap<String, Long>()
+        for (file in markers) {
+            var scope = file.appProperties[SyncFileProps.SCOPE]?.takeIf(String::isNotEmpty)
+            var epoch = file.appProperties[SyncFileProps.EPOCH]?.toLongOrNull()
+            if (scope == null || epoch == null) {
+                val marker = runCatching { transport.download(file.id)?.let(SnapshotCodec::decodePurge) }.getOrNull()
+                    ?: continue
+                scope = marker.scope
+                epoch = marker.epoch
+            }
+            if (scope == SyncFormat.GLOBAL_SCOPE || epoch < resetEpoch) continue
+            if (epoch > (newest[scope] ?: Long.MIN_VALUE)) newest[scope] = epoch
+        }
+        for ((scope, epoch) in newest) {
+            if ((applied[scope] ?: Long.MIN_VALUE) >= epoch) continue
+            engine.applyScopePurge(scope, epoch)
+            binder.markPurged(scope)
+        }
+    }
+
+    override suspend fun removeAccountFromCloud(syncProfileId: String): Result<Unit> = withIo {
+        val result = runCatching {
+            require(syncProfileId.isNotEmpty()) { "No account to remove." }
+            mutex.withLock {
+                check(isEnabled()) { "Turn on Cloud sync to remove an account from the cloud." }
+                // Never act on whatever account a token happens to come from.
+                val about = transport.about()
+                val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
+                check(owner != null && owner == about.permissionId) { "Reconnect Google before removing an account." }
+                val files = transport.list()
+                val resetEpoch = dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() ?: 0L
+                val engine = engine()
+                // At or after every version of the scope this device knows, and after any earlier purge of it.
+                val newestRecord = maxOf(
+                    dao.recordsInScope(syncProfileId).maxOfOrNull { it.ts } ?: 0L,
+                    dao.getRecord(SyncKinds.ACCOUNT, SyncFormat.GLOBAL_SCOPE, syncProfileId)?.ts ?: 0L,
+                )
+                val previousMarker = files
+                    .filter {
+                        it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_PURGE &&
+                            it.appProperties[SyncFileProps.SCOPE] == syncProfileId
+                    }
+                    .maxOfOrNull { it.appProperties[SyncFileProps.EPOCH]?.toLongOrNull() ?: 0L } ?: 0L
+                val epoch = maxOf(
+                    clock(),
+                    newestRecord,
+                    previousMarker + 1,
+                    (engine.purgedScopes()[syncProfileId] ?: 0L) + 1,
+                    resetEpoch,
+                )
+                val markerId = transport.generateIds(1).first()
+                transport.create(
+                    fileId = markerId,
+                    name = SyncFileProps.purgeFileName(epoch, deviceId()),
+                    appProperties = mapOf(
+                        SyncFileProps.KIND to SyncFileProps.KIND_PURGE,
+                        SyncFileProps.EPOCH to epoch.toString(),
+                        SyncFileProps.SCOPE to syncProfileId,
+                        SyncFileProps.DEVICE_ID to deviceId(),
+                    ),
+                    mimeType = "application/json",
+                    bytes = SnapshotCodec.encodePurge(
+                        ScopePurgeMarker(
+                            scope = syncProfileId,
+                            epoch = epoch,
+                            at = clock(),
+                            deviceId = deviceId(),
+                            deviceName = deviceName(),
+                        ),
+                    ),
+                )
+                // The marker is out: from here a crash is repaired by the next cycle applying our own marker.
+                engine.applyScopePurge(syncProfileId, epoch)
+                binder.markPurged(syncProfileId)
+                refreshBindings()
+            }
+            // Re-publish this device's files without the account.
+            runCycle(force = true)
+        }
+        refreshState()
+        result
+    }
+
+    override fun resumeAccountSync(localProfileId: String) = accountAction { binder.resumeSyncing(localProfileId) }
+
+    // ---- read-only views (the 云端数据 section)
+
+    override suspend fun cloudFiles(): Result<List<CloudDeviceFiles>> = withIo {
+        runCatching {
+            ensureInitialized()
+            check(isEnabled()) { "Cloud sync is off." }
+            // The Drive listing runs outside the sync lock (network); the replica's file table only under it.
+            val files = transport.list()
+            val known = mutex.withLock { dao.remoteFiles().associate { it.deviceId to it.deviceName } }
+            CloudDataViews.deviceFiles(
+                files = files,
+                thisDeviceId = deviceId(),
+                thisDeviceName = deviceName(),
+                knownNames = known,
+                fallbackName = appContext.getString(R.string.settings_sync_unknown_device),
+            )
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    override suspend fun cloudDataSummary(): CloudDataSummary {
+        val records = withReplica { replica -> replica?.db?.syncDao()?.allRecords()?.map { it.toWire() }.orEmpty() }
+        return withIo { CloudDataViews.summary(records) }
+    }
+
+    override suspend fun cloudAccountContent(syncProfileId: String): CloudAccountContent {
+        val (records, localProfileId) = withReplica { replica ->
+            val dao = replica?.db?.syncDao() ?: return@withReplica emptyList<WireRecord>() to null
+            dao.recordsInScope(syncProfileId).map { it.toWire() } to dao.bindingForScope(syncProfileId)?.localProfileId
+        }
+        return withIo {
+            CloudDataViews.account(
+                records = records,
+                scope = syncProfileId,
+                names = com.gpo.yoin.data.sync.backup.DomainReadableNames(database),
+                localProfileId = localProfileId,
+            )
+        }
+    }
+
+    override suspend fun cloudGlobalContent(): CloudGlobalContent {
+        val records = withReplica { replica -> replica?.db?.syncDao()?.allRecords()?.map { it.toWire() }.orEmpty() }
+        return withIo { CloudDataViews.global(records) }
+    }
+
+    /**
+     * Runs [block] under the sync lock with this device's replica, or with null when Cloud sync was never
+     * turned on here (no sync database: nothing is created for the caller unless [createIfMissing], which a
+     * Memories transfer asks for to keep its ledger in the sync database). Backups and Memories transfers
+     * read and write the replica through this, never concurrently with a cycle.
+     */
+    suspend fun <T> withReplica(createIfMissing: Boolean = false, block: suspend (SyncReplica?) -> T): T = withIo {
+        if (!createIfMissing && hooks == null && !syncDbFile().exists()) return@withIo block(null)
+        ensureInitialized()
+        mutex.withLock {
+            block(
+                SyncReplica(
+                    db = syncDb,
+                    engine = engine(),
+                    adapters = adapters,
+                    deviceId = deviceId(),
+                    deviceName = deviceName(),
+                    enabled = isEnabled(),
+                ),
+            )
+        }
+    }
+
+    /** After a backup import or a Memories transfer wrote data: publish it soon, as for any local edit. */
+    fun onLocalDataImported() {
+        scope.launch {
+            if (hooks == null && !syncDbFile().exists()) return@launch
+            ensureInitialized()
+            if (isEnabled()) runCycle(force = true)
+        }
+    }
+
     private suspend fun upload(existing: RemoteFile?, file: OutgoingFile, me: String): RemoteFile? {
         if (existing != null) {
             transport.update(existing.id, file.bytes)?.let { return it }
@@ -730,6 +904,7 @@ class CloudSyncManager(
         dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
         fun count(kind: String) = applied.appliedLive.values.sumOf { it[kind] ?: 0 }
         val restored = count(SyncKinds.SONG_NOTE) +
+            count(SyncKinds.ALBUM_NOTE) +
             count(SyncKinds.TRACK_RATING) +
             count(SyncKinds.ALBUM_RATING)
         if (restored == 0) return
@@ -977,6 +1152,7 @@ class CloudSyncManager(
 
         private val OBSERVED_TABLES = arrayOf(
             "song_notes",
+            "album_notes",
             "local_ratings",
             "album_ratings",
             "home_layout",
@@ -994,6 +1170,7 @@ class CloudSyncManager(
             SyncFileProps.KIND_STATE,
             SyncFileProps.KIND_ARTIFACTS,
             SyncFileProps.KIND_RESET,
+            SyncFileProps.KIND_PURGE,
         )
 
         // LAST_ERROR codes
@@ -1010,6 +1187,19 @@ class CloudSyncManager(
         private const val ERROR_PREFIX = "error:"
     }
 }
+
+/**
+ * This device's sync replica, handed out under the sync lock by [CloudSyncManager.withReplica]: the sync
+ * database, the engine over it and this device's sync identity. [enabled] = Cloud sync is on right now.
+ */
+class SyncReplica(
+    val db: SyncDatabase,
+    val engine: SyncEngine,
+    val adapters: List<SyncAdapter>,
+    val deviceId: String,
+    val deviceName: String,
+    val enabled: Boolean,
+)
 
 /** Test seams for [CloudSyncManager]; production passes none. */
 @androidx.annotation.VisibleForTesting

@@ -371,3 +371,6 @@ internal val LocalNoteDeletion = staticCompositionLocalOf<NoteDeletionState?> { 
  * host can't — the menu then offers delete only.
  */
 internal val LocalNoteRealign = compositionLocalOf<((SongNote, Long) -> Unit)?> { null }
+
+/** A tap on a to-do's box in a note: (note id, line). Null leaves the boxes read-only. */
+internal val LocalNoteChecklistToggle = compositionLocalOf<((String, Int) -> Unit)?> { null }

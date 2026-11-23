@@ -450,6 +450,43 @@ class SyncEngineTest {
     }
 
     @Test
+    fun should_carryAlbumNotesAndTheirTombstones_when_thisEngineHasNoAlbumNoteAdapter() = runTest {
+        // A phone that syncs album notes (notes revamp) next to an engine that predates them.
+        val withAlbumNotes: (FakeDomain) -> List<FakeAdapter> = { domain ->
+            standardAdapters(domain) + FakeAdapter(
+                domain,
+                SyncKinds.ALBUM_NOTE,
+                fields = listOf("albumId", "content"),
+                propagatesDeletes = true,
+                conflictPolicy = ConflictPolicy.LWW_LIVE_WINS,
+                keysUniqueAcrossProfiles = true,
+            )
+        }
+        val phone = device("dev-n", "Phone", 10_000, adapters = withAlbumNotes)
+        val notes = phone.adapter(SyncKinds.ALBUM_NOTE)
+        notes.put(phone.profile, "an-keep", 100, "albumId" to "al-1", "content" to "first")
+        notes.put(phone.profile, "an-gone", 100, "albumId" to "al-1", "content" to "second")
+        phone.cycle(drive)
+        notes.remove(phone.profile, "an-gone")
+        phone.cycle(drive)
+
+        val old = device("dev-a", "Older engine", 20_000)
+        old.cycle(drive)
+
+        // Skipped safely: nothing applied, both records (live and tombstone) republished as they came.
+        val oldState = SnapshotCodec.decode(drive.file("dev-a")!!.bytes)
+        val carried = oldState.records.filter { it.kind == SyncKinds.ALBUM_NOTE }.associateBy { it.key }
+        assertEquals(setOf("an-keep", "an-gone"), carried.keys)
+        assertFalse(carried.getValue("an-keep").deleted)
+        assertTrue(carried.getValue("an-gone").deleted)
+
+        drive.remove("dev-n")
+        val tablet = device("dev-c", "Tablet", 30_000, adapters = withAlbumNotes)
+        tablet.cycle(drive)
+        assertEquals(setOf("an-keep"), tablet.adapter(SyncKinds.ALBUM_NOTE).keys(tablet.profile))
+    }
+
+    @Test
     fun should_pickSamePayloadOnAllDevices_when_sameVersionCarriesDifferentPayloads() = runTest {
         val a = device("dev-a", "Phone", 10_000)
         val b = device("dev-b", "Tablet", 20_000)

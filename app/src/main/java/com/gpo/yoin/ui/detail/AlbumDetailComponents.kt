@@ -41,7 +41,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +58,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -68,7 +68,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.Layout
@@ -88,7 +87,6 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -115,7 +113,11 @@ import com.gpo.yoin.ui.component.UnavailableTrackAlpha
 import com.gpo.yoin.ui.component.UnavailableTrackBadge
 import com.gpo.yoin.ui.component.UnavailableTrackReason
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
-import com.gpo.yoin.ui.component.draftFieldValue
+import com.gpo.yoin.data.integration.neodb.neoDbShortCommentText
+import com.gpo.yoin.ui.notes.editor.EchoGuard
+import com.gpo.yoin.ui.notes.editor.NoteEditorDisplay
+import com.gpo.yoin.ui.notes.editor.NoteEditorState
+import com.gpo.yoin.ui.notes.editor.NoteMarkupField
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.ratingBloom
@@ -897,8 +899,24 @@ private const val RateSheetLeanPerPoint = 1.4f
 @Composable
 private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    // The field's full value (caret included), held so the caret can be followed; a new value starts at the end.
-    var held by remember { mutableStateOf<TextFieldValue?>(null) }
+    // The review is written in the note editor (@ mentions as chips, light Markdown); the sheet's draft
+    // follows its stored text, and a draft changed elsewhere moves it.
+    val editor = remember { NoteEditorState(text) }
+    val latestOnChange by rememberUpdatedState(onTextChange)
+    // The words this field sent up come back as the draft a frame later, by then the field may hold more
+    // (typing is faster than the round trip): an echo never overwrites the field; anything else does.
+    val echoes = remember { EchoGuard() }
+    LaunchedEffect(editor) {
+        snapshotFlow { editor.text }.collect {
+            if (it != text) {
+                echoes.sent(it)
+                latestOnChange(it)
+            }
+        }
+    }
+    LaunchedEffect(text) {
+        if (!echoes.isEcho(text) && text != editor.text) editor.setText(text)
+    }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val caret = remember { BringIntoViewRequester() }
     val density = LocalDensity.current
@@ -908,12 +926,14 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
     // when it took focus.
     LaunchedEffect(focused) {
         if (!focused) return@LaunchedEffect
-        snapshotFlow { Triple(held?.selection?.end, layout, ime.getBottom(density)) }
+        snapshotFlow { Triple(editor.fieldState.selection.end, layout, ime.getBottom(density)) }
             .distinctUntilChanged()
             .collect { (end, measured, _) ->
                 val result = measured ?: return@collect
                 val length = result.layoutInput.text.length
-                val cursor = result.getCursorRect((end ?: length).coerceIn(0, length))
+                // The caret in the shown text (a mention reads as one chip there).
+                val shown = NoteEditorDisplay.of(editor.text).toDisplay(end)
+                val cursor = result.getCursorRect(shown.coerceIn(0, length))
                 val above = with(density) { ReviewCaretClearanceAbove.toPx() }
                 val below = with(density) { ReviewCaretClearanceBelow.toPx() }
                 caret.bringIntoView(cursor.copy(top = cursor.top - above, bottom = cursor.bottom + below))
@@ -934,40 +954,25 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        BasicTextField(
-            value = draftFieldValue(text, held),
-            onValueChange = { value ->
-                held = value
-                // Caret / selection moves don't touch the words.
-                if (value.text != text) onTextChange(value.text)
-            },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
-            cursorBrush = SolidColor(scheme.primary),
+        NoteMarkupField(
+            state = editor,
+            textStyle = MaterialTheme.typography.bodyLarge,
+            placeholder = stringResource(R.string.detail_album_review_hint),
             onTextLayout = { layout = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .bringIntoViewRequester(caret)
                 .onFocusChanged { focused = it.isFocused },
-            decorationBox = { field ->
-                Box {
-                    if (text.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.detail_album_review_hint),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = scheme.onSurfaceVariant,
-                        )
-                    }
-                    field()
-                }
-            },
         )
         AnimatedVisibility(
             visible = text.isNotEmpty(),
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + expandVertically(),
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) + shrinkVertically(),
         ) {
-            val count = text.codePointCount(0, text.length)
-            val short = isNeoDbShortComment(text)
+            // As NeoDB counts it: the plain words (mentions as names, no Markdown marks).
+            val words = neoDbShortCommentText(text)
+            val count = words.codePointCount(0, words.length)
+            val short = isNeoDbShortComment(words)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
                     text = stringResource(

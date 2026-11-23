@@ -64,6 +64,8 @@ data class MergeResult(
     val malformed: Int,
     /** Replica records that changed value, scope -> kind -> count. */
     val changedByScope: ScopeKindCounts,
+    /** Records dropped because their scope was removed from the cloud at or after their version. */
+    val purged: Int = 0,
 ) {
     val changed: Boolean get() = inserted + replaced + keptBoth > 0
 }

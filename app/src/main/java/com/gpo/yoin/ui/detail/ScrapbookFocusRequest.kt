@@ -20,7 +20,13 @@ import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
  */
 internal object ScrapbookFocusRequest {
     @Immutable
-    data class Pending(val songId: String, val atMillis: Long, val edit: AlbumScrapbookAboutRef? = null)
+    data class Pending(
+        val songId: String,
+        val atMillis: Long,
+        val edit: AlbumScrapbookAboutRef? = null,
+        /** Only an album page opened after the request takes it (a note's link opens its own window). */
+        val newPageOnly: Boolean = false,
+    )
 
     private const val FreshForMs = 10_000L
 
@@ -29,12 +35,12 @@ internal object ScrapbookFocusRequest {
     /** The request waiting to be taken, if any (a snapshot read). */
     val pending: Pending? get() = state.value
 
-    fun request(songId: String, edit: AlbumScrapbookAboutRef? = null) {
-        state.value = Pending(songId, SystemClock.elapsedRealtime(), edit)
+    fun request(songId: String, edit: AlbumScrapbookAboutRef? = null, newPageOnly: Boolean = false) {
+        state.value = Pending(songId, SystemClock.elapsedRealtime(), edit, newPageOnly)
     }
 
     @Immutable
-    data class PendingAlbum(val albumId: String, val atMillis: Long)
+    data class PendingAlbum(val albumId: String, val atMillis: Long, val newPageOnly: Boolean = false)
 
     private val albumState = mutableStateOf<PendingAlbum?>(null)
 
@@ -42,13 +48,14 @@ internal object ScrapbookFocusRequest {
     val pendingAlbum: PendingAlbum? get() = albumState.value
 
     /** Page 2 of the album [albumId] (a [com.gpo.yoin.data.model.MediaId] string), on no particular song. */
-    fun requestAlbum(albumId: String) {
-        albumState.value = PendingAlbum(albumId, SystemClock.elapsedRealtime())
+    fun requestAlbum(albumId: String, newPageOnly: Boolean = false) {
+        albumState.value = PendingAlbum(albumId, SystemClock.elapsedRealtime(), newPageOnly)
     }
 
     /** Takes the album-level request when it is for [albumId] and still fresh. */
-    fun takeForAlbum(albumId: String): Boolean {
+    fun takeForAlbum(albumId: String, pageOpenedAt: Long = Long.MAX_VALUE): Boolean {
         val request = albumState.value ?: return false
+        if (request.newPageOnly && pageOpenedAt < request.atMillis) return false
         if (SystemClock.elapsedRealtime() - request.atMillis > FreshForMs) {
             albumState.value = null
             return false
@@ -59,8 +66,9 @@ internal object ScrapbookFocusRequest {
     }
 
     /** Takes the request when it is for one of [songIds] and still fresh; null otherwise. */
-    fun takeFor(songIds: Collection<String>): Pending? {
+    fun takeFor(songIds: Collection<String>, pageOpenedAt: Long = Long.MAX_VALUE): Pending? {
         val request = state.value ?: return null
+        if (request.newPageOnly && pageOpenedAt < request.atMillis) return null
         if (SystemClock.elapsedRealtime() - request.atMillis > FreshForMs) {
             state.value = null
             return null
