@@ -113,6 +113,7 @@ import com.gpo.yoin.ui.component.UnavailableTrackAlpha
 import com.gpo.yoin.ui.component.UnavailableTrackBadge
 import com.gpo.yoin.ui.component.UnavailableTrackReason
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
+import com.gpo.yoin.ui.notes.editor.noteEditorContainer
 import com.gpo.yoin.data.integration.neodb.neoDbShortCommentText
 import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorDisplay
@@ -949,6 +950,8 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // The whole rounded box (with its count line) is the field, for @ mode.
+            .noteEditorContainer(editor)
             .clip(RoundedCornerShape(corner))
             .background(scheme.surfaceContainerHigh)
             .padding(horizontal = 20.dp, vertical = 16.dp),

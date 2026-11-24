@@ -834,7 +834,8 @@ private fun TimelineAlbumCard(
                     ScoreLine(it, stringResource(R.string.memory_ledger_album_score), size = 34)
                 }
                 item.review?.let {
-                    Text(
+                    // The stored Markdown drawn (headings, lists, mentions), never its raw marks.
+                    NoteMarkupText(
                         text = it,
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 6,
@@ -970,7 +971,7 @@ private fun SongGridCard(item: MemoryLedgerItem.Song, state: MemoryLedgerState, 
             }
         }
         item.note?.text?.takeIf(String::isNotBlank)?.let {
-            Text(
+            NoteMarkupText(
                 text = it,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 5,

@@ -1877,7 +1877,8 @@ class HomeViewModel(
             playCount = song.playCount,
             noteCount = song.noteCount,
             song = track,
-            noteSnippet = song.latestNote?.takeIf(String::isNotBlank),
+            // One line of the note as words (mention names, no marks), like the JBI note card's comment.
+            noteSnippet = rediscoverNoteSnippet(song.latestNote),
             coverKey = coverKey,
         )
     }
@@ -2990,3 +2991,7 @@ internal fun HomeUiState.Content.withoutPlaylist(id: MediaId): HomeUiState.Conte
         playlists = playlists.filterNot { it.id == id },
     )
 }
+
+/** A Rediscover song card's note line: the note's plain-text projection (no Markdown, mentions as names). */
+internal fun rediscoverNoteSnippet(note: String?): String? =
+    note?.takeIf(String::isNotBlank)?.let(NoteMarkup::plainText)?.takeIf(String::isNotBlank)
