@@ -96,7 +96,7 @@ match ⟂ 🌧 ⟂ rain 🌧️ falls zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 fragment ⟂ 🌧 ⟂ rain 🌧️ falls zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz ⟂ null
 fragment20 ⟂ 🌧 ⟂ rain 🌧️ falls zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz ⟂ null
 match ⟂ falls ⟂ 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 ⟂ WordPrefix ⟂ 61 ⟂ 5 ⟂ 61..65
-fragment ⟂ falls ⟂ 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 ⟂ SearchFragment(text=…\uDE00😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…, highlight=27..31)
+fragment ⟂ falls ⟂ 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 ⟂ SearchFragment(text=…😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…, highlight=26..30)
 fragment20 ⟂ falls ⟂ 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 ⟂ SearchFragment(text=…😀😀😀😀😀😀😀😀😀😀…, highlight=1..0)
 match ⟂ fi ⟂ ﬁve ﬁngers ⟂ Prefix ⟂ 0 ⟂ 2 ⟂ 0..0
 fragment ⟂ fi ⟂ ﬁve ﬁngers ⟂ SearchFragment(text=ﬁve ﬁngers, highlight=0..0)

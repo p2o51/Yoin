@@ -109,7 +109,7 @@
     {"query":"start","text":"start yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy","maxChars":20,"fragment":{"text":"start yyyyyyyyyyyyyy…","highlightStart":0,"highlightEnd":5}},
     {"query":"🌧","text":"rain 🌧️ falls zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz","maxChars":80,"fragment":null},
     {"query":"🌧","text":"rain 🌧️ falls zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz","maxChars":20,"fragment":null},
-    {"query":"falls","text":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀","maxChars":80,"fragment":{"text":"…\ude00😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…","highlightStart":27,"highlightEnd":32}},
+    {"query":"falls","text":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀","maxChars":80,"fragment":{"text":"…😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…","highlightStart":26,"highlightEnd":31}},
     {"query":"falls","text":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 falls 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀","maxChars":20,"fragment":{"text":"…😀😀😀😀😀😀😀😀😀😀…","highlightStart":-1,"highlightEnd":-1}},
     {"query":"fi","text":"ﬁve ﬁngers","maxChars":80,"fragment":{"text":"ﬁve ﬁngers","highlightStart":0,"highlightEnd":1}},
     {"query":"fi","text":"ﬁve ﬁngers","maxChars":20,"fragment":{"text":"ﬁve ﬁngers","highlightStart":0,"highlightEnd":1}},

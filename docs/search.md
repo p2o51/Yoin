@@ -104,6 +104,14 @@ Android wraps it in `data/search/`, iOS calls it through `YoinMemorySearch`
 regenerate the golden (`YOIN_WRITE_SEARCH_GOLDEN=1`) and, if Android's answer changes on
 purpose, the pin (`YOIN_WRITE_SEARCH_PIN=1`).
 
+**Intentional behaviour change (parity p3, 2026-11-24, Android 0.6.4 onwards):** a fragment's cut
+never falls inside a surrogate pair. Android before it could start a fragment on an emoji's second
+half when the cut was pulled back from the end of a long text (a stray `\uDE00` after the `…`),
+and a text without a hit could end on an emoji's first half. Now a cut that would split a pair moves
+inward to the whole code point: the fragment stays within its 80 chars and the highlight, always
+whole code points, stays intact (`SearchFragmentSurrogateTest`). One pin line and one golden vector
+changed with it (the 80-char fragment for `falls` among emoji).
+
 ## Explicitly out of scope here
 
 - Card shape, visual hierarchy, highlight styling, empty states, motion, transitions.

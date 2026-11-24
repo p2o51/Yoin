@@ -177,13 +177,20 @@ data class SearchFragment(val text: String, val highlight: IntRange)
 /**
  * The part of [match]'s field worth showing: the hit with a little before it, up to [maxChars],
  * line breaks as spaces, an ellipsis where text was cut. The whole text when it fits.
+ *
+ * A cut never falls inside a surrogate pair (an emoji is two UTF-16 units): a cut that would is moved
+ * inward to the whole code point, so the text stays within [maxChars] and the highlight, which always
+ * covers whole code points, stays intact. (Android before parity p3 could start a fragment on the
+ * pair's second half; fixed on purpose here, docs/search.md.)
  */
 fun SearchQuery.fragment(match: FieldMatch, maxChars: Int = FRAGMENT_MAX_CHARS): SearchFragment? {
     val original = match.source?.original ?: return null
     val flat = original.map { if (it == '\n' || it == '\r' || it == '\t') ' ' else it }.joinToString("")
     val hit = match.originalRange
     if (flat.length <= maxChars || hit.isEmpty()) {
-        val text = flat.take(maxChars).trimEnd()
+        var keep = minOf(maxChars, flat.length)
+        if (keep in 1 until flat.length && flat[keep - 1].isHighSurrogate() && flat[keep].isLowSurrogate()) keep--
+        val text = flat.take(keep).trimEnd()
         val cut = if (flat.length > maxChars) "$text…" else text
         return SearchFragment(cut, if (hit.last < text.length) hit else IntRange.EMPTY)
     }
@@ -192,6 +199,9 @@ fun SearchQuery.fragment(match: FieldMatch, maxChars: Int = FRAGMENT_MAX_CHARS):
     var end = (start + maxChars).coerceAtMost(flat.length)
     if (end < flat.length && flat[end - 1].isHighSurrogate()) end--
     if (end - start < maxChars) start = (end - maxChars).coerceAtLeast(0)
+    // Pulled back from the end, the start can land on a pair's second half: step in past it. The hit
+    // starts on a whole code point after it, so it stays whole.
+    if (start > 0 && flat[start].isLowSurrogate() && flat[start - 1].isHighSurrogate()) start++
     val lead = if (start > 0) "…" else ""
     val tail = if (end < flat.length) "…" else ""
     val body = flat.substring(start, end).trim()
