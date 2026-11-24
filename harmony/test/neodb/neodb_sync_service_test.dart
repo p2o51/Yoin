@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -248,6 +249,88 @@ void main() {
     final row = await service.pullAlbum('p1', _album);
 
     expect(row!.rating, 8.7);
+  });
+
+  group('NoteMarkup projection', () {
+    const mention = '[@Andromeda](yoin:track/applemusic:1445555555?a=Weyes%20Blood&al=Titanic%20Rising)';
+
+    test('should_sendPlainWordsAsShortComment_when_reviewHasMentionsAndMarkup', () async {
+      await memory.setAlbumReview(_album.id, '**像 $mention 一样**', nowMs: 1);
+
+      await service.pushAlbum('p1', _album);
+
+      expect(neodb.mark!['comment_text'], '像 Andromeda 一样');
+      expect(neodb.review, isNull);
+      expect(neodb.requests.any((r) => r.body.contains('yoin:')), isFalse);
+      expect((await memory.albumRatingRow(_album.id))!.reviewNeedsSync, isFalse);
+    });
+
+    test('should_postFlattenedMarkdownAsReview_when_longReviewHasMentions', () async {
+      final long = '# 现场版\n**$mention** ${'x' * neoDbShortCommentMax}';
+      await memory.setAlbumReview(_album.id, long, nowMs: 1);
+
+      await service.pushAlbum('p1', _album);
+
+      expect(neodb.mark!['comment_text'], '');
+      expect(neodb.review!['body'], '# 现场版\n**Andromeda** ${'x' * neoDbShortCommentMax}');
+      expect(neodb.requests.any((r) => r.body.contains('yoin:')), isFalse);
+      // The stored text keeps its mention; the flag clears against it.
+      final row = (await memory.albumRatingRow(_album.id))!;
+      expect(row.review, long);
+      expect(row.reviewNeedsSync, isFalse);
+    });
+
+    test('should_countPlainWords_when_choosingShortOrLong', () async {
+      // Over the limit as stored (the link), within it as read.
+      final text = '$mention ${'y' * (neoDbShortCommentMax - 20)}';
+      expect(text.runes.length, greaterThan(neoDbShortCommentMax));
+      await memory.setAlbumReview(_album.id, text, nowMs: 1);
+
+      await service.pushAlbum('p1', _album);
+
+      expect(neodb.mark!['comment_text'], 'Andromeda ${'y' * (neoDbShortCommentMax - 20)}');
+      expect(neodb.review, isNull);
+    });
+
+    test('should_keepLocalMentions_when_pullFindsTheSentProjection', () async {
+      final review = '**像 $mention 一样**';
+      await memory.setAlbumReview(_album.id, review, nowMs: 1);
+      await service.pushAlbum('p1', _album);
+
+      final short = await service.pullAlbum('p1', _album);
+      expect(short!.review, review);
+
+      final long = '$mention ${'z' * neoDbShortCommentMax}';
+      await memory.setAlbumReview(_album.id, long, nowMs: 2);
+      await service.pushAlbum('p1', _album);
+      final pulled = await service.pullAlbum('p1', _album);
+      expect(pulled!.review, long);
+    });
+
+    test('should_takeRemoteWords_when_neoDbTextDiffersFromProjection', () async {
+      await memory.setAlbumReview(_album.id, '像 $mention', nowMs: 1);
+      await service.pushAlbum('p1', _album);
+      neodb.mark = {...?neodb.mark, 'comment_text': 'edited on NeoDB'};
+
+      final row = await service.pullAlbum('p1', _album);
+
+      expect(row!.review, 'edited on NeoDB');
+    });
+
+    test('should_matchGoldenProjections_when_projectingEveryVector', () {
+      final golden =
+          jsonDecode(File('../shared/src/commonTest/resources/golden/note-markup.json').readAsStringSync())
+              as Map<String, dynamic>;
+      final vectors = (golden['parse'] as List).cast<Map<String, dynamic>>();
+      expect(vectors.where((v) => v['neoDb'] != v['text']), isNotEmpty);
+      for (final v in vectors) {
+        final text = v['text'] as String;
+        expect(neoDbReviewText(text), v['neoDb'], reason: text);
+        expect(neoDbShortCommentText(text), v['plain'], reason: text);
+      }
+      expect(neoDbReviewText(null), '');
+      expect(neoDbShortCommentText(null), '');
+    });
   });
 
   test('should_writeNothing_when_bothSidesEmpty', () async {
