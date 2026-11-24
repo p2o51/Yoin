@@ -228,145 +228,150 @@ class YoinMemorySearch(private val ledger: YoinMemorySearchLedger) {
         return attachmentsOf(albums, ledger.entries(), ledger.aiTitles(), activeProfileId)
     }
 
-    // ── pure: the same answers for the same input on every platform ──
+    /**
+     * Everything that doesn't read the ledger: the same answers for the same input on every platform. Swift
+     * calls it without a ledger: `YoinMemorySearch.companion.filters(…)`. A screen that searches and lays out
+     * in one go can read the ledger once and pass the snapshot to [searchEntries] and [attachmentsOf].
+     */
+    companion object {
+        fun searchEntries(
+            entries: List<YoinLedgerEntry>,
+            aiTitles: List<YoinAiTitle>,
+            query: String,
+            activeProfileId: String?,
+        ): YoinMemorySearchResult =
+            searchMemoryLedger(entries.map { it.toCore() }, SearchQuery(query), activeProfileId, aiTitleMap(aiTitles)).toFlat()
 
-    fun searchEntries(
-        entries: List<YoinLedgerEntry>,
-        aiTitles: List<YoinAiTitle>,
-        query: String,
-        activeProfileId: String?,
-    ): YoinMemorySearchResult =
-        searchMemoryLedger(entries.map { it.toCore() }, SearchQuery(query), activeProfileId, aiTitleMap(aiTitles)).toFlat()
-
-    fun attachmentsOf(
-        albums: List<YoinSearchAlbum>,
-        entries: List<YoinLedgerEntry>,
-        aiTitles: List<YoinAiTitle>,
-        activeProfileId: String?,
-    ): List<YoinMemoryAttachment> {
-        val refs = albums.map { MediaRef(it.provider, it.rawId) }
-        val found = memoryAttachments(refs, entries.map { it.toCore() }, activeProfileId, aiTitleMap(aiTitles))
-        return refs.distinct().mapNotNull { ref -> found[ref]?.toFlat(ref) }
-    }
-
-    /** The All page and the Memories list for [query]; tiles point back into the rows given. */
-    fun page(
-        query: String,
-        songs: List<YoinSearchSong>,
-        albums: List<YoinSearchAlbum>,
-        artists: List<YoinSearchArtist>,
-        playlists: List<YoinSearchPlaylist>,
-        result: YoinMemorySearchResult,
-        attachments: List<YoinMemoryAttachment>,
-        activeProfileId: String?,
-        columns: Int,
-        maxRows: Int,
-        maxWide: Int,
-    ): YoinSearchPage {
-        val layout = layoutSearchPage(
-            query = SearchQuery(query),
-            rows = SearchServiceRows(
-                songs = songs.map { SearchSongRow(MediaRef(it.provider, it.rawId), it.title, it.artist, it.album) },
-                albums = albums.map { SearchAlbumRow(MediaRef(it.provider, it.rawId), it.name, it.artist) },
-                artists = artists.map { SearchArtistRow(MediaRef(it.provider, it.rawId), it.name) },
-                playlists = playlists.map { SearchPlaylistRow(MediaRef(it.provider, it.rawId), it.name, it.owner) },
-            ),
-            memories = result.toCore(),
-            attachments = attachments.associate { MediaRef(it.provider, it.albumId) to it.toCore() },
-            activeProfileId = activeProfileId,
-            columns = columns,
-            maxRows = maxRows,
-            maxWide = maxWide,
-        )
-        val attachmentByRef = attachments.associateBy { MediaRef(it.provider, it.albumId) }
-        fun tile(t: SearchPageTile) = YoinSearchTile(
-            kind = t.kind.toFlat(),
-            key = t.key,
-            index = t.index,
-            wide = t.wide,
-            relevant = t.relevant,
-            tier = t.score.tier.toFlat(),
-            strength = t.score.strength.toFlat(),
-            note = t.note?.toFlat(),
-            memory = t.hit?.toFlat(),
-            attachment = if (t.kind == SearchTileKind.Album) attachmentByRef[MediaRef(albums[t.index].provider, albums[t.index].rawId)] else null,
-        )
-        return YoinSearchPage(
-            sections = layout.sections.map { s ->
-                YoinSearchSectionPage(
-                    section = YoinSearchSection.valueOf(s.section.name),
-                    tiles = s.tiles.map(::tile),
-                    rows = s.allRows.map { row -> YoinSearchTileRow(row.tiles.map(::tile), row.wideAtEnd) },
-                    folded = s.folded,
-                    more = s.more,
-                    tier = s.score.tier.toFlat(),
-                    strength = s.score.strength.toFlat(),
-                )
-            },
-            best = layout.best?.let { YoinSearchBestMatch(it.kind.toFlat(), it.index) },
-            memories = layout.memories.map(::tile),
-        )
-    }
-
-    /** The chips offered ([searchFilters]). */
-    fun filters(canSearchPlaylists: Boolean, canReadPlaylists: Boolean, savedLibrary: Boolean): List<YoinSearchFilter> =
-        searchFilters(canSearchPlaylists, canReadPlaylists, savedLibrary).map { YoinSearchFilter.valueOf(it.name) }
-
-    /** How many of [available] service rows of [section] [filter] lists, from the top. */
-    fun shownRows(filter: YoinSearchFilter, section: YoinSearchSection, available: Int): Int =
-        SearchFilter.valueOf(filter.name).shownRows(SearchSection.valueOf(section.name), available)
-
-    /** Where opening [note] leads; [returnedSongProvider]/[returnedSongId] = the returned song its tile is on, if any. */
-    fun noteTarget(note: YoinNoteHit, returnedSongProvider: String?, returnedSongId: String?, activeProfileId: String?): YoinNoteOpenTarget {
-        val returned = if (returnedSongProvider != null && returnedSongId != null) MediaRef(returnedSongProvider, returnedSongId) else null
-        val target = noteOpenTarget(note.toCore(), returned, activeProfileId)
-        return YoinNoteOpenTarget(
-            action = YoinNoteOpenAction.valueOf(target.action.name),
-            songProvider = target.song?.provider,
-            songId = target.song?.rawId,
-            albumProvider = target.album?.provider,
-            albumId = target.album?.rawId,
-            profileId = target.profileId,
-            switchAccount = target.switchAccount,
-            seekToMs = target.seekToMs,
-            subject = target.subject,
-        )
-    }
-
-    fun noteSeekReady(currentRawId: String?, durationMs: Long, targetRawId: String): Boolean =
-        com.gpo.yoin.shared.search.noteSeekReady(currentRawId, durationMs, targetRawId)
-
-    val noteSeekTimeoutMs: Long get() = NOTE_SEEK_TIMEOUT_MS
-    val allMaxRows: Int get() = SEARCH_ALL_MAX_ROWS
-    val allMaxWide: Int get() = SEARCH_ALL_MAX_WIDE
-    val allRowsPerType: Int get() = SEARCH_ALL_ROWS_PER_TYPE
-    val fragmentMaxChars: Int get() = FRAGMENT_MAX_CHARS
-
-    /** [text] folded the way search compares it (case, width, Latin accents, whitespace). */
-    fun fold(text: String): String = FoldedText.of(text).text
-
-    fun match(query: String, text: String?): YoinSearchMatch {
-        val m = SearchQuery(query).match(text)
-        val range = m.originalRange
-        return if (range.isEmpty()) {
-            YoinSearchMatch(m.strength.toFlat(), -1, -1)
-        } else {
-            YoinSearchMatch(m.strength.toFlat(), range.first, range.last + 1)
+        fun attachmentsOf(
+            albums: List<YoinSearchAlbum>,
+            entries: List<YoinLedgerEntry>,
+            aiTitles: List<YoinAiTitle>,
+            activeProfileId: String?,
+        ): List<YoinMemoryAttachment> {
+            val refs = albums.map { MediaRef(it.provider, it.rawId) }
+            val found = memoryAttachments(refs, entries.map { it.toCore() }, activeProfileId, aiTitleMap(aiTitles))
+            return refs.distinct().mapNotNull { ref -> found[ref]?.toFlat(ref) }
         }
+
+        /** The All page and the Memories list for [query]; tiles point back into the rows given. */
+        fun page(
+            query: String,
+            songs: List<YoinSearchSong>,
+            albums: List<YoinSearchAlbum>,
+            artists: List<YoinSearchArtist>,
+            playlists: List<YoinSearchPlaylist>,
+            result: YoinMemorySearchResult,
+            attachments: List<YoinMemoryAttachment>,
+            activeProfileId: String?,
+            columns: Int,
+            maxRows: Int,
+            maxWide: Int,
+        ): YoinSearchPage {
+            val layout = layoutSearchPage(
+                query = SearchQuery(query),
+                rows = SearchServiceRows(
+                    songs = songs.map { SearchSongRow(MediaRef(it.provider, it.rawId), it.title, it.artist, it.album) },
+                    albums = albums.map { SearchAlbumRow(MediaRef(it.provider, it.rawId), it.name, it.artist) },
+                    artists = artists.map { SearchArtistRow(MediaRef(it.provider, it.rawId), it.name) },
+                    playlists = playlists.map { SearchPlaylistRow(MediaRef(it.provider, it.rawId), it.name, it.owner) },
+                ),
+                memories = result.toCore(),
+                attachments = attachments.associate { MediaRef(it.provider, it.albumId) to it.toCore() },
+                activeProfileId = activeProfileId,
+                columns = columns,
+                maxRows = maxRows,
+                maxWide = maxWide,
+            )
+            val attachmentByRef = attachments.associateBy { MediaRef(it.provider, it.albumId) }
+            fun tile(t: SearchPageTile) = YoinSearchTile(
+                kind = t.kind.toFlat(),
+                key = t.key,
+                index = t.index,
+                wide = t.wide,
+                relevant = t.relevant,
+                tier = t.score.tier.toFlat(),
+                strength = t.score.strength.toFlat(),
+                note = t.note?.toFlat(),
+                memory = t.hit?.toFlat(),
+                attachment = if (t.kind == SearchTileKind.Album) attachmentByRef[MediaRef(albums[t.index].provider, albums[t.index].rawId)] else null,
+            )
+            return YoinSearchPage(
+                sections = layout.sections.map { s ->
+                    YoinSearchSectionPage(
+                        section = YoinSearchSection.valueOf(s.section.name),
+                        tiles = s.tiles.map(::tile),
+                        rows = s.allRows.map { row -> YoinSearchTileRow(row.tiles.map(::tile), row.wideAtEnd) },
+                        folded = s.folded,
+                        more = s.more,
+                        tier = s.score.tier.toFlat(),
+                        strength = s.score.strength.toFlat(),
+                    )
+                },
+                best = layout.best?.let { YoinSearchBestMatch(it.kind.toFlat(), it.index) },
+                memories = layout.memories.map(::tile),
+            )
+        }
+
+        /** The chips offered ([searchFilters]). */
+        fun filters(canSearchPlaylists: Boolean, canReadPlaylists: Boolean, savedLibrary: Boolean): List<YoinSearchFilter> =
+            searchFilters(canSearchPlaylists, canReadPlaylists, savedLibrary).map { YoinSearchFilter.valueOf(it.name) }
+
+        /** How many of [available] service rows of [section] [filter] lists, from the top. */
+        fun shownRows(filter: YoinSearchFilter, section: YoinSearchSection, available: Int): Int =
+            SearchFilter.valueOf(filter.name).shownRows(SearchSection.valueOf(section.name), available)
+
+        /** Where opening [note] leads; [returnedSongProvider]/[returnedSongId] = the returned song its tile is on, if any. */
+        fun noteTarget(note: YoinNoteHit, returnedSongProvider: String?, returnedSongId: String?, activeProfileId: String?): YoinNoteOpenTarget {
+            val returned = if (returnedSongProvider != null && returnedSongId != null) MediaRef(returnedSongProvider, returnedSongId) else null
+            val target = noteOpenTarget(note.toCore(), returned, activeProfileId)
+            return YoinNoteOpenTarget(
+                action = YoinNoteOpenAction.valueOf(target.action.name),
+                songProvider = target.song?.provider,
+                songId = target.song?.rawId,
+                albumProvider = target.album?.provider,
+                albumId = target.album?.rawId,
+                profileId = target.profileId,
+                switchAccount = target.switchAccount,
+                seekToMs = target.seekToMs,
+                subject = target.subject,
+            )
+        }
+
+        fun noteSeekReady(currentRawId: String?, durationMs: Long, targetRawId: String): Boolean =
+            com.gpo.yoin.shared.search.noteSeekReady(currentRawId, durationMs, targetRawId)
+
+        val noteSeekTimeoutMs: Long get() = NOTE_SEEK_TIMEOUT_MS
+        val allMaxRows: Int get() = SEARCH_ALL_MAX_ROWS
+        val allMaxWide: Int get() = SEARCH_ALL_MAX_WIDE
+        val allRowsPerType: Int get() = SEARCH_ALL_ROWS_PER_TYPE
+        val fragmentMaxChars: Int get() = FRAGMENT_MAX_CHARS
+
+        /** [text] folded the way search compares it (case, width, Latin accents, whitespace). */
+        fun fold(text: String): String = FoldedText.of(text).text
+
+        fun match(query: String, text: String?): YoinSearchMatch {
+            val m = SearchQuery(query).match(text)
+            val range = m.originalRange
+            return if (range.isEmpty()) {
+                YoinSearchMatch(m.strength.toFlat(), -1, -1)
+            } else {
+                YoinSearchMatch(m.strength.toFlat(), range.first, range.last + 1)
+            }
+        }
+
+        /** What a row shows of [text] for [query] (the hit and a little before it, up to [maxChars]); null without a hit. */
+        fun fragment(query: String, text: String?, maxChars: Int): YoinSearchFragment? {
+            val q = SearchQuery(query)
+            val m = q.match(text)
+            if (m.strength == MatchStrength.None) return null
+            return q.fragment(m, maxChars)?.toFlat()
+        }
+
+        /** A note's or review's words as search reads them (NoteMarkup's plain text). */
+        fun plainWords(text: String): String = noteWords(text)
+
+        fun albumKey(profileId: String, provider: String, albumId: String): String = ledgerAlbumKey(profileId, provider, albumId)
     }
-
-    /** What a row shows of [text] for [query] (the hit and a little before it, up to [maxChars]); null without a hit. */
-    fun fragment(query: String, text: String?, maxChars: Int): YoinSearchFragment? {
-        val q = SearchQuery(query)
-        val m = q.match(text)
-        if (m.strength == MatchStrength.None) return null
-        return q.fragment(m, maxChars)?.toFlat()
-    }
-
-    /** A note's or review's words as search reads them (NoteMarkup's plain text). */
-    fun plainWords(text: String): String = noteWords(text)
-
-    fun albumKey(profileId: String, provider: String, albumId: String): String = ledgerAlbumKey(profileId, provider, albumId)
 }
 
 // ── conversions ──────────────────────────────────────────────────

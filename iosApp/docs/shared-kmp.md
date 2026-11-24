@@ -118,10 +118,14 @@ Kotlin/Native exports to Objective-C, so a few names change in Swift:
 
 - `search(query:activeProfileId:) throws` → `YoinMemorySearchResult` (`memories`: `YoinMemoryHit` with `album`, `field`, `entryId`, `fragment`, `tier` / `strength`, `title`, `albumScore`, `lastAt`, `isOtherAccount`, `mark`; `notes`: `YoinNoteHit` with `profileId`, `provider` / `songId`, `trackTitle`, `album`, `positionMs`, `fragment`, …). A blank query reads nothing.
 - `attachments(albums:activeProfileId:) throws` → `[YoinMemoryAttachment]` for the service's album rows (`YoinSearchAlbum`), in their order: only the exact album in the account in use.
-- `page(query:songs:albums:artists:playlists:result:attachments:activeProfileId:columns:maxRows:maxWide:)` → `YoinSearchPage`: `sections` (best first; each `tiles` for its chip, `rows` for All, `folded`, `more`), `best` (`YoinSearchBestMatch` kind + index), `memories` (the Memories chip). A tile's `index` points into the rows passed in (`-1` for a note or memory standing alone). Pass `allMaxRows` / `allMaxWide` for All.
-- `filters(canSearchPlaylists:canReadPlaylists:savedLibrary:)`, `shownRows(filter:section:available:)` (All keeps `allRowsPerType` = 40 a type).
-- `noteTarget(note:returnedSongProvider:returnedSongId:activeProfileId:)` → `YoinNoteOpenTarget`: `playSong` (play it, then seek to `seekToMs` once `noteSeekReady(currentRawId:durationMs:targetRawId:)`, giving up after `noteSeekTimeoutMs`), `openAlbum` (the album's scrapbook at the song, in `profileId`'s account; switch first when `switchAccount`), or `none`.
-- Pure helpers for tests and for building rows: `searchEntries(entries:aiTitles:query:activeProfileId:)`, `attachmentsOf(albums:entries:aiTitles:activeProfileId:)`, `fold(text:)`, `match(query:text:)`, `fragment(query:text:maxChars:)`, `plainWords(text:)`, `albumKey(profileId:provider:albumId:)`.
+
+Everything that doesn't read the ledger is on the companion, so Swift calls it without a ledger: `YoinMemorySearch.companion.filters(…)`.
+
+- `YoinMemorySearch.companion.page(query:songs:albums:artists:playlists:result:attachments:activeProfileId:columns:maxRows:maxWide:)` → `YoinSearchPage`: `sections` (best first; each `tiles` for its chip, `rows` for All, `folded`, `more`), `best` (`YoinSearchBestMatch` kind + index), `memories` (the Memories chip). A tile's `index` points into the rows passed in (`-1` for a note or memory standing alone). Pass `allMaxRows` / `allMaxWide` for All.
+- `companion.filters(canSearchPlaylists:canReadPlaylists:savedLibrary:)`, `companion.shownRows(filter:section:available:)` (All keeps `allRowsPerType` = 40 a type).
+- `companion.noteTarget(note:returnedSongProvider:returnedSongId:activeProfileId:)` → `YoinNoteOpenTarget`: `playSong` (play it, then seek to `seekToMs` once `companion.noteSeekReady(currentRawId:durationMs:targetRawId:)`, giving up after `noteSeekTimeoutMs`), `openAlbum` (the album's scrapbook at the song, in `profileId`'s account; switch first when `switchAccount`), or `none`.
+- `companion.searchEntries(entries:aiTitles:query:activeProfileId:)` and `companion.attachmentsOf(albums:entries:aiTitles:activeProfileId:)`: `search` and `attachments` over a ledger you pass in. **iOS should snapshot the ledger once per query** (`entries()` + `aiTitles()`) and call these two, rather than `search` then `attachments`, which each read the ledger.
+- Constants and text helpers on the companion: `allMaxRows`, `allMaxWide`, `allRowsPerType`, `fragmentMaxChars`, `noteSeekTimeoutMs`; `fold(text:)`, `match(query:text:)`, `fragment(query:text:maxChars:)`, `plainWords(text:)`, `albumKey(profileId:provider:albumId:)`.
 
 ## What is still done twice
 

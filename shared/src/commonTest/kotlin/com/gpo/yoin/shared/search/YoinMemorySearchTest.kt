@@ -50,6 +50,10 @@ class YoinMemorySearchTest {
         assertEquals("Summer theft", result.memories[1].title)
         assertEquals(YoinLedgerMark(YoinLedgerMarkKind.AlbumRating, 8.5f, 0), result.memories[0].mark)
         assertEquals(listOf("song-note:1"), result.notes.map { it.entryId })
+        // One snapshot of the ledger serves both, read once.
+        val snapshot = ledger.entries()
+        val titles = ledger.aiTitles()
+        assertEquals(result, YoinMemorySearch.searchEntries(snapshot, titles, "雨", me))
     }
 
     @Test
@@ -68,7 +72,7 @@ class YoinMemorySearchTest {
         val albums = listOf(YoinSearchAlbum("subsonic", "al-1", "だから僕は音楽を辞めた", "ヨルシカ"))
         val attachments = search.attachments(albums, me)
         assertEquals(listOf("al-1"), attachments.map { it.albumId })
-        val page = search.page(
+        val page = YoinMemorySearch.page(
             "雨",
             songs = listOf(YoinSearchSong("subsonic", "s1", "Ame", "Someone", "Record")),
             albums = albums,
@@ -78,8 +82,8 @@ class YoinMemorySearchTest {
             attachments = attachments,
             activeProfileId = me,
             columns = 3,
-            maxRows = search.allMaxRows,
-            maxWide = search.allMaxWide,
+            maxRows = YoinMemorySearch.allMaxRows,
+            maxWide = YoinMemorySearch.allMaxWide,
         )
         val songs = page.sections.single { it.section == YoinSearchSection.Songs }
         assertEquals(0, songs.tiles.single().index)
@@ -93,26 +97,25 @@ class YoinMemorySearchTest {
     }
 
     @Test
-    fun should_matchFragmentFilterAndTargetLikeTheCore() {
-        val search = YoinMemorySearch(Ledger(emptyList()))
-        assertEquals(YoinSearchMatch(YoinSearchStrength.WordPrefix, 3, 8), search.match("radio", "Ｍｙ ＲＡＤＩＯ song"))
-        assertEquals(YoinSearchMatch(YoinSearchStrength.None, -1, -1), search.match("x", null))
-        assertNull(search.fragment("x", "abc", 80))
-        assertEquals("bjork", search.fold("BJÖRK"))
-        assertEquals("with 晴天", search.plainWords("with [@晴天](yoin:track/subsonic:tr-1?a=%E5%91%A8)"))
-        assertEquals(YoinSearchFilter.entries.toList(), search.filters(canSearchPlaylists = true, canReadPlaylists = true, savedLibrary = true))
-        assertEquals(40, search.shownRows(YoinSearchFilter.All, YoinSearchSection.Songs, 99))
+    fun should_matchFragmentFilterAndTargetLikeTheCore_withoutALedger() {
+        assertEquals(YoinSearchMatch(YoinSearchStrength.WordPrefix, 3, 8), YoinMemorySearch.match("radio", "Ｍｙ ＲＡＤＩＯ song"))
+        assertEquals(YoinSearchMatch(YoinSearchStrength.None, -1, -1), YoinMemorySearch.match("x", null))
+        assertNull(YoinMemorySearch.fragment("x", "abc", 80))
+        assertEquals("bjork", YoinMemorySearch.fold("BJÖRK"))
+        assertEquals("with 晴天", YoinMemorySearch.plainWords("with [@晴天](yoin:track/subsonic:tr-1?a=%E5%91%A8)"))
+        assertEquals(YoinSearchFilter.entries.toList(), YoinMemorySearch.filters(canSearchPlaylists = true, canReadPlaylists = true, savedLibrary = true))
+        assertEquals(40, YoinMemorySearch.shownRows(YoinSearchFilter.All, YoinSearchSection.Songs, 99))
         val note = YoinNoteHit(
             "n", other, "applemusic", "am-3", "Ame", theirs, 84_000L, YoinSearchFragment("x", -1, -1),
             YoinSearchTier.Body, YoinSearchStrength.Contains, 0L, true,
         )
-        val play = search.noteTarget(note, "applemusic", "am-3", me)
+        val play = YoinMemorySearch.noteTarget(note, "applemusic", "am-3", me)
         assertEquals(YoinNoteOpenAction.PlaySong, play.action)
         assertEquals(84_000L, play.seekToMs)
-        val open = search.noteTarget(note, null, null, me)
+        val open = YoinMemorySearch.noteTarget(note, null, null, me)
         assertEquals(YoinNoteOpenAction.OpenAlbum, open.action)
         assertEquals("1440", open.albumId)
         assertTrue(open.switchAccount)
-        assertEquals(4_000L, search.noteSeekTimeoutMs)
+        assertEquals(4_000L, YoinMemorySearch.noteSeekTimeoutMs)
     }
 }

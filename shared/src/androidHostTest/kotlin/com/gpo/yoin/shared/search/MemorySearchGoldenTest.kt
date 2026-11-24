@@ -65,10 +65,10 @@ class MemorySearchGoldenTest {
     /** One vector per line: small, and a drift shows as the lines that changed. */
     private fun goldenJson(): String {
         val sections = linkedMapOf(
-            "fold" to FOLDS.map { obj("text" to str(it), "folded" to str(search.fold(it))) },
+            "fold" to FOLDS.map { obj("text" to str(it), "folded" to str(YoinMemorySearch.fold(it))) },
             "match" to MATCHES.map(::matchVector),
             "fragment" to MATCHES.flatMap { (q, t) -> listOf(80, 20).map { fragmentVector(q, t, it) } },
-            "plainWords" to PLAIN.map { obj("text" to str(it), "words" to str(search.plainWords(it))) },
+            "plainWords" to PLAIN.map { obj("text" to str(it), "words" to str(YoinMemorySearch.plainWords(it))) },
             "ledger" to LEDGER.map(::entryJson),
             "aiTitles" to AI_TITLES.map(::aiTitleJson),
             "search" to QUERIES.flatMap { q -> ACTIVE.map { a -> searchVector(q, a) } },
@@ -95,7 +95,7 @@ class MemorySearchGoldenTest {
                     "currentRawId" to str(current),
                     "durationMs" to JsonPrimitive(duration),
                     "targetRawId" to str(target),
-                    "ready" to JsonPrimitive(search.noteSeekReady(current, duration, target)),
+                    "ready" to JsonPrimitive(YoinMemorySearch.noteSeekReady(current, duration, target)),
                 )
             },
         )
@@ -106,11 +106,11 @@ class MemorySearchGoldenTest {
             "\"aiTitles\"; each \"pages\" vector lays out \"songs\"/\"albums\"/\"artists\"/\"playlists\" (or none, " +
             "withService false) with the \"search\" result for its query and account and the attachments of \"albums\"."
         val constants = obj(
-            "fragmentMaxChars" to JsonPrimitive(search.fragmentMaxChars),
-            "allMaxRows" to JsonPrimitive(search.allMaxRows),
-            "allMaxWide" to JsonPrimitive(search.allMaxWide),
-            "allRowsPerType" to JsonPrimitive(search.allRowsPerType),
-            "noteSeekTimeoutMs" to JsonPrimitive(search.noteSeekTimeoutMs),
+            "fragmentMaxChars" to JsonPrimitive(YoinMemorySearch.fragmentMaxChars),
+            "allMaxRows" to JsonPrimitive(YoinMemorySearch.allMaxRows),
+            "allMaxWide" to JsonPrimitive(YoinMemorySearch.allMaxWide),
+            "allRowsPerType" to JsonPrimitive(YoinMemorySearch.allRowsPerType),
+            "noteSeekTimeoutMs" to JsonPrimitive(YoinMemorySearch.noteSeekTimeoutMs),
         )
         return buildString {
             append("{\n")
@@ -133,7 +133,7 @@ class MemorySearchGoldenTest {
 
     private fun matchVector(pair: Pair<String, String?>): JsonElement {
         val (query, text) = pair
-        val m = search.match(query, text)
+        val m = YoinMemorySearch.match(query, text)
         return obj(
             "query" to str(query),
             "text" to str(text),
@@ -147,7 +147,7 @@ class MemorySearchGoldenTest {
         "query" to str(query),
         "text" to str(text),
         "maxChars" to JsonPrimitive(maxChars),
-        "fragment" to (search.fragment(query, text, maxChars)?.let(::fragmentJson) ?: JsonNull),
+        "fragment" to (YoinMemorySearch.fragment(query, text, maxChars)?.let(::fragmentJson) ?: JsonNull),
     )
 
     private fun searchVector(query: String, active: String?): JsonElement = obj(
@@ -162,7 +162,7 @@ class MemorySearchGoldenTest {
     )
 
     private fun pageVector(query: String, active: String?, columns: Int, maxRows: Int, maxWide: Int, withService: Boolean): JsonElement {
-        val page = search.page(
+        val page = YoinMemorySearch.page(
             query = query,
             songs = if (withService) SONGS else emptyList(),
             albums = if (withService) ALBUMS else emptyList(),
@@ -225,18 +225,18 @@ class MemorySearchGoldenTest {
         "canSearchPlaylists" to JsonPrimitive(canSearch),
         "canReadPlaylists" to JsonPrimitive(canRead),
         "savedLibrary" to JsonPrimitive(saved),
-        "filters" to JsonArray(search.filters(canSearch, canRead, saved).map { str(it.name) }),
+        "filters" to JsonArray(YoinMemorySearch.filters(canSearch, canRead, saved).map { str(it.name) }),
     )
 
     private fun shownVector(filter: YoinSearchFilter, section: YoinSearchSection, available: Int): JsonElement = obj(
         "filter" to str(filter.name),
         "section" to str(section.name),
         "available" to JsonPrimitive(available),
-        "shown" to JsonPrimitive(search.shownRows(filter, section, available)),
+        "shown" to JsonPrimitive(YoinMemorySearch.shownRows(filter, section, available)),
     )
 
     private fun noteTargetVector(note: YoinNoteHit, returned: Pair<String, String>?, active: String?): JsonElement {
-        val target = search.noteTarget(note, returned?.first, returned?.second, active)
+        val target = YoinMemorySearch.noteTarget(note, returned?.first, returned?.second, active)
         return obj(
             "note" to noteJson(note),
             "returnedSong" to (returned?.let { obj("provider" to str(it.first), "rawId" to str(it.second)) } ?: JsonNull),
@@ -439,8 +439,8 @@ class MemorySearchGoldenTest {
         )
     }
 
-    // A lone surrogate (a fragment can start on one: Android cuts \uD83D\uDE00 there too) goes out as a JSON
-    // \uXXXX escape: valid JSON, and it survives UTF-8.
+    // A lone surrogate goes out as a JSON \uXXXX escape: valid JSON, and it survives UTF-8. No vector holds
+    // one since fragments stopped cutting emoji in half (parity p3); this keeps a regression readable.
     private fun encode(e: JsonElement): String = buildString {
         val text = Json.encodeToString(JsonElement.serializer(), e)
         text.forEachIndexed { i, c ->
