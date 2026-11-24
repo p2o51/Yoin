@@ -23,6 +23,8 @@ final class PlaybackSystem {
     /// The network and route behind the stream quality (set when built by `live()`).
     private(set) var streamConditions: StreamQualityConditions?
 
+    /// Subsonic / local streams play through AVQueuePlayer (set when built by `live()`).
+    private(set) var avOutput: AVAudioOutput?
     /// Apple Music songs play through MusicKit (set when built by `live()`).
     private(set) var appleOutput: AppleMusicAudioOutput?
     /// Spotify songs play in the Spotify app (set when built by `live()`).
@@ -42,9 +44,10 @@ final class PlaybackSystem {
     /// The app's engine: AVQueuePlayer for streams, ApplicationMusicPlayer for
     /// Apple Music, wired to the OS.
     static func live() -> PlaybackSystem {
+        let av = AVAudioOutput()
         let apple = AppleMusicAudioOutput()
         let spotify = SpotifyAudioOutput()
-        let router = RoutingAudioOutput(av: AVAudioOutput(), apple: apple, spotify: spotify)
+        let router = RoutingAudioOutput(av: av, apple: apple, spotify: spotify)
         let system = PlaybackSystem(engine: PlayerEngine(output: router))
         // Spotify playing somewhere is what Yoin shows, unless Yoin itself plays another source.
         spotify.adopt = { [weak router, weak spotify, weak engine = system.engine] in
@@ -68,6 +71,7 @@ final class PlaybackSystem {
         system.engine.isStoredWhole = { AudioCache.shared.isComplete(url: $0) }
         system.engine.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
         AudioCache.shared.warmUp()
+        system.avOutput = av
         system.appleOutput = apple
         system.spotifyOutput = spotify
         // What App Remote says of Spotify's own song beyond what the output shows: an episode is no song, and

@@ -3312,12 +3312,52 @@
         }
       }
     },
+    "Exit Sing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出唱歌"
+          }
+        }
+      }
+    },
     "Keep screen on": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "屏幕常亮"
+          }
+        }
+      }
+    },
+    "Preparing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备中"
+          }
+        }
+      }
+    },
+    "Sing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唱歌"
+          }
+        }
+      }
+    },
+    "Vocal volume": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人声音量"
           }
         }
       }
