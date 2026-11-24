@@ -261,6 +261,9 @@ void main() {
     sync.value = CloudSyncState(phase: const SyncUpToDate(), lastSyncAt: now);
     await pump(tester, const SettingsScreen());
     expect(find.text('Sync and storage'), findsOneWidget);
+    expect(find.text('Sync and backups'), findsOneWidget);
+    await tester.tap(find.text('Sync and backups'));
+    await tester.pumpAndSettle();
     expect(find.text('Cloud sync'), findsOneWidget);
     expect(find.text('On'), findsOneWidget);
     await tester.tap(find.text('Cloud sync'));

@@ -496,7 +496,7 @@ struct TrackMenuSheet: View {
                               row.action()
                               dismiss()
                           }) {
-                if context.kind == .nowPlaying { keepScreenOnRow }
+                if context.kind == .nowPlaying { nowPlayingPlayerSection }
             }
             .task(id: track.track.id) { await loadLink() }
             .task(id: track.track.id) { await resolveFromSpotify() }
@@ -513,13 +513,19 @@ struct TrackMenuSheet: View {
         .sensoryFeedback(.selection, trigger: tapped)
     }
 
+    private var singRowVisible: Bool {
+        context.kind == .nowPlaying && model.sing.supportsSing(model.player.currentTrack)
+    }
+
     /// The content's height from the layout's own numbers (padding 24 + 16,
     /// header 56 + 4, groups 12 apart, the top row 76, rows 56 two apart,
-    /// Keep screen on 56), so the sheet presents at its final detent.
+    /// player toggles 56 each), so the sheet presents at its final detent.
     private var estimatedHeight: CGFloat {
         var h: CGFloat = 24 + headerHeight + 4 + 12 + TrackMenuBody<EmptyView>.quickHeight
         for rows in groups { h += 12 + CGFloat(rows.count) * 56 + CGFloat(max(rows.count - 1, 0)) * 2 }
-        if context.kind == .nowPlaying { h += 12 + 56 }
+        if context.kind == .nowPlaying {
+            h += 12 + (singRowVisible ? (56 * 2 + 2) : 56)
+        }
         return h + 16
     }
 
@@ -532,17 +538,48 @@ struct TrackMenuSheet: View {
         return max(56, text)
     }
 
-    /// Now Playing's player section: Keep screen on (the whole row toggles).
-    private var keepScreenOnRow: some View {
-        TrackMenuToggleRow(label: String(localized: "Keep screen on"), icon: "light_mode", scheme: app,
-                           isOn: Binding(get: { keepScreenOn }, set: { on in
-                               keepScreenOn = on
-                               UIApplication.shared.isIdleTimerDisabled = KeepScreenOnObserver.shouldDisableIdleTimer(
-                                   keepScreenOn: on, npExpanded: model.npExpanded,
-                                   isPad: model.isPad, npPanel: model.npPanel, isPlaying: model.player.isPlaying)
-                               if on { NotificationCenter.default.post(name: NowPlayingGlow.roomLift, object: nil) }
-                               tapped += 1
-                           }))
+    /// Now Playing's player section: Sing (when supported, above) + Keep screen on.
+    @ViewBuilder
+    private var nowPlayingPlayerSection: some View {
+        let count = singRowVisible ? 2 : 1
+        VStack(spacing: 2) {
+            if singRowVisible {
+                TrackMenuToggleRow(
+                    label: String(localized: "Sing"),
+                    icon: "mic",
+                    scheme: app,
+                    index: 0,
+                    count: count,
+                    isOn: Binding(
+                        get: { model.sing.isEnabled },
+                        set: { on in
+                            tapped += 1
+                            if on {
+                                model.sing.enter(track: model.player.currentTrack, openLyrics: true)
+                                dismiss()
+                            } else {
+                                model.sing.exit()
+                            }
+                        }
+                    )
+                )
+            }
+            TrackMenuToggleRow(
+                label: String(localized: "Keep screen on"),
+                icon: "light_mode",
+                scheme: app,
+                index: singRowVisible ? 1 : 0,
+                count: count,
+                isOn: Binding(get: { keepScreenOn }, set: { on in
+                    keepScreenOn = on
+                    UIApplication.shared.isIdleTimerDisabled = KeepScreenOnObserver.shouldDisableIdleTimer(
+                        keepScreenOn: on, npExpanded: model.npExpanded,
+                        isPad: model.isPad, npPanel: model.npPanel, isPlaying: model.player.isPlaying)
+                    if on { NotificationCenter.default.post(name: NowPlayingGlow.roomLift, object: nil) }
+                    tapped += 1
+                })
+            )
+        }
     }
 
     /// ButtonGroupDefaults.connected*ButtonShapes: ends full outside, 8 inside
@@ -767,11 +804,13 @@ struct TrackMenuBody<Player: View>: View {
     static func rowFill(_ scheme: CoverScheme, dark: Bool) -> Color { SheetSurface.rowFill(scheme, dark: dark) }
 }
 
-/// A switch row of the song sheet (Android TrackMenuToggleRow): Now Playing's Keep screen on.
+/// A switch row of the song sheet (Android TrackMenuToggleRow): Now Playing's Sing + Keep screen on.
 struct TrackMenuToggleRow: View {
     var label: String
     var icon: String
     var scheme: CoverScheme
+    var index: Int = 0
+    var count: Int = 1
     @Binding var isOn: Bool
     @Environment(\.colorScheme) private var colorScheme
 
@@ -787,7 +826,7 @@ struct TrackMenuToggleRow: View {
         }
         .padding(.horizontal, 20)
         .frame(minHeight: 56)
-        .background(TrackMenuBody<EmptyView>.rowFill(scheme, dark: colorScheme == .dark), in: TrackMenuSheet.segment(0, 1))
+        .background(TrackMenuBody<EmptyView>.rowFill(scheme, dark: colorScheme == .dark), in: TrackMenuSheet.segment(index, count))
     }
 }
 

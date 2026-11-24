@@ -193,7 +193,7 @@ void main() {
         200,
         scrollable: find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first,
       );
-      expect(find.text('Song names'), findsOneWidget);
+      expect(find.text('Song and artist names'), findsOneWidget);
       await tester.ensureVisible(find.text('From a specific region'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('From a specific region'), warnIfMissed: true);
