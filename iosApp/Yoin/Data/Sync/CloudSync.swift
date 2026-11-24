@@ -93,6 +93,8 @@ final class CloudSync {
             MainActor.assumeIsolated { self?.take(state) }
         }
         NotesStore.onLocalChange = { CloudSync.shared.localChanged() }
+        // The scrapbook's album notes (Android album_note): a sticky written, edited, deleted or put back.
+        AlbumNotesStore.onLocalChange = { CloudSync.shared.localChanged() }
         LocalRatings.onLocalChange = { CloudSync.shared.localChanged() }
         // Gemini's About / Ask answers are synced too (Android observes song_about_entries); sync's own
         // writes don't call this, so applying never re-triggers a capture.
