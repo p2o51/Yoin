@@ -1,12 +1,8 @@
-package com.gpo.yoin.ui.notes.editor
-
-import com.gpo.yoin.shared.notes.InlineRange
-import com.gpo.yoin.shared.notes.NoteBlock
-import com.gpo.yoin.shared.notes.NoteMarkup
-import com.gpo.yoin.shared.notes.NoteMention
+package com.gpo.yoin.shared.notes
 
 /*
- * The note editor's text rules (notes revamp phase B), pure so they're unit-tested on their own. The editor
+ * The note editor's text rules (notes revamp phase B), pure so they're unit-tested on their own and shared by
+ * Android's editor (ui/notes/editor/) and iOS's (through [YoinNoteEditor]). Offsets are UTF-16 code units. The editor
  * edits the stored text itself (light Markdown, mentions as `[@Title](yoin:…)` links); the field shows it
  * through [NoteEditorDisplay] (a mention reads as one "@Title" chip, list and to-do markers as glyphs) and
  * every edit passes [NoteEditorText.reconcile], which keeps a mention whole and runs the live shortcuts.
