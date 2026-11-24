@@ -1385,17 +1385,17 @@ private fun AlbumHeroDetails(
         // Total track count + runtime, then when it was last played — left-aligned
         // with the flowing titles. Tapping the time opens the scrapbook page.
         if (content.songs.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // On one baseline (not centred): the count line and "今天 14:05" are separate texts whose fonts
+            // put their baselines at different heights in their boxes.
+            Row(modifier = Modifier.fillMaxWidth()) {
                 AlbumTrackCountLabel(
                     count = content.trackTotal,
                     totalDurationSeconds = content.totalDuration,
+                    modifier = Modifier.alignByBaseline(),
                 )
                 content.lastPlayedAt?.let { at ->
                     Spacer(modifier = Modifier.width(12.dp))
-                    AlbumHeroLastPlay(epochMillis = at, interactive = interactive)
+                    AlbumHeroLastPlay(epochMillis = at, interactive = interactive, modifier = Modifier.alignByBaseline())
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
