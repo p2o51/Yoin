@@ -6113,7 +6113,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories 标题"
+            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories\u00a0标\u2060题"
           }
         }
       }

@@ -42,7 +42,7 @@ class SettingsStrings {
   String get aiTitle => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title
   String get aiTitlePage => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title_page
   String get aiSummaryEmpty =>
-      _zh ? '歌曲信息、问 Gemini、歌词翻译与 Memories 标题' : 'Song info, Ask Gemini, translation and Memory titles'; // settings_gemini_summary_empty
+      _zh ? '歌曲信息、问 Gemini、歌词翻译与 Memories\u00A0标\u2060题' : 'Song info, Ask Gemini, translation and Memory titles'; // settings_gemini_summary_empty
   String get aiAnswerLanguage => _zh ? '回答语言' : 'Answer language'; // ai_answer_language
   String get aiTiersLabel => _zh ? '档位' : 'Tier'; // ai_tiers_label
   String get aiKeyLabel => _zh ? 'API 密钥' : 'API key'; // ai_key_label

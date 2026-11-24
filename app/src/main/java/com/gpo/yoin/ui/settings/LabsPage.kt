@@ -33,9 +33,15 @@ import com.gpo.yoin.ui.home.titleRes
 /*
  * Settings › Features and appearance › AI features › Experimental features (v4: merged single group at the
  * bottom of AI features; LabsPageContent stays addressable for standalone deep links and the Tips demo).
- * Gemini Nano's state on this phone, with a download button when it can be fetched, Gemini Nano diagnostics,
+ * Gemini Nano's state on this device, with a download button when it can be fetched, Gemini Nano diagnostics,
  * and each beta feature's switch in one segmented group.
  */
+internal fun filterUnavailableReason(reason: String?, showRawDiagnostic: Boolean): String? =
+    reason?.takeIf { showRawDiagnostic && it != "FeatureStatus.UNAVAILABLE" }
+
+private fun visibleUnavailableReason(reason: String?): String? =
+    filterUnavailableReason(reason, BuildConfig.DEBUG || BuildConfig.NANO_TEST)
+
 @Composable
 internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -50,7 +56,7 @@ internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
     ExperimentalFeaturesGroup(
         state = LabsState(
             nano = if (downloading) NanoStatus.DOWNLOADING else status,
-            reason = reason.takeIf { BuildConfig.DEBUG || BuildConfig.NANO_TEST },
+            reason = visibleUnavailableReason(reason),
             lyricsOn = optedIn,
             greetingsOn = greetingsOn,
             aboutFollowUpsOn = aboutFollowUpsOn,
@@ -81,9 +87,9 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     LabsPageBody(
         state = LabsState(
             nano = if (downloading) NanoStatus.DOWNLOADING else status,
-            // AICore's raw words only in debug and the Nano test copy (owner 2026-11-10): on the Play build most
-            // phones have no AICore at all, and "NullPointerException" under "not supported" reads as a crash.
-            reason = reason.takeIf { BuildConfig.DEBUG || BuildConfig.NANO_TEST },
+            // AICore's unexpected exception words only in debug and the Nano test copy (owner 2026-11-10);
+            // plain FeatureStatus.UNAVAILABLE on unsupported devices is already said by labs_nano_unsupported.
+            reason = visibleUnavailableReason(reason),
             lyricsOn = optedIn,
             greetingsOn = greetingsOn,
             aboutFollowUpsOn = aboutFollowUpsOn,

@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -352,20 +353,41 @@ internal fun AccountMark(
 private val AvatarBadgeMinSize = 18.dp
 
 /**
- * Service kind, host, or configurable scope under an account's name. When two
- * groups are present (host + scope hint on a narrow card), the leading host
- * yields with an ellipsis first so the scope hint stays visible on one line.
+ * Service kind, host, or configurable scope under an account's name. On narrow
+ * cards ([stackedTwoPlain] = true), host + scope hint stack on two lines so
+ * neither collapses to an ellipsis in English; on wide rows they share one
+ * line with the host yielding first.
  */
 @Composable
 internal fun ServiceLine(
     groups: List<MetaGroup>,
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
+    stackedTwoPlain: Boolean = false,
 ) {
     if (groups.size == 2 && groups[0] is MetaGroup.Plain && groups[1] is MetaGroup.Plain) {
         val lead = groups[0] as MetaGroup.Plain
         val tail = groups[1] as MetaGroup.Plain
         val ink = if (color != Color.Unspecified) color else androidx.compose.material3.LocalContentColor.current
+        if (stackedTwoPlain) {
+            Column(modifier = modifier) {
+                Text(
+                    text = lead.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (lead.muted) ink.copy(alpha = ink.alpha * 0.72f) else ink,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = tail.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (tail.muted) ink.copy(alpha = ink.alpha * 0.75f) else ink,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            return
+        }
         Row(
             modifier = modifier,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

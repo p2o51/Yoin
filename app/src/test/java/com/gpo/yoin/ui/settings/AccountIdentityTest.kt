@@ -122,6 +122,13 @@ class AccountIdentityTest {
     }
 
     @Test
+    fun should_hidePlainFeatureStatusUnavailable_when_filteringLabsReason() {
+        assertNull(filterUnavailableReason("FeatureStatus.UNAVAILABLE", showRawDiagnostic = true))
+        assertNull(filterUnavailableReason("AICore crash", showRawDiagnostic = false))
+        assertEquals("AICore crash", filterUnavailableReason("AICore crash", showRawDiagnostic = true))
+    }
+
+    @Test
     fun should_giveEachServiceItsOwnHue_when_mapped() {
         val hues = ProviderKind.entries.map { it.serviceIdentity.hue }
         assertEquals(hues.size, hues.toSet().size)

@@ -197,9 +197,11 @@ String monogramOf(String title, [String? serviceName]) {
   return (host: where, scope: hint);
 }
 
-/// Host (optional) + configurable scope hint on a narrow account card (v4):
-/// [host] yields with an ellipsis first so [scope] stays visible on one line,
-/// separated by whitespace only (never `·`).
+/// Host (optional) + configurable scope hint under an account's name (v4):
+/// on narrow cards ([stacked] = true), [host] and [scope] stack on two lines so
+/// neither collapses to an ellipsis in English; on wide rows [host] yields with
+/// an ellipsis first so [scope] stays visible on one line, separated by
+/// whitespace only (never `·`).
 class AccountCardScopeLine extends StatelessWidget {
   const AccountCardScopeLine({
     super.key,
@@ -207,12 +209,14 @@ class AccountCardScopeLine extends StatelessWidget {
     required this.scope,
     required this.color,
     this.style,
+    this.stacked = false,
   });
 
   final String? host;
   final String? scope;
   final Color color;
   final TextStyle? style;
+  final bool stacked;
 
   static const double _gap = 10;
 
@@ -221,6 +225,16 @@ class AccountCardScopeLine extends StatelessWidget {
     final base = (style ?? Theme.of(context).textTheme.bodyMedium!).copyWith(color: color);
     if (host != null && scope != null) {
       final scopeStyle = base.copyWith(color: color.withValues(alpha: color.a * 0.75));
+      if (stacked) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(host!, style: base, maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(scope!, style: scopeStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+        );
+      }
       return LayoutBuilder(
         builder: (context, constraints) {
           final scopePainter = TextPainter(

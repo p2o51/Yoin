@@ -1008,12 +1008,12 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
                           ],
                         ),
                         const Spacer(),
-                        // Name and service read as one cluster.
+                        // Name and service read as one cluster; Subsonic cards stack host + scope under a 1-line name.
                         Padding(
                           padding: const EdgeInsetsDirectional.only(end: SettingsMetrics.cardTextEnd),
                           child: Text(
                             card.title,
-                            maxLines: 2,
+                            maxLines: line != null && line.host != null && line.scope != null ? 1 : 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleMedium!.copyWith(color: ink),
                           ),
@@ -1021,7 +1021,12 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
                         if (line != null)
                           Padding(
                             padding: const EdgeInsetsDirectional.only(end: SettingsMetrics.cardTextEnd),
-                            child: AccountCardScopeLine(host: line.host, scope: line.scope, color: secondary),
+                            child: AccountCardScopeLine(
+                              host: line.host,
+                              scope: line.scope,
+                              color: secondary,
+                              stacked: true,
+                            ),
                           ),
                         Padding(
                           padding: const EdgeInsets.only(top: SettingsMetrics.pillTop),

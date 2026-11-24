@@ -77,7 +77,7 @@
 
     <string name="settings_gemini_title">AI 功能</string>
     <string name="settings_gemini_title_page">AI 功能</string>
-    <string name="settings_gemini_summary_empty">歌曲信息、问 Gemini、歌词翻译与 Memories 标题</string>
+    <string name="settings_gemini_summary_empty">歌曲信息、问 Gemini、歌词翻译与 Memories&#160;标&#8288;题</string>
 
     <string name="settings_neodb_summary_on">专辑评分与评论已开启同步</string>
     <string name="settings_neodb_summary_off">同步专辑评分与评论</string>
@@ -391,7 +391,7 @@
     <string name="labs_nano_ready">本机已就绪</string>
     <string name="labs_nano_downloadable">此设备支持，尚未下载模型</string>
     <string name="labs_nano_downloading">正在下载模型…</string>
-    <string name="labs_nano_unsupported">这台手机不支持 Gemini Nano</string>
+    <string name="labs_nano_unsupported">此设备不支持 Gemini Nano</string>
     <string name="labs_nano_checking">正在检查…</string>
     <string name="labs_nano_download">下载模型</string>
     <string name="labs_nano_check_again">重新检查</string>
@@ -419,7 +419,7 @@
     <string name="nano_diag_copy">复制诊断信息</string>
     <string name="nano_diag_copy_detail">用于反馈或发到 Discord</string>
     <string name="nano_diag_copied">已复制</string>
-    <string name="nano_diag_device_section">这台手机</string>
+    <string name="nano_diag_device_section">此设备</string>
     <string name="nano_diag_android">Android %1$s</string>
     <string name="nano_diag_app">Yoin %1$s</string>
     <string name="nano_diag_not_installed">未安装</string>

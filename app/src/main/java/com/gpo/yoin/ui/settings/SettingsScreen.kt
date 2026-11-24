@@ -782,7 +782,7 @@ private fun ProfileAccountRow(
                     )?.let { groups ->
                         ServiceLine(groups = groups, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    AccountStatusPill(card = card, modifier = Modifier.padding(top = 6.dp))
+                    AccountStatusPill(card = card, showInUse = true, modifier = Modifier.padding(top = 6.dp))
                 }
                 Box {
                     IconButton(
@@ -974,23 +974,26 @@ private fun ProfileCardTile(
                 }
             }
             Spacer(Modifier.weight(1f))
-            // Name and service read as one cluster; the status pill is its own.
-            Text(
-                text = card.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 12.dp).seamFade(),
-            )
-            accountCardLineGroups(
+            val lineGroups = accountCardLineGroups(
                 stringResource(identity.nameRes),
                 card.title,
                 card.subtitle,
                 identity.scopeRes?.let { stringResource(it) },
-            )?.let { groups ->
+            )
+            val stackedSublines = lineGroups != null && lineGroups.size >= 2
+            // Name and service read as one cluster; the status pill is its own.
+            Text(
+                text = card.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = if (stackedSublines) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 12.dp).seamFade(),
+            )
+            lineGroups?.let { groups ->
                 ServiceLine(
                     groups = groups,
                     color = secondaryColor,
+                    stackedTwoPlain = true,
                     modifier = Modifier.padding(end = 12.dp).seamFade(),
                 )
             }
@@ -1055,16 +1058,27 @@ private fun AccountCardPill(
 
 /**
  * The one status an account can need to say: a problem (error pill) beats
- * "In use" (a pill in the service's own accent) — and when the account in
- * use has a problem the pill says both, so "in use" never rests on colour
- * alone. Otherwise nothing. Grows in and out on the spatial spring.
+ * "In use" (a pill in the service's own accent on list rows, where the row
+ * surface does not tint by active service). Otherwise nothing. Grows in and out
+ * on the spatial spring.
  */
 @Composable
-private fun AccountStatusPill(card: ProfileCard, modifier: Modifier = Modifier) {
+private fun AccountStatusPill(
+    card: ProfileCard,
+    modifier: Modifier = Modifier,
+    showInUse: Boolean = false,
+) {
     val scheme = MaterialTheme.colorScheme
+    val tone = card.provider.serviceIdentity.hue.tone()
     val issue = card.unavailableReason?.let { accountIssueLabel(it) }
-    val status: Triple<String, Color, Color>? = issue?.let {
-        Triple(it, scheme.errorContainer, scheme.onErrorContainer)
+    val status: Triple<String, Color, Color>? = when {
+        issue != null -> Triple(issue, scheme.errorContainer, scheme.onErrorContainer)
+        showInUse && card.isActive -> Triple(
+            stringResource(R.string.landing_ready_in_use),
+            tone.accent,
+            tone.onAccent,
+        )
+        else -> null
     }
     // Keep the last label on screen while the pill shrinks away.
     var shown by remember { mutableStateOf(status) }
