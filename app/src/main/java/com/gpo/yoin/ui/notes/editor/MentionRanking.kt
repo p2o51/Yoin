@@ -35,6 +35,7 @@ object IcuMentionRomanizer : MentionRomanizer {
     private val cache = LruCache<String, String>(CacheSize)
 
     override fun romanize(text: String): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         if (text.none(::isHan)) return null
         cache.get(text)?.let { return it }
         val latin = transliterator ?: return null
