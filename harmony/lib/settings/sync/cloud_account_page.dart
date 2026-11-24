@@ -2,12 +2,12 @@
 /// CloudDataScreens.kt CloudAccountPage): who it is, what the cloud holds for
 /// it (notes, album ratings and reviews, song ratings, Memories titles; read
 /// from this device's replica, read-only), and "Remove from cloud" with
-/// Android's confirmation (CloudSyncOnContent.kt RemoveFromCloudDialog).
+/// Android's confirmation (CloudSyncOnContent.kt RemoveFromCloudDialog), and
+/// "Transfer Memories" with this account as the source.
 ///
 /// Back surface: PushPage ([SettingsSubPage]'s back button and system back
 /// pop it). A removal that went through closes it, as Android's activity
-/// finishes. Android's "Transfer Memories" button is left out: HarmonyOS has
-/// no Memories transfer yet.
+/// finishes.
 library;
 
 import 'package:flutter/material.dart';
@@ -31,6 +31,9 @@ import 'cloud_sync_screen.dart' show SyncClock, WhileCloudSync;
 import 'cloud_sync_strings.dart';
 import 'cloud_sync_texts.dart';
 import 'cloud_sync_view_model.dart';
+import 'portability_strings.dart';
+import 'transfer_screens.dart' show openTransfer;
+import 'transfer_view_model.dart' show TransferArgs;
 
 /// One account in the cloud as the page and its dialog pass it around
 /// (Android CloudAccountRef): a profile here that syncs (or is paused), or an
@@ -119,6 +122,11 @@ List<MetaGroup> accountLineGroups(CloudSyncStrings s, CloudAccountRef account) {
       MetaMuted(s.fromDevice(account.fromDevice!)),
   ];
 }
+
+/// Transfer Memories from [account] (Android transferArgsFor): the profile here, or the account in the cloud.
+TransferArgs transferArgsFor(CloudAccountRef account) => account.localProfileId != null
+    ? TransferArgs(sourceProfileId: account.localProfileId)
+    : TransferArgs(sourceCloudScope: account.syncProfileId, sourceProvider: account.provider);
 
 /// Opens [account]'s cloud data page.
 Future<void> openCloudAccountPage(BuildContext context, CloudAccountRef account) =>
@@ -258,19 +266,40 @@ class _CloudAccountPageState extends ConsumerState<CloudAccountPage> {
                 SyncPill(text: s.cloudOnly),
               ],
               const SizedBox(height: SettingsMetrics.syncAccountHeaderGap * 2),
-              OutlinedButton(
-                key: const ValueKey('cloud_account_remove'),
-                onPressed: removing ? null : _remove,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (removing) ...[
-                      const YoinLoadingIndicator(size: SettingsMetrics.syncNoteIcon, contained: false),
-                      const SizedBox(width: SettingsMetrics.syncNoteGap),
-                    ],
-                    Text(s.removeAction),
-                  ],
-                ),
+              Wrap(
+                spacing: SettingsMetrics.syncButtonGap,
+                runSpacing: SettingsMetrics.syncButtonGap,
+                children: [
+                  FilledButton.tonal(
+                    key: const ValueKey('cloud_account_transfer'),
+                    onPressed: () {
+                      YoinHaptics.click();
+                      openTransfer(context, transferArgsFor(account));
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(YoinSymbols.forward, size: SettingsMetrics.syncNoteIcon),
+                        const SizedBox(width: SettingsMetrics.syncNoteGap),
+                        Text(PortabilityStrings.of(context).transferTitle),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton(
+                    key: const ValueKey('cloud_account_remove'),
+                    onPressed: removing ? null : _remove,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (removing) ...[
+                          const YoinLoadingIndicator(size: SettingsMetrics.syncNoteIcon, contained: false),
+                          const SizedBox(width: SettingsMetrics.syncNoteGap),
+                        ],
+                        Text(s.removeAction),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: SettingsMetrics.syncAccountHeaderGap),
               SyncNote(icon: YoinSymbols.visibility, text: s.browserReadonly(s.googleDrive)),
