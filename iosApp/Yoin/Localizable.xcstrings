@@ -11847,6 +11847,122 @@
           }
         }
       }
+    },
+    "Mention": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提及"
+          }
+        }
+      }
+    },
+    "Searching…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索中…"
+          }
+        }
+      }
+    },
+    "Song: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲：%@"
+          }
+        }
+      }
+    },
+    "Album: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑：%@"
+          }
+        }
+      }
+    },
+    "Artist: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "艺术家：%@"
+          }
+        }
+      }
+    },
+    "Bold": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗体"
+          }
+        }
+      }
+    },
+    "Italic": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "斜体"
+          }
+        }
+      }
+    },
+    "Heading": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题"
+          }
+        }
+      }
+    },
+    "To-do": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待办"
+          }
+        }
+      }
+    },
+    "Mention a song, album, or artist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提及歌曲、专辑或艺术家"
+          }
+        }
+      }
+    },
+    "notes.mention.empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No results"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配结果"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
