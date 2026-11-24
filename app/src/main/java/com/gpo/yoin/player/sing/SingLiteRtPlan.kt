@@ -7,8 +7,8 @@ import kotlinx.serialization.json.Json
 enum class SingAccelerator { NPU, GPU, CPU }
 
 /**
- * One LiteRT build of Lyra-Sing-Lite as the model meta lists it (assets/sing/litert/models.json for the
- * sideloaded test build; Play AI Packs later). Every build has the ONNX model's contract: signature
+ * One LiteRT build of Lyra-Sing-Lite as the model meta lists it (assets/sing/litert/models.json, bundled in
+ * the APK; a per-SoC Play AI Pack is the planned delivery). Every build has the exported model's contract: signature
  * `serving_default`, `args_0` [1, 4, 512, 256] float32 in, `output_0` [1, 4, 512, 256] float32 out.
  */
 @Serializable

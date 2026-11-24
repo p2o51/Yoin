@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "TEST ONLY (sideloaded Yoin Nano): LiteRT builds bundled in the APK. Play gets them from AI Packs. Each sha256 must also be in SingLiteRtPlan.TRUSTED_SHA256.",
+  "note": "LiteRT builds of Lyra-Sing-Lite bundled in the APK: fp16 (GPU, CPU) and the Tensor G5 / G6 AOT builds (NPU). Planned: deliver them per SoC through a Play AI Pack instead. Each sha256 must also be in SingLiteRtPlan.TRUSTED_SHA256.",
   "models": [
     {"file": "lyra_sing_lite_tensor_g6.tflite", "sha256": "0534f3d74f7f0d5e5f32131d70ff25550399becaf3b45098f81b769119c2b355", "bytes": 8287936,
      "precision": "bf16-aot", "socManufacturer": "Google", "socModel": "Tensor G6", "accelerators": ["NPU"]},
