@@ -16,6 +16,7 @@ restore bring back the user's data instead of an empty Yoin.
 | Song ratings | `local_ratings.<account>` | `local_ratings` |
 | Album scores and reviews (with their NeoDB flags, cleared on arrival) | `album_ratings.v1.<account>` | `album_ratings` |
 | Notes | `song_notes.v1.<account>` | `song_notes` |
+| Album notes (the Scrapbook's stickies) | `album_notes.v1.<account>` | `album_notes` |
 | Plays: Memories' candidates, Most Played | `album_plays.v1.<account>`, `track_plays.v1.<account>` | `play_history` |
 | Activity (Home's Jump Back In, recents) | `activity.v1.<account>` | `activity_events` |
 | Memory titles, Yoin's AI copy | `memory_titles.v1.<account>`, `memory_copy_cache.v1.<account>` | `album_memory_title`, `memory_copy_cache` |

@@ -1,6 +1,7 @@
 /// What a Memory is made of, per account (Android data/local AlbumRating,
-/// SongNote, PlayHistory): the album score and review, the notes pinned to a
-/// moment of a song, and the plays heard in Yoin. Track ratings live in
+/// SongNote, AlbumNote, PlayHistory): the album score and review, the notes
+/// pinned to a moment of a song, the album's own notes (its stickies), and
+/// the plays heard in Yoin. Track ratings live in
 /// `lib/playback/local_ratings.dart`.
 ///
 /// Android keeps Room tables keyed by (profileId, id, provider); here each
@@ -206,6 +207,76 @@ final class SongNote {
   int get hashCode => Object.hash(id, trackId, albumId, content, createdAt, updatedAt, title, artist, positionMs);
 }
 
+/// A note on a whole album (Android `album_notes`, notes revamp 2026-11-22):
+/// an album holds any number, each a sticky on its Scrapbook, oldest first.
+/// [content] is the stored note markup. [albumName] / [artist] keep the
+/// album's name for the places that show the note without the album.
+@immutable
+final class AlbumNote {
+  const AlbumNote({
+    required this.id,
+    required this.albumId,
+    required this.content,
+    required this.createdAt,
+    required this.updatedAt,
+    this.albumName = '',
+    this.artist = '',
+  });
+
+  final String id;
+  final MediaId albumId;
+  final String content;
+  final int createdAt;
+  final int updatedAt;
+  final String albumName;
+  final String artist;
+
+  bool get isBlank => content.trim().isEmpty;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'al': albumId.toString(),
+    'c': content,
+    'ca': createdAt,
+    'u': updatedAt,
+    'n': albumName,
+    'ar': artist,
+  };
+
+  static AlbumNote? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final id = json['id'];
+    final album = MediaId.tryParse(json['al'] as String?);
+    final content = json['c'];
+    if (id is! String || album == null || content is! String) return null;
+    final ca = json['ca'];
+    final u = json['u'];
+    return AlbumNote(
+      id: id,
+      albumId: album,
+      content: content,
+      createdAt: ca is num ? ca.toInt() : 0,
+      updatedAt: u is num ? u.toInt() : 0,
+      albumName: (json['n'] as String?) ?? '',
+      artist: (json['ar'] as String?) ?? '',
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AlbumNote &&
+      other.id == id &&
+      other.albumId == albumId &&
+      other.content == content &&
+      other.createdAt == createdAt &&
+      other.updatedAt == updatedAt &&
+      other.albumName == albumName &&
+      other.artist == artist;
+
+  @override
+  int get hashCode => Object.hash(id, albumId, content, createdAt, updatedAt, albumName, artist);
+}
+
 /// One album's plays in Yoin (Android `play_history` grouped by album:
 /// PlayHistoryDao.getAlbumAggregates). Every started song of the album adds
 /// one play, as every started song adds one history row on Android. Visits
@@ -405,18 +476,19 @@ final class MemoryTitleRow {
 }
 
 /// Which of an account's Memory rows changed.
-enum MemoryStoreChange { albumRatings, songNotes, plays, titles }
+enum MemoryStoreChange { albumRatings, songNotes, plays, titles, albumNotes }
 
 /// The rows cloud sync reads and edits in one step ([MemoryStore.syncEdit]):
 /// album rows including empty ones (a cleared score with no review is still a
-/// row, as on Android), every note and every user title. Edits happen in
-/// place on these collections.
+/// row, as on Android), every note, every album note and every user title.
+/// Edits happen in place on these collections.
 final class MemorySyncRows {
-  MemorySyncRows._(this.albumRatings, this.songNotes, this.titles);
+  MemorySyncRows._(this.albumRatings, this.songNotes, this.titles, this.albumNotes);
 
   final Map<MediaId, AlbumRatingRow> albumRatings;
   final List<SongNote> songNotes;
   final Map<MediaId, MemoryTitleRow> titles;
+  final List<AlbumNote> albumNotes;
 }
 
 /// One account's Memory rows on a [KeyValueStore]. Writes are serialised in
@@ -443,12 +515,14 @@ final class MemoryStore {
   static String albumPlaysKey(String profileId) => 'album_plays.v1.$profileId';
   static String titlesKey(String profileId) => 'memory_titles.v1.$profileId';
   static String trackPlaysKey(String profileId) => 'track_plays.v1.$profileId';
+  static String albumNotesKey(String profileId) => 'album_notes.v1.$profileId';
 
   Map<MediaId, AlbumRatingRow>? _ratings;
   List<SongNote>? _notes;
   Map<MediaId, AlbumPlays>? _plays;
   Map<MediaId, MemoryTitleRow>? _titles;
   Map<MediaId, TrackPlays>? _trackPlays;
+  List<AlbumNote>? _albumNotes;
   Future<void> _tail = Future.value();
   final _changes = StreamController<MemoryStoreChange>.broadcast();
 
@@ -488,6 +562,16 @@ final class MemoryStore {
       for (final n in await songNotes())
         if (ids.contains(n.trackId)) n,
     ];
+  }
+
+  /// [albumId]'s notes, oldest first (Android AlbumNoteDao.observeForAlbum).
+  Future<List<AlbumNote>> albumNotes(MediaId albumId) async {
+    await _tail;
+    final notes = [
+      for (final n in await _loadAlbumNotes())
+        if (n.albumId == albumId) n,
+    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return List.unmodifiable(notes);
   }
 
   /// The account's plays by album, most recently played first.
@@ -678,6 +762,20 @@ final class MemoryStore {
     await _saveNotes(notes);
   });
 
+  /// Adds [note], or replaces the album note with its id. A blank note is deleted.
+  Future<void> putAlbumNote(AlbumNote note) => _write(MemoryStoreChange.albumNotes, () async {
+    final notes = await _loadAlbumNotes();
+    notes.removeWhere((n) => n.id == note.id);
+    if (!note.isBlank) notes.add(note);
+    await _store.write(albumNotesKey(profileId), _albumNotesJson(notes));
+  });
+
+  Future<void> deleteAlbumNote(String id) => _write(MemoryStoreChange.albumNotes, () async {
+    final notes = await _loadAlbumNotes();
+    notes.removeWhere((n) => n.id == id);
+    await _store.write(albumNotesKey(profileId), _albumNotesJson(notes));
+  });
+
   /// One started song of [albumId] at [atMs].
   Future<void> recordAlbumPlay(
     MediaId albumId, {
@@ -720,7 +818,12 @@ final class MemoryStore {
   /// Cloud sync's view of the rows, copied (nothing here is edited).
   Future<MemorySyncRows> syncRead() async {
     await _tail;
-    return MemorySyncRows._(Map.of(await _loadRatings()), List.of(await _loadNotes()), Map.of(await _loadTitles()));
+    return MemorySyncRows._(
+      Map.of(await _loadRatings()),
+      List.of(await _loadNotes()),
+      Map.of(await _loadTitles()),
+      List.of(await _loadAlbumNotes()),
+    );
   }
 
   /// Runs [edit] on the rows in the write queue (no other write in between),
@@ -733,9 +836,10 @@ final class MemoryStore {
         final ratings = await _loadRatings();
         final notes = await _loadNotes();
         final titles = await _loadTitles();
-        final before = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles));
-        final result = edit(MemorySyncRows._(ratings, notes, titles));
-        final after = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles));
+        final albumNotes = await _loadAlbumNotes();
+        final before = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles), _albumNotesJson(albumNotes));
+        final result = edit(MemorySyncRows._(ratings, notes, titles, albumNotes));
+        final after = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles), _albumNotesJson(albumNotes));
         if (after.$1 != before.$1) {
           await _store.write(albumRatingsKey(profileId), after.$1);
           _emit(MemoryStoreChange.albumRatings);
@@ -748,12 +852,17 @@ final class MemoryStore {
           await _store.write(titlesKey(profileId), after.$3);
           _emit(MemoryStoreChange.titles);
         }
+        if (after.$4 != before.$4) {
+          await _store.write(albumNotesKey(profileId), after.$4);
+          _emit(MemoryStoreChange.albumNotes);
+        }
         done.complete(result);
       } catch (e, st) {
         // A failed edit leaves the rows as they are stored: drop the cache.
         _ratings = null;
         _notes = null;
         _titles = null;
+        _albumNotes = null;
         done.completeError(e, st);
       }
     });
@@ -768,6 +877,8 @@ final class MemoryStore {
       jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
 
   static String _notesJson(List<SongNote> notes) => jsonEncode([for (final n in notes) n.toJson()]);
+
+  static String _albumNotesJson(List<AlbumNote> notes) => jsonEncode([for (final n in notes) n.toJson()]);
 
   static String _titlesJson(Map<MediaId, MemoryTitleRow> rows) =>
       jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
@@ -838,6 +949,19 @@ final class MemoryStore {
 
   Future<void> _saveNotes(List<SongNote> notes) =>
       _store.write(songNotesKey(profileId), jsonEncode([for (final n in notes) n.toJson()]));
+
+  Future<List<AlbumNote>> _loadAlbumNotes() async {
+    if (_albumNotes != null) return _albumNotes!;
+    final decoded = await _decode(albumNotesKey(profileId));
+    final out = <AlbumNote>[];
+    if (decoded is List) {
+      for (final e in decoded) {
+        final note = AlbumNote.fromJson(e);
+        if (note != null) out.add(note);
+      }
+    }
+    return _albumNotes = out;
+  }
 
   Future<Map<MediaId, MemoryTitleRow>> _loadTitles() async {
     if (_titles != null) return _titles!;

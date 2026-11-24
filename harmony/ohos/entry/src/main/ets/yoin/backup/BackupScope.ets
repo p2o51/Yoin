@@ -35,6 +35,7 @@ export const CARRIED_PREF_PREFIXES: string[] = [
   'local_ratings.',
   'album_ratings.v1.',
   'song_notes.v1.',
+  'album_notes.v1.',
   'album_plays.v1.',
   'track_plays.v1.',
   'memory_titles.v1.',

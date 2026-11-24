@@ -11,6 +11,12 @@ ported to the Flutter app.
   only). Up to 360 characters the text is the Mark's short comment and the
   remote Review is deleted; longer, it is the Review and the short comment is
   cleared. The Mark is read first and its tags / visibility / shelf kept.
+  What goes is the NoteMarkup projection, as on Android: the Review body keeps
+  the light Markdown with every `[@name](yoin:…)` mention flattened to its name
+  (`NoteMarkup.toNeoDb`), the short comment is the plain words
+  (`NoteMarkup.plainText`); the length is counted on the plain words. A pull
+  that finds exactly that projection on NeoDB keeps the local text (mentions
+  and formatting) instead of overwriting it.
 - **Dirty flags**: `AlbumRatingRow.ratingNeedsSync` / `reviewNeedsSync` /
   `neoDbReviewUuid` (Android `album_ratings`). A local write sets them; a push
   clears only what is still what it sent. Cloud sync carries them untouched.

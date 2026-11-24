@@ -19,8 +19,8 @@ import kotlinx.serialization.json.JsonObject
  * and propagate as tombstones, last writer wins with a live edit beating a concurrent delete. `updatedAt` is a
  * synced field (YoinRepository.updateAlbumNote sets it), so apply writes the payload's value.
  *
- * Engines without this adapter (iOS, HarmonyOS, older Android builds) carry the records opaquely and
- * republish them, as they do for every unknown kind.
+ * HarmonyOS has the same adapter (harmony/lib/data/sync/adapters/memory_sync_adapters.dart). Engines without
+ * it (iOS, older builds) carry the records opaquely and republish them, as they do for every unknown kind.
  */
 class AlbumNoteSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
     override val kind = SyncKinds.ALBUM_NOTE
