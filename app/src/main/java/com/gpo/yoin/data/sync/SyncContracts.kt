@@ -26,8 +26,8 @@ object SyncKinds {
     const val PLAYLIST_BACKUP = "playlist_backup"
 
     /**
-     * `album_notes` (notes revamp, 2026-11-23): Android publishes it; engines without an adapter (iOS, HarmonyOS,
-     * older Android) carry the records opaquely and republish them. Same name as the Memories backup's
+     * `album_notes` (notes revamp, 2026-11-23): Android and HarmonyOS publish it; engines without an adapter (iOS,
+     * older builds) carry the records opaquely and republish them. Same name as the Memories backup's
      * `album_note` kind.
      */
     const val ALBUM_NOTE = "album_note"
