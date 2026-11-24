@@ -127,6 +127,14 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 
 设置 › 同步与备份将可以把**全部**同步数据导出成一个文件（界面待做，数据层已就绪），放到任何地方（SAF 选位置）；不登录 Google、没有 Play 服务也能用。数据层：`data/sync/backup/`（入口 `MemoriesPortability`）。
 
+**代码放在哪**（2026-11-24 起，parity p2）：规则只有一份，在 `:shared` 的 `com.gpo.yoin.shared.portability`（commonMain），Android 和 iOS 用同一份，HarmonyOS 按 golden 向量移植：
+
+- `:shared`：`BackupFormat` 和 manifest 模型、`BackupExport`（manifest / 快照 / readable 的字节）、`BackupParser`（校验格式、版本、SHA-256、同步 schema）、`ReadableExport`（日期按时区 `BackupDates`）、`SnapshotAssembler`（副本叠加本机数据）、`ImportPlanner` + `BackupMerger`（导入计划与合并规则）、`memories/`（`MemoryItems.fromRecords`、`TransferRules`、`MigrationIds`、`MemoryTransferApplier`）。它们只通过几个小接口读写数据：`BackupReplica`（同步副本）、`BackupDomain`（歌曲 → 专辑关联、笔记归属）、`MemoryTransferStore`（转移写目标账号）。
+- Android 只留平台部分：zip 读写（`BackupWriter` / `BackupReader`）、Room 和同步引擎的桥（`SharedBackupBridge.kt`、`RoomTransferStore`）、`MemoryItems.fromProfile`（读 Room 和播放记录）、按曲库搜索匹配（`MemoryTransfer.plan`，用 app 的 `Track` / `Album` / `TrackMatcher`）、SAF 和界面。
+- iOS 用 Swift 门面 `YoinBackup`（`shared/.../portability/YoinBackup.kt`，只有平铺的 data class 和 enum）：导出得到文件内容（zip 由 Swift 写）、读文件并校验、生成并执行导入计划、列出转移来源、生成转移计划（列出要匹配的歌和专辑、沿用账本里之前的匹配）、按匹配结果复制。iOS 侧的端口实现也在 commonMain（`StoreBackupReplica`、`SyncDomainTransferStore`、`SyncStoreTransferLedger`），Swift 只需实现 `YoinTrackAlbumLinkStore`。
+- 字节不变：`BackupExportPinTest`（Android）用迁移前的代码生成并钉住了固定数据导出的每个 zip 条目，迁移后逐字节相同。
+- Golden 向量（`shared/src/commonTest/resources/golden/`，`PortabilityGoldenTest` 生成并校验）：`backup-export.json`（快照 → manifest / 快照 / readable 文件，三种语言和时区）、`backup-import.json`（备份 + 设备状态 + 选择 → 计划、结果、导入后的数据）、`memories-transfer.json`（id 空间、`mig-` id、提及改写、乐评拼接，以及转移的完整用例）。
+
 文件名 `yoin-backup-YYYY-MM-DD.zip`，里面：
 
 ```
@@ -161,7 +169,7 @@ readable/global/歌单备份.md        歌单备份列表（含曲目）
 
 ## 转移 Memories
 
-把一个账号的 Memories **复制**（不是移动）到本机另一个 profile。来源可以是本机 profile、只在云端的账号（直接读本机同步副本，不用重新登录），或者一个备份文件里的账号。数据层：`data/transfer/memories/`（`MemoryTransfer`，入口 `MemoriesPortability.planTransfer / runTransfer`）。
+把一个账号的 Memories **复制**（不是移动）到本机另一个 profile。来源可以是本机 profile、只在云端的账号（直接读本机同步副本，不用重新登录），或者一个备份文件里的账号。数据层：`data/transfer/memories/`（`MemoryTransfer`，入口 `MemoriesPortability.planTransfer / runTransfer`）；复制什么、写到哪、冲突怎么处理在 `:shared`（`MemoryTransferApplier`、`TransferRules`），按曲库搜索匹配留在各平台（Android 的 `MemoryTransfer.plan`；iOS 拿 `YoinBackup.planTransfer` 给出的待匹配列表，用 `:shared` 的 `TrackMatcher` 自己搜）。
 
 复制的内容：歌曲笔记、单曲评分、专辑评分与长评、专辑笔记、你改过的专辑标题（`ALBUM_TITLE`）、AI 拟题（`MEMORY_TITLE`）与 AI 文案（`MEMORY_COPY`）、歌曲 → 专辑关联（`track_album_links`）。
 
