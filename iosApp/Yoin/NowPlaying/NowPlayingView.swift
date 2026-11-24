@@ -1093,27 +1093,20 @@ struct NowPlayingView: View, Equatable {
 
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
 
-                ZStack {
+                SingAwareFavoriteSlot(
+                    showSing: showSingInRatingColumn,
+                    isPreparing: model.sing.isPreparing,
+                    isFavorite: isFavorite,
+                    isEpisode: isEpisode,
+                    heartKnown: heartKnown,
+                    scheme: scheme,
+                    haptics: demo == nil,
+                    onExit: { model.sing.exit() }
+                ) {
                     // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
                     // and still, not an empty heart that would save it.
                     heart
-                        .scaleEffect(showSingInRatingColumn ? 0.84 : 1)
-                        .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : heartKnown ? 1 : 0.38))
-                        .allowsHitTesting(!showSingInRatingColumn && !isEpisode && heartKnown)
-                        .animation(Yoin.effects, value: isEpisode || !heartKnown)
-
-                    SingExitCircleButton(
-                        scheme: scheme,
-                        isPreparing: model.sing.isPreparing,
-                        haptics: demo == nil
-                    ) {
-                        model.sing.exit()
-                    }
-                    .scaleEffect(showSingInRatingColumn ? 1 : 0.84)
-                    .opacity(showSingInRatingColumn ? 1 : 0)
-                    .allowsHitTesting(showSingInRatingColumn)
                 }
-                .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
 
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
