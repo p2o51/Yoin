@@ -23,6 +23,7 @@ import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
 import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../detail/detail_cache.dart';
 import '../memories/copy/memory_copy.dart';
 import '../memories/home_memory_pill.dart';
@@ -229,7 +230,8 @@ HomeWidgetCard noteWidgetCard(SongNote note, {double? rating}) {
     signal: JbiSignal(
       scoreText: rating == null ? null : MemoryScores.text(rating),
       basisDateMs: note.updatedAt,
-      comment: note.content.trim(),
+      // The words alone: marks dropped, mentions as their names (Android NoteMarkup.plainText).
+      comment: NoteMarkup.plainText(note.content).trim(),
     ),
   );
 }
