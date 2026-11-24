@@ -211,6 +211,9 @@ final class SyncBindingEntity {
   static const stateActive = 'active';
   static const statePausedMismatch = 'paused_mismatch';
 
+  /// Removed from the cloud (a scope purge marker): not synced until resumed on this device. Sticky.
+  static const statePurged = 'purged';
+
   final String localProfileId;
   final String syncProfileId;
   final String provider;
@@ -218,7 +221,7 @@ final class SyncBindingEntity {
   /// sha256 of the account fingerprint this binding was made for; null for Apple Music (explicit links).
   final String? fingerprintHash;
 
-  /// [stateActive] or [statePausedMismatch].
+  /// [stateActive], [statePausedMismatch] or [statePurged].
   final String state;
 
   /// Fingerprint hash observed when the state became paused.
@@ -353,6 +356,9 @@ abstract final class SyncMetaKeys {
   static const pendingReset = 'pending_reset';
   static const lastUploadedHashPrefix = 'last_uploaded_hash:';
   static const pendingFileIdPrefix = 'pending_file_id:';
+
+  /// Prefix: `purged_scope:<syncProfileId>` = epoch of the newest scope purge applied here.
+  static const purgedScopePrefix = 'purged_scope:';
 }
 
 /// Where the snapshot lives. Tests use [MemorySyncDbFile].
@@ -600,6 +606,11 @@ class SyncDatabase {
 
   List<SyncRecordEntity> allRecords() => _records.values.toList();
 
+  List<SyncRecordEntity> recordsInScope(String scope) => [
+    for (final r in _records.values)
+      if (r.scope == scope) r,
+  ];
+
   List<SyncRecordEntity> recordsOfKind(String kind) => [
     for (final r in _records.values)
       if (r.kind == kind) r,
@@ -612,6 +623,10 @@ class SyncDatabase {
     _assertOpen();
     _records[_k(record.kind, record.scope, record.key)] = record;
     _changed();
+  }
+
+  void deleteRecord(String kind, String scope, String key) {
+    if (_records.remove(_k(kind, scope, key)) != null) _changed();
   }
 
   void clearRecords() {
@@ -694,6 +709,16 @@ class SyncDatabase {
 
   void deleteBinding(String localProfileId) {
     if (_bindings.remove(localProfileId) != null) _changed();
+  }
+
+  /// Every binding in [fromState] moves to [state].
+  void updateBindingStates(String fromState, String state) {
+    for (final binding in _bindings.values.toList()) {
+      if (binding.state == fromState) {
+        _bindings[binding.localProfileId] = binding.copyWith(state: state);
+        _changed();
+      }
+    }
   }
 
   // ---- remote files

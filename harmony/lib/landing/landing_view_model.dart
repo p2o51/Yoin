@@ -133,7 +133,7 @@ class LandingViewModel extends Notifier<LandingUiState> {
       stored = null;
     }
     if (!ref.mounted || stored == null || _layoutEdited) return;
-    state = state.copyWith(layout: HomeLayout.reconcile(stored.sections));
+    state = state.copyWith(layout: HomeLayout.reconcile(stored.sections, extras: stored.extras));
   }
 
   void next() {
@@ -175,7 +175,7 @@ class LandingViewModel extends Notifier<LandingUiState> {
     if (from < 0 || to < 0 || from >= list.length || to >= list.length || from == to) return;
     list.insert(to, list.removeAt(from));
     _layoutEdited = true;
-    state = state.copyWith(layout: HomeLayout(list));
+    state = state.copyWith(layout: HomeLayout(list, extras: state.layout.extras));
   }
 
   /// Moves a row of the Home step: [from] and [to] index [landingShownSections].

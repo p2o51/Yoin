@@ -96,8 +96,9 @@ class SyncEngine {
     return _db.transaction(() async {
       final acc = _MergeAccumulator();
       final names = _DeviceNames(this, envelope);
+      final purges = _PurgeFilter(_loadPurges(), envelope.purges ?? const {});
       for (final wire in envelope.records) {
-        _mergeRecord(wire, names, acc);
+        _mergeRecord(wire, names, purges, acc);
       }
       _db.upsertRemoteFile(
         SyncRemoteFileEntity(
@@ -116,12 +117,17 @@ class SyncEngine {
     });
   }
 
-  void _mergeRecord(WireRecord wire, _DeviceNames names, _MergeAccumulator acc) {
+  void _mergeRecord(WireRecord wire, _DeviceNames names, _PurgeFilter purges, _MergeAccumulator acc) {
     acc.received++;
     final valid =
         wire.kind.isNotEmpty && wire.key.isNotEmpty && wire.device.isNotEmpty && (wire.deleted || wire.payload != null);
     if (!valid) {
       acc.malformed++;
+      return;
+    }
+    if (purges.refuses(wire.kind, wire.scope, wire.key, wire.ts)) {
+      // Removed from the cloud: a device that hasn't seen the marker (or an older build) still relays it.
+      acc.purged++;
       return;
     }
     final incoming = wireToEntity(wire);
@@ -247,6 +253,7 @@ class SyncEngine {
   /// valve-guarded tombstones.
   Future<CaptureResult> capture(List<ActiveBinding> bindings) async {
     final acc = _CaptureAccumulator();
+    _purgeFloors = _loadPurges();
     final now = _clock();
     final name = _deviceName();
     final names = _DeviceNames(this, null);
@@ -402,7 +409,7 @@ class SyncEngine {
           continue;
         }
         final base = state.pending ? state.pendingPrev : record?.version;
-        final version = RecordVersion(_max(now, record == null ? now : record.ts + 1), deviceId);
+        final version = _stamped(kind, scope, row.key, _max(now, record == null ? now : record.ts + 1));
         final edited = _mergedPayload(adapter, record, row.projection);
         // The domain never showed the replica's version: the edit is concurrent with it, so text kinds keep both.
         final unseen =
@@ -442,7 +449,7 @@ class SyncEngine {
       }
 
       // (c) brand new row
-      final version = RecordVersion(row.rowTs ?? now, deviceId);
+      final version = _stamped(kind, scope, row.key, row.rowTs ?? now);
       final payload = adapter.decoratePayload(row.projection, name);
       _db.upsertRecord(_localRecord(adapter, scope, row.key, version, null, payload));
       _db.upsertLocalState(_localState(kind, scope, row.key, boundProfileId, hash, version, true, null));
@@ -509,7 +516,7 @@ class SyncEngine {
         loserTs: canWin ? record.ts : candidateTs,
       );
       if (merged != null) {
-        final version = RecordVersion(_max(candidateTs, record.ts) + 1, deviceId);
+        final version = _stamped(kind, scope, row.key, _max(candidateTs, record.ts) + 1);
         _db.upsertRecord(_localRecord(adapter, scope, row.key, version, record.version, merged));
         _db.upsertLocalState(
           _localState(kind, scope, row.key, target.boundProfileId, hash, null, true, record.version),
@@ -523,7 +530,7 @@ class SyncEngine {
     if (canWin) {
       final meaninglessTombstone = record.deleted && !adapter.propagatesDeletes;
       final ts = meaninglessTombstone ? _max(candidateTs, record.ts + 1) : candidateTs;
-      final version = RecordVersion(ts, deviceId);
+      final version = _stamped(kind, scope, row.key, ts);
       final payload = adapter.decoratePayload(_mergedPayload(adapter, record, row.projection), name);
       _db.upsertRecord(_localRecord(adapter, scope, row.key, version, record.version, payload));
       _db.upsertLocalState(
@@ -577,7 +584,7 @@ class SyncEngine {
 
   void _writeTombstone(SyncAdapter adapter, SyncLocalStateEntity state, SyncRecordEntity record, int now) {
     final base = state.pending ? state.pendingPrev : record.version;
-    final version = RecordVersion(_max(now, record.ts + 1), deviceId);
+    final version = _stamped(record.kind, record.scope, record.key, _max(now, record.ts + 1));
     _db.upsertRecord(
       SyncRecordEntity(
         kind: record.kind,
@@ -717,10 +724,12 @@ class SyncEngine {
       }
     }
     final name = _deviceName();
+    final loaded = _loadPurges();
+    final purges = loaded.isEmpty ? null : loaded;
     return [
-      _outgoingFile(FileClass.state, 0, state, epoch, writtenAt, appVersionCode, name),
+      _outgoingFile(FileClass.state, 0, state, epoch, writtenAt, appVersionCode, name, purges),
       for (var shard = 0; shard < shards.length; shard++)
-        _outgoingFile(FileClass.artifacts, shard, shards[shard], epoch, writtenAt, appVersionCode, name),
+        _outgoingFile(FileClass.artifacts, shard, shards[shard], epoch, writtenAt, appVersionCode, name, purges),
     ];
   }
 
@@ -734,9 +743,12 @@ class SyncEngine {
     int writtenAt,
     int appVersionCode,
     String name,
+    Map<String, int>? purges,
   ) {
     final wires = [for (final r in records) entityToWire(r)];
-    final contentHash = CanonicalJson.hash([for (final w in wires) w.toJson()]);
+    final recordsJson = [for (final w in wires) w.toJson()];
+    // Acknowledged purges are part of what the file says: a new one is published even with no record change.
+    final contentHash = CanonicalJson.hash(purges == null ? recordsJson : {'records': recordsJson, 'purges': purges});
     final envelope = SyncEnvelope(
       epoch: epoch,
       deviceId: deviceId,
@@ -746,6 +758,7 @@ class SyncEngine {
       writtenAt: writtenAt,
       appVersionCode: appVersionCode,
       records: wires,
+      purges: purges,
     );
     return OutgoingFile(
       fileKind: fileClass.wireName,
@@ -835,14 +848,88 @@ class SyncEngine {
   }
 
   /// Drops records, local state and remote-file bookkeeping, plus the held
-  /// review and last-uploaded hashes. Bindings and the rest of meta stay.
+  /// review, last-uploaded hashes and scope purges (they belong to the Drive
+  /// the replica came from, so bindings paused by one sync again). Bindings
+  /// and the rest of meta stay.
   Future<void> clearReplica() => _db.transaction(() async {
     _db.clearRecords();
     _db.clearLocalStates();
     _db.clearRemoteFiles();
     _db.deleteMeta(SyncMetaKeys.heldReview);
     clearUploadedHashes();
+    for (final entry in _db.metaWithPrefix(SyncMetaKeys.purgedScopePrefix)) {
+      _db.deleteMeta(entry.key);
+    }
+    _db.updateBindingStates(SyncBindingEntity.statePurged, SyncBindingEntity.stateActive);
   });
+
+  // ------------------------------------------------------------------ scope purge (docs/cloud-sync.md)
+
+  /// Scope purges applied on this device: syncProfileId -> epoch.
+  Map<String, int> purgedScopes() => _loadPurges();
+
+  /// Applies a scope purge marker (Android SyncEngine.applyScopePurge):
+  /// forgets every replica record of [scope] (and its account descriptor)
+  /// with their local state, and remembers [epoch]. From then on merges take
+  /// the scope's records only from files that acknowledge the purge
+  /// ([SyncEnvelope.purges]) and only after the epoch, this device's own
+  /// files acknowledge it, and new local versions of the scope are stamped
+  /// after it. Domain rows stay. Idempotent; an epoch not newer than the one
+  /// already applied changes nothing. Returns the records dropped.
+  Future<int> applyScopePurge(String scope, int epoch) {
+    if (scope == SyncFormat.globalScope) throw ArgumentError('Only per-account scopes can be removed from the cloud');
+    return _db.transaction(() async {
+      final metaKey = '${SyncMetaKeys.purgedScopePrefix}$scope';
+      final known = int.tryParse(_db.meta(metaKey) ?? '');
+      if (known != null && known >= epoch) return 0;
+      _db.putMeta(metaKey, '$epoch');
+      var removed = 0;
+      // Everything held now came from files that didn't know the purge (or predates it), whatever its
+      // timestamp says: a device whose clock runs ahead must not keep the account alive.
+      for (final record in _db.recordsInScope(scope)) {
+        _db.deleteRecord(record.kind, scope, record.key);
+        _db.deleteLocalState(record.kind, scope, record.key);
+        removed++;
+      }
+      // Local state left without a record would read as a tracked row on a resumed binding.
+      for (final state in _db.localStatesInScope(scope)) {
+        if (_db.getRecord(state.kind, scope, state.key) == null) _db.deleteLocalState(state.kind, scope, state.key);
+      }
+      if (_db.getRecord(SyncKinds.account, SyncFormat.globalScope, scope) != null) {
+        _db.deleteRecord(SyncKinds.account, SyncFormat.globalScope, scope);
+        _db.deleteLocalState(SyncKinds.account, SyncFormat.globalScope, scope);
+        removed++;
+      }
+      if (_loadHeldReview()?.scope == scope) _db.deleteMeta(SyncMetaKeys.heldReview);
+      return removed;
+    });
+  }
+
+  Map<String, int> _loadPurges() {
+    final out = <String, int>{};
+    for (final entry in _db.metaWithPrefix(SyncMetaKeys.purgedScopePrefix)) {
+      final scope = entry.key.substring(SyncMetaKeys.purgedScopePrefix.length);
+      final epoch = int.tryParse(entry.value);
+      if (scope.isNotEmpty && epoch != null) out[scope] = epoch;
+    }
+    return out;
+  }
+
+  /// Purges known when the current capture started (the engine is single-threaded by contract).
+  Map<String, int> _purgeFloors = const {};
+
+  /// A new local version of a record at [ts], moved after its purge epoch if
+  /// it has one. The epoch is the one of the scope the record is purged with
+  /// ([purgeScopeOf]): an account descriptor follows its account, or a resumed
+  /// account's descriptor would stay refused.
+  RecordVersion _stamped(String kind, String scope, String key, int ts) {
+    final epoch = _purgeFloors[purgeScopeOf(kind, scope, key)];
+    return RecordVersion(epoch != null && ts <= epoch ? epoch + 1 : ts, deviceId);
+  }
+
+  /// The scope a record belongs to for purging: its own, or the account a descriptor describes.
+  static String purgeScopeOf(String kind, String scope, String key) =>
+      scope == SyncFormat.globalScope && kind == SyncKinds.account ? key : scope;
 
   bool hasPendingChanges() => _db.pendingCount() > 0;
 
@@ -996,6 +1083,26 @@ final class _Target {
   int get hashCode => Object.hash(adapter, scope, localProfileId);
 }
 
+/// [_known] = purges applied here; [_acknowledged] = purges the file's writer
+/// had applied. A record of a purged scope is taken only from a writer that
+/// knew that purge (or a newer one), and only after its epoch.
+final class _PurgeFilter {
+  const _PurgeFilter(this._known, this._acknowledged);
+
+  final Map<String, int> _known;
+  final Map<String, int> _acknowledged;
+
+  bool refuses(String kind, String scope, String key, int ts) {
+    if (_known.isEmpty) return false;
+    final purgedScope = SyncEngine.purgeScopeOf(kind, scope, key);
+    final epoch = _known[purgedScope];
+    if (epoch == null) return false;
+    final acked = _acknowledged[purgedScope];
+    if (acked == null) return true;
+    return acked < epoch || ts <= epoch;
+  }
+}
+
 /// Resolves device names for conflict labels: this device, the file being
 /// merged, then known remote files.
 final class _DeviceNames {
@@ -1031,6 +1138,7 @@ class _MergeAccumulator {
   int localChangesDropped = 0;
   int opaque = 0;
   int malformed = 0;
+  int purged = 0;
   final changed = ScopeKindCounter();
 
   MergeResult build(String fileId, SyncEnvelope envelope) => MergeResult(
@@ -1046,6 +1154,7 @@ class _MergeAccumulator {
     opaque: opaque,
     malformed: malformed,
     changedByScope: changed.snapshot(),
+    purged: purged,
   );
 }
 

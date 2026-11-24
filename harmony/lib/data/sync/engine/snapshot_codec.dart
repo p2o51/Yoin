@@ -1,5 +1,5 @@
 /// Envelope <-> bytes (Android engine/SnapshotCodec.kt). State/artifact files
-/// are gzip JSON; reset markers are plain JSON. The same files Android writes.
+/// are gzip JSON; reset and scope purge markers are plain JSON. The same files Android writes.
 library;
 
 import 'dart:convert';
@@ -68,6 +68,10 @@ abstract final class SnapshotCodec {
         shard is! int) {
       throw const MalformedSyncFileException('Unreadable sync file header');
     }
+    final purges = root['purges'];
+    if (purges != null && (purges is! Map || purges.values.any((v) => v is! int))) {
+      throw const MalformedSyncFileException('Unreadable scope purges');
+    }
     return SyncEnvelope(
       format: format as String,
       schema: schema,
@@ -79,6 +83,7 @@ abstract final class SnapshotCodec {
       writtenAt: writtenAt,
       appVersionCode: appVersionCode,
       records: [for (final r in records) ?WireRecord.tryParse(r)],
+      purges: purges == null ? null : {for (final e in (purges as Map).entries) '${e.key}': e.value as int},
     );
   }
 
@@ -94,6 +99,25 @@ abstract final class SnapshotCodec {
       throw const MalformedSyncFileException('Unreadable reset marker');
     }
     return ResetMarker(epoch: epoch, at: at, deviceId: deviceId, deviceName: deviceName);
+  }
+
+  static Uint8List encodePurge(ScopePurgeMarker marker) =>
+      Uint8List.fromList(utf8.encode(compactJson(marker.toJson())));
+
+  /// Throws [MalformedSyncFileException] when the bytes are not a scope purge
+  /// marker or name no scope. Unknown fields are skipped.
+  static ScopePurgeMarker decodePurge(Uint8List bytes) {
+    final root = _parseRoot(bytes);
+    final scope = root['scope'];
+    final epoch = root['epoch'];
+    final at = root['at'];
+    final deviceId = root['deviceId'];
+    final deviceName = root['deviceName'];
+    if (scope is! String || epoch is! int || at is! int || deviceId is! String || deviceName is! String) {
+      throw const MalformedSyncFileException('Unreadable scope purge marker');
+    }
+    if (scope.isEmpty) throw const MalformedSyncFileException('Scope purge marker without a scope');
+    return ScopePurgeMarker(scope: scope, epoch: epoch, at: at, deviceId: deviceId, deviceName: deviceName);
   }
 
   static bool isGzip(Uint8List bytes) => bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b;
