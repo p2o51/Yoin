@@ -127,6 +127,13 @@ enum class Capability {
      * themselves, so they don't declare it.
      */
     PLAY_REPORTING,
+
+    /**
+     * Sing (karaoke): the local player decodes the service's files itself, so their audio can go
+     * through Yoin's vocal mixer — separated on the device or by the Lyra server (player/sing/).
+     * Spotify and Apple Music play in their own players and don't declare it.
+     */
+    SING,
 }
 
 interface MusicLibrary {

@@ -19,6 +19,10 @@ struct ServerSettingsView: View {
     @State private var setup: ServiceSetupRequest?
     /// Settings › Sync and storage › NeoDB, open (also straight from the scrapbook's "Sign in to sync").
     @State private var neodbOpen = false
+    #if DEBUG
+    /// `-portabilityDemo <step>` (with `-screen settings`): Cloud sync, which opens the backup / transfer page.
+    @State private var portabilityDemo = UserDefaults.standard.string(forKey: "portabilityDemo") != nil
+    #endif
     /// The two-pane Settings' list (a wide iPad window): page rows pick the page beside it.
     @Environment(\.settingsList) private var list
 
@@ -59,6 +63,9 @@ struct ServerSettingsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
         .navigationDestination(isPresented: $neodbOpen) { NeoDBSettingsPage() }
+        #if DEBUG
+        .navigationDestination(isPresented: $portabilityDemo) { CloudSyncView() }
+        #endif
         .onAppear {
             apple.refreshAuthorization()
             takeDestination()

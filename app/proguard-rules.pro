@@ -80,3 +80,8 @@
 -keep class * implements com.google.firebase.components.ComponentRegistrar {
     <init>();
 }
+
+# LiteRT (Sing): its JNI code builds com.google.ai.edge.litert objects (TensorBufferRequirements, TensorType,
+# LiteRtException) by name, and the AARs ship only TF Lite's @UsedByReflection rule.
+-keep class com.google.ai.edge.litert.** { *; }
+-dontwarn com.google.ai.edge.litert.**

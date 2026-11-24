@@ -12,6 +12,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /** The cycle coordinator (port of CloudSyncManager's cycle) over an in-memory appDataFolder. */
@@ -1014,5 +1016,28 @@ class CloudSyncCoreTest {
         )
         peer.syncNow()
         assertIs<CloudSyncPhase.MigratedElsewhere>(peer.currentState().phase)
+    }
+
+    /** iOS YoinBackup runs an import or a transfer over the store: no cycle runs until it is done. */
+    @Test
+    fun should_holdCyclesBack_when_aPortabilityRunHoldsTheLock() = runTest {
+        val (core, domain) = device("iPhone", readOnly = false)
+        assertNull(core.enable("token"))
+        val writes = drive.writes
+        val deviceId = core.beginExclusive()
+        assertEquals(16, deviceId.length)
+        domain.putNote(note("n-held", "written during an import"))
+        now += 61_000
+        val cycle = launch { core.syncNow() }
+        runCurrent()
+        assertTrue(cycle.isActive)
+        assertEquals(writes, drive.writes)
+        core.endExclusive()
+        cycle.join()
+        assertTrue(drive.writes > writes)
+        // A second end, or one without a begin, changes nothing.
+        core.endExclusive()
+        assertEquals(deviceId, core.beginExclusive())
+        core.endExclusive()
     }
 }

@@ -48,6 +48,8 @@ final class CloudSync {
     var activeLocationName: String { isICloud ? String(localized: "iCloud") : String(localized: "Google Drive") }
 
     @ObservationIgnored private var kit: CloudSyncKit?
+    /// The stores the kit syncs, for the backup / transfer facade (`withBackup`).
+    @ObservationIgnored private var domain: SyncDomainBridge?
     @ObservationIgnored private var accounts: (@MainActor () -> SyncDomainBridge.Accounts)?
     @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -77,6 +79,7 @@ final class CloudSync {
         #endif
         self.accounts = accounts
         let domain = SyncDomainBridge(accounts: accounts)
+        self.domain = domain
         let kit = CloudSyncKit(
             domain: domain,
             tokenSource: TokenSource(debugToken: debug?.token),
@@ -239,17 +242,22 @@ final class CloudSync {
         }
     }
 
-    func removeAccountFromCloud(_ syncProfileId: String) async {
-        guard let kit else { return }
+    /// True once the account's data is gone from the cloud.
+    @discardableResult
+    func removeAccountFromCloud(_ syncProfileId: String) async -> Bool {
+        guard let kit else { return false }
         message = nil
         working = true
         defer { working = false }
         do {
             if let failure = try await kit.core.removeAccountFromCloud(syncProfileId: syncProfileId) {
                 message = failure
+                return false
             }
+            return true
         } catch {
             message = error.localizedDescription
+            return false
         }
     }
 
@@ -338,24 +346,50 @@ final class CloudSync {
         if held != freshHeld { freshHeld = held }
     }
 
-    /// Backs the whole appDataFolder up now; returns the folder for the share sheet.
-    func backupNow() async -> URL? {
-        guard let kit else { return nil }
-        working = true
-        defer { working = false }
-        guard let name = try? await kit.core.backupNow() else {
-            message = isICloud
-                ? String(localized: "Couldn't back up your iCloud data.")
-                : String(localized: "Couldn't back up your Drive data.")
-            return nil
+    // MARK: Backup, import, Memories transfer
+
+    /// Where a backup says the data came from: the sync location while Cloud sync is on, else nil
+    /// ("this-device"; `YoinBackup.exportBackup`'s syncLocation).
+    var backupSyncLocation: String? { state.phase.enabled ? state.location : nil }
+
+    /// [body] with the backup / import / transfer facade (`YoinBackup`, docs/cloud-sync.md「导出与导入」) over
+    /// this device's stores and the sync replica, under the sync lock (Android `CloudSyncManager.withReplica`):
+    /// no cycle runs meanwhile, and the replica is written once it is done. Sync never set up here (or the
+    /// DEBUG demo): the stores alone, no replica.
+    func withBackup<T>(_ body: (YoinBackup) async throws -> T) async throws -> T {
+        let info = Bundle.main.infoDictionary
+        let versionName = info?["CFBundleShortVersionString"] as? String ?? "0"
+        let versionCode = Int32(info?["CFBundleVersion"] as? String ?? "1") ?? 1
+        let links = TrackAlbumLinkStore.shared
+        guard let kit, let domain else {
+            let domain = SyncDomainBridge(accounts: { AppModel.shared.profiles.syncAccounts })
+            let facade = YoinBackup(domain: domain, replica: nil, links: links, deviceId: Self.backupDeviceId(),
+                                    deviceName: UIDevice.current.model, appVersionName: versionName,
+                                    appVersionCode: versionCode)
+            return try await body(facade)
         }
-        return BackupFolder.root.appendingPathComponent(name, isDirectory: true)
+        let deviceId = try await kit.core.beginExclusive()
+        defer { kit.core.endExclusive() }
+        let facade = YoinBackup(domain: domain, replica: kit.store, links: links, deviceId: deviceId,
+                                deviceName: UIDevice.current.model, appVersionName: versionName, appVersionCode: versionCode)
+        let result = try await body(facade)
+        kit.flush()
+        return result
     }
 
-    /// The newest backup as one .zip (NSFileCoordinator zips a folder for sharing).
-    func exportLatestBackup() -> URL? {
-        guard let name = state.lastBackup else { return nil }
-        return BackupFolder.zip(BackupFolder.root.appendingPathComponent(name, isDirectory: true))
+    /// An import or transfer wrote something: publish it now when sync is on (Android onLocalDataImported).
+    func localDataImported() {
+        guard kit != nil, state.phase.enabled else { return }
+        Task { await syncNow() }
+    }
+
+    /// A backup's device id where Cloud sync never ran (Android MemoriesPortability.exportDeviceId).
+    private static func backupDeviceId() -> String {
+        let key = "backup.deviceId"
+        if let id = UserDefaults.standard.string(forKey: key), !id.isEmpty { return id }
+        let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
+        UserDefaults.standard.set(id, forKey: key)
+        return id
     }
 
     private func run(_ body: (CloudSyncCore) async throws -> Void) async {
@@ -515,15 +549,4 @@ final class BackupFolder: NSObject, SyncBackupSink, @unchecked Sendable {
         }
     }
 
-    /// A shareable .zip of [folder] (the system zips it for "uploading").
-    static func zip(_ folder: URL) -> URL? {
-        var out: URL?
-        var error: NSError?
-        NSFileCoordinator().coordinate(readingItemAt: folder, options: .forUploading, error: &error) { zipped in
-            let target = FileManager.default.temporaryDirectory.appendingPathComponent("yoin-drive-\(folder.lastPathComponent).zip")
-            try? FileManager.default.removeItem(at: target)
-            if (try? FileManager.default.copyItem(at: zipped, to: target)) != nil { out = target }
-        }
-        return out
-    }
 }

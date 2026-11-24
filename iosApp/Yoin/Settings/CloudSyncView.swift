@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import YoinShared
 
 /// Settings › Storage › Cloud sync, the entry row (Android `CloudSyncEntry`):
@@ -123,7 +124,12 @@ struct CloudSyncView: View {
     @State private var confirmRemoveDevice: SyncDeviceRow?
     @State private var confirmRemoveAccount: (scope: String, name: String)?
     @State private var openLocation = false
-    @State private var export: URL?
+    /// "Download all data" / "Import from backup" (the file picked) open the backup page.
+    @State private var backupFlow: BackupFlowView.Mode?
+    @State private var pickBackupFile = false
+    @State private var transfer: TransferRoute?
+    /// A passing line after a flow closed (Android's snackbar): "Copy complete…".
+    @State private var notice: String?
     /// The service setup an Add on a cloud-only account opened.
     @State private var setup: ServiceSetupRequest?
 
@@ -136,6 +142,7 @@ struct CloudSyncView: View {
     private var enabled: Bool { state.phase.enabled }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -160,6 +167,13 @@ struct CloudSyncView: View {
                 } else {
                     offGroups
                 }
+                if let notice {
+                    Text(notice)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .padding(.horizontal, 8)
+                        .transition(.opacity)
+                }
                 if let message = sync.message {
                     Text(message)
                         .yoinRole(Tokens.type.bodyMedium)
@@ -180,13 +194,34 @@ struct CloudSyncView: View {
             .animation(Yoin.spatial, value: enabled)
             .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
             .animation(Yoin.effects, value: sync.message)
+            .animation(Yoin.effects, value: notice)
             .animation(Yoin.spatial, value: sync.freshHeld)
+        }
+        #if DEBUG
+        .task {
+            // `-portabilityDemo page`: the page scrolled to the backup group.
+            guard UserDefaults.standard.string(forKey: "portabilityDemo") == "page" else { return }
+            try? await Task.sleep(for: .milliseconds(500))
+            proxy.scrollTo("backupGroup", anchor: .center)
+        }
+        #endif
         }
         .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
         .navigationDestination(isPresented: $openLocation) { SyncLocationView() }
+        .navigationDestination(item: $backupFlow) { BackupFlowView(mode: $0) }
+        .navigationDestination(item: $transfer) { route in
+            TransferFlowView(model: route.model) { line in show(line) }
+        }
+        // Android OpenDocument(zip, x-zip-compressed, octet-stream): zips, and files some providers label generically.
+        .fileImporter(isPresented: $pickBackupFile, allowedContentTypes: [.zip, .data]) { result in
+            if case .success(let url) = result { backupFlow = .importFile(url) }
+        }
+        #if DEBUG
+        .task { openPortabilityDemo() }
+        #endif
         // A saved account joins the sync: refresh so it picks up what the cloud holds (Android onAdd).
         .onChange(of: model.profiles.profiles.map(\.id)) { old, new in
             if new.count > old.count, enabled { Task { await sync.syncNow() } }
@@ -230,9 +265,72 @@ struct CloudSyncView: View {
                  ? String(localized: "Deletes this device's copy from your iCloud. If it's still syncing, it uploads again the next time it syncs.")
                  : String(localized: "Deletes this device's copy from your Google Drive. If it's still syncing, it uploads again the next time it syncs."))
         }
-        .sheet(item: Binding(get: { export.map(ShareItem.init) }, set: { if $0 == nil { export = nil } })) { item in
-            ShareSheet(url: item.url)
+    }
+
+    private func show(_ line: String?) {
+        guard let line else { return }
+        notice = line
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if notice == line { notice = nil }
         }
+    }
+
+    #if DEBUG
+    /// `-portabilityDemo <step>` (with `-syncOpenPage YES`): a backup or transfer page set by hand, for screenshots.
+    private func openPortabilityDemo() {
+        guard let demo = UserDefaults.standard.string(forKey: "portabilityDemo"), backupFlow == nil, transfer == nil else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            if let model = await PortabilityDemo.backup(demo) {
+                PortabilityDemo.pendingBackup = model
+                backupFlow = .export
+            } else if let model = await PortabilityDemo.transfer(demo) {
+                transfer = TransferRoute(model: model)
+            }
+        }
+    }
+    #endif
+
+    /// 备份与迁移 / 备份文件 (Android BackupGroup): download everything, import a backup, transfer Memories
+    /// (sync on only; off, the export is this device's data).
+    private func backupGroup(on: Bool) -> some View {
+        var rows: [AnyView] = [
+            AnyView(entryRow("download", SyncCopy.s(on ? "settings_sync_export_title" : "settings_sync_export_title_local"),
+                             SyncCopy.s("settings_sync_export_summary")) { backupFlow = .export }),
+            AnyView(entryRow("folder", SyncCopy.s("settings_sync_import_title"), SyncCopy.s("settings_sync_import_summary")) {
+                pickBackupFile = true
+            }),
+        ]
+        if on {
+            rows.append(AnyView(entryRow("forward", SyncCopy.s("settings_xfer_title"), SyncCopy.s("settings_xfer_summary")) {
+                transfer = TransferRoute(model: TransferFlowModel())
+            }))
+        }
+        return group(SyncCopy.s(on ? "settings_sync_section_backup" : "settings_sync_section_backup_file")) { rows }
+            .id("backupGroup")
+    }
+
+    private func entryRow(_ icon: String, _ title: String, _ summary: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                YoinIcon(icon, size: 20)
+                    .foregroundStyle(app.onSecondaryContainer)
+                    .frame(width: 40, height: 40)
+                    .background(app.secondaryContainer, in: .circle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text(summary).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(PressScale())
     }
 
     // MARK: Off
@@ -257,6 +355,8 @@ struct CloudSyncView: View {
             }
             return rows
         }
+        // A backup imports without Cloud sync too (moving from another service, or no Google services).
+        backupGroup(on: false)
     }
 
     /// Android's "What you get" (CloudSyncScreen OffContent): what turning sync on brings, before the button.
@@ -351,15 +451,7 @@ struct CloudSyncView: View {
                 state.devices.map { d in AnyView(deviceRow(d)) }
             }
         }
-        group(String(localized: "Backups")) {
-            [AnyView(info(sync.isICloud ? String(localized: "iCloud backup") : String(localized: "Drive backup"),
-                          state.lastBackup ?? String(localized: "None yet"))),
-             AnyView(action(String(localized: "Back up and export"), ink: app.primary, disabled: sync.working) {
-                 Task {
-                     if await sync.backupNow() != nil { export = sync.exportLatestBackup() }
-                 }
-             })]
-        }
+        backupGroup(on: true)
         group(String(localized: "This device")) {
             [AnyView(action(String(localized: "Turn off on this device"), ink: app.primary) { Task { await sync.turnOff() } }),
              AnyView(action(sync.working ? String(localized: "Deleting…") : String(localized: "Delete cloud data…"), ink: app.error, disabled: sync.working) {
@@ -639,15 +731,11 @@ struct CloudSyncView: View {
     }
 }
 
-private struct ShareItem: Identifiable {
-    let url: URL
-    var id: String { url.path }
-}
+/// One "Transfer Memories" flow pushed from the page: its model lives as long as the page is up.
+struct TransferRoute: Hashable {
+    let id = UUID()
+    let model: TransferFlowModel
 
-private struct ShareSheet: UIViewControllerRepresentable {
-    var url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+    static func == (a: TransferRoute, b: TransferRoute) -> Bool { a.id == b.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

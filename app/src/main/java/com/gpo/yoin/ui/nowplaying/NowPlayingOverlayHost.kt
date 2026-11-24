@@ -133,6 +133,10 @@ fun NowPlayingOverlayHost(
     val lyricsSearchState by viewModel.lyricsSearchState.collectAsState()
     val castState by container.castManager.castState.collectAsState()
     val skipDirection by viewModel.skipDirection.collectAsState()
+    val singMode by container.singController.mode.collectAsState()
+    val singVocalLevel by container.singController.vocalLevel.collectAsState()
+    val singAvailability by container.singController.availability.collectAsState()
+    val singFailureTick by container.singController.failureTick.collectAsState()
     // The cover's long-press song menu (LocalNowPlayingCoverMenu): this
     // window's navigation, playlist sheet and snackbar.
     val currentOnAlbumClick by rememberUpdatedState(onAlbumClick)
@@ -610,9 +614,33 @@ fun NowPlayingOverlayHost(
                 // before this composition catches up; a late release still owns
                 // the displayed song, never whichever song is current by then.
                 val ratingSongId = (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId
+                val singProvider = ratingSongId?.let { com.gpo.yoin.data.model.MediaId.parseOrNull(it)?.provider }
+                val singSupported = container.singController.isSupported(singProvider) && (
+                    singAvailability is com.gpo.yoin.player.sing.SingAvailability.Available ||
+                        singMode !is com.gpo.yoin.player.sing.SingMode.Off
+                    )
+                val singUi = remember(singMode, singVocalLevel, singSupported, singFailureTick, dualPaneNowPlaying) {
+                    NowPlayingSingUi(
+                        mode = singMode,
+                        vocalLevel = singVocalLevel,
+                        isSupported = singSupported,
+                        failureTick = singFailureTick,
+                        onEnter = { expandToLyrics ->
+                            if (container.singController.enter() && expandToLyrics) {
+                                viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)
+                                if (!dualPaneNowPlaying) {
+                                    viewModel.setStageMode(NowPlayingStageMode.Expanded)
+                                }
+                            }
+                        },
+                        onExit = { container.singController.exit() },
+                        onSetVocalLevel = { pos -> container.singController.setVocalLevel(pos) },
+                    )
+                }
                 CompositionLocalProvider(
                     LocalNowPlayingCoverMenu provides coverMenuHost,
                     LocalAboutEntryActions provides aboutActions,
+                    LocalNowPlayingSing provides singUi,
                 ) {
                     NowPlayingScreen(
                         // Playing.isPlaying is overridden with the EAGER projection:

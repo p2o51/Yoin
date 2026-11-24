@@ -442,7 +442,7 @@ class DlnaMedia3Player internal constructor(
     }
 
     private fun command(operation: suspend () -> Unit): ListenableFuture<*> {
-        val future = SettableFuture.create<Void>()
+        val future = SettableFuture.create<Void?>()
         scope.launch {
             commandsMutex.withLock {
                 try {

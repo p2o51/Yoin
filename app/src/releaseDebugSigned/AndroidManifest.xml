@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Sing model probe (test builds only, shell via DUMP): checks AI Pack delivery without an account. -->
+        <receiver android:name=".player.sing.SingModelProbeReceiver" android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.gpo.yoin.debug.SING_MODEL" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
