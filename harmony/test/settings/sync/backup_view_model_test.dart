@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/portability/backup_import.dart';
+import 'package:yoin/data/sync/adapters/settings_sync_adapter.dart';
 import 'package:yoin/data/sync/cloud_sync_state.dart';
 import 'package:yoin/data/sync/sync_contracts.dart';
 import 'package:yoin/data/sync/sync_database.dart';
@@ -138,6 +139,28 @@ void main() {
     expect(review.canImport, isFalse);
     await vm.confirmImport();
     expect(container.read(backupProvider), isA<BackupReview>());
+    expect((await tablet.stores.memory('p1').syncRead()).songNotes, isEmpty);
+  });
+
+  test('should_alwaysImportGlobalData_when_everyAccountIsSkipped', () async {
+    // Global data (here the translation language) has no switch, as on Android and iOS: it always goes along.
+    final phone = PortabilityDevice(profiles: [alice]);
+    await seedAlice(phone);
+    await KeyValueTranslationLanguageGateway(phone.kv).write('Japanese');
+    await (await containerFor(phone)).read(backupProvider.notifier).export(language: 'en');
+    final bytes = files.saved.values.single;
+    final tablet = PortabilityDevice(profiles: [alice]);
+    final container = await containerFor(tablet);
+    final vm = container.read(backupProvider.notifier);
+    await vm.read(bytes);
+    final review = container.read(backupProvider) as BackupReview;
+    expect(review.plan.globalCounts, {SyncKinds.setting: 1});
+    vm.choose(review.plan.accounts.single.account.scope, ImportTarget.skip);
+    expect((container.read(backupProvider) as BackupReview).canImport, isTrue);
+    await vm.confirmImport();
+    final done = container.read(backupProvider) as BackupImported;
+    expect(done.result.global.written, 1);
+    expect(await KeyValueTranslationLanguageGateway(tablet.kv).stored(), 'Japanese');
     expect((await tablet.stores.memory('p1').syncRead()).songNotes, isEmpty);
   });
 

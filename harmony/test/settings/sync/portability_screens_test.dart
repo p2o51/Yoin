@@ -125,6 +125,8 @@ void main() {
     expect(find.text('Into Alice'), findsOneWidget);
     expect(find.text('Into Bob'), findsOneWidget);
     expect(find.text('Keep in the cloud only'), findsNothing);
+    // Global data always goes along (Android, iOS): counts only, nothing to switch off.
+    expect(find.byType(Switch), findsNothing);
     final confirm = find.widgetWithText(FilledButton, 'Merge and import');
     expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
 
