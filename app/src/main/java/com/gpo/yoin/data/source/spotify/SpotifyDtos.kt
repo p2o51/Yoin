@@ -49,6 +49,8 @@ data class SpotifySimplifiedAlbumObject(
     val images: List<SpotifyImageObject> = emptyList(),
     @SerialName("total_tracks") val totalTracks: Int? = null,
     @SerialName("release_date") val releaseDate: String? = null,
+    /** "year", "month" or "day": how much of [releaseDate] is real. */
+    @SerialName("release_date_precision") val releaseDatePrecision: String? = null,
     @SerialName("album_type") val albumType: String? = null,
 )
 
@@ -84,6 +86,8 @@ data class SpotifyAlbumObject(
     val images: List<SpotifyImageObject> = emptyList(),
     @SerialName("total_tracks") val totalTracks: Int? = null,
     @SerialName("release_date") val releaseDate: String? = null,
+    /** "year", "month" or "day": how much of [releaseDate] is real. */
+    @SerialName("release_date_precision") val releaseDatePrecision: String? = null,
     @SerialName("album_type") val albumType: String? = null,
     val tracks: SpotifyPagingObject<SpotifyTrackObject>? = null,
 )

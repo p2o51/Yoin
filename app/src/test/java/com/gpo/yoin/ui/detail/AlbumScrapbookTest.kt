@@ -9,6 +9,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookNote
 import com.gpo.yoin.data.album.AlbumScrapbookPlays
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseDate
 import java.time.ZoneOffset
 import kotlin.math.sign
 import org.junit.Assert.assertEquals
@@ -237,6 +238,7 @@ class AlbumScrapbookTest {
 
         assertEquals(
             listOf(
+                "Length" to "10 min",
                 "Plays in Yoin" to "12",
                 "Days since first play" to "7",
                 "Last played" to "Yesterday",
@@ -247,6 +249,25 @@ class AlbumScrapbookTest {
             receipt.lines,
         )
         assertEquals("ALBUM — ARTIST", receipt.header)
+    }
+
+    @Test
+    fun should_openTheReceiptWithReleaseAndLength_when_bothAreKnown() {
+        val data = AlbumScrapbookData(plays = AlbumScrapbookPlays(count = 2, firstPlayedAt = now, lastPlayedAt = now))
+        fun lines(album: AlbumDetailUiState.Content) = buildAlbumScrapbook(album, data, now, ZoneOffset.UTC)
+            .pieces.filterIsInstance<ScrapPiece.Receipt>().single().lines
+
+        val full = lines(album(trackCount = 2, releaseDate = ReleaseDate(2022, 6, 12), totalDuration = 72 * 60))
+        assertEquals(listOf("Released" to "Jun 12, 2022", "Length" to "1 hr 12 min"), full.take(2))
+        assertEquals("Plays in Yoin" to "2", full[2])
+        assertEquals(
+            "Released" to "Jun 2022",
+            lines(album(trackCount = 2, releaseDate = ReleaseDate(2022, 6))).first(),
+        )
+        assertEquals("Released" to "2022", lines(album(trackCount = 2, releaseDate = ReleaseDate(2022))).first())
+        // No date: no Released line. No length anywhere (no total, no track lengths): no Length line.
+        val bare = lines(album(trackCount = 2, trackDuration = null))
+        assertEquals("Plays in Yoin" to "2", bare.first())
     }
 
     @Test
@@ -362,6 +383,9 @@ class AlbumScrapbookTest {
         trackCount: Int,
         id: String = "subsonic:al-1",
         review: String = "",
+        releaseDate: ReleaseDate? = null,
+        totalDuration: Int? = null,
+        trackDuration: Int? = 200,
     ) = AlbumDetailUiState.Content(
         albumId = id,
         albumName = "Album",
@@ -371,10 +395,11 @@ class AlbumScrapbookTest {
         coverArtUrl = null,
         year = 2020,
         songCount = trackCount,
-        totalDuration = null,
+        totalDuration = totalDuration,
         songs = (1..trackCount).map { n ->
-            AlbumSong(id = "subsonic:t$n", title = "Song $n", artist = "Artist", trackNumber = n, duration = 200, isStarred = n == 2)
+            AlbumSong(id = "subsonic:t$n", title = "Song $n", artist = "Artist", trackNumber = n, duration = trackDuration, isStarred = n == 2)
         },
         userReview = review,
+        releaseDate = releaseDate,
     )
 }

@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -59,6 +60,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.ui.notes.editor.NoteEditorState
+import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
+import com.gpo.yoin.ui.notes.editor.NoteMarkupField
+import com.gpo.yoin.ui.notes.editor.noteEditorColors
+import com.gpo.yoin.ui.notes.editor.noteEditorContainer
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -1223,6 +1229,7 @@ private fun NotesTab(
                                 note = note,
                                 colors = colors,
                                 focused = note.noteId == focusNote,
+                                lyricsIn = !lyrics.loading,
                                 menuOpen = picked == row.key,
                                 onTap = { picked = row.key },
                                 onDismissMenu = { picked = null },
@@ -1337,11 +1344,14 @@ private fun NoteCard(
     onDismissMenu: () -> Unit,
     onEditNote: () -> Unit,
     onPlay: () -> Unit,
+    // False while the lyrics are still coming: their lines then land above the note and push it down, so
+    // it is brought into view again once they are in (a slow lyrics read outlasts the settle delay).
+    lyricsIn: Boolean = true,
 ) {
     val at = note.positionMs?.let(::formatNotePosition)
     // The note tapped on the page: brought into view and ringed in the page's ink, its actions a tap away.
     val bring = remember { BringIntoViewRequester() }
-    LaunchedEffect(focused) {
+    LaunchedEffect(focused, lyricsIn) {
         if (focused) {
             delay(FocusNoteSettleMs)
             bring.bringIntoView()
@@ -1390,7 +1400,11 @@ private fun NoteCard(
     }
 }
 
-/** A note being written or changed in place: an emptied existing note is deleted (with Undo). */
+/**
+ * A note being written or changed in place: an emptied existing note is deleted (with Undo). The same note
+ * editor as Now Playing's write bar and the album's stickies (`ui/notes/editor`): @ mentions as chips with
+ * the live popup, list / to-do / heading shortcuts, and the formatting row.
+ */
 @Composable
 private fun NoteEditor(
     positionMs: Long?,
@@ -1400,62 +1414,59 @@ private fun NoteEditor(
     onDelete: () -> Unit,
     onDone: (String) -> Unit,
 ) {
-    val field = rememberTextFieldState(text)
+    // The stored text, cursor at its end (NoteEditorState starts it there).
+    val editor = remember { NoteEditorState(text) }
     val focus = remember { FocusRequester() }
     val actions = remember { BringIntoViewRequester() }
-    LaunchedEffect(Unit) {
-        field.edit { placeCursorAtEnd() }
-        focus.requestFocus()
-    }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     KeepAboveKeyboard(actions)
     val at = positionMs?.let(::formatNotePosition)
     Column(
         modifier = Modifier
             .padding(vertical = 6.dp)
             .fillMaxWidth()
+            // The whole card (stamp, formatting row, buttons) is the field, for @ mode.
+            .noteEditorContainer(editor)
             .clip(RoundedCornerShape(16.dp))
             .background(colors.note)
             .journalRail(colors.ink)
             .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
     ) {
         if (at != null) NoteStamp(at, colors)
-        BasicTextField(
-            state = field,
-            textStyle = userTextStyle().copy(color = colors.onNote),
-            cursorBrush = SolidColor(colors.ink),
-            lineLimits = TextFieldLineLimits.MultiLine(),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        NoteMarkupField(
+            state = editor,
+            textStyle = userTextStyle(),
+            // Mentions as the note card draws them once saved: in the page's ink.
+            colors = noteEditorColors(
+                text = colors.onNote,
+                chip = colors.ink.copy(alpha = 0.14f),
+                chipText = colors.ink,
+            ),
+            placeholder = at?.let { stringResource(R.string.detail_scrap_note_hint, it) }
+                ?: stringResource(R.string.detail_scrap_note_hint_plain),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 2.dp)
                 .focusRequester(focus),
-            decorator = { inner ->
-                Column {
-                    Box {
-                        if (field.text.isEmpty()) {
-                            Text(
-                                text = at?.let { stringResource(R.string.detail_scrap_note_hint, it) }
-                                    ?: stringResource(R.string.detail_scrap_note_hint_plain),
-                                style = userTextStyle(),
-                                color = colors.onNote.copy(alpha = 0.5f),
-                            )
-                        }
-                        inner()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .background(colors.ink.copy(alpha = 0.6f)),
-                    )
-                }
-            },
+        )
+        Box(
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(colors.ink.copy(alpha = 0.6f)),
+        )
+        // The card is narrow on a phone: the formatting row scrolls on a line of its own, the buttons under it.
+        NoteFormatToolbar(
+            state = editor,
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .horizontalScroll(rememberScrollState()),
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp)
+                .padding(top = 4.dp)
                 .bringIntoViewRequester(actions),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1475,7 +1486,7 @@ private fun NoteEditor(
             }
             Spacer(Modifier.weight(1f))
             Button(
-                onClick = { onDone(field.text.toString()) },
+                onClick = { onDone(editor.text) },
                 colors = ButtonDefaults.buttonColors(containerColor = colors.ink, contentColor = colors.onInk),
                 contentPadding = EditorButtonPadding,
                 modifier = Modifier.handPointer(),

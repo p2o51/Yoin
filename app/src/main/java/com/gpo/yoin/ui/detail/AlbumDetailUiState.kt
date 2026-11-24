@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.ui.common.UiText
 
 sealed interface AlbumDetailUiState {
@@ -56,6 +57,13 @@ sealed interface AlbumDetailUiState {
          * and while it isn't known yet whether this one is saved.
          */
         val librarySaved: Boolean? = null,
+        /**
+         * The release date as precisely as the service gives it: the header's
+         * "22.6.12" in place of [year], the date under the last track, and the
+         * scrapbook receipt's Released line. Null when unknown ([year] still
+         * shows in the header when only it is known).
+         */
+        val releaseDate: ReleaseDate? = null,
     ) : AlbumDetailUiState {
         /**
          * 「Based on X/N」的分母 N。用实际加载到的 songs.size，而不是 provider

@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.model.SearchResults
@@ -17,6 +18,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.discTrackOrder
 import com.gpo.yoin.data.remote.Album as SubsonicAlbum
+import com.gpo.yoin.data.remote.SubsonicItemDate
 import com.gpo.yoin.data.remote.Artist as SubsonicArtist
 import com.gpo.yoin.data.remote.ArtistDetail as SubsonicArtistDetail
 import com.gpo.yoin.data.remote.ArtistIndex as SubsonicArtistIndex
@@ -111,9 +113,10 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     coverArt = (coverArt ?: id).let(CoverRef::SourceRelative),
     songCount = songCount,
     durationSec = duration,
-    year = year,
+    year = year?.takeIf { it > 0 } ?: subsonicReleaseDate(releaseDate, originalReleaseDate, null)?.year,
     genre = genre,
     isStarred = !starred.isNullOrEmpty(),
+    releaseDate = subsonicReleaseDate(releaseDate, originalReleaseDate, year),
     // Multi-disc albums by (disc, track): design.md Library Songs reads them in this order too.
     tracks = discTrackOrder(song.map { it.toTrack() }),
     // `starred` is the per-user "when I starred this" timestamp (ISO-8601);
@@ -125,6 +128,23 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     libraryAddedAt = created,
     version = version?.trim()?.takeIf(String::isNotEmpty),
 )
+
+/**
+ * The album's date: OpenSubsonic `releaseDate` (this release, which is what
+ * Spotify and Apple Music date an album by too), else `originalReleaseDate`
+ * (the first release, for a server whose files only carry ORIGINALDATE), else
+ * the plain [year] every Subsonic server sends. Whichever is used is taken
+ * whole; parts of one are never mixed into the other.
+ */
+internal fun subsonicReleaseDate(
+    releaseDate: SubsonicItemDate?,
+    originalReleaseDate: SubsonicItemDate?,
+    year: Int?,
+): ReleaseDate? = releaseDate?.toReleaseDate()
+    ?: originalReleaseDate?.toReleaseDate()
+    ?: ReleaseDate.of(year)
+
+private fun SubsonicItemDate.toReleaseDate(): ReleaseDate? = ReleaseDate.of(year, month, day)
 
 /** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */
 internal fun subsonicReleaseType(releaseTypes: List<String>): ReleaseType? =

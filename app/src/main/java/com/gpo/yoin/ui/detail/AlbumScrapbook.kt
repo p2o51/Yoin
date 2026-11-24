@@ -445,6 +445,11 @@ private fun receiptLines(
 ): List<Pair<String, String>> = buildList {
     // Only the songs on this page count (a score on a track the provider no longer lists stays out).
     val songIds = content.songs.mapTo(HashSet()) { it.id }
+    // What the album is, before what Yoin knows of it: when it came out and how long it runs.
+    content.releaseDate?.let { add(ReceiptReleasedLabel to receiptReleaseDate(it)) }
+    val length = content.totalDuration?.takeIf { it > 0 }
+        ?: content.songs.sumOf { it.duration ?: 0 }.takeIf { it > 0 }
+    receiptAlbumLength(length)?.let { add(ReceiptLengthLabel to it) }
     add("Plays in Yoin" to data.plays.count.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
     data.plays.firstPlayedAt?.let { first ->
         val daysSince = daysBetween(first, nowMillis, zone).toString()

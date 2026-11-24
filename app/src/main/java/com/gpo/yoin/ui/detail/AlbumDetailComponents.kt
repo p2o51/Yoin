@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -130,6 +131,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import com.gpo.yoin.data.model.ReleaseDate
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -354,6 +356,24 @@ internal fun AlbumTrackCountLabel(
     DetailMetaLine(
         groups = groups,
         style = MaterialTheme.typography.labelMedium,
+        modifier = modifier,
+    )
+}
+
+/**
+ * The album's release date under its last track, in the system language
+ * ("2023年10月27日", "October 27, 2023"; a month or a year alone when that is
+ * all the service gives). Quiet like the track-count line above track 1.
+ */
+@Composable
+internal fun AlbumReleaseDateLine(date: ReleaseDate, modifier: Modifier = Modifier) {
+    val locale = LocalConfiguration.current.locales[0]
+    val text = remember(date, locale) { albumReleaseDateText(date, locale) }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
         modifier = modifier,
     )
 }

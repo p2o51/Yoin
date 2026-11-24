@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
@@ -59,6 +60,7 @@ internal fun SpotifyAlbumObject.toAlbum(
     year = releaseYear(),
     genre = null,
     isStarred = id in savedAlbumIds,
+    releaseDate = releaseDate(),
     tracks = tracksOverride.map { track ->
         track.toTrack(
             savedTrackIds = savedTrackIds,
@@ -81,6 +83,7 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
     genre = null,
     isStarred = id in savedAlbumIds,
     releaseType = spotifyReleaseType(albumType, totalTracks),
+    releaseDate = releaseDate(),
 )
 
 /**
@@ -289,14 +292,19 @@ internal fun SpotifyAlbumObject.toSimplifiedAlbum(): SpotifySimplifiedAlbumObjec
         images = images,
         totalTracks = totalTracks,
         releaseDate = releaseDate,
+        releaseDatePrecision = releaseDatePrecision,
         albumType = albumType,
     )
 
-internal fun SpotifySimplifiedAlbumObject.releaseYear(): Int? =
-    releaseDate?.take(4)?.toIntOrNull()
+internal fun SpotifySimplifiedAlbumObject.releaseYear(): Int? = releaseDate()?.year
 
-internal fun SpotifyAlbumObject.releaseYear(): Int? =
-    releaseDate?.take(4)?.toIntOrNull()
+internal fun SpotifyAlbumObject.releaseYear(): Int? = releaseDate()?.year
+
+/** `release_date` at its `release_date_precision` ("2023-10-27" / "2023-10" / "2023"); null for "0000". */
+internal fun SpotifySimplifiedAlbumObject.releaseDate(): ReleaseDate? =
+    ReleaseDate.parseIso(releaseDate, releaseDatePrecision)
+
+internal fun SpotifyAlbumObject.releaseDate(): ReleaseDate? = ReleaseDate.parseIso(releaseDate, releaseDatePrecision)
 
 internal fun SpotifySimplifiedAlbumObject.bestImageUrl(): String? = images.firstOrNull()?.url
 
