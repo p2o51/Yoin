@@ -4,9 +4,9 @@ import SwiftUI
 /// read like its lyrics: a stamp, then the words; the line the playhead is
 /// inside lights up and the list glides to keep it ~22 % down (Timeline).
 /// Above them, the note count and the Timeline / Created switch. Tap an
-/// anchored line to play from its moment; long-press it to edit its words,
-/// align it to now or delete it (a deleted line offers Undo in its place for
-/// a few seconds). While the composer is open the list shows where the draft
+/// anchored line to play from its moment; long-press it to edit it in the
+/// write bar (aligning it to now there; saved empty, it is deleted, and the
+/// line offers Undo in its place for a few seconds). While the composer is open the list shows where the draft
 /// will land; while it edits a note, that note's line stands as "Editing…".
 struct NowPlayingNotePage: View {
     var notes: [SongNote]
@@ -24,6 +24,9 @@ struct NowPlayingNotePage: View {
     /// The note the composer is editing (its line reads "Editing…").
     var editingId: String? = nil
     var onEdit: (SongNote) -> Void = { _ in }
+    /// A note emptied in the write bar and saved: deleted here, with Undo in its place (then taken).
+    var deleteRequest: SongNote? = nil
+    var onDeleteRequestTaken: () -> Void = {}
 
     @State private var activeId: String?
     @State private var deleted: SongNote?
@@ -104,6 +107,11 @@ struct NowPlayingNotePage: View {
         .sensoryFeedback(.selection, trigger: seeks)
         .sensoryFeedback(.impact(weight: .medium), trigger: deletes)
         .onChange(of: sort) { userScrolled = false }
+        .onChange(of: deleteRequest?.id, initial: true) { _, id in
+            guard id != nil, let note = deleteRequest else { return }
+            onDeleteRequestTaken()
+            delete(note)
+        }
         .onDisappear { commitDelete() }
     }
 
@@ -192,23 +200,10 @@ struct NowPlayingNotePage: View {
                          scheme: scheme)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .contextMenu {
-            Button {
-                onEdit(note)
-            } label: {
-                Label { Text("Edit") } icon: { Image("yoin.edit") }
-            }
-            Button {
-                onRealign(note.id, playheadMs())
-            } label: {
-                Label { Text("Align to now") } icon: { Image("yoin.music_note") }
-            }
-            Button(role: .destructive) {
-                delete(note)
-            } label: {
-                Label { Text("Delete") } icon: { Image("yoin.close") }
-            }
-        }
+        // A long press puts the note in the write bar (owner 2026-11-24, replacing the Align / Delete menu): the
+        // stamp aligns it to now there, and saving it empty deletes it, with Undo in its place.
+        .onLongPressGesture(minimumDuration: 0.5) { onEdit(note) }
+        .accessibilityAction(named: Text("Edit")) { onEdit(note) }
         .accessibilityHint(note.positionMs.map { String(localized: "Plays from \(NotesStore.formatPosition($0))") } ?? "")
     }
 
@@ -321,7 +316,8 @@ struct NotePageLine: View {
                 // The stored markup drawn: headings, lists, to-dos, bold / italic and mentions (primary).
                 NoteMarkupText(text: note.content, size: Tokens.type.bodyLarge.size.cg,
                                weight: isActive ? .semibold : .regular,
-                               mentionColor: scheme.primary, glyphColor: scheme.primary)
+                               mentionColor: scheme.primary, glyphColor: scheme.primary,
+                               onToggleChecklist: { NoteChecklist.toggleSongNote(note.id, line: $0) })
                     .yoinRole(Tokens.type.bodyLarge, weight: isActive ? .semibold : .regular)
                     .foregroundStyle(isActive ? scheme.primary : scheme.onSurface)
                     .fixedSize(horizontal: false, vertical: true)

@@ -71,9 +71,12 @@ extension CoverScheme {
 struct ScrapStickyCard: View {
     var text: String
     var scheme: CoverScheme
+    /// A tap on a to-do's box (an editable sticky); nil draws the boxes only.
+    var onToggleChecklist: ((Int) -> Void)? = nil
 
     var body: some View {
-        NoteMarkupText(text: text, size: 14.5, mentionColor: scheme.onSecondaryContainer, glyphColor: scheme.primary)
+        NoteMarkupText(text: text, size: 14.5, mentionColor: scheme.onSecondaryContainer, glyphColor: scheme.primary,
+                       onToggleChecklist: onToggleChecklist)
             // userTextStyle at 14.5: line 1.5 em.
             .lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
             .foregroundStyle(scheme.onSecondaryContainer)
