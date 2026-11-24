@@ -158,7 +158,14 @@ object NoteMarkup {
     fun serializeMention(mention: NoteMention): String = buildString {
         append("[@")
         append(escapeTitle(mention.title))
-        append("](yoin:")
+        append("](")
+        append(serializeDestination(mention))
+        append(')')
+    }
+
+    /** The canonical link's destination alone: `yoin:<kind>/<provider>:<id>?a=…&al=…`. */
+    internal fun serializeDestination(mention: NoteMention): String = buildString {
+        append("yoin:")
         append(mention.kind.token)
         append('/')
         append(mention.provider)
@@ -172,7 +179,6 @@ object NoteMarkup {
         mention.album?.takeIf(String::isNotBlank)?.let {
             append(separator).append("al=").append(PercentCoding.encode(it))
         }
-        append(')')
     }
 
     fun hasMentions(text: String?): Boolean = text != null && text.contains(MENTION_NEEDLE, ignoreCase = true)

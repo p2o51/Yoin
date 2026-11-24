@@ -316,7 +316,9 @@ enum HomeHistory {
         track.title = track.title.isEmpty ? note.title : track.title
         return JBISignal(kind: .notedTrack, album: album, title: note.title,
                          subtitle: note.artist.isEmpty ? album.artist : note.artist,
-                         score: scoreText(rating), basis: memoryDate(note.updatedAt), comment: note.content,
+                         score: scoreText(rating), basis: memoryDate(note.updatedAt),
+                         // The words alone (Android NoteMarkup.plainText): no marks, mentions as names.
+                         comment: NoteMarkupRender.words(note.content),
                          song: PlaylistEntry(album: album, track: track))
     }
 
@@ -530,7 +532,8 @@ enum HomeHistory {
         return RediscoverEntry(album: cover, reason: "", away: awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
                                score: p.score, footnoteDate: "", footnotePlays: "",
                                song: PlaylistEntry(album: cover, track: track),
-                               noteSnippet: p.score == nil ? s.latestNote?.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+                               noteSnippet: p.score == nil
+                                   ? s.latestNote.map(NoteMarkupRender.words)?.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
     }
 
     /// The shelf as cards: the reason line only with no score (or on a note
