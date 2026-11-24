@@ -14,6 +14,7 @@ Yoin's Android app (Compose) and iOS app (SwiftUI) share their design numbers an
 | Album spectrum | `com.gpo.yoin.shared.detail.computeAlbumSpectrum` + tone lock | `ui/detail/AlbumSpectrum.kt` | `AlbumSpectrum.strips(for:)` |
 | Fast scroller maths | `com.gpo.yoin.shared.library.FastScrollMath` | `FastScrollMath` in `YoinFastScroller.kt` | `LibraryFastScroller`, `LibraryView.ScrollMetrics` |
 | Scrapbook tilts | `com.gpo.yoin.shared.detail.ScrapbookTilt` (FNV-1a, tilt sets) | `AlbumScrapbook.kt` | `AlbumScrapbookView` |
+| Note text | `com.gpo.yoin.shared.notes.NoteMarkup`, `MentionMatcher`; `YoinNoteReader` (flat lines / runs / mentions for Swift: no sealed types, no `Char`, nothing throws) | `NoteMarkupText`, the note editor, `MentionResolver` | `NoteMarkupRender` / `NoteMarkupText`, `NoteMentions` (`Notes/`) |
 
 How it is kept honest:
 
