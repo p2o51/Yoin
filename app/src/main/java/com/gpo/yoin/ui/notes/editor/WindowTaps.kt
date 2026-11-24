@@ -10,6 +10,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
@@ -40,11 +41,23 @@ class WindowTaps {
 /** This window's taps; null outside a Yoin window (previews, tests that don't provide one). */
 val LocalWindowTaps = staticCompositionLocalOf<WindowTaps?> { null }
 
+/**
+ * Marks the host's decorated box around [state]'s field (outline, padding, label, counters): a tap anywhere in it
+ * counts as a tap in the field, so it doesn't end @ mode.
+ */
+fun Modifier.noteEditorContainer(state: NoteEditorState): Modifier =
+    onGloballyPositioned { state.containerCoordinates = it }
+
 /** Reports each finger down on this node (a window's root) to [taps], before anything under it sees it. */
 fun Modifier.windowTapSource(taps: WindowTaps): Modifier = this then WindowTapElement(taps)
 
-/** A tap outside the field being written in ([field], window coordinates) ends its mention mode. */
-internal fun tapEndsMention(field: Rect?, tap: Offset): Boolean = field != null && !field.contains(tap)
+/**
+ * A tap outside the field being written in ([field], window coordinates) ends its mention mode — unless it lands
+ * in the host's decorated box around the field ([container]: its padding, label and count line, 2026-11-24
+ * tablet QA on the review sheet's "Short comment" line).
+ */
+internal fun tapEndsMention(field: Rect?, tap: Offset, container: Rect? = null): Boolean =
+    field != null && !field.contains(tap) && container?.contains(tap) != true
 
 private data class WindowTapElement(val taps: WindowTaps) : ModifierNodeElement<WindowTapNode>() {
     override fun create() = WindowTapNode(taps)

@@ -201,6 +201,43 @@ class NoteMarkupFieldTest {
         assertNull(state.trigger)
         assertNull(state.enterPick)
     }
+
+    @Test
+    fun should_keepMentionMode_onATapInTheHostsBoxAroundTheField() {
+        val state = NoteEditorState("")
+        val taps = WindowTaps()
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(LocalWindowTaps provides taps) {
+                YoinTheme {
+                    androidx.compose.foundation.layout.Column(Modifier.windowTapSource(taps)) {
+                        // the review sheet's rounded box: the field, then its count line
+                        androidx.compose.foundation.layout.Column(Modifier.noteEditorContainer(state)) {
+                            NoteMarkupField(
+                                state = state,
+                                candidates = source,
+                                romanizer = MentionRomanizer.None,
+                                modifier = Modifier.testTag("field"),
+                            )
+                            androidx.compose.material3.Text("Short comment", modifier = Modifier.testTag("label"))
+                        }
+                        androidx.compose.foundation.layout.Box(Modifier.testTag("blank").androidxSize())
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("field").performTextInput("@")
+        rule.waitForIdle()
+        rule.onNodeWithTag("field").performTextInput("N")
+        rule.waitForIdle()
+
+        rule.onNodeWithTag("label").performTouchInput { click(center) }
+        rule.waitForIdle()
+        assertEquals("New York", state.enterPick?.title)
+
+        rule.onNodeWithTag("blank").performTouchInput { click(center) }
+        rule.waitForIdle()
+        assertNull(state.enterPick)
+    }
 }
 
 private fun Modifier.androidxSize(): Modifier = this.then(Modifier.size(200.dp))

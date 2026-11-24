@@ -130,7 +130,10 @@ fun NoteMarkupField(
     val windowTaps = LocalWindowTaps.current
     DisposableEffect(windowTaps, popupOpen, state) {
         val stop = if (windowTaps != null && popupOpen) {
-            windowTaps.listen { at -> if (tapEndsMention(fieldBounds.inWindow(), at)) state.dismissPopup() }
+            windowTaps.listen { at ->
+                val container = state.containerCoordinates?.takeIf { it.isAttached }?.boundsInWindow()
+                if (tapEndsMention(fieldBounds.inWindow(), at, container)) state.dismissPopup()
+            }
         } else {
             null
         }

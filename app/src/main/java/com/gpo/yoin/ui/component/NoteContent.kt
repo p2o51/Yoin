@@ -74,6 +74,7 @@ import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
 import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
 import com.gpo.yoin.ui.notes.editor.NoteMarkupField
+import com.gpo.yoin.ui.notes.editor.noteEditorContainer
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -662,6 +663,8 @@ fun NoteWriteBar(
     Layout(
         contents = listOf(stampSlot, fieldSlot, trailingSlot, footerSlot),
         modifier = modifier
+            // The whole card (stamp, formatting row, 记下) is the field, for @ mode.
+            .noteEditorContainer(editor)
             .graphicsLayer {
                 shape = RoundedCornerShape(corner.value)
                 clip = true

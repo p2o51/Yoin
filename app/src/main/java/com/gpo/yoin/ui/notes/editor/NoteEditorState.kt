@@ -35,6 +35,9 @@ class NoteEditorState(initialText: String = "") {
     /** The popup's highlighted row (↑ ↓ move it, Enter picks it). */
     var highlighted by mutableIntStateOf(0)
 
+    /** The host's decorated box around the field ([noteEditorContainer]); taps in it don't end @ mode. */
+    internal var containerCoordinates: androidx.compose.ui.layout.LayoutCoordinates? = null
+
     /** The full-screen search sheet is open ("展开搜索"). */
     var searchOpen by mutableStateOf(false)
 
