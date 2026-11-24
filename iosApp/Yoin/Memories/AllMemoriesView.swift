@@ -476,7 +476,9 @@ struct AllMemoriesView: View {
                         }
                     }
                     if let text = note?.text?.nonBlank {
-                        Text(text).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(5)
+                        NoteMarkupText(text: text, size: Tokens.type.bodyMedium.size.cg, mentionColor: app.onSurface,
+                                       glyphColor: app.primary)
+                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(5)
                             .multilineTextAlignment(.leading).padding(.top, 6)
                     }
                     cardFoot(score, at, state)
@@ -530,7 +532,9 @@ struct AllMemoriesView: View {
                         pair(album.name, album.artist.nonBlank, Tokens.type.bodyMedium)
                         if let score { scoreLine(score, "Album score", size: 34) }
                         if let review {
-                            Text(review).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface).lineLimit(6)
+                            NoteMarkupText(text: review, size: Tokens.type.bodyLarge.size.cg, mentionColor: app.onSurface,
+                                           glyphColor: app.primary)
+                                .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface).lineLimit(6)
                                 .multilineTextAlignment(.leading).padding(.top, 2)
                         }
                         if !songs.isEmpty {
@@ -583,7 +587,8 @@ struct AllMemoriesView: View {
                     Text(shortDay(e.at, state)).yoinRole(Tokens.type.labelSmall).foregroundStyle(app.outline).lineLimit(1)
                 }
                 if let text = e.text?.nonBlank {
-                    Text(text).font(.system(size: 19, design: .serif)).homeLine(19, 28)
+                    NoteMarkupText(text: text, size: 19, mentionColor: app.onSurface, glyphColor: app.primary, serif: true)
+                        .homeLine(19, 28)
                         .foregroundStyle(app.onSurface).lineLimit(10).multilineTextAlignment(.leading)
                 } else if let s = e.score {
                     scoreLine(s, nil, size: 30)

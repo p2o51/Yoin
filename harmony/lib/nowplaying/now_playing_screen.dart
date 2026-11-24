@@ -15,6 +15,7 @@ import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
 import '../detail/scrapbook_focus.dart';
 import '../home/lyric_highlight_view_model.dart' show lyricHighlightKeeperProvider;
+import '../notes/note_mentions.dart' show NoteMentionLeave;
 import '../playback/keep_screen_on.dart';
 import '../playback/output/output_providers.dart';
 import '../playback/output/playback_router.dart';
@@ -1071,7 +1072,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
         ),
       ),
     );
-    return NowPlayingSignalScope(signal: _signal, child: screen);
+    return NoteMentionLeave(
+      // A note's mention opens its page the way Go to album does: the player closes first.
+      leave: (open) => _leaveTo(widget.controller, open),
+      child: NowPlayingSignalScope(signal: _signal, child: screen),
+    );
   }
 }
 

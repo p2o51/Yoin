@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 /// Stable wire names of synced record kinds.
 abstract final class SyncKinds {
   static const songNote = 'song_note';
+  static const albumNote = 'album_note';
   static const trackRating = 'track_rating';
   static const albumRating = 'album_rating';
   static const albumReview = 'album_review';
@@ -295,6 +296,7 @@ final class SyncEnvelope {
     required this.writtenAt,
     required this.appVersionCode,
     required this.records,
+    this.purges,
   });
 
   final String format;
@@ -308,6 +310,14 @@ final class SyncEnvelope {
   final int appVersionCode;
   final List<WireRecord> records;
 
+  /// Scope purges the writer had applied when it wrote this file:
+  /// syncProfileId -> epoch (Android SyncEnvelope.purges). A reader that knows
+  /// a purge of scope S takes S's records only from files that acknowledge it
+  /// (a resumed account); everything else is a stale relay. Null from older
+  /// builds and when the writer knows none; not written then, so the bytes
+  /// stay as before.
+  final Map<String, int>? purges;
+
   JsonMap toJson() => {
     'format': format,
     'schema': schema,
@@ -319,6 +329,7 @@ final class SyncEnvelope {
     'writtenAt': writtenAt,
     'appVersionCode': appVersionCode,
     'records': [for (final r in records) r.toJson()],
+    'purges': ?purges,
   };
 }
 
@@ -334,6 +345,29 @@ final class ResetMarker {
   JsonMap toJson() => {'epoch': epoch, 'at': at, 'deviceId': deviceId, 'deviceName': deviceName};
 }
 
+/// "Remove this account from the cloud" (one scope, all devices; Android
+/// ScopePurgeMarker): records of [scope] whose version ts is at or before
+/// [epoch] are dropped from every replica that sees the marker, and no device
+/// that knows it publishes them again (docs/cloud-sync.md「从云端移除一个账号」).
+@immutable
+final class ScopePurgeMarker {
+  const ScopePurgeMarker({
+    required this.scope,
+    required this.epoch,
+    required this.at,
+    required this.deviceId,
+    required this.deviceName,
+  });
+
+  final String scope;
+  final int epoch;
+  final int at;
+  final String deviceId;
+  final String deviceName;
+
+  JsonMap toJson() => {'scope': scope, 'epoch': epoch, 'at': at, 'deviceId': deviceId, 'deviceName': deviceName};
+}
+
 /// Drive appProperties keys/values that identify Yoin files (never by name).
 abstract final class SyncFileProps {
   static const kind = 'yoinKind';
@@ -342,15 +376,23 @@ abstract final class SyncFileProps {
   static const schema = 'schema';
   static const epoch = 'epoch';
 
+  /// The scope a [kindPurge] marker removes.
+  static const scope = 'scope';
+
   static const kindState = 'state';
   static const kindArtifacts = 'artifacts';
   static const kindReset = 'reset';
+
+  /// A [ScopePurgeMarker]. Older builds ignore this kind.
+  static const kindPurge = 'purge';
 
   static String stateFileName(String deviceId) => 'yoin-state-$deviceId.json.gz';
 
   static String artifactFileName(String deviceId, int shard) => 'yoin-artifacts-$deviceId-$shard.json.gz';
 
   static String resetFileName(int epoch, String deviceId) => 'yoin-reset-$epoch-$deviceId.json';
+
+  static String purgeFileName(int epoch, String deviceId) => 'yoin-purge-$epoch-$deviceId.json';
 }
 
 // ---- Transport (Drive appDataFolder)

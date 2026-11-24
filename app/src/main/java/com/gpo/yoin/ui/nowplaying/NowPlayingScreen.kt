@@ -417,7 +417,18 @@ fun NowPlayingScreen(
     val latestOnApplyLyrics by rememberUpdatedState(onApplyLyrics)
     val latestRequestNoteDelete by rememberUpdatedState(requestNoteDelete)
     val glowSaveNote: (NoteSaveRequest) -> Unit = remember(transportSignal) {
-        { request ->
+        save@{ request ->
+            // An edit saved empty deletes its note, with the same undo as the menu's 删除.
+            if (request.editingNoteId != null && request.content.isBlank()) {
+                val signal = transportSignal
+                signal.glow(
+                    ActionGlowKind.NoteDelete,
+                    signal.lyricsAreaRoot ?: signal.anchorOf(GlowAnchor.Write),
+                    targetY = signal.currentLineRootY ?: Float.NaN,
+                )
+                latestRequestNoteDelete(request.editingNoteId)
+                return@save
+            }
             val signal = transportSignal
             val from = signal.anchorOf(GlowAnchor.Write)
                 ?: signal.lyricsAreaRoot?.let { Rect(Offset(it.center.x, it.bottom), 1f) }
@@ -5409,6 +5420,7 @@ private fun ExpandedDetailPage(
                 onRealign = LocalNoteRealign.current,
                 // The undo window waits for a finger on the list to lift.
                 onListHeldChange = { held -> deletion?.onListHeldChange(held) },
+                onEdit = { note -> noteDraft.beginEdit(note.id, note.content, note.positionMs, state.noteTarget()) },
                 modifier = modifier,
             )
         }

@@ -2226,6 +2226,13 @@ class YoinRepository(
         return note
     }
 
+    /** [editNoteById] that also files the note at [positionMs] (Now Playing's edit, whose stamp can re-align it). */
+    suspend fun editNoteById(id: String, content: String, positionMs: Long?): SongNote? {
+        val note = songNoteDao.getById(id) ?: return null
+        updateNote(note.copy(positionMs = positionMs?.coerceAtLeast(0L) ?: note.positionMs), content)
+        return note
+    }
+
     /** Ticks or unticks the to-do on [lineIndex] of a song note (a tap on its box); the rest as written. */
     suspend fun toggleNoteChecklist(id: String, lineIndex: Int) {
         val note = songNoteDao.getById(id) ?: return
@@ -2266,6 +2273,32 @@ class YoinRepository(
             ?: database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider, profileId)?.albumId
         return linked?.takeIf(String::isNotBlank)
             ?.let { MediaId(trackId.provider, MediaId.storedRawId(trackId.provider, it)) }
+    }
+
+    /**
+     * What a note's mention shows before its name (notes 0.6.4): a song's cover (from Yoin's own plays first,
+     * then the service), an album's cover, an artist's picture. Null when nothing has one.
+     */
+    suspend fun mentionArtworkUrl(kind: com.gpo.yoin.shared.notes.MentionKind, id: MediaId, size: Int): String? {
+        val cover: CoverRef? = try {
+            when (kind) {
+                com.gpo.yoin.shared.notes.MentionKind.Track -> {
+                    val profileId = activeProfileId.value
+                    val played = profileId?.let {
+                        database.playHistoryDao().getMostRecentPlay(id.rawId, id.provider, it)?.coverArtId
+                    }
+                    played?.takeIf(String::isNotBlank)?.let(CoverRef::fromStorageKey)
+                        ?: activeSource.value?.library()?.getTrack(id)?.coverArt
+                }
+                com.gpo.yoin.shared.notes.MentionKind.Album -> getAlbum(id)?.coverArt
+                com.gpo.yoin.shared.notes.MentionKind.Artist -> getArtist(id)?.coverArt
+            }
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        return resolveCoverUrl(cover, size)
     }
 
     // ── Album notes ────────────────────────────────────────────────────

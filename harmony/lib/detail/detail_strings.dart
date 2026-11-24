@@ -209,6 +209,13 @@ class DetailStrings {
   String get scrapNoteHintPlain => zh ? '记一笔…' : 'A note…'; // detail_scrap_note_hint_plain
   String get scrapCancel => zh ? '取消' : 'Cancel'; // detail_scrap_cancel
 
+  // The album's notes on page 2, one sticky each (strings_notes.xml); Save / Cancel are scrapSave / scrapCancel.
+  String scrapCdAlbumNote(String text) => zh ? '专辑笔记：$text' : 'Album note: $text'; // detail_scrap_cd_album_note
+  String get stickyAdd => zh ? '写专辑笔记' : 'Write an album note'; // notes_sticky_add
+  String get stickyPlaceholder => zh ? '给整张专辑写点什么' : 'Write about the whole album'; // notes_sticky_placeholder
+  String stickyEditCd(String text) => zh ? '编辑专辑笔记：$text' : 'Edit album note: $text'; // notes_sticky_edit_cd
+  String get stickyDeleted => zh ? '已删除专辑笔记' : 'Album note deleted'; // notes_sticky_deleted
+
   /// detail_unit_play (plurals).
   String unitPlay(int n) => zh ? '次' : (n == 1 ? 'play' : 'plays');
 

@@ -44,6 +44,7 @@ abstract final class DeviceBackupScope {
     'local_ratings.', // LocalRatingStore (local_ratings)
     'album_ratings.v1.', // MemoryStore (album_ratings, with the NeoDB flags)
     'song_notes.v1.', // MemoryStore (song_notes)
+    'album_notes.v1.', // MemoryStore (album_notes)
     'album_plays.v1.', // MemoryStore (play_history by album)
     'track_plays.v1.', // MemoryStore (play_history by song)
     'memory_titles.v1.', // MemoryStore (album_memory_title)

@@ -420,8 +420,8 @@ struct DiaryBlocks: View {
                             .font(.gsf(12, .medium)).monospacedDigit()
                             .foregroundStyle(tones.ink)
                             .frame(width: MemoryDiaryTokens.linerColumn, alignment: .leading)
-                        Text(n.content.trimmingCharacters(in: .whitespacesAndNewlines))
-                            .font(.gsf(DiaryType.note))
+                        NoteMarkupText(text: n.content.trimmingCharacters(in: .whitespacesAndNewlines), size: DiaryType.note,
+                                       mentionColor: scheme.onSurface, glyphColor: scheme.primary)
                             .lineSpacing(DiaryType.lineSpacing(DiaryType.note, DiaryType.noteLine))
                             .foregroundStyle(scheme.onSurface)
                             .multilineTextAlignment(.leading)
@@ -436,7 +436,8 @@ struct DiaryBlocks: View {
                 .padding(.horizontal, -MemoryDiaryTokens.rowBleed)
                 .disabled(!interactive)
                 .accountSwitchNotice(deck.switchGate, anchor: MemorySwitchAnchor.note(card, n))
-                .accessibilityLabel(n.positionMs.map { "Note at \(MemoryDiaryFormat.stamp($0)): \(n.content)" } ?? String(localized: "Note: \(n.content)"))
+                .accessibilityLabel(n.positionMs.map { "Note at \(MemoryDiaryFormat.stamp($0)): \(NoteMarkupRender.words(n.content))" }
+                    ?? String(localized: "Note: \(NoteMarkupRender.words(n.content))"))
             }
         }
     }
