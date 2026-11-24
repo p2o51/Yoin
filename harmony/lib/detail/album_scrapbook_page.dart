@@ -16,6 +16,10 @@ import '../home/widgets/spring_height.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../nowplaying/haptics.dart';
+import '../notes/editor/note_editor_controller.dart';
+import '../notes/editor/note_editor_display.dart';
+import '../notes/editor/note_format_toolbar.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../notes/note_markup_text.dart';
 import '../nowplaying/note_logic.dart' show formatNotePosition;
 import '../playback/playback_controller.dart';
@@ -424,6 +428,12 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     _stickies.close();
   }
 
+  /// A to-do ticked on a sticky: saved at once, whatever else is open.
+  void _tickSticky(String noteId, String text) {
+    final edit = stickySave(noteId, text);
+    if (edit != null) ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).edit(edit);
+  }
+
   /// A tap on bare paper starts an album note at the top (prototype scenario 5); pieces take their own taps first.
   void _onPaperTap() {
     if (_stickies.open != null) return;
@@ -590,7 +600,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       album: widget.album,
       coverUrl: widget.coverUrl,
       wide: wide,
-      stickyPile: _StickyPile(stickies: piece.stickies, editing: _stickies, onSave: _saveSticky),
+      stickyPile: _StickyPile(stickies: piece.stickies, editing: _stickies, onSave: _saveSticky, onTick: _tickSticky),
     ),
     ScrapTrackCluster() => _scrapFade(_TrackCluster(piece: piece, album: widget.album, wide: wide)),
     ScrapContactSheet() => _scrapFade(_ContactSheet(piece: piece, album: widget.album)),

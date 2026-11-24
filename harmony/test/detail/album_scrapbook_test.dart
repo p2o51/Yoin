@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/notes/note_markup.dart';
+import 'package:yoin/notes/editor/note_editor_controller.dart';
+import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
@@ -427,6 +430,38 @@ void main() {
       );
       expect(notes.last.updatedAt, greaterThan(20));
       expect(find.text('second sticky'), findsOneWidget);
+      await close(tester);
+    });
+
+    testWidgets('should_tickAStickysTodo_without_openingIt', (tester) async {
+      final (_, _, store) = await open(tester);
+      await store.putAlbumNote(_albumNote('an1', '- [ ] find the vinyl', created: 10));
+      await toScrapbook(tester);
+      final words = find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText));
+      final sticky = words.evaluate().firstWhere((e) => (e.widget as RichText).text.toPlainText().contains('find the vinyl'));
+      await tester.tapAt(tester.getTopLeft(find.byElementPredicate((e) => e == sticky)) + const Offset(4, 8));
+      await settle(tester);
+      expect((await store.albumNotes(_album.id)).single.content, '- [x] find the vinyl');
+      expect(find.byType(TextField), findsNothing, reason: 'the box ticks; the sticky stays shut');
+      await close(tester);
+    });
+
+    testWidgets('should_saveAMention_when_writtenOnASticky', (tester) async {
+      final (_, _, store) = await open(tester);
+      await toScrapbook(tester);
+      await tester.tap(find.bySemanticsLabel('Write an album note'));
+      await settle(tester);
+      final field = tester.widget<TextField>(find.byType(TextField));
+      final controller = field.controller! as NoteEditorController;
+      controller.text = 'like ';
+      controller.insertMention(
+        NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al9', title: 'Court and Spark'),
+      );
+      await settle(tester);
+      expect(find.text('@Court and Spark'), findsOneWidget, reason: 'one chip in the editor');
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      expect((await store.albumNotes(_album.id)).single.content, 'like [@Court and Spark](yoin:album/subsonic:al9)');
       await close(tester);
     });
 
