@@ -190,11 +190,7 @@ class _NoteMarkupFieldState extends ConsumerState<NoteMarkupField> {
     YoinHaptics.tick();
     final trigger = _controller.trigger;
     setState(() => _searchOpen = true);
-    final picked = await showMentionSearchSheet(
-      context,
-      initialQuery: trigger?.query ?? '',
-      candidates: _source,
-    );
+    final picked = await showMentionSearchSheet(context, initialQuery: trigger?.query ?? '', candidates: _source);
     if (!mounted) return;
     setState(() => _searchOpen = false);
     if (picked != null) {

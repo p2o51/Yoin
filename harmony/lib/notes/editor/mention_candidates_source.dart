@@ -62,7 +62,15 @@ final class AccountMentionCandidates implements MentionCandidateSource {
         tracks: tracks,
         albums: [
           if (albumId != null && albumName != null && albumName.trim().isNotEmpty)
-            ?_candidate(MentionKind.album, albumId, albumName, current?.artist, null, current?.coverArt, MentionSource.current),
+            ?_candidate(
+              MentionKind.album,
+              albumId,
+              albumName,
+              current?.artist,
+              null,
+              current?.coverArt,
+              MentionSource.current,
+            ),
         ],
         artists: [
           if (artistId != null && artistName != null && artistName.trim().isNotEmpty)
@@ -72,8 +80,8 @@ final class AccountMentionCandidates implements MentionCandidateSource {
     }
     SearchResults? results;
     try {
-      results = await source
-          ?.library.search(q, trackCount: limit * 2, albumCount: limit, artistCount: limit)
+      results = await source?.library
+          .search(q, trackCount: limit * 2, albumCount: limit, artistCount: limit)
           .timeout(const Duration(milliseconds: NoteEditorTokens.searchTimeoutMs));
     } on Object {
       results = null;

@@ -40,12 +40,8 @@ void main() {
           home: Builder(
             builder: (context) => Scaffold(
               body: TextButton(
-                onPressed: () => showAlbumRateSheet(
-                  context,
-                  albumId: album,
-                  albumName: 'Blue',
-                  palette: MemoryPaletteSamples.m1,
-                ),
+                onPressed: () =>
+                    showAlbumRateSheet(context, albumId: album, albumName: 'Blue', palette: MemoryPaletteSamples.m1),
                 child: const Text('open'),
               ),
             ),

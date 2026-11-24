@@ -74,8 +74,7 @@ class NowPlayingNotes extends ChangeNotifier {
   /// The "Writing…" row on the Note page: words waiting, or the field just
   /// taken for a new note — never the empty draft a save leaves behind, nor
   /// an edit (its own line stays, dimmed).
-  bool get showDraftRow =>
-      draftHere && !_draft.isEditing && (_draft.text.isNotEmpty || (focused && !_justSaved));
+  bool get showDraftRow => draftHere && !_draft.isEditing && (_draft.text.isNotEmpty || (focused && !_justSaved));
 
   /// The note open in the write bar for rewriting (its line dims on the Note page).
   String? get editingId => _draft.editingNoteId;

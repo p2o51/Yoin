@@ -61,15 +61,30 @@ void main() {
 
   test('should_matchOtherProvidersByName_includingATracksAlbum', () {
     final links = findBacklinks([
-      _songNote('apple-album', 't-x', _link(MentionKind.album, 'applemusic', '1', 'Titanic Rising', artist: 'Weyes Blood'), 1),
+      _songNote(
+        'apple-album',
+        't-x',
+        _link(MentionKind.album, 'applemusic', '1', 'Titanic Rising', artist: 'Weyes Blood'),
+        1,
+      ),
       _songNote(
         'spotify-track',
         't-y',
         _link(MentionKind.track, 'spotify', 'sp', 'Movies', artist: 'Weyes Blood', album: 'Titanic Rising'),
         2,
       ),
-      _songNote('spotify-listed', 't-z', _link(MentionKind.track, 'spotify', 'sp2', 'Andromeda', artist: 'Weyes Blood'), 3),
-      _songNote('wrong-artist', 't-w', _link(MentionKind.album, 'spotify', 'x', 'Titanic Rising', artist: 'Somebody Else'), 4),
+      _songNote(
+        'spotify-listed',
+        't-z',
+        _link(MentionKind.track, 'spotify', 'sp2', 'Andromeda', artist: 'Weyes Blood'),
+        3,
+      ),
+      _songNote(
+        'wrong-artist',
+        't-w',
+        _link(MentionKind.album, 'spotify', 'x', 'Titanic Rising', artist: 'Somebody Else'),
+        4,
+      ),
       _songNote('artist', 't-v', _link(MentionKind.artist, 'spotify', 'ar', 'Weyes Blood'), 5),
     ], titanic);
     expect(_ids(links), ['spotify-listed', 'spotify-track', 'apple-album']);
@@ -77,15 +92,34 @@ void main() {
 
   test('should_matchByNameWithinSpotifyAndAppleMusic_butNotWithinSubsonic', () {
     final apple = BacklinkAlbum(MediaId('applemusic', '1440'), title: 'Titanic Rising', artist: 'Weyes Blood');
-    final spotifyTrack = BacklinkTrackTarget(MediaId('spotify', 'sp-andromeda'), title: 'Andromeda', artist: 'Weyes Blood');
+    final spotifyTrack = BacklinkTrackTarget(
+      MediaId('spotify', 'sp-andromeda'),
+      title: 'Andromeda',
+      artist: 'Weyes Blood',
+    );
     final writings = [
-      _songNote('library', 't-1', _link(MentionKind.album, 'applemusic', 'library:l.x', 'Titanic Rising', artist: 'Weyes Blood'), 1),
-      _songNote('reissue', 't-2', _link(MentionKind.track, 'spotify', 'sp-reissue', 'Andromeda', artist: 'Weyes Blood'), 2),
+      _songNote(
+        'library',
+        't-1',
+        _link(MentionKind.album, 'applemusic', 'library:l.x', 'Titanic Rising', artist: 'Weyes Blood'),
+        1,
+      ),
+      _songNote(
+        'reissue',
+        't-2',
+        _link(MentionKind.track, 'spotify', 'sp-reissue', 'Andromeda', artist: 'Weyes Blood'),
+        2,
+      ),
     ];
     expect(_ids(findBacklinks(writings, apple)), ['library']);
     expect(_ids(findBacklinks(writings, spotifyTrack)), ['reissue']);
     final subsonic = [
-      _songNote('same-name', 't-3', _link(MentionKind.album, _sub, 'al-other', 'Titanic Rising', artist: 'Weyes Blood'), 3),
+      _songNote(
+        'same-name',
+        't-3',
+        _link(MentionKind.album, _sub, 'al-other', 'Titanic Rising', artist: 'Weyes Blood'),
+        3,
+      ),
     ];
     expect(findBacklinks(subsonic, titanic), isEmpty);
   });
@@ -119,7 +153,11 @@ void main() {
         3,
       ),
       BacklinkWriting(BacklinkReview(albumId: MediaId.subsonic('al-weyes')), mention, 4),
-      BacklinkWriting(BacklinkReview(albumId: MediaId.subsonic('al-charm'), albumName: 'Charm', albumArtist: 'Clairo'), mention, 5),
+      BacklinkWriting(
+        BacklinkReview(albumId: MediaId.subsonic('al-charm'), albumName: 'Charm', albumArtist: 'Clairo'),
+        mention,
+        5,
+      ),
     ], titanic);
     expect(links.single.source, isA<BacklinkReview>());
     expect((links.single.source as BacklinkReview).albumId, MediaId.subsonic('al-charm'));
@@ -149,7 +187,12 @@ void main() {
         findBacklinks([
           _songNote('id', 't-x', _link(MentionKind.artist, _sub, 'ar-weyes', 'Weyes Blood'), 1),
           _songNote('name', 't-y', _link(MentionKind.artist, 'spotify', 'sp', 'weyes blood'), 2),
-          _songNote('track', 't-z', _link(MentionKind.track, _sub, 't-andromeda', 'Andromeda', artist: 'Weyes Blood'), 3),
+          _songNote(
+            'track',
+            't-z',
+            _link(MentionKind.track, _sub, 't-andromeda', 'Andromeda', artist: 'Weyes Blood'),
+            3,
+          ),
         ], artist),
       ),
       ['name', 'id'],
@@ -164,7 +207,13 @@ void main() {
       SongNote(id: 'n1', trackId: MediaId.subsonic('t-charm-1'), content: '整张像 $mention', createdAt: 10, updatedAt: 10),
     );
     await store.putSongNote(
-      SongNote(id: 'plain', trackId: MediaId.subsonic('t-charm-1'), content: 'no link here', createdAt: 11, updatedAt: 11),
+      SongNote(
+        id: 'plain',
+        trackId: MediaId.subsonic('t-charm-1'),
+        content: 'no link here',
+        createdAt: 11,
+        updatedAt: 11,
+      ),
     );
     final links = TrackAlbumLinkStore.shared(kv, 'profile-a');
     await links.putAll([
@@ -188,7 +237,12 @@ void main() {
     );
     await store.setAlbumReview(MediaId.subsonic('al-cocteau'), '# 天堂\n听到 $mention 的温度', nowMs: 30);
     await store.recordTrackPlay(
-      LibraryFixtures.track('t-cocteau-5', albumId: 'al-cocteau', album: 'Heaven or Las Vegas', artist: 'Cocteau Twins'),
+      LibraryFixtures.track(
+        't-cocteau-5',
+        albumId: 'al-cocteau',
+        album: 'Heaven or Las Vegas',
+        artist: 'Cocteau Twins',
+      ),
       atMs: 5,
     );
 

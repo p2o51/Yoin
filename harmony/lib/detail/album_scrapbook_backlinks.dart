@@ -47,10 +47,7 @@ class _BacklinksState extends ConsumerState<_Backlinks> {
     widget.album.id,
     title: widget.album.name,
     artist: widget.album.artist,
-    tracks: [
-      for (final t in widget.album.tracks)
-        BacklinkTrack(t.id, title: t.title ?? '', artist: t.artist),
-    ],
+    tracks: [for (final t in widget.album.tracks) BacklinkTrack(t.id, title: t.title ?? '', artist: t.artist)],
   );
 
   Future<void> _load() async {
@@ -99,7 +96,10 @@ class _BacklinksState extends ConsumerState<_Backlinks> {
                     SizedBox.square(
                       dimension: NoteBacklinkTokens.badge,
                       child: DecoratedBox(
-                        decoration: ShapeDecoration(color: colors.ink, shape: PolygonBorder(MaterialShapes.cookie12Sided)),
+                        decoration: ShapeDecoration(
+                          color: colors.ink,
+                          shape: PolygonBorder(MaterialShapes.cookie12Sided),
+                        ),
                         child: Icon(YoinSymbols.at, size: NoteBacklinkTokens.badgeGlyph, color: colors.onInk),
                       ),
                     ),

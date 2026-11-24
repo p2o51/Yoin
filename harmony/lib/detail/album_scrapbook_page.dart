@@ -1815,8 +1815,7 @@ class _NotesClipping extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final n in piece.notes.take(ScrapbookRules.notesShown))
-                  _NoteLine(note: n, onTap: () => onOpen(n)),
+                for (final n in piece.notes.take(ScrapbookRules.notesShown)) _NoteLine(note: n, onTap: () => onOpen(n)),
                 if (piece.hiddenNotes > 0)
                   InkWell(
                     customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),

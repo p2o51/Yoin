@@ -439,7 +439,9 @@ void main() {
       await store.putAlbumNote(_albumNote('an1', '- [ ] find the vinyl', created: 10));
       await toScrapbook(tester);
       final words = find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText));
-      final sticky = words.evaluate().firstWhere((e) => (e.widget as RichText).text.toPlainText().contains('find the vinyl'));
+      final sticky = words.evaluate().firstWhere(
+        (e) => (e.widget as RichText).text.toPlainText().contains('find the vinyl'),
+      );
       await tester.tapAt(tester.getTopLeft(find.byElementPredicate((e) => e == sticky)) + const Offset(4, 8));
       await settle(tester);
       expect((await store.albumNotes(_album.id)).single.content, '- [x] find the vinyl');

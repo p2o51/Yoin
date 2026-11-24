@@ -61,10 +61,7 @@ TextSpan buildNoteSpan(
     for (final node in nodes)
       switch (node) {
         NoteText(:final text) => TextSpan(text: text),
-        NoteBold(:final children) => TextSpan(
-          style: _weighted(base, _boldWeight),
-          children: inlines(children, scale),
-        ),
+        NoteBold(:final children) => TextSpan(style: _weighted(base, _boldWeight), children: inlines(children, scale)),
         NoteItalic(:final children) => TextSpan(
           style: const TextStyle(fontStyle: FontStyle.italic),
           children: inlines(children, scale),
@@ -283,11 +280,7 @@ class _NoteMarkupTextState extends ConsumerState<NoteMarkupText> {
             textDirection: Directionality.of(context),
             maxLines: 1,
           )..layout();
-          final geometry = mentionPillGeometry(
-            fontPx: scaledFont,
-            nameWidthPx: painter.width,
-            lineWidthPx: lineWidth,
-          );
+          final geometry = mentionPillGeometry(fontPx: scaledFont, nameWidthPx: painter.width, lineWidthPx: lineWidth);
           painter.dispose();
           return WidgetSpan(
             alignment: PlaceholderAlignment.middle,
@@ -614,7 +607,9 @@ class MentionPeekCard extends StatelessWidget {
                     if (album != null && album.isNotEmpty)
                       Text(
                         album,
-                        style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant.withValues(alpha: _M.peekAlbumAlpha)),
+                        style: text.bodySmall!.copyWith(
+                          color: colors.onSurfaceVariant.withValues(alpha: _M.peekAlbumAlpha),
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

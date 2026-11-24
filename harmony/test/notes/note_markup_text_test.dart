@@ -40,8 +40,9 @@ TextSpan? _parentOf(InlineSpan root, String text) {
   return null;
 }
 
-InlineSpan _drawn(WidgetTester tester) =>
-    tester.widget<RichText>(find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText)).first).text;
+InlineSpan _drawn(WidgetTester tester) => tester
+    .widget<RichText>(find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText)).first)
+    .text;
 
 Widget _app(Widget child, {List overrides = const []}) => ProviderScope(
   overrides: [...overrides],

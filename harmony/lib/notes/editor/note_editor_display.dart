@@ -193,10 +193,7 @@ class NoteEditorChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: colors.chip,
-      borderRadius: BorderRadius.circular(NoteEditorTokens.chipCorner),
-    ),
+    decoration: BoxDecoration(color: colors.chip, borderRadius: BorderRadius.circular(NoteEditorTokens.chipCorner)),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: NoteEditorTokens.chipPadH),
       child: Text(

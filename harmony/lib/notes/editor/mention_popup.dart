@@ -198,7 +198,10 @@ class _MentionPopupState extends State<MentionPopup> with TickerProviderStateMix
                       ),
                       if (widget.rows.isEmpty)
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: _E.popupEmptyPadH, vertical: _E.popupEmptyPadV),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: _E.popupEmptyPadH,
+                            vertical: _E.popupEmptyPadV,
+                          ),
                           child: Text(
                             widget.loading ? strings.mentionLoading : strings.mentionEmpty,
                             style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
@@ -251,20 +254,15 @@ List<Widget> mentionRowWidgets(
           top: _E.sectionPadTop,
           bottom: _E.sectionPadBottom,
         ),
-        child: Text(
-          switch (kind) {
-            MentionKind.track => strings.mentionSectionTracks,
-            MentionKind.album => strings.mentionSectionAlbums,
-            MentionKind.artist => strings.mentionSectionArtists,
-          },
-          style: text.labelMedium!.copyWith(color: colors.primary),
-        ),
+        child: Text(switch (kind) {
+          MentionKind.track => strings.mentionSectionTracks,
+          MentionKind.album => strings.mentionSectionAlbums,
+          MentionKind.artist => strings.mentionSectionArtists,
+        }, style: text.labelMedium!.copyWith(color: colors.primary)),
       ),
     );
     for (final row in list) {
-      out.add(
-        MentionRow(row: row, query: query, highlighted: index == highlighted, onTap: () => onPick(row.mention)),
-      );
+      out.add(MentionRow(row: row, query: query, highlighted: index == highlighted, onTap: () => onPick(row.mention)));
       index++;
     }
   }
@@ -329,10 +327,7 @@ class MentionRow extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         if (row.artist != null || row.album != null)
-                          MetaLine(
-                            groups: [?_plain(row.artist), ?_muted(row.album)],
-                            color: colors.onSurfaceVariant,
-                          ),
+                          MetaLine(groups: [?_plain(row.artist), ?_muted(row.album)], color: colors.onSurfaceVariant),
                       ],
                     ),
                   ),

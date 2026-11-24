@@ -41,6 +41,5 @@ class NotesStrings {
   String get backlinkKindReview => zh ? '乐评' : 'Review'; // notes_backlink_kind_review
 
   /// notes_backlink_cd: "%1$s, %2$s: %3$s" (the source's name, its meta line, the snippet).
-  String backlinkCd(String name, String meta, String snippet) =>
-      zh ? '$name，$meta：$snippet' : '$name, $meta: $snippet';
+  String backlinkCd(String name, String meta, String snippet) => zh ? '$name，$meta：$snippet' : '$name, $meta: $snippet';
 }

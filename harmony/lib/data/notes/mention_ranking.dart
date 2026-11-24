@@ -245,9 +245,7 @@ abstract final class MentionRanking {
       (MentionKind.album, albums),
       (MentionKind.artist, artists),
     ].where((e) => e.$2.isNotEmpty).toList();
-    final best = [
-      for (final (i, e) in firsts.indexed) (i, e.$1, e.$2.first),
-    ];
+    final best = [for (final (i, e) in firsts.indexed) (i, e.$1, e.$2.first)];
     best.sort((a, b) {
       final t = a.$3.tier.index - b.$3.tier.index;
       if (t != 0) return t;

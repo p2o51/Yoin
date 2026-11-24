@@ -114,7 +114,14 @@ void main() {
   });
 
   Future<void> putNote(String id, String content, {int positionMs = 48000}) => store.putSongNote(
-    SongNote(id: id, trackId: _track.trackId, content: content, createdAt: _now - 1000, updatedAt: _now - 1000, positionMs: positionMs),
+    SongNote(
+      id: id,
+      trackId: _track.trackId,
+      content: content,
+      createdAt: _now - 1000,
+      updatedAt: _now - 1000,
+      positionMs: positionMs,
+    ),
   );
 
   testWidgets('should_bringNoteBack_when_anEditIsEmptiedSavedThenUndone', (tester) async {
