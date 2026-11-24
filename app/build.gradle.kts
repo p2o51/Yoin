@@ -165,6 +165,37 @@ android {
                 // Robolectric 4.17 sets up the API 36 ApplicationSharedMemory through
                 // jdk.internal.access.SharedSecrets, which java.base doesn't export.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+                // Sing's full-model parity test runs the real Lyra-Sing-Lite on the desktop ONNX Runtime
+                // when given the model (not in the repo): -PyoinSingModel=/path/lyra_sing_lite_fp32.onnx.
+                // Optional local run on a real clip made by scripts/sing/gen_sing_fixtures.py --clip:
+                // -PyoinSingClipDir=/path/to/clip-out. Both skip when unset.
+                (
+                    project.findProperty(
+                        "yoinSingModel"
+                    ) as String?
+                    )?.let { path -> it.systemProperty("yoin.sing.model", path) }
+                (
+                    project.findProperty(
+                        "yoinSingClipDir"
+                    ) as String?
+                    )?.let { path -> it.systemProperty("yoin.sing.clipDir", path) }
+                // -PyoinSingPerf=true times a 3-minute song on the desktop JVM (with -PyoinSingModel).
+                (
+                    project.findProperty(
+                        "yoinSingPerf"
+                    ) as String?
+                    )?.let { flag -> it.systemProperty("yoin.sing.perf", flag) }
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Sing runs ONNX Runtime on 64-bit ARM only: a 32-bit or x86 device is far too slow for
+            // the device gate, and each of those ABIs would add 26–45 MB of libonnxruntime.so.
+            // (Without the library the gate reports the device insufficient; see player/sing/.)
+            excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
+                listOf("**/$abi/libonnxruntime.so", "**/$abi/libonnxruntime4j_jni.so")
             }
         }
     }
@@ -233,6 +264,8 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     // Cast (Phase 14)
     implementation(libs.media3.cast)
+    // Sing: Lyra-Sing-Lite on the device (player/sing/)
+    implementation(libs.onnxruntime.android)
     implementation(libs.cast.framework)
     implementation(libs.genai.prompt)
     ksp(libs.genai.schema.compiler)
@@ -285,10 +318,18 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.palette)
+    // The desktop ONNX Runtime (same Java API, macOS/Linux/Windows natives) for Sing's model parity test.
+    testImplementation(libs.onnxruntime.jvm)
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.espresso.core)
     debugImplementation(libs.compose.ui.test.manifest)
+}
+
+// Unit tests run on the desktop JVM: the Android ONNX Runtime package (same ai.onnxruntime classes, Android
+// natives) would shadow the desktop jar there, so it stays off their runtime classpath.
+configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
+    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
 }

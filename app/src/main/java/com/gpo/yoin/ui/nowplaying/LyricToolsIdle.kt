@@ -41,8 +41,9 @@ internal fun lyricToolsIdleEligible(
     lyricsPageSelected: Boolean,
     toolsOnScreen: Boolean,
     selectingLines: Boolean,
+    singEnabled: Boolean = false,
 ): Boolean = isPlaying && hasSyncedLyrics && autoScroll && lyricsPageSelected &&
-    toolsOnScreen && !selectingLines
+    toolsOnScreen && !selectingLines && !singEnabled
 
 /**
  * The idle count behind the auto-hide. A touch anywhere on the player calls

@@ -558,6 +558,56 @@ class AppContainer(private val context: Context) {
         ).also { it.ensureStarted() }
     }
 
+    /**
+     * Sing (karaoke) on this device: Lyra-Sing-Lite through ONNX Runtime, separating while the song
+     * plays and the mixer takes the vocal out live; finished vocal tracks are cached (player/sing/).
+     * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
+     * here loads ONNX Runtime until a song is actually separated.
+     */
+    val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
+        com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)
+    }
+
+    /** Cached `/api/v1/capabilities` Sing probe per active Subsonic/Lyra server URL. */
+    val lyraSingCapabilities: com.gpo.yoin.player.sing.LyraSingCapabilityCache by lazy {
+        com.gpo.yoin.player.sing.LyraSingCapabilityCache(subsonicBaseHttpClient)
+    }
+
+    /** Lyra server Sing path (`/api/v1/sing/{id}/...`), falling back to [singEngine] when offline. */
+    val lyraSingProvider: com.gpo.yoin.player.sing.LyraSingStreamProvider by lazy {
+        com.gpo.yoin.player.sing.LyraSingStreamProvider(
+            credentialsProvider = {
+                (profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource)?.rawCredentials
+            },
+            httpClient = subsonicBaseHttpClient,
+            fallback = singEngine,
+            capabilityCache = lyraSingCapabilities,
+        )
+    }
+
+    /** The Sing API a UI binds to (none yet): on/off, vocal level, status. */
+    val singController: com.gpo.yoin.player.sing.SingController by lazy {
+        applicationScope.launch {
+            profileManager.activeSource.collect { source ->
+                val subsonic = source as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource ?: return@collect
+                lyraSingCapabilities.refresh(subsonic.rawCredentials)
+            }
+        }
+        com.gpo.yoin.player.sing.SingController(
+            scope = applicationScope,
+            selector = com.gpo.yoin.player.sing.SingProviderSelector(
+                onDevice = singEngine,
+                lyra = lyraSingProvider,
+                isLyraOnline = {
+                    val creds = (profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource)
+                        ?.rawCredentials
+                    lyraSingCapabilities.isSingEnabled(creds)
+                },
+            ),
+            waitForHandover = true,
+        )
+    }
+
     val playbackManager: PlaybackManager by lazy {
         PlaybackManager(
             context = context,
