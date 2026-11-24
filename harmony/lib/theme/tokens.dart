@@ -412,6 +412,9 @@ abstract final class NowPlayingNoteTokens {
   static const double glanceRowPadV = 4;
   static const double pageRowPadV = 6;
   static const double glanceInactiveScale = 0.94;
+
+  /// A line open in the write bar for rewriting: its alpha (Android 0.38).
+  static const double editingAlpha = 0.38;
   static const double pageInactiveScale = 0.97;
   static const double metaGap = 2;
 
@@ -2637,6 +2640,9 @@ abstract final class NoteMentionTokens {
   static const double peekElevation = 6;
   static const double peekEnterScale = 0.86;
   static const double peekExitScale = 0.92;
+
+  /// The peek's album line: onSurfaceVariant at this alpha.
+  static const double peekAlbumAlpha = 0.72;
 }
 
 abstract final class NoteEditorTokens {
