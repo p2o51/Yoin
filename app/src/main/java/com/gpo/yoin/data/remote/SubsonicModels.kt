@@ -130,6 +130,18 @@ data class Album(
     val releaseTypes: List<String> = emptyList(),
     /** OpenSubsonic: the release's version (ALBUMVERSION), e.g. "Deluxe"; absent on older servers. */
     val version: String? = null,
+    /** OpenSubsonic: this release's date (RELEASEDATE tag), as far as the tags give it. */
+    val releaseDate: SubsonicItemDate? = null,
+    /** OpenSubsonic: the original release's date (ORIGINALDATE tag). */
+    val originalReleaseDate: SubsonicItemDate? = null,
+)
+
+/** OpenSubsonic ItemDate: every part optional (Navidrome sends `{}` or just a year when that's all it has). */
+@Serializable
+data class SubsonicItemDate(
+    val year: Int? = null,
+    val month: Int? = null,
+    val day: Int? = null,
 )
 
 @Serializable
