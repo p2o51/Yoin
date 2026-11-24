@@ -121,7 +121,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 
 - 旧版本只认 `state` / `artifacts` / `reset` 三种 `yoinKind`，其余文件直接跳过；信封按 `ignoreUnknownKeys` 解析，新增的 `purges` 字段被忽略；不带 `purges` 的信封照旧可读（字段可空、为空时不写，所以没有清除时文件字节与以前完全一样，golden 测试不变）。
 - 代价：旧版本不懂清除，会继续把这个账号的旧数据留在自己的文件里传回去。新版本不收这些记录，但 Drive 里旧版本的文件要等那台设备更新后才干净。旧版本「删除云端数据」不会删清除标记（只删它认识的三种），留着无害。
-- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎没有改，行为等同旧版本。
+- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎同样移植了「应用标记」（引擎、绑定、信封 `purges`、发布时排在 epoch 之后）和 `resumeAccountSync`，所以也会停止回传；云同步页的账号行显示「已从云端移除」和「恢复同步」，但还不能发起移除（`harmony/docs/cloud-sync.md`）。
 
 ## 导出与导入
 
@@ -206,5 +206,5 @@ Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这
 - 手打歌词单独同步（缓存规则已改为用户选的行不按天数过期、整体 10 MiB LRU，见 `data/lyrics/LyricsCachePolicy.kt`，前提已具备）
 - 播放历史（按月分块文件）
 - 自动清理长期不活跃设备的文件
-- iOS 发起「从云端移除」与对应界面；HarmonyOS 应用清除标记（见「从云端移除一个账号」）
+- iOS、HarmonyOS 发起「从云端移除」与对应界面（两边都已应用清除标记，见「从云端移除一个账号」）
 - 转移后在本机删掉旧账号卡片的入口（All Memories / 搜索会合并所有本机账号，不删会看到两份）

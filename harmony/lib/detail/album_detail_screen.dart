@@ -210,7 +210,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         // View in Scrapbook from elsewhere, or Now Playing's Manage in Scrapbook: this page opened for it.
         attached: Builder(
           builder: (takerContext) => ScrapbookFocusTaker(
-            songIds: [for (final t in tracks) t.id],
+            songIds: [albumId, for (final t in tracks) t.id],
             onTake: (focus) => _viewInScrapbook(takerContext, focus),
           ),
         ),
@@ -225,7 +225,7 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
           // Manage in Scrapbook: this page opened for it.
           Builder(
             builder: (takerContext) => ScrapbookFocusTaker(
-              songIds: [for (final t in tracks) t.id],
+              songIds: [albumId, for (final t in tracks) t.id],
               onTake: (focus) => _viewInScrapbook(takerContext, focus),
             ),
           ),
