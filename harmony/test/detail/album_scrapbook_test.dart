@@ -7,6 +7,7 @@ import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/detail/album_scrapbook.dart';
 import 'package:yoin/detail/album_scrapbook_page.dart';
+import 'package:yoin/detail/album_scrapbook_sheet_model.dart';
 import 'package:yoin/detail/album_spectrum_layer.dart';
 import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/playback/playback_controller.dart';
@@ -34,6 +35,16 @@ SongNote _note(String id, int track, {int? at, int created = 0, String text = 'n
   createdAt: created,
   updatedAt: created,
   positionMs: at,
+);
+
+AlbumNote _albumNote(String id, String text, {int created = 1}) => AlbumNote(
+  id: id,
+  albumId: _album.id,
+  content: text,
+  createdAt: created,
+  updatedAt: created,
+  albumName: 'Blue',
+  artist: 'Joni',
 );
 
 const _now = 1763200000000; // 2025-11-15
@@ -129,6 +140,71 @@ void main() {
         // Android's receipt counts the questions asked too (AlbumScrapbook receiptLines).
         ('Asked', '0'),
       ]);
+    });
+
+    test('should_pressEveryAlbumNoteAsAStickyOldestFirst_when_built', () {
+      final data = AlbumScrapbookData(
+        review: 'Late-night record.',
+        albumNotes: [
+          _albumNote('b', '  second  ', created: 20),
+          _albumNote('blank', '   ', created: 5),
+          _albumNote('a', 'first', created: 10),
+          _albumNote('c', 'third', created: 30),
+        ],
+      );
+      final opening = buildAlbumScrapbook(_album, data, nowMs: _now).first as ScrapOpening;
+
+      expect([for (final s in opening.stickies) (s.noteId, s.text)], [('a', 'first'), ('b', 'second'), ('c', 'third')]);
+      // The first leans against the review, each next one against the one above; never 0.
+      expect(opening.stickies.first.tilt.sign, -opening.reviewTilt.sign);
+      for (var i = 1; i < opening.stickies.length; i++) {
+        expect(opening.stickies[i].tilt.sign, -opening.stickies[i - 1].tilt.sign);
+      }
+      expect(opening.stickies.every((s) => ScrapbookRules.paperTilts.contains(s.tilt)), isTrue);
+      // The same page every time.
+      expect((buildAlbumScrapbook(_album, data, nowMs: _now).first as ScrapOpening).stickies, opening.stickies);
+    });
+
+    test('should_dropNothingYetAndCountStickies_when_albumNotesLeft', () {
+      final pieces = buildAlbumScrapbook(
+        _album,
+        AlbumScrapbookData(
+          albumNotes: [_albumNote('a', 'first'), _albumNote('b', 'second')],
+          notes: {
+            _t(2): [_note('n', 2)],
+          },
+          plays: AlbumPlays(albumId: _album.id, playCount: 1, firstPlayedAt: 1, lastPlayedAt: 1),
+        ),
+        nowMs: _now,
+      );
+      expect(pieces.whereType<ScrapNotYet>(), isEmpty);
+      expect(
+        buildAlbumScrapbook(_album, AlbumScrapbookData(albumNotes: [_albumNote('a', 'x')]), nowMs: _now).length,
+        1,
+      );
+      // Every album note counts with the track notes (D3's receipt).
+      expect((pieces.last as ScrapReceipt).lines, contains(('Notes', '3')));
+    });
+
+    test('should_saveTheOpenSticky_when_asked', () {
+      expect(stickySave(StickyEditing.newSticky, '  '), isNull);
+      final created = stickySave(StickyEditing.newSticky, '  whole album  ') as ScrapNewAlbumNoteEdit;
+      expect(created.text, 'whole album');
+      final edited = stickySave('n1', ' new words ') as ScrapAlbumNoteTextEdit;
+      expect((edited.noteId, edited.text), ('n1', 'new words'));
+      final deleted = stickySave('n1', '   ') as ScrapAlbumNoteTextEdit;
+      expect(deleted.text, isEmpty);
+
+      final editing = StickyEditing();
+      var told = 0;
+      editing.addListener(() => told++);
+      editing.startNew();
+      expect((editing.open, editing.text), (StickyEditing.newSticky, ''));
+      editing.startEdit(const ScrapSticky(noteId: 'n1', text: 'words', tilt: 1));
+      expect((editing.open, editing.text), ('n1', 'words'));
+      editing.close();
+      expect(editing.open, isNull);
+      expect(told, 3);
     });
 
     test('should_roundLikeMemories_when_scoreWritten', () {
@@ -248,6 +324,130 @@ void main() {
       expect(node.rect.height, lessThan(60), reason: 'not merged into the hero drag region');
       semantics.dispose();
       await close(tester);
+    });
+
+    Future<void> toScrapbook(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel('Scrapbook'));
+      await settle(tester);
+      expect(find.byType(AlbumScrapbookPage), findsOneWidget);
+    }
+
+    testWidgets('should_writeAStickyInPlace_when_dashedStickyTapped', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final (_, _, store) = await open(tester);
+      await toScrapbook(tester);
+
+      await tester.tap(find.bySemanticsLabel('Write an album note'));
+      await settle(tester);
+      expect(find.text('Write about the whole album'), findsOneWidget);
+      expect(find.bySemanticsLabel('Write an album note'), findsNothing, reason: 'the editor took its place');
+
+      await tester.enterText(find.byType(TextField), '  The whole record is one long night.  ');
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+
+      final notes = await store.albumNotes(_album.id);
+      expect(notes.single.content, 'The whole record is one long night.');
+      expect(notes.single.albumName, 'Blue');
+      expect(notes.single.artist, 'Joni');
+      expect(
+        notes.single.id,
+        matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')),
+      );
+      expect(find.text('The whole record is one long night.'), findsOneWidget);
+      expect(find.bySemanticsLabel('Album note: The whole record is one long night.'), findsOneWidget);
+      expect(find.bySemanticsLabel('Write an album note'), findsOneWidget, reason: 'a dashed sticky for the next');
+      semantics.dispose();
+      await close(tester);
+    });
+
+    testWidgets('should_openANewSticky_when_barepaperTapped_andWriteNothing_when_cancelled', (tester) async {
+      final (_, _, store) = await open(tester);
+      await toScrapbook(tester);
+      final scroll = find.descendant(of: find.byType(AlbumScrapbookPage), matching: find.byType(SingleChildScrollView));
+
+      await tester.tapAt(tester.getBottomLeft(scroll.first) + const Offset(40, -200));
+      await settle(tester);
+      expect(find.text('Write about the whole album'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await settle(tester);
+      expect(find.byType(TextField), findsNothing);
+      expect(await store.albumNotes(_album.id), isEmpty);
+
+      // A blank new sticky writes nothing either.
+      await tester.tapAt(tester.getBottomLeft(scroll.first) + const Offset(40, -200));
+      await settle(tester);
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      expect(await store.albumNotes(_album.id), isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('should_editAndDeleteWithUndo_when_stickyTapped', (tester) async {
+      final (c, _, store) = await open(tester);
+      final notices = <TextNotice>[];
+      final sub = c.read(playbackControllerProvider.notifier).notices.listen((n) {
+        if (n is TextNotice) notices.add(n);
+      });
+      addTearDown(sub.cancel);
+      await store.putAlbumNote(_albumNote('an1', 'first words', created: 10));
+      await store.putAlbumNote(_albumNote('an2', 'second sticky', created: 20));
+      await toScrapbook(tester);
+      expect(find.text('first words'), findsOneWidget);
+      expect(find.text('second sticky'), findsOneWidget);
+
+      await tester.tap(find.text('first words'));
+      await settle(tester);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'first words');
+      await tester.enterText(find.byType(TextField), 'better words');
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      var notes = await store.albumNotes(_album.id);
+      expect([for (final n in notes) (n.id, n.content)], [('an1', 'better words'), ('an2', 'second sticky')]);
+      expect(notes.first.createdAt, 10);
+      expect(notes.first.updatedAt, greaterThan(10));
+
+      await tester.tap(find.text('second sticky'));
+      await settle(tester);
+      await tester.enterText(find.byType(TextField), '   ');
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      expect([for (final n in await store.albumNotes(_album.id)) n.id], ['an1']);
+      expect(find.text('second sticky'), findsNothing);
+      expect(notices.single.text, 'Album note deleted');
+      expect(notices.single.actionLabel, 'Undo');
+
+      notices.single.onAction!();
+      await settle(tester);
+      notes = await store.albumNotes(_album.id);
+      expect(
+        [for (final n in notes) (n.id, n.content, n.createdAt)],
+        [('an1', 'better words', 10), ('an2', 'second sticky', 20)],
+      );
+      expect(notes.last.updatedAt, greaterThan(20));
+      expect(find.text('second sticky'), findsOneWidget);
+      await close(tester);
+    });
+
+    testWidgets('should_tuckStickiesUnderTheReview_when_wideOrPhone', (tester) async {
+      for (final size in const [Size(1280, 800), Size(400, 860)]) {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final (_, _, store) = await open(tester);
+        await store.setAlbumReview(_album.id, 'Late-night record.', nowMs: 1);
+        await store.putAlbumNote(_albumNote('an1', 'one sticky', created: 10));
+        await toScrapbook(tester);
+
+        final review = tester.getRect(find.text('Late-night record.'));
+        final sticky = tester.getRect(find.text('one sticky'));
+        expect(sticky.top, greaterThan(review.top), reason: '$size: under the review');
+        expect(sticky.width, lessThanOrEqualTo(ScrapbookLayout.stickyMaxWidth), reason: '$size');
+        expect(find.bySemanticsLabel('Write an album note'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await close(tester);
+      }
     });
 
     testWidgets('should_playFromNoteMoment_when_noteTapped', (tester) async {
