@@ -1,6 +1,6 @@
 # Open in Yoin & clipboard music links
 
-Owner-approved 2026-11-24. Android ships first; iOS and HarmonyOS reuse the `:shared` parser (gap logged in [platforms.md](platforms.md)).
+Owner-approved 2026-11-24. Android shipped first (#306); iOS follows with the same `:shared` parser and routing (see [iOS](#ios) below); HarmonyOS is still a gap ([platforms.md](platforms.md)).
 
 ## What it does
 
@@ -67,3 +67,23 @@ The toggle no longer sits directly in the Features group.
 - Settings › Features and appearance › Music links: `MusicLinksItem` (row, `SettingsScreen.kt`), `MusicLinksPage.kt` (page + `ClipboardLinksRow`).
 
 Back surfaces: Choose a match is a PushPage-style Activity with Pattern A native cross-Activity back (top-bar back button finishes); the share target has no window.
+
+## iOS
+
+Same parser (`YoinMusicLinkParser`, `YoinSpotifyPageParser` through `YoinShared`), same routing (hit / found by the user's accounts, the one in use else the oldest), same strings (Android's `strings_open_in.xml`, EN + zh-Hans, in `Localizable.xcstrings`; the extension's name in `YoinShare/InfoPlist.xcstrings`). What differs is how a link gets in.
+
+**Share extension "Open in Yoin" (`YoinShare`)**: a share extension with no UI. It takes the shared URL (else text), writes it to the App Group `group.com.gpo.yoin` (`OpenInInbox`: the text and a timestamp) and opens `yoin://open-in` through the responder chain (`openURL:options:completionHandler:`; `UIApplication.open` is unavailable in extensions). The app takes the text once (`onOpenURL`, or on the next return to the front if the extension couldn't open Yoin; dropped after 10 min) and hands it to `OpenInCoordinator.offerShared`: a hit opens or plays at once, a found link opens Choose a match, other text opens Search holding it. Activation: one web URL or text. Yoin still registers no `open.spotify.com` / `music.apple.com` handling.
+
+**Clipboard: pre-detect, then the system Paste button.** iOS shows "Yoin pasted from …" whenever an app reads the pasteboard's content, so on each return to the front (launch and `willEnterForeground`, then the scene going active; never under the landing, never before the first account) Yoin only asks what reading-free APIs say: `changeCount` (a clip already looked at is skipped; the count is remembered, like Android's timestamp), `hasURLs || hasStrings`, then `detectPatterns(for: [\.probableWebURL])`. A probable web link shows the **Paste card**: the link glyph, SwiftUI's `PasteButton` (system label "Paste" / 「粘贴」; the secure control reads on the user's tap without the banner) and ✕. Pasted text with a Spotify / Apple Music link becomes the card proper (hit: cover, service, title, artist, Listen / Open; found: "title · artist", Search, VoiceOver "Search on <service in use>"); anything else closes the card. Nothing is read before the tap; nothing is stored but the change count and the toggle (`OpenInSettings`, UserDefaults, not synced). The card sits over the bar on tinted Liquid Glass (solid with Solid Surfaces), leaves after 12 s (not while VoiceOver runs) and hides under Now Playing and Search.
+
+**Metadata without login (`MusicLinkResolver`)**: Apple Music through MusicKit's `MusicDataRequest` on `/v1/catalog/<storefront>/…` (the app's developer token, no user token; the link's storefront, then `us`). Spotify: the Spotify account in use's Web API, else the open.spotify.com page on an ephemeral `URLSession` (no cookies, cache or credentials; Android's generic user agent, `Accept-Language: en`, first 512 KB). Short links followed by hand (≤ 5 hops). 6 s each; failures leave the plain line.
+
+**Hit**: `ProfileManager.switchTo` when another account is in use, then `libraryFollows` (the switched account's library is up), then a song plays alone (`SpotifySource.track` / `AppleMusicSource.catalogEntry`), an album / artist / playlist page opens. **Found**: `Route.openInResults` → `OpenInResultsView` (Choose a match, a pushed page): `LibraryStore.openInSearch` (catalogue on Apple Music / Spotify, `search3` on a server), `openInSongs(isrc:)` where the link named an ISRC, ranked by `OpenInMatcher` over the shared `TrackMatcher` (same order and "exact" rule as Android). Nothing plays until a row is tapped.
+
+**Settings › Features and appearance › Music links** (`MusicLinksSettingsPage`, third row of the group, summary from the toggle; a `SettingsPane` in the two-pane iPad Settings; `SettingsDestination.musicLinks`): the toggle (on by default) and the two read-only rows, as on Android.
+
+Code: `iosApp/Yoin/OpenIn/` (`OpenInRouting`, `MusicLinkResolver`, `OpenInMatcher`, `OpenInCoordinator`, `ClipboardLinks`, `OpenInInbox`, `OpenInCard`, `OpenInResultsView`, `AppModel+OpenIn`, `OpenInDemo` for QA shots), `iosApp/YoinShare/`; tests `YoinTests/OpenInTests.swift`. QA: `-screen home -openInDemo hit|found|paste|results|settings`.
+
+Needs a real device: the share sheet entry and the extension opening Yoin (the responder-chain open is not App-Review-sanctioned API; if it ever stops working the hand-off still lands on the next return to Yoin), `detectPatterns` / `PasteButton` without the paste banner, and Apple Music catalogue reads (MusicKit's developer token is not available to the ad-hoc-signed simulator build).
+
+**Copy still missing (iOS)**: the Paste card has no line of its own (Rebecca's iOS pre-detect copy isn't in the repo; Android's strings have none for "a link may be in the clipboard, not read yet"), so it shows only the system Paste button. Also none for "the pasted text holds no music link" (the card just closes).

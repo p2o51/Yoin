@@ -19,4 +19,5 @@ Launch arguments: `-screen home|library|album|np|np-frost|np-panel|landing|home-
   `tools/gen_sfsymbols.py --repo ../yoin-symbols --out <dir> <names…>` (needs `shapely`).
 - Fonts: Google Sans Flex 400–700 copied from the Android `res/font`.
 - Seek bar: `NowPlaying/WavyProgress.swift` (M3 Expressive wavy indicator port).
+- Open in Yoin (share extension `YoinShare`, clipboard music links): `../docs/open-in-yoin.md#ios`; QA shots `-screen home -openInDemo hit|found|paste|results|settings`.
 - Notes: `docs/ipad.md`, `docs/symbols-ios.md`, `docs/wave-progress.md`.
