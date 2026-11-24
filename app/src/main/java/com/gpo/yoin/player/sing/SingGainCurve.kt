@@ -7,10 +7,15 @@ import kotlin.math.pow
  * Slider position p ∈ [0, 1] ↔ vocal gain g. Perceptual: equal slider steps are roughly equal steps in
  * loudness — g = 10^(−[RANGE_DB]·(1 − p)/20) — with the last [KNEE] of travel fading linearly to
  * true silence so p = 0 is g = 0 (no vocal), p = 1 is g = 1 (the original mix).
+ *
+ * 28 dB (owner, 2026-11-24; same numbers on iOS): the default 12 % sits at p ≈ 0.342, a third of the
+ * way up, so the quiet-vocal end gets most of the travel (48 dB put it at 0.62, "over half"). The knee
+ * starts at g ≈ 4.7 %. The level is only remembered in memory as a position (not persisted), so an
+ * app update moves nothing on disk.
  */
 object SingGainCurve {
     /** The slider spans this many dB above the silent knee. */
-    const val RANGE_DB = 48.0
+    const val RANGE_DB = 28.0
 
     /** Below this position the gain falls linearly from its knee value to 0. */
     const val KNEE = 0.05

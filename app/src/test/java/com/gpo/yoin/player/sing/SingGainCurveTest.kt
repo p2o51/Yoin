@@ -25,12 +25,12 @@ class SingGainCurveTest {
 
     @Test
     fun should_beLogarithmic_when_aboveKnee() {
-        // Equal slider steps are equal dB steps: 48 dB over the travel.
+        // Equal slider steps are equal dB steps: 28 dB over the travel.
         val a = SingGainCurve.gainFor(0.5f)
         val b = SingGainCurve.gainFor(0.75f)
         val c = SingGainCurve.gainFor(1f)
         assertEquals(b / a, c / b, 1e-4f)
-        assertEquals(12.0, 20 * kotlin.math.log10((c / b).toDouble()), 1e-3)
+        assertEquals(7.0, 20 * kotlin.math.log10((c / b).toDouble()), 1e-3)
     }
 
     @Test
@@ -45,6 +45,20 @@ class SingGainCurveTest {
     fun should_default12Percent_when_singStarts() {
         assertEquals(0.12f, SingGainCurve.gainFor(SingGainCurve.DEFAULT_POSITION), 1e-5f)
         assertEquals(12, VocalLevel.DEFAULT.percent)
+    }
+
+    @Test
+    fun should_sitDefaultAtAThird_when_rangeIs28Db() {
+        // Shared with iOS: RANGE_DB 28, KNEE 0.05, DEFAULT_GAIN 0.12 → p ≈ 0.342.
+        assertEquals(28.0, SingGainCurve.RANGE_DB, 0.0)
+        assertEquals(0.05, SingGainCurve.KNEE, 0.0)
+        assertEquals(0.3423f, SingGainCurve.DEFAULT_POSITION, 1e-3f)
+        // The snap zone (10–13.5 %) spans p ≈ 0.286..0.379; the knee starts at ≈ 4.7 %.
+        assertEquals(0.2857f, SingGainCurve.positionFor(SingGainCurve.SNAP_LOW_GAIN), 1e-3f)
+        assertEquals(0.3788f, SingGainCurve.positionFor(SingGainCurve.SNAP_HIGH_GAIN), 1e-3f)
+        assertEquals(0.0468f, SingGainCurve.gainFor(SingGainCurve.KNEE.toFloat()), 1e-3f)
+        // Half way up is −14 dB (20 %).
+        assertEquals(0.1995f, SingGainCurve.gainFor(0.5f), 1e-3f)
     }
 
     @Test
