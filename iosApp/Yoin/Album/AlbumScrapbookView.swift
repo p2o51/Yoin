@@ -212,6 +212,7 @@ struct AlbumScrapbookView: View {
         }
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
+        .onChange(of: ScrapbookFocusRequest.shared.pendingAlbum) { _, _ in openFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in
             openFocus()
             #if DEBUG
@@ -253,11 +254,15 @@ struct AlbumScrapbookView: View {
 
     /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
     /// pager has come to rest here, the song's sheet opens at that row's editor.
+    /// A note's album mention wanted just this page: it is taken and that's all.
     private func openFocus() {
-        guard settled, ScrapbookFocusRequest.shared.pending != nil else { return }
+        let request = ScrapbookFocusRequest.shared
+        guard settled, request.pending != nil || request.pendingAlbum != nil else { return }
         // Next turn: a sheet state written during the page's first update is dropped.
         Task {
-            guard onScreen, let focus = ScrapbookFocusRequest.shared.take(for: album.tracks.map(\.id)),
+            guard onScreen else { return }
+            _ = request.takeAlbum(album.id)
+            guard let focus = request.take(for: album.tracks.map(\.id)),
                   let t = album.tracks.first(where: { $0.id == focus.songId }) else { return }
             guard focus.openSheet else { return pointedOut = t.id }
             trackSheet = ScrapSheetOpen(track: t, editing: focus.edit)
@@ -346,8 +351,8 @@ struct AlbumScrapbookView: View {
             Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
-                Text(review)
-                    .font(.gsf(15)).lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
+                NoteMarkupText(text: review, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.primary)
+                    .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
                 if let reviewAt {
                     Text(reviewAt)
@@ -382,9 +387,9 @@ struct AlbumScrapbookView: View {
             }
             // Album note sticky: own row on the end side, tucks 6 over the review.
             if let albumNote {
-            Text(albumNote)
+            NoteMarkupText(text: albumNote, size: 14.5, mentionColor: s.onSecondaryContainer, glyphColor: s.primary)
                 // userTextStyle at 14.5: line 1.5 em.
-                .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
+                .lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
                 .foregroundStyle(s.onSecondaryContainer)
                 .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
                 .frame(width: min(0.72 * 368, Tokens.detail.SCRAPBOOK_STICKY_MAX_WIDTH.cg), alignment: .leading)
@@ -393,7 +398,7 @@ struct AlbumScrapbookView: View {
                 .modifier(layer(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper)), depth: 0.45))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
-                .accessibilityLabel("Album note: \(albumNote)")
+                .accessibilityLabel("Album note: \(NoteMarkupRender.words(albumNote))")
             }
         }
     }
@@ -677,7 +682,7 @@ struct AlbumScrapbookView: View {
                             Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            Text(n.text).font(.gsf(15))
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary)
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                                 .foregroundStyle(s.onSurface)
                                 .multilineTextAlignment(.leading)
@@ -688,7 +693,8 @@ struct AlbumScrapbookView: View {
                     }
                     .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
-                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
+                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(NoteMarkupRender.words(n.text))")
+                        : String(localized: "Note at \(n.time): \(NoteMarkupRender.words(n.text))"))
                 }
                 if ns.count > ScrapbookRules.notesShown {
                     // Android "+N notes": the rest in the sheet's Notes tab.
@@ -1354,7 +1360,7 @@ struct AlbumRateSheet: View {
             text = Self.unsaved.removeValue(forKey: album.id) ?? record?.review ?? ""
             neo.sheetOpened(album)
         }
-        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: normalizedText != record?.review) }
+        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: wordsUnsaved) }
         // Saved as they are typed (a second after the last key), not only when the sheet goes: a sheet
         // that never closes cleanly kept nothing (Codex 11-07).
         .task(id: text) {
@@ -1371,6 +1377,9 @@ struct AlbumRateSheet: View {
             Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
         }
     }
+
+    /// Words that differ from the saved review (whitespace around them aside).
+    private var wordsUnsaved: Bool { normalizedText != record?.review && !NotesStore.sameWords(text, record?.review) }
 
     private var normalizedText: String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1427,7 +1436,7 @@ struct AlbumRateSheet: View {
                                     reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now))
         }
         NeoDBPendingStore.shared.markRatingChanged(provider: album.id.provider, albumId: album.id.rawId)
-        neo.edited(album, unsavedWords: normalizedText != record?.review)
+        neo.edited(album, unsavedWords: wordsUnsaved)
         CloudSync.shared.localChanged()
     }
 
@@ -1439,6 +1448,8 @@ struct AlbumRateSheet: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.isEmpty ? nil : trimmed
         let was = record
+        // Unchanged words keep the stored review byte for byte (an Android review's markup and spacing).
+        if NotesStore.sameWords(text, was?.review) { return true }
         guard normalized != was?.review, was != nil || normalized != nil else { return true }
         guard memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
                                       rating: was?.rating ?? 0, review: normalized,

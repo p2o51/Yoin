@@ -318,7 +318,10 @@ struct NotePageLine: View {
             }
             .frame(width: NoteLinesView.stampColumn, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(note.content)
+                // The stored markup drawn: headings, lists, to-dos, bold / italic and mentions (primary).
+                NoteMarkupText(text: note.content, size: Tokens.type.bodyLarge.size.cg,
+                               weight: isActive ? .semibold : .regular,
+                               mentionColor: scheme.primary, glyphColor: scheme.primary)
                     .yoinRole(Tokens.type.bodyLarge, weight: isActive ? .semibold : .regular)
                     .foregroundStyle(isActive ? scheme.primary : scheme.onSurface)
                     .fixedSize(horizontal: false, vertical: true)
