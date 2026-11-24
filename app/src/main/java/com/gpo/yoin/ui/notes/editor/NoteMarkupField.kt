@@ -1,6 +1,16 @@
 package com.gpo.yoin.ui.notes.editor
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import kotlin.math.roundToInt
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
@@ -78,6 +88,7 @@ fun NoteMarkupField(
 ) {
     val haptics = rememberYoinHaptics()
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var fieldTopPx by remember { mutableIntStateOf(0) }
     val output = remember(colors) { NoteEditorOutputTransformation(colors) }
     val trigger = state.trigger
     var rows by remember { mutableStateOf(MentionCandidates.Empty) }
@@ -103,7 +114,10 @@ fun NoteMarkupField(
     LaunchedEffect(state) {
         snapshotFlow { state.fieldState.text.toString() to state.fieldState.selection }.collect { state.syncDismissal() }
     }
-    val popupOpen = mentionPopup && trigger != null && !state.searchOpen
+    // Mention mode ends with the field's focus too (a tap elsewhere in the app): the popup itself never
+    // closes on an outside touch, as a tap on the soft keyboard is one (MentionPopupProperties).
+    var focused by remember { mutableStateOf(false) }
+    val popupOpen = mentionPopupOpen(mentionPopup, trigger, focused, state.searchOpen)
     // What a soft keyboard's Enter picks (its newline becomes this mention).
     // Read here, in composition, so new rows or a moved highlight hand Enter the row now on top.
     val enterPick = if (popupOpen) rows.all.getOrNull(state.highlighted)?.mention else null
@@ -116,7 +130,7 @@ fun NoteMarkupField(
     BasicTextField(
         state = state.fieldState,
         enabled = enabled,
-        modifier = modifier.onPreviewKeyEvent { event ->
+        modifier = modifier.onFocusChanged { focused = it.isFocused }.onPreviewKeyEvent { event ->
             if (!popupOpen || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             val all = rows.all
             when (event.key) {
@@ -157,7 +171,7 @@ fun NoteMarkupField(
             }
         },
         decorator = TextFieldDecorator { inner ->
-            Box {
+            Box(modifier = Modifier.onGloballyPositioned { fieldTopPx = it.positionInWindow().y.roundToInt() }) {
                 if (placeholder != null && state.fieldState.text.isEmpty()) {
                     Text(
                         text = placeholder,
@@ -168,9 +182,28 @@ fun NoteMarkupField(
                     )
                 }
                 inner()
-                if (popupOpen) {
+                if (popupOpen && trigger != null) {
                     val caret = remember(trigger, layout) { caretRect(state, trigger, layout) }
+                    // Clear of the keyboard and the status bar; the rows shrink to the roomier side if need be.
+                    val density = LocalDensity.current
+                    val bottomLimit = LocalWindowInfo.current.containerSize.height - WindowInsets.ime.getBottom(density)
+                    val topLimit = WindowInsets.statusBars.getTop(density)
+                    val listMax = with(density) {
+                        mentionPopupListMax(
+                            caretTop = fieldTopPx + caret.top.roundToInt(),
+                            caretBottom = fieldTopPx + caret.bottom.roundToInt(),
+                            topLimit = topLimit,
+                            bottomLimit = bottomLimit,
+                            margin = PopupMargin.roundToPx(),
+                            chrome = PopupChrome.roundToPx(),
+                            min = PopupMinListHeight.roundToPx(),
+                            max = PopupMaxListHeight.roundToPx(),
+                        ).toDp()
+                    }
                     MentionPopup(
+                        listMaxHeight = listMax,
+                        topLimitPx = topLimit,
+                        bottomLimitPx = bottomLimit,
                         anchor = caret,
                         rows = rows,
                         loading = loading,
@@ -228,6 +261,10 @@ private fun MentionCandidates.withoutSearchRows(): MentionCandidates {
 
 private fun MentionCandidates.capped(): MentionCandidates =
     copy(tracks = tracks.take(PopupRowsPerKind), albums = albums.take(PopupRowsPerKind), artists = artists.take(PopupRowsPerKind))
+
+/** The @ popup shows while an `@` is typed at the caret of the focused field (and the search sheet isn't up). */
+internal fun mentionPopupOpen(enabled: Boolean, trigger: MentionTrigger?, focused: Boolean, searchOpen: Boolean): Boolean =
+    enabled && trigger != null && focused && !searchOpen
 
 private const val QueryDebounceMs = 160L
 private const val PopupRowsPerKind = 5

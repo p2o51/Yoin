@@ -133,4 +133,26 @@ class NoteMarkupFieldTest {
         rule.waitForIdle()
         assertEquals(listOf("灯塔"), NoteMarkup.mentions(state.text).map { it.title })
     }
+
+    @Test
+    fun should_endMentionMode_when_theFieldLosesFocus_notOnATouchOutsideThePopup() {
+        val state = NoteEditorState("")
+        lateinit var focus: androidx.compose.ui.focus.FocusManager
+        rule.setContent {
+            focus = androidx.compose.ui.platform.LocalFocusManager.current
+            YoinTheme {
+                NoteMarkupField(state = state, candidates = source, romanizer = MentionRomanizer.None, modifier = Modifier.testTag("field"))
+            }
+        }
+        rule.onNodeWithTag("field").performTextInput("@")
+        rule.waitForIdle()
+        rule.onNodeWithTag("field").performTextInput("N")
+        rule.waitForIdle()
+        assertEquals("New York", state.enterPick?.title)
+
+        // a tap elsewhere in the app takes focus away: the popup goes with it
+        rule.runOnIdle { focus.clearFocus() }
+        rule.waitForIdle()
+        assertNull(state.enterPick)
+    }
 }

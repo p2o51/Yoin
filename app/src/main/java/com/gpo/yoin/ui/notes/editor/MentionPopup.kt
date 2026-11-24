@@ -54,6 +54,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -94,14 +95,20 @@ internal fun MentionPopup(
     onPick: (NoteMention) -> Unit,
     onExpand: () -> Unit,
     onDismiss: () -> Unit,
+    // The rows' room: the popup stays clear of the keyboard and the status bar ([topLimitPx] / [bottomLimitPx]).
+    listMaxHeight: Dp = PopupMaxListHeight,
+    topLimitPx: Int = 0,
+    bottomLimitPx: Int = Int.MAX_VALUE,
 ) {
     val marginPx = with(LocalDensity.current) { PopupMargin.roundToPx() }
-    val position = remember(anchor, marginPx) { CaretPopupPosition(anchor, marginPx) }
+    val position = remember(anchor, marginPx, topLimitPx, bottomLimitPx) {
+        CaretPopupPosition(anchor, marginPx, topLimitPx, bottomLimitPx)
+    }
     val visible = remember { MutableTransitionState(false) }.apply { targetState = true }
     Popup(
         popupPositionProvider = position,
         onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = false, clippingEnabled = true),
+        properties = MentionPopupProperties,
     ) {
         AnimatedVisibility(
             visibleState = visible,
@@ -135,7 +142,7 @@ internal fun MentionPopup(
                             Text(stringResource(R.string.notes_mention_expand))
                         }
                     }
-                    Column(modifier = Modifier.heightIn(max = PopupMaxListHeight).verticalScroll(rememberScrollState())) {
+                    Column(modifier = Modifier.heightIn(max = listMaxHeight).verticalScroll(rememberScrollState())) {
                         MentionRows(rows = rows, query = query, highlighted = highlighted, onPick = onPick)
                         if (rows.isEmpty) {
                             Text(
@@ -249,34 +256,91 @@ private fun highlightMatch(title: String, query: String) = buildAnnotatedString 
  * first line): above the whole field when there's room (the write bar's words stay in view), else above the
  * caret's line, else below it. Horizontally it starts at the caret.
  */
-private class CaretPopupPosition(private val caret: Rect, private val marginPx: Int) : PopupPositionProvider {
+private class CaretPopupPosition(
+    private val caret: Rect,
+    private val marginPx: Int,
+    private val topLimitPx: Int,
+    private val bottomLimitPx: Int,
+) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
-    ): IntOffset = mentionPopupOffset(anchorBounds, caret, windowSize, popupContentSize, marginPx)
+    ): IntOffset = mentionPopupOffset(
+        anchorBounds, caret, windowSize, popupContentSize, marginPx,
+        topLimit = topLimitPx,
+        bottomLimit = bottomLimitPx.coerceAtMost(windowSize.height),
+    )
 }
 
-/** [CaretPopupPosition]'s placement: [field] in window pixels, [caret] relative to it. */
-internal fun mentionPopupOffset(field: IntRect, caret: Rect, window: IntSize, popup: IntSize, margin: Int): IntOffset {
+/**
+ * The @ popup's window: it never takes focus (the keyboard stays with the field), and a touch outside it — a key
+ * on the soft keyboard above all (2026-11-24 tablet QA: the first key tapped closed it) — doesn't close it. The
+ * editor ends mention mode itself: the caret leaving the `@` word, the field losing focus, Esc, a pick.
+ */
+internal val MentionPopupProperties = PopupProperties(
+    focusable = false,
+    dismissOnClickOutside = false,
+    clippingEnabled = true,
+)
+
+/**
+ * [CaretPopupPosition]'s placement: [field] in window pixels, [caret] relative to it; the popup stays between
+ * [topLimit] (the status bar) and [bottomLimit] (the keyboard's top). Above the field if it fits, else above
+ * the caret's line, else below it; when neither side holds it whole (its rows are then held to the larger
+ * side, [mentionPopupListMax]), the side with more room.
+ */
+internal fun mentionPopupOffset(
+    field: IntRect,
+    caret: Rect,
+    window: IntSize,
+    popup: IntSize,
+    margin: Int,
+    topLimit: Int = 0,
+    bottomLimit: Int = window.height,
+): IntOffset {
     val caretTop = field.top + caret.top.toInt()
     val caretBottom = field.top + caret.bottom.toInt()
+    val top = topLimit + margin
+    val bottom = bottomLimit - margin
     val x = (field.left + caret.left.toInt() - margin * 2)
         .coerceIn(margin, (window.width - popup.width - margin).coerceAtLeast(margin))
     val aboveField = field.top - popup.height - margin
     val aboveLine = caretTop - popup.height - margin
+    val below = caretBottom + margin
     val y = when {
-        aboveField >= margin -> aboveField
-        aboveLine >= margin -> aboveLine
-        else -> caretBottom + margin
+        aboveField >= top -> aboveField
+        aboveLine >= top -> aboveLine
+        below + popup.height <= bottom -> below
+        caretTop - top >= bottom - caretBottom -> maxOf(top, aboveLine)
+        else -> below
     }
     return IntOffset(x, y)
 }
 
+/**
+ * How tall the rows may be: what fits on the roomier side of the caret's line ([caretTop] / [caretBottom] in
+ * window pixels) between [topLimit] and [bottomLimit], less the popup's own [chrome], within [min]..[max].
+ */
+internal fun mentionPopupListMax(
+    caretTop: Int,
+    caretBottom: Int,
+    topLimit: Int,
+    bottomLimit: Int,
+    margin: Int,
+    chrome: Int,
+    min: Int,
+    max: Int,
+): Int = (maxOf(caretTop - topLimit, bottomLimit - caretBottom) - margin * 2 - chrome).coerceIn(min, max)
+
 private val PopupWidth = 312.dp
-private val PopupMargin = 8.dp
-private val PopupMaxListHeight = 300.dp
+internal val PopupMargin = 8.dp
+internal val PopupMaxListHeight = 300.dp
+internal val PopupMinListHeight = 96.dp
+
+/** The popup around its rows: the title row and padding. */
+internal val PopupChrome = 64.dp
 
 /**
  * "展开搜索": the whole search as a sheet (prototype scenario 2): a search field, then songs, albums and

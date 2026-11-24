@@ -151,15 +151,15 @@ class NoteEditorTextTest {
         val text = "- [ ] 听 $link\n- 一条"
         val display = NoteEditorDisplay.of(text)
         val shown = display.replacements.map { it.shown }
-        assertEquals(listOf(NoteEditorDisplay.TODO, "@Andromeda", NoteEditorDisplay.BULLET), shown)
+        assertEquals(listOf(NoteEditorDisplay.TODO, chipText("Andromeda"), NoteEditorDisplay.BULLET), shown)
         // the caret after the chip's link sits after the chip's words
         val afterLink = text.indexOf(link) + link.length
-        assertEquals(NoteEditorDisplay.TODO.length + 2 + "@Andromeda".length, display.toDisplay(afterLink))
+        assertEquals(NoteEditorDisplay.TODO.length + 2 + chipText("Andromeda").length, display.toDisplay(afterLink))
         // inside the link: snapped to the chip's end
         assertEquals(display.toDisplay(afterLink), display.toDisplay(afterLink - 3))
         val chip = display.styles.single { it.kind == NoteEditorDisplay.Kind.Chip }
         assertEquals(andromeda, chip.mention)
-        assertEquals("@Andromeda".length, chip.end - chip.start)
+        assertEquals(chipText("Andromeda").length, chip.end - chip.start)
     }
 
     // ── @ mode: composing text and Enter (notes 0.6.4) ───────────────────
@@ -241,5 +241,19 @@ class NoteEditorTextTest {
         assertEquals("", NoteEditorText.trigger("这首像＠", 4)?.query)
         val fix = NoteEditorText.insertMention("这首像＠灯塔", 6, 6, NoteEditorText.trigger("这首像＠灯塔", 6), andromeda)
         assertEquals("这首像$link ", fix.text)
+    }
+
+    @Test
+    fun should_holdAChipTogether_soTheEditorNeverBreaksInsideIt() {
+        val shown = chipText("Northern Field Recordings")
+
+        // no ordinary space, and a word joiner between every two characters: no break opportunity inside
+        assertEquals(false, shown.contains(' '))
+        assertEquals("@Northern Field Recordings", shown.replace("\u2060", "").replace('\u00A0', ' '))
+        assertEquals(shown.length, "@Northern Field Recordings".length * 2 - 1)
+        assertEquals("@\u2060林\u2060间", chipText("林间"))
+        // an emoji's surrogate pair and an accent mark stay one character
+        assertEquals("@\u2060\uD83C\uDF0A", chipText("\uD83C\uDF0A"))
+        assertEquals("@\u2060e\u0301", chipText("e\u0301"))
     }
 }
