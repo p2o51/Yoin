@@ -11,9 +11,11 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../nowplaying/haptics.dart';
+import '../notes/note_markup_text.dart';
 import '../nowplaying/note_logic.dart' show formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
@@ -585,7 +587,9 @@ class _Opening extends ConsumerWidget {
     // A long review gets the full width under the cover; on a phone the
     // column beside the cover belongs to the title when there is one.
     final reviewBeside =
-        (wide || review == null || weightedLength(review) <= ScrapbookRules.openingBesideBudget) &&
+        (wide ||
+            review == null ||
+            weightedLength(NoteMarkup.plainText(review)) <= ScrapbookRules.openingBesideBudget) &&
         (wide || title == null);
     final url = coverUrl;
     return MemoryPaletteBuilder(
@@ -849,9 +853,10 @@ class _ReviewClipping extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  NoteMarkupText(
                     text,
                     style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.55, color: colors.onReview),
+                    mentionColor: colors.onReview,
                   ),
                   // When it was written, quietly at the foot (owner 2026-10-05).
                   if (at != null) ...[
@@ -1663,9 +1668,10 @@ class _NoteLine extends StatelessWidget {
     final strings = DetailStrings.of(context);
     final theme = Theme.of(context);
     final at = note.positionMs == null ? null : formatNotePosition(note.positionMs!);
+    final words = NoteMarkup.plainText(note.content);
     return Semantics(
       button: true,
-      label: at == null ? strings.scrapCdNote(note.content) : strings.scrapCdNoteAt(at, note.content),
+      label: at == null ? strings.scrapCdNote(words) : strings.scrapCdNoteAt(at, words),
       excludeSemantics: true,
       child: InkWell(
         customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
@@ -1690,9 +1696,10 @@ class _NoteLine extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: Text(
+                child: NoteMarkupText(
                   note.content,
                   style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.5, color: colors.onNote),
+                  mentionColor: colors.ink,
                 ),
               ),
             ],

@@ -146,6 +146,8 @@ class CloudSyncViewModel extends Notifier<CloudSyncPageState> {
 
   void startFreshAccount(String localProfileId) => _controller.startFreshAccount(localProfileId);
 
+  void resumeAccountSync(String localProfileId) => _controller.resumeAccountSync(localProfileId);
+
   void removeDevice(String deviceId) => _controller.removeDevice(deviceId);
 
   /// A music account was just added from "In your Drive": sync now so its data comes down at once.

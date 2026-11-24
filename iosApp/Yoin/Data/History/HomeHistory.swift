@@ -241,16 +241,64 @@ enum HomeHistory {
 
     // MARK: Jump Back In 1×2s
 
-    /// `pickJbiMemoryCandidate` (no reviews on iOS): the first eligible album
-    /// with an album rating or a track average.
-    static func ratedAlbumSignal(_ memories: [AlbumMemory]) -> JBISignal? {
-        guard let m = memories.first(where: { $0.isMemoryEligible && ($0.albumRating != nil || $0.averageSongRating != nil) })
+    /// JBI_RECENT_PLAY_MS: an album played this recently makes way for the others.
+    static let jbiRecentPlayMs: Int64 = 2 * 60 * 60 * 1000
+
+    /// `pickJbiMemoryCandidate`'s card: the memory whose [turn] it is (JbiMemoryTurn) among the eligible
+    /// albums with an album rating or a track average (the card always shows a score, so unscored memories,
+    /// which take turns on Android, stay out).
+    static func ratedAlbumSignal(_ memories: [AlbumMemory], avoid: String? = nil, prefer: String? = nil,
+                                 turn: Int64 = 0, recentlyPlayedBefore: Int64? = nil) -> JBISignal? {
+        let scored = memories.filter { $0.isMemoryEligible && ($0.albumRating != nil || $0.averageSongRating != nil) }
+        guard let m = pickJbiMemories(scored, avoid: avoid, prefer: prefer, count: 1, turn: turn,
+                                      recentlyPlayedBefore: recentlyPlayedBefore).first
         else { return nil }
         let trackBasis = m.ratedTrackCount > 0 && m.totalTracks > 0
         return JBISignal(kind: .ratedAlbum, album: m.album, title: m.album.title, subtitle: m.album.artist,
                          score: scoreText(m.albumRating ?? m.averageSongRating),
                          basis: trackBasis ? String(localized: "Based on \(m.ratedTrackCount)/\(m.totalTracks) tracks") : nil,
                          comment: nil, song: nil)
+    }
+
+    /// `pickJbiMemoryCandidates`: every memory takes a turn, the next ones each new [turn], the same within
+    /// one. The order is a deck shuffled anew each round, so every memory comes up once a round and no round
+    /// runs like the last. Never the header's latest memory ([avoid]) nor an album played since
+    /// [recentlyPlayedBefore] while others remain; the album already shown ([prefer]) stays first while it is
+    /// a memory, so writing on it doesn't change the card.
+    static func pickJbiMemories(_ candidates: [AlbumMemory], avoid: String?, prefer: String?, count: Int,
+                                turn: Int64, recentlyPlayedBefore: Int64?) -> [AlbumMemory] {
+        var seen = Set<String>()
+        // Kotlin's String order (UTF-16 units), so the deck is Android's.
+        let all = candidates.filter { seen.insert($0.albumId).inserted }
+            .sorted { $0.albumId.utf16.lexicographicallyPrecedes($1.albumId.utf16) }
+        guard !all.isEmpty, count > 0 else { return [] }
+        let fresh = all.filter { m in
+            m.albumId != avoid && !(recentlyPlayedBefore.map { before in (m.lastPlayedAt ?? .min) >= before } ?? false)
+        }
+        let others = all.filter { $0.albumId != avoid }
+        let pool = !fresh.isEmpty ? fresh : !others.isEmpty ? others : all
+        let deck = jbiDeck(pool, turn: turn)
+        let size = Int64(pool.count)
+        let start = Int(((turn % size) + size) % size)
+        let dealt = (0..<min(count, pool.count)).map { deck[(start + $0) % deck.count] }
+        guard let prefer, let kept = all.first(where: { $0.albumId == prefer }) else { return dealt }
+        return Array(([kept] + dealt.filter { $0.albumId != prefer }).prefix(count))
+    }
+
+    /// `jbiDeck`: [pool] (in a stable order) shuffled for the round [turn] falls in: the same on every
+    /// refresh of that round (a seeded Fisher–Yates over the albums' ids), a new order each round.
+    static func jbiDeck(_ pool: [AlbumMemory], turn: Int64) -> [AlbumMemory] {
+        guard !pool.isEmpty else { return [] }
+        let size = Int64(pool.count)
+        let round = turn >= 0 ? turn / size : -((-turn - 1) / size) - 1
+        var seed = round &* 6364136223846793005 &+ 1442695040888963407
+        for m in pool { for c in m.albumId.utf16 { seed = seed &* 31 &+ Int64(c) } }
+        var deck = pool
+        for i in stride(from: deck.count - 1, through: 1, by: -1) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            deck.swapAt(i, Int((UInt64(bitPattern: seed) >> 33) % UInt64(i + 1)))
+        }
+        return deck
     }
 
     /// `loadNotedTrackCards`' primary: the most recently touched note, with

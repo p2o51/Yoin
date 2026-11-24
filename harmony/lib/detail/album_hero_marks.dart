@@ -9,6 +9,7 @@ import '../memories/album_score.dart';
 import '../memories/emblem/groove_geometry.dart' show GrooveScoreKind;
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
+import '../notes/note_markup_text.dart';
 import '../theme/motion.dart';
 import '../ui/component/artwork_image.dart';
 import '../ui/component/rating_bloom.dart';
@@ -318,7 +319,7 @@ class AlbumReviewText extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           spacing: AlbumHeroTokens.reviewDateGap,
           children: [
-            Text(
+            NoteMarkupText(
               review,
               maxLines: AlbumHeroTokens.reviewMaxLines,
               overflow: TextOverflow.ellipsis,
