@@ -43,15 +43,18 @@ interface SingStreamProvider {
 /**
  * A song Sing is asked for. [streamUri] is the url the player streams the original from (the
  * on-device engine reads the same bytes, from the downloads or the stream cache when it can);
- * [positionMs] is where playback is, so the engine starts there.
+ * [positionMs] is where playback was as Sing was turned on (or followed the track), [playing] whether
+ * it was moving on — the engine plans its first chunk, seeks its decoder and checks a kept track
+ * there, before the player's first [SingStreamProvider.onPlayhead] report.
  */
 data class SingRequest(
     val songId: MediaId,
     val profileId: String,
     val streamUri: String? = null,
     val positionMs: Long = 0L,
+    val playing: Boolean = true,
 ) {
-    /** Identity for caches and job de-duplication; [positionMs] is a hint, not part of it. */
+    /** Identity for caches and job de-duplication; [positionMs] and [playing] are hints, not part of it. */
     val key: String get() = "$profileId|${songId.provider}|${songId.rawId}"
 }
 

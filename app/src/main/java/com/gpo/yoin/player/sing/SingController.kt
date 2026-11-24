@@ -91,13 +91,22 @@ class SingController(
 
     private var statusJob: Job? = null
 
+    /**
+     * The playing song's request at the player's position now ([SingPlaybackSwitcher.currentRequest]);
+     * [State.current] holds the position from when the song came on, long gone by the time Sing is
+     * turned on mid-song. Read on the player's thread, as [enter] is called.
+     */
+    @Volatile var currentRequestSource: (() -> SingRequest?)? = null
+
     /** Whether Sing can be offered for a service at all (Spotify and Apple Music: no). */
     fun isSupported(providerId: String?): Boolean = SingProviderSelector.supportsSing(providerId)
 
     /** Sing on for the playing song. False when there is none or it can't be sung. */
     fun enter(): Boolean {
-        val request = _state.value.current ?: return false
-        if (availabilityOf(request) !is SingAvailability.Available) return false
+        val known = _state.value.current ?: return false
+        if (availabilityOf(known) !is SingAvailability.Available) return false
+        // Where the listener is now (the engine starts there), not where the song started.
+        val request = currentRequestSource?.invoke()?.takeIf { it.key == known.key } ?: known
         // The Sing stream starts at 1.0 (the mix), then eases out smoothly to the target vocal level.
         mixControl.setTarget(
             gain = _state.value.vocalLevel.gain,
@@ -105,8 +114,7 @@ class SingController(
             curve = SingRampCurve.EaseOutCubic,
         )
         mixControl.startAtUnity = true
-        _state.update { it.copy(enabled = true, handedOver = false) }
-        follow(request)
+        follow(request, enable = true)
         return true
     }
 
@@ -166,17 +174,22 @@ class SingController(
      */
     fun onCurrentItem(request: SingRequest?, singing: Boolean = false) {
         val previous = _state.value
-        _state.update { it.copy(current = request) }
-        refreshAvailability()
-        if (!previous.enabled || request?.key == previous.request?.key) return
+        if (!previous.enabled || request?.key == previous.request?.key) {
+            _state.update { it.copy(current = request) }
+            refreshAvailability()
+            return
+        }
         if (request == null) {
             statusJob?.cancel()
-            _state.update { it.copy(request = null, status = null, handedOver = false) }
+            _state.update { it.copy(current = null, request = null, status = null, handedOver = false) }
+            refreshAvailability()
             return
         }
         // Carried over: the new song plays as it is until its stream is ready, then glides in from 1.0.
+        // It starts from the request's position (the player's as the track changed).
         mixControl.startAtUnity = !singing
-        follow(request, alreadySinging = singing)
+        follow(request, alreadySinging = singing, current = request)
+        refreshAvailability()
     }
 
     fun refreshAvailability() {
@@ -187,10 +200,22 @@ class SingController(
     private fun availabilityOf(request: SingRequest): SingAvailability =
         selector.providerFor(request.songId.provider).availability()
 
-    private fun follow(request: SingRequest, alreadySinging: Boolean = false) {
+    /**
+     * Sing works on [request] now. One state change ([enable], [current] with it): a collector on an
+     * immediate dispatcher ([SingPlaybackSwitcher]) never sees Sing on without its request, or the new
+     * song without its request — its first playhead report would be dropped or go to the wrong song.
+     */
+    private fun follow(
+        request: SingRequest,
+        alreadySinging: Boolean = false,
+        enable: Boolean = false,
+        current: SingRequest? = null,
+    ) {
         statusJob?.cancel()
         _state.update {
             it.copy(
+                enabled = it.enabled || enable,
+                current = current ?: if (enable) request else it.current,
                 request = request,
                 status = SingStatus.Preparing(),
                 handedOver = alreadySinging,

@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.math.abs
 import kotlin.math.floor
 import okhttp3.OkHttpClient
 
@@ -111,21 +110,14 @@ class OnDeviceSingStreamProvider(
      */
     @Volatile private var chunkMs: Double? = null
 
-    private val playheads = ConcurrentHashMap<String, Playhead>()
-
-    /** Per request, bumped on every jump of the playhead (a seek): the lead is planned anew. */
-    private val seeks = ConcurrentHashMap<String, Int>()
-
-    /** When each request started, for a playhead estimate before the first report. */
-    private val requestNanos = ConcurrentHashMap<String, Long>()
+    /** Where the listener is: the request's position until the player's reports come in. */
+    private val playheads = SingPlayheads()
 
     /** A seekable decode didn't line up once: this process decodes from the start from then on. */
     @Volatile private var seekUnreliable = false
 
     /** The last track handed out (finished or not), so a repeated request for the same song maps nothing new. */
     @Volatile private var lastTrack: Pair<String, SingVocalTrack>? = null
-
-    private class Playhead(val positionMs: Long, val atNanos: Long, val playing: Boolean)
 
     /** The gate's last answer (null before the first Sing). */
     @Volatile var verdict: SingDeviceGate.Verdict? = null
@@ -144,13 +136,8 @@ class OnDeviceSingStreamProvider(
     }
 
     override fun onPlayhead(request: SingRequest, positionMs: Long, playing: Boolean) {
-        val now = System.nanoTime()
-        val position = positionMs.coerceAtLeast(0L)
-        playheads.put(request.key, Playhead(position, now, playing))?.let { previous ->
-            val expected = if (previous.playing) previous.positionMs + (now - previous.atNanos) / 1_000_000 else previous.positionMs
-            if (abs(position - expected) > SEEK_JUMP_MS) seeks.merge(request.key, 1, Int::plus)
-        }
-        if (playing) prewarmNearEnd(request, position)
+        playheads.report(request, positionMs, playing)
+        if (playing) prewarmNearEnd(request, positionMs.coerceAtLeast(0L))
     }
 
     /**
@@ -187,8 +174,7 @@ class OnDeviceSingStreamProvider(
     /** Sing off ([SingController.exit]): the song's work stops and no session stays warm. */
     override fun cancel(request: SingRequest) {
         jobs.remove(request.key)?.cancel()
-        playheads.remove(request.key)
-        seeks.remove(request.key)
+        playheads.forget(request)
         if (servingKey == request.key) servingKey = null
         sessions.close()
     }
@@ -201,10 +187,9 @@ class OnDeviceSingStreamProvider(
         jobs.keys.filter { it != request.key }.forEach { jobs.remove(it)?.cancel() }
         // Its status (holding its mapped track) goes too.
         states.keys.removeAll { it != request.key }
-        playheads.keys.removeAll { it != request.key }
-        seeks.keys.removeAll { it != request.key }
-        requestNanos.keys.removeAll { it != request.key }
-        requestNanos[request.key] = System.nanoTime()
+        // From where the request says the listener is: the first plan, the decoder's first seek and the
+        // kept-track check all come before the player's first report may have.
+        playheads.begin(request)
         state.value = SingStatus.Preparing()
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
@@ -503,7 +488,7 @@ class OnDeviceSingStreamProvider(
             writeReferences(pcm, track, references, playFrame)
             if (separator.isFinished) break
 
-            val seekGeneration = seeks[request.key] ?: 0
+            val seekGeneration = playheads.seekGeneration(request)
             // Where V should start: from the playhead's own readiness block when it's paused or V is
             // there (filling what's missing from there on, then on to the end), else where the playhead
             // will be when the chunks are through.
@@ -692,14 +677,8 @@ class OnDeviceSingStreamProvider(
         chunkMs = liveAverage(chunkMs, ms)
     }
 
-    /** The listener's position now: the last report, moved on by the time since if playing. */
-    private fun playheadMs(request: SingRequest): Playhead {
-        val now = System.nanoTime()
-        val known = playheads[request.key]
-            ?: Playhead(request.positionMs, requestNanos[request.key] ?: now, playing = true)
-        val position = if (known.playing) known.positionMs + (now - known.atNanos) / 1_000_000 else known.positionMs
-        return Playhead(position, now, known.playing)
-    }
+    /** The listener's position now: the last report (the request's before one), moved on if playing. */
+    private fun playheadMs(request: SingRequest): SingPlayheads.Playhead = playheads.at(request)
 
     /** The finished track for [request] in the cache, mapped (null on a miss or a broken file). */
     private fun cachedTrack(request: SingRequest): SingVocalTrack? {
@@ -797,9 +776,6 @@ class OnDeviceSingStreamProvider(
 
         /** The Preparing progress's guess at the chunks to Ready, before a lead is planned (paused). */
         private const val DEFAULT_READY_CHUNKS = 4
-
-        /** A playhead report this far from where the last one said it would be is a seek. */
-        private const val SEEK_JUMP_MS = 1_000L
 
         /** A plan is overtaken once the playhead passes its start by this much with V still not there. */
         private const val OVERTAKEN_SLACK_MS = 1_000L

@@ -5,11 +5,13 @@ import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,9 +20,12 @@ class SingControllerTest {
     private class FakeProvider : SingStreamProvider {
         val flows = mutableMapOf<String, MutableStateFlow<SingStatus>>()
         val cancelled = mutableListOf<String>()
+        val requests = mutableListOf<SingRequest>()
 
-        override fun stream(request: SingRequest): Flow<SingStatus> =
-            flows.getOrPut(request.key) { MutableStateFlow(SingStatus.Preparing()) }
+        override fun stream(request: SingRequest): Flow<SingStatus> {
+            requests += request
+            return flows.getOrPut(request.key) { MutableStateFlow(SingStatus.Preparing()) }
+        }
 
         override fun cancel(request: SingRequest) {
             cancelled += request.key
@@ -201,5 +206,78 @@ class SingControllerTest {
         c.onCurrentItem(spotifySong)
         assertEquals(SingMode.Unavailable(SingUnavailableReason.ProviderUnsupported), c.mode.value)
         assertTrue(c.state.value.enabled)
+    }
+
+    @Test
+    fun should_askFromThePlayersPositionNow_when_enteredMidSong() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = controller(provider)
+        // The song came on at 0.2 s; Sing is turned on at 112.5 s.
+        c.onCurrentItem(song1.copy(positionMs = 200L))
+        c.currentRequestSource = { song1.copy(positionMs = 112_500L, playing = true) }
+        assertTrue(c.enter())
+        assertEquals(112_500L, provider.requests.single().positionMs)
+        assertEquals(112_500L, c.state.value.request?.positionMs)
+    }
+
+    @Test
+    fun should_askPaused_when_enteredWhilePaused() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = controller(provider)
+        c.onCurrentItem(song1)
+        c.currentRequestSource = { song1.copy(positionMs = 61_000L, playing = false) }
+        assertTrue(c.enter())
+        val asked = provider.requests.single()
+        assertEquals(61_000L, asked.positionMs)
+        assertFalse(asked.playing)
+    }
+
+    @Test
+    fun should_fallBackToTheKnownRequest_when_noPositionSourceOrAnotherSong() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = controller(provider)
+        c.onCurrentItem(song1.copy(positionMs = 5_000L))
+        assertTrue(c.enter())
+        assertEquals(5_000L, provider.requests.last().positionMs)
+        c.exit()
+        // The player moved on to another song the controller hasn't heard of yet: not that one's position.
+        c.currentRequestSource = { song2.copy(positionMs = 40_000L) }
+        assertTrue(c.enter())
+        assertEquals(song1.key, provider.requests.last().key)
+        assertEquals(5_000L, provider.requests.last().positionMs)
+    }
+
+    @Test
+    fun should_neverBeOnWithoutItsRequest_when_seenByAnImmediateCollector() = runTest(UnconfinedTestDispatcher()) {
+        // SingPlaybackSwitcher collects on Main.immediate and reports the playhead the moment Sing is on;
+        // a state with Sing on but no request dropped that first report.
+        val c = controller(FakeProvider())
+        val seen = mutableListOf<SingController.State>()
+        backgroundScope.launch { c.state.collect { seen += it } }
+        c.onCurrentItem(song1.copy(positionMs = 200L))
+        c.currentRequestSource = { song1.copy(positionMs = 112_500L) }
+        c.enter()
+        c.onCurrentItem(song2.copy(positionMs = 0L))
+        val on = seen.filter { it.enabled }
+        assertTrue(on.isNotEmpty())
+        for (state in on) {
+            assertNotNull("Sing on without its request", state.request)
+            assertEquals("the playing song is the one Sing works on", state.current?.key, state.request?.key)
+        }
+        assertEquals(112_500L, on.first().request?.positionMs)
+    }
+
+    @Test
+    fun should_followFromTheTrackChangePosition_when_songChangesWhileOn() = runTest(UnconfinedTestDispatcher()) {
+        val provider = FakeProvider()
+        val c = controller(provider)
+        c.onCurrentItem(song1)
+        c.enter()
+        // Skipped while paused to a song resuming at 30 s.
+        c.onCurrentItem(song2.copy(positionMs = 30_000L, playing = false))
+        val asked = provider.requests.last()
+        assertEquals(song2.key, asked.key)
+        assertEquals(30_000L, asked.positionMs)
+        assertFalse(asked.playing)
     }
 }

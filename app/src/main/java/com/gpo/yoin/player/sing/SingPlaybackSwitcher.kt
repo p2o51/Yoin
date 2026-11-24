@@ -62,6 +62,8 @@ class SingPlaybackSwitcher(
 
     fun start() {
         player.addListener(this)
+        // Sing turned on reads the player's position then, not the one the song started with.
+        controller.currentRequestSource = ::currentRequest
         controller.onCurrentItem(player.currentMediaItem?.let(::requestFor))
         scope.launch { controller.state.collect(::apply) }
     }
@@ -74,6 +76,7 @@ class SingPlaybackSwitcher(
         swapJob = null
         restoreJob?.cancel()
         restoreJob = null
+        controller.currentRequestSource = null
         player.removeListener(this)
     }
 
@@ -298,18 +301,20 @@ class SingPlaybackSwitcher(
     private fun requestFor(item: MediaItem): SingRequest? {
         val id = MediaId.parseOrNull(item.mediaMetadata.extras?.getString(EXTRA_MEDIA_ID) ?: item.mediaId) ?: return null
         val profile = profileId() ?: return null
-        val position = if (player.currentMediaItem?.mediaId == item.mediaId) player.currentPosition else 0L
+        val isCurrent = player.currentMediaItem?.mediaId == item.mediaId
+        val position = if (isCurrent) player.currentPosition else 0L
         return SingRequest(
             songId = id,
             profileId = profile,
             streamUri = (item.singTag()?.originalUri ?: item.localConfiguration?.uri)?.toString(),
-            positionMs = position.takeIf { it != C.TIME_UNSET } ?: 0L,
+            positionMs = position.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L,
+            playing = isCurrent && player.isPlaying,
         )
     }
 
     private fun MediaItem.singTag(): SingTag? = localConfiguration?.tag as? SingTag
 
-    /** The current song's request, for whoever turns Sing on. */
+    /** The current song's request at the player's position now, for whoever turns Sing on. */
     fun currentRequest(): SingRequest? = player.currentMediaItem?.let(::requestFor)
 
     companion object {
