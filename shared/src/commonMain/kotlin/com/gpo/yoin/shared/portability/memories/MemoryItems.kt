@@ -1,21 +1,17 @@
-package com.gpo.yoin.data.transfer.memories
+package com.gpo.yoin.shared.portability.memories
 
-import com.gpo.yoin.data.local.MemoryCopyCache
-import com.gpo.yoin.data.local.TrackAlbumLink
-import com.gpo.yoin.data.local.YoinDatabase
-import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.sync.SyncFormat
-import com.gpo.yoin.data.sync.SyncKinds
-import com.gpo.yoin.data.sync.WireRecord
-import com.gpo.yoin.data.sync.adapters.Field
-import com.gpo.yoin.data.sync.adapters.TrackRatingSyncAdapter
-import com.gpo.yoin.data.sync.adapters.optionalLong
-import com.gpo.yoin.data.sync.adapters.optionalString
-import com.gpo.yoin.data.sync.adapters.rating
-import com.gpo.yoin.data.sync.adapters.requiredLong
-import com.gpo.yoin.data.sync.adapters.requiredString
-import com.gpo.yoin.data.sync.backup.BackupFields
-import com.gpo.yoin.data.sync.backup.BackupKinds
+import com.gpo.yoin.shared.portability.BackupFields
+import com.gpo.yoin.shared.portability.BackupKinds
+import com.gpo.yoin.shared.sync.SyncFormat
+import com.gpo.yoin.shared.sync.SyncKinds
+import com.gpo.yoin.shared.sync.WireRecord
+import com.gpo.yoin.shared.sync.adapters.Field
+import com.gpo.yoin.shared.sync.adapters.TrackRatingSyncAdapter
+import com.gpo.yoin.shared.sync.adapters.optionalLong
+import com.gpo.yoin.shared.sync.adapters.optionalString
+import com.gpo.yoin.shared.sync.adapters.rating
+import com.gpo.yoin.shared.sync.adapters.requiredLong
+import com.gpo.yoin.shared.sync.adapters.requiredString
 
 data class SourceNote(
     val id: String,
@@ -70,7 +66,13 @@ data class SourceTrackLink(val track: SourceRef, val albumId: String, val source
 /** A song the source knows something about (Yoin's plays): what matching searches with. */
 data class SourceTrackFacts(val title: String, val artist: String, val album: String?, val albumId: String?, val durationSec: Int?)
 
-/** Every Memories item of one source account, normalized from either the domain or sync records. */
+/** An album the source knows by name (plays, album notes). */
+data class SourceAlbumFacts(val name: String, val artist: String)
+
+/**
+ * Every Memories item of one source account, normalized from the domain (per platform) or from sync
+ * records ([fromRecords]: the replica, or a backup snapshot).
+ */
 data class MemoryItems(
     val songNotes: List<SourceNote> = emptyList(),
     val trackRatings: List<SourceTrackRating> = emptyList(),
@@ -84,7 +86,7 @@ data class MemoryItems(
     /** Local facts about source songs (title, album, duration), keyed by song. */
     val trackFacts: Map<SourceRef, SourceTrackFacts> = emptyMap(),
     /** Local facts about source albums: name and artist. */
-    val albumFacts: Map<SourceRef, Pair<String, String>> = emptyMap(),
+    val albumFacts: Map<SourceRef, SourceAlbumFacts> = emptyMap(),
 ) {
     /** Every song with a note, a score or a link. */
     val tracks: Set<SourceRef>
@@ -101,94 +103,11 @@ data class MemoryItems(
             albumReviews.forEach { add(it.album) }
             albumNotes.forEach { add(it.album) }
             albumTitles.forEach { add(it.album) }
-            memoryTitles.filter { it.entityType == MemoryCopyCache.ENTITY_ALBUM }.forEach { add(SourceRef(it.provider, it.entityId)) }
-            memoryCopies.filter { it.entityType == MemoryCopyCache.ENTITY_ALBUM }.forEach { add(SourceRef(it.provider, it.entityId)) }
+            memoryTitles.filter { it.entityType == TransferRules.ENTITY_ALBUM }.forEach { add(SourceRef(it.provider, it.entityId)) }
+            memoryCopies.filter { it.entityType == TransferRules.ENTITY_ALBUM }.forEach { add(SourceRef(it.provider, it.entityId)) }
         }
 
     companion object {
-        /** A local profile's Memories, straight from the domain tables. */
-        suspend fun fromProfile(db: YoinDatabase, profileId: String): MemoryItems {
-            val dao = db.syncDomainDao()
-            val albumRows = dao.albumRatingsForProfile(profileId)
-            val memoryRows = dao.memoryCopiesForProfile(profileId)
-            val notes = dao.albumNotesForProfile(profileId)
-            val songNotes = dao.notesForProfile(profileId)
-            val trackRatings = dao.trackRatingsForProfile(profileId)
-            val plays = dao.playedTracksForProfile(profileId)
-            val links = dao.trackAlbumLinksForProfile(profileId)
-                .filter { it.albumId.isNotBlank() }
-                .map { SourceTrackLink(SourceRef(it.provider, it.trackId), it.albumId, it.source, it.updatedAt) }
-            // A noted or scored song whose album only Yoin's plays know (no track_album_links row): that
-            // association is a link too, or Memories on the target couldn't place the song.
-            val linked = links.mapTo(HashSet()) { it.track }
-            val memorable = HashSet<SourceRef>().apply {
-                songNotes.forEach { add(SourceRef(it.provider, MediaId.storedRawId(it.provider, it.trackId))) }
-                trackRatings.filter { it.rating != null }.forEach { add(SourceRef(it.provider, it.songId)) }
-            }
-            val playedLinks = plays
-                .filter { it.albumId.isNotBlank() }
-                .map { SourceRef(it.provider, it.songId) to it }
-                .filter { (ref, _) -> ref in memorable && ref !in linked }
-                .map { (ref, row) ->
-                    SourceTrackLink(ref, MediaId.storedRawId(row.provider, row.albumId), TrackAlbumLink.SOURCE_PLAY, row.playedAt)
-                }
-            return MemoryItems(
-                songNotes = songNotes.map {
-                    SourceNote(
-                        id = it.id,
-                        track = SourceRef(it.provider, MediaId.storedRawId(it.provider, it.trackId)),
-                        content = it.content,
-                        createdAt = it.createdAt,
-                        updatedAt = it.updatedAt,
-                        title = it.title,
-                        artist = it.artist,
-                        positionMs = it.positionMs,
-                    )
-                },
-                trackRatings = trackRatings.mapNotNull { row ->
-                    row.rating?.let { SourceTrackRating(SourceRef(row.provider, row.songId), it, row.updatedAt) }
-                },
-                albumRatings = albumRows.filter { it.rating > 0f }
-                    .map { SourceAlbumRating(SourceRef(it.provider, it.albumId), it.rating, it.updatedAt) },
-                albumReviews = albumRows.filter { !it.review.isNullOrBlank() }
-                    .map { SourceAlbumReview(SourceRef(it.provider, it.albumId), it.review!!, it.updatedAt, it.reviewUpdatedAt) },
-                albumNotes = notes.map {
-                    SourceAlbumNote(
-                        id = it.id,
-                        album = SourceRef(it.provider, MediaId.storedRawId(it.provider, it.albumId)),
-                        content = it.content,
-                        createdAt = it.createdAt,
-                        updatedAt = it.updatedAt,
-                        albumName = it.albumName,
-                        artist = it.artist,
-                    )
-                },
-                albumTitles = db.albumMemoryTitleDao().getAllForProfile(profileId)
-                    .map { SourceAlbumTitle(SourceRef(it.provider, it.albumId), it.title, it.updatedAt) },
-                memoryTitles = memoryRows.filter { !it.title.isNullOrBlank() }.map {
-                    SourceMemoryTitle(it.provider, it.entityType, it.entityId, it.title!!, it.titlePromptHash, it.generatedAt)
-                },
-                memoryCopies = memoryRows.filter { it.copy.isNotBlank() }.map {
-                    SourceMemoryCopy(it.provider, it.entityType, it.entityId, it.copy, it.promptHash, it.generatedAt)
-                },
-                trackAlbumLinks = links + playedLinks,
-                trackFacts = plays.associate { row ->
-                    SourceRef(row.provider, row.songId) to SourceTrackFacts(
-                        title = row.title,
-                        artist = row.artist,
-                        album = row.album.takeIf(String::isNotBlank),
-                        albumId = row.albumId.takeIf(String::isNotBlank),
-                        durationSec = (row.durationMs / 1000).toInt().takeIf { it > 0 },
-                    )
-                },
-                albumFacts = dao.playedAlbumsForProfile(profileId).associate {
-                    SourceRef(it.provider, MediaId.storedRawId(it.provider, it.albumId)) to (it.albumName to it.artist)
-                } + notes.filter { it.albumName.isNotBlank() }.associate {
-                    SourceRef(it.provider, MediaId.storedRawId(it.provider, it.albumId)) to (it.albumName to it.artist)
-                },
-            )
-        }
-
         /** One scope's Memories from sync records (the replica, or a backup snapshot). Tombstones are ignored. */
         fun fromRecords(records: List<WireRecord>, scope: String): MemoryItems {
             val notes = ArrayList<SourceNote>()
@@ -208,7 +127,7 @@ data class MemoryItems(
                         val provider = p.requiredString("provider") ?: continue
                         notes += SourceNote(
                             id = record.key,
-                            track = SourceRef(provider, p.requiredString("trackId")?.let { MediaId.storedRawId(provider, it) } ?: continue),
+                            track = SourceRef(provider, p.requiredString("trackId")?.let { TransferRules.storedRawId(provider, it) } ?: continue),
                             content = p.requiredString("content") ?: continue,
                             createdAt = p.requiredLong("createdAt") ?: record.ts,
                             updatedAt = p.requiredLong("updatedAt") ?: record.ts,
@@ -294,7 +213,8 @@ data class MemoryItems(
                 memoryTitles = memoryTitles,
                 memoryCopies = memoryCopies,
                 trackAlbumLinks = links,
-                albumFacts = albumNotes.filter { it.albumName.isNotBlank() }.associate { it.album to (it.albumName to it.artist) },
+                albumFacts = albumNotes.filter { it.albumName.isNotBlank() }
+                    .associate { it.album to SourceAlbumFacts(it.albumName, it.artist) },
             )
         }
 

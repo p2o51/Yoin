@@ -5,15 +5,15 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.MusicSource
-import com.gpo.yoin.data.sync.backup.ExportSummary
-import com.gpo.yoin.data.sync.backup.ImportPlan
-import com.gpo.yoin.data.sync.backup.ImportResult
-import com.gpo.yoin.data.sync.backup.ImportTarget
 import com.gpo.yoin.data.transfer.memories.MemoryCatalog
 import com.gpo.yoin.data.transfer.memories.MemorySource
-import com.gpo.yoin.data.transfer.memories.TransferAccount
 import com.gpo.yoin.data.transfer.memories.TransferPlan
-import com.gpo.yoin.data.transfer.memories.TransferResult
+import com.gpo.yoin.shared.portability.ExportSummary
+import com.gpo.yoin.shared.portability.ImportPlan
+import com.gpo.yoin.shared.portability.ImportResult
+import com.gpo.yoin.shared.portability.ImportTarget
+import com.gpo.yoin.shared.portability.memories.TransferAccount
+import com.gpo.yoin.shared.portability.memories.TransferResult
 import com.gpo.yoin.ui.settings.removeProfileCard
 import java.io.InputStream
 import java.io.OutputStream
@@ -28,7 +28,7 @@ interface MemoriesOps {
 
     suspend fun export(out: OutputStream): ExportSummary
 
-    /** @throws com.gpo.yoin.data.sync.backup.BackupReadException */
+    /** @throws com.gpo.yoin.shared.portability.BackupReadException */
     suspend fun readBackup(input: InputStream): ImportPlan
 
     suspend fun import(plan: ImportPlan, choices: Map<String, ImportTarget>): ImportResult

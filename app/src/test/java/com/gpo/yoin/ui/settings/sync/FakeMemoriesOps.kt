@@ -2,27 +2,27 @@ package com.gpo.yoin.ui.settings.sync
 
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.sync.SyncEnvelope
-import com.gpo.yoin.data.sync.backup.BackupAccount
-import com.gpo.yoin.data.sync.backup.BackupManifest
-import com.gpo.yoin.data.sync.backup.BackupSnapshotInfo
-import com.gpo.yoin.data.sync.backup.BackupSource
-import com.gpo.yoin.data.sync.backup.ExportSummary
-import com.gpo.yoin.data.sync.backup.ImportAccountPlan
-import com.gpo.yoin.data.sync.backup.ImportPlan
-import com.gpo.yoin.data.sync.backup.ImportProfileOption
-import com.gpo.yoin.data.sync.backup.ImportResult
-import com.gpo.yoin.data.sync.backup.ImportTarget
-import com.gpo.yoin.data.sync.backup.ParsedBackup
 import com.gpo.yoin.data.transfer.memories.MemoryCatalog
-import com.gpo.yoin.data.transfer.memories.MemoryItems
 import com.gpo.yoin.data.transfer.memories.MemorySource
-import com.gpo.yoin.data.transfer.memories.SourceNote
-import com.gpo.yoin.data.transfer.memories.SourceRef
-import com.gpo.yoin.data.transfer.memories.TransferAccount
-import com.gpo.yoin.data.transfer.memories.TransferCounts
 import com.gpo.yoin.data.transfer.memories.TransferPlan
-import com.gpo.yoin.data.transfer.memories.TransferResult
+import com.gpo.yoin.shared.portability.BackupAccount
+import com.gpo.yoin.shared.portability.BackupManifest
+import com.gpo.yoin.shared.portability.BackupSnapshotInfo
+import com.gpo.yoin.shared.portability.BackupSource
+import com.gpo.yoin.shared.portability.ExportSummary
+import com.gpo.yoin.shared.portability.ImportAccountPlan
+import com.gpo.yoin.shared.portability.ImportPlan
+import com.gpo.yoin.shared.portability.ImportProfileOption
+import com.gpo.yoin.shared.portability.ImportResult
+import com.gpo.yoin.shared.portability.ImportTarget
+import com.gpo.yoin.shared.portability.ParsedBackup
+import com.gpo.yoin.shared.portability.memories.MemoryItems
+import com.gpo.yoin.shared.portability.memories.SourceNote
+import com.gpo.yoin.shared.portability.memories.SourceRef
+import com.gpo.yoin.shared.portability.memories.TransferAccount
+import com.gpo.yoin.shared.portability.memories.TransferCounts
+import com.gpo.yoin.shared.portability.memories.TransferResult
+import com.gpo.yoin.shared.sync.SyncEnvelope
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -32,7 +32,7 @@ class FakeMemoriesOps : MemoriesOps {
 
     var exportResult: Result<ExportSummary> = Result.success(TransferSamples.exportSummary())
     var readResult: Result<ImportPlan> = Result.success(TransferSamples.importPlan())
-    var importResult: Result<ImportResult> = Result.success(ImportResult(emptyMap(), com.gpo.yoin.data.sync.backup.ImportCounts(), 0))
+    var importResult: Result<ImportResult> = Result.success(ImportResult(emptyMap(), com.gpo.yoin.shared.portability.ImportCounts(), 0))
     var importedWith: Map<String, ImportTarget>? = null
 
     var sources: List<Pair<MemorySource, TransferAccount>> = TransferSamples.sources
@@ -155,7 +155,7 @@ object TransferSamples {
             com.gpo.yoin.data.transfer.memories.TrackMatch(
                 SourceRef(MediaId.PROVIDER_SUBSONIC, ref),
                 null,
-                com.gpo.yoin.data.transfer.memories.MatchStatus.Unmatched,
+                com.gpo.yoin.shared.portability.memories.MatchStatus.Unmatched,
                 emptyList(),
                 null,
             )
@@ -173,21 +173,21 @@ object TransferSamples {
                 com.gpo.yoin.data.transfer.memories.TrackMatch(
                     SourceRef(MediaId.PROVIDER_SUBSONIC, "t1"),
                     null,
-                    com.gpo.yoin.data.transfer.memories.MatchStatus.Matched,
+                    com.gpo.yoin.shared.portability.memories.MatchStatus.Matched,
                     listOf(matched),
                     matched,
                 ),
                 com.gpo.yoin.data.transfer.memories.TrackMatch(
                     SourceRef(MediaId.PROVIDER_SUBSONIC, "t2"),
                     null,
-                    com.gpo.yoin.data.transfer.memories.MatchStatus.Uncertain,
+                    com.gpo.yoin.shared.portability.memories.MatchStatus.Uncertain,
                     listOf(first, second),
                     null,
                 ),
                 com.gpo.yoin.data.transfer.memories.TrackMatch(
                     SourceRef(MediaId.PROVIDER_SUBSONIC, "t3"),
                     null,
-                    com.gpo.yoin.data.transfer.memories.MatchStatus.Unmatched,
+                    com.gpo.yoin.shared.portability.memories.MatchStatus.Unmatched,
                     emptyList(),
                     null,
                 ),
