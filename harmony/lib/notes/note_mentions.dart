@@ -17,6 +17,7 @@ import '../data/memory/memory_store.dart';
 import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
 import '../data/notes/mention_resolver.dart';
+import '../data/notes/note_backlinks.dart';
 import '../data/notes/note_markup.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_routes.dart';
@@ -155,14 +156,39 @@ class NoteMentions extends Notifier<Map<MentionRef, bool>> {
   /// Opens what [mention] names: an album's scrapbook, a song's album
   /// scrapbook on that song, an artist. One open at a time: a second tap while
   /// one is being looked up, or right after one opened, does nothing.
-  Future<void> open(BuildContext context, NoteMention mention) async {
+  Future<void> open(BuildContext context, NoteMention mention) => _launch(context, () async {
+    final answer = await (await _resolver()).resolve(mention);
+    return answer is MentionResolved ? destinationOf(answer) : null;
+  });
+
+  /// Opens where a 被提及 clipping was written: that album's scrapbook (a song note: on its song).
+  Future<void> openSource(BuildContext context, BacklinkSource source) => _launch(context, () async {
+    switch (source) {
+      case BacklinkSongNote(:final albumId, :final trackId):
+        final album = albumId ?? await _albumOf(trackId);
+        return album == null ? null : NoteAlbumScrapbook(album, focusTrack: trackId);
+      case BacklinkAlbumNote(:final albumId):
+        return NoteAlbumScrapbook(albumId);
+      case BacklinkReview(:final albumId):
+        return NoteAlbumScrapbook(albumId);
+    }
+  });
+
+  /// A clipping's cover, from the storage key Yoin's plays kept.
+  String? coverUrl(String? coverKey) {
+    final cover = CoverRef.fromStorageKey(coverKey);
+    if (cover == null) return null;
+    return ref.read(activeSourceProvider).value?.resolveCoverUrl(cover, size: NoteEditorTokens.coverSize);
+  }
+
+  /// One open at a time: a second tap while one is being looked up, or right
+  /// after one opened (the new page is still coming up), does nothing.
+  Future<void> _launch(BuildContext context, Future<NoteDestination?> Function() destination) async {
     final last = _openedAt;
     if (_opening || (last != null && DateTime.now().difference(last) < openCooldown)) return;
     _opening = true;
     try {
-      final answer = await (await _resolver()).resolve(mention);
-      if (answer is! MentionResolved) return;
-      final target = await destinationOf(answer);
+      final target = await destination();
       if (target == null || !context.mounted || !ref.mounted) return;
       _openedAt = DateTime.now();
       final focus = ref.read(scrapbookFocusRequestProvider.notifier);
