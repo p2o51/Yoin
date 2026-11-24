@@ -42,6 +42,12 @@ class _StickyPile extends StatelessWidget {
     listenable: editing,
     builder: (context, _) {
       final open = editing.open;
+      // The sticky being edited went (deleted on another device): the pile is back to rest.
+      if (open != null && open != StickyEditing.newSticky && !stickies.any((s) => s.noteId == open)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (editing.open == open) editing.close();
+        });
+      }
       final children = <Widget>[
         for (final sticky in stickies)
           if (open == sticky.noteId)
@@ -94,6 +100,11 @@ class _Sticky extends StatelessWidget {
     final colors = _ScrapScope.of(context).colors;
     final strings = DetailStrings.of(context);
     final words = NoteMarkup.plainText(sticky.text);
+    void tap() {
+      YoinHaptics.tick();
+      onTap();
+    }
+
     return _ScrapLayer(
       tilt: sticky.tilt,
       depth: ScrapbookLayout.stickyDepth,
@@ -102,14 +113,12 @@ class _Sticky extends StatelessWidget {
           button: true,
           label: strings.scrapCdAlbumNote(words),
           onTapHint: strings.stickyEditCd(words),
+          onTap: tap,
           excludeSemantics: true,
           child: _StickyPaper(
             colors: colors,
             child: InkWell(
-              onTap: () {
-                YoinHaptics.tick();
-                onTap();
-              },
+              onTap: tap,
               child: Padding(
                 padding: ScrapbookLayout.stickyPadding,
                 child: SizedBox(
@@ -138,19 +147,22 @@ class _DashedSticky extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _ScrapScope.of(context).colors;
+    void tap() {
+      YoinHaptics.tick();
+      onTap();
+    }
+
     return Semantics(
       button: true,
       label: DetailStrings.of(context).stickyAdd,
+      onTap: tap,
       excludeSemantics: true,
       child: ClipPath(
         clipper: const _StickyClipper(),
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            onTap: () {
-              YoinHaptics.tick();
-              onTap();
-            },
+            onTap: tap,
             child: CustomPaint(
               painter: _DashedStickyOutline(colors.outline),
               child: SizedBox.fromSize(
