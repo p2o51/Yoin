@@ -1,13 +1,16 @@
 package com.gpo.yoin.data.sync.backup
 
 import com.gpo.yoin.data.local.GeminiConfig
+import com.gpo.yoin.data.sync.ActiveBinding
+import com.gpo.yoin.data.sync.CanonicalJson
 import com.gpo.yoin.data.sync.SyncBindingEntity
 import com.gpo.yoin.data.sync.SyncFormat
 import com.gpo.yoin.data.sync.SyncKinds
 import com.gpo.yoin.data.sync.SyncRecordEntity
-import com.gpo.yoin.data.sync.CanonicalJson
 import com.gpo.yoin.data.sync.engine.SyncEngine
-import com.gpo.yoin.data.sync.ActiveBinding
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.BackupKinds
+import com.gpo.yoin.shared.portability.BackupReadException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.time.ZoneOffset

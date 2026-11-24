@@ -15,6 +15,12 @@ import com.gpo.yoin.data.sync.adapters.YoinSyncAdapters
 import com.gpo.yoin.data.sync.identity.AccountFingerprints
 import com.gpo.yoin.data.sync.testing.FakeSeamStyleGateway
 import com.gpo.yoin.data.sync.testing.SyncDomainFixtures
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.BackupSource
+import com.gpo.yoin.shared.portability.ExportSummary
+import com.gpo.yoin.shared.portability.ParsedBackup
+import com.gpo.yoin.shared.portability.ReadableLabels
+import com.gpo.yoin.shared.portability.ReadableNames
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream

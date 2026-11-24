@@ -1,7 +1,14 @@
 package com.gpo.yoin.data.sync.backup
 
-import com.gpo.yoin.data.sync.SyncEnvelope
-import com.gpo.yoin.data.sync.engine.SyncJson
+import com.gpo.yoin.shared.portability.BackupAccount
+import com.gpo.yoin.shared.portability.BackupContent
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.BackupSource
+import com.gpo.yoin.shared.portability.ReadableAlbum
+import com.gpo.yoin.shared.portability.ReadableNames
+import com.gpo.yoin.shared.portability.ReadableTrack
+import com.gpo.yoin.shared.sync.SyncEnvelope
+import com.gpo.yoin.shared.sync.engine.SyncJson
 
 /**
  * A fixed backup: every record kind the readable export renders (notes with positions and several lines,

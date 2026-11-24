@@ -50,12 +50,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
-import com.gpo.yoin.data.sync.backup.BackupFormat
 import com.gpo.yoin.data.transfer.RestoreReview
 import com.gpo.yoin.data.transfer.ReviewRow
 import com.gpo.yoin.data.transfer.ReviewStatus
-import com.gpo.yoin.data.transfer.memories.MatchStatus
 import com.gpo.yoin.data.transfer.memories.TransferPlan
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.memories.MatchStatus
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaFlow
 import com.gpo.yoin.ui.component.MetaGroup

@@ -3,9 +3,10 @@ package com.gpo.yoin.data.sync
 import com.gpo.yoin.data.backup.PlaylistBackupCodec
 import com.gpo.yoin.data.sync.adapters.requiredLong
 import com.gpo.yoin.data.sync.adapters.requiredString
-import com.gpo.yoin.data.sync.backup.ReadableNames
-import com.gpo.yoin.data.transfer.memories.MemoryItems
-import com.gpo.yoin.data.transfer.memories.SourceRef
+import com.gpo.yoin.data.transfer.memories.fromRecords
+import com.gpo.yoin.shared.portability.ReadableNames
+import com.gpo.yoin.shared.portability.memories.MemoryItems
+import com.gpo.yoin.shared.portability.memories.SourceRef
 
 /*
  * Read-only views of what Cloud sync holds, for the 云同步 page's 云端数据 section (docs/cloud-sync.md):
@@ -175,7 +176,7 @@ object CloudDataViews {
             return known?.title to known?.artist
         }
         suspend fun albumName(ref: SourceRef): Pair<String?, String?> {
-            items.albumFacts[ref]?.let { return it.first to it.second }
+            items.albumFacts[ref]?.let { return it.name to it.artist }
             val known = runCatching { names?.album(localProfileId, ref.provider, ref.id) }.getOrNull()
             return known?.name to known?.artist
         }
