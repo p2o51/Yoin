@@ -88,8 +88,10 @@ import kotlin.math.abs
  * stamp, then the words, the line the playhead is inside lit up, the list
  * gliding to keep it ~22% down (Timeline order) — with the Timeline ⇄ Created
  * switch above. No cards, no rails, no per-row buttons: tap an anchored line
- * to seek to its moment, long-press it for "对齐到现在" / "删除" (a deleted
- * line offers 撤销 in its place for a few seconds). A finger on the list is
+ * to seek to its moment, long-press it to rewrite it in the write bar
+ * ([onEdit], owner 2026-11-24: its stamp re-aligns it, emptying it deletes it;
+ * without [onEdit] the long press offers "对齐到现在" / "删除"). A deleted
+ * line offers 撤销 in its place for a few seconds. A finger on the list is
  * reported through [onListHeldChange] — the undo window waits for it to lift
  * — and when the undo row does collapse, a tap that comes down on a row still
  * gliding into its place is dropped ([NoteCollapseTapGuard]).
@@ -116,6 +118,8 @@ fun NoteFullscreenPane(
     onUndoDelete: () -> Unit = {},
     onRealign: ((SongNote, Long) -> Unit)? = null,
     onListHeldChange: (Boolean) -> Unit = {},
+    // A long press opens the note in the write bar (owner 2026-11-24); null keeps the 对齐到现在 / 删除 menu.
+    onEdit: ((SongNote) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val listMinPx = with(density) { NoteListMinViewport.roundToPx() }
@@ -130,6 +134,8 @@ fun NoteFullscreenPane(
         derivedStateOf { draftState.draft.belongsTo(current.songId) }
     }
     val showDraft = writing && draftHere
+    // The note open in the write bar for editing (only its id: typing doesn't recompose the list).
+    val editingId by remember(draftState) { derivedStateOf { draftState.draft.editingNoteId } }
     val rows = remember(notes, sortMode, deleted, draftAnchor, showDraft) {
         noteRows(notes, sortMode, deleted, draftAnchor, showDraft)
     }
@@ -194,6 +200,8 @@ fun NoteFullscreenPane(
                 onUndoDelete = onUndoDelete,
                 onRealign = onRealign,
                 onListHeldChange = onListHeldChange,
+                onEdit = onEdit,
+                editingId = editingId.takeIf { writing },
             )
         }
     }
@@ -217,6 +225,8 @@ private fun ColumnScope.NoteRowsList(
     onUndoDelete: () -> Unit,
     onRealign: ((SongNote, Long) -> Unit)?,
     onListHeldChange: (Boolean) -> Unit,
+    onEdit: ((SongNote) -> Unit)?,
+    editingId: String?,
 ) {
     if (notes.isNotEmpty() || deleted != null) {
         Row(
@@ -309,6 +319,8 @@ private fun ColumnScope.NoteRowsList(
                     onSeekToMs = onSeekToMs,
                     onDelete = onDelete,
                     onRealign = onRealign,
+                    onEdit = onEdit,
+                    editing = row.note.id == editingId,
                     tapIgnored = { tapGuard.ignores(index) },
                     modifier = rowModifier,
                 )
@@ -333,6 +345,8 @@ private fun NotePageLine(
     onSeekToMs: (Long) -> Unit,
     onDelete: (String) -> Unit,
     onRealign: ((SongNote, Long) -> Unit)?,
+    onEdit: ((SongNote) -> Unit)?,
+    editing: Boolean,
     tapIgnored: () -> Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -343,7 +357,13 @@ private fun NotePageLine(
     // "Now" as of the long-press: what the menu shows is what it files.
     var menuNowMs by remember { mutableLongStateOf(0L) }
     val anchor = note.positionMs
-    Box(modifier = modifier) {
+    // The line open in the write bar recedes: the bar holds its words now.
+    val editAlpha by animateFloatAsState(
+        targetValue = if (editing) EditingLineAlpha else 1f,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteEditingLine",
+    )
+    Box(modifier = modifier.graphicsLayer { alpha = editAlpha }) {
         val toggle = LocalNoteChecklistToggle.current
         NoteLine(
             stamp = anchor?.let(::formatNotePosition),
@@ -359,11 +379,17 @@ private fun NotePageLine(
                 onClickLabel = anchor?.let {
                     stringResource(R.string.np_cd_note_play_from, formatNotePosition(it))
                 },
-                onLongClickLabel = stringResource(R.string.np_cd_note_actions),
+                onLongClickLabel = stringResource(
+                    if (onEdit != null) R.string.detail_scrap_edit_note else R.string.np_cd_note_actions,
+                ),
                 onLongClick = {
                     haptics.performLongPress()
-                    menuNowMs = positionMs()
-                    menuOpen = true
+                    if (onEdit != null) {
+                        onEdit(note)
+                    } else {
+                        menuNowMs = positionMs()
+                        menuOpen = true
+                    }
                 },
                 onClick = {
                     if (anchor != null && !tapIgnored()) {
@@ -593,3 +619,6 @@ private fun NoteFullscreenPanePreview() {
         )
     }
 }
+
+/** How far the line being rewritten in the write bar recedes. */
+private const val EditingLineAlpha = 0.38f

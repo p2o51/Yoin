@@ -1,7 +1,7 @@
 # Cloud sync on HarmonyOS
 
 The Android feature (repo root `docs/cloud-sync.md`) ported to the Flutter app:
-notes, song and album ratings, album reviews, your own Memory titles, Yoin's AI
+notes, album notes, song and album ratings, album reviews, your own Memory titles, Yoin's AI
 Memory titles and narration, the Home layout and the account descriptions go
 into the hidden `appDataFolder` of the user's own Google Drive, one set of files
 per device, merged on every device.
@@ -14,6 +14,7 @@ Cloud project) read each other's data.
 | Kind | HarmonyOS | Notes |
 | --- | --- | --- |
 | `song_note` | ✔ | Plus an extra `albumId` field (Android keeps it, ignores it). |
+| `album_note` (album stickies, several per album) | ✔ | Android's payload as is (`albumId`, `provider`, `content` markup, `createdAt`, `updatedAt`, `albumName`, `artist`), key = note id; last edit wins, a live edit beats a concurrent delete, deletes travel as tombstones. Kept per account in `album_notes.v1.<account>`. |
 | `track_rating`, `album_rating`, `album_review` | ✔ | Same 0-vs-“not rated” rule (`zero: true`); reviews edited on two devices at once keep both texts. |
 | `album_title` (your Memory title) | ✔ | Restore Yoin's title = tombstone. |
 | `home_layout` | ✔ | The sections JSON travels verbatim. Restore default now deletes the saved layout (as Android), so it syncs as “default”. |

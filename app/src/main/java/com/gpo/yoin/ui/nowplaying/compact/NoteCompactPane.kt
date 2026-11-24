@@ -112,6 +112,8 @@ fun NoteCompactPane(
                     isActive = index == currentIndex && currentIndex >= 0,
                     emphasis = NoteLineEmphasis.Glance,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else null,
+                    // Collapsed: a mention is not a link here; a tap anywhere expands (owner 2026-11-24).
+                    interactive = false,
                 )
             }
         }

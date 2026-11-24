@@ -26,9 +26,9 @@ object SyncKinds {
     const val PLAYLIST_BACKUP = "playlist_backup"
 
     /**
-     * `album_notes` (notes revamp, 2026-11-23): Android and iOS (shared AlbumNoteSyncAdapter, notes phase 1b)
-     * apply it; engines without an adapter (HarmonyOS, older builds) carry the records opaquely and republish
-     * them. Same name as the Memories backup's `album_note` kind.
+     * `album_notes` (notes revamp, 2026-11-23): Android, iOS (shared AlbumNoteSyncAdapter, notes phase 1b) and
+     * HarmonyOS (its Dart adapter, notes phase 1b) publish and apply it; engines without an adapter (older builds)
+     * carry the records opaquely and republish them. Same name as the Memories backup's `album_note` kind.
      */
     const val ALBUM_NOTE = "album_note"
 }

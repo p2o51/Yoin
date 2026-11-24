@@ -100,6 +100,7 @@ void main() {
         LocalRatingStore.keyFor(profile),
         album,
         MemoryStore.songNotesKey(profile),
+        MemoryStore.albumNotesKey(profile),
         MemoryStore.albumPlaysKey(profile),
         MemoryStore.trackPlaysKey(profile),
         MemoryStore.titlesKey(profile),

@@ -2,10 +2,12 @@
 /// AlbumDetailViewModel.editScrapbook, scrapFeeds): a track's score, the
 /// listener's version of an About row, a new entry (asked or written), the
 /// AI writing a row again or a track's About from nothing, the track's notes,
-/// and its timed lyrics for the Note tab. One per album page.
+/// the album's own notes (its stickies), and its timed lyrics for the Note
+/// tab. One per album page.
 library;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +31,11 @@ class AlbumScrapbookEditor extends Notifier<ScrapGemini> {
 
   /// Notes deleted from the sheet, as they were, for Undo.
   final Map<String, SongNote> _deletedNotes = {};
+
+  /// Album notes deleted from a sticky, as they were, for Undo.
+  final Map<String, AlbumNote> _deletedAlbumNotes = {};
+
+  static final Random _random = Random.secure();
 
   /// What the AI's work came to; the sheet (or the page) says it.
   Stream<ScrapEvent> get events => _events.stream;
@@ -108,7 +115,83 @@ class AlbumScrapbookEditor extends Notifier<ScrapGemini> {
         final note = _deletedNotes.remove(noteId);
         if (note == null) return;
         unawaited(_write(() async => (await ref.read(memoryStoreProvider.future))?.putSongNote(note)));
+      case ScrapNewAlbumNoteEdit(:final text):
+        unawaited(_write(() => _newAlbumNote(text)));
+      case ScrapAlbumNoteTextEdit(:final noteId, :final text):
+        unawaited(_write(() => _editAlbumNote(noteId, text)));
+      case ScrapRestoreAlbumNoteEdit(:final noteId):
+        final note = _deletedAlbumNotes.remove(noteId);
+        if (note == null) return;
+        unawaited(_write(() => _restoreAlbumNote(note)));
     }
+  }
+
+  /// Appends an album note (Android YoinRepository.addAlbumNote): a fresh UUID,
+  /// the album's name and artist kept with it.
+  Future<void> _newAlbumNote(String text) async {
+    final album = _album;
+    final store = await ref.read(memoryStoreProvider.future);
+    final words = text.trim();
+    if (album == null || store == null || words.isEmpty) return;
+    final now = _now();
+    await store.putAlbumNote(
+      AlbumNote(
+        id: newAlbumNoteId(_random),
+        albumId: albumId,
+        content: words,
+        createdAt: now,
+        updatedAt: now,
+        albumName: album.name,
+        artist: album.artist ?? '',
+      ),
+    );
+  }
+
+  /// New words for an album note; blank deletes it and keeps it for Undo
+  /// (Android editAlbumNoteById). The same words write nothing.
+  Future<void> _editAlbumNote(String noteId, String text) async {
+    final store = await ref.read(memoryStoreProvider.future);
+    if (store == null) return;
+    final note = (await store.albumNotes(albumId)).where((n) => n.id == noteId).firstOrNull;
+    if (note == null) return;
+    final words = text.trim();
+    if (words.isEmpty) {
+      _deletedAlbumNotes[noteId] = note;
+      await store.deleteAlbumNote(noteId);
+      return;
+    }
+    if (words == note.content.trim()) return;
+    await store.putAlbumNote(
+      AlbumNote(
+        id: note.id,
+        albumId: note.albumId,
+        content: words,
+        createdAt: note.createdAt,
+        updatedAt: _now(),
+        albumName: note.albumName,
+        artist: note.artist,
+      ),
+    );
+  }
+
+  /// A deleted album note back (Undo): same id and creation time, stamped now
+  /// (never at or before its last version, so the restore wins over the delete
+  /// it undoes everywhere it synced).
+  Future<void> _restoreAlbumNote(AlbumNote note) async {
+    final store = await ref.read(memoryStoreProvider.future);
+    if (store == null) return;
+    final now = _now();
+    await store.putAlbumNote(
+      AlbumNote(
+        id: note.id,
+        albumId: note.albumId,
+        content: note.content,
+        createdAt: note.createdAt,
+        updatedAt: now > note.updatedAt ? now : note.updatedAt + 1,
+        albumName: note.albumName,
+        artist: note.artist,
+      ),
+    );
   }
 
   Future<void> _ask(ScrapAskEdit edit) async {
@@ -244,6 +327,16 @@ class AlbumScrapbookEditor extends Notifier<ScrapGemini> {
       return ScrapLyrics.none;
     }
   }
+}
+
+/// A random (version 4) UUID, the shape Android gives an album note's id.
+String newAlbumNoteId(Random random) {
+  final b = List<int>.generate(16, (_) => random.nextInt(256));
+  b[6] = (b[6] & 0x0F) | 0x40;
+  b[8] = (b[8] & 0x3F) | 0x80;
+  final hex = [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-${hex.substring(20)}';
 }
 
 final albumScrapbookEditorProvider = NotifierProvider.autoDispose.family<AlbumScrapbookEditor, ScrapGemini, MediaId>(
