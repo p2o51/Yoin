@@ -117,6 +117,19 @@ class SyncEngine {
     });
   }
 
+  /// Merges a backup's records (accounts kept cloud-only, Android
+  /// SyncEngine.mergeImported) like a peer's file: same rules, scope purges
+  /// honoured, no remote file recorded.
+  Future<MergeResult> mergeImported(SyncEnvelope envelope) => _db.transaction(() async {
+    final acc = _MergeAccumulator();
+    final names = _DeviceNames(this, envelope);
+    final purges = _PurgeFilter(_loadPurges(), envelope.purges ?? const {});
+    for (final wire in envelope.records) {
+      _mergeRecord(wire, names, purges, acc);
+    }
+    return acc.build('', envelope);
+  });
+
   void _mergeRecord(WireRecord wire, _DeviceNames names, _PurgeFilter purges, _MergeAccumulator acc) {
     acc.received++;
     final valid =
