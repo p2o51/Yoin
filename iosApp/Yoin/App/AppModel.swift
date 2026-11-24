@@ -154,6 +154,8 @@ final class AppModel {
     /// Native playback (AVQueuePlayer, lock screen, remote commands).
     let playbackSystem: PlaybackSystem
     var player: PlayerEngine { playbackSystem.engine }
+    /// Real-time 4-channel vocal-reduction Sing session (`Playback/Sing/`).
+    let sing = SingSessionController()
     /// The Subsonic server in use (shared Kotlin client); none = the mock
     /// library, as the screenshots use.
     let session = ServerSession()
@@ -243,6 +245,8 @@ final class AppModel {
                                        appleAuthorized: { apple.isAuthorized }, forcedSource: forced)
         self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
+        sing.avOutputProvider = { [weak playbackSystem] in playbackSystem?.avOutput }
+        sing.serverAccountProvider = { [weak session] in session?.account }
         #if DEBUG
         profiles.useFakeSpotify()
         #endif

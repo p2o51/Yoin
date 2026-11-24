@@ -6,16 +6,19 @@ import '../ui/component/corner_mask.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../data/backup/playlist_backup_providers.dart';
 import '../data/model/media_id.dart';
-import '../landing/landing_host.dart';
-import '../landing/landing_strings.dart';
 import '../neodb/neodb_settings_screen.dart';
 import '../offline/downloads_screen.dart';
+import '../offline/offline_providers.dart';
+import '../offline/offline_strings.dart';
+import '../offline/stream_cache_providers.dart';
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
 import '../shell/chrome_back.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/meta_line.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_dialog.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
@@ -25,7 +28,6 @@ import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'account_switch_overlay.dart';
 import 'about_screen.dart';
-import 'export_log.dart';
 import 'add_account_sheet.dart';
 import 'apple_music_account_screen.dart';
 import 'ai_settings_screen.dart';
@@ -35,7 +37,6 @@ import 'backup/playlist_backup_screen.dart';
 import 'backup/playlist_backup_strings.dart';
 import 'backup/playlist_backups_screen.dart';
 import 'appearance/appearance_group.dart';
-import 'appearance/appearance_strings.dart';
 import 'appearance/screen_corners_screen.dart';
 import 'appearance/scroll_edge_screen.dart';
 import 'service_intro.dart' show ServiceIntroStrings;
@@ -45,6 +46,7 @@ import 'licenses.dart';
 import '../ui/shapes/shape_path.dart';
 import 'playback_cache_row.dart';
 import 'settings_metrics.dart';
+import 'settings_page.dart';
 import 'settings_pane.dart';
 import 'settings_rows.dart';
 import 'settings_strings.dart';
@@ -54,9 +56,10 @@ import 'subsonic_setup_screen.dart';
 import 'sync/cloud_sync_entry.dart';
 import 'sync/cloud_sync_screen.dart';
 import 'sync/cloud_sync_strings.dart';
+import 'sync/cloud_sync_texts.dart';
+import 'sync/cloud_sync_view_model.dart';
 import 'tips.dart';
 import 'volume_leveling_screen.dart';
-import 'yoin_links.dart';
 
 export 'settings_pane.dart';
 
@@ -193,6 +196,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const AiTiersScreen()));
       case AiTryPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const AiTryScreen()));
+      case AppearancePane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const AppearanceScreen()));
+      case SyncAndBackupsPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const SyncAndBackupsScreen()));
+      case StoragePane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const StorageScreen()));
+      case HelpAndFeedbackPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const HelpAndFeedbackScreen()));
       case TipsPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
@@ -264,11 +275,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   _FeaturesGroup(open: pane, listDetail: wide, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
-                  // Scroll edge and Screen corners, between Features and Sync and storage as on Android.
-                  AppearanceGroup(open: pane, listDetail: wide, onOpen: _open),
-                  const SizedBox(height: SettingsMetrics.sectionGap),
-                  // Where your data goes (Android owner 2026-11-09, plan A), after Features as on Android.
-                  _SyncStorageGroup(open: pane, listDetail: wide, onOpen: _open),
+                  _SyncStorageGroup(state: state, open: pane, listDetail: wide, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   _HelpAboutGroup(open: pane, listDetail: wide, onOpen: _open),
                 ],
@@ -348,6 +355,10 @@ class _ListDetail extends StatelessWidget {
       AiPane() => const AiSettingsScreen(inPane: true),
       AiTiersPane() => const AiTiersScreen(inPane: true),
       AiTryPane() => const AiTryScreen(inPane: true),
+      AppearancePane() => const AppearanceScreen(inPane: true),
+      SyncAndBackupsPane() => const SyncAndBackupsScreen(inPane: true),
+      StoragePane() => const StorageScreen(inPane: true),
+      HelpAndFeedbackPane() => const HelpAndFeedbackScreen(inPane: true),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
       AboutPane() => const AboutScreen(inPane: true),
@@ -454,8 +465,7 @@ class _PanePlaceholder extends StatelessWidget {
   }
 }
 
-/// Features (SettingsScreen's Features group): AI features. Android also has
-/// Labs here; HarmonyOS has none of its experiments yet.
+/// Features and appearance (v4): AI features and Appearance.
 class _FeaturesGroup extends StatelessWidget {
   const _FeaturesGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -464,65 +474,213 @@ class _FeaturesGroup extends StatelessWidget {
   final OpenSettingsPane onOpen;
 
   @override
-  Widget build(BuildContext context) => SettingsGroup(
-    title: SettingsStrings.of(context).sectionFeatures,
-    selected: {if (open is AiPane || open is AiTiersPane || open is AiTryPane) 0},
-    children: [
-      AiSettingsRow(
-        trailing: listDetail
-            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
-            : null,
-        onOpen: () => onOpen(const AiPane()),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final chevron = listDetail
+        ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+        : null;
+    return SettingsGroup(
+      title: SettingsStrings.of(context).sectionFeatures,
+      selected: {
+        if (open is AiPane || open is AiTiersPane || open is AiTryPane) 0,
+        if (open is AppearancePane || open is ScrollEdgePane || open is ScreenCornersPane) 1,
+      },
+      children: [
+        AiSettingsRow(trailing: chevron, onOpen: () => onOpen(const AiPane())),
+        AppearanceEntryRow(trailing: chevron, onOpen: () => onOpen(const AppearancePane())),
+      ],
+    );
+  }
 }
 
-/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage):
-/// Cloud sync, NeoDB, Playlist cloud backup (PlaylistBackupsItem), then the playback cache (CacheItem).
-class _SyncStorageGroup extends StatelessWidget {
-  const _SyncStorageGroup({required this.open, required this.listDetail, required this.onOpen});
+/// Settings › Sync and storage (v4): Sync and backups + Storage.
+class _SyncStorageGroup extends ConsumerWidget {
+  const _SyncStorageGroup({
+    required this.state,
+    required this.open,
+    required this.listDetail,
+    required this.onOpen,
+  });
 
+  final SettingsContent state;
   final SettingsPane? open;
   final bool listDetail;
   final OpenSettingsPane onOpen;
 
   @override
-  Widget build(BuildContext context) => SettingsGroup(
-    title: CloudSyncStrings.of(context).sectionSyncStorage,
-    selected: {
-      if (open is CloudSyncPane) 0,
-      if (open is NeoDbPane) 1,
-      if (open is PlaylistBackupsPane || open is PlaylistBackupPane) 2,
-    },
-    children: [
-      CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane())),
-      NeoDbSettingsRow(
-        trailing: listDetail
-            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
-            : null,
-        onOpen: () => onOpen(const NeoDbPane()),
-      ),
-      SettingsItem(
-        icon: YoinSymbols.playlist,
-        title: PlaylistBackupStrings.of(context).title,
-        trailing: listDetail
-            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
-            : null,
-        onTap: () => onOpen(const PlaylistBackupsPane()),
-      ),
-      // Last in the group, as on Android.
-      const PlaybackCacheRow(),
-    ],
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = SettingsStrings.of(context);
+    final cloudStrings = CloudSyncStrings.of(context);
+    final sync = ref.watch(cloudSyncViewModelProvider.select((p) => p.sync));
+    final backupsCount = ref.watch(playlistBackupsProvider).value?.length ?? 0;
+    final cacheBytes = ref.watch(streamCacheSizeProvider);
+    final downloadBytes = ref.watch(offlineStateProvider.select((s) => s.downloadBytes));
+    final offlineStrings = OfflineStrings.of(context);
+    final activeSubsonic = state.accounts
+        .where((a) => a.isActive && a.provider == MediaId.providerSubsonic)
+        .isNotEmpty;
+    final hasDownloads = activeSubsonic && downloadBytes > 0;
+    final chevron = listDetail
+        ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+        : null;
+    return SettingsGroup(
+      title: cloudStrings.sectionSyncStorage,
+      selected: {
+        if (open is SyncAndBackupsPane ||
+            open is CloudSyncPane ||
+            open is NeoDbPane ||
+            open is PlaylistBackupsPane ||
+            open is PlaylistBackupPane)
+          0,
+        if (open is StoragePane || (open is DownloadsPane && (open as DownloadsPane).fromStorage)) 1,
+      },
+      children: [
+        SyncClock(
+          builder: (context, nowMs) {
+            final text = cloudSyncEntrySummary(sync, nowMs, cloudStrings, date: localizedSyncDate(context));
+            final syncLabel = text.detail ?? text.status;
+            return SettingsItem(
+              icon: YoinSymbols.cloud,
+              title: strings.syncBackupsTitle,
+              summaryContent: MetaLine(
+                groups: [
+                  MetaPlain(syncLabel),
+                  if (backupsCount > 0)
+                    MetaStat('$backupsCount', strings.syncUnitBackups(backupsCount)),
+                ],
+                style: Theme.of(context).textTheme.bodyMedium,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              trailing: chevron,
+              onTap: () => onOpen(const SyncAndBackupsPane()),
+            );
+          },
+        ),
+        SettingsItem(
+          icon: YoinSymbols.storage,
+          title: strings.storageTitle,
+          summary: hasDownloads
+              ? null
+              : (cacheBytes > 0
+                    ? strings.storagePlaybackCacheSummary(offlineStrings.bytes(cacheBytes))
+                    : offlineStrings.bytes(0)),
+          summaryContent: hasDownloads
+              ? MetaLine(
+                  groups: [
+                    MetaPlain(strings.storageDownloadedShort(offlineStrings.bytes(downloadBytes))),
+                    MetaMuted(strings.storageCacheShort(offlineStrings.bytes(cacheBytes))),
+                  ],
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                )
+              : null,
+          trailing: chevron,
+          onTap: () => onOpen(const StoragePane()),
+        ),
+      ],
+    );
+  }
 }
 
-/// Help and about (Android owner 2026-11-09): Tips (how many are read), the
-/// Welcome guide, Docs and Send feedback (in the browser), Export log (the
-/// playback diagnostics, shared as a file), Yoin (its version;
-/// the website and privacy policy inside), and the open source licenses. On a
-/// wide window the rows that open a page show a chevron and the open one is
-/// marked.
+/// Settings › Sync and storage › Sync and backups (v4): Cloud sync, NeoDB, and
+/// Playlist cloud backup in one segmented group.
+class SyncAndBackupsScreen extends StatelessWidget {
+  const SyncAndBackupsScreen({super.key, this.inPane = false});
+
+  final bool inPane;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = SettingsStrings.of(context);
+    final openInPane = SettingsPaneScope.maybeOf(context);
+    final chevron = openInPane != null
+        ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+        : null;
+    void open(SettingsPane pane, Widget Function() page) {
+      if (openInPane != null) {
+        openInPane(pane);
+      } else {
+        Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => page()));
+      }
+    }
+
+    return SettingsSubPage(
+      title: strings.syncBackupsTitle,
+      inPane: inPane,
+      children: [
+        SettingsSegments(
+          children: [
+            CloudSyncEntryRow(
+              showChevron: openInPane != null,
+              onTap: () => open(const CloudSyncPane(), () => const CloudSyncScreen()),
+            ),
+            NeoDbSettingsRow(
+              trailing: chevron,
+              onOpen: () => open(const NeoDbPane(), () => const NeoDbSettingsScreen()),
+            ),
+            SettingsItem(
+              icon: YoinSymbols.playlist,
+              title: PlaylistBackupStrings.of(context).title,
+              trailing: chevron,
+              onTap: () => open(const PlaylistBackupsPane(), () => const PlaylistBackupsScreen()),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Settings › Sync and storage › Storage (v4): Playback cache and the active
+/// Subsonic account's Downloads.
+class StorageScreen extends ConsumerWidget {
+  const StorageScreen({super.key, this.inPane = false});
+
+  final bool inPane;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = SettingsStrings.of(context);
+    final offlineStrings = OfflineStrings.of(context);
+    final settingsState = ref.watch(settingsViewModelProvider);
+    final activeSubsonic = switch (settingsState) {
+      SettingsContent(:final accounts) =>
+        accounts.where((a) => a.isActive && a.provider == MediaId.providerSubsonic).firstOrNull,
+      _ => null,
+    };
+    final offline = ref.watch(offlineStateProvider);
+    final openInPane = SettingsPaneScope.maybeOf(context);
+    return SettingsSubPage(
+      title: strings.storageTitle,
+      inPane: inPane,
+      children: [
+        SettingsSegments(
+          children: [
+            const PlaybackCacheRow(),
+            if (activeSubsonic != null)
+              SettingsItem(
+                icon: YoinSymbols.download,
+                title: offlineStrings.title,
+                summary: downloadQualityLabel(strings, offline.settings.quality),
+                summaryDetail: downloadsSummaryDetail(offlineStrings, offline.downloadBytes),
+                trailing: openInPane != null
+                    ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+                    : null,
+                onTap: () {
+                  if (openInPane != null) {
+                    openInPane(DownloadsPane(activeSubsonic.id, fromStorage: true));
+                  } else {
+                    Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const DownloadsScreen()));
+                  }
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Settings › Help and about (v4): Help and feedback + About Yoin.
 class _HelpAboutGroup extends ConsumerWidget {
   const _HelpAboutGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -534,54 +692,29 @@ class _HelpAboutGroup extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = SettingsStrings.of(context);
     final read = ref.watch(tipReadProvider);
-    final language = Localizations.maybeLocaleOf(context)?.languageCode ?? 'en';
     final chevron = listDetail
         ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
         : null;
     return SettingsGroup(
       title: strings.sectionHelpAbout,
-      selected: {if (open is TipsPane) 0, if (open is AboutPane) 5, if (open is LicensesPane) 6},
+      selected: {
+        if (open is HelpAndFeedbackPane || open is TipsPane) 0,
+        if (open is AboutPane || open is LicensesPane) 1,
+      },
       children: [
         SettingsItem(
-          icon: YoinSymbols.sparkle,
-          title: strings.aboutTips,
-          summary: tipsReadSummary(strings, read),
+          icon: YoinSymbols.comment,
+          title: strings.helpFeedbackTitle,
+          summary: helpTipsSummary(strings, read),
           trailing: chevron,
-          onTap: () => onOpen(const TipsPane()),
+          onTap: () => onOpen(const HelpAndFeedbackPane()),
         ),
-        // Runs the first-run landing again, accounts kept (after Tips, as on Android).
-        SettingsItem(
-          icon: YoinSymbols.refresh,
-          title: LandingStrings.of(context).welcomeGuide,
-          summary: AppearanceStrings.of(context).welcomeGuideSummary,
-          onTap: () => openWelcomeGuide(context, ref),
-        ),
-        ExternalPageItem(
-          icon: YoinSymbols.note,
-          title: strings.aboutDocs,
-          url: YoinLinks.docsFor(language),
-          openFailed: strings.aboutDocsOpenFailed,
-        ),
-        ExternalPageItem(
-          icon: YoinSymbols.send,
-          title: strings.aboutFeedback,
-          url: YoinLinks.feedbackForm,
-          openFailed: strings.aboutFeedbackOpenFailed,
-        ),
-        // The playback diagnostics log through the share sheet (Android main, iOS's row).
-        const ExportLogItem(),
         SettingsItem(
           icon: YoinSymbols.info,
-          title: strings.aboutName,
+          title: strings.aboutYoinTitle,
           summary: strings.aboutVersion(yoinVersionName),
           trailing: chevron,
           onTap: () => onOpen(const AboutPane()),
-        ),
-        SettingsItem(
-          icon: YoinSymbols.code,
-          title: strings.aboutLicenses,
-          trailing: chevron,
-          onTap: () => onOpen(const LicensesPane()),
         ),
       ],
     );
@@ -814,7 +947,10 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
     final card = widget.card;
     final identity = card.identity;
     final tone = identity.hue.tone(theme.brightness);
-    final line = serviceLine(identity.name, card.title, card.host);
+    final scopeHint = card.provider == MediaId.providerAppleMusic
+        ? strings.accountScopeApple
+        : strings.accountScopeSubsonic;
+    final line = accountCardLine(identity.name, card.title, card.host, scopeHint);
     final opensPage = card.tapOpensPage;
     return AnimatedBuilder(
       animation: Listenable.merge([_active.animation, _scale.animation]),
@@ -872,12 +1008,12 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
                           ],
                         ),
                         const Spacer(),
-                        // Name and service read as one cluster.
+                        // Name and service read as one cluster; Subsonic cards stack host + scope under a 1-line name.
                         Padding(
                           padding: const EdgeInsetsDirectional.only(end: SettingsMetrics.cardTextEnd),
                           child: Text(
                             card.title,
-                            maxLines: 2,
+                            maxLines: line != null && line.host != null && line.scope != null ? 1 : 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleMedium!.copyWith(color: ink),
                           ),
@@ -885,16 +1021,23 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
                         if (line != null)
                           Padding(
                             padding: const EdgeInsetsDirectional.only(end: SettingsMetrics.cardTextEnd),
-                            child: AccountServiceLine(kind: line.kind, detail: line.detail, color: secondary),
+                            child: AccountCardScopeLine(
+                              host: line.host,
+                              scope: line.scope,
+                              color: secondary,
+                              stacked: true,
+                            ),
                           ),
-                        SpringReveal(
-                          visible: card.credentialsMissing,
+                        Padding(
+                          padding: const EdgeInsets.only(top: SettingsMetrics.pillTop),
                           child: card.credentialsMissing
-                              ? Padding(
-                                  padding: const EdgeInsets.only(top: SettingsMetrics.pillTop),
-                                  child: _StatusPill(label: strings.accountCredentialsMissing),
-                                )
-                              : null,
+                              ? _StatusPill(label: strings.accountCredentialsMissing)
+                              : _ManagePill(
+                                  label: strings.accountPillManage,
+                                  isActive: card.isActive,
+                                  tone: tone,
+                                  onTap: () => widget.onOpen(AccountPane(card.id)),
+                                ),
                         ),
                       ],
                     ),
@@ -969,6 +1112,51 @@ class _StatusPill extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.labelMedium!.copyWith(color: colors.onErrorContainer),
+        ),
+      ),
+    );
+  }
+}
+
+/// Persistent clickable "Settings ›" pill in the bottom status-pill slot when
+/// an account has no error (v4): opens the account's page even on an inactive card.
+class _ManagePill extends StatelessWidget {
+  const _ManagePill({
+    required this.label,
+    required this.isActive,
+    required this.tone,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isActive;
+  final SettingsTone tone;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final fill = isActive ? tone.onContainer.withValues(alpha: 0.14) : colors.surfaceContainerHighest;
+    final ink = isActive ? tone.onContainer : colors.onSurfaceVariant;
+    return Material(
+      color: fill,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: SettingsMetrics.pillHorizontal,
+            vertical: SettingsMetrics.pillVertical,
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium!.copyWith(color: ink),
+          ),
         ),
       ),
     );

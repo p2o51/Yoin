@@ -39,9 +39,9 @@ enum HomeBubbleTip {
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
   memoryLedger(YoinSymbols.memory, (2026, 11, 17)),
   aiServices(YoinSymbols.sparkle, (2026, 11, 17)),
-  settingsRegrouped(YoinSymbols.settings, (2026, 11, 17)),
+  settingsRegrouped(YoinSymbols.settings, (2026, 11, 24)),
   continueOn(YoinSymbols.tablet, (2026, 11, 17), desktop: false),
-  lyricHighlight(YoinSymbols.musicNote, (2026, 11, 17)),
+  lyricHighlight(YoinSymbols.musicNote, (2026, 11, 24)),
   screenCorners(YoinSymbols.smartphone, (2026, 11, 17)),
   memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 17)),
   devices(YoinSymbols.speaker, (2026, 11, 17)),
@@ -105,7 +105,7 @@ enum HomeBubbleTip {
     libraryRefresh => zh ? '刷新资料库' : 'Refresh Library', // home_tip_library_refresh_title
     memoryLedger => zh ? '全部回忆' : 'All Memories', // home_tip_memory_ledger_title
     aiServices => zh ? 'AI 功能' : 'AI features', // home_tip_ai_services_title
-    settingsRegrouped => zh ? '设置重新分组' : 'Settings, regrouped', // home_tip_settings_regrouped_title
+    settingsRegrouped => zh ? '设置已重新整理' : 'Settings, reorganized', // home_tip_settings_regrouped_title
     continueOn =>
       zh ? '跨设备接着听' : 'Continue on another device', // Carbon 2026-11-17 (Android: home_tip_continue_on_title)
     lyricHighlight => zh ? '歌词卡片' : 'Lyric Cards', // home_tip_lyric_highlight_title
@@ -235,22 +235,20 @@ enum HomeBubbleTip {
     // home_tip_settings_regrouped
     settingsRegrouped =>
       zh
-          ? '设置按外观、同步与存储、帮助与关于重新归类，NeoDB 移到了同步与存储'
-          : 'Settings is now grouped into Appearance, Sync and storage, and Help and about, with NeoDB under Sync and '
-                'storage',
+          ? '滚动边缘与屏幕圆角收进「外观」，NeoDB 与歌单备份收进「同步与备份」'
+          : 'Scroll edge and corners are in Appearance; NeoDB and backups are in Sync and backups',
     // Carbon 2026-11-17 (HarmonyOS app continuation; Android: home_tip_continue_on).
     continueOn =>
       zh
           ? '点另一台设备程序坞、任务栏或最近任务顶部的 Yoin 接续图标，选「在这里继续」从同一秒接着播'
           : "Tap Yoin's continuation icon in another device's dock, taskbar, or recent tasks and choose Continue here "
                 'to pick up from the same second',
-    // Carbon 2026-11-17 (the user's own picks, no Gemini Nano; Android: home_tip_lyric_highlight;
-    // .argon/harmony-lyric-cards-1117).
+    // Carbon 2026-11-24 (the user's own picks, tap to play from start; Android: home_tip_lyric_highlight).
     lyricHighlight =>
       zh
-          ? '展开歌词后选句并分享或保存为图片卡片，句子会加入首页「歌词卡片」；点卡片从那句开播，左右滑动翻看，在「编辑首页」按住角落手柄下拉可选 2–4 张'
+          ? '展开歌词后选句并分享或保存为图片卡片，句子会加入首页「歌词卡片」；轻点卡片即可播放，左右滑动翻看，在「编辑首页」按住角落手柄下拉可选 2–4 张'
           : 'In expanded Lyrics, share or save selected lines as an image card to add them to Lyric Cards on Home; tap '
-                'a card to play from that line, swipe for more, or hold and pull down the corner handle in Edit Home '
+                'a card to play, swipe for more, or hold and pull down the corner handle in Edit Home '
                 'for 2–4 cards',
     // home_tip_screen_corners
     screenCorners =>

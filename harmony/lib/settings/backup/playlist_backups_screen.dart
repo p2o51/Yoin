@@ -35,6 +35,7 @@ class PlaylistBackupsScreen extends ConsumerWidget {
     return SettingsSubPage(
       title: strings.title,
       inPane: inPane,
+      paneBack: inPane,
       children: [
         PlaylistBackupsList(
           backups: backups.value,

@@ -314,6 +314,8 @@ struct NowPlayingView: View, Equatable {
     /// Playing synced lyrics that follow the playhead, on the expanded
     /// Lyrics page, not selecting lines (Android lyricToolsIdleEligible).
     private var lyricToolsIdleEligible: Bool {
+        // Keep the lyric bar awake while Sing is preparing or active so the spinner / capsule never auto-hides.
+        guard !model.sing.isEnabled else { return false }
         // The expanded page's tools, or the enlarged column's tab-row tools at rest
         // (Android toolsOnScreen: the enlarged tablet's tab row).
         let enlargedRest = model.isPad && !panel && !wide && stage == .compact
@@ -578,6 +580,17 @@ struct NowPlayingView: View, Equatable {
             if !on, stage == .expanded, !composing, !asking { stage = .compact }
         }
         .onChange(of: stage) { _, s in if wide, s == .compact { stage = .expanded } }
+        .onChange(of: model.sing.pendingExpandToLyricsTick) { _, tick in
+            guard tick > 0 else { return }
+            withAnimation(Yoin.spatial) {
+                tab = 0
+                if !wide { stage = .expanded }
+            }
+        }
+        .onChange(of: engineTrack?.id, initial: true) { _, _ in
+            guard demo == nil else { return }
+            model.sing.onTrackChanged(engineTrack)
+        }
         .onChange(of: about.askState) { _, s in
             // Android: back to idle (answered, or put away) empties the draft.
             if s == .idle { askDraft = "" }
@@ -1032,40 +1045,79 @@ struct NowPlayingView: View, Equatable {
             }
             Spacer().frame(width: retreat ? 0 : Tokens.np.RATING_GAP.cg)
             VStack(spacing: 0) {
-                RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
-                          gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock", haptics: demo == nil) { down in
-                    // One spring lifts and settles the bar (scale, glass, shadow).
-                    withAnimation(Yoin.spatial) { ratingHeld = down }
-                    touch("rating", down)
-                    if down {
-                        ratingTarget = engineTrack
-                        glowRatingHold(ratingBinding.wrappedValue)
-                    } else if let t = ratingTarget {
-                        // Committed to the song the finger went down on.
-                        let value = ratingBinding.wrappedValue
-                        data.commitRating(t, client: model.session.client)
-                        ratingTarget = nil
-                        glowRatingCommitted(value)
-                    } else {
-                        glowRatingCommitted(ratingBinding.wrappedValue)
+                ZStack {
+                    RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
+                              gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock", haptics: demo == nil) { down in
+                        // One spring lifts and settles the bar (scale, glass, shadow).
+                        withAnimation(Yoin.spatial) { ratingHeld = down }
+                        touch("rating", down)
+                        if down {
+                            ratingTarget = engineTrack
+                            glowRatingHold(ratingBinding.wrappedValue)
+                        } else if let t = ratingTarget {
+                            // Committed to the song the finger went down on.
+                            let value = ratingBinding.wrappedValue
+                            data.commitRating(t, client: model.session.client)
+                            ratingTarget = nil
+                            glowRatingCommitted(value)
+                        } else {
+                            glowRatingCommitted(ratingBinding.wrappedValue)
+                        }
+                    }
+                    .glowAnchor(.rating, glow)
+                    .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
+                    // A podcast episode is no song: nothing to rate.
+                    .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : 1))
+                    .allowsHitTesting(!showSingInRatingColumn && !isEpisode)
+                    .animation(Yoin.effects, value: isEpisode)
+
+                    if showSingInRatingColumn {
+                        SingVocalVerticalSlider(
+                            level: model.sing.sliderPosition,
+                            scheme: scheme,
+                            haptics: demo == nil,
+                            onLevelChange: { nextLevel in
+                                model.sing.setSliderPosition(nextLevel)
+                            },
+                            onExit: {
+                                model.sing.exit()
+                            }
+                        )
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity),
+                            removal: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity)
+                        ))
                     }
                 }
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
-                .glowAnchor(.rating, glow)
-                .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
-                // A podcast episode is no song: nothing to rate.
-                .opacity(isEpisode ? 0 : 1)
-                .allowsHitTesting(!isEpisode)
-                .animation(Yoin.effects, value: isEpisode)
+
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
-                // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
-                // and still, not an empty heart that would save it.
-                heart
-                    .opacity(isEpisode ? 0 : heartKnown ? 1 : 0.38)
-                    .allowsHitTesting(!isEpisode && heartKnown)
-                    .animation(Yoin.effects, value: isEpisode || !heartKnown)
+
+                ZStack {
+                    // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
+                    // and still, not an empty heart that would save it.
+                    heart
+                        .scaleEffect(showSingInRatingColumn ? 0.84 : 1)
+                        .opacity(showSingInRatingColumn ? 0 : (isEpisode ? 0 : heartKnown ? 1 : 0.38))
+                        .allowsHitTesting(!showSingInRatingColumn && !isEpisode && heartKnown)
+                        .animation(Yoin.effects, value: isEpisode || !heartKnown)
+
+                    SingExitCircleButton(
+                        scheme: scheme,
+                        isPreparing: model.sing.isPreparing,
+                        haptics: demo == nil
+                    ) {
+                        model.sing.exit()
+                    }
+                    .scaleEffect(showSingInRatingColumn ? 1 : 0.84)
+                    .opacity(showSingInRatingColumn ? 1 : 0)
+                    .allowsHitTesting(showSingInRatingColumn)
+                }
+                .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
+
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
+            .animation(Yoin.spatial, value: showSingInRatingColumn)
             // World: pressing the rating lifts the heart with it; their glass
             // shares one container, so the two shapes reach for each other.
             .background(alignment: .top) {
@@ -1408,14 +1460,29 @@ struct NowPlayingView: View, Equatable {
         lyricsEditing = true
     }
 
-    /// The four tools, or — in select mode — the selection keys, in the same
-    /// slot and footprint, cross-faded on the effects spring.
+    /// True when the Lyrics action bar (holding the 5th Sing key / expanded capsule) is visible on screen.
+    private var isLyricsSingBarVisible: Bool {
+        let lyricsOpen = wide ? (tab == 0 && stage != .focus) : (stage == .expanded && tab == 0)
+        let enlargedTools = model.isPad && !panel && !wide && stage == .compact && tab == 0
+        return (lyricsOpen || enlargedTools) && !lyricsSelecting
+    }
+
+    /// Single Vocal Control Invariant: morph the rating column beside the cover into Vocal Slider + Exit
+    /// ONLY when Sing is active and the Lyrics action bar capsule is NOT visible on screen (Phone Compact,
+    /// or iPad Wide switched away from Lyrics). Never shows duplicate vocal sliders.
+    private var showSingInRatingColumn: Bool {
+        demo == nil && model.sing.isActive && !isLyricsSingBarVisible
+    }
+
+    /// The four tools (+ 5th Sing key when supported), or — in select mode — the selection keys,
+    /// in the same slot and footprint, cross-faded on the effects spring.
     @ViewBuilder
     private func lyricTools(_ t: PlayableTrack, keySize: CGFloat = 52) -> some View {
         let actions = LyricsActions.shared
         let loaded = loadedLyrics
         let hasLines = !(loaded?.lines.isEmpty ?? true)
         let idle = actions.inFlight == nil
+        let showSing = demo == nil && model.sing.supportsSing(t)
         ZStack(alignment: .bottomLeading) {
             if lyricsSelecting {
                 LyricKeyRow(keys: [
@@ -1434,31 +1501,52 @@ struct NowPlayingView: View, Equatable {
                 ], scheme: scheme, size: keySize)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             } else {
-                LyricKeyRow(keys: [
-                    LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
-                        actions.openSearch(t)
-                    },
-                    LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
-                             busy: actions.inFlight == .translate) {
-                        withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
-                    },
-                    // ✓ = select lines; with no lines it opens the editor (paste lyrics).
-                    LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
-                        if hasLines {
-                            withAnimation(Yoin.effects) {
-                                lyricsSelected = []
-                                lyricsSelecting = true
+                HStack(spacing: 8) {
+                    LyricKeyRow(keys: [
+                        LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
+                            actions.openSearch(t)
+                        },
+                        LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
+                                 busy: actions.inFlight == .translate) {
+                            withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
+                        },
+                        // ✓ = select lines; with no lines it opens the editor (paste lyrics).
+                        LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
+                            if hasLines {
+                                withAnimation(Yoin.effects) {
+                                    lyricsSelected = []
+                                    lyricsSelecting = true
+                                }
+                            } else {
+                                openLyricsEditor(t)
                             }
-                        } else {
-                            openLyricsEditor(t)
-                        }
-                    },
-                    LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
-                             enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
-                        lyricsFollow = true
-                        lyricsRecenterTick += 1
-                    },
-                ], scheme: scheme, size: keySize)
+                        },
+                        LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
+                                 enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
+                            lyricsFollow = true
+                            lyricsRecenterTick += 1
+                        },
+                    ], scheme: scheme, size: keySize)
+                    if showSing {
+                        SingLyricsCapsuleKey(
+                            phase: model.sing.phase,
+                            level: model.sing.sliderPosition,
+                            failureTick: model.sing.failureTick,
+                            scheme: scheme,
+                            keySize: keySize,
+                            haptics: demo == nil,
+                            onToggle: {
+                                model.sing.toggle(track: t, openLyrics: false)
+                            },
+                            onLevelChange: { nextLevel in
+                                model.sing.setSliderPosition(nextLevel)
+                            },
+                            onExit: {
+                                model.sing.exit()
+                            }
+                        )
+                    }
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             }
         }

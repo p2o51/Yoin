@@ -75,7 +75,7 @@ class PrivacyPolicyEntryTest {
     @Test
     fun should_openTheDocs_when_theDocsRowIsTapped() {
         val opened = mutableListOf<String>()
-        showSettings(openUri = opened::add)
+        showHelpPage(openUri = opened::add)
         rule.onNodeWithText("Docs").performScrollTo().assertIsDisplayed().performClick()
 
         rule.runOnIdle {
@@ -96,12 +96,31 @@ class PrivacyPolicyEntryTest {
     @Test
     fun should_openTheChineseDocs_when_theAppUsesSimplifiedChinese() {
         val opened = mutableListOf<String>()
-        showSettings(openUri = opened::add)
+        showHelpPage(openUri = opened::add)
         rule.onNodeWithText("使用文档").performScrollTo().assertIsDisplayed().performClick()
         rule.runOnIdle { assertEquals(listOf("https://yoin.gojyuplus.com/zh/docs"), opened) }
     }
 
-    /** Settings › Yoin: the version, website and privacy policy (owner 2026-11-09). */
+    @Test
+    fun should_showThreeGroupsAndSixRows_when_rootSettingsOpened() {
+        showSettings(openUri = {})
+        listOf(
+            "Features and appearance",
+            "AI features",
+            "Appearance",
+            "Sync and storage",
+            "Sync and backups",
+            "Storage",
+            "Help and about",
+            "Help and feedback",
+            "About Yoin",
+        ).forEach { label ->
+            rule.onNodeWithText(label).performScrollTo().assertIsDisplayed()
+        }
+        rule.onNodeWithText("Spotoolfy recap").assertDoesNotExist()
+    }
+
+    /** Settings › About Yoin (v4): version, website, privacy policy, and open source licenses. */
     private fun showYoinPage(
         snackbarHostState: SnackbarHostState = SnackbarHostState(),
         openUri: (String) -> Unit,
@@ -113,7 +132,27 @@ class PrivacyPolicyEntryTest {
             CompositionLocalProvider(LocalUriHandler provides uriHandler) {
                 YoinTheme {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        AboutYoinPageContent(snackbarHostState = snackbarHostState, spotoolfyRecapBatchId = null)
+                        AboutYoinPageContent(snackbarHostState = snackbarHostState)
+                        SnackbarHost(snackbarHostState)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Settings › Help and feedback (v4): tips, welcome guide, docs, feedback, and export log. */
+    private fun showHelpPage(
+        snackbarHostState: SnackbarHostState = SnackbarHostState(),
+        openUri: (String) -> Unit,
+    ) {
+        val uriHandler = object : UriHandler {
+            override fun openUri(uri: String) = openUri.invoke(uri)
+        }
+        rule.setContent {
+            CompositionLocalProvider(LocalUriHandler provides uriHandler) {
+                YoinTheme {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        HelpAndFeedbackPageContent(snackbarHostState = snackbarHostState)
                         SnackbarHost(snackbarHostState)
                     }
                 }
