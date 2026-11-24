@@ -71,7 +71,7 @@ class MusicLinksPageTest {
             "识别剪贴板中的音乐链接",
             "在 Yoin 中打开",
             "在其他应用的分享菜单里选择「在 Yoin 中打开」，即可直接传入歌曲或链接。",
-            "跨账号打开与搜索",
+            "跨服务打开与搜索",
             "已登录对应服务的链接会直接打开，未登录对应服务时会在你当前使用的服务中搜索。",
         ).forEach { text -> rule.onNodeWithText(text).performScrollTo().assertIsDisplayed() }
     }
