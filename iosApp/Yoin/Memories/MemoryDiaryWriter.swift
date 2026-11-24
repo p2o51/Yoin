@@ -109,7 +109,9 @@ struct MemoryDiaryEntry: View {
     var onSave: (String) -> Bool
 
     @State private var writing = false
-    @FocusState private var focused: Bool
+    /// The field's keyboard (the note editor is a UIKit text view: a plain flag, not a FocusState).
+    @State private var focused = false
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
     /// A review that appears here (a save) keeps the size it was typed at.
     @State private var bornBlank: Bool?
 
@@ -197,15 +199,12 @@ struct MemoryDiaryEntry: View {
     }
 
     private var field: some View {
-        TextField("", text: draft, prompt: Text("Write").foregroundStyle(scheme.onSurfaceVariant.opacity(DiaryWriterTokens.placeholderAlpha)),
-                  axis: .vertical)
-            .font(.gsf(DiaryType.review))
-            .lineSpacing(DiaryType.lineSpacing(DiaryType.review, DiaryType.reviewLine))
-            .foregroundStyle(scheme.onSurface)
-            .tint(tones.ink)
-            .focused($focused)
-            .disabled(!enabled)
-            .textInputAutocapitalization(.sentences)
+        NoteMarkupEditor(model: editor, text: draft,
+                         prompt: Text("Write").foregroundStyle(scheme.onSurfaceVariant.opacity(DiaryWriterTokens.placeholderAlpha)),
+                         size: DiaryType.review, textColor: scheme.onSurface, mentionColor: scheme.primary, tint: tones.ink,
+                         scheme: scheme, lines: 1...400,
+                         lineSpacing: DiaryType.lineSpacing(DiaryType.review, DiaryType.reviewLine), focused: $focused)
+            .allowsHitTesting(enabled)
             .onChange(of: focused) { _, now in if now { writing = true } }
             .accessibilityLabel("Review")
     }

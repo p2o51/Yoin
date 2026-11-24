@@ -7,6 +7,8 @@ struct ScrapSheetOpen: Identifiable {
     var editing: SongAboutStore.Entry.Ref? = nil
     /// The tab it opens on (Android ScrapSheetTab): a clipping's "+N notes" opens Notes.
     var tab: ScrapSheetTab = .about
+    /// The note tapped on the page (Android initialNote): brought into view and ringed on the Notes page.
+    var note: String? = nil
 }
 
 /// The track sheet's two tabs (Android YoinTabGroup About / Notes, parity B-F10).
@@ -33,6 +35,8 @@ struct ScrapTrackSheet: View {
     var scoreEditable = true
     var initialEditing: SongAboutStore.Entry.Ref? = nil
     var initialTab: ScrapSheetTab = .about
+    /// The note tapped on the page: ringed and brought into view on the Notes page.
+    var initialNote: String? = nil
     /// Plays the song from a note's or a line's moment (nil: from the start); the sheet stays open.
     var onPlayFrom: (Int64?) -> Void = { _ in }
     @State private var tab: ScrapSheetTab = .about
@@ -167,7 +171,7 @@ struct ScrapTrackSheet: View {
     private var notesTab: some View {
         ScrapNotesTab(track: track, album: album, scheme: scheme,
                       playable: store.playable(PlaylistEntry(album: album, track: track)),
-                      onPlayFrom: onPlayFrom)
+                      focusNote: initialNote, onPlayFrom: onPlayFrom)
     }
 
     /// The mock's head: the number and title, no score bar.
