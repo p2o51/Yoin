@@ -7,6 +7,8 @@ environment:
   sdk: ^3.11.5
 
 dependencies:
+  # Pure-Dart zip for Settings › Export all data / Import from backup. 3.x: 4.x pulls in posix (FFI).
+  archive: ^3.6.1
   crypto: ^3.0.8
   flutter:
     sdk: flutter

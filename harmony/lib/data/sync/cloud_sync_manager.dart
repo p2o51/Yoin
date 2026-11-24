@@ -565,6 +565,29 @@ class CloudSyncManager implements CloudSyncController {
     return CloudDataViews.account(_db.recordsInScope(syncProfileId), syncProfileId);
   }
 
+  /// Runs [body] while no sync cycle runs (export, import from a backup,
+  /// Transfer Memories; Android holds the sync lock the same way). [replica]
+  /// is the sync store when Cloud sync ever ran on this device, else null (and
+  /// nothing is created); [deviceId] is the sync device id then.
+  Future<T> runPortability<T>(
+    Future<T> Function(SyncDatabase? replica, String? deviceId, String deviceName, bool syncOn) body,
+  ) async {
+    if (!_initialized && !await _db.exists()) {
+      String name;
+      try {
+        name = (await _deviceNameSource()).trim();
+      } catch (_) {
+        name = '';
+      }
+      if (name.length > 40) name = name.substring(0, 40);
+      return _lock.run(() => body(null, null, name, false));
+    }
+    await ensureInitialized();
+    final result = await _lock.run(() => body(_db, _deviceId, _deviceName, _isEnabled()));
+    await _db.flush();
+    return result;
+  }
+
   void _accountAction(Future<Object?> Function() action) => _launch(() async {
     await ensureInitialized();
     await _lock.run(() async => action());

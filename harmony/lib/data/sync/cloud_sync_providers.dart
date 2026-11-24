@@ -107,6 +107,33 @@ List<SyncAdapter> yoinSyncAdapters({
   ),
 ];
 
+/// Song scores as sync (and backups, Transfer Memories) read and write them:
+/// through the LocalRatings notifier.
+final syncTrackRatingAccessProvider = Provider<TrackRatingAccess>((ref) => _NotifierTrackRatingAccess(ref));
+
+/// The sync adapters over a sync store: what Cloud sync captures and applies,
+/// and what a backup exports and imports.
+final syncAdaptersProvider = Provider<List<SyncAdapter> Function(SyncDatabase db)>((ref) {
+  final store = ref.watch(keyValueStoreProvider);
+  final profiles = ref.watch(profileRepositoryProvider);
+  final ratings = ref.watch(syncTrackRatingAccessProvider);
+  final backups = ref.watch(playlistBackupStoreProvider);
+  final lyricsCache = ref.watch(lyricsCacheStoreProvider);
+  final lyricsBudget = lyricsCache == null ? null : LyricsCacheBudget(lyricsCache);
+  return (db) => yoinSyncAdapters(
+    db: db,
+    memory: (profileId) => MemoryStore.shared(store, profileId),
+    memoryCopy: (profileId) => MemoryCopyCache.shared(store, profileId),
+    ratings: ratings,
+    profiles: profiles,
+    store: store,
+    aboutLanguage: () async => AiLanguages.normalize((await ref.read(aiSettingsProvider.future)).targetLanguage),
+    backups: backups,
+    lyricsCache: lyricsCache,
+    onLyricsSeeded: lyricsBudget?.onWrite,
+  );
+});
+
 final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
   final store = ref.watch(keyValueStoreProvider);
   final secrets = ref.watch(secretStoreProvider);
@@ -114,27 +141,14 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
   final profiles = ref.watch(profileRepositoryProvider);
   final client = http.Client();
   final auth = GoogleOAuth(config: ref.watch(googleOAuthConfigProvider), host: host, http: client, secrets: secrets);
-  final ratings = _NotifierTrackRatingAccess(ref);
   final backups = ref.watch(playlistBackupStoreProvider);
   final lyricsCache = ref.watch(lyricsCacheStoreProvider);
-  final lyricsBudget = lyricsCache == null ? null : LyricsCacheBudget(lyricsCache);
   final manager = CloudSyncManager(
     db: SyncDatabase(IoSyncDbFile(host.filesDirectory)),
     auth: auth,
     transportFor: (tokens) =>
         DriveAppDataClient(http: client, tokens: tokens, userAgent: 'Yoin/$yoinVersionName (gzip)'),
-    adapters: (db) => yoinSyncAdapters(
-      db: db,
-      memory: (profileId) => MemoryStore.shared(store, profileId),
-      memoryCopy: (profileId) => MemoryCopyCache.shared(store, profileId),
-      ratings: ratings,
-      profiles: profiles,
-      store: store,
-      aboutLanguage: () async => AiLanguages.normalize((await ref.read(aiSettingsProvider.future)).targetLanguage),
-      backups: backups,
-      lyricsCache: lyricsCache,
-      onLyricsSeeded: lyricsBudget?.onWrite,
-    ),
+    adapters: ref.watch(syncAdaptersProvider),
     binder: (db) => AccountBinder(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
     deviceName: host.deviceName,
     packageName: yoinPackageName,
