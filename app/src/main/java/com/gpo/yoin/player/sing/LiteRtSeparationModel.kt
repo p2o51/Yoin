@@ -25,8 +25,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * One LiteRT CompiledModel of Lyra-Sing-Lite on one accelerator, the same contract as
- * [OrtSeparationModel]: a [1, 4, 512, 256] float chunk in, the vocal chunk out.
+ * One LiteRT CompiledModel of Lyra-Sing-Lite on one accelerator ([SeparationModel]): a [1, 4, 512, 256]
+ * float chunk in, the vocal chunk out.
  *
  * The input and output TensorBuffers are made once per session and reused for every chunk; LiteRT plans
  * its own activation memory (no arena to shrink). Its Kotlin API only reads an output back as a new

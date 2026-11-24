@@ -31,7 +31,7 @@ class SingSessionPoolTest {
         }
     }
 
-    private val model = File("model.onnx")
+    private val model = File("model.tflite")
     private val opened = ArrayList<FakeSession>()
 
     private fun TestScope.pool() = SingSessionPool(backgroundScope, idleMs = 60_000) { FakeSession().also { opened += it } }
@@ -82,7 +82,7 @@ class SingSessionPoolTest {
     @Test
     fun should_closeEverything_when_singTurnsOff() = runTest {
         val pool = pool()
-        pool.prewarm(File("other.onnx"))
+        pool.prewarm(File("other.tflite"))
         runCurrent()
         val inUse = pool.take(model)
         assertTrue("another model's session goes", opened[0].closed)

@@ -5,6 +5,6 @@
     <string name="sing_unavailable_provider">Sing works with Navidrome and downloaded songs.</string>
     <string name="sing_unavailable_no_source">This song can\'t be read for Sing right now.</string>
     <string name="sing_unavailable_lyra_pending">Sing with Lyra isn\'t ready yet.</string>
-    <string name="sing_failed_model">Couldn\'t download the Sing model.</string>
+    <string name="sing_failed_model">Couldn\'t load the Sing model.</string>
     <string name="sing_failed_generic">Couldn\'t prepare Sing for this song.</string>
 </resources>

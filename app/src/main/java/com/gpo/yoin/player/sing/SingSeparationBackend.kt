@@ -1,14 +1,14 @@
 package com.gpo.yoin.player.sing
 
-import android.util.Log
 import com.gpo.yoin.player.sing.dsp.SeparationModel
 import java.io.File
+import java.io.IOException
 
 /**
  * Where on-device Sing's model comes from and what runs it, for [OnDeviceSingStreamProvider]: the model
  * file(s) made ready ([ensure]), and a session opened on them ([open], one [SeparationModel] per
- * session, kept warm by [SingSessionPool]). Two today: LiteRT (Tensor TPU → GPU → CPU, the default,
- * [LiteRtSingBackend]) and ONNX Runtime on the CPU ([OrtSingBackend], behind `-PyoinSingOrt=true`).
+ * session, kept warm by [SingSessionPool]). LiteRT runs it ([LiteRtSingBackend]: Tensor TPU → GPU → CPU
+ * over the builds bundled in the APK); [NoSingBackend] stands in where LiteRT can't be set up.
  */
 interface SingSeparationBackend {
     /** Names what the separation's output comes from: part of the vocal cache key. */
@@ -27,31 +27,16 @@ interface SingSeparationBackend {
     fun open(model: File): SeparationModel
 }
 
-/** Lyra-Sing-Lite through ONNX Runtime on the CPU/XNNPACK, the model downloaded on first use. */
-class OrtSingBackend(
-    private val store: SingModelStore,
-    private val threads: Int,
-) : SingSeparationBackend {
-    // The model's SHA alone, as before the backends: vocal tracks cached by the ORT engine stay valid.
-    override val modelId: String get() = store.config.sha256
+/**
+ * No model on this device (the APK's LiteRT meta is missing or unreadable, or lists no build this device
+ * may run): every Sing request fails as [SingFailure.ModelUnavailable].
+ */
+class NoSingBackend(private val reason: String) : SingSeparationBackend {
+    override val modelId: String = "none"
+    override val gateTag: String = "none"
+    override val readyModel: File? = null
 
-    override val gateTag: String
-        get() = "${store.config.sha256}|$threads|${store.config.execution}|${OrtSeparationModel.CONFIG_TAG}"
+    override suspend fun ensure(onProgress: (Float) -> Unit): File = throw IOException(reason)
 
-    override val readyModel: File? get() = store.file.takeIf { it.isFile }
-
-    override suspend fun ensure(onProgress: (Float) -> Unit): File = store.ensure(onProgress)
-
-    override fun open(model: File): SeparationModel {
-        val t0 = System.nanoTime()
-        return OrtSeparationModel.open(model, threads, store.config.execution).also {
-            val t = OrtSeparationModel.threading(threads, it.usesXnnpack)
-            val how = if (it.usesXnnpack) "XNNPACK ${t.xnnpackThreads} threads + ORT ${t.ortThreads}" else "CPU, ${t.ortThreads} threads"
-            Log.d(TAG, "session open ${(System.nanoTime() - t0) / 1_000_000} ms (ONNX Runtime, $how)")
-        }
-    }
-
-    private companion object {
-        const val TAG = "YoinSing"
-    }
+    override fun open(model: File): SeparationModel = throw IOException(reason)
 }

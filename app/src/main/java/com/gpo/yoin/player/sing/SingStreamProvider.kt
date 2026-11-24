@@ -86,7 +86,7 @@ enum class SingUnavailableReason(@param:StringRes @get:StringRes val messageRes:
 }
 
 enum class SingFailure(@param:StringRes @get:StringRes val messageRes: Int) {
-    ModelDownload(R.string.sing_failed_model),
+    ModelUnavailable(R.string.sing_failed_model),
     Decode(R.string.sing_failed_generic),
     Inference(R.string.sing_failed_generic),
     Encode(R.string.sing_failed_generic),

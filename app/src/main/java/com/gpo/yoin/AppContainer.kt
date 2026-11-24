@@ -559,10 +559,10 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * Sing (karaoke) on this device: Lyra-Sing-Lite through ONNX Runtime, separating while the song
+     * Sing (karaoke) on this device: Lyra-Sing-Lite through LiteRT, separating while the song
      * plays and the mixer takes the vocal out live; finished vocal tracks are cached (player/sing/).
      * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
-     * here loads ONNX Runtime until a song is actually separated.
+     * here loads LiteRT until a song is actually separated.
      */
     val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
         com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)

@@ -73,9 +73,6 @@ android {
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
-        // Sing on ONNX Runtime instead of LiteRT (-PyoinSingOrt=true): the old CPU path, kept until LiteRT has
-        // proved itself on devices. Off: LiteRT when the APK carries its builds (player/sing/LiteRtSeparationModel.kt).
-        buildConfigField("boolean", "SING_ORT", (project.findProperty("yoinSingOrt") == "true").toString())
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
@@ -194,13 +191,9 @@ android {
 
     packaging {
         jniLibs {
-            // Sing runs ONNX Runtime on 64-bit ARM only: a 32-bit or x86 device is far too slow for
-            // the device gate, and each of those ABIs would add 26–45 MB of libonnxruntime.so.
-            // (Without the library the gate reports the device insufficient; see player/sing/.)
-            excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
-                listOf("**/$abi/libonnxruntime.so", "**/$abi/libonnxruntime4j_jni.so")
-            }
-            // LiteRT likewise (its NPU runtime is arm64-v8a only anyway): 6–12 MB per extra ABI.
+            // Sing runs LiteRT on 64-bit ARM only (its NPU runtime is arm64-v8a only anyway): a 32-bit or x86
+            // device is far too slow for the device gate, and each of those ABIs would add 6–12 MB.
+            // (Without the library the router has no backend and Sing fails cleanly; see player/sing/.)
             excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
                 listOf("libLiteRt.so", "liblitert_jni.so", "libLiteRtClGlAccelerator.so").map { "**/$abi/$it" }
             }
@@ -274,9 +267,8 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     // Cast (Phase 14)
     implementation(libs.media3.cast)
-    // Sing: Lyra-Sing-Lite on the device (player/sing/)
-    implementation(libs.onnxruntime.android)
-    // Sing on LiteRT: CompiledModel + GPU accelerator + the Google Tensor NPU dispatch library
+    // Sing: Lyra-Sing-Lite on the device (player/sing/) through LiteRT: CompiledModel + GPU accelerator + the
+    // Google Tensor NPU dispatch library
     implementation(libs.litert)
     implementation(libs.litert.gpu)
     implementation(libs.litert.npu.google.tensor)
@@ -332,7 +324,8 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.palette)
-    // The desktop ONNX Runtime (same Java API, macOS/Linux/Windows natives) for Sing's model parity test.
+    // The desktop ONNX Runtime, test only: Sing's model parity test runs the exported model on it against Python
+    // onnxruntime (LyraSingModelParityTest, skipped unless -PyoinSingModel is given). The app has no ONNX Runtime.
     testImplementation(libs.onnxruntime.jvm)
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
@@ -340,10 +333,4 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.espresso.core)
     debugImplementation(libs.compose.ui.test.manifest)
-}
-
-// Unit tests run on the desktop JVM: the Android ONNX Runtime package (same ai.onnxruntime classes, Android
-// natives) would shadow the desktop jar there, so it stays off their runtime classpath.
-configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
-    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
 }

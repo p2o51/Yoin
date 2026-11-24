@@ -26,15 +26,14 @@ lifecycleCompose = "2.9.0"
 media3 = "1.11.1"
 castFramework = "22.0.0"
 
-# Sing (on-device vocal separation, Lyra-Sing-Lite): ONNX Runtime's CPU/XNNPACK package. The full
-# onnxruntime-android is the only maintained Android artifact (onnxruntime-mobile stopped at 1.18 and
-# its .so is not 16 KB-aligned); app/build.gradle.kts packages its arm64-v8a library only.
-# 1.32.0 is also the version Prism's reference outputs come from. The desktop jar is for unit tests.
-onnxruntime = "1.32.0"
-
-# Sing on LiteRT (CompiledModel API): Google Tensor TPU (AOT builds) through the Tensor dispatch library,
-# the GPU (OpenCL/OpenGL accelerator) and the CPU (XNNPACK). app/build.gradle.kts packages arm64-v8a only.
+# Sing (on-device vocal separation, Lyra-Sing-Lite) on LiteRT (CompiledModel API): Google Tensor TPU (AOT
+# builds) through the Tensor dispatch library, the GPU (OpenCL/OpenGL accelerator) and the CPU (XNNPACK).
+# app/build.gradle.kts packages arm64-v8a only.
 litert = "2.4.0"
+
+# Desktop ONNX Runtime, unit tests only (Sing's model parity test against Prism's Python onnxruntime
+# reference outputs, made with 1.32.0). Not in the app.
+onnxruntime = "1.32.0"
 
 # Google authorization (Drive appDataFolder cloud sync)
 playServicesAuth = "22.0.0"
@@ -125,8 +124,7 @@ media3-datasource = { group = "androidx.media3", name = "media3-datasource", ver
 media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "media3" }
 
-# ONNX Runtime (Sing)
-onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+# Sing: LiteRT; the desktop ONNX Runtime for unit tests only
 onnxruntime-jvm = { group = "com.microsoft.onnxruntime", name = "onnxruntime", version.ref = "onnxruntime" }
 litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 litert-gpu = { group = "com.google.ai.edge.litert", name = "litert-gpu", version.ref = "litert" }

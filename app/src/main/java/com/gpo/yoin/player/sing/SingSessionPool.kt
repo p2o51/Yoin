@@ -13,8 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * At most one separation session kept warm, so a song doesn't wait for the ORT session to open
- * (seconds on a Pixel Tablet) more often than it must:
+ * At most one separation session kept warm, so a song doesn't wait for the session to open
+ * (a GPU or NPU compile can take a while) more often than it must:
  *
  * - [prewarm] starts opening one in the background — while the song is fetched and decoded, which
  *   needs no session, or as the song before nears its end — unless one is warm or on its way.
@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
  * - [give] puts it back; unused for [idleMs] it is closed (race to idle, a little later).
  * - [close] (Sing off) closes the idle one now, and the one in use as soon as it comes back.
  *
- * Opening runs in [scope], not the caller's coroutine: ORT can't be interrupted mid-open, so a caller
+ * Opening runs in [scope], not the caller's coroutine: LiteRT can't be interrupted mid-open, so a caller
  * cancelled meanwhile leaves the session warm for the next song instead of leaking it.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

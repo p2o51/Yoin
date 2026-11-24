@@ -61,3 +61,6 @@ local.properties
 
 # Spotify Client ID for iOS dev builds (as Android local.properties)
 iosApp/Config/Spotify.local.xcconfig
+
+# Python bytecode (scripts/)
+__pycache__/

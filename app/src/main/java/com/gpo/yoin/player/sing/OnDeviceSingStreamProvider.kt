@@ -46,7 +46,7 @@ import okhttp3.OkHttpClient
  * A request decodes the song (X, as Media3 plays it: encoder delay and padding trimmed) as it's needed
  * ([SingStreamDecoder], straight from the player's data source chain — the bytes ExoPlayer already
  * cached aren't fetched again): a FLAC or WAV from where the listener is, then on to the end, then the
- * start; other formats in one streamed pass from the start. The model, the gate and the ORT session
+ * start; other formats in one streamed pass from the start. The model, the gate and the LiteRT session
  * ([SingSessionPool.prewarm]) get ready alongside. Each chunk runs as soon as the PCM it reads is in
  * ([LiveVocalSeparator.inputRange]; nothing near the end before the song's true length is known, as a
  * chunk there depends on it), X's mono reference going into the [SingVocalTrack] as it decodes, the
@@ -68,10 +68,9 @@ import okhttp3.OkHttpClient
  * Memory, per second of 44.1 kHz audio, all in memory-mapped files rather than the Java heap (they
  * count in the app's PSS, but are file pages the system can write back and drop): X, the decoded mix,
  * 2 × 4 B × 44 100 ≈ 353 KB; the 22.05 kHz mix and V, ≈ 353 KB; the vocal track, 6 B × 44 100
- * ≈ 265 KB — ≈ 970 KB/s, ~190 MB for a 3:16 song once separated whole. Plus the ORT session (weights,
- * XNNPACK's packed copy, its activation arena: native heap, ~the planned peak of a run once the first
- * run's arena is shrunk, handed back when the last session closes — see [OrtSeparationModel]), and
- * 4 MB of reused tensors.
+ * ≈ 265 KB — ≈ 970 KB/s, ~190 MB for a 3:16 song once separated whole. Plus the LiteRT session (the
+ * model and its activations, native or GPU memory, freed when the session closes — see
+ * [LiteRtSeparationModel]) and its two 2 MB tensor buffers.
  *
  * One song at a time; a request for another song cancels the one in progress (the listener moved on).
  * The first request runs the device gate ([SingDeviceGate]) once.
@@ -79,7 +78,7 @@ import okhttp3.OkHttpClient
 @OptIn(UnstableApi::class)
 class OnDeviceSingStreamProvider(
     private val context: Context,
-    /** The model and what runs it: LiteRT (Tensor TPU → GPU → CPU) or ONNX Runtime ([SingSeparationBackend]). */
+    /** The model and what runs it: LiteRT, Tensor TPU → GPU → CPU ([SingSeparationBackend]). */
     private val backend: SingSeparationBackend,
     val cache: SingCache,
     /** Reads the original song's bytes: the downloads first, then the stream cache, then the network. */
@@ -91,7 +90,7 @@ class OnDeviceSingStreamProvider(
     private val oneSongAtATime = Mutex()
     private val gateMutex = Mutex()
 
-    /** The ORT session, opened while a song decodes and kept warm between songs. */
+    /** The separation session, opened while a song decodes and kept warm between songs. */
     private val sessions = SingSessionPool(scope) { model -> backend.open(model) }
 
     /** The request this engine is singing (null after Sing off). */
@@ -275,7 +274,7 @@ class OnDeviceSingStreamProvider(
                         backend.ensure { state.value = SingStatus.Preparing(it * 0.05f, SingStatus.Preparing.Stage.Model) }
                     } catch (e: IOException) {
                         Log.w(TAG, "model unavailable", e)
-                        return@coroutineScope SingStatus.Failed(SingFailure.ModelDownload, e.message)
+                        return@coroutineScope SingStatus.Failed(SingFailure.ModelUnavailable, e.message)
                     }
                     val gate = gate(model)
                     verdict = gate
@@ -752,10 +751,12 @@ class OnDeviceSingStreamProvider(
         private const val TAG = "YoinSing"
         const val WORK_DIR = "sing-work"
         const val CACHE_DIR = "sing-vocal"
-        const val MODEL_DIR = "sing-model"
 
         /** Where the quad .m4a results of the first engine were kept; cleared on start. */
         private const val LEGACY_CACHE_DIR = "sing"
+
+        /** Where test builds kept the ONNX Runtime model (noBackupFilesDir); cleared on start. */
+        private const val LEGACY_ORT_MODEL_DIR = "sing-model"
         private const val GATE_PREFS = "sing_gate"
         private const val KEY_FINGERPRINT = "fingerprint"
         private const val KEY_BENCHMARK_MS = "benchmark_ms"
@@ -798,11 +799,12 @@ class OnDeviceSingStreamProvider(
             val cache = SingCache(File(context.cacheDir, CACHE_DIR), suffix = SingVocalTrack.SUFFIX)
             scope.launch(Dispatchers.IO) {
                 File(context.cacheDir, LEGACY_CACHE_DIR).deleteRecursively()
+                File(context.noBackupFilesDir, LEGACY_ORT_MODEL_DIR).deleteRecursively()
                 cache.clearParts()
             }
             return OnDeviceSingStreamProvider(
                 context = context,
-                backend = createBackend(context, http),
+                backend = createBackend(context),
                 cache = cache,
                 sourceFactory = OfflineFirstDataSource.Factory(
                     downloads = downloads.downloadCache,
@@ -815,27 +817,20 @@ class OnDeviceSingStreamProvider(
         }
 
         /**
-         * LiteRT when this APK carries its builds for the device, unless the build asks for ONNX Runtime
-         * (`-PyoinSingOrt=true`, BuildConfig.SING_ORT); ONNX Runtime (model downloaded) otherwise.
+         * LiteRT over the builds bundled in the APK (Tensor TPU → GPU → CPU); with no meta or no build for
+         * this device, [NoSingBackend] (every request fails cleanly).
          */
-        private fun createBackend(context: Context, http: OkHttpClient): SingSeparationBackend {
-            val threads = defaultThreads()
-            if (!com.gpo.yoin.BuildConfig.SING_ORT) {
-                val litert = LiteRtSingBackend.bundledCatalog(context)?.let { catalog ->
-                    runCatching { LiteRtSingBackend(context, catalog, threads) }
-                        .onFailure { Log.w(TAG, "LiteRT unavailable here: ONNX Runtime", it) }
-                        .getOrNull()
-                }
-                if (litert != null) return litert
-            }
-            Log.d(TAG, "Sing backend: ONNX Runtime")
-            return OrtSingBackend(SingModelStore(File(context.noBackupFilesDir, MODEL_DIR), http), threads)
+        private fun createBackend(context: Context): SingSeparationBackend {
+            val catalog = LiteRtSingBackend.bundledCatalog(context)
+                ?: return NoSingBackend("no LiteRT model meta in this APK")
+            return runCatching { LiteRtSingBackend(context, catalog, defaultThreads()) }
+                .onFailure { Log.w(TAG, "LiteRT unavailable here", it) }
+                .getOrElse { NoSingBackend("LiteRT unavailable: ${it.message}") }
         }
 
         /**
-         * Big cores only, roughly: half the cores, 2..4 — XNNPACK's pool; ORT's own, for the nodes
-         * XNNPACK doesn't take, works in turn with it ([OrtSeparationModel.threading]). (On a Pixel
-         * Tablet that's 4 threads, ~1.6× real time; live Sing needs > 1×.)
+         * Big cores only, roughly: half the cores, 2..4 — the CPU backend's XNNPACK threads (the router's
+         * last step; the NPU and GPU don't use them).
          */
         fun defaultThreads(): Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 4)
     }

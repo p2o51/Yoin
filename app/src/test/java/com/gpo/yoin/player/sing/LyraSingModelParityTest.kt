@@ -15,8 +15,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * The whole pipeline with the real model on the desktop ONNX Runtime, against Python onnxruntime
- * (gen_sing_fixtures.py). Needs the model, which isn't in the repo:
+ * The whole pipeline with the real model on the desktop ONNX Runtime ([OrtReferenceModel], test only), against
+ * Python onnxruntime (gen_sing_fixtures.py). Needs the model, which isn't in the repo:
  * `-PyoinSingModel=/path/lyra_sing_lite_fp32.onnx`; skipped otherwise.
  *
  * Tolerance: max |error| ≤ 2e-3 of the vocal's peak and SNR ≥ 60 dB. The paths differ only in float
@@ -26,9 +26,9 @@ import org.junit.Test
 class LyraSingModelParityTest {
     private val modelPath = System.getProperty("yoin.sing.model")?.takeIf { it.isNotBlank() }
 
-    private fun model(): OrtSeparationModel {
+    private fun model(): OrtReferenceModel {
         assumeTrue("set -PyoinSingModel to run", modelPath != null && File(modelPath).isFile)
-        return OrtSeparationModel.open(File(modelPath!!), threads = 4, execution = SingExecution.Cpu)
+        return OrtReferenceModel.open(File(modelPath!!), threads = 4)
     }
 
     @Test
