@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +74,7 @@ fun NoteMarkupField(
     // False: no @ popup of its own (a Tips demo draws its rows in the phone).
     mentionPopup: Boolean = true,
     enabled: Boolean = true,
+    romanizer: MentionRomanizer = IcuMentionRomanizer,
 ) {
     val haptics = rememberYoinHaptics()
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -80,12 +82,21 @@ fun NoteMarkupField(
     val trigger = state.trigger
     var rows by remember { mutableStateOf(MentionCandidates.Empty) }
     var loading by remember { mutableStateOf(false) }
+    // Every row this editor has been offered (what's playing, recent plays, earlier searches): each letter
+    // typed after the @ filters it at once, before the search for the new words answers.
+    var pool by remember(candidates) { mutableStateOf(MentionCandidates.Empty) }
     val query = trigger?.query
     LaunchedEffect(query, candidates) {
         if (query == null) return@LaunchedEffect
         loading = true
-        if (query.isNotEmpty()) delay(QueryDebounceMs)
-        rows = candidates.candidates(query, PopupRowsPerKind)
+        if (query.isNotEmpty()) {
+            rows = mentionRowsWhileSearching(query, pool, romanizer)
+            state.highlighted = 0
+            delay(QueryDebounceMs)
+        }
+        val found = candidates.candidates(query, PopupRowsPerKind)
+        pool = pool.merge(found)
+        rows = mentionRowsAfterSearch(query, found, pool, romanizer)
         state.highlighted = 0
         loading = false
     }
@@ -93,6 +104,10 @@ fun NoteMarkupField(
         snapshotFlow { state.fieldState.text.toString() to state.fieldState.selection }.collect { state.syncDismissal() }
     }
     val popupOpen = mentionPopup && trigger != null && !state.searchOpen
+    // What a soft keyboard's Enter picks (its newline becomes this mention).
+    // Read here, in composition, so new rows or a moved highlight hand Enter the row now on top.
+    val enterPick = if (popupOpen) rows.all.getOrNull(state.highlighted)?.mention else null
+    SideEffect { state.enterPick = enterPick }
     val pick: (com.gpo.yoin.shared.notes.NoteMention) -> Unit = { mention ->
         haptics.performConfirm()
         state.insertMention(mention)
@@ -128,7 +143,7 @@ fun NoteMarkupField(
         textStyle = textStyle.copy(color = colors.text),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         lineLimits = lineLimits,
-        inputTransformation = NoteEditorInputTransformation,
+        inputTransformation = state.inputTransformation,
         outputTransformation = output,
         onTextLayout = { result ->
             result()?.let {
@@ -182,6 +197,32 @@ private fun caretRect(state: NoteEditorState, trigger: MentionTrigger, layout: T
     val display = NoteEditorDisplay.of(state.text).toDisplay(trigger.start)
     return result.getCursorRect(display.coerceIn(0, result.layoutInput.text.length))
 }
+
+/** The pool filtered for [query] at once (rows the account already knew drop out when they don't match). */
+internal fun mentionRowsWhileSearching(query: String, pool: MentionCandidates, romanizer: MentionRomanizer): MentionCandidates =
+    MentionRanking.rank(query, pool.withoutSearchRows(), romanizer).capped()
+
+/** The search's rows for [query], with any row from [pool] that matches better ranked in among them. */
+internal fun mentionRowsAfterSearch(
+    query: String,
+    found: MentionCandidates,
+    pool: MentionCandidates,
+    romanizer: MentionRomanizer,
+): MentionCandidates {
+    if (query.isEmpty()) return found
+    return MentionRanking.rank(query, found.merge(pool.withoutSearchRows()), romanizer).capped()
+}
+
+/** An earlier search's rows: listed after the current search's, and only while they still match. */
+private fun MentionCandidates.withoutSearchRows(): MentionCandidates {
+    fun List<MentionCandidate>.known() = map {
+        if (it.source == MentionCandidate.Source.Search) it.copy(source = MentionCandidate.Source.Seen) else it
+    }
+    return copy(tracks = tracks.known(), albums = albums.known(), artists = artists.known())
+}
+
+private fun MentionCandidates.capped(): MentionCandidates =
+    copy(tracks = tracks.take(PopupRowsPerKind), albums = albums.take(PopupRowsPerKind), artists = artists.take(PopupRowsPerKind))
 
 private const val QueryDebounceMs = 160L
 private const val PopupRowsPerKind = 5

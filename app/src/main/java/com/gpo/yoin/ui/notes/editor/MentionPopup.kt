@@ -156,11 +156,8 @@ internal fun MentionPopup(
 @Composable
 private fun MentionRows(rows: MentionCandidates, query: String, highlighted: Int, onPick: (NoteMention) -> Unit) {
     var index = 0
-    listOf(
-        R.string.notes_mention_section_tracks to rows.tracks,
-        R.string.notes_mention_section_albums to rows.albums,
-        R.string.notes_mention_section_artists to rows.artists,
-    ).forEach { (label, list) ->
+    // The kinds in the rows' order: once something is typed, the best match's kind comes first.
+    rows.order.map { kind -> kind.sectionLabel() to rows.of(kind) }.forEach { (label, list) ->
         if (list.isEmpty()) return@forEach
         Text(
             text = stringResource(label),
@@ -173,6 +170,12 @@ private fun MentionRows(rows: MentionCandidates, query: String, highlighted: Int
             index++
         }
     }
+}
+
+private fun MentionKind.sectionLabel(): Int = when (this) {
+    MentionKind.Track -> R.string.notes_mention_section_tracks
+    MentionKind.Album -> R.string.notes_mention_section_albums
+    MentionKind.Artist -> R.string.notes_mention_section_artists
 }
 
 @Composable
@@ -305,11 +308,7 @@ internal fun MentionSearchSheet(
                 lineLimits = TextFieldLineLimits.SingleLine,
                 shape = YoinShapeTokens.ExtraLarge,
             )
-            val sections = listOf(
-                R.string.notes_mention_section_tracks to rows.tracks,
-                R.string.notes_mention_section_albums to rows.albums,
-                R.string.notes_mention_section_artists to rows.artists,
-            ).filter { it.second.isNotEmpty() }
+            val sections = rows.order.map { kind -> kind.sectionLabel() to rows.of(kind) }.filter { it.second.isNotEmpty() }
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 sections.forEach { (label, list) ->
                     item(key = "h$label") {

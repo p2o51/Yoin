@@ -38,11 +38,36 @@ class NoteEditorState(initialText: String = "") {
     /** The full-screen search sheet is open ("展开搜索"). */
     var searchOpen by mutableStateOf(false)
 
-    /** The `@` being typed at the caret, dismissed or not. */
+    /** The `@` being typed at the caret, dismissed or not (letters a keyboard is still composing count). */
     private val typedTrigger: MentionTrigger? by derivedStateOf {
         val selection = fieldState.selection
         if (!selection.collapsed) return@derivedStateOf null
-        NoteEditorText.trigger(fieldState.text.toString(), selection.start)
+        val composing = fieldState.composition?.takeUnless { it.collapsed }?.let { it.min until it.max }
+        NoteEditorText.trigger(fieldState.text.toString(), selection.start, composing)
+    }
+
+    /**
+     * The row Enter picks while the popup is open (its top or highlighted row); the field keeps it current,
+     * null while the popup is shut. A soft keyboard's Enter types a newline: [inputTransformation] turns
+     * that newline into this mention.
+     */
+    var enterPick: NoteMention? = null
+
+    /** Keyboard edits: Enter at an open popup picks [enterPick]; everything else [NoteEditorInputTransformation]. */
+    val inputTransformation: InputTransformation = object : InputTransformation {
+        override fun TextFieldBuffer.transformInput() {
+            val pick = enterPick
+            val at = trigger
+            if (pick != null && at != null) {
+                val fix = NoteEditorText.enterPicksMention(originalText.toString(), asCharSequence().toString(), at, pick)
+                if (fix != null) {
+                    replaceMinimally(fix.text)
+                    selection = TextRange(fix.selectionStart.coerceIn(0, length))
+                    return
+                }
+            }
+            with(NoteEditorInputTransformation) { transformInput() }
+        }
     }
 
     /** The `@` being typed at the caret, unless dismissed. */

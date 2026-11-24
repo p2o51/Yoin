@@ -189,9 +189,10 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     }
     val mentionCandidates = remember(app) {
         app?.container?.let { container ->
-            RepositoryMentionCandidateSource(container.repository) {
-                container.playbackManager.playbackState.value.currentTrack
-            }
+            RepositoryMentionCandidateSource(
+                repository = container.repository,
+                nowPlaying = { container.playbackManager.playbackState.value.currentTrack },
+            )
         } ?: MentionCandidateSource.None
     }
 

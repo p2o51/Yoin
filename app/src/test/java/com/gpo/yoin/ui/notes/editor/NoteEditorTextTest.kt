@@ -161,4 +161,39 @@ class NoteEditorTextTest {
         assertEquals(andromeda, chip.mention)
         assertEquals("@Andromeda".length, chip.end - chip.start)
     }
+
+    // ── @ mode: composing text and Enter (notes 0.6.4) ───────────────────
+
+    @Test
+    fun should_keepTheTriggerOpen_acrossSpacesTheKeyboardIsStillComposing() {
+        // a pinyin keyboard shows "niu yue" in the field (composing) before it commits 纽约
+        val text = "像 @niu yue"
+        assertEquals("niu yue", NoteEditorText.trigger(text, text.length, composition = 3 until text.length)?.query)
+        // committed, the same space ends the mention
+        assertNull(NoteEditorText.trigger(text, text.length))
+        // a composition elsewhere doesn't excuse a committed space before it
+        assertNull(NoteEditorText.trigger("@a b", 4, composition = 3 until 4))
+    }
+
+    @Test
+    fun should_turnTheNewlineIntoTheTopRow_when_enterIsPressedAtAnOpenPopup() {
+        val original = "像 @andr 的"
+        val trigger = NoteEditorText.trigger(original, 7)!!
+        val edited = "像 @andr\n 的"
+
+        val fix = NoteEditorText.enterPicksMention(original, edited, trigger, andromeda)!!
+
+        assertEquals("像 $link 的", fix.text)
+        assertEquals("像 $link ".length, fix.selectionStart)
+    }
+
+    @Test
+    fun should_leaveOtherEdits_when_thePopupIsOpen() {
+        val original = "@an"
+        val trigger = NoteEditorText.trigger(original, 3)!!
+
+        assertNull(NoteEditorText.enterPicksMention(original, "@and", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention(original, "@a\nn", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention(original, "@an\n\n", trigger, andromeda))
+    }
 }
