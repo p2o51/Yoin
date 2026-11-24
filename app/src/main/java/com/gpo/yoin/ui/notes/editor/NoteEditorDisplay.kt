@@ -65,7 +65,7 @@ data class NoteEditorDisplay(
                         InlineRange.Kind.Mention -> {
                             val mention = NoteMarkup.mentions(text.substring(range.start, range.end)).firstOrNull()
                             if (mention != null) {
-                                replacements += Replacement(range.start, range.end, "@" + mention.title)
+                                replacements += Replacement(range.start, range.end, chipText(mention.title))
                                 stored += StyledRange(Kind.Chip, range.start, range.end, mention)
                             }
                         }
@@ -100,3 +100,28 @@ data class NoteEditorDisplay(
         return offset + shift
     }
 }
+
+/**
+ * A mention chip's shown words, "@Title", held together (2026-11-24 tablet QA: "@Northern Field / Recordings"
+ * split across lines): spaces become no-break spaces and a word joiner sits between every two characters, so
+ * the line breaks before or after the chip, never inside (a chip longer than the whole line still wraps, as
+ * any unbreakable word does). Only the shown text: the stored note keeps the plain name.
+ */
+internal fun chipText(title: String): String = buildString {
+    val shown = "@" + title
+    shown.forEachIndexed { index, c ->
+        if (index > 0 && joinsBefore(shown[index - 1], c)) append(WordJoiner)
+        append(if (c == ' ') NoBreakSpace else c)
+    }
+}
+
+/** A joiner may go between [prev] and [c] unless they are one character (a surrogate pair, a mark, an emoji sequence). */
+private fun joinsBefore(prev: Char, c: Char): Boolean = !c.isLowSurrogate() &&
+    Character.getType(c).toByte() !in CombiningTypes &&
+    c != ZeroWidthJoiner && prev != ZeroWidthJoiner && c !in '\uFE00'..'\uFE0F'
+
+private val CombiningTypes = setOf(Character.NON_SPACING_MARK, Character.ENCLOSING_MARK, Character.COMBINING_SPACING_MARK)
+private const val ZeroWidthJoiner = '\u200D'
+
+private const val WordJoiner = '\u2060'
+private const val NoBreakSpace = '\u00A0'

@@ -228,8 +228,7 @@ class LyricHighlightViewModel internal constructor(
     }
 
     /**
-     * Plays the song alone, then moves to the picked line once it is playing. Without a synced line it just
-     * plays from the top.
+     * Plays the song from the beginning when a lyric card is tapped (Settings IA v4 / #yoin:485b61d3).
      */
     fun play(card: HomeLyricHighlight) {
         viewModelScope.launch {
@@ -238,13 +237,6 @@ class LyricHighlightViewModel internal constructor(
             } ?: return@launch
             if (source.id != card.songId.provider) return@launch
             playback.playSingle(track = card.asTrack(), source = source)
-            val startMs = card.startMs?.takeIf { it > SEEK_LEAD_MS } ?: return@launch
-            val started = withTimeoutOrNull(START_WAIT_MS) {
-                playback.playbackState.first { state ->
-                    state.currentTrack?.id == card.songId && state.isPlaying && state.duration > 0
-                }
-            } ?: return@launch
-            if (startMs < started.duration) playback.seekTo(startMs - SEEK_LEAD_MS)
         }
     }
 
@@ -263,13 +255,9 @@ class LyricHighlightViewModel internal constructor(
 
         /** The most lines the section can show (its largest setting). */
         const val MAX_CARDS = 4
-        const val START_WAIT_MS = 10_000L
 
         /** Coming back to Home after this long shows another line. */
         const val ROTATE_AFTER_MS = 20L * 60L * 1000L
-
-        /** Land a breath before the line, so its first word isn't clipped. */
-        const val SEEK_LEAD_MS = 600L
     }
 }
 

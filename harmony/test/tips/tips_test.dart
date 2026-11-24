@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/applemusic/apple_music_name_region.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/home/home_lyric_count_handle.dart' show HomeLyricCountPicker;
@@ -330,11 +331,23 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('should_pickOriginalThenJapan_when_theAppleMusicSongNamesDemoTaps', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.appleMusicSongNames);
+      bool shows(String text) => find.textContaining(text, skipOffstage: false).evaluate().isNotEmpty;
+      final japan = AppleMusicStorefrontOption.jp.displayName(zh: false);
+      expect(shows('Song names'), isTrue);
+      expect(shows(japan), isFalse);
+      expect(await playUntil(tester, () => shows(japan)), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
     testWidgets('should_showTheNewGroups_when_theSettingsRegroupedDemoIsShown', (tester) async {
       await pumpDemo(tester, HomeBubbleTip.settingsRegrouped);
       await frames(tester, const Duration(milliseconds: 300));
+      expect(find.text('Features and appearance'), findsOneWidget);
       expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('NeoDB', skipOffstage: false), findsOneWidget);
+      expect(find.text('Sync and backups', skipOffstage: false), findsOneWidget);
       expect(find.text('Help and about', skipOffstage: false), findsOneWidget);
       await leave(tester);
     });

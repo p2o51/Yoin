@@ -7,19 +7,19 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/ai/ai_settings.dart';
+import '../data/applemusic/apple_music_name_region.dart';
 import '../landing/landing_bubble.dart';
 import '../landing/landing_mascot.dart';
 import '../landing/landing_strings.dart';
-import '../neodb/neodb_strings.dart';
 import '../playback/replay_gain.dart';
 import '../playback/spatial_audio.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/ai_settings_view_model.dart';
+import '../settings/apple_music_account_screen.dart' show AppleMusicNameRegionGroup;
 import '../settings/appearance/appearance_strings.dart';
 import '../settings/appearance/screen_corner_control.dart' show ScreenCornerBar;
 import '../settings/appearance/screen_corners_screen.dart';
 import '../settings/appearance/scroll_edge_screen.dart';
-import '../settings/backup/playlist_backup_strings.dart';
 import '../settings/licenses.dart' show yoinVersionName;
 import '../settings/settings_metrics.dart';
 import '../settings/settings_rows.dart';
@@ -71,6 +71,52 @@ class _VolumeLevelingDemoState extends State<VolumeLevelingDemo> with DemoSceneS
           selected: _mode,
           onSelect: (mode) => put(() => _mode = mode),
           rowWrapper: (mode, row) => DemoTarget('leveling-${mode.name}', child: row),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Apple Music song names (Android TipAppleMusicSongNamesScene.kt): the real
+/// Song names group of an Apple Music account's page; the dot picks Original
+/// language, then a storefront region (Japan). The demo keeps its selection
+/// to itself.
+class AppleMusicSongNamesDemo extends StatefulWidget {
+  const AppleMusicSongNamesDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<AppleMusicSongNamesDemo> createState() => _AppleMusicSongNamesDemoState();
+}
+
+class _AppleMusicSongNamesDemoState extends State<AppleMusicSongNamesDemo> with DemoSceneState {
+  AppleMusicNameRegion _region = AppleMusicNameRegion.off;
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _region = AppleMusicNameRegion.off);
+    await f.wait(700);
+    await f.moveTo('am-names-original');
+    await f.wait(250);
+    await f.tap(() => put(() => _region = AppleMusicNameRegion.original));
+    await f.wait(950);
+    await f.moveTo('am-names-region');
+    await f.wait(250);
+    await f.tap(() => put(() => _region = AppleMusicNameRegion.japan));
+    await f.lift();
+    await f.wait(2400);
+  }
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    child: DemoSettingsPage(
+      title: SettingsStrings.of(context).introAppleName,
+      children: [
+        AppleMusicNameRegionGroup(
+          selected: _region,
+          onSelect: (region) => put(() => _region = region),
+          rowWrapper: (key, row) => DemoTarget('am-names-$key', child: row),
         ),
       ],
     ),
@@ -445,39 +491,29 @@ class _SettingsRegroupedDemoState extends State<SettingsRegroupedDemo> {
         children: [
           SettingsGroup(
             title: strings.sectionFeatures,
-            children: [SettingsItem(icon: YoinSymbols.sparkle, title: strings.aiTitle)],
-          ),
-          const SizedBox(height: SettingsMetrics.sectionGap),
-          SettingsGroup(
-            title: appearance.sectionAppearance,
             children: [
-              SettingsItem(icon: YoinSymbols.unfoldLess, title: appearance.scrollEdge),
-              SettingsItem(icon: YoinSymbols.smartphone, title: appearance.screenCorners),
+              SettingsItem(icon: YoinSymbols.sparkle, title: strings.aiTitle),
+              SettingsItem(icon: YoinSymbols.palette, title: appearance.sectionAppearance),
             ],
           ),
           const SizedBox(height: SettingsMetrics.sectionGap),
           SettingsGroup(
             title: CloudSyncStrings.of(context).sectionSyncStorage,
             children: [
-              SettingsItem(icon: YoinSymbols.devices, title: CloudSyncStrings.of(context).title),
-              SettingsItem(icon: YoinSymbols.reviews, title: NeoDbStrings.of(context).settingsTitle),
-              SettingsItem(icon: YoinSymbols.playlist, title: PlaylistBackupStrings.of(context).title),
+              SettingsItem(icon: YoinSymbols.cloud, title: strings.syncBackupsTitle),
+              SettingsItem(icon: YoinSymbols.storage, title: strings.storageTitle),
             ],
           ),
           const SizedBox(height: SettingsMetrics.sectionGap),
           SettingsGroup(
             title: strings.sectionHelpAbout,
             children: [
-              SettingsItem(icon: YoinSymbols.sparkle, title: strings.aboutTips),
-              SettingsItem(icon: YoinSymbols.refresh, title: LandingStrings.of(context).welcomeGuide),
-              SettingsItem(icon: YoinSymbols.note, title: strings.aboutDocs),
-              SettingsItem(icon: YoinSymbols.send, title: strings.aboutFeedback),
+              SettingsItem(icon: YoinSymbols.comment, title: strings.helpFeedbackTitle),
               SettingsItem(
                 icon: YoinSymbols.info,
-                title: strings.aboutName,
+                title: strings.aboutYoinTitle,
                 summary: strings.aboutVersion(yoinVersionName),
               ),
-              SettingsItem(icon: YoinSymbols.code, title: strings.aboutLicenses),
             ],
           ),
         ],

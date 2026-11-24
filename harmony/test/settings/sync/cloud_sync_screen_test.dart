@@ -74,6 +74,9 @@ class FakeCloudSync implements CloudSyncController {
   void startFreshAccount(String localProfileId) => calls.add('fresh:$localProfileId');
 
   @override
+  void resumeAccountSync(String localProfileId) => calls.add('resume:$localProfileId');
+
+  @override
   void removeDevice(String deviceId) => calls.add('remove:$deviceId');
 }
 
@@ -258,6 +261,9 @@ void main() {
     sync.value = CloudSyncState(phase: const SyncUpToDate(), lastSyncAt: now);
     await pump(tester, const SettingsScreen());
     expect(find.text('Sync and storage'), findsOneWidget);
+    expect(find.text('Sync and backups'), findsOneWidget);
+    await tester.tap(find.text('Sync and backups'));
+    await tester.pumpAndSettle();
     expect(find.text('Cloud sync'), findsOneWidget);
     expect(find.text('On'), findsOneWidget);
     await tester.tap(find.text('Cloud sync'));

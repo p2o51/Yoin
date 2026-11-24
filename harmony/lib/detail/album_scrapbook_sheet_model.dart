@@ -277,6 +277,61 @@ final class ScrapRestoreNoteEdit extends ScrapEdit {
   final String noteId;
 }
 
+/// A new album note (an album holds any number); blank writes nothing.
+final class ScrapNewAlbumNoteEdit extends ScrapEdit {
+  const ScrapNewAlbumNoteEdit(this.text);
+  final String text;
+}
+
+/// New text for an album note; blank deletes it ([ScrapRestoreAlbumNoteEdit] brings it back).
+final class ScrapAlbumNoteTextEdit extends ScrapEdit {
+  const ScrapAlbumNoteTextEdit(this.noteId, this.text);
+  final String noteId;
+  final String text;
+}
+
+/// Undo of a deleted album note.
+final class ScrapRestoreAlbumNoteEdit extends ScrapEdit {
+  const ScrapRestoreAlbumNoteEdit(this.noteId);
+  final String noteId;
+}
+
+/// What the album's stickies are doing (Android StickyEditing): shown, or
+/// one being written in place. [open] is null with nothing open, [newSticky]
+/// while the dashed sticky (or bare paper) became an editor, else the id of
+/// the note being edited; [text] is what the editor opened with.
+class StickyEditing extends ChangeNotifier {
+  static const newSticky = '\u0000new';
+
+  String? _open;
+  String _text = '';
+
+  String? get open => _open;
+  String get text => _text;
+
+  void startNew() => _set(newSticky, '');
+
+  void startEdit(ScrapSticky sticky) => _set(sticky.noteId, sticky.text);
+
+  void close() => _set(null, '');
+
+  void _set(String? open, String text) {
+    if (_open == open && _text == text) return;
+    _open = open;
+    _text = text;
+    notifyListeners();
+  }
+}
+
+/// Saving an open sticky, as the page's edit: a new note, new words, or a
+/// delete (blank words on an existing one, with Undo); a blank new sticky
+/// writes nothing (Android stickySave).
+ScrapEdit? stickySave(String open, String text) {
+  final words = text.trim();
+  if (open == StickyEditing.newSticky) return words.isEmpty ? null : ScrapNewAlbumNoteEdit(words);
+  return ScrapAlbumNoteTextEdit(open, words);
+}
+
 /// A question asked from the sheet that the AI has not answered yet.
 @immutable
 final class ScrapAsking {

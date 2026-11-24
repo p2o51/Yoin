@@ -41,6 +41,8 @@ class NoteMentionController(
     private val trackAlbum: suspend (MediaId) -> MediaId?,
     private val navigate: (Context, NoteDestination) -> Unit,
     private val resolveCover: (coverKey: String?) -> String? = { null },
+    // A resolved mention's artwork: a song's or album's cover, an artist's picture (null: none known).
+    private val artwork: suspend (MentionResolution.Resolved) -> String? = { null },
     // The account in use as it changes: answers for other accounts are dropped then (not in composition).
     accountChanges: Flow<String?>? = null,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
@@ -48,6 +50,10 @@ class NoteMentionController(
     /** Answers by (account, mention): an answer always lands under the account it was asked for. */
     private val resolved = mutableStateMapOf<Pair<String, MentionRef>, MentionResolution>()
     private val asked = HashSet<Pair<String, MentionRef>>()
+
+    /** Artwork by (account, mention); a missing key is not asked yet, [NoArtwork] is asked with no answer. */
+    private val artworks = mutableStateMapOf<Pair<String, MentionRef>, String>()
+    private val artworkAsked = HashSet<Pair<String, MentionRef>>()
     private var openJob: Job? = null
     private var openedAt: Long? = null
 
@@ -57,6 +63,8 @@ class NoteMentionController(
                 changes.distinctUntilChanged().collect { profileId ->
                     resolved.keys.filter { it.first != profileId }.forEach(resolved::remove)
                     asked.removeAll { it.first != profileId }
+                    artworks.keys.filter { it.first != profileId }.forEach(artworks::remove)
+                    artworkAsked.removeAll { it.first != profileId }
                 }
             }
         }
@@ -72,6 +80,30 @@ class NoteMentionController(
             scope.launch { resolved[key] = resolver.resolve(mention) }
         }
         return false
+    }
+
+    /**
+     * The cover (or artist picture) a drawn mention shows before its name. Read in composition like
+     * [isResolved]: null until it is known (asked for once in the background), and for one with none.
+     */
+    fun artworkUrl(mention: NoteMention): String? {
+        val current = account() ?: return null
+        val key = current.profileId to mention.ref
+        artworks[key]?.let { return it.takeIf { url -> url != NoArtwork } }
+        if (artworkAsked.add(key)) {
+            scope.launch {
+                val resolution = resolver.resolve(mention) as? MentionResolution.Resolved
+                val url = try {
+                    resolution?.let { artwork(it) }
+                } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
+                artworks[key] = url?.takeIf(String::isNotBlank) ?: NoArtwork
+            }
+        }
+        return null
     }
 
     /** Opens what [mention] names: an album's scrapbook, a song's album scrapbook on that song, an artist. */
@@ -105,6 +137,8 @@ class NoteMentionController(
     companion object {
         /** How long after opening a page another tap is taken as the same one. */
         const val OPEN_COOLDOWN_MS = 1_000L
+
+        private const val NoArtwork = ""
 
         suspend fun destinationOf(source: BacklinkSource, trackAlbum: suspend (MediaId) -> MediaId?): NoteDestination? =
             when (source) {

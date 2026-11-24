@@ -2,12 +2,115 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../../nowplaying/haptics.dart';
+import '../../theme/tokens.dart';
 import '../../ui/component/meta_line.dart';
-import '../../ui/component/seam/seam_style.dart';
+import '../../ui/component/seam/seam.dart';
+import '../../ui/navigation/yoin_push_route.dart';
+import '../settings_components.dart';
+import '../settings_metrics.dart';
+import '../settings_page.dart';
 import '../settings_pane.dart';
 import '../settings_rows.dart';
 import 'appearance_strings.dart';
 import 'screen_corners.dart';
+import 'screen_corners_screen.dart';
+import 'scroll_edge_screen.dart';
+
+/// Root Settings › Features and appearance › Appearance entry row (v4):
+/// shows the chosen scroll edge and screen corner setting on one MetaLine.
+class AppearanceEntryRow extends ConsumerWidget {
+  const AppearanceEntryRow({super.key, required this.onOpen, this.trailing});
+
+  final VoidCallback onOpen;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppearanceStrings.of(context);
+    final edge = strings.styleName(ref.watch(seamTopStyleProvider));
+    final corners = ref.watch(screenCornersProvider);
+    final cornersLabel =
+        corners.following ? strings.screenCornersFollow : strings.screenCornersValue(corners.radius.round());
+    return SettingsItem(
+      icon: YoinSymbols.palette,
+      title: strings.sectionAppearance,
+      summaryContent: MetaLine(
+        groups: [MetaPlain(edge), MetaMuted(cornersLabel)],
+        style: Theme.of(context).textTheme.bodyMedium,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      trailing: trailing,
+      onTap: onOpen,
+    );
+  }
+}
+
+/// Settings › Features and appearance › Appearance (v4): inline Scroll edge
+/// live preview cards above, Screen corners row below.
+class AppearanceScreen extends ConsumerWidget {
+  const AppearanceScreen({super.key, this.inPane = false});
+
+  final bool inPane;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppearanceStrings.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final selected = ref.watch(seamTopStyleProvider);
+    final foot = theme.textTheme.bodySmall!.copyWith(color: colors.onSurfaceVariant);
+    final openInPane = SettingsPaneScope.maybeOf(context);
+    return SettingsSubPage(
+      title: strings.sectionAppearance,
+      inPane: inPane,
+      children: [
+        SettingsGroupLabel(title: strings.scrollEdge),
+        const SizedBox(height: SettingsMetrics.groupLabelGap),
+        for (final (i, style) in SeamTopStyle.values.indexed) ...[
+          if (i > 0) const SizedBox(height: ScrollEdgeTokens.cardGap),
+          ScrollEdgeStyleCard(
+            key: ValueKey(style),
+            style: style,
+            selected: style == selected,
+            onTap: () {
+              if (style == selected) return;
+              YoinHaptics.contextClick();
+              ref.read(seamTopStyleProvider.notifier).select(style);
+            },
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            ScrollEdgeTokens.textInset,
+            ScrollEdgeTokens.footTop,
+            ScrollEdgeTokens.textInset,
+            0,
+          ),
+          child: SeamFade(
+            fontSize: foot.fontSize ?? 12,
+            child: Text(strings.scrollEdgeFoot, style: foot),
+          ),
+        ),
+        const SizedBox(height: SettingsMetrics.sectionGap),
+        SettingsSegments(
+          children: [
+            ScreenCornersRow(
+              trailing: openInPane != null ? Icon(YoinSymbols.chevronRight, color: colors.onSurfaceVariant) : null,
+              onOpen: () {
+                if (openInPane != null) {
+                  openInPane(const ScreenCornersPane());
+                } else {
+                  Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const ScreenCornersScreen()));
+                }
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
 
 /// Settings › Appearance (SettingsScreen.kt's settings_section_appearance),
 /// between Features and Sync and storage: Scroll edge and Screen corners,

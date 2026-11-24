@@ -132,10 +132,11 @@ void main() {
     final sub = observed.writes.where(isSyncedKey).listen(keys.add);
     addTearDown(sub.cancel);
     await observed.write('song_notes.v1.p', '[]');
+    await observed.write('album_notes.v1.p', '[]');
     await observed.write('nowPlaying.keepScreenOn', 'true');
     await observed.write('local_ratings.p', '{}');
     await observed.write(ProfileRepository.profilesKey, '[]');
     await pumpEventQueue();
-    expect(keys, ['song_notes.v1.p', 'local_ratings.p', ProfileRepository.profilesKey]);
+    expect(keys, ['song_notes.v1.p', 'album_notes.v1.p', 'local_ratings.p', ProfileRepository.profilesKey]);
   });
 }

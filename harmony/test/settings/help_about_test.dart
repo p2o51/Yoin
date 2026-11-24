@@ -172,16 +172,17 @@ void main() {
     testWidgets('should_showHelpAndAbout_when_opened', (tester) async {
       await pump(tester, const Size(400, 1600));
       expect(find.text('Help and about'), findsOneWidget);
-      expect(find.text('Tips'), findsOneWidget);
-      expect(find.text('Docs'), findsOneWidget);
-      expect(find.text('Send feedback'), findsOneWidget);
+      expect(find.text('Help and feedback'), findsOneWidget);
+      expect(find.text('About Yoin'), findsOneWidget);
       expect(find.text('Version $yoinVersionName'), findsOneWidget);
-      expect(find.text('Open source licenses'), findsOneWidget);
       expect(find.text('No account selected'), findsNothing);
     });
 
     testWidgets('should_openDocsInBrowser_when_docsTapped', (tester) async {
       await pump(tester, const Size(400, 1600));
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HelpAndFeedbackScreen), findsOneWidget);
       await tester.tap(find.text('Docs'));
       await tester.pumpAndSettle();
       expect(opener.opened.single.toString(), YoinLinks.docs);
@@ -199,6 +200,8 @@ void main() {
         if (n is TextNotice) messages.add(n.text);
       });
       addTearDown(sub.cancel);
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Docs'));
       await tester.pumpAndSettle();
       expect(messages, ["Couldn't open the docs"]);
@@ -206,13 +209,14 @@ void main() {
 
     testWidgets('should_pushAboutWithItsLinks_when_yoinTapped', (tester) async {
       await pump(tester, const Size(400, 1600));
-      await tester.ensureVisible(find.text('Version $yoinVersionName'));
+      await tester.ensureVisible(find.text('About Yoin'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Version $yoinVersionName'));
+      await tester.tap(find.text('About Yoin'));
       await tester.pumpAndSettle();
       expect(find.byType(AboutScreen), findsOneWidget);
       expect(find.text('Website'), findsOneWidget);
       expect(find.text('Privacy policy'), findsOneWidget);
+      expect(find.text('Open source licenses'), findsOneWidget);
       await tester.tap(find.text('Website'));
       await tester.pumpAndSettle();
       expect(opener.opened.single.toString(), YoinLinks.website);
@@ -223,9 +227,9 @@ void main() {
 
     testWidgets('should_openAboutInPane_when_wideWindow', (tester) async {
       await pump(tester, const Size(1280, 1200));
-      await tester.ensureVisible(find.text('Version $yoinVersionName'));
+      await tester.ensureVisible(find.text('About Yoin'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Version $yoinVersionName'));
+      await tester.tap(find.text('About Yoin'));
       await tester.pumpAndSettle();
       expect(find.byType(AboutScreen), findsOneWidget);
       expect(find.byType(SettingsScreen), findsOneWidget);
@@ -239,6 +243,8 @@ void main() {
 
     testWidgets('should_pushTips_when_narrowWindow', (tester) async {
       await pump(tester, const Size(400, 1600));
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Tips'));
       await tester.pumpAndSettle();
       expect(find.byType(TipsScreen), findsOneWidget);
@@ -249,9 +255,11 @@ void main() {
       await pump(tester, const Size(1280, 900));
       expect(find.text('No account selected'), findsOneWidget);
 
-      // Below the Appearance group: scrolled into view first.
-      await tester.ensureVisible(find.text('Tips'));
+      await tester.ensureVisible(find.text('Help and feedback'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HelpAndFeedbackScreen), findsOneWidget);
       await tester.tap(find.text('Tips'));
       await tester.pumpAndSettle();
       expect(find.byType(TipsScreen), findsOneWidget);

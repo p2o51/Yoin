@@ -8,9 +8,15 @@ enum SettingsPane: Hashable, Sendable {
     /// Add account (ServiceSetupView with no account).
     case addAccount
     case aiFeatures
+    case appearance
     case labs
+    case syncAndBackups
+    case storage
     case cloudSync
     case neodb
+    case playlistBackups
+    case downloads
+    case helpAndFeedback
     case tips
     case about
     case licenses
@@ -149,9 +155,15 @@ struct SettingsSplitView: View {
         case .account(let id): ServiceSetupView(request: ServiceSetupRequest(profileId: id))
         case .addAccount: ServiceSetupView(request: ServiceSetupRequest())
         case .aiFeatures: AIFeaturesPage()
+        case .appearance: AppearanceSettingsPage()
         case .labs: LabsView()
+        case .syncAndBackups: SyncAndBackupsPage()
+        case .storage: StorageSettingsPage()
         case .cloudSync: CloudSyncView()
         case .neodb: NeoDBSettingsPage()
+        case .playlistBackups: PlaylistBackupsView()
+        case .downloads: DownloadsView()
+        case .helpAndFeedback: HelpAndFeedbackPage()
         case .tips: TipsView(focus: nil)
         case .about: AboutYoinView()
         case .licenses: OpenSourceLicensesView()
@@ -235,11 +247,14 @@ private struct SettingsSegmentBackground: ViewModifier {
     }
 }
 
-/// Settings › Features › AI features, its own page.
+/// Settings › Features and appearance › AI features, its own page (online AI + Experimental features).
 struct AIFeaturesPage: View {
     var body: some View {
         SettingsPage(title: String(localized: "AI features")) { app, row in
-            GeminiSettingsSection(app: app, row: row, page: true)
+            VStack(alignment: .leading, spacing: 28) {
+                GeminiSettingsSection(app: app, row: row, page: true)
+                LabsSection(app: app, row: row)
+            }
         }
     }
 }

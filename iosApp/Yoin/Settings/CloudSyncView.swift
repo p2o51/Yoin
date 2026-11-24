@@ -96,7 +96,7 @@ enum CloudSyncTexts {
         case is CloudSyncPhaseUpToDate:
             if s.pendingChanges { return String(localized: "Changes waiting to upload") }
             let location = isICloud ? String(localized: "iCloud") : String(localized: "Google Drive")
-            return s.lastSyncAt.map { "\(location) · Synced \(relative($0.int64Value))" } ?? location
+            return s.lastSyncAt.map { "\(location)   Synced \(relative($0.int64Value))" } ?? location
         default: return String(localized: "Off")
         }
     }

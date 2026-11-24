@@ -83,6 +83,7 @@ class LicensesScreen extends ConsumerWidget {
     return SettingsSubPage(
       title: strings.aboutLicenses,
       inPane: inPane,
+      paneBack: inPane,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(

@@ -14,7 +14,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../neodb/neodb_lines.dart';
+import '../notes/note_markup_text.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/app_messages.dart';
 import '../theme/motion.dart';
@@ -668,7 +670,7 @@ class _ReviewBody extends StatelessWidget {
       children: [
         for (var i = 0; i < paragraphs.length; i++) ...[
           if (i > 0) SizedBox(height: type.review * 0.85),
-          Text(paragraphs[i], style: style),
+          NoteMarkupText(paragraphs[i], style: style),
         ],
       ],
     );
@@ -825,9 +827,10 @@ class _NoteRow extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final at = note.positionMs == null ? null : MemoryExcerpt.anchorTime(note.positionMs!);
     final line = type.noteLine;
+    final words = NoteMarkup.plainText(note.text);
     return Semantics(
       button: onTap != null,
-      label: at != null ? strings.cdNoteAt(at, note.text) : strings.cdNote(note.text),
+      label: at != null ? strings.cdNoteAt(at, words) : strings.cdNote(words),
       value: lit ? strings.cdPlaying : null,
       onTapHint: at != null ? strings.cdPlayFrom(title, at) : strings.cdPlayTrack(title),
       excludeSemantics: true,
@@ -858,6 +861,7 @@ class _NoteRow extends StatelessWidget {
                   note.text,
                   style: _ui(type.note, 400, line / type.note, colors.onSurface),
                   color: lit ? tones.highlight : colors.onSurface,
+                  markup: true,
                 ),
               ),
             ],
@@ -893,11 +897,14 @@ class _Bleed extends StatelessWidget {
 
 /// Text whose colour moves on the effects spring (the playing highlight).
 class _SpringText extends StatefulWidget {
-  const _SpringText(this.text, {required this.style, required this.color});
+  const _SpringText(this.text, {required this.style, required this.color, this.markup = false});
 
   final String text;
   final TextStyle style;
   final Color color;
+
+  /// The text is a note: drawn from its markup, mentions in the words' colour (Android MemoryDiary).
+  final bool markup;
 
   @override
   State<_SpringText> createState() => _SpringTextState();
@@ -928,8 +935,13 @@ class _SpringTextState extends State<_SpringText> with TickerProviderStateMixin 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _t.animation,
-    builder: (context, _) =>
-        Text(widget.text, style: widget.style.copyWith(color: Color.lerp(_from, _to, _t.value.clamp(0.0, 1.0)))),
+    builder: (context, _) {
+      final color = Color.lerp(_from, _to, _t.value.clamp(0.0, 1.0))!;
+      final style = widget.style.copyWith(color: color);
+      return widget.markup
+          ? NoteMarkupText(widget.text, style: style, mentionColor: color)
+          : Text(widget.text, style: style);
+    },
   );
 }
 

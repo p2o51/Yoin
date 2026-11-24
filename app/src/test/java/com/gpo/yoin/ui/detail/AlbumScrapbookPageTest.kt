@@ -13,6 +13,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -63,10 +64,20 @@ class AlbumScrapbookPageTest {
     }
 
     @Test
-    fun should_playFromTheNotesMoment_when_noteLineTapped() {
+    fun should_openTheNote_notPlay_when_noteLineTapped_andPlayFromItsActions() {
         show()
 
         rule.onNodeWithContentDescription("Note at 1:01: the drums come in").performScrollTo().performClick()
+        rule.waitForIdle()
+
+        // owner 2026-11-24: a tap opens the note (the track sheet's Note tab), it doesn't play
+        assertEquals(emptyList<Pair<String, Long?>>(), moments)
+        // the page's line reads as one description; the words shown as text are the sheet's note card
+        assertEquals(true, rule.onAllNodesWithText("the drums come in", substring = true).fetchSemanticsNodes().isNotEmpty())
+        // play is an explicit action there: tap the note card, then 从这里播放
+        rule.onAllNodesWithText("the drums come in", substring = true).onLast().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Play from 1:01").performClick()
 
         assertEquals(listOf("subsonic:t2" to 61_000L), moments)
     }

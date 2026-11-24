@@ -1151,6 +1151,46 @@
         }
       }
     },
+    "Album note deleted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除专辑笔记"
+          }
+        }
+      }
+    },
+    "Edit album note: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑专辑笔记：%@"
+          }
+        }
+      }
+    },
+    "Write about the whole album": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给整张专辑写点什么"
+          }
+        }
+      }
+    },
+    "Write an album note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写专辑笔记"
+          }
+        }
+      }
+    },
     "Album page · pulled-up top bar": {},
     "Album rating %@": {
       "localizations": {
@@ -3272,12 +3312,52 @@
         }
       }
     },
+    "Exit Sing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出唱歌"
+          }
+        }
+      }
+    },
     "Keep screen on": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "屏幕常亮"
+          }
+        }
+      }
+    },
+    "Preparing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备中"
+          }
+        }
+      }
+    },
+    "Sing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唱歌"
+          }
+        }
+      }
+    },
+    "Vocal volume": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人声音量"
           }
         }
       }
@@ -6113,7 +6193,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories 标题"
+            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories\u00a0标\u2060题"
           }
         }
       }
@@ -11804,6 +11884,172 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先登录 Google 以移除旧的 Drive 副本。"
+          }
+        }
+      }
+    },
+    "Features and appearance": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "功能与外观"
+          }
+        }
+      }
+    },
+    "Liquid Glass": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "液态玻璃"
+          }
+        }
+      }
+    },
+    "Solid surfaces": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实色界面"
+          }
+        }
+      }
+    },
+    "Sync and backups": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步与备份"
+          }
+        }
+      }
+    },
+    "Empty": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空"
+          }
+        }
+      }
+    },
+    "Help and feedback": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助与反馈"
+          }
+        }
+      }
+    },
+    "About Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于 Yoin"
+          }
+        }
+      }
+    },
+    "All tips read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小技巧全部已读"
+          }
+        }
+      }
+    },
+    "Quality and downloads": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音质与下载"
+          }
+        }
+      }
+    },
+    "Library and sources": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "曲库与音源"
+          }
+        }
+      }
+    },
+    "Song and artist names": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲与艺人名"
+          }
+        }
+      }
+    },
+    "Connection and devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接与播放设备"
+          }
+        }
+      }
+    },
+    "Settings ›": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 ›"
+          }
+        }
+      }
+    },
+    "Show lyrics picked on this device on Home, and tap to play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在首页显示本机挑出的歌词，点按即可播放"
+          }
+        }
+      }
+    },
+    "Apple Intelligence's on-device model reads lyrics right here, offline, and picks a passage from songs you play a lot, songs you haven't played in a while, and songs you haven't heard yet. Tap a card to play.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 智能的本地模型会在设备端离线阅读歌词，从你常听、好久没听与还没听过的歌里挑出打动人的一段。轻点卡片即可播放。"
+          }
+        }
+      }
+    },
+    "%lld of %lld tips read": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld tips read"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小技巧已读 %1$lld / %2$lld"
           }
         }
       }

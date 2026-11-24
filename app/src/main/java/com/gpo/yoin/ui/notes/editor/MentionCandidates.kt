@@ -23,7 +23,15 @@ data class MentionCandidate(
     val artist: String? = null,
     /** The second line's album (a song's), muted after the artist. */
     val album: String? = null,
-)
+    /** Where the row came from: what is playing and recent plays are listed before search results. */
+    val source: Source = Source.Search,
+) {
+    /**
+     * In listing order: the song playing, recent plays, the service's search for the words typed, then rows an
+     * earlier search offered (kept only while they still match).
+     */
+    enum class Source { Current, Recent, Search, Seen }
+}
 
 /** The @ popup's rows, by kind (songs, albums, artists), in the order shown. */
 @Immutable
@@ -31,12 +39,30 @@ data class MentionCandidates(
     val tracks: List<MentionCandidate> = emptyList(),
     val albums: List<MentionCandidate> = emptyList(),
     val artists: List<MentionCandidate> = emptyList(),
+    /** The kinds in the order they're listed (the best match's kind first once something is typed). */
+    val order: List<MentionKind> = DefaultOrder,
 ) {
-    val all: List<MentionCandidate> get() = tracks + albums + artists
+    fun of(kind: MentionKind): List<MentionCandidate> = when (kind) {
+        MentionKind.Track -> tracks
+        MentionKind.Album -> albums
+        MentionKind.Artist -> artists
+    }
+
+    /** Every row in listing order: what ↑ ↓ walk, and the first is what Enter picks. */
+    val all: List<MentionCandidate> get() = order.flatMap(::of)
 
     val isEmpty: Boolean get() = tracks.isEmpty() && albums.isEmpty() && artists.isEmpty()
 
+    /** These rows and [other]'s, each item once (the first seen wins, so earlier sources keep their place). */
+    fun merge(other: MentionCandidates): MentionCandidates = MentionCandidates(
+        tracks = (tracks + other.tracks).distinctBy { it.mention.ref },
+        albums = (albums + other.albums).distinctBy { it.mention.ref },
+        artists = (artists + other.artists).distinctBy { it.mention.ref },
+    )
+
     companion object {
+        // Before [Empty], which reads it as its default.
+        val DefaultOrder = listOf(MentionKind.Track, MentionKind.Album, MentionKind.Artist)
         val Empty = MentionCandidates()
     }
 }
@@ -59,6 +85,7 @@ fun interface MentionCandidateSource {
 class RepositoryMentionCandidateSource(
     private val repository: YoinRepository,
     private val nowPlaying: () -> Track?,
+    private val romanizer: MentionRomanizer = IcuMentionRomanizer,
 ) : MentionCandidateSource {
 
     override suspend fun candidates(query: String, limit: Int): MentionCandidates {
@@ -66,19 +93,23 @@ class RepositoryMentionCandidateSource(
         val recents = recentTracks()
         if (q.isEmpty()) {
             val current = nowPlaying()
-            val tracks = (listOfNotNull(current?.let(::trackCandidate)) + recents)
+            val tracks = (listOfNotNull(current?.let { trackCandidate(it, MentionCandidate.Source.Current) }) + recents)
                 .distinctBy { it.mention.ref }
                 .take(limit)
             val album = current?.takeIf { it.albumId != null && !it.album.isNullOrBlank() }?.let { track ->
-                candidate(MentionKind.Album, track.albumId!!, track.album!!, track.artist, null, track.coverArt)
+                candidate(
+                    MentionKind.Album, track.albumId!!, track.album!!, track.artist, null, track.coverArt,
+                    MentionCandidate.Source.Current,
+                )
             }
             val artist = current?.takeIf { it.artistId != null && !it.artist.isNullOrBlank() }?.let { track ->
-                candidate(MentionKind.Artist, track.artistId!!, track.artist!!, null, null, null)
+                candidate(
+                    MentionKind.Artist, track.artistId!!, track.artist!!, null, null, null,
+                    MentionCandidate.Source.Current,
+                )
             }
             return MentionCandidates(tracks = tracks, albums = listOfNotNull(album), artists = listOfNotNull(artist))
         }
-        val folded = q.lowercase()
-        val recentHits = recents.filter { it.mention.title.lowercase().contains(folded) }
         val results = try {
             withTimeoutOrNull(SEARCH_TIMEOUT_MS) { repository.search(q) }
         } catch (cancellation: CancellationException) {
@@ -86,11 +117,20 @@ class RepositoryMentionCandidateSource(
         } catch (_: Exception) {
             null
         }
-        val tracks = (recentHits + results?.tracks.orEmpty().map(::trackCandidate)).distinctBy { it.mention.ref }
-        return MentionCandidates(
-            tracks = tracks.take(limit),
-            albums = results?.albums.orEmpty().map(::albumCandidate).take(limit / 2 + 1),
-            artists = results?.artists.orEmpty().map(::artistCandidate).take(limit / 2 + 1),
+        // Recent plays that match (by name, initials or pinyin) go first, then the search, ranked together.
+        val ranked = MentionRanking.rank(
+            q,
+            MentionCandidates(
+                tracks = (recents + results?.tracks.orEmpty().map { trackCandidate(it) }).distinctBy { it.mention.ref },
+                albums = results?.albums.orEmpty().map(::albumCandidate),
+                artists = results?.artists.orEmpty().map(::artistCandidate),
+            ),
+            romanizer,
+        )
+        return ranked.copy(
+            tracks = ranked.tracks.take(limit),
+            albums = ranked.albums.take(limit / 2 + 1),
+            artists = ranked.artists.take(limit / 2 + 1),
         )
     }
 
@@ -113,11 +153,12 @@ class RepositoryMentionCandidateSource(
             row.artist,
             row.album,
             CoverRef.fromStorageKey(row.coverArtId),
+            MentionCandidate.Source.Recent,
         )
     }
 
-    private fun trackCandidate(track: Track) =
-        candidate(MentionKind.Track, track.id, track.title.orEmpty(), track.artist, track.album, track.coverArt)
+    private fun trackCandidate(track: Track, source: MentionCandidate.Source = MentionCandidate.Source.Search) =
+        candidate(MentionKind.Track, track.id, track.title.orEmpty(), track.artist, track.album, track.coverArt, source)
 
     private fun albumCandidate(album: Album) =
         candidate(MentionKind.Album, album.id, album.name, album.artist, null, album.coverArt)
@@ -132,6 +173,7 @@ class RepositoryMentionCandidateSource(
         artist: String?,
         album: String?,
         cover: CoverRef?,
+        source: MentionCandidate.Source = MentionCandidate.Source.Search,
     ) = MentionCandidate(
         mention = NoteMention(
             kind = kind,
@@ -144,6 +186,7 @@ class RepositoryMentionCandidateSource(
         coverUrl = repository.resolveCoverUrl(cover, COVER_SIZE),
         artist = artist?.takeIf { kind != MentionKind.Artist && it.isNotBlank() },
         album = album?.takeIf { kind == MentionKind.Track && it.isNotBlank() },
+        source = source,
     )
 
     private companion object {

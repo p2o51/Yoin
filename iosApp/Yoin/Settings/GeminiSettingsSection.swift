@@ -69,7 +69,26 @@ struct GeminiSettingsSection: View {
         guard settings.hasKey else {
             return String(localized: "Song info, Ask Gemini, translation and Memory titles")
         }
-        let providerName = settings.prefs.provider.rawValue
-        return "\(providerName) · \(settings.targetLanguage)"
+        return Self.configuredSummary(settings)
+    }
+
+    static func configuredSummary(_ settings: GeminiSettings) -> String {
+        let zh = Tips.showsChinese
+        let p = settings.prefs
+        let provider: String = switch p.provider {
+        case .gemini: "Gemini"
+        case .deepSeek: "DeepSeek"
+        case .qwen: zh ? "千问" : "Qwen"
+        case .custom: zh ? "自定义" : "Custom"
+        }
+        if p.provider == .custom {
+            let model = p.customModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            return model.isEmpty ? provider : "\(provider)   \(model)"
+        }
+        if p.provider.tiers.count > 1 {
+            let tier = p.activeTier == .best ? (zh ? "最佳" : "Best") : (zh ? "好" : "Good")
+            return "\(provider)   \(tier)"
+        }
+        return provider
     }
 }

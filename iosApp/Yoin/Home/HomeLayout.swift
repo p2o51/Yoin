@@ -99,6 +99,8 @@ struct HomeSectionPref: Hashable, Sendable {
     var enabled: Bool
     /// The `config` object, verbatim; nil = absent (never written as null).
     var config: Data? = nil
+    /// The entry's other keys (a JSON object a newer build wrote), verbatim; nil = none.
+    var extra: Data? = nil
 }
 
 /// One section and whether it renders, at its resolved position.
@@ -106,6 +108,7 @@ struct HomeSectionState: Hashable, Sendable {
     var section: HomeSection
     var enabled: Bool
     var config: Data? = nil
+    var extra: Data? = nil
 }
 
 /// The resolved, ordered Home layout (Android `HomeLayout`). Disabled
@@ -131,7 +134,7 @@ struct HomeLayout: Hashable, Sendable {
     var isDefault: Bool { sections == Self.default.sections }
 
     func toPrefs() -> [HomeSectionPref] {
-        sections.map { HomeSectionPref(id: $0.section.id, enabled: $0.enabled, config: $0.config) } + retained
+        sections.map { HomeSectionPref(id: $0.section.id, enabled: $0.enabled, config: $0.config, extra: $0.extra) } + retained
     }
 
     /// Same order and visibility (ignores `retained` / `newSections`).
@@ -205,7 +208,7 @@ struct HomeLayout: Hashable, Sendable {
         var retained: [HomeSectionPref] = []
         for p in prefs {
             if let s = HomeSection(rawValue: p.id) {
-                if seen.insert(s).inserted { ordered.append(HomeSectionState(section: s, enabled: p.enabled, config: p.config)) }
+                if seen.insert(s).inserted { ordered.append(HomeSectionState(section: s, enabled: p.enabled, config: p.config, extra: p.extra)) }
             } else if p.id.trimmingCharacters(in: .whitespaces).isEmpty || HomeSection.retiredIds.contains(p.id) {
                 continue
             } else if retainedIds.insert(p.id).inserted {
@@ -222,31 +225,53 @@ struct HomeLayout: Hashable, Sendable {
 /// The layout document (Android HomeLayoutStore's `SectionsDto`):
 /// `{"version":1,"sections":[{"id":"activities","enabled":true}, …]}`,
 /// decoded entry by entry: an unreadable document is "never set", a bad
-/// entry drops only itself.
+/// entry drops only itself. Keys this build doesn't read ride along as raw
+/// JSON: the document's (Android's two-column memory `"wide":{"pairs":…}`,
+/// design.md「两栏的并排记忆」) and each entry's.
 enum HomeLayoutCodec {
     static let schemaVersion = 1
+    private static let documentKeys: Set<String> = ["version", "sections"]
+    private static let entryKeys: Set<String> = ["id", "enabled", "config"]
 
-    static func encode(_ prefs: [HomeSectionPref]) -> Data {
+    static func encode(_ prefs: [HomeSectionPref], extras: Data? = nil) -> Data {
         let sections: [[String: Any]] = prefs.map { p in
-            var o: [String: Any] = ["id": p.id, "enabled": p.enabled]
+            var o = object(p.extra) ?? [:]
+            o["id"] = p.id
+            o["enabled"] = p.enabled
             if let c = p.config, let obj = try? JSONSerialization.jsonObject(with: c), obj is [String: Any] { o["config"] = obj }
             return o
         }
-        let doc: [String: Any] = ["version": schemaVersion, "sections": sections]
+        var doc = object(extras) ?? [:]
+        doc["version"] = schemaVersion
+        doc["sections"] = sections
         return (try? JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])) ?? Data()
     }
 
-    static func decode(_ data: Data) -> [HomeSectionPref]? {
+    static func decode(_ data: Data) -> [HomeSectionPref]? { decodeDocument(data)?.prefs }
+
+    /// [decode] with the document's other keys (a JSON object; nil = none), to write back with the prefs.
+    static func decodeDocument(_ data: Data) -> (prefs: [HomeSectionPref], extras: Data?)? {
         guard let doc = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let raw = doc["sections"] as? [Any] else { return nil }
-        return raw.compactMap { entry in
+        let prefs: [HomeSectionPref] = raw.compactMap { entry in
             guard let o = entry as? [String: Any], let id = o["id"] as? String,
                   let enabledValue = o["enabled"], let n = enabledValue as? NSNumber,
                   CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
             var config: Data?
             if let c = o["config"] as? [String: Any] { config = try? JSONSerialization.data(withJSONObject: c, options: [.sortedKeys]) }
-            return HomeSectionPref(id: id, enabled: n.boolValue, config: config)
+            return HomeSectionPref(id: id, enabled: n.boolValue, config: config, extra: rest(of: o, minus: entryKeys))
         }
+        return (prefs, rest(of: doc, minus: documentKeys))
+    }
+
+    private static func object(_ data: Data?) -> [String: Any]? {
+        data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+    }
+
+    /// [o] without [keys], as JSON; nil when nothing is left.
+    private static func rest(of o: [String: Any], minus keys: Set<String>) -> Data? {
+        let rest = o.filter { !keys.contains($0.key) }
+        return rest.isEmpty ? nil : try? JSONSerialization.data(withJSONObject: rest, options: [.sortedKeys])
     }
 }
 
@@ -270,6 +295,8 @@ final class HomeLayoutStore {
         var json: String
         /// Epoch ms.
         var updatedAt: Int64
+        /// The document's keys iOS doesn't read (Android's `wide`), written back with the next save.
+        var extras: Data? = nil
     }
 
     /// scope → its document.
@@ -287,13 +314,15 @@ final class HomeLayoutStore {
             for (scope, value) in all {
                 if let o = value as? [String: Any], let json = o["json"] as? String {
                     // {"json": "<document>", "updatedAt": ms}
-                    guard let prefs = HomeLayoutCodec.decode(Data(json.utf8)) else { continue }
-                    docs[scope] = Entry(prefs: prefs, json: json, updatedAt: (o["updatedAt"] as? NSNumber)?.int64Value ?? 0)
+                    guard let d = HomeLayoutCodec.decodeDocument(Data(json.utf8)) else { continue }
+                    docs[scope] = Entry(prefs: d.prefs, json: json, updatedAt: (o["updatedAt"] as? NSNumber)?.int64Value ?? 0,
+                                        extras: d.extras)
                 } else if let doc = try? JSONSerialization.data(withJSONObject: value),
-                          let prefs = HomeLayoutCodec.decode(doc) {
+                          let d = HomeLayoutCodec.decodeDocument(doc) {
                     // The first file format: the document itself.
-                    docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs), as: UTF8.self),
-                                        updatedAt: 0)
+                    docs[scope] = Entry(prefs: d.prefs,
+                                        json: String(decoding: HomeLayoutCodec.encode(d.prefs, extras: d.extras), as: UTF8.self),
+                                        updatedAt: 0, extras: d.extras)
                 }
             }
         }
@@ -310,12 +339,15 @@ final class HomeLayoutStore {
     func layout(_ scope: String) -> HomeLayout { HomeLayout.reconcile(docs[scope]?.prefs) }
 
     /// Saves [layout] for [scope]; skipped when the stored document already holds it.
+    /// The stored document's other keys (Android's two-column `wide` memory) are kept:
+    /// iOS edits order and visibility only, which Android's single column does too.
     func save(_ layout: HomeLayout, scope: String) {
         let prefs = layout.toPrefs()
         guard docs[scope]?.prefs != prefs else { return }
         let old = docs[scope]
-        docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs), as: UTF8.self),
-                            updatedAt: Self.now)
+        let extras = old?.extras
+        docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs, extras: extras), as: UTF8.self),
+                            updatedAt: Self.now, extras: extras)
         guard write() else { docs[scope] = old; return }
         Self.onLocalChange?()
     }
@@ -336,9 +368,9 @@ final class HomeLayoutStore {
     /// Another device's layout for [scope], at [updatedAt]. False when the
     /// text isn't a layout document or the file couldn't be written (nothing changes).
     func applySynced(json: String, updatedAt: Int64, scope: String) -> Bool {
-        guard let prefs = HomeLayoutCodec.decode(Data(json.utf8)) else { return false }
+        guard let d = HomeLayoutCodec.decodeDocument(Data(json.utf8)) else { return false }
         let old = docs[scope]
-        docs[scope] = Entry(prefs: prefs, json: json, updatedAt: updatedAt)
+        docs[scope] = Entry(prefs: d.prefs, json: json, updatedAt: updatedAt, extras: d.extras)
         guard write() else { docs[scope] = old; return false }
         remoteRevision += 1
         return true

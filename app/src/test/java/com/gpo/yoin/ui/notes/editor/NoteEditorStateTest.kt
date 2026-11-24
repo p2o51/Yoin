@@ -88,4 +88,61 @@ class NoteEditorStateTest {
         assertEquals("@", state.text)
         assertEquals("", state.trigger?.query)
     }
+
+    // ── @ mode as a state machine (notes 0.6.4) ──────────────────────────
+
+    private fun NoteEditorState.backspace() {
+        fieldState.edit {
+            replace(length - 1, length, "")
+            placeCursorAtEnd()
+        }
+        Snapshot.sendApplyNotifications()
+        syncDismissal()
+    }
+
+    @Test
+    fun should_followEachLetter_andEnd_onSpaceDeletedAtOrEscape() {
+        val state = NoteEditorState("")
+        state.type("@")
+        assertEquals("", state.query)
+        state.type("N")
+        assertEquals("N", state.query)
+        state.type("e")
+        assertEquals("Ne", state.query)
+
+        // a space ends mention mode
+        state.type(" ")
+        assertNull(state.trigger)
+        // back over the space: the same @ is live again
+        state.backspace()
+        assertEquals("Ne", state.query)
+
+        // deleting the @ itself ends it
+        state.backspace()
+        state.backspace()
+        assertEquals("", state.query)
+        state.backspace()
+        assertNull(state.trigger)
+
+        // Escape (dismiss) ends it until another @
+        state.type("@x")
+        state.dismissPopup()
+        assertNull(state.trigger)
+        state.type("y")
+        state.syncDismissal()
+        assertNull(state.trigger)
+        state.type(" @")
+        state.syncDismissal()
+        assertEquals("", state.query)
+    }
+
+    @Test
+    fun should_pickTheMention_when_aMentionIsChosenFromTheTypedQuery() {
+        val state = NoteEditorState("")
+        state.type("@cha")
+        state.enterPick = charm
+        // what the field's Enter does through the input transformation: the newline becomes the pick
+        val fix = NoteEditorText.enterPicksMention(state.text, state.text + "\n", state.trigger!!, state.enterPick!!)!!
+        assertEquals("${NoteMarkup.serializeMention(charm)} ", fix.text)
+    }
 }

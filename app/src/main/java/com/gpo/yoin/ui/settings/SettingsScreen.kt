@@ -82,6 +82,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
@@ -105,6 +106,8 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.player.PlayTrace
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
@@ -112,8 +115,6 @@ import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SeamTop
-import com.gpo.yoin.ui.component.SeamTopPreference
-import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -139,7 +140,8 @@ import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
 import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
-import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
+import com.gpo.yoin.ui.settings.sync.cloudSyncEntrySummary
+import com.gpo.yoin.ui.settings.sync.rememberTickingNow
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -428,91 +430,70 @@ fun SettingsContent(
                                             GeminiItem(
                                                 apiKey = state.geminiApiKey,
                                                 aiPrefs = state.aiPrefs,
-                                                // Every row opens a whole page (owner 2026-11-09); list-detail puts it on the right (§7).
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Gemini) },
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.Gemini,
+                                                selected = openFeature in setOf(
+                                                    SettingsFeature.Gemini,
+                                                    SettingsFeature.AiTiers,
+                                                    SettingsFeature.AiTry,
+                                                    SettingsFeature.Labs,
+                                                    SettingsFeature.NanoDiagnostics,
+                                                ),
                                             )
                                         }
-                                        item(key = SettingsFeature.Labs, paintsOwnSegment = listDetail) {
-                                            LabsItem(
+                                        item(key = SettingsFeature.Appearance, paintsOwnSegment = listDetail) {
+                                            AppearanceItem(
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.Labs,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.Labs) },
+                                                selected = openFeature in setOf(
+                                                    SettingsFeature.Appearance,
+                                                    SettingsFeature.ScrollEdge,
+                                                    SettingsFeature.ScreenCorners,
+                                                ),
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Appearance) },
                                             )
                                         }
                                         clipboardLinksRow?.let { row -> item(key = "clipboard-links") { row() } }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_appearance)) {
-                                        item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
-                                            ScrollEdgeItem(
-                                                listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.ScrollEdge,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.ScrollEdge) },
-                                            )
-                                        }
-                                        item(key = SettingsFeature.ScreenCorners, paintsOwnSegment = listDetail) {
-                                            ScreenCornersItem(
-                                                listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.ScreenCorners,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.ScreenCorners) },
-                                            )
-                                        }
-                                    }
-                                    // Where your data goes (owner 2026-11-09, plan A): sync, NeoDB, backups, cache.
                                     SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
-                                        cloudSyncRow?.let { row ->
-                                            item(key = "cloud-sync", paintsOwnSegment = listDetail) {
-                                                if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
-                                            }
-                                        }
-                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
-                                            NeoDbItem(
-                                                instance = state.neoDbInstance,
-                                                accessToken = state.neoDbAccessToken,
-                                                initiallyExpanded = false,
-                                                onOpenSignIn = onOpenNeoDbSignIn,
-                                                onSaveConfig = onSaveNeoDbConfig,
-                                                onClearToken = onClearNeoDbToken,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.NeoDb) },
+                                        item(key = SettingsFeature.SyncAndBackups, paintsOwnSegment = listDetail) {
+                                            SyncAndBackupsItem(
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.NeoDb,
+                                                selected = openFeature in setOf(
+                                                    SettingsFeature.SyncAndBackups,
+                                                    SettingsFeature.NeoDb,
+                                                    SettingsFeature.PlaylistBackups,
+                                                ) || cloudSyncSelected,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.SyncAndBackups) },
                                             )
                                         }
-                                        item(key = SettingsFeature.PlaylistBackups, paintsOwnSegment = listDetail) {
-                                            PlaylistBackupsItem(
+                                        item(key = SettingsFeature.Storage, paintsOwnSegment = listDetail) {
+                                            StorageItem(
+                                                cacheSizeBytes = state.cacheSizeBytes,
+                                                activeProvider = state.profileCards.firstOrNull { it.isActive }?.provider,
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.PlaylistBackups,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.PlaylistBackups) },
+                                                selected = openFeature in setOf(
+                                                    SettingsFeature.Storage,
+                                                    SettingsFeature.Downloads,
+                                                ),
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Storage) },
                                             )
                                         }
-                                        item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
-                                    // Owner 2026-11-09: tips, docs & feedback, Yoin (version; website and privacy inside), open source licenses.
                                     SettingsGroup(title = stringResource(R.string.settings_section_help_about)) {
-                                        item(key = SettingsFeature.Tips, paintsOwnSegment = listDetail) {
-                                            TipsItem(
+                                        item(key = SettingsFeature.HelpAndFeedback, paintsOwnSegment = listDetail) {
+                                            HelpAndFeedbackItem(
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.Tips,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.Tips) },
+                                                selected = openFeature == SettingsFeature.HelpAndFeedback ||
+                                                    openFeature == SettingsFeature.Tips,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.HelpAndFeedback) },
                                             )
                                         }
-                                        item { WelcomeGuideItem() }
-                                        item { DocsItem(snackbarHostState) }
-                                        item { FeedbackItem(snackbarHostState) }
-                                        item { ExportLogItem(snackbarHostState) }
                                         item(key = SettingsFeature.About, paintsOwnSegment = listDetail) {
                                             AboutYoinItem(
                                                 listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.About,
+                                                selected = openFeature == SettingsFeature.About ||
+                                                    openFeature == SettingsFeature.Licenses,
                                                 onOpenPage = { onOpenFeature(SettingsFeature.About) },
-                                            )
-                                        }
-                                        item(key = SettingsFeature.Licenses, paintsOwnSegment = listDetail) {
-                                            LicensesItem(
-                                                listDetail = listDetail,
-                                                selected = openFeature == SettingsFeature.Licenses,
-                                                onOpenPage = { onOpenFeature(SettingsFeature.Licenses) },
                                             )
                                         }
                                     }
@@ -799,14 +780,15 @@ private fun ProfileAccountRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    serviceLineGroups(
+                    accountCardLineGroups(
                         stringResource(identity.nameRes),
                         card.title,
                         card.subtitle,
+                        identity.scopeRes?.let { stringResource(it) },
                     )?.let { groups ->
-                        ServiceLine(groups = groups)
+                        ServiceLine(groups = groups, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    AccountStatusPill(card = card, modifier = Modifier.padding(top = 6.dp))
+                    AccountStatusPill(card = card, showInUse = true, modifier = Modifier.padding(top = 6.dp))
                 }
                 Box {
                     IconButton(
@@ -998,41 +980,111 @@ private fun ProfileCardTile(
                 }
             }
             Spacer(Modifier.weight(1f))
+            val lineGroups = accountCardLineGroups(
+                stringResource(identity.nameRes),
+                card.title,
+                card.subtitle,
+                identity.scopeRes?.let { stringResource(it) },
+            )
+            val stackedSublines = lineGroups != null && lineGroups.size >= 2
             // Name and service read as one cluster; the status pill is its own.
             Text(
                 text = card.title,
                 style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
+                maxLines = if (stackedSublines) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 12.dp).seamFade(),
             )
-            serviceLineGroups(
-                stringResource(identity.nameRes),
-                card.title,
-                card.subtitle,
-            )?.let { groups ->
+            lineGroups?.let { groups ->
                 ServiceLine(
                     groups = groups,
+                    color = secondaryColor,
+                    stackedTwoPlain = true,
                     modifier = Modifier.padding(end = 12.dp).seamFade(),
                 )
             }
-            AccountStatusPill(card = card, modifier = Modifier.padding(top = 10.dp))
+            AccountCardPill(
+                card = card,
+                tone = tone,
+                onManage = onManage,
+                modifier = Modifier.padding(top = 10.dp),
+            )
         }
     }
 }
 
 /**
- * The one status an account can need to say: a problem (error pill) beats
- * "In use" (a pill in the service's own accent) — and when the account in
- * use has a problem the pill says both, so "in use" never rests on colour
- * alone. Otherwise nothing. Grows in and out on the spatial spring.
+ * The pill at the bottom of an account card (v4): an issue pill when the
+ * account needs attention, otherwise a persistent clickable "Settings ›" pill
+ * in the same slot (0 extra card height) that opens the account's page even
+ * when the card itself switches on tap.
  */
 @Composable
-private fun AccountStatusPill(card: ProfileCard, modifier: Modifier = Modifier) {
+private fun AccountCardPill(
+    card: ProfileCard,
+    tone: SettingsTone,
+    onManage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (card.unavailableReason != null) {
+        AccountStatusPill(card = card, modifier = modifier)
+        return
+    }
+    val haptics = rememberYoinHaptics()
     val scheme = MaterialTheme.colorScheme
+    val pillColor by animateColorAsState(
+        targetValue = if (card.isActive) tone.onContainer.copy(alpha = 0.14f) else scheme.surfaceContainerHighest,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "accountManagePill",
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (card.isActive) tone.onContainer else scheme.onSurfaceVariant,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "accountManagePillText",
+    )
+    Surface(
+        onClick = {
+            haptics.performClick()
+            onManage()
+        },
+        shape = YoinShapeTokens.Full,
+        color = pillColor,
+        contentColor = textColor,
+        modifier = modifier.handPointer(),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_account_pill_manage),
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+        )
+    }
+}
+
+/**
+ * The one status an account can need to say: a problem (error pill) beats
+ * "In use" (a pill in the service's own accent on list rows, where the row
+ * surface does not tint by active service). Otherwise nothing. Grows in and out
+ * on the spatial spring.
+ */
+@Composable
+private fun AccountStatusPill(
+    card: ProfileCard,
+    modifier: Modifier = Modifier,
+    showInUse: Boolean = false,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val tone = card.provider.serviceIdentity.hue.tone()
     val issue = card.unavailableReason?.let { accountIssueLabel(it) }
-    val status: Triple<String, Color, Color>? = issue?.let {
-        Triple(it, scheme.errorContainer, scheme.onErrorContainer)
+    val status: Triple<String, Color, Color>? = when {
+        issue != null -> Triple(issue, scheme.errorContainer, scheme.onErrorContainer)
+        showInUse && card.isActive -> Triple(
+            stringResource(R.string.landing_ready_in_use),
+            tone.accent,
+            tone.onAccent,
+        )
+        else -> null
     }
     // Keep the last label on screen while the pill shrinks away.
     var shown by remember { mutableStateOf(status) }
@@ -1494,7 +1546,27 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, AiTiers, AiTry, NeoDb, Labs, NanoDiagnostics, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
+enum class SettingsFeature {
+    Gemini,
+    AiTiers,
+    AiTry,
+    Appearance,
+    SyncAndBackups,
+    Storage,
+    HelpAndFeedback,
+    NeoDb,
+    Labs,
+    NanoDiagnostics,
+    ScrollEdge,
+    ScreenCorners,
+    StreamQuality,
+    VolumeLeveling,
+    Downloads,
+    Tips,
+    PlaylistBackups,
+    Licenses,
+    About,
+}
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1534,6 +1606,10 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.AiTiers -> stringResource(R.string.ai_tiers_label)
         SettingsFeature.AiTry -> stringResource(R.string.ai_try)
+        SettingsFeature.Appearance -> stringResource(R.string.settings_section_appearance)
+        SettingsFeature.SyncAndBackups -> stringResource(R.string.settings_sync_backups_title)
+        SettingsFeature.Storage -> stringResource(R.string.settings_section_storage)
+        SettingsFeature.HelpAndFeedback -> stringResource(R.string.settings_help_feedback_title)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
         SettingsFeature.NanoDiagnostics -> stringResource(R.string.nano_diag_title)
@@ -1545,7 +1621,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
         SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
-        SettingsFeature.About -> stringResource(R.string.settings_about_name)
+        SettingsFeature.About -> stringResource(R.string.settings_about_yoin_title)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1604,6 +1680,8 @@ internal fun SettingsFeatureScreen(
                         AiTiersPageContent()
                     } else if (feature == SettingsFeature.AiTry) {
                         AiTryPageContent()
+                    } else if (feature == SettingsFeature.Appearance) {
+                        AppearancePageContent()
                     } else if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
@@ -1617,13 +1695,14 @@ internal fun SettingsFeatureScreen(
                         LabsPageContent()
                     } else if (feature == SettingsFeature.NanoDiagnostics) {
                         NanoDiagnosticsPageContent()
+                    } else if (feature == SettingsFeature.HelpAndFeedback) {
+                        HelpAndFeedbackPageContent(snackbarHostState = snackbarHostState)
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
                         OpenSourceLicensesPageContent()
                     } else if (feature == SettingsFeature.About) {
-                        val recapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
-                        AboutYoinPageContent(snackbarHostState = snackbarHostState, spotoolfyRecapBatchId = recapBatchId)
+                        AboutYoinPageContent(snackbarHostState = snackbarHostState)
                     } else if (feature == SettingsFeature.PlaylistBackups) {
                         // Its own ViewModel over the backups table: no need to wait for the Settings state.
                         PlaylistBackupsPageContent()
@@ -1631,6 +1710,10 @@ internal fun SettingsFeatureScreen(
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             YoinLoadingIndicator()
                         }
+                    } else if (feature == SettingsFeature.SyncAndBackups) {
+                        SyncAndBackupsPageContent(content = content, viewModel = viewModel)
+                    } else if (feature == SettingsFeature.Storage) {
+                        StoragePageContent(content = content, onClearCache = viewModel::clearCache)
                     } else {
                         SettingsSegments {
                             item {
@@ -1644,15 +1727,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.Gemini, SettingsFeature.AiTiers, SettingsFeature.AiTry,
-                                    SettingsFeature.Labs, SettingsFeature.NanoDiagnostics,
-                                    SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
-                                    SettingsFeature.VolumeLeveling,
-                                    SettingsFeature.Downloads,
-                                    SettingsFeature.Tips,
-                                    SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
-                                    SettingsFeature.About,
-                                    -> Unit
+                                    else -> Unit
                                 }
                             }
                         }
@@ -1663,29 +1738,64 @@ internal fun SettingsFeatureScreen(
     }
 }
 
-// ── Motion ───────────────────────────────────────────────────────────
+// ── Appearance ───────────────────────────────────────────────────────
 
-/**
- * How scrolling content meets the fixed chrome at the top of a page (the
- * chips, a detail page's header): the tide line, the original dots or the
- * Cookie wave. Only that seam; it repaints open pages live.
- */
+/** Settings › Features and appearance › Appearance (v4): scroll edge + screen corners summary. */
 @Composable
-private fun ScrollEdgeItem(
+private fun AppearanceItem(
     listDetail: Boolean,
     selected: Boolean,
     onOpenPage: () -> Unit,
 ) {
-    val title = stringResource(R.string.settings_motion_scroll_edge)
-    val summary = stringResource(currentSeamTopStyle().nameRes)
-    if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    val title = stringResource(R.string.settings_section_appearance)
+    val edge = stringResource(currentSeamTopStyle().nameRes)
+    val radius = currentScreenCornerRadius().value.roundToInt()
+    val corners = if (ScreenCorners.userRadius == null) {
+        stringResource(R.string.screen_corners_follow)
     } else {
-        SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+        stringResource(R.string.screen_corners_value, radius)
+    }
+    FeaturePageRow(
+        icon = YoinSymbols.Palette,
+        title = title,
+        summary = null,
+        summaryContent = {
+            MetaLine(
+                groups = listOf(MetaGroup.Plain(edge), MetaGroup.Plain(corners, muted = true)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
+}
+
+/** The Appearance page (v4): inline Scroll edge live preview cards above, Screen corners row below. */
+@Composable
+internal fun AppearancePageContent() {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingsGroupLabel(title = stringResource(R.string.settings_motion_scroll_edge))
+            ScrollEdgeCardsSection()
+        }
+        SettingsSegments {
+            item(key = SettingsFeature.ScreenCorners) {
+                ScreenCornersItem(
+                    listDetail = false,
+                    selected = false,
+                    onOpenPage = {
+                        context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.ScreenCorners))
+                    },
+                )
+            }
+        }
     }
 }
 
-/** Settings › Motion › Screen corners: opens its page (ScreenCornersPage). Android only. */
+/** Settings › Appearance › Screen corners: opens its page (ScreenCornersPage). Android only. */
 @Composable
 private fun ScreenCornersItem(
     listDetail: Boolean,
@@ -1728,23 +1838,233 @@ private fun ScreenCornersItem(
     }
 }
 
-/** Settings › Features › Yoin Labs: the beta features and Gemini Nano on this phone (LabsPage). */
+// ── Sync & storage ───────────────────────────────────────────────────
+
+/** Settings › Sync and storage › Sync and backups (v4): Cloud sync status + playlist backup count. */
 @Composable
-private fun LabsItem(
+private fun SyncAndBackupsItem(
     listDetail: Boolean,
     selected: Boolean,
     onOpenPage: () -> Unit,
 ) {
-    val title = stringResource(R.string.settings_labs_title)
-    val summary = stringResource(R.string.settings_labs_summary)
-    if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Insights, title = title, summary = summary, selected = selected, onClick = onOpenPage)
-    } else {
-        SettingsItem(icon = YoinSymbols.Insights, title = title, summary = summary, onClick = onOpenPage)
+    val context = LocalContext.current
+    val app = context.applicationContext as? YoinApplication
+    val title = stringResource(R.string.settings_sync_backups_title)
+    if (app == null) {
+        FeaturePageRow(
+            icon = YoinSymbols.Cloud,
+            title = title,
+            summary = stringResource(R.string.settings_sync_backups_summary_fallback),
+            selected = selected,
+            onClick = onOpenPage,
+            listDetail = listDetail,
+        )
+        return
+    }
+    val syncState by remember(app) { app.container.cloudSync.state }.collectAsState()
+    val backups by remember(app) { app.container.playlistBackupStore.observeAll() }
+        .collectAsState(initial = emptyList())
+    val syncText = cloudSyncEntrySummary(syncState, rememberTickingNow(), context.resources)
+    val syncLabel = syncText.detail ?: syncText.status
+    FeaturePageRow(
+        icon = YoinSymbols.Cloud,
+        title = title,
+        summary = null,
+        summaryContent = {
+            MetaLine(
+                groups = buildList {
+                    add(MetaGroup.Plain(syncLabel))
+                    if (backups.isNotEmpty()) {
+                        add(
+                            MetaGroup.Stat(
+                                backups.size.toString(),
+                                pluralStringResource(R.plurals.settings_sync_unit_backups, backups.size),
+                            ),
+                        )
+                    }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
+}
+
+@Composable
+private fun SyncAndBackupsPageContent(
+    content: SettingsUiState.Content,
+    viewModel: SettingsViewModel,
+) {
+    val context = LocalContext.current
+    SettingsSegments {
+        item(key = "cloud-sync") {
+            CloudSyncSettingsRow(
+                onClick = { context.startActivity(CloudSyncActivity.intent(context)) },
+            )
+        }
+        item(key = SettingsFeature.NeoDb) {
+            NeoDbItem(
+                instance = content.neoDbInstance,
+                accessToken = content.neoDbAccessToken,
+                initiallyExpanded = false,
+                onOpenSignIn = viewModel::openNeoDbSignIn,
+                onSaveConfig = viewModel::saveNeoDbConfig,
+                onClearToken = viewModel::clearNeoDbToken,
+                onOpenPage = {
+                    context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NeoDb))
+                },
+                listDetail = false,
+            )
+        }
+        item(key = SettingsFeature.PlaylistBackups) {
+            PlaylistBackupsItem(
+                listDetail = false,
+                selected = false,
+                onOpenPage = {
+                    context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.PlaylistBackups))
+                },
+            )
+        }
     }
 }
 
-/** Settings › About › Tips: every tip Home's bubble brings up, to read again or mark unread. */
+/** Settings › Sync and storage › Storage (v4): downloaded + cache summary, no inline Clear button on root. */
+@Composable
+private fun StorageItem(
+    cacheSizeBytes: Long,
+    activeProvider: ProviderKind?,
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val context = LocalContext.current
+    val app = context.applicationContext as? YoinApplication
+    val downloadBytes = if (app != null) {
+        val flow = remember(app) { app.container.offlineDownloads.downloadBytes }
+        val value by flow.collectAsState()
+        value
+    } else {
+        0L
+    }
+    val hasDownloads = activeProvider == ProviderKind.SUBSONIC && downloadBytes > 0L
+    val plainSummary = when {
+        hasDownloads -> null
+        cacheSizeBytes > 0L ->
+            stringResource(R.string.settings_storage_playback_cache_summary, formatBytes(cacheSizeBytes, context.resources))
+        else -> stringResource(R.string.settings_cache_empty)
+    }
+    FeaturePageRow(
+        icon = YoinSymbols.Storage,
+        title = stringResource(R.string.settings_section_storage),
+        summary = plainSummary,
+        summaryContent = if (hasDownloads) {
+            {
+                MetaLine(
+                    groups = listOf(
+                        MetaGroup.Plain(
+                            stringResource(
+                                R.string.settings_storage_downloaded_short,
+                                formatBytes(downloadBytes, context.resources),
+                            ),
+                        ),
+                        MetaGroup.Plain(
+                            stringResource(
+                                R.string.settings_storage_cache_short,
+                                formatBytes(cacheSizeBytes, context.resources),
+                            ),
+                            muted = true,
+                        ),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            null
+        },
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
+}
+
+@Composable
+private fun StoragePageContent(
+    content: SettingsUiState.Content,
+    onClearCache: () -> Unit,
+) {
+    val context = LocalContext.current
+    val app = context.applicationContext as? YoinApplication
+    val activeCard = content.profileCards.firstOrNull { it.isActive }
+    val showDownloads = app != null &&
+        activeCard != null &&
+        Capability.OFFLINE_DOWNLOAD in ServiceFeatureCatalog.forProvider(activeCard.provider.key).capabilities
+    SettingsSegments {
+        item(key = "cache") { CacheItem(content.cacheSizeBytes, onClearCache) }
+        if (showDownloads) {
+            item(key = SettingsFeature.Downloads) {
+                val offline = app.container.offlineDownloads
+                SettingsItem(
+                    icon = YoinSymbols.Download,
+                    title = stringResource(R.string.settings_downloads_title),
+                    summary = downloadsSummary(offline),
+                    summaryDetail = downloadsSummaryDetail(offline),
+                    onClick = {
+                        context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.Downloads))
+                    },
+                )
+            }
+        }
+    }
+}
+
+// ── Help & about ─────────────────────────────────────────────────────
+
+/** Settings › Help and about › Help and feedback (v4): tips read summary; opens 2-group Help and feedback page. */
+@Composable
+private fun HelpAndFeedbackItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    FeaturePageRow(
+        icon = YoinSymbols.Comment,
+        title = stringResource(R.string.settings_help_feedback_title),
+        summary = helpTipsSummary(),
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
+}
+
+@Composable
+internal fun HelpAndFeedbackPageContent(snackbarHostState: SnackbarHostState) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        SettingsSegments {
+            item(key = SettingsFeature.Tips) {
+                TipsItem(
+                    listDetail = false,
+                    selected = false,
+                    onOpenPage = {
+                        context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.Tips))
+                    },
+                )
+            }
+            item(key = "welcome-guide") { WelcomeGuideItem() }
+            item(key = "docs") { DocsItem(snackbarHostState) }
+        }
+        SettingsSegments {
+            item(key = "feedback") { FeedbackItem(snackbarHostState) }
+            item(key = "export-log") { ExportLogItem(snackbarHostState) }
+        }
+    }
+}
+
+/** Settings › Help and feedback › Tips: every tip Home's bubble brings up, to read again or mark unread. */
 @Composable
 private fun TipsItem(
     listDetail: Boolean,
@@ -1760,7 +2080,7 @@ private fun TipsItem(
     }
 }
 
-/** Settings › About › Open source licenses: the fonts and libraries Yoin ships, and their licenses. */
+/** Settings › About Yoin › Open source licenses: the fonts and libraries Yoin ships, and their licenses. */
 @Composable
 private fun LicensesItem(
     listDetail: Boolean,
@@ -1775,7 +2095,7 @@ private fun LicensesItem(
     }
 }
 
-/** Settings › Storage › Playlist backups: the backups saved from playlist pages (docs/playlist-transfer.md §7). */
+/** Settings › Sync and backups › Playlist backups: the backups saved from playlist pages (docs/playlist-transfer.md §7). */
 @Composable
 private fun PlaylistBackupsItem(
     listDetail: Boolean,
@@ -1796,17 +2116,14 @@ private fun PlaylistBackupsItem(
     }
 }
 
-/**
- * Settings › Help & about › About Yoin (owner 2026-11-09, plan A): one row with the version, opening a page
- * that holds what used to stretch the About group — website, privacy policy, the Spotoolfy recap.
- */
+/** Settings › Help and about › About Yoin (v4): version summary; opens single 4-row group. */
 @Composable
 private fun AboutYoinItem(
     listDetail: Boolean,
     selected: Boolean,
     onOpenPage: () -> Unit,
 ) {
-    val title = stringResource(R.string.settings_about_name)
+    val title = stringResource(R.string.settings_about_yoin_title)
     val summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME)
     if (listDetail) {
         FeaturePageRow(icon = YoinSymbols.Info, title = title, summary = summary, selected = selected, onClick = onOpenPage)
@@ -1815,25 +2132,27 @@ private fun AboutYoinItem(
     }
 }
 
-/** The Yoin page: the app and its version, its links, and the Spotoolfy recap when there is one. */
+/** The About Yoin page (v4): single 4-row group (Version, Website, Privacy policy, Open source licenses). */
 @Composable
-internal fun AboutYoinPageContent(snackbarHostState: SnackbarHostState, spotoolfyRecapBatchId: String?) {
-    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
-        SettingsSegments {
-            item {
-                // The headline already says Yoin: the row is just the version.
-                SettingsItem(
-                    icon = YoinSymbols.Info,
-                    title = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
-                )
-            }
-            item { WebsiteItem(snackbarHostState) }
-            item { PrivacyPolicyItem(snackbarHostState) }
+internal fun AboutYoinPageContent(snackbarHostState: SnackbarHostState) {
+    val context = LocalContext.current
+    SettingsSegments {
+        item(key = "version") {
+            SettingsItem(
+                icon = YoinSymbols.Info,
+                title = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
+            )
         }
-        spotoolfyRecapBatchId?.let { batchId ->
-            SettingsSegments {
-                item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
-            }
+        item(key = "website") { WebsiteItem(snackbarHostState) }
+        item(key = "privacy") { PrivacyPolicyItem(snackbarHostState) }
+        item(key = SettingsFeature.Licenses) {
+            LicensesItem(
+                listDetail = false,
+                selected = false,
+                onOpenPage = {
+                    context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.Licenses))
+                },
+            )
         }
     }
 }
@@ -1952,18 +2271,6 @@ private fun ExternalPageItem(
             runCatching { uriHandler.openUri(url) }
                 .onFailure { scope.launch { snackbarHostState.showSnackbar(openFailed) } }
         },
-    )
-}
-
-/** Settings › About › Spotoolfy recap: the import's two pages again, ending with Done (D15). */
-@Composable
-private fun SpotoolfyRecapItem(batchId: String) {
-    val context = LocalContext.current
-    SettingsItem(
-        icon = YoinSymbols.Info,
-        title = stringResource(R.string.settings_spotoolfy_recap),
-        summary = stringResource(R.string.settings_spotoolfy_recap_body),
-        onClick = { context.startActivity(SpotoolfyRecapActivity.intent(context, batchId, fromSettings = true)) },
     )
 }
 

@@ -581,6 +581,7 @@ String accountStatusText(CloudSyncStrings s, SyncAccountStatus status) => switch
   AccountDuplicateOf(:final otherDisplayName) => s.accountDuplicate(otherDisplayName),
   AccountNotSynced() => s.accountNotSynced,
   AccountChanged() => s.accountChanged,
+  AccountRemovedFromCloud() => s.accountRemovedFromCloud,
 };
 
 /// A row with a service's mark, title and lines under it, the actions below.
@@ -703,6 +704,15 @@ class _AccountRow extends ConsumerWidget {
         ),
       ],
       actions: switch (status) {
+        AccountRemovedFromCloud() => [
+          FilledButton.tonal(
+            onPressed: () {
+              YoinHaptics.confirm();
+              vm.resumeAccountSync(account.localProfileId);
+            },
+            child: Text(s.resume),
+          ),
+        ],
         AccountNotSynced(:final linkCandidates) => [
           FilledButton.tonal(
             onPressed: () {

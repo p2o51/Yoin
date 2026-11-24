@@ -108,6 +108,10 @@ class AccountBinder {
       }
       final byProfile = {for (final b in _db.bindings()) b.localProfileId: b};
       final byScope = {for (final b in byProfile.values) b.syncProfileId: b};
+      final purgedScopes = {
+        for (final e in _db.metaWithPrefix(SyncMetaKeys.purgedScopePrefix))
+          e.key.substring(SyncMetaKeys.purgedScopePrefix.length),
+      };
       final active = <ActiveBinding>[];
       final newlyBound = <ActiveBinding>[];
       // null = Apple Music "not synced", filled in once the cloud-only list is final.
@@ -116,6 +120,11 @@ class AccountBinder {
       for (final profile in localProfiles) {
         final identity = identities[profile.id]!;
         final binding = byProfile[profile.id];
+        if (binding?.state == SyncBindingEntity.statePurged) {
+          // Removed from the cloud: stays out of sync until the user resumes it here.
+          statuses[profile] = const AccountRemovedFromCloud();
+          continue;
+        }
         if (binding != null) {
           final (status, updated) = _verify(binding, identity);
           if (updated != binding) {
@@ -140,12 +149,25 @@ class AccountBinder {
               final holderName = localProfiles.where((p) => p.id == holder.localProfileId).firstOrNull?.displayName;
               statuses[profile] = AccountDuplicateOf(holderName ?? '');
             } else {
-              final created = _bind(profile, scope, AccountFingerprints.fingerprintHash(fingerprint), now);
+              // An account removed from the cloud is bound but not synced: a device that joins later
+              // must not upload it again.
+              final purged = purgedScopes.contains(scope);
+              final created = _bind(
+                profile,
+                scope,
+                AccountFingerprints.fingerprintHash(fingerprint),
+                now,
+                state: purged ? SyncBindingEntity.statePurged : SyncBindingEntity.stateActive,
+              );
               byProfile[profile.id] = created;
               byScope[scope] = created;
-              active.add(created.toActive());
-              newlyBound.add(created.toActive());
-              statuses[profile] = const AccountSyncing();
+              if (purged) {
+                statuses[profile] = const AccountRemovedFromCloud();
+              } else {
+                active.add(created.toActive());
+                newlyBound.add(created.toActive());
+                statuses[profile] = const AccountSyncing();
+              }
             }
         }
       }
@@ -207,6 +229,28 @@ class AccountBinder {
       return true;
     });
   }
+
+  /// The account bound to [scope] (if any) was removed from the cloud: its
+  /// binding stops syncing until [resumeSyncing]. Returns its local profile id.
+  Future<String?> markPurged(String scope) => _db.transaction(() async {
+    final binding = _db.bindingForScope(scope);
+    if (binding == null) return null;
+    if (binding.state != SyncBindingEntity.statePurged) {
+      _db.upsertBinding(binding.copyWith(state: SyncBindingEntity.statePurged, observedFingerprintHash: null));
+      _forgetDescriptorState(scope);
+    }
+    return binding.localProfileId;
+  });
+
+  /// "Resume syncing" after the account was removed from the cloud: JOINs its scope afresh.
+  Future<bool> resumeSyncing(String localProfileId) => _db.transaction(() async {
+    final binding = _db.bindingFor(localProfileId);
+    if (binding == null || binding.state != SyncBindingEntity.statePurged) return false;
+    _db.deleteLocalStatesInScope(binding.syncProfileId);
+    _forgetDescriptorState(binding.syncProfileId);
+    _db.upsertBinding(binding.copyWith(state: SyncBindingEntity.stateActive, observedFingerprintHash: null));
+    return true;
+  });
 
   /// "Keep syncing as before": the changed fingerprint is the same account (new address).
   Future<bool> keepAsBefore(String localProfileId) => _db.transaction(() async {
@@ -308,7 +352,13 @@ class AccountBinder {
     );
   }
 
-  SyncBindingEntity _bind(Profile profile, String scope, String? fingerprintHash, int now) {
+  SyncBindingEntity _bind(
+    Profile profile,
+    String scope,
+    String? fingerprintHash,
+    int now, {
+    String state = SyncBindingEntity.stateActive,
+  }) {
     // A binding always JOINs: no local state may exist for its scope (nor for its descriptor).
     _db.deleteLocalStatesInScope(scope);
     _forgetDescriptorState(scope);
@@ -317,7 +367,7 @@ class AccountBinder {
       syncProfileId: scope,
       provider: profile.provider,
       fingerprintHash: fingerprintHash,
-      state: SyncBindingEntity.stateActive,
+      state: state,
       boundAt: now,
     );
     _db.upsertBinding(binding);

@@ -114,21 +114,24 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('should_sitBetweenFeedbackAndYoin_when_helpAndAboutShows', (tester) async {
+    testWidgets('should_sitAfterFeedback_when_helpAndFeedbackShows', (tester) async {
       share = _RecordingFileShare();
       await pump(tester);
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       expect(find.text('Export log'), findsOneWidget);
       expect(find.text('Playback diagnostics'), findsOneWidget);
       final feedback = tester.getTopLeft(find.text('Send feedback')).dy;
       final export = tester.getTopLeft(find.text('Export log')).dy;
-      final yoin = tester.getTopLeft(find.text('Version $yoinVersionName')).dy;
-      expect(feedback < export && export < yoin, isTrue);
+      expect(feedback < export, isTrue);
     });
 
     testWidgets('should_shareTheLog_when_exportLogTapped', (tester) async {
       share = _RecordingFileShare();
       await pump(tester);
       trace.log('pause LOCAL');
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Export log'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Export log'));
@@ -147,6 +150,8 @@ void main() {
         if (n is TextNotice) messages.add(n.text);
       });
       addTearDown(sub.cancel);
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Export log'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Export log'));

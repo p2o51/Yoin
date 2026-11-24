@@ -56,6 +56,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.border
+import com.gpo.yoin.ui.component.NoteMarkupText
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -137,12 +141,16 @@ internal data class ScrapTrackSheetTarget(
 
 internal enum class ScrapSheetTab { About, Notes }
 
-/** Which sheet is open, on which tab, and the About row it opened editing (Now Playing's Manage). */
+/**
+ * Which sheet is open, on which tab, the About row it opened editing (Now Playing's Manage), and the note it
+ * opened on (a note tapped on the page: shown and marked on the Note tab, where 修改 / 从这里播放 are).
+ */
 @Immutable
 internal data class ScrapSheetOpen(
     val songId: String,
     val tab: ScrapSheetTab = ScrapSheetTab.About,
     val editing: AlbumScrapbookAboutRef? = null,
+    val note: String? = null,
 )
 
 /** A notice the page shows for the sheet (it outlives the sheet): [undo] is written back on Undo. */
@@ -176,6 +184,7 @@ internal fun ScrapTrackSheet(
     snackbar: SnackbarHostState? = null,
     initialTab: ScrapSheetTab = ScrapSheetTab.About,
     initialEditing: AlbumScrapbookAboutRef? = null,
+    initialNote: String? = null,
 ) {
     val track = target.track
     var tab by remember(track.songId) { mutableStateOf(initialTab) }
@@ -255,6 +264,7 @@ internal fun ScrapTrackSheet(
                             onEdit = onEdit,
                             onNotice = onNotice,
                             onPlayFrom = onPlayFrom,
+                            focusNote = initialNote,
                         )
                     }
                 }
@@ -1119,6 +1129,7 @@ private fun NotesTab(
     onEdit: (ScrapEdit) -> Unit,
     onNotice: (ScrapNotice) -> Unit,
     onPlayFrom: (songId: String, positionMs: Long?) -> Unit,
+    focusNote: String? = null,
 ) {
     val songId = target.track.songId
     val notes = target.notes
@@ -1211,6 +1222,7 @@ private fun NotesTab(
                             NoteCard(
                                 note = note,
                                 colors = colors,
+                                focused = note.noteId == focusNote,
                                 menuOpen = picked == row.key,
                                 onTap = { picked = row.key },
                                 onDismissMenu = { picked = null },
@@ -1319,6 +1331,7 @@ private fun LyricRow(
 private fun NoteCard(
     note: ScrapNoteLine,
     colors: ScrapbookColors,
+    focused: Boolean,
     menuOpen: Boolean,
     onTap: () -> Unit,
     onDismissMenu: () -> Unit,
@@ -1326,11 +1339,25 @@ private fun NoteCard(
     onPlay: () -> Unit,
 ) {
     val at = note.positionMs?.let(::formatNotePosition)
-    Box(modifier = Modifier.padding(vertical = 6.dp)) {
+    // The note tapped on the page: brought into view and ringed in the page's ink, its actions a tap away.
+    val bring = remember { BringIntoViewRequester() }
+    LaunchedEffect(focused) {
+        if (focused) {
+            delay(FocusNoteSettleMs)
+            bring.bringIntoView()
+        }
+    }
+    val ring by animateColorAsState(
+        targetValue = if (focused) colors.ink else colors.ink.copy(alpha = 0f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "scrapNoteFocus",
+    )
+    Box(modifier = Modifier.padding(vertical = 6.dp).bringIntoViewRequester(bring)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
+                .border(2.dp, ring, RoundedCornerShape(16.dp))
                 .background(if (menuOpen) colors.note.copy(alpha = 0.8f) else colors.note)
                 .journalRail(colors.ink)
                 .handPointer()
@@ -1338,10 +1365,12 @@ private fun NoteCard(
                 .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
         ) {
             if (at != null) NoteStamp(at, colors)
-            Text(
+            // Drawn, not raw: headings, lists, to-dos and mentions as everywhere else notes are read.
+            NoteMarkupText(
                 text = note.text,
                 style = userTextStyle(),
                 color = colors.onNote,
+                mentionColor = colors.ink,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -1570,3 +1599,6 @@ private val SheetGutter = 16.dp
 private val InnerGutter = 8.dp
 private val FactLabelWidth = 76.dp
 private val EditorButtonPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+
+/** The sheet rises and the Note tab's lyrics land before the tapped note is scrolled to. */
+private const val FocusNoteSettleMs = 450L
