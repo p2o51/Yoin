@@ -511,7 +511,7 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
   1. **功能与外观（`Features and appearance`）**：
      - **AI 功能（`AI features`）**：上方保留在线 AI 完整配置（服务 chips、带「换个角度」的四服务二维散点图、档位卡片、密钥、回答语言与「拿一首歌试试」），底部合并原 `Yoin Labs` 为单组**实验功能（`Experimental features`）**（本机模型状态 + Android `Gemini Nano 诊断` + 实验功能开关）。
      - **外观（`Appearance`）**：Android / HarmonyOS 页内上半直接平铺**滚动边缘（`ScrollEdge`）**三张实时预览卡，底部挂**屏幕圆角（`ScreenCorners`）**入口；iOS / macOS 提供 `Solid Surfaces`（实色界面）开关。
-     - **音乐链接（`Music links`，2026-11-24，Carbon + Rebecca 方案、owner 认可，Android 先行）**：图标 `YoinSymbols.Link`，摘要显示剪贴板识别状态（「剪贴板识别已开启 / Clipboard detection on」或「剪贴板识别已关闭 / Clipboard detection off」）。二级页 `SettingsFeature.MusicLinks`：上组单行**识别剪贴板中的音乐链接**开关（整行可点，TalkBack 读作开关并报开/关状态），下组两行只读说明——**在 Yoin 中打开**（分享菜单入口）、**跨账号打开与搜索**（已登录对应服务的链接直接打开，否则在当前服务中搜索）。开关不再直接挂在功能组里。
+     - **音乐链接（`Music links`，2026-11-24，Carbon + Rebecca 方案、owner 认可，Android 先行）**：图标 `YoinSymbols.Link`，摘要显示剪贴板识别状态（「剪贴板识别已开启 / Clipboard detection on」或「剪贴板识别已关闭 / Clipboard detection off」）。二级页 `SettingsFeature.MusicLinks`：上组单行**识别剪贴板中的音乐链接**开关（整行可点，TalkBack 读作开关并报开/关状态），下组两行只读说明——**在 Yoin 中打开**（分享菜单入口）、**跨服务打开与搜索**（已登录对应服务的链接直接打开，否则在当前服务中搜索）。开关不再直接挂在功能组里。
   2. **同步与存储（`Sync and storage`）**：
      - **同步与备份（`Sync and backups`）**：单组 3 行——**云同步**、**NeoDB**、**歌单云备份**（保留 `SettingsFocus.NEODB` 深链直达）。
      - **存储（`Storage`）**：去掉设置首页行内误触风险高的「清除」按钮；二级页单组承载**播放缓存**（含清除）与当前在用 Subsonic 账号的**离线下载**。

@@ -20,6 +20,6 @@
     <string name="settings_clipboard_links_summary">仅在打开 Yoin 时检查剪贴板，只识别音乐链接，其他内容不会上传或保存。</string>
     <string name="settings_music_links_share_title">在 Yoin 中打开</string>
     <string name="settings_music_links_share_body">在其他应用的分享菜单里选择「在 Yoin 中打开」，即可直接传入歌曲或链接。</string>
-    <string name="settings_music_links_cross_title">跨账号打开与搜索</string>
+    <string name="settings_music_links_cross_title">跨服务打开与搜索</string>
     <string name="settings_music_links_cross_body">已登录对应服务的链接会直接打开，未登录对应服务时会在你当前使用的服务中搜索。</string>
 </resources>
