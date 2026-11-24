@@ -1,8 +1,12 @@
 package com.gpo.yoin.ui.notes.editor
 
 import com.gpo.yoin.shared.notes.MentionKind
+import com.gpo.yoin.shared.notes.MentionTrigger
+import com.gpo.yoin.shared.notes.NoteEdit
+import com.gpo.yoin.shared.notes.NoteEditorText
 import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.shared.notes.NoteTool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

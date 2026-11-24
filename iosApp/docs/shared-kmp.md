@@ -15,6 +15,7 @@ Yoin's Android app (Compose) and iOS app (SwiftUI) share their design numbers an
 | Fast scroller maths | `com.gpo.yoin.shared.library.FastScrollMath` | `FastScrollMath` in `YoinFastScroller.kt` | `LibraryFastScroller`, `LibraryView.ScrollMetrics` |
 | Scrapbook tilts | `com.gpo.yoin.shared.detail.ScrapbookTilt` (FNV-1a, tilt sets) | `AlbumScrapbook.kt` | `AlbumScrapbookView` |
 | Note text | `com.gpo.yoin.shared.notes.NoteMarkup`, `MentionMatcher`; `YoinNoteReader` (flat lines / runs / mentions for Swift: no sealed types, no `Char`, nothing throws) | `NoteMarkupText`, the note editor, `MentionResolver` | `NoteMarkupRender` / `NoteMarkupText`, `NoteMentions` (`Notes/`) |
+| Note editor | `NoteEditorText` (trigger, Return-picks-mention, atomic mentions, list continuation, shortcuts, formatting tools); `YoinMentionRanking` + `YoinMentionRomanizer` (the @ popup's order: prefix > initials > substring > artist, pinyin); `YoinNoteEditor` (the flat Swift facade, UTF-16 offsets, composing range as two ints) | `ui/notes/editor/` (`NoteEditorState`, `MentionRanking` wraps the shared ranking with ICU's Han-Latin) | `Notes/Editor/` (`NoteEditorModel`, `NoteMarkupEditor`, `MentionRanking` with `PinyinRomanizer` = CFStringTransform Mandarin → Latin) |
 
 How it is kept honest:
 

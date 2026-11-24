@@ -13,6 +13,8 @@ struct ScrapNotesTab: View {
     var scheme: CoverScheme
     /// The song as the engine would play it; nil for a song no signed-in service can read (no lyrics).
     var playable: PlayableTrack?
+    /// The note tapped on the scrapbook page (Android focusNote): brought into view and ringed in the ink.
+    var focusNote: String? = nil
     var onPlayFrom: (Int64?) -> Void
 
     @State private var expanded = false
@@ -75,6 +77,12 @@ struct ScrapNotesTab: View {
         // The editor's buttons stay above the keyboard (Android KeepAboveKeyboard).
         .onChange(of: draft) { _, d in if d != nil { keepEditorInView(proxy) } }
         .onChange(of: editingNote) { _, id in if id != nil { keepEditorInView(proxy) } }
+        .task(id: focusNote) {
+            // Once the sheet has risen (Android FocusNoteSettleMs).
+            guard let focusNote else { return }
+            try? await Task.sleep(for: .milliseconds(450))
+            withAnimation(Yoin.spatial) { proxy.scrollTo("note:\(focusNote)", anchor: .center) }
+        }
         }
         .task {
             #if DEBUG
@@ -163,9 +171,10 @@ struct ScrapNotesTab: View {
         return Button { picked = key } label: {
             // Android NoteCard: the paper changes while its menu is open (0.8 there, which lightened it on
             // Android's darker sheet; here it barely showed): a primary wash over the paper.
-            ScrapNoteCard(scheme: scheme, lit: open) {
+            ScrapNoteCard(scheme: scheme, lit: open, ringed: note.id == focusNote) {
                 if let at { ScrapNoteStamp(text: at, scheme: scheme) }
-                NoteMarkupText(text: note.content, size: 15, mentionColor: scheme.primary, glyphColor: scheme.primary)
+                NoteMarkupText(text: note.content, size: 15, mentionColor: scheme.primary, glyphColor: scheme.primary,
+                               onToggleChecklist: { NoteChecklist.toggleSongNote(note.id, line: $0) })
                     .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                     .foregroundStyle(scheme.onSurface)
                     .multilineTextAlignment(.leading)
@@ -184,6 +193,7 @@ struct ScrapNotesTab: View {
                   icon: "yoin.play_filled") { play(note.positionMs) },
         ])
         .animation(Yoin.effects, value: open)
+        .id(key)
     }
 
     // MARK: Actions
@@ -299,6 +309,8 @@ private struct ScrapNoteCard<Content: View>: View {
     var scheme: CoverScheme
     /// Its menu is open: a primary wash over the paper (Android NoteCard's lit paper).
     var lit = false
+    /// Tapped on the scrapbook page: a 2 pt ring in the ink (Android NoteCard focused).
+    var ringed = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -315,6 +327,11 @@ private struct ScrapNoteCard<Content: View>: View {
                         RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
                             .fill(scheme.primary.opacity(lit ? 0.16 : 0))
                     }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                    .strokeBorder(scheme.primary.opacity(ringed ? 1 : 0), lineWidth: 2)
+                    .animation(Yoin.effects, value: ringed)
             }
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .padding(.vertical, 6)

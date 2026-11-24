@@ -170,7 +170,7 @@ final class NoteMentions {
 
     /// Opens [target] on the scrapbook the way the song menu's View in Scrapbook does (an album on no
     /// particular song, Android requestAlbum), or an artist as Go to artist does.
-    private static func navigate(_ target: NoteMentionTarget) {
+    static func navigate(_ target: NoteMentionTarget) {
         let model = AppModel.shared
         withAnimation(Yoin.spatial) { model.searchActive = false }
         if model.npExpanded { model.setNowPlaying(expanded: false) }

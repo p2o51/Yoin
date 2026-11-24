@@ -14,7 +14,11 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+import com.gpo.yoin.shared.notes.MentionTrigger
+import com.gpo.yoin.shared.notes.NoteEdit
+import com.gpo.yoin.shared.notes.NoteEditorText
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.shared.notes.NoteTool
 
 /**
  * One note editor (the Now Playing write bar, an album sticky, the review field): the stored text in a

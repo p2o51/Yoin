@@ -41,6 +41,12 @@ data class YoinNoteLine(
     val runs: List<YoinNoteRun>,
 )
 
+/** Where one mention sits in a text: UTF-16 offsets, [start] inclusive, [end] exclusive. */
+data class YoinNoteMentionSpan(val start: Int, val end: Int, val mention: YoinNoteMention)
+
+/** A one-line excerpt and where each mention's name sits in it. */
+data class YoinNoteSnippet(val text: String, val mentions: List<YoinNoteMentionSpan>)
+
 object YoinNoteReader {
     /** [text]'s lines as [NoteMarkup.parse] reads them; anything that doesn't parse is a plain run. */
     fun read(text: String): List<YoinNoteLine> = NoteMarkup.parse(text).blocks.map { block ->
@@ -66,6 +72,23 @@ object YoinNoteReader {
     /** One line: the non-blank lines' words joined by " · " (a card's excerpt). */
     fun snippet(text: String): String = NoteMarkup.snippet(text)
 
+    /**
+     * [snippet] with where each mention's name landed in it (UTF-16 offsets into [YoinNoteSnippet.text]), so a
+     * clipping can mark exactly those words.
+     */
+    fun snippetWithMentions(text: String): YoinNoteSnippet {
+        val snippet = NoteMarkup.snippetWithMentions(text)
+        return YoinNoteSnippet(snippet.text, snippet.mentions.map { YoinNoteMentionSpan(it.start, it.end, flat(it.mention)) })
+    }
+
+    /** [MentionMatcher.namesMatchArtist]; false for a mention that isn't a valid one. */
+    fun namesMatchArtist(mention: YoinNoteMention, name: String?): Boolean =
+        mention.toNoteMention()?.let { MentionMatcher.namesMatchArtist(it, name) } ?: false
+
+    /** [MentionMatcher.trackMentionOnAlbum]; false for a mention that isn't a valid one. */
+    fun trackMentionOnAlbum(mention: YoinNoteMention, albumTitle: String?, albumArtist: String?): Boolean =
+        mention.toNoteMention()?.let { MentionMatcher.trackMentionOnAlbum(it, albumTitle, albumArtist) } ?: false
+
     /** [MentionMatcher.namesMatchTrack]; false for a mention that isn't a valid one. */
     fun namesMatchTrack(mention: YoinNoteMention, title: String?, artist: String?, album: String?): Boolean =
         mention.toNoteMention()?.let { MentionMatcher.namesMatchTrack(it, title, artist, album) } ?: false
@@ -88,7 +111,7 @@ object YoinNoteReader {
         }
     }
 
-    private fun flat(mention: NoteMention): YoinNoteMention = YoinNoteMention(
+    internal fun flat(mention: NoteMention): YoinNoteMention = YoinNoteMention(
         kind = mention.kind,
         provider = mention.provider,
         id = mention.id,
@@ -99,7 +122,7 @@ object YoinNoteReader {
     )
 
     /** Back to a [NoteMention] (whose init checks its fields), or null when Swift built an invalid one. */
-    private fun YoinNoteMention.toNoteMention(): NoteMention? =
+    internal fun YoinNoteMention.toNoteMention(): NoteMention? =
         if (NoteMention.isValidProvider(provider) && id.isNotEmpty()) {
             NoteMention(kind, provider, id, title, artist, album)
         } else {
