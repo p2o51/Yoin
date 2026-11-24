@@ -15,6 +15,7 @@ import com.gpo.yoin.ui.memories.copy.MemoryCopyInput
 import com.gpo.yoin.ui.memories.copy.MemoryCopyNote
 import com.gpo.yoin.ui.memories.copy.MemoryCopyTrack
 import com.gpo.yoin.ui.memories.copy.MemoryDates
+import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.ui.memories.copy.MemoryExcerpt
 import com.gpo.yoin.ui.memories.copy.MemoryListening
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
@@ -731,7 +732,8 @@ internal fun memoryCopyInput(
                 null
             }
             MemoryCopyNote(
-                text = writing.text,
+                // The card quotes words: the plain-text projection (mention names, no Markdown marks).
+                text = NoteMarkup.plainText(writing.text),
                 writtenOn = MemoryDates.localDate(writing.writtenAt, zone),
                 track = track,
                 positionMs = writing.positionMs,
@@ -740,7 +742,7 @@ internal fun memoryCopyInput(
     return MemoryCopyInput(
         albumName = albumName,
         aiTitle = aiTitle,
-        review = review?.text,
+        review = review?.text?.let(NoteMarkup::plainText),
         reviewWrittenOn = review?.let { writing -> MemoryDates.localDate(writing.writtenAt, zone) },
         notes = notes,
         tracks = copyTracks,

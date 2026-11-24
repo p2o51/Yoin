@@ -1211,6 +1211,11 @@ class NowPlayingViewModel(
     fun saveCurrentNote(request: NoteSaveRequest) {
         if (request.content.isBlank()) return
         if (repository.currentProfileId() != noteDraftProfileId) return
+        // A long-pressed note rewritten in the bar: same note, new words, and the moment its stamp shows.
+        request.editingNoteId?.let { id ->
+            viewModelScope.launch { repository.editNoteById(id, request.content, request.anchorMs) }
+            return
+        }
         val track = resolveNoteTrack(request.target, playbackManager.playbackState.value) ?: return
         viewModelScope.launch {
             repository.addNote(track, request.content, request.anchorMs)
