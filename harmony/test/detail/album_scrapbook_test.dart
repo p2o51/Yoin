@@ -466,6 +466,41 @@ void main() {
       await close(tester);
     });
 
+    testWidgets('should_listMentionsFromElsewhere_underMentionedIn', (tester) async {
+      final (_, _, store) = await open(tester);
+      final album = NoteMarkup.serializeMention(
+        NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al1', title: 'Blue'),
+      );
+      final song = NoteMarkup.serializeMention(
+        NoteMention(kind: MentionKind.track, provider: 'subsonic', id: 't3', title: 'Song t3'),
+      );
+      // On another album's song: listed. On this album's own song: already on this page.
+      await store.putSongNote(
+        SongNote(
+          id: 'elsewhere',
+          trackId: MediaId.subsonic('x9'),
+          albumId: MediaId.subsonic('al-other'),
+          content: 'sounds like $album',
+          createdAt: 5,
+          updatedAt: 5,
+          title: 'Other song',
+          positionMs: 83000,
+        ),
+      );
+      await store.putSongNote(_note('own', 2, text: 'see $song'));
+      await store.setAlbumReview(MediaId.subsonic('al-two'), 'then $song again', nowMs: 9);
+      await toScrapbook(tester);
+      await tester.scrollUntilVisible(find.text('Mentioned in'), 300, scrollable: find.byType(Scrollable).last);
+      await settle(tester);
+
+      expect(find.text('Mentioned in'), findsOneWidget);
+      expect(find.text('2 places'), findsOneWidget);
+      expect(find.text('Other song'), findsOneWidget);
+      expect(find.text('sounds like Blue', findRichText: true), findsOneWidget);
+      expect(find.text('then Song t3 again', findRichText: true), findsOneWidget);
+      await close(tester);
+    });
+
     testWidgets('should_closeTheEditor_when_itsStickyIsDeletedElsewhere', (tester) async {
       final (_, _, store) = await open(tester);
       await store.putAlbumNote(_albumNote('an1', 'synced sticky'));

@@ -9,8 +9,11 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/memory/track_album_links.dart';
+import '../data/notes/note_backlinks.dart';
 import '../data/notes/note_markup.dart';
 import '../home/widgets/spring_height.dart';
 import '../memories/memory_rate_sheet.dart';
@@ -21,7 +24,9 @@ import '../notes/editor/note_editor_display.dart';
 import '../notes/editor/note_format_toolbar.dart';
 import '../notes/editor/note_markup_field.dart';
 import '../notes/note_markup_text.dart';
-import '../nowplaying/note_logic.dart' show formatNotePosition;
+import '../notes/note_mentions.dart';
+import '../notes/notes_strings.dart';
+import '../nowplaying/note_logic.dart' show formatNoteDate, formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
 import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
@@ -42,6 +47,7 @@ import 'detail_play.dart';
 import 'detail_strings.dart';
 import 'scrapbook_focus.dart';
 
+part 'album_scrapbook_backlinks.dart';
 part 'album_scrapbook_stickies.dart';
 
 /// The scrapbook's layout numbers (AlbumScrapbookPage.kt ScrapbookLayout, D3
@@ -573,6 +579,12 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
                                             ),
                                           ),
                                         ),
+                                      // 被提及: the page's last block, across every lane.
+                                      _ScrapSpan(
+                                        key: const ValueKey('backlinks'),
+                                        fullLine: true,
+                                        child: _Backlinks(album: widget.album),
+                                      ),
                                     ],
                                   ),
                                 ),
