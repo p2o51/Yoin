@@ -104,8 +104,8 @@ struct DashedSticky: View {
     }
 }
 
-/// A sticky being written (Android StickyEditor): a plain field on the sticky's paper, then Cancel and Save.
-/// The field edits the stored text as it is; the formatting row and @ mentions are phase 1c.
+/// A sticky being written (Android StickyEditor): the note editor on the sticky's paper (@ mentions as chips),
+/// the formatting row on a line of its own (the sticky is narrow), then Cancel and Save.
 struct ScrapStickyEditor: View {
     @Binding var text: String
     var scheme: CoverScheme
@@ -113,20 +113,21 @@ struct ScrapStickyEditor: View {
     var onSave: () -> Void
     var onCancel: () -> Void
 
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField(text: $text,
-                      prompt: Text("Write about the whole album").foregroundStyle(scheme.onSecondaryContainer.opacity(0.6)),
-                      axis: .vertical) { Text("Write about the whole album") }
-                .lineLimit(3...10)
-                .font(.gsf(14.5))
-                .lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
-                .foregroundStyle(scheme.onSecondaryContainer)
-                .tint(scheme.primary)
-                .textInputAutocapitalization(.sentences)
-                .focused($focused)
+            NoteMarkupEditor(model: editor, text: $text,
+                             prompt: Text("Write about the whole album").foregroundStyle(scheme.onSecondaryContainer.opacity(0.6)),
+                             size: 14.5, textColor: scheme.onSecondaryContainer, mentionColor: scheme.onSecondaryContainer,
+                             tint: scheme.primary, scheme: scheme, lines: 3...10,
+                             lineSpacing: YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5), focused: $focused)
+                .accessibilityLabel(Text("Write about the whole album"))
+            ScrollView(.horizontal, showsIndicators: false) {
+                NoteFormatRow(model: editor, scheme: scheme)
+            }
+            .scrollBounceBehavior(.basedOnSize)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 Button(action: onCancel) {
