@@ -11,6 +11,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
@@ -25,6 +26,8 @@ import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.data.remote.SubsonicStreamUrls
+import com.gpo.yoin.player.sing.SingMixerAudioProcessor
+import com.gpo.yoin.player.sing.SingPlaybackSwitcher
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,6 +69,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var quickActions: SessionQuickActions? = null
     private var localPlayer: ExoPlayer? = null
+    private var singSwitcher: SingPlaybackSwitcher? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @OptIn(UnstableApi::class)
@@ -119,6 +123,12 @@ class PlaybackService : MediaSessionService() {
             },
         )
 
+        // Sing (player/sing/): live, the mixer takes the separated vocal out of the playing original;
+        // a 4-channel [I_L, I_R, V_L, V_R] stream (Lyra) leaves it as stereo at the vocal level. First
+        // in the chain, so volume leveling sees the stereo it always sees.
+        val singController = container.singController
+        val singMixer = SingMixerAudioProcessor(singController.mixControl)
+
         // A transcoded mp3 is constant bit rate with no seek table of its own.
         val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
@@ -128,8 +138,9 @@ class PlaybackService : MediaSessionService() {
         var spatialMode = spatialAudio.state.value.mode
 
         val player = ExoPlayer.Builder(this)
-            .setRenderersFactory(replayGainRenderersFactory(this, replayGain))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractors))
+            .setRenderersFactory(replayGainRenderersFactory(this, singMixer, replayGain))
+            // file:// (a cached Sing stream) opens from disk; everything else goes on as before.
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, dataSourceFactory), extractors))
             .setAudioAttributes(musicAudioAttributes(spatialMode), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -139,6 +150,14 @@ class PlaybackService : MediaSessionService() {
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.addListener(StreamFormatListener(player, resolver))
         player.addAnalyticsListener(AudioOutputLog)
+        singSwitcher = SingPlaybackSwitcher(
+            player = player,
+            controller = singController,
+            scope = serviceScope,
+            profileId = { container.profileManager.activeProfileId.value },
+            isLocalOutput = { !_usingDlna.value },
+            prebufferDataSourceFactory = cacheDataSourceFactory,
+        ).also { it.start() }
 
         setMediaNotificationProvider(yoinNotificationProvider())
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
@@ -186,6 +205,8 @@ class PlaybackService : MediaSessionService() {
             container.playbackManager.onRemotePlaybackServiceDestroyed()
         }
         serviceScope.cancel()
+        singSwitcher?.release()
+        singSwitcher = null
         quickActions?.release()
         quickActions = null
         mediaSession?.run {

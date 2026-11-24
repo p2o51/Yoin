@@ -237,6 +237,9 @@
     <string name="np_device_dlna_error_stop">The speaker did not confirm stopping. Retry before switching playback.</string>
     <string name="np_device_dlna_error_playback">Unable to control the speaker. Check its connection and access to the Subsonic server.</string>
     <string name="np_keep_screen_on">Keep screen on</string>
+    <string name="np_sing">Sing</string>
+    <string name="np_cd_exit_sing">Exit Sing</string>
+    <string name="np_cd_sing_vocal_volume">Vocal volume</string>
     <string name="np_cd_cover_menu">Song options</string>
     <string name="np_cd_play_mode_split">Separate shuffle and repeat</string>
 </resources>

@@ -66,7 +66,7 @@
 
 - **基础环境**：Kotlin 2.4.21、AGP 9.2.1、`minSdk` 26、`targetSdk` 36、`compileSdk` 37
 - **界面与动效**：Jetpack Compose (BOM 2026.11.01)、Material 3 `1.5.0` (Expressive APIs)、Material 3 Adaptive `1.3.0`、`androidx.window` `1.5.1`、Navigation 3 `1.1.2`、Glance `1.2.0`（桌面小组件）
-- **播放内核**：Media3 `1.11.1`（`MediaSession` + Cast）、Spotify App Remote、Apple MusicKit
+- **播放内核**：Media3 `1.11.1`（`MediaSession` + Cast）、Spotify App Remote、Apple MusicKit、LiteRT `2.4.0`（跟唱的本机人声分离，跑在 Tensor TPU、GPU 或 CPU 上）
 - **本地存储、同步与端侧 AI**：Room `2.8.5`、AndroidKeyStore AES-GCM 凭证加密、Google Drive `appDataFolder` 同步、Retrofit `3.0.0`、OkHttp `5.5.1`、Coil `3.4.0`、ML Kit GenAI Prompt `1.0.0-beta5`（端侧 Gemini Nano）
 - **测试**：JUnit 4、Robolectric `4.17`、Turbine `1.2.1`、MockK `1.14.11`
 

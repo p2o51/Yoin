@@ -1,4 +1,5 @@
 import java.util.Properties
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -39,6 +40,12 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         !taskName.contains("ReleaseDebugSigned", ignoreCase = true)
 }
 
+// Sing's LiteRT models come from the Play AI Pack :sing-model-pack (on demand, per device group), so the base
+// APK carries none. -PyoinSingBundledModels=true also bundles them in the APK (assets/sing/bundled/<group>/,
+// copied from the pack at build time) for builds Play doesn't install: Yoin Nano, the debug-signed release
+// APKs, local test builds. Off by default; never on for a Play upload.
+val singBundledModels = providers.gradleProperty("yoinSingBundledModels").orNull == "true"
+
 if (releaseTaskRequested && !hasReleaseKeystore) {
     throw GradleException(
         "Release signing requires ${releaseKeystorePropertiesFile.path}. " +
@@ -73,7 +80,19 @@ android {
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
+        buildConfigField("boolean", "SING_BUNDLED_MODELS", singBundledModels.toString())
         manifestPlaceholders["appLabel"] = "@string/app_name"
+    }
+
+    // Sing's models: the on-demand AI Pack, its device groups split by SoC (official device targeting from
+    // lyra-sing-lite: Tensor G6 and G5 get their AOT build, every other device the fp16 one).
+    assetPacks += listOf(":sing-model-pack")
+    bundle {
+        deviceTargetingConfig = file("device_targeting_configuration.xml")
+        deviceGroup {
+            enableSplit = true
+            defaultGroup = "other"
+        }
     }
 
     androidResources {
@@ -165,7 +184,41 @@ android {
                 // Robolectric 4.17 sets up the API 36 ApplicationSharedMemory through
                 // jdk.internal.access.SharedSecrets, which java.base doesn't export.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+                // Sing's full-model parity test runs the real Lyra-Sing-Lite on the desktop ONNX Runtime
+                // when given the model (not in the repo): -PyoinSingModel=/path/lyra_sing_lite_fp32.onnx.
+                // Optional local run on a real clip made by scripts/sing/gen_sing_fixtures.py --clip:
+                // -PyoinSingClipDir=/path/to/clip-out. Both skip when unset.
+                (
+                    project.findProperty(
+                        "yoinSingModel"
+                    ) as String?
+                    )?.let { path -> it.systemProperty("yoin.sing.model", path) }
+                (
+                    project.findProperty(
+                        "yoinSingClipDir"
+                    ) as String?
+                    )?.let { path -> it.systemProperty("yoin.sing.clipDir", path) }
+                // -PyoinSingPerf=true times a 3-minute song on the desktop JVM (with -PyoinSingModel).
+                (
+                    project.findProperty(
+                        "yoinSingPerf"
+                    ) as String?
+                    )?.let { flag -> it.systemProperty("yoin.sing.perf", flag) }
             }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Sing runs LiteRT on 64-bit ARM only (its NPU runtime is arm64-v8a only anyway): a 32-bit or x86
+            // device is far too slow for the device gate, and each of those ABIs would add 6–12 MB.
+            // (Without the library the router has no backend and Sing fails cleanly; see player/sing/.)
+            excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
+                listOf("libLiteRt.so", "liblitert_jni.so", "libLiteRtClGlAccelerator.so").map { "**/$abi/$it" }
+            }
+            // The Tensor runtime's on-device compiler (1 MB): Sing runs AOT builds only, and Google Tensor has
+            // no JIT compilation anyway. The dispatch library it needs stays.
+            excludes += "**/libLiteRtCompilerPlugin_google_tensor.so"
         }
     }
 
@@ -178,6 +231,43 @@ android {
         abortOnError = true
         warningsAsErrors = false
         checkDependencies = false
+    }
+}
+
+/**
+ * The AI Pack's groups copied for a bundled-models APK: model#group_<group>/… → sing/bundled/<group>/… in a
+ * generated assets directory (BundledSingModelSource reads them; the metas are the pack's own).
+ */
+abstract class SingBundledModels : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packAssets: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val fs: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        val groupDir = Regex("^model#group_([^/]+)/")
+        fs.sync {
+            from(packAssets)
+            into(outputDir.dir("sing/bundled"))
+            includeEmptyDirs = false
+            eachFile { path = path.replace(groupDir, "$1/") }
+        }
+    }
+}
+
+if (singBundledModels) {
+    val singBundled = tasks.register<SingBundledModels>("singBundledModels") {
+        packAssets.set(layout.projectDirectory.dir("../sing-model-pack/src/main/assets"))
+        outputDir.set(layout.buildDirectory.dir("generated/singBundledModels"))
+    }
+    androidComponents.onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(singBundled, SingBundledModels::outputDir)
     }
 }
 
@@ -233,6 +323,13 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     // Cast (Phase 14)
     implementation(libs.media3.cast)
+    // Sing: Lyra-Sing-Lite on the device (player/sing/) through LiteRT: CompiledModel + GPU accelerator + the
+    // Google Tensor NPU dispatch library
+    implementation(libs.litert)
+    implementation(libs.litert.gpu)
+    implementation(libs.litert.npu.google.tensor)
+    // Sing: fetches the on-demand AI Pack sing_model_pack (AiPackManager)
+    implementation(libs.play.ai.delivery)
     implementation(libs.cast.framework)
     implementation(libs.genai.prompt)
     ksp(libs.genai.schema.compiler)
@@ -285,6 +382,9 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.palette)
+    // The desktop ONNX Runtime, test only: Sing's model parity test runs the exported model on it against Python
+    // onnxruntime (LyraSingModelParityTest, skipped unless -PyoinSingModel is given). The app has no ONNX Runtime.
+    testImplementation(libs.onnxruntime.jvm)
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.compose.ui.test.junit4)
