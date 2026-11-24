@@ -430,6 +430,22 @@ void main() {
       await close(tester);
     });
 
+    testWidgets('should_closeTheEditor_when_itsStickyIsDeletedElsewhere', (tester) async {
+      final (_, _, store) = await open(tester);
+      await store.putAlbumNote(_albumNote('an1', 'synced sticky'));
+      await toScrapbook(tester);
+      await tester.tap(find.text('synced sticky'));
+      await settle(tester);
+      expect(find.byType(TextField), findsOneWidget);
+
+      await store.deleteAlbumNote('an1');
+      await settle(tester);
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.bySemanticsLabel('Write an album note'), findsOneWidget);
+      await close(tester);
+    });
+
     testWidgets('should_tuckStickiesUnderTheReview_when_wideOrPhone', (tester) async {
       for (final size in const [Size(1280, 800), Size(400, 860)]) {
         tester.view.physicalSize = size;
