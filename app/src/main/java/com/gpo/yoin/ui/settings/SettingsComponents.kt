@@ -44,8 +44,12 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Density
@@ -232,7 +236,11 @@ internal fun SettingsRowIcon(
     }
 }
 
-/** One settings row: icon · title/summary · optional trailing control. */
+/**
+ * One settings row: icon · title/summary · optional trailing control. [checked]: the row is a switch (its
+ * trailing [androidx.compose.material3.Switch] draws it with `onCheckedChange = null`), so TalkBack hears
+ * "Switch, on / off" on the whole row rather than a plain button.
+ */
 @Composable
 internal fun SettingsItem(
     icon: ImageVector,
@@ -243,6 +251,7 @@ internal fun SettingsItem(
     summaryContent: (@Composable ColumnScope.() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     iconTone: SettingsTone? = null,
+    checked: Boolean? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
@@ -293,8 +302,16 @@ internal fun SettingsItem(
         }
     }
     if (onClick != null) {
+        val switchSemantics = if (checked == null) {
+            Modifier
+        } else {
+            Modifier.semantics {
+                role = Role.Switch
+                toggleableState = ToggleableState(checked)
+            }
+        }
         Surface(
-            modifier = modifier.fillMaxWidth().handPointer(),
+            modifier = modifier.fillMaxWidth().then(switchSemantics).handPointer(),
             onClick = {
                 haptics.performClick()
                 onClick()

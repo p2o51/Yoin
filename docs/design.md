@@ -537,10 +537,11 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 
 ### ⚙️ 设置（从主页或 Library 进入；2026-11-24 Settings IA v4 定稿）
 
-- **顶层架构（3 组 × 6 行，取代此前的 4 组 15 行）**：顶部横向账号卡片条之下固定收敛为 3 个分组共 6 个二级入口行，行摘要全部采用空白分隔的 `MetaLine`，不使用 `·` / `•` / `—` 连接符：
+- **顶层架构（3 组 × 7 行，取代此前的 4 组 15 行；2026-11-24 音乐链接加入后由 6 行变 7 行）**：顶部横向账号卡片条之下固定收敛为 3 个分组共 7 个二级入口行，行摘要全部采用空白分隔的 `MetaLine`，不使用 `·` / `•` / `—` 连接符：
   1. **功能与外观（`Features and appearance`）**：
      - **AI 功能（`AI features`）**：上方保留在线 AI 完整配置（服务 chips、带「换个角度」的四服务二维散点图、档位卡片、密钥、回答语言与「拿一首歌试试」），底部合并原 `Yoin Labs` 为单组**实验功能（`Experimental features`）**（本机模型状态 + Android `Gemini Nano 诊断` + 实验功能开关）。
      - **外观（`Appearance`）**：Android / HarmonyOS 页内上半直接平铺**滚动边缘（`ScrollEdge`）**三张实时预览卡，底部挂**屏幕圆角（`ScreenCorners`）**入口；iOS / macOS 提供 `Solid Surfaces`（实色界面）开关。
+     - **音乐链接（`Music links`，2026-11-24，Carbon + Rebecca 方案、owner 认可，Android 先行）**：图标 `YoinSymbols.Link`，摘要显示剪贴板识别状态（「剪贴板识别已开启 / Clipboard detection on」或「剪贴板识别已关闭 / Clipboard detection off」）。二级页 `SettingsFeature.MusicLinks`：上组单行**识别剪贴板中的音乐链接**开关（整行可点，TalkBack 读作开关并报开/关状态），下组两行只读说明——**在 Yoin 中打开**（分享菜单入口）、**跨服务打开与搜索**（已登录对应服务的链接直接打开，否则在当前服务中搜索）。开关不再直接挂在功能组里。
   2. **同步与存储（`Sync and storage`）**：
      - **同步与备份（`Sync and backups`）**：单组 3 行——**云同步**、**NeoDB**、**歌单云备份**（保留 `SettingsFocus.NEODB` 深链直达）。
      - **存储（`Storage`）**：去掉设置首页行内误触风险高的「清除」按钮；二级页单组承载**播放缓存**（含清除）与当前在用 Subsonic 账号的**离线下载**。
@@ -555,12 +556,13 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
   - **外部搜索与评测**：自定义服务可挂接 **DeepSeek Search**、**Exa**（`api.exa.ai/search`）、**Tavily**（`api.tavily.com/search` advanced+chunks）、**Brave**（`res/v1/llm/context`，403/404/422 自动回退 `res/v1/web/search`）、**火山/豆包搜索**（`open.feedcoopapi.com/search_api/web_search`）或关闭搜索；设置页内嵌约 500 首实测参考表（`AiTierBenchmark`），并支持「**拿一首歌试试**」（从最近 `6` 首播放里选曲现场试跑并展示耗时与效果）。
   - **密钥安全**：Android 上 DeepSeek/千问/自定义/搜索密钥存于 `noBackupFilesDir/ai_provider.json`（`FileAiProviderStore`），不进 Android 备份；Gemini Key 当前位于主库 `gemini_config` 表；iOS 存于 Keychain；HarmonyOS 全量存于系统 `SecretStore`。**所有 AI 密钥均不参与 Google Drive 云同步**。
 - **设备端 AI 与歌词卡片（`lyric_highlight`）**：Android 依赖系统 **Gemini Nano** 后台挑句（低电量/压力时让路，`NanoDiagnostics` 提供测试面板）；iOS/macOS 使用 **Apple Intelligence**（`LanguageModelSession`）；HarmonyOS 由用户分享/保存歌词图片卡时自选句子收录（无本地 LLM 依赖）。**2026-11-24 起，轻点首页歌词卡片统一从歌曲开头（`0s`）完整播放**，不再跳到句首时间戳。
+- **识别剪贴板中的音乐链接（`Detect music links in clipboard`，`设置 › 功能与外观 › 音乐链接`，默认开，2026-11-24，Android 先行）**：Yoin 回到前台时先只看剪贴板描述（MIME、时间戳、API 31+ 的 URL 置信度），像链接才读内容，读到 Spotify / Apple Music 链接且上次没提示过，就在底部弹出不打断的小卡片。用户在该服务有账号 = **命中**：封面 + 标题 + 艺人 + 服务名 +「收听 / 打开」，点了在那个账号里打开（必要时先切账号）；没有该服务的账号 = **只是找到链接**：只有「标题 · 艺人」文字 +「搜索」，点了在当前账号里搜索并打开「选择匹配结果」页，从不自动播放。分享入口「在 Yoin 中打开」走同一套路由；不注册 open.spotify.com / music.apple.com 的 VIEW，不劫持链接。剪贴板内容不保存、不上传，只记上次的时间戳和链接哈希。完整规则见 [open-in-yoin.md](open-in-yoin.md)。
 - **硬件键盘快捷键与桌面指针交互**：Android `ShellShortcuts` 提供 12 组 `Ctrl`/`Alt` 快捷键（避开 Android 系统占用 `Meta`）；HarmonyOS `desktop_shortcuts.dart` 覆盖全部 12 组并扩展桌面快捷键（`Ctrl+L` 正在播放面板 ⇄ 全窗、`Ctrl+F` 正在播放聚焦、`←/→` 快退/快进 5 秒、`Esc` 返回/退出搜索、`Shift+F10`/`Menu` 上下文菜单，注 `Ctrl+K` 为资料库搜索）及鼠标悬停/右键菜单；iPadOS/macOS 通过 `YoinCommands` 提供 `⌘` 键与 Mac 菜单栏指令，`PointerHover` 在 Mac 端以 `.brightness()` 呈现悬停反馈并开启间接触控板右键（`SecondaryClick`）。
 
 #### 账号与服务二级页（2026-09-26，2026-11-24 v4 更新卡片范围提示与「设置 ›」胶囊）
 
-- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，两个 Activity 不合并；这是 app 里唯一还在用 Activity Embedding 的地方）。左栏账号卡改为竖排行（整行点按即在右栏打开对应账号设置页，当前在用账号显示服务色「使用中」胶囊，右栏正在展示的那一行切换为 `surfaceContainer` 高亮，⋮ 里保留 Use / Remove）；下方 6 个二级入口行同样在右栏打开并联动左栏选中态。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
-- Settings 主页顶部为 Accounts 横向卡片，下方按**功能与外观 / 同步与存储 / 帮助与关于** 3 组 × 6 行组织，每行均打开独立二级页，不再行内折叠或平铺说明段落。
+- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，两个 Activity 不合并；这是 app 里唯一还在用 Activity Embedding 的地方）。左栏账号卡改为竖排行（整行点按即在右栏打开对应账号设置页，当前在用账号显示服务色「使用中」胶囊，右栏正在展示的那一行切换为 `surfaceContainer` 高亮，⋮ 里保留 Use / Remove）；下方 7 个二级入口行同样在右栏打开并联动左栏选中态。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
+- Settings 主页顶部为 Accounts 横向卡片，下方按**功能与外观 / 同步与存储 / 帮助与关于** 3 组 × 7 行组织，每行均打开独立二级页，不再行内折叠或平铺说明段落。
 - **Settings 视觉系统（2026-10-03，参照 Pixel Settings 子页面，取代此前的渐变底 + 整块面板 + 分隔线）**：
   - 页面平铺 `surfaceContainer`，行用 `surfaceBright`（深浅同一规则，行永远比页面亮）；每行是 M3 Expressive 分段列表的一段（`ListItemDefaults.segmentedShapes` 位置圆角 + `SegmentedGap` 2dp 间隙，无分隔线），行位置变化时圆角走空间弹簧。行高 ≥ 72dp：16dp 内边距 + 40dp 图标列（24dp 单色线条图标，onSurfaceVariant）+ 12dp + 文字。分类标签 primary、内缩 8dp。
   - 页头：浅色圆底返回键（`DetailBackButton`，surfaceContainerHighest）+ 大号页标题（displaySmall），返回键左缘、页标题、分类标签同在 24dp 线上；标题滚入顶栏时交接为小标题（与服务二级页同一套交接）。Settings 家族（主页、功能子页、服务二级页）**全宽**，不套 640dp 阅读宽度（用户 2026-10-04：居中的内容列配上铺满的卡片行像两套布局）。

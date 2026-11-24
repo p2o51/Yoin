@@ -92,6 +92,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
 import okhttp3.Cache
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -437,6 +438,36 @@ class AppContainer(private val context: Context) {
             started = SharingStarted.Eagerly,
             initialValue = SpotifyProviderStatus.Ready,
         )
+    }
+
+    /** "Open in Yoin" and the clipboard prompt (docs/open-in-yoin.md). */
+    val openInSettingsStore: com.gpo.yoin.data.openin.OpenInSettingsStore by lazy {
+        com.gpo.yoin.data.openin.OpenInSettingsStore(context)
+    }
+
+    val musicLinkLookup: com.gpo.yoin.data.openin.MusicLinkLookup by lazy {
+        // Yoin's public token service: a catalog read needs no account, and no Music User Token is sent.
+        val tokens = com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider(
+            com.gpo.yoin.data.remote.applemusic.YoinTokenService.URL.toHttpUrl(),
+        )
+        com.gpo.yoin.data.openin.MusicLinkResolver(
+            transport = OkHttpClient(),
+            appleMusicCatalog = com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient(tokens::token, { null }),
+            activeSpotify = { profileManager.activeSource.value },
+        )
+    }
+
+    val openInCoordinator: com.gpo.yoin.data.openin.OpenInCoordinator by lazy {
+        com.gpo.yoin.data.openin.OpenInCoordinator(
+            scope = applicationScope,
+            lookup = musicLinkLookup,
+            profiles = { profileManager.profiles.first() },
+            activeProfileId = { profileManager.activeProfileId.value },
+        )
+    }
+
+    val clipboardLinkWatcher: com.gpo.yoin.data.openin.ClipboardLinkWatcher by lazy {
+        com.gpo.yoin.data.openin.ClipboardLinkWatcher(context, openInSettingsStore, openInCoordinator, applicationScope)
     }
 
     /** Account pictures from their services (Spotify profile photos), by profile id. */

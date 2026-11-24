@@ -55,6 +55,7 @@
 | `Volume leveling` | **`音量平衡`** | 设置中控制 Subsonic ReplayGain 的入口 |
 | `Screen corners` / `Scroll edge` | **`屏幕圆角`** / **`滚动边缘`** | `设置 › 外观` 下的视觉设置 |
 | `Continue On` | **跨设备接力** / **应用接续** / **Handoff** | Android 用「跨设备接力」/ Continue On，HarmonyOS 用「应用接续」，Apple 用「Handoff」 |
+| `Open in Yoin` / `Choose a match` / `Listen` | **`在 Yoin 中打开`** / **`选择匹配结果`** / **`收听`** | 分享入口、找到链接后的搜索结果页、剪贴板卡片按钮（Rebecca 2026-11-24，[open-in-yoin.md](../open-in-yoin.md)） |
 | Now Playing 引导句与功能提示 | **`音犹未尽？`** / **`歌词看看`** / **`背景看看`** / **`别人看看`** | 分别对应展开收尾引导、歌词、背景/关于、NeoDB 别人怎么说 |
 
 ---
