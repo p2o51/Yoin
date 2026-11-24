@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -993,8 +994,10 @@ internal fun SingAwareFavoriteSlot(
         MaterialTheme.colorScheme.onTertiaryContainer
     }
     val clampedBg = bgMix.coerceIn(0f, 1f)
-    val blendedBg = lerp(MaterialTheme.colorScheme.primaryContainer, heartBg, clampedBg)
-    val blendedFg = lerp(MaterialTheme.colorScheme.onPrimaryContainer, heartFg, clampedBg)
+    // Perceptual Oklab color interpolation avoids muddy gray midpoints between complementary
+    // primaryContainer (e.g. mint/green) and tertiaryContainer (pink/rose).
+    val blendedBg = lerpOklab(MaterialTheme.colorScheme.primaryContainer, heartBg, clampedBg)
+    val blendedFg = lerpOklab(MaterialTheme.colorScheme.onPrimaryContainer, heartFg, clampedBg)
 
     val atHeartRest = !active && morph >= 0.995f && slash <= 0.005f
     val atSingRest = active && morph <= 0.005f && (preparing || slash >= 0.995f)
@@ -1011,7 +1014,8 @@ internal fun SingAwareFavoriteSlot(
                 isPreparing = sing.isPreparing,
             )
         } else {
-            // Mid-morph: single steady 44dp circle with true 6-cubic mic ↔ heart path interpolation.
+            // Mid-morph: single steady 44dp circle with true 6-cubic mic ↔ heart path interpolation
+            // (optical size scales smoothly 22dp ↔ 24dp inside the 24dp canvas).
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -1024,9 +1028,13 @@ internal fun SingAwareFavoriteSlot(
                     slashProgress = slash,
                     heartFillAlpha = heartFillAlpha,
                     tint = blendedFg,
-                    size = 22.dp,
+                    size = 24.dp,
                 )
             }
         }
     }
 }
+
+private fun lerpOklab(start: Color, stop: Color, fraction: Float): Color =
+    lerp(start.convert(ColorSpaces.Oklab), stop.convert(ColorSpaces.Oklab), fraction)
+        .convert(ColorSpaces.Srgb)

@@ -1984,6 +1984,7 @@ private fun CompactPlayingContent(
                                         detailPage == NowPlayingDetailPage.Lyrics &&
                                         (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
                                     val showPortraitSingInRating = portraitSing?.isActive == true && !portraitLyricsSingVisible
+                                    val showPortraitSingInFavorite = portraitSing?.isEnabled == true && !portraitLyricsSingVisible
                                     SingAwareRatingBarSlot(
                                         showSing = showPortraitSingInRating,
                                         sing = portraitSing,
@@ -2002,7 +2003,7 @@ private fun CompactPlayingContent(
                                     Spacer(modifier = Modifier.height(YoinTokens.NowPlaying.RATING_TO_HEART_GAP.dp))
 
                                     SingAwareFavoriteSlot(
-                                        showSing = showPortraitSingInRating,
+                                        showSing = showPortraitSingInFavorite,
                                         sing = portraitSing,
                                         isStarred = state.isStarred,
                                     ) {
@@ -2961,6 +2962,7 @@ private fun WidePlayingContent(
                                     detailPage == NowPlayingDetailPage.Lyrics &&
                                     !inFocus
                                 val showDualSingInRating = dualSing?.isActive == true && !dualLyricsSingVisible
+                                val showDualSingInFavorite = dualSing?.isEnabled == true && !dualLyricsSingVisible
                                 SingAwareRatingBarSlot(
                                     showSing = showDualSingInRating,
                                     sing = dualSing,
@@ -2977,7 +2979,7 @@ private fun WidePlayingContent(
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 SingAwareFavoriteSlot(
-                                    showSing = showDualSingInRating,
+                                    showSing = showDualSingInFavorite,
                                     sing = dualSing,
                                     isStarred = state.isStarred,
                                 ) {
@@ -3620,6 +3622,7 @@ private fun LandscapePlayingContent(
             expanded &&
             detailPage == NowPlayingDetailPage.Lyrics
         val showLandscapeSingInRating = landscapeSing?.isActive == true && !landscapeLyricsSingVisible
+        val showLandscapeSingInFavorite = landscapeSing?.isEnabled == true && !landscapeLyricsSingVisible
         val ratingAway = if (stacked) detailProgress else 0f
         if (!focusSettled && !(stacked && expandedSettled)) {
             Column(
@@ -3653,7 +3656,7 @@ private fun LandscapePlayingContent(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 SingAwareFavoriteSlot(
-                    showSing = showLandscapeSingInRating,
+                    showSing = showLandscapeSingInFavorite,
                     sing = landscapeSing,
                     isStarred = state.isStarred,
                 ) {
@@ -3705,7 +3708,7 @@ private fun LandscapePlayingContent(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 SingAwareFavoriteSlot(
-                    showSing = showLandscapeSingInRating,
+                    showSing = showLandscapeSingInFavorite,
                     sing = landscapeSing,
                     isStarred = state.isStarred,
                 ) {

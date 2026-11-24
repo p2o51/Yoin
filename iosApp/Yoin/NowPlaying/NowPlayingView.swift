@@ -1094,7 +1094,7 @@ struct NowPlayingView: View, Equatable {
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
 
                 SingAwareFavoriteSlot(
-                    showSing: showSingInRatingColumn,
+                    showSing: showSingInFavoriteSlot,
                     isPreparing: model.sing.isPreparing,
                     isFavorite: isFavorite,
                     isEpisode: isEpisode,
@@ -1465,6 +1465,12 @@ struct NowPlayingView: View, Equatable {
     /// or iPad Wide switched away from Lyrics). Never shows duplicate vocal sliders.
     private var showSingInRatingColumn: Bool {
         demo == nil && model.sing.isActive && !isLyricsSingBarVisible
+    }
+
+    /// Show the preparing mic 3-bar animation & exit button in the 44pt favorite slot as soon as
+    /// Sing enters `.preparing` (not only `.active`), while the rating bar still waits for `.active`.
+    private var showSingInFavoriteSlot: Bool {
+        demo == nil && model.sing.isEnabled && !isLyricsSingBarVisible
     }
 
     /// The four tools (+ 5th Sing key when supported), or — in select mode — the selection keys,

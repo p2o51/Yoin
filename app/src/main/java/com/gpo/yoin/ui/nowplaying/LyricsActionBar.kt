@@ -2,11 +2,13 @@ package com.gpo.yoin.ui.nowplaying
 
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.component.handPointer
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -71,15 +73,31 @@ internal fun LyricsActionBar(
     val sing = LocalNowPlayingSing.current
 
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(LyricsKeyGap),
-            modifier = modifier,
-        ) {
-            LyricsKeyRow(
-                interactions = interactions,
-                iconSize = iconSize,
+        BoxWithConstraints(modifier = modifier) {
+            val desiredCapsule = if (iconSize >= 50.dp) 124.dp else 108.dp
+            val singActive = sing?.isSupported == true && sing.isActive
+            // In narrow landscape / tab-row / split slots, gently tuck the 4 left keys down to 36dp
+            // while Sing is expanded so the vocal capsule always gets usable drag travel (never crushed to ~44dp).
+            val targetKeyWidth = if (singActive && maxWidth.value.isFinite()) {
+                val roomForKeys = maxWidth - LyricsKeyGap * 4 - desiredCapsule
+                (roomForKeys / 4f).coerceIn(36.dp, iconSize)
+            } else {
+                iconSize
+            }
+            val keyWidth by animateDpAsState(
+                targetValue = targetKeyWidth,
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+                label = "lyricsKeyAdaptiveWidth",
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(LyricsKeyGap),
             ) {
+                LyricsKeyRow(
+                    interactions = interactions,
+                    iconSize = iconSize,
+                    keyWidth = keyWidth,
+                ) {
                 val searchKey: @Composable () -> Unit = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Search),
@@ -143,11 +161,12 @@ internal fun LyricsActionBar(
                     size = iconSize,
                 )
             }
-            if (sing?.isSupported == true) {
-                SingLyricsCapsuleKey(
-                    sing = sing,
-                    iconSize = iconSize,
-                )
+                if (sing?.isSupported == true) {
+                    SingLyricsCapsuleKey(
+                        sing = sing,
+                        iconSize = iconSize,
+                    )
+                }
             }
         }
     }
@@ -235,6 +254,7 @@ private fun LyricsKeyRow(
     interactions: List<InteractionSource>,
     iconSize: Dp,
     modifier: Modifier = Modifier,
+    keyWidth: Dp = iconSize,
     content: @Composable () -> Unit,
 ) {
     val pressSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
@@ -247,14 +267,15 @@ private fun LyricsKeyRow(
         )
     }
     Layout(content = content, modifier = modifier.height(iconSize)) { measurables, constraints ->
-        val keyPx = iconSize.roundToPx()
+        val keyPx = keyWidth.roundToPx()
+        val heightPx = iconSize.roundToPx()
         val gapPx = LyricsKeyGap.roundToPx()
         val widths = lyricsKeyWidths(
             count = measurables.size,
             keyPx = keyPx,
             press = { index -> press.getOrNull(index)?.value ?: 0f },
         )
-        val height = constraints.constrainHeight(keyPx)
+        val height = constraints.constrainHeight(heightPx)
         val placeables = measurables.mapIndexed { index, measurable ->
             measurable.measure(Constraints.fixed(widths[index], height))
         }
