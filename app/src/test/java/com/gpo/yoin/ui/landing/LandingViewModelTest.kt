@@ -1,6 +1,6 @@
 package com.gpo.yoin.ui.landing
 
-import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.data.home.HomeLayoutDocument
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.home.HomeLayout
@@ -19,11 +19,11 @@ class LandingViewModelTest {
     val main = MainDispatcherRule()
 
     private class FakeLayouts : LandingLayoutGateway {
-        val stored = mutableMapOf<String, List<HomeSectionPref>?>()
+        val stored = mutableMapOf<String, HomeLayoutDocument?>()
         val cleared = mutableListOf<String>()
         override suspend fun read(profileId: String) = stored[profileId]
-        override suspend fun write(profileId: String, sections: List<HomeSectionPref>) {
-            stored[profileId] = sections
+        override suspend fun write(profileId: String, document: HomeLayoutDocument) {
+            stored[profileId] = document
         }
         override suspend fun clear(profileId: String) {
             cleared += profileId
@@ -140,7 +140,7 @@ class LandingViewModelTest {
         assertTrue(store.isDone())
         assertTrue("new" in layouts.stored)
         assertFalse("old" in layouts.stored)
-        val rediscover = layouts.stored.getValue("new")!!.first { it.id == HomeSection.Rediscover.id }
+        val rediscover = layouts.stored.getValue("new")!!.sections.first { it.id == HomeSection.Rediscover.id }
         assertFalse(rediscover.enabled)
     }
 
@@ -155,9 +155,22 @@ class LandingViewModelTest {
     @Test
     fun should_start_a_rerun_from_the_active_accounts_layout() = runTest {
         active.value = "active"
-        layouts.stored["active"] = HomeLayout.Default.withEnabled(HomeSection.JumpBackIn, false).toPrefs()
+        layouts.stored["active"] = HomeLayout.Default.withEnabled(HomeSection.JumpBackIn, false).toDocument()
         val vm = viewModel(LandingMode.Rerun)
         val jumpBackIn = vm.state.value.layout.sections.first { it.section == HomeSection.JumpBackIn }
         assertFalse(jumpBackIn.enabled)
+    }
+
+    @Test
+    fun should_write_the_two_column_pairs_at_the_landing_order_when_finishing() = runTest {
+        profiles.value = listOf("old")
+        val vm = viewModel()
+        profiles.value = listOf("old", "new")
+        // Jump Back In moved off Activities: in two columns they no longer pair, the memory stays.
+        vm.moveSection(1, 3)
+        vm.finish {}
+        val written = HomeLayout.fromDocument(layouts.stored.getValue("new"))
+        assertEquals(HomeLayout.WideDefault.widePairs, written.widePairs)
+        assertTrue(written.sections.none { it.half })
     }
 }

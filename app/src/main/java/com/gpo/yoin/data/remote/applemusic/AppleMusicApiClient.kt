@@ -5,7 +5,12 @@ import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.perf.YoinPerfHttp
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -129,21 +134,42 @@ class AppleMusicApiClient(
     ): Map<String, List<AppleMusicSong>> {
         require(storefront.matches(Regex("[a-z]{2}")))
         val codes = isrcs.map { it.trim().uppercase() }.filter { it.matches(ISRC_PATTERN) }.distinct()
+        if (codes.isEmpty()) return emptyMap()
+        val batches = codes.chunked(ISRC_BATCH)
+        val batchSongs = if (batches.size == 1) {
+            listOf(batches.first() to fetchIsrcBatch(storefront, batches.first(), language))
+        } else {
+            coroutineScope {
+                val semaphore = Semaphore(ISRC_CONCURRENCY)
+                batches.map { batch ->
+                    async { semaphore.withPermit { batch to fetchIsrcBatch(storefront, batch, language) } }
+                }.awaitAll()
+            }
+        }
         val found = linkedMapOf<String, MutableList<AppleMusicSong>>()
-        for (batch in codes.chunked(ISRC_BATCH)) {
-            val response = get(
-                url("v1", "catalog", storefront, "songs").newBuilder()
-                    .addQueryParameter("filter[isrc]", batch.joinToString(","))
-                    .apply { language?.let { addQueryParameter("l", it) } }
-                    .build(),
-                personal = false
-            )
-            for (song in songs(response)) {
+        for ((batch, songsInBatch) in batchSongs) {
+            val batchSet = batch.toSet()
+            for (song in songsInBatch) {
                 val isrc = song.isrc ?: continue
-                if (isrc in batch) found.getOrPut(isrc) { mutableListOf() } += song
+                if (isrc in batchSet) found.getOrPut(isrc) { mutableListOf() } += song
             }
         }
         return found
+    }
+
+    private suspend fun fetchIsrcBatch(
+        storefront: String,
+        batch: List<String>,
+        language: String?,
+    ): List<AppleMusicSong> {
+        val response = get(
+            url("v1", "catalog", storefront, "songs").newBuilder()
+                .addQueryParameter("filter[isrc]", batch.joinToString(","))
+                .apply { language?.let { addQueryParameter("l", it) } }
+                .build(),
+            personal = false
+        )
+        return songs(response)
     }
 
     /**
@@ -415,6 +441,7 @@ data class AppleMusicTrackRef(val id: String, val type: String) {
 
 /** Codes per `filter[isrc]` request. */
 internal const val ISRC_BATCH = 25
+private const val ISRC_CONCURRENCY = 4
 private val ISRC_PATTERN = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
 private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 

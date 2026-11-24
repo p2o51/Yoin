@@ -61,8 +61,9 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * "Hidden" (with an empty line when nothing is), one row per hidden section,
  * then Reset. Keys `tray-title`, `tray-<id>`, `edit-footer`. The list gives
  * them no fades of their own: the tray's alpha (and each row's) is the
- * motion's, and they fade with the feed while strips fold. Rows sit 8dp
- * apart whatever the feed's [itemSpacing]. Tray rows never wiggle.
+ * motion's, and they hide with the feed under the pinched list. Rows sit 8dp
+ * apart whatever the feed's [itemSpacing]. Tray rows never wiggle. [inList]:
+ * the same tray under the pinched list's strips, its controls in [targets].
  */
 internal fun LazyListScope.homeEditTrayItems(
     hidden: List<HomeSection>,
@@ -71,16 +72,19 @@ internal fun LazyListScope.homeEditTrayItems(
     deps: HomeEditDeps,
     placementSpec: () -> FiniteAnimationSpec<IntOffset>?,
     itemSpacing: Dp = TrayFeedSpacing,
+    targets: HomeEditTargets = deps.targets,
+    inList: Boolean = false,
 ) {
     val motion = deps.motion
     val engine = deps.engine
+    val trayAlpha = { if (inList) 1f else if (engine.feedHidden) 0f else motion.trayAlpha.value }
     item(key = TrayTitleKey) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
                 .zIndex(TrayZIndex)
-                .graphicsLayer { alpha = motion.trayAlpha.value * feedFoldShown(engine.fold.value) }
+                .graphicsLayer { alpha = trayAlpha() }
                 // With the rows' tuck this leaves 12dp under the title, as in a section.
                 .padding(bottom = TrayHeadGap - TrayRowGap),
             verticalArrangement = Arrangement.spacedBy(TrayHeadGap),
@@ -101,6 +105,8 @@ internal fun LazyListScope.homeEditTrayItems(
             section = section,
             newBadge = section in newBadges,
             deps = deps,
+            targets = targets,
+            trayAlpha = trayAlpha,
             modifier = Modifier
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
                 .zIndex(TrayZIndex)
@@ -113,7 +119,7 @@ internal fun LazyListScope.homeEditTrayItems(
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
                 .zIndex(TrayZIndex)
-                .graphicsLayer { alpha = motion.trayAlpha.value * feedFoldShown(engine.fold.value) },
+                .graphicsLayer { alpha = trayAlpha() },
             contentAlignment = Alignment.Center,
         ) {
             TextButton(
@@ -122,7 +128,7 @@ internal fun LazyListScope.homeEditTrayItems(
                 contentPadding = PaddingValues(horizontal = FooterButtonPadding),
                 modifier = Modifier
                     .heightIn(min = FooterButtonHeight)
-                    .homeEditExclusion(deps.targets, TrayFooterKey)
+                    .homeEditExclusion(targets, TrayFooterKey)
                     .handPointer(enabled = canReset),
             ) {
                 Icon(
@@ -211,11 +217,12 @@ private fun HomeEditTrayRow(
     section: HomeSection,
     newBadge: Boolean,
     deps: HomeEditDeps,
+    targets: HomeEditTargets,
+    trayAlpha: () -> Float,
     modifier: Modifier = Modifier,
 ) {
     val controller = deps.controller
     val motion = deps.motion
-    val engine = deps.engine
     val colors = MaterialTheme.colorScheme
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val editing = controller.isEditing
@@ -224,10 +231,8 @@ private fun HomeEditTrayRow(
         modifier = modifier
             .fillMaxWidth()
             .height(TrayRowHeight * fontScale)
-            .graphicsLayer {
-                alpha = motion.trayAlpha.value * motion.rowAlpha(section) * feedFoldShown(engine.fold.value)
-            }
-            .homeEditExclusion(deps.targets, TrayRowKey(section))
+            .graphicsLayer { alpha = trayAlpha() * motion.rowAlpha(section) }
+            .homeEditExclusion(targets, TrayRowKey(section))
             .seamDissolve()
             .clip(YoinContainerShapes.Panel)
             .background(colors.surfaceContainerHigh)

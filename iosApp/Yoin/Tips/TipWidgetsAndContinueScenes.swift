@@ -568,3 +568,267 @@ struct CloudSyncDemo: View {
         }
     }
 }
+
+// MARK: - Apple Music Song Names
+
+/// Interactive preview of Apple Music › Song names (`AppleMusicSongNames`) toggling between storefront default,
+/// Original language, and a specific region.
+struct AppleMusicSongNamesDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+
+    @State private var selected: AppleMusicNameRegion = .off
+
+    private var zh: Bool { Tips.showsChinese }
+
+    private var sampleTitle: String {
+        switch selected {
+        case .off: return "ビョーク · Utopia"
+        case .original: return "Björk · Utopia"
+        case .storefront: return "夜に駆ける · YOASOBI"
+        }
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            withAnimation(Yoin.effects) { selected = .off }
+            try await DemoTiming.delay(650)
+            try await finger.moveTo("am-names-original", fx: 0.72)
+            try await DemoTiming.delay(250)
+            try await finger.tap {
+                withAnimation(Yoin.effects) { selected = .original }
+            }
+            try await DemoTiming.delay(950)
+            try await finger.moveTo("am-names-region", fx: 0.72)
+            try await DemoTiming.delay(250)
+            try await finger.tap {
+                withAnimation(Yoin.effects) { selected = .japan }
+            }
+            try await finger.lift()
+            try await DemoTiming.delay(2_200)
+        }) {
+            SettingsPage(title: zh ? "歌曲名" : "Song names", demoScheme: scheme) { app, row in
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: 0) {
+                        optionRow(
+                            title: zh ? "按 Apple Music 显示" : "As Apple Music shows them",
+                            selected: selected == .off,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .off }
+                        }
+                        Divider()
+                            .overlay(app.outlineVariant.opacity(0.45))
+                            .padding(.leading, 16)
+                        optionRow(
+                            title: zh ? "按歌曲原地区" : "In their original language",
+                            selected: selected == .original,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .original }
+                        }
+                        .demoTarget("am-names-original")
+                        Divider()
+                            .overlay(app.outlineVariant.opacity(0.45))
+                            .padding(.leading, 16)
+                        optionRow(
+                            title: zh ? "按指定地区" : "From a specific region",
+                            subtitle: selected.isStorefront ? (zh ? "日本商店" : "Japan storefront") : nil,
+                            selected: selected.isStorefront,
+                            app: app,
+                        ) {
+                            withAnimation(Yoin.effects) { selected = .japan }
+                        }
+                        .demoTarget("am-names-region")
+                    }
+                    .background(row, in: RoundedRectangle(cornerRadius: 20))
+
+                    HStack(spacing: 10) {
+                        YoinIcon("music_note", size: 16)
+                            .foregroundStyle(app.primary)
+                        Text(sampleTitle)
+                            .yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(app.onSurface)
+                            .contentTransition(.opacity)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(row, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .safeAreaPadding(.top, DemoPhoneMetrics.statusBar)
+            .scrollDisabled(true)
+        }
+    }
+
+    private func optionRow(
+        title: String,
+        subtitle: String? = nil,
+        selected: Bool,
+        app: CoverScheme,
+        action: @escaping () -> Void,
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
+                    if let subtitle {
+                        Text(subtitle)
+                            .yoinRole(Tokens.type.labelSmall)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
+                Spacer()
+                if selected {
+                    YoinIcon("check", size: 16)
+                        .foregroundStyle(app.primary)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private extension AppleMusicNameRegion {
+    var isStorefront: Bool {
+        if case .storefront = self { return true }
+        return false
+    }
+}
+
+// MARK: - iCloud Sync
+
+/// Interactive preview of Settings › Cloud sync › Sync location (`ICloudSync`) switching from Google Drive to iCloud.
+struct ICloudSyncDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+
+    @State private var usesICloud = false
+    @State private var verifiedSteps = 0
+
+    private var zh: Bool { Tips.showsChinese }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            withAnimation(Yoin.effects) {
+                usesICloud = false
+                verifiedSteps = 0
+            }
+            try await DemoTiming.delay(650)
+            try await finger.moveTo("icloud-location-row", fx: 0.72)
+            try await DemoTiming.delay(250)
+            try await finger.tap {
+                withAnimation(Yoin.effects) {
+                    usesICloud = true
+                    verifiedSteps = 1
+                }
+            }
+            try await finger.lift()
+            for step in 2...3 {
+                try await DemoTiming.delay(380)
+                withAnimation(Yoin.effects) { verifiedSteps = step }
+            }
+            try await DemoTiming.delay(2_000)
+        }) {
+            SettingsPage(title: zh ? "同步位置" : "Sync location", demoScheme: scheme) { app, row in
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: 0) {
+                        locationRow(
+                            icon: "cloud",
+                            title: "Google Drive",
+                            subtitle: zh ? "Android 与 Apple 设备" : "Android & Apple devices",
+                            selected: !usesICloud,
+                            app: app,
+                            action: {
+                                withAnimation(Yoin.effects) {
+                                    usesICloud = false
+                                    verifiedSteps = 0
+                                }
+                            },
+                        )
+                        Divider()
+                            .overlay(app.outlineVariant.opacity(0.45))
+                            .padding(.leading, 44)
+                        locationRow(
+                            icon: "cloud",
+                            title: "iCloud",
+                            subtitle: zh ? "仅 Apple 设备" : "Apple devices",
+                            selected: usesICloud,
+                            app: app,
+                            action: {
+                                withAnimation(Yoin.effects) {
+                                    usesICloud = true
+                                    verifiedSteps = 3
+                                }
+                            },
+                        )
+                        .demoTarget("icloud-location-row")
+                    }
+                    .background(row, in: RoundedRectangle(cornerRadius: 20))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        stepRow(zh ? "导出并校验" : "Export & verify", done: verifiedSteps >= 1, app: app)
+                        stepRow(zh ? "导入 iCloud" : "Import to iCloud", done: verifiedSteps >= 2, app: app)
+                        stepRow(zh ? "核对数量后切换" : "Verify counts & switch", done: verifiedSteps >= 3, app: app)
+                    }
+                    .padding(14)
+                    .background(row, in: RoundedRectangle(cornerRadius: 20))
+                }
+            }
+            .safeAreaPadding(.top, DemoPhoneMetrics.statusBar)
+            .scrollDisabled(true)
+        }
+    }
+
+    private func locationRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        selected: Bool,
+        app: CoverScheme,
+        action: @escaping () -> Void,
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                YoinIcon(icon, size: 18)
+                    .foregroundStyle(selected ? app.primary : app.onSurfaceVariant)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
+                    Text(subtitle)
+                        .yoinRole(Tokens.type.labelSmall)
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
+                Spacer()
+                if selected {
+                    YoinIcon("check", size: 16)
+                        .foregroundStyle(app.primary)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func stepRow(_ title: String, done: Bool, app: CoverScheme) -> some View {
+        HStack(spacing: 10) {
+            YoinIcon(done ? "check" : "cloud", size: 15)
+                .foregroundStyle(done ? app.primary : app.onSurfaceVariant.opacity(0.6))
+            Text(title)
+                .yoinRole(Tokens.type.bodySmall)
+                .foregroundStyle(done ? app.onSurface : app.onSurfaceVariant)
+            Spacer()
+        }
+    }
+}

@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -265,3 +266,53 @@ internal fun Modifier.heightOfIncomingOnly(outgoing: () -> Boolean): Modifier = 
     val placeable = measurable.measure(constraints)
     layout(placeable.width, if (outgoing()) 0 else placeable.height) { placeable.placeRelative(0, 0) }
 }
+
+/**
+ * Whether an AnimatedContent's last change swapped its compositions with no
+ * fade (a width class changing: the section re-seats in place, once). Set in
+ * the transition spec, read in draw ([drawIncomingOnly]).
+ */
+internal class HomeInstantSwap {
+    var instant: Boolean = false
+}
+
+/**
+ * For an AnimatedContent child: draw nothing while it is the OUTGOING layer
+ * of a [swap] with no fade. With no exit transition the old composition is
+ * still composed (and drawn) for the frame the transition takes to finish:
+ * the old layout's cards drew over the new one's (Activities' bento, Jump
+ * Back In's covers, a half turning full). A fading one still draws.
+ */
+internal fun Modifier.drawIncomingOnly(swap: HomeInstantSwap, outgoing: () -> Boolean): Modifier = drawWithContent {
+    if (!(swap.instant && outgoing())) drawContent()
+}
+
+/**
+ * The composition an AnimatedContent shows its state in, as a number to key
+ * its content by (contentKey): a new one only for a change at the same width
+ * ([sameWidth]: a template, a seed, a removal), which crossfades. A change
+ * that comes with the width (a block turning half ⇄ full, a rotation, the
+ * Now Playing panel) keeps the composition and lays it out again, in place.
+ * Keyed by the width too, the change swapped compositions: for the frame the
+ * swap takes, the outgoing one was still composed and measured at the new
+ * width beside the incoming one, which laid the section out twice in one
+ * long frame (~200ms on the tablet as Activities' bento turned half ⇄ full,
+ * 2026-11-23). Read in composition.
+ */
+internal class HomeContentGenerations<K> {
+    private var last: K? = null
+    private var started = false
+    private var generation = 0
+
+    fun of(key: K, sameWidth: (old: K, new: K) -> Boolean): Int {
+        @Suppress("UNCHECKED_CAST")
+        generation = homeContentGeneration(generation, if (started) last as K else key, key, sameWidth)
+        last = key
+        started = true
+        return generation
+    }
+}
+
+/** The composition after [generation] for a change from [old] to [new]: the next one only for a change at the same width. Pure. */
+internal fun <K> homeContentGeneration(generation: Int, old: K, new: K, sameWidth: (old: K, new: K) -> Boolean): Int =
+    if (old != new && sameWidth(old, new)) generation + 1 else generation

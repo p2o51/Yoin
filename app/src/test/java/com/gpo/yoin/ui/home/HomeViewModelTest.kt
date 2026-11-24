@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.home
 
 import app.cash.turbine.test
 import com.gpo.yoin.data.home.FakeHomeLayoutDao
+import com.gpo.yoin.data.home.HomeLayoutDocument
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.data.local.ActivityActionType
@@ -98,7 +99,7 @@ class HomeViewModelTest {
         } just runs
 
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(null)
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(null)
 
         val viewModel = HomeViewModel(
             repository = repository,
@@ -174,7 +175,7 @@ class HomeViewModelTest {
         )
 
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(null)
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(null)
 
         val viewModel = HomeViewModel(
             repository = repository,
@@ -297,7 +298,7 @@ class HomeViewModelTest {
         }
 
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(null)
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(null)
 
         val viewModel = HomeViewModel(
             repository = repository,
@@ -608,7 +609,7 @@ class HomeViewModelTest {
         val repository = memorySignalRepository(profile = "subsonic-layout-same")
         val dao = FakeHomeLayoutDao()
         val homeLayoutStore = HomeLayoutStore(dao)
-        homeLayoutStore.setLayout("subsonic-layout-same", HomeLayout.Default.moved(HomeSection.Rediscover, 0).toPrefs())
+        homeLayoutStore.setDocument("subsonic-layout-same", HomeLayout.Default.moved(HomeSection.Rediscover, 0).toDocument())
         val viewModel = homeViewModel(repository, "subsonic-layout-same", homeLayoutStore = homeLayoutStore)
         advanceUntilIdle()
 
@@ -735,7 +736,7 @@ class HomeViewModelTest {
     fun should_snapshotHintsBeforeRecording_when_editSessionStarts() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-hints")
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(HomeLayoutDocument(legacyPrefs()))
         val hintStore = HomeEditHintStore.InMemory().apply { recordEditSession() }
         val viewModel = homeViewModel(
             repository,
@@ -763,7 +764,7 @@ class HomeViewModelTest {
     fun should_reemitUnseenNewSections_when_editSessionMarksThemSeen() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-unseen")
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(HomeLayoutDocument(legacyPrefs()))
         val viewModel = homeViewModel(repository, "subsonic-unseen", homeLayoutStore = homeLayoutStore)
         advanceUntilIdle()
 
@@ -1301,7 +1302,7 @@ class HomeViewModelTest {
         val profile = "subsonic-rd-badges"
         val repository = memorySignalRepository(profile = profile)
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        every { homeLayoutStore.documentFlow(any()) } returns flowOf(HomeLayoutDocument(legacyPrefs()))
         val hintStore = HomeEditHintStore.InMemory()
         val viewModel = homeViewModel(
             repository,
@@ -2239,11 +2240,11 @@ class HomeViewModelTest {
         val repository = scopedRepository(first, provider)
         val layouts = mockk<HomeLayoutStore>(relaxed = true).also { store ->
             // Room's answer for the account's own row reaches Home a beat after its feed.
-            every { store.layoutFlow(first) } returns flow {
+            every { store.documentFlow(first) } returns flow {
                 delay(LATE_LAYOUT_MS)
-                emit(firstLayout)
+                emit(HomeLayoutDocument(firstLayout))
             }
-            every { store.layoutFlow(second) } returns flowOf(null)
+            every { store.documentFlow(second) } returns flowOf(null)
         }
         val viewModel = HomeViewModel(
             repository = repository,
@@ -2514,7 +2515,7 @@ class HomeViewModelTest {
         repository = repository,
         activeProfileId = profileId,
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns flowOf(null)
+            every { store.documentFlow(any()) } returns flowOf(null)
         },
         configurationRevision = revision
     )
@@ -2527,7 +2528,7 @@ class HomeViewModelTest {
         repository = repository,
         activeProfileId = profileId,
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns flowOf(null)
+            every { store.documentFlow(any()) } returns flowOf(null)
         },
         switchingState = switching
     )
@@ -2577,7 +2578,7 @@ class HomeViewModelTest {
         repository: YoinRepository,
         profile: String,
         homeLayoutStore: HomeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
-            every { store.layoutFlow(any()) } returns flowOf(null)
+            every { store.documentFlow(any()) } returns flowOf(null)
         },
         homeEditHintStore: HomeEditHintStore = HomeEditHintStore.InMemory(),
         nowMillis: () -> Long = System::currentTimeMillis,

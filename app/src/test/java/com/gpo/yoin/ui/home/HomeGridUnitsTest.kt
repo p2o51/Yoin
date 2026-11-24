@@ -85,7 +85,7 @@ class HomeGridUnitsTest {
         val swapped = wide
             .withRows(j, HomeRowPreset.XL)
             .withRows(a, HomeRowPreset.S)
-            .withEnabledOrder(listOf(j, a) + wide.enabledSections.drop(2))
+            .withArrangement(listOf(j, a) + wide.enabledSections.drop(2), mapOf(j to a) + wide.pairs.minus(a))
         val row = swapped.rows().first()
         assertEquals(HomeFeedRow.Halves(j, a), row)
         assertEquals(3, swapped.unitsOf(row))

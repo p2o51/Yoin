@@ -91,13 +91,17 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.GrabPointer
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamHold
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.home.lyricCards
 import com.gpo.yoin.ui.home.HomeRowPreset
+import com.gpo.yoin.ui.home.LocalHomeCellMorph
 import com.gpo.yoin.ui.home.LocalHomeGridHeight
+import com.gpo.yoin.ui.home.homeCellMorphBlock
+import com.gpo.yoin.ui.home.homeCellMorphContent
 import com.gpo.yoin.ui.home.homeGridBox
 import com.gpo.yoin.ui.home.HomeSectionTitle
 import com.gpo.yoin.ui.home.RediscoverPlaceholderText
@@ -113,7 +117,7 @@ internal class HomeEditDeps(
     val controller: HomeEditController,
     val motion: HomeEditMotion,
     val press: HomeEditPressState,
-    val engine: HomeCarryEngine,
+    val engine: HomeDragEngine,
     val targets: HomeEditTargets,
     val specs: HomeEditSpecs,
     /** The edit-mode plate (HomePlateVariant.kt): the shipped V1 unless the debug harness says otherwise. */
@@ -174,13 +178,14 @@ internal fun HomeEditBlock(
             safeArea = { safe() },
             liftGain = {
                 val gain = when {
-                    engine.session?.carried == section -> 0f
+                    engine.dragging == section -> 0f
                     engine.liftSection == section -> 1f - engine.lift.value.coerceIn(0f, 1f)
                     else -> 1f
                 }
                 // The block being resized holds still under its handle.
                 gain * (rowsTrack?.wiggleGain?.value?.coerceIn(0f, 1f) ?: 1f)
             },
+            feedHidden = { engine.feedHidden },
             plate = look,
             rows = rowsTrack,
             rowsEngine = rowsEngine,
@@ -193,6 +198,11 @@ internal fun HomeEditBlock(
     val hoverTarget = if (hovered && editing) 1f else 0f
     LaunchedEffect(hoverTarget) { handleHover.animateTo(hoverTarget, deps.specs.liftTint) }
 
+    // Two columns: a cell springing between half and full draws the block at the spring's width
+    // around content laid out once, at the width it springs to (HomeCellMorph).
+    val morph = LocalHomeCellMorph.current
+    val slotFill = MaterialTheme.colorScheme.surfaceContainerHighest
+    val slotStroke = MaterialTheme.colorScheme.outlineVariant
     val density = LocalDensity.current
     val wiggle = if (wholeBlockWiggle) {
         Modifier.homeEditBlockWiggle(cardScope) {
@@ -303,6 +313,10 @@ internal fun HomeEditBlock(
 
     Box(
         modifier = modifier
+            // Where it lands while it follows the finger (rule 4): in the slot, at the slot's own
+            // width, under the block's layer.
+            .dragSlotMark(engine, section, inList = false, fill = slotFill, stroke = slotStroke)
+            .homeCellMorphBlock(morph)
             .fillMaxWidth()
             // The lifted block above its neighbours, read as it is placed: a lift recomposes no block.
             // While editing, each block also draws over the ones after it: a reflow (a hide) starts
@@ -314,6 +328,12 @@ internal fun HomeEditBlock(
                     else -> 0f
                 }
             }
+            // Dragged, the block follows the finger, placed against this frame's layout; dropped, it
+            // glides into its slot.
+            .dragFollow(engine, section, inList = false, box = deps.targets::boxCoordinates)
+            // Carried, it floats over the rows: the scroll edges' dissolve would open holes in it onto
+            // the rows passing under it (edge scroll, 2026-11-23), so it stays whole until it lands.
+            .seamHold { engine.liftSection == section }
             .blockLayer { outset ->
                 var scale = motion.hideScale(section)
                 var pivotX = size.width / 2f
@@ -336,7 +356,8 @@ internal fun HomeEditBlock(
                 if (size.width > 0f && size.height > 0f) {
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
-                alpha = motion.hideAlpha(section) * feedFoldShown(engine.fold.value)
+                // The list's cover on/off, not its progress: every block's layer re-runs on the flip, not each frame.
+                alpha = if (engine.feedHidden) 0f else motion.hideAlpha(section)
             }
             .then(wiggle)
             .hoverable(hoverSource)
@@ -351,6 +372,7 @@ internal fun HomeEditBlock(
         Box(
             Modifier
                 .fillMaxWidth()
+                .homeCellMorphContent(morph)
                 // Two columns: exactly the row's grid height, the content cut off below it.
                 .homeGridBox(LocalHomeGridHeight.current)
                 .homeEditContentInset(cardScope)
@@ -924,7 +946,7 @@ internal fun rememberPreviewHomeEditDeps(progress: Float, editing: Boolean): Hom
             controller = controller,
             motion = motion,
             press = HomeEditPressState(),
-            engine = HomeCarryEngine(
+            engine = HomeDragEngine(
                 scope = scope,
                 specs = specs,
                 motion = motion,

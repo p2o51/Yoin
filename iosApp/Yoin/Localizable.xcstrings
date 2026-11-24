@@ -8995,52 +8995,52 @@
         }
       }
     },
-    "A Japanese song keeps its Japanese name, a Korean one its Korean name": {
+    "Each song keeps the name in its own language": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "日语歌显示日文原名，韩语歌显示韩文原名"
+            "value": "英文歌显示英文，日语歌显示日文，韩语歌显示韩文"
           }
         }
       }
     },
-    "As China mainland names them": {
+    "From a specific region": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按中国大陆"
+            "value": "按指定地区"
           }
         }
       }
     },
-    "Names from Apple Music's China mainland storefront": {
+    "Choose an Apple Music storefront": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用 Apple Music 中国大陆商店的名字"
+            "value": "选择一个 Apple Music 商店地区"
           }
         }
       }
     },
-    "As Japan names them": {
+    "Names from Apple Music's %@ storefront": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按日本"
+            "value": "用 Apple Music %@商店的名字"
           }
         }
       }
     },
-    "Names from Apple Music's Japan storefront": {
+    "Choose a region": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用 Apple Music 日本商店的名字"
+            "value": "选择商店地区"
           }
         }
       }

@@ -76,9 +76,8 @@ Home 编辑态的触感总表（来自 `docs/handoff/home-edit-mode/spec.md` §2
 | --- | --- | --- | --- | --- |
 | 普通态长按到阈值（进入编辑） | `performLongPress()` | `LONG_PRESS` | — | 块放大到 1.02，底板从按点长出来 |
 | 编辑态拿起一块 | `performDragStart()` | `DRAG_START`（34） | `CONTEXT_CLICK` | 放大 + 阴影 |
-| 签条每换一格；TalkBack 的 Move up / Move down | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 邻居让位，落点的洞跟着移动 |
-| 签条第一次越过首尾 | `performThreshold()` | `GESTURE_THRESHOLD_ACTIVATE`（34） | `TEXT_HANDLE_MOVE`（27，即 `performLightTick()`） | 橡皮筋阻尼 |
-| 放下且顺序变了；Done | `performConfirm()` | `CONFIRM`（30） | `KEYBOARD_TAP` | 展开 + 放下时的 kick；底栏变回导航 |
+| 拖动中的块每换一个落点；捏合越过收起 / 展开的门槛；TalkBack 的 Move up / Move down | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 邻居让位 |
+| 放下且顺序变了；Done | `performConfirm()` | `CONFIRM`（30） | `KEYBOARD_TAP` | 滑回落点 + 落定时的 kick；底栏变回导航 |
 | 原地放下、点块、滚动 | 无 | — | — | 0.5Θ 的 kick + 把手脉冲 |
 | 隐藏 / 显示 | `performToggle(on)` | `TOGGLE_OFF` / `TOGGLE_ON`（34） | `CONTEXT_CLICK` | 缩放淡出 / 淡入 + 0.35Θ 的 kick |
 | Reset Home | `performReject()` | `REJECT`（30） | `LONG_PRESS` | 各块回到默认位置 |

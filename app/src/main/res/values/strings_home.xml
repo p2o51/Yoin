@@ -84,6 +84,9 @@
     <string name="home_edit_make_full_width">Make full width</string>
     <string name="home_edit_fewer_rows">Fewer rows</string>
     <string name="home_edit_hide">Hide</string>
+    <!-- The edit header's switch, named for where a tap goes: the list (over the full layout) or the full layout (over the list). -->
+    <string name="home_edit_view_list">Compact list</string>
+    <string name="home_edit_view_full">Full layout</string>
     <string name="home_cd_section_index">Section %1$d of %2$d</string>
     <string name="home_cd_section_index_rows">Section %1$d of %2$d, %3$s</string>
     <plurals name="home_edit_rows">
@@ -236,7 +239,7 @@
     <string name="home_tip_downloads_title">Offline downloads</string>
     <string name="home_tip_downloads">Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Accounts › your active account › Storage › Downloads</string>
     <string name="home_tip_edit_home_title">Rearrange Home</string>
-    <string name="home_tip_edit_home">Long-press Home to rearrange sections</string>
+    <string name="home_tip_edit_home">While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large screens.</string>
     <string name="home_tip_pull_memories_title">Memories</string>
     <string name="home_tip_pull_memories">Pull down on Home to open Memories</string>
     <string name="home_tip_cover_menu_title">Song options</string>
@@ -250,6 +253,15 @@
     <!-- Copy by Gemini 4 Argon (.argon/notes-mention-tip), line revised in review 2026-11-23. -->
     <string name="home_tip_note_mentions_title">Mention in notes</string>
     <string name="home_tip_note_mentions">Type @ in a note or review to mention a song, album, or artist</string>
+    <string name="home_tip_apple_music_names_title">Apple Music song names</string>
+    <string name="home_tip_apple_music_names">In your Apple Music account settings, show each song in its original language or pick another storefront region</string>
+    <!-- Copy by Rebecca, 2026-11-23. -->
+    <string name="home_tip_album_stickies_title">Album notes</string>
+    <string name="home_tip_album_stickies">Tap an empty spot in an album\'s Scrapbook to stick notes onto the whole album</string>
+    <string name="home_tip_mentioned_in_title">Mentioned in</string>
+    <string name="home_tip_mentioned_in">Scroll to the bottom of an album\'s Scrapbook to see every note and review that mentions it</string>
+    <string name="home_tip_cloud_export_transfer_title">Export and transfer Memories</string>
+    <string name="home_tip_cloud_export_transfer">In Settings › Cloud sync, download all your data anytime or move your Memories to another account</string>
     <string name="home_tip_memory_search_title">Search your Memories</string>
     <string name="home_tip_memory_search">Library search finds your notes and Memories too</string>
     <string name="home_tip_library_search_title">Quick search</string>

@@ -110,6 +110,7 @@ struct AMArtist: Hashable, Sendable {
     var catalogId: String?
     var name: String
     var artwork: URL?
+    var genre: String? = nil
 
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
 }
@@ -346,12 +347,15 @@ enum AppleMusicMapping {
         let isLibrary = type == "library-artists"
         let catalog = AppleMusicJSON.related(r, "catalog")?.first
         let catalogAttributes = catalog.map(AppleMusicJSON.attributes)
+        let artistGenres = (a["genreNames"] ?? catalogAttributes?["genreNames"]) as? [String]
+        let joinedGenre = artistGenres?.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: ", ")
         return AMArtist(
             resourceId: id, isLibrary: isLibrary,
             catalogId: isLibrary ? catalog?["id"] as? String : id,
             name: AppleMusicJSON.string(a, "name") ?? "",
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
-                ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")))
+                ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
+            genre: joinedGenre?.isEmpty == false ? joinedGenre : nil)
     }
 
     static func playlist(_ r: AppleMusicJSON.Object) -> AMPlaylist? {

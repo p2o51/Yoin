@@ -35,7 +35,7 @@ Sign in to several servers, Spotify and Apple Music accounts at once, and move b
 - **Spotify:** Reads your personal library and controls playback through the Spotify app or Spotify Connect. When a signed-in Spotify account is playing, a live track capsule floats to the top of Home on Android for one-tap switching.
 - **Apple Music:** Browses your library and the full catalog, playing natively through Apple MusicKit.
 - **Quick switching:** Long-press the avatar in the top bar and slide to switch accounts, or tap an album or playlist from **In Your Other Libraries** on Home to switch and play in one step.
-- **Local-first by design:** No ads and no Yoin account. Ratings, notes and listening history are saved on-device; music-source passwords and tokens are encrypted on-device and excluded from system backups. Ratings and notes sync across devices through your own Google Drive (`appDataFolder` hidden space).
+- **Local-first by design:** No ads and no Yoin account. Ratings, notes and listening history are saved on-device; music-source passwords and tokens are encrypted on-device and excluded from system backups. Ratings, notes and playlist backups sync across devices through your own Google Drive (`appDataFolder` hidden space) or, on Apple platforms, your private iCloud database (CloudKit).
 
 ## At home in your palm and on the big screen.
 
@@ -72,16 +72,16 @@ We rethought what a music app's Home is made of, and brought the responsive desi
 ### Android (`app/`, versions in [`gradle/libs.versions.toml`](gradle/libs.versions.toml))
 
 - **Core:** Kotlin 2.4.21, AGP 9.2.1, `minSdk` 26, `targetSdk` 36, `compileSdk` 37
-- **UI & Motion:** Jetpack Compose (BOM 2026.09.00), Material 3 `1.5.0-alpha27` (Expressive APIs), Material 3 Adaptive `1.3.0`, `androidx.window` `1.5.1`, Navigation 3 `1.1.2`, Glance `1.2.0` (home-screen widgets)
+- **UI & Motion:** Jetpack Compose (BOM 2026.11.01), Material 3 `1.5.0` (Expressive APIs), Material 3 Adaptive `1.3.0`, `androidx.window` `1.5.1`, Navigation 3 `1.1.2`, Glance `1.2.0` (home-screen widgets)
 - **Playback:** Media3 `1.11.1` (`MediaSession` + Cast), Spotify App Remote, Apple MusicKit
-- **Storage, Sync & AI:** Room `2.8.5`, AndroidKeyStore AES-GCM credential encryption, Google Drive `appDataFolder` sync, Retrofit `3.0.0`, OkHttp `5.5.1`, Coil `3.4.0`, ML Kit GenAI Prompt `1.0.0-beta4` (on-device Gemini Nano)
+- **Storage, Sync & AI:** Room `2.8.5`, AndroidKeyStore AES-GCM credential encryption, Google Drive `appDataFolder` sync, Retrofit `3.0.0`, OkHttp `5.5.1`, Coil `3.4.0`, ML Kit GenAI Prompt `1.0.0-beta5` (on-device Gemini Nano)
 - **Tests:** JUnit 4, Robolectric `4.17`, Turbine `1.2.1`, MockK `1.14.11`
 
 ### iOS and iPadOS (`iosApp/`)
 
 - **Core & UI:** Swift 6.0 (strict concurrency), SwiftUI, iOS 26 (Liquid Glass and custom Yoin glass layers), iPad split-column adaptive layout, XcodeGen (`project.yml`)
 - **Playback:** `AVPlayer` + `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter` (Subsonic), `MusicKit` for Swift (Apple Music), `SpotifyiOS` `5.0.1` App Remote + Web API (Spotify)
-- **Storage, Sync & On-Device AI:** Keychain credential storage, `GoogleSignIn` `9.2.0` (`drive.appdata` cloud sync shared with Android), Apple Intelligence / Foundation Models (on-device lyric highlights)
+- **Storage, Sync & On-Device AI:** Keychain credential storage, `GoogleSignIn` `9.2.0` (`drive.appdata` cloud sync shared with Android) + Apple iCloud (CloudKit private database) with 4-step verified migration, Apple Intelligence / Foundation Models (on-device lyric highlights)
 - **Widgets & Live Activities:** WidgetKit and ActivityKit (`YoinWidgets`)
 
 ### HarmonyOS (`harmony/`)
@@ -102,7 +102,7 @@ flowchart TD
     PM --> Sub["Subsonic / OpenSubsonic"]
     PM --> Spo["Spotify (Web API + App Remote / Connect)"]
     PM --> App["Apple Music (MusicKit)"]
-    Repo --> Local[("Local DB + Google Drive appDataFolder")]
+    Repo --> Local[("Local DB + Google Drive / iCloud")]
     VM --> Play["Playback controller"]
     Play --> Stream["Media3 / AVPlayer / OHOS AVPlayer"]
     Play --> Remote["Spotify App Remote"]

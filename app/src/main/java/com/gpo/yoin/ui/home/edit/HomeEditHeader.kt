@@ -133,6 +133,25 @@ internal fun rememberHomeEditIconsEnabled(progress: () -> Float): Boolean {
     return enabled
 }
 
+/** Edit-only header icons (the list switch) fade in with "Edit Home". Layer only. */
+internal fun Modifier.homeEditOnlyHeaderIcon(progress: () -> Float): Modifier = graphicsLayer {
+    alpha = smoothstep(EditFadeStart, EditFadeEnd, clampedP(progress))
+}
+
+/** Edit-only header icons are composed past the overlay's floor, as "Edit Home" is. */
+@Composable
+internal fun rememberHomeEditOnlyIconsShown(progress: () -> Float): Boolean {
+    val shown by remember(progress) { derivedStateOf { progress() > ComposeFloor } }
+    return shown
+}
+
+/** Edit-only header icons take input from P one half, where the feed's icons stop. */
+@Composable
+internal fun rememberHomeEditOnlyIconsEnabled(progress: () -> Float): Boolean {
+    val enabled by remember(progress) { derivedStateOf { progress() >= IconsOffAt } }
+    return enabled
+}
+
 private fun clampedP(progress: () -> Float): Float = progress().coerceIn(0f, 1f)
 
 // P above which the edit-only pieces are composed: before they fade in,

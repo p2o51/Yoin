@@ -120,7 +120,7 @@ internal object HomeEditTokens {
     /** An edit-mode tap, and a block dropped where it was lifted. */
     const val KickTap = .5f
 
-    /** The carried block after a strip drop. */
+    /** The dragged block once it has settled into its slot. */
     const val KickDrop = .7f
 
     /** Neighbours whose index changed, and a shown block in the viewport. */
@@ -129,14 +129,7 @@ internal object HomeEditTokens {
     /** Handle pulse start velocity: one bounce 1 → 1.2 → 1. */
     const val PulseVelocity = 11.3f
 
-    // Strips (§4).
-    val StripGap = 8.dp
-    val StripMinH = 48.dp
-    val StripMaxH = 64.dp
-    val StripMaxW = 560.dp
-
-    /** The side-drop bar between a block and the half the carried strip will take (two columns). */
-    val SideIndicatorWidth = 4.dp
+    // The pinched list's strips (HomeEditList.kt).
 
     /** Cover edge = strip height − this, clamped to [StripCoverMin]..[StripCoverMax]. */
     val StripCoverInset = 24.dp
@@ -152,42 +145,12 @@ internal object HomeEditTokens {
     val StripContentGap = 12.dp
     val StripHandleSize = 24.dp
 
-    /** Fold where strip plates finish fading in (and the feed out). */
-    const val FoldPlateEnd = .45f
-
-    /** Fold where strip labels start fading in. */
-    const val FoldLabelStart = .55f
-
-    /** Fold where the hole and the cover tint start. */
-    const val FoldHoleStart = .3f
-
-    /** Fold where the carried strip's shadow starts. */
-    const val FoldShadowStart = .6f
-
-    /** How far a strip's colour leans toward its first cover. */
-    const val StripTint = .3f
-
-    /** Below this cover weight a strip keeps its plate colour: the prototype's 0.05% (its tint runs 0–30 in percent). */
-    const val StripTintVisible = .0005f
-
-    /** The hole's secondaryContainer fill alpha. */
-    const val HoleAlpha = .35f
-
-    /** Off-screen sections start as an invisible strip at this scale. */
-    const val OffscreenStripScale = .96f
-
-    /** Rubber band past the first and last slot: the displayed overscroll tends to this. */
+    /** Rubber band past the row resize's first and last stop: the displayed overscroll tends to this. */
     val RubberD = 56.dp
     const val RubberK = .55f
 
     /** unrubber never inverts past this fraction of [RubberD]. */
     const val UnrubberMaxRatio = .98f
-
-    /** Overscroll past which the threshold haptic plays. */
-    val OverHaptic = 2.dp
-
-    /** Release speed (dp/s) that projects the drop one more slot. */
-    val FlingV = 1600.dp
 
     /** Release speeds clamp to this (dp/s). */
     val MaxV = 8000.dp
@@ -196,12 +159,6 @@ internal object HomeEditTokens {
     /** A finger resting this long before lifting releases at 0. */
     const val VelocityStaleMs = 60L
     const val VelocityMinDtMs = 4L
-
-    /** Re-grab hit zone around a settling strip. */
-    val RegrabSlop = 8.dp
-
-    /** The anchored layout normally lands on the next frame; the unfold never waits longer than this many. */
-    const val AnchorFrameLimit = 3
 
     // Session.
     const val UndoMax = 20
@@ -227,9 +184,7 @@ internal object HomeEditTokens {
     const val EnvelopeThreshold = .001f
     const val HideScaleThreshold = .001f
     const val KickThreshold = .01f
-    const val HolePxThreshold = .3f
     const val SettlePxThreshold = .4f
-    const val NeighbourPxThreshold = .3f
 }
 
 /** The spring with its own visibility threshold; anything else passes through. */
@@ -258,10 +213,9 @@ internal class HomeEditSpecs(
     val reduced: Boolean,
     /** P (stageSettle). */
     val stage: FiniteAnimationSpec<Float>,
+    /** Feed ⇄ the pinched list. */
     val fold: FiniteAnimationSpec<Float>,
     val settlePx: FiniteAnimationSpec<Float>,
-    val neighbourPx: FiniteAnimationSpec<Float>,
-    val holePx: FiniteAnimationSpec<Float>,
     val chargeUp: FiniteAnimationSpec<Float>,
     val chargeDown: FiniteAnimationSpec<Float>,
     val liftUp: FiniteAnimationSpec<Float>,
@@ -316,8 +270,6 @@ internal class HomeEditSpecs(
                     stage = homeEditStageSpec(reduced),
                     fold = defaultSpatial.withThreshold(FoldThreshold),
                     settlePx = defaultSpatial.withThreshold(SettlePxThreshold),
-                    neighbourPx = defaultSpatial.withThreshold(NeighbourPxThreshold),
-                    holePx = fastSpatial.withThreshold(HolePxThreshold),
                     chargeUp = slowSpatial.withThreshold(UnitThreshold),
                     chargeDown = fastSpatial.withThreshold(UnitThreshold),
                     liftUp = fastSpatial.withThreshold(UnitThreshold),
@@ -345,10 +297,11 @@ internal class HomeEditSpecs(
 
 /**
  * The feed's item placement while editing (port sheet §4.5): [spec], except
- * that a move starting while [snap] holds (strips folding, a carry) lands at
+ * that a move starting while [snap] holds (the pinched list covering the feed,
+ * a rows resize) lands at
  * once, as the prototype's commit without FLIP does. Pass one remembered
  * instance to `animateItem`: [snap] is read when the list starts a move,
- * never in composition, so a fold leaves every section's modifiers as they are.
+ * never in composition, so a flip leaves every section's modifiers as they are.
  */
 @Stable
 internal class GatedPlacementSpec(

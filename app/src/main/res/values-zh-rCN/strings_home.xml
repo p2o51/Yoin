@@ -84,6 +84,9 @@
     <string name="home_edit_make_full_width">改为整行</string>
     <string name="home_edit_fewer_rows">减少行数</string>
     <string name="home_edit_hide">隐藏</string>
+    <!-- The edit header's switch, named for where a tap goes: the list (over the full layout) or the full layout (over the list). -->
+    <string name="home_edit_view_list">收成列表</string>
+    <string name="home_edit_view_full">展开版面</string>
     <string name="home_cd_section_index">第 %1$d 个分区，共 %2$d 个</string>
     <string name="home_cd_section_index_rows">第 %1$d 个分区，共 %2$d 个，%3$s</string>
     <plurals name="home_edit_rows">
@@ -215,7 +218,7 @@
     <string name="home_tip_downloads_title">离线下载</string>
     <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 账号 › 当前账号 › 存储 › 下载</string>
     <string name="home_tip_edit_home_title">重新排版首页</string>
-    <string name="home_tip_edit_home">长按首页，重新排版</string>
+    <string name="home_tip_edit_home">编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排</string>
     <string name="home_tip_pull_memories_title">Memories</string>
     <string name="home_tip_pull_memories">首页往下拉，打开 Memories</string>
     <string name="home_tip_cover_menu_title">歌曲菜单</string>
@@ -228,6 +231,14 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_note_mentions_title">在笔记里 @ 提及</string>
     <string name="home_tip_note_mentions">写笔记或乐评时输入 @，提及歌曲、专辑或艺术家</string>
+    <string name="home_tip_apple_music_names_title">Apple Music 歌曲名</string>
+    <string name="home_tip_apple_music_names">在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区</string>
+    <string name="home_tip_album_stickies_title">专辑笔记</string>
+    <string name="home_tip_album_stickies">轻点专辑剪贴簿的空白处，可以给整张专辑贴上多张笔记</string>
+    <string name="home_tip_mentioned_in_title">被提及</string>
+    <string name="home_tip_mentioned_in">翻到专辑剪贴簿最下方，可以看到哪些笔记和乐评提到过它</string>
+    <string name="home_tip_cloud_export_transfer_title">导出与转移 Memories</string>
+    <string name="home_tip_cloud_export_transfer">在设置 › 云同步里，可随时下载全部数据，也能把 Memories 转给另一个账号</string>
     <string name="home_tip_memory_search_title">搜索 Memories</string>
     <string name="home_tip_memory_search">在资料库搜索，也能找到你的笔记和 Memories</string>
     <string name="home_tip_library_search_title">快速搜索</string>
