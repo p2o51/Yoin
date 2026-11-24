@@ -131,6 +131,7 @@ class AccountDescriptorSyncAdapter(
 object SharedSyncAdapters {
     fun create(domain: SyncDomain, syncDb: SyncStore): List<SyncAdapter> = listOf(
         SongNoteSyncAdapter(domain),
+        AlbumNoteSyncAdapter(domain),
         TrackRatingSyncAdapter(domain),
         AlbumRatingSyncAdapter(domain),
         AlbumReviewSyncAdapter(domain),

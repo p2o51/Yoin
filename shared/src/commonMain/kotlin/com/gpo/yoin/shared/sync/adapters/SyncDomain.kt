@@ -55,6 +55,22 @@ data class SongNoteRow(
     val positionMs: Long?,
 )
 
+/**
+ * `album_notes`: one note on a whole album (an album holds any number). [id] is globally unique (a UUID),
+ * as for [SongNoteRow]; [albumName] / [artist] are what the album was called when the note was written.
+ */
+data class AlbumNoteRow(
+    val id: String,
+    val profileId: String,
+    val albumId: String,
+    val provider: String,
+    val content: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val albumName: String,
+    val artist: String,
+)
+
 /** `album_memory_titles`: the title the user gave an album's Memory. */
 data class AlbumTitleRow(
     val provider: String,
@@ -157,6 +173,15 @@ interface SyncDomain {
     fun putNote(row: SongNoteRow): Boolean
 
     fun deleteNote(id: String, profileId: String): Boolean
+
+    fun albumNotes(profileId: String): List<AlbumNoteRow>
+
+    /** By id across every profile (ids are global, as for song notes; see AlbumNoteSyncAdapter). */
+    fun albumNote(id: String): AlbumNoteRow?
+
+    fun putAlbumNote(row: AlbumNoteRow): Boolean
+
+    fun deleteAlbumNote(id: String, profileId: String): Boolean
 
     fun albumTitles(profileId: String): List<AlbumTitleRow>
 
