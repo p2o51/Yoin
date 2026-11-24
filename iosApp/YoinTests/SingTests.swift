@@ -130,16 +130,18 @@ final class SingTests: XCTestCase {
         XCTAssertEqual(peaks[3], 0.40, accuracy: 0.06, "CH3 (V_R) mismatch")
     }
 
-    // MARK: - 4. Gain curve & sweet-spot detent
+    // MARK: - 4. Gain curve (28 dB perceptual) & sweet-spot detent
 
     func test_should_mapGainCurve_and_detectSweetSpotDetent() {
         XCTAssertEqual(SingGainCurve.linearGain(forSlider: 0.0), 0.0, accuracy: 1e-6)
-        XCTAssertEqual(SingGainCurve.linearGain(forSlider: 0.12), 0.12, accuracy: 1e-6)
+        XCTAssertEqual(SingGainCurve.linearGain(forSlider: SingGainCurve.defaultSlider), 0.12, accuracy: 1e-3)
+        // Default 12% vocal gain sits around 1/3 (~34%) of slider travel on the 28 dB curve.
+        XCTAssertEqual(SingGainCurve.defaultSlider, 0.342, accuracy: 0.01)
         XCTAssertEqual(SingGainCurve.linearGain(forSlider: 1.0), 1.0, accuracy: 1e-6)
-        XCTAssertTrue(SingGainCurve.isInDetent(0.10))
-        XCTAssertTrue(SingGainCurve.isInDetent(0.12))
+        XCTAssertTrue(SingGainCurve.isInDetent(SingGainCurve.defaultSlider))
+        XCTAssertTrue(SingGainCurve.isInDetent(SingGainCurve.position(forGain: 0.105)))
         XCTAssertFalse(SingGainCurve.isInDetent(0.0))
-        XCTAssertFalse(SingGainCurve.isInDetent(0.5))
+        XCTAssertFalse(SingGainCurve.isInDetent(0.8))
 
         var prev: Float = -1
         for step in 0...100 {
@@ -255,37 +257,32 @@ final class SingTests: XCTestCase {
         }
     }
 
-    // MARK: - 8. Two-step anti-accidental-dismiss left-drag rule
+    // MARK: - 8. Single-gesture high-end overpull exit rule (0% clamps, >100% exits directly)
 
-    func test_should_requireReleaseAtZeroBeforeLeftDragDismissesSing() {
+    func test_should_clampAtZero_and_exitOnSingleGestureOverpullPastMax() {
         var gesture = SingCapsuleDismissGesture(dismissThresholdPt: 28)
 
-        // Step 1: Start from 0.40 and drag way past the left edge (-400pt) in ONE continuous gesture -> NEVER dismiss!
+        // 1. Dragging arbitrarily far past 0% (left/down) clamps at 0 and NEVER dismisses, even across repeated drags.
         gesture.begin(currentLevel: 0.40)
-        let r1 = gesture.drag(translationX: -400, trackWidth: 108)
-        XCTAssertEqual(r1, .update(level: 0, overpullProgress: 0))
-        let r2 = gesture.drag(translationX: -800, trackWidth: 108)
-        XCTAssertEqual(r2, .update(level: 0, overpullProgress: 0))
+        XCTAssertEqual(gesture.drag(deltaPt: -400, trackLength: 108), .update(level: 0, overpullProgress: 0))
         gesture.end()
 
-        // Step 2a: Now parked at 0%, lift finger and start a NEW gesture dragging right -> raises vocal, no dismiss.
         gesture.begin(currentLevel: 0.0)
-        let rRight = gesture.drag(translationX: 54, trackWidth: 108)
-        if case .update(let level, let pull) = rRight {
-            XCTAssertEqual(level, 0.5, accuracy: 0.02)
-            XCTAssertEqual(pull, 0)
-        } else {
-            XCTFail("Dragging right from 0% should raise vocal level, not dismiss")
-        }
+        XCTAssertEqual(gesture.drag(deltaPt: -200, trackLength: 108), .update(level: 0, overpullProgress: 0))
         gesture.end()
 
-        // Step 2b: Parked at 0%, lift finger and start a NEW gesture dragging left:
-        // below threshold -> elastic overpull feedback; at/past threshold -> dismiss!
-        gesture.begin(currentLevel: 0.0)
-        let rPartial = gesture.drag(translationX: -14, trackWidth: 108)
-        XCTAssertEqual(rPartial, .update(level: 0, overpullProgress: 0.5))
-        let rDismiss = gesture.drag(translationX: -30, trackWidth: 108)
-        XCTAssertEqual(rDismiss, .dismiss)
+        // 2. Single continuous drag from 0.50 past 100% (+54pt to reach 1.0, +14pt overshoot = 50% elastic pull, +30pt = dismiss!).
+        gesture.begin(currentLevel: 0.50)
+        XCTAssertEqual(gesture.drag(deltaPt: 54, trackLength: 108), .update(level: 1.0, overpullProgress: 0))
+        XCTAssertEqual(gesture.drag(deltaPt: 68, trackLength: 108), .update(level: 1.0, overpullProgress: 0.5))
+        XCTAssertEqual(gesture.drag(deltaPt: 84, trackLength: 108), .dismiss)
+        gesture.end()
+
+        // 3. Vertical absolute drag: dragging below bottom clamps at 0; dragging above top edge (y < 0) overpulls and dismisses.
+        gesture.begin(currentLevel: 0.34)
+        XCTAssertEqual(gesture.dragVerticalAbsolute(locationY: 260, trackHeight: 200), .update(level: 0, overpullProgress: 0))
+        XCTAssertEqual(gesture.dragVerticalAbsolute(locationY: -14, trackHeight: 200), .update(level: 1.0, overpullProgress: 0.5))
+        XCTAssertEqual(gesture.dragVerticalAbsolute(locationY: -30, trackHeight: 200), .dismiss)
         gesture.end()
     }
 
@@ -321,14 +318,20 @@ final class SingTests: XCTestCase {
         XCTAssertFalse(controller.isEnabled)
         XCTAssertEqual(controller.phase, .off)
 
-        // Exiting at 0% (two-step left-drag dismiss) resets remembered level to 12% default.
+        // Exiting at 100% (>= 0.995, right/up overpull dismiss) resets remembered level to 12% default.
         controller.enter(track: subsonicTrack)
-        controller.setSliderPosition(0.0)
-        XCTAssertEqual(controller.sliderPosition, 0.0, accuracy: 1e-6)
+        controller.setSliderPosition(1.0)
+        XCTAssertEqual(controller.sliderPosition, 1.0, accuracy: 1e-6)
         controller.exit()
         XCTAssertEqual(controller.sliderPosition, SingGainCurve.defaultSlider, accuracy: 1e-6)
 
-        // Exiting above 0% preserves user's custom level.
+        // Exiting at 0% (via exit button) preserves pure instrumental 0%.
+        controller.enter(track: subsonicTrack)
+        controller.setSliderPosition(0.0)
+        controller.exit()
+        XCTAssertEqual(controller.sliderPosition, 0.0, accuracy: 1e-6)
+
+        // Exiting at a custom mid level preserves user's custom level.
         controller.enter(track: subsonicTrack)
         controller.setSliderPosition(0.55)
         controller.exit()

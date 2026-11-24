@@ -90,67 +90,95 @@ enum SingModelAsset {
     static let expectedZipBytes: Int64 = 7_990_000
 }
 
-/// Maps the UI vocal slider (`0.0 ... 1.0`, default `0.12`) to linear vocal gain `g ∈ [0.0, 1.0]`
-/// with perceptual shaping and the Apple Music Sing `10%–12%` haptic sweet-spot detent.
+/// Maps the UI vocal slider (`0.0 ... 1.0`) to linear vocal gain `g ∈ [0.0, 1.0]`
+/// with perceptual dB shaping (`RANGE_DB = 28.0`, matching Android's `SingGainCurve`) so equal slider
+/// travel yields equal loudness steps, the `12%` (`-18.4 dB`) default lands around `1/3` (`~34%`) of
+/// the slider, and the bottom `5%` knee fades smoothly to true silence (`g = 0`).
 enum SingGainCurve {
-    /// Default slider position on enabling Sing (`12%` ≈ `-18 dB` natural artifact-masking sweet spot).
-    static let defaultSlider: Float = 0.12
-    /// Haptic detent zone (`10%–13.5%`, snapping cleanly to `12%`) signalling the cleanest vocal floor.
-    static let detentRange: ClosedRange<Float> = 0.10...0.135
+    /// Perceptual dynamic range above the silent knee (`28 dB` → default `0.12` gain sits at `~34.2%`).
+    static let rangeDb: Double = 28.0
+    /// Below this slider position, gain falls linearly from `dbCurve(knee)` to `0.0`.
+    static let knee: Double = 0.05
+    /// Default vocal gain on enabling Sing (`12%` ≈ `-18.4 dB` natural artifact-masking sweet spot).
+    static let defaultGain: Float = 0.12
+    /// Gains inside `0.10...0.135` snap cleanly to `defaultGain` with a light haptic detent.
+    static let snapLowGain: Float = 0.10
+    static let snapHighGain: Float = 0.135
+    /// Default slider position corresponding to `defaultGain` (`~0.342`).
+    static let defaultSlider: Float = position(forGain: defaultGain)
     /// Seamless cut-in ease-out ramp duration from `1.0` (original) down to target (`0.95 s`).
     static let cutInRampSeconds: Double = 0.95
     /// Seamless cut-out ease-in-out ramp duration from current gain back to `1.0` (`0.75 s`).
     static let cutOutRampSeconds: Double = 0.75
     /// Per-sample linear gain smoothing window (`20 ms`) preventing zipper/click noise during slider drags.
     static let smoothingWindowSeconds: Double = 0.020
-    /// Minimum position epsilon considered "at 0%" for the two-step anti-accidental-dismiss gesture.
+    /// Minimum position epsilon considered "at 0%".
     static let minimumEpsilon: Float = 0.005
+    /// Maximum position epsilon considered "at 100%" (original vocals) for exit reset.
+    static let maximumEpsilon: Float = 0.005
 
-    /// Perceptual slider-to-linear-gain mapping (`g(0) = 0`, `g(0.12) ≈ 0.12`, `g(1) = 1`, smooth monotonic).
+    private static var kneeGain: Double { dbCurve(knee) }
+
+    private static func dbCurve(_ p: Double) -> Double {
+        pow(10.0, -rangeDb * (1.0 - p) / 20.0)
+    }
+
+    /// Perceptual slider-to-linear-gain mapping (`g(0) = 0`, `g(defaultSlider) ≈ 0.12`, `g(1) = 1`).
     static func linearGain(forSlider position: Float) -> Float {
-        let p = max(0, min(1, position))
+        let p = Double(max(0, min(1, position)))
         if p <= 0.0001 { return 0 }
         if p >= 0.9999 { return 1 }
-        if p <= defaultSlider {
-            return p
-        }
-        let t = (p - defaultSlider) / (1.0 - defaultSlider)
-        return defaultSlider + (1.0 - defaultSlider) * powf(t, 1.35)
+        let g = p >= knee ? dbCurve(p) : kneeGain * (p / knee)
+        return Float(g)
     }
 
-    /// True when the slider position sits inside the `10%–13.5%` haptic sweet-spot detent.
+    /// Inverse mapping from linear vocal gain `g ∈ [0, 1]` back to slider position `p ∈ [0, 1]`.
+    static func position(forGain gain: Float) -> Float {
+        let g = Double(max(0, min(1, gain)))
+        if g <= 0.0 { return 0 }
+        if g >= 1.0 { return 1 }
+        let p = g >= kneeGain ? 1.0 + 20.0 * log10(g) / rangeDb : (g / kneeGain) * knee
+        return Float(max(0, min(1, p)))
+    }
+
+    /// True when the slider's mapped gain sits inside the `10%–13.5%` haptic sweet-spot detent.
     static func isInDetent(_ position: Float) -> Bool {
-        detentRange.contains(position)
+        let g = linearGain(forSlider: position)
+        return g >= snapLowGain && g <= snapHighGain
     }
 
-    /// Snaps `position` into `defaultSlider` (`0.12`) when it falls inside `detentRange`.
+    /// Snaps `position` into `defaultSlider` when its gain falls inside the sweet-spot detent.
     static func snap(_ position: Float) -> Float {
         let clamped = max(0, min(1, position))
-        return detentRange.contains(clamped) ? defaultSlider : clamped
+        return isInDetent(clamped) ? defaultSlider : clamped
     }
 
     /// True when the slider is parked at the minimum (`0%`) end.
     static func isAtMinimum(_ position: Float) -> Bool {
         position <= minimumEpsilon
     }
+
+    /// True when the slider is parked at the maximum (`100%`, original vocals) end.
+    static func isAtMaximum(_ position: Float) -> Bool {
+        position >= 1.0 - maximumEpsilon
+    }
 }
 
-/// Pure, testable gesture state machine implementing the two-step anti-accidental-dismiss left-drag rule:
-/// 1. Dragging all the way to the left (`0%`) in a single continuous gesture stops at minimum and **never** exits Sing,
-///    regardless of how far past the left edge the finger travels.
-/// 2. Only when vocal is **already at `0%`**, the user lifts their finger, and starts a **new** press + drag left
-///    past `dismissThresholdPt` does Sing turn off.
+/// Pure, testable gesture state machine implementing the single-gesture high-end overpull exit rule:
+/// 1. Dragging down/left to `0%` (pure instrumental) clamps cleanly at `0` and **never** exits Sing.
+/// 2. Dragging up/right to `100%` (original vocals) and continuing past the `100%` end by
+///    `dismissThresholdPt` in a single continuous gesture provides elastic overpull feedback and
+///    exits Sing directly without needing to lift and re-drag.
 struct SingCapsuleDismissGesture: Equatable, Sendable {
     enum StepResult: Equatable, Sendable {
         /// Update vocal slider level (`0...1`); `overpullProgress` (`0...1`) drives elastic pull feedback
-        /// during the deliberate second-drag exit.
+        /// past the `100%` end before exiting.
         case update(level: Float, overpullProgress: CGFloat)
-        /// Second-drag threshold crossed from `0%` — exit Sing now.
+        /// Overpull threshold crossed past `100%` — exit Sing now.
         case dismiss
     }
 
     private(set) var isActive = false
-    private(set) var startedAtMinimum = false
     private(set) var startLevel: Float = SingGainCurve.defaultSlider
     private(set) var dismissed = false
 
@@ -162,41 +190,63 @@ struct SingCapsuleDismissGesture: Equatable, Sendable {
 
     mutating func begin(currentLevel: Float) {
         isActive = true
-        startedAtMinimum = SingGainCurve.isAtMinimum(currentLevel)
         startLevel = max(0, min(1, currentLevel))
         dismissed = false
     }
 
-    /// Evaluates one drag update given horizontal translation `translationX` (negative = dragging left)
-    /// and usable slider travel width `trackWidth`.
-    mutating func drag(translationX: CGFloat, trackWidth: CGFloat) -> StepResult {
+    /// Evaluates one relative drag update given positive-toward-max `deltaPt`
+    /// (`+translationX` on horizontal capsule, `-translationY` on vertical slider) and usable `trackLength`.
+    mutating func drag(deltaPt: CGFloat, trackLength: CGFloat) -> StepResult {
         if !isActive {
             begin(currentLevel: startLevel)
         }
         if dismissed {
             return .dismiss
         }
-        // Only a brand-new gesture that STARTED while already at 0% can exit Sing on a leftward pull.
-        if startedAtMinimum && translationX < 0 {
-            let pull = -translationX
-            if pull >= dismissThresholdPt {
+        let width = max(1, trackLength)
+        let travelToMax = CGFloat(1.0 - startLevel) * width
+        if deltaPt > travelToMax {
+            let overshoot = deltaPt - travelToMax
+            if overshoot >= dismissThresholdPt {
                 dismissed = true
                 return .dismiss
             }
-            let progress = min(1, max(0, pull / dismissThresholdPt))
-            return .update(level: 0, overpullProgress: progress)
+            let progress = min(1, max(0, overshoot / dismissThresholdPt))
+            return .update(level: 1.0, overpullProgress: progress)
         }
 
-        // Standard level drag (or pulling right from 0%): clamps cleanly to [0, 1] and NEVER dismisses.
-        let width = max(1, trackWidth)
-        let raw = startLevel + Float(translationX / width)
+        // Standard scrub (including dragging arbitrarily far past 0%): clamps cleanly to [0, 1] and never dismisses.
+        let raw = startLevel + Float(deltaPt / width)
+        let clamped = max(0, min(1, raw))
+        return .update(level: SingGainCurve.snap(clamped), overpullProgress: 0)
+    }
+
+    /// Evaluates an absolute vertical touch position (`y == 0` is 100%, `y == trackHeight` is 0%,
+    /// `y < 0` is overpull past the top 100% end).
+    mutating func dragVerticalAbsolute(locationY: CGFloat, trackHeight: CGFloat) -> StepResult {
+        if !isActive {
+            begin(currentLevel: startLevel)
+        }
+        if dismissed {
+            return .dismiss
+        }
+        let h = max(1, trackHeight)
+        if locationY < 0 {
+            let overshoot = -locationY
+            if overshoot >= dismissThresholdPt {
+                dismissed = true
+                return .dismiss
+            }
+            let progress = min(1, max(0, overshoot / dismissThresholdPt))
+            return .update(level: 1.0, overpullProgress: progress)
+        }
+        let raw = Float(1.0 - locationY / h)
         let clamped = max(0, min(1, raw))
         return .update(level: SingGainCurve.snap(clamped), overpullProgress: 0)
     }
 
     mutating func end() {
         isActive = false
-        startedAtMinimum = false
         dismissed = false
     }
 }

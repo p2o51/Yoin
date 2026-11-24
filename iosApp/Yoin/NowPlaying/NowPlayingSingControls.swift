@@ -51,8 +51,8 @@ struct SingMicOffGlyph: View {
 /// - Preparing: native `ProgressView` tinted `onPrimaryContainer` (tap cancels, zero popups)
 /// - Failure: brief error-container tint flash + horizontal micro-shake (no modal/toast)
 /// - Active: expands in-place on `Yoin.spatial` into a `124pt × keySize` short `Capsule` vocal slider
-///   with a subtle `12%` detent notch, left mic tap-to-exit, two-step anti-accidental-dismiss left-drag,
-///   and **zero percentage text**.
+///   with a subtle default-detent notch (~1/3 travel), left mic tap-to-exit, single-gesture right-overpull
+///   past 100% to return to original vocals, and **zero percentage text**.
 struct SingLyricsCapsuleKey: View {
     var phase: SingSessionController.Phase
     var level: Float
@@ -86,7 +86,7 @@ struct SingLyricsCapsuleKey: View {
             }
         }
         .frame(width: isActive ? expandedWidth : keySize, height: keySize)
-        .offset(x: (isActive ? -overpull * 6 : 0) + errorShakeX)
+        .offset(x: (isActive ? overpull * 6 : 0) + errorShakeX)
         .animation(Yoin.spatial, value: isActive)
         .animation(Yoin.effects, value: isPreparing)
         .animation(Yoin.effects, value: errorFlash)
@@ -181,7 +181,7 @@ struct SingLyricsCapsuleKey: View {
                         if dist < 5 { return }
 
                         let trackW = max(1, w - 16)
-                        switch gesture.drag(translationX: value.translation.width, trackWidth: trackW) {
+                        switch gesture.drag(deltaPt: value.translation.width, trackLength: trackW) {
                         case .update(let nextLevel, let pull):
                             overpull = pull
                             let inDetent = SingGainCurve.isInDetent(nextLevel)
@@ -234,13 +234,18 @@ struct SingLyricsCapsuleKey: View {
 }
 
 /// Compact Now Playing vertical vocal slider — morphs in-place from `RatingBar` (`48pt` wide Capsule).
-/// Zero percentage text; bottom `yoin.mic` icon with fill-clipped dual-tone contrast + `12%` detent notch.
+/// Zero percentage text; bottom `yoin.mic` icon with fill-clipped dual-tone contrast + default detent notch (~1/3).
+/// Dragging down to 0% stops cleanly at pure instrumental; dragging up past 100% in a single gesture
+/// overpulls elastically and exits Sing back to original vocals.
 struct SingVocalVerticalSlider: View {
     var level: Float
     var scheme: CoverScheme
     var haptics: Bool = true
     var onLevelChange: (Float) -> Void
+    var onExit: () -> Void = {}
 
+    @State private var gesture = SingCapsuleDismissGesture(dismissThresholdPt: 28)
+    @State private var overpull: CGFloat = 0
     @State private var dragging = false
     @State private var wasInDetent = false
 
@@ -263,7 +268,7 @@ struct SingVocalVerticalSlider: View {
                     .frame(width: w, height: fillHeight)
                     .animation(dragging ? nil : Yoin.spatial, value: clamped)
 
-                // Subtle 12% detent notch
+                // Subtle default detent notch (~34%)
                 Capsule(style: .continuous)
                     .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.34))
                     .frame(width: 12, height: 2)
@@ -278,24 +283,38 @@ struct SingVocalVerticalSlider: View {
             }
             .clipShape(Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
+            .offset(y: -overpull * 6)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if !dragging {
                             dragging = true
+                            gesture.begin(currentLevel: level)
                             wasInDetent = SingGainCurve.isInDetent(level)
                         }
-                        let raw = Float(1.0 - value.location.y / h)
-                        let snapped = SingGainCurve.snap(raw)
-                        let inDetent = SingGainCurve.isInDetent(snapped)
-                        if haptics && inDetent && !wasInDetent {
-                            UISelectionFeedbackGenerator().selectionChanged()
+                        switch gesture.dragVerticalAbsolute(locationY: value.location.y, trackHeight: h) {
+                        case .update(let snapped, let pull):
+                            overpull = pull
+                            let inDetent = SingGainCurve.isInDetent(snapped)
+                            if haptics && inDetent && !wasInDetent {
+                                UISelectionFeedbackGenerator().selectionChanged()
+                            }
+                            wasInDetent = inDetent
+                            onLevelChange(snapped)
+                        case .dismiss:
+                            if haptics {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
+                            overpull = 0
+                            dragging = false
+                            gesture.end()
+                            onExit()
                         }
-                        wasInDetent = inDetent
-                        onLevelChange(snapped)
                     }
                     .onEnded { _ in
+                        gesture.end()
                         dragging = false
+                        withAnimation(Yoin.spatial) { overpull = 0 }
                     }
             )
         }

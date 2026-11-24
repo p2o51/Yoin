@@ -1072,10 +1072,14 @@ struct NowPlayingView: View, Equatable {
                         SingVocalVerticalSlider(
                             level: model.sing.sliderPosition,
                             scheme: scheme,
-                            haptics: demo == nil
-                        ) { nextLevel in
-                            model.sing.setSliderPosition(nextLevel)
-                        }
+                            haptics: demo == nil,
+                            onLevelChange: { nextLevel in
+                                model.sing.setSliderPosition(nextLevel)
+                            },
+                            onExit: {
+                                model.sing.exit()
+                            }
+                        )
                         .transition(.asymmetric(
                             insertion: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity),
                             removal: .scale(scale: 0.94, anchor: .bottom).combined(with: .opacity)

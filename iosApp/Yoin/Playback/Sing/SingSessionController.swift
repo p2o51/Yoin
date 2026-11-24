@@ -95,9 +95,9 @@ final class SingSessionController {
         let wasEnabled = isEnabled
         isEnabled = false
         phase = .off
-        // Exiting at 0% (two-step left-drag dismiss) resets the remembered level back to the 12% default
-        // so re-entering Sing never opens an empty capsule.
-        if SingGainCurve.isAtMinimum(sliderPosition) {
+        // Exiting at 100% (right/up overpull dismiss back to original vocals) resets the remembered level
+        // back to the default sweet spot (~12% gain) so re-entering Sing audibly lowers vocals again.
+        if SingGainCurve.isAtMaximum(sliderPosition) {
             sliderPosition = SingGainCurve.defaultSlider
         }
         guard wasEnabled else { return }
