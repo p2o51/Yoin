@@ -1,8 +1,9 @@
 // The @ popup never covers the line being written (Android MentionPopupPositionTest).
 // Here the caret rect is already in the overlay's coordinates.
-import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 import 'package:yoin/notes/editor/mention_popup.dart';
+import 'package:yoin/notes/editor/note_markup_field.dart';
 import 'package:yoin/theme/tokens.dart';
 
 void main() {
@@ -66,5 +67,33 @@ void main() {
       mentionPopupListMax(caretTop: 100, caretBottom: 140, topLimit: 60, bottomLimit: 200),
       NoteEditorTokens.popupMinListHeight,
     );
+  });
+
+  testWidgets('should_readTheKeyboardFromTheWindow_evenWhenTheOverlaySitsLower', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final key = GlobalKey();
+    // An overlay that starts 100 below the window's top (a nested navigator under a header).
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            const SizedBox(height: 100),
+            Expanded(child: SizedBox.expand(key: key)),
+          ],
+        ),
+      ),
+    );
+    final overlay = key.currentContext!.findRenderObject()! as RenderBox;
+    const window = MediaQueryData(
+      size: Size(400, 800),
+      padding: EdgeInsets.only(top: 24),
+      viewInsets: EdgeInsets.only(bottom: 300),
+    );
+    final (top, bottom) = mentionPopupLimits(window, overlay);
+    expect(top, 0, reason: 'the status bar is above this overlay');
+    expect(bottom, 400, reason: 'the keyboard starts 500 down the window, 400 down the overlay');
   });
 }

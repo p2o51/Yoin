@@ -236,9 +236,9 @@ class _NoteMarkupFieldState extends ConsumerState<NoteMarkupField> {
     final anchor = _anchor(overlay);
     if (anchor == null) return const SizedBox.shrink();
     final (field, caret) = anchor;
-    final media = MediaQuery.of(overlayContext);
-    final topLimit = media.padding.top;
-    final bottomLimit = overlay.size.height - media.viewInsets.bottom;
+    // The window's own status bar and keyboard (not the MediaQuery here: a Scaffold body or a nested
+    // navigator above this overlay may have taken the keyboard's inset out), in the overlay's coordinates.
+    final (topLimit, bottomLimit) = mentionPopupLimits(MediaQueryData.fromView(View.of(overlayContext)), overlay);
     return Positioned.fill(
       child: CustomSingleChildLayout(
         delegate: MentionPopupLayout(field: field, caret: caret, topLimit: topLimit, bottomLimit: bottomLimit),
@@ -315,6 +315,14 @@ class _NoteMarkupFieldState extends ConsumerState<NoteMarkupField> {
       ),
     );
   }
+}
+
+/// The status bar's bottom and the keyboard's top in [overlay]'s coordinates, from the window's own
+/// insets ([window]: [MediaQueryData.fromView]).
+(double, double) mentionPopupLimits(MediaQueryData window, RenderBox overlay) {
+  final top = overlay.globalToLocal(Offset(0, window.padding.top)).dy;
+  final bottom = overlay.globalToLocal(Offset(0, window.size.height - window.viewInsets.bottom)).dy;
+  return (top.clamp(0.0, overlay.size.height), bottom.clamp(0.0, overlay.size.height));
 }
 
 class _MoveIntent extends Intent {
