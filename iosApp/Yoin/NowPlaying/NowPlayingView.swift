@@ -1351,7 +1351,7 @@ struct NowPlayingView: View, Equatable {
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
                     }
                     let on = shown == page.rawValue
-                    // The selected pill's tint and ink pass to the next with the finger.
+                    // The selected pill's tint passes to the next with the finger.
                     let sel = NowPlayingPager.selection(of: page.rawValue, at: position)
                     let dark = colorScheme == .dark
                     let selectedInk: Color = lab.usesAccentOnColor("npFloating", dark: dark) ? scheme.onPrimary : Color.white
@@ -1365,7 +1365,9 @@ struct NowPlayingView: View, Equatable {
                     Button { settlePager(on: page.rawValue) } label: {
                         Text(page.title)
                             .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
-                            .foregroundStyle(restInk.mix(with: selectedInk, by: Double(sel)))
+                            // The ink turns with the bold, half way (a mid-swipe mix of the two
+                            // inks sank into the mid-swipe tint).
+                            .foregroundStyle(on ? selectedInk : restInk)
                             .labContrast(on ? "transportPrimary" : "npPills")
                             .frame(maxWidth: .infinity)
                             .frame(height: NowPlayingExpanded.tabRow)
