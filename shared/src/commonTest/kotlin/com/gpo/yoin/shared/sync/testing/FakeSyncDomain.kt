@@ -1,6 +1,7 @@
 package com.gpo.yoin.shared.sync.testing
 
 import com.gpo.yoin.shared.backup.PlaylistBackupRow
+import com.gpo.yoin.shared.sync.adapters.AlbumNoteRow
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
 import com.gpo.yoin.shared.sync.adapters.HomeLayoutRow
@@ -31,6 +32,7 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     val trackRatings = LinkedHashMap<Triple<String, String, String>, TrackRatingRow>()
     val albumRatings = LinkedHashMap<Triple<String, String, String>, AlbumRatingRow>()
     val notes = LinkedHashMap<String, SongNoteRow>()
+    val albumNotes = LinkedHashMap<String, AlbumNoteRow>()
     val albumTitles = LinkedHashMap<Triple<String, String, String>, AlbumTitleRow>()
     val memories = LinkedHashMap<List<String>, MemoryCopyRow>()
     val abouts = LinkedHashMap<List<String>, SongAboutRow>()
@@ -88,6 +90,22 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun deleteNote(id: String, profileId: String): Boolean {
         if (failWrites) return false
         if (notes[id]?.profileId == profileId) notes.remove(id)
+        return true
+    }
+
+    override fun albumNotes(profileId: String) = albumNotes.values.filter { it.profileId == profileId }
+
+    override fun albumNote(id: String) = albumNotes[id]
+
+    override fun putAlbumNote(row: AlbumNoteRow): Boolean {
+        if (failWrites) return false
+        albumNotes[row.id] = row
+        return true
+    }
+
+    override fun deleteAlbumNote(id: String, profileId: String): Boolean {
+        if (failWrites) return false
+        if (albumNotes[id]?.profileId == profileId) albumNotes.remove(id)
         return true
     }
 

@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.sync
 
+import com.gpo.yoin.shared.sync.adapters.AlbumNoteRow
 import com.gpo.yoin.shared.sync.adapters.SharedSyncAdapters
 import com.gpo.yoin.shared.sync.adapters.SongNoteRow
 import com.gpo.yoin.shared.sync.adapters.TrackRatingRow
@@ -171,6 +172,89 @@ class CloudSyncCoreTest {
         android.syncNow()
         assertEquals("from iPhone", androidDomain.note("n2")?.content)
         assertEquals(androidBytes.keys, androidFiles)
+    }
+
+    private fun albumNote(id: String, text: String) =
+        AlbumNoteRow(id, "p", "al-harbor", "subsonic", text, now, now, "Paper Lanterns", "Kiri Ono")
+
+    /** iOS notes phase 1b over Google Drive: album notes go both ways, edits and deletes included. */
+    @Test
+    fun should_carryAlbumNotesBothWays_when_syncingThroughGoogleDrive() = runTest {
+        val (android, androidDomain) = device("Pixel Tablet", readOnly = false)
+        androidDomain.putAlbumNote(albumNote("an-1", "# Side B\n[@Kites](yoin:track/subsonic:t4)"))
+        androidDomain.putAlbumNote(albumNote("an-2", "second sticky"))
+        assertNull(android.enable("token"))
+
+        val (ios, iosDomain) = device("iPhone", readOnly = true, backups = Backups())
+        now += 1_000
+        assertNull(ios.enable("token"))
+        assertEquals("# Side B\n[@Kites](yoin:track/subsonic:t4)", iosDomain.albumNote("an-1")?.content)
+        assertEquals(setOf("an-1", "an-2"), iosDomain.albumNotes("p").map { it.id }.toSet())
+
+        // Edited and deleted on the iPhone, a new one written there: Android follows.
+        now += 61_000
+        iosDomain.putAlbumNote(iosDomain.albumNote("an-2")!!.copy(content = "edited on iPhone", updatedAt = now))
+        iosDomain.deleteAlbumNote("an-1", "p")
+        iosDomain.putAlbumNote(albumNote("an-3", "from iPhone"))
+        ios.syncNow()
+        now += 1_000
+        android.syncNow()
+        assertEquals("edited on iPhone", androidDomain.albumNote("an-2")?.content)
+        assertNull(androidDomain.albumNote("an-1"))
+        assertEquals("from iPhone", androidDomain.albumNote("an-3")?.content)
+    }
+
+    /** iOS notes phase 1b over iCloud: two Apple devices share album notes; removing the account keeps them. */
+    @Test
+    fun should_carryAlbumNotesBetweenAppleDevices_when_syncingThroughICloud() = runTest {
+        val icloud = FakeDrive()
+        val icloudTransport = object : SyncTransport by icloud.transport() {
+            override suspend fun about() = GoogleAccountInfo("icloud:_user123", null, "iCloud")
+        }
+        fun apple(name: String, domain: FakeSyncDomain) = CloudSyncCore(
+            store = InMemorySyncStore(),
+            adapters = { SharedSyncAdapters.create(domain, it) },
+            profiles = { domain.profiles() },
+            tokens = object : SyncTokenProvider {
+                override suspend fun token() = error("iCloud must not ask for Google tokens")
+                override suspend fun invalidate(token: String) = Unit
+            },
+            transportFactory = { error("iCloud must not construct Drive client") },
+            deviceName = { name },
+            versionCode = 36,
+            clock = { now },
+            readOnlyFirstPull = false,
+            icloudTransport = icloudTransport,
+        )
+        val iphoneDomain = FakeSyncDomain().apply { profileList += profile }
+        val ipadDomain = FakeSyncDomain().apply { profileList += profile }
+        val iphone = apple("iPhone 17 Pro", iphoneDomain)
+        val ipad = apple("iPad Pro", ipadDomain)
+
+        iphoneDomain.putAlbumNote(albumNote("an-1", "**from iPhone** via iCloud"))
+        iphoneDomain.putAlbumNote(albumNote("an-2", "goes away"))
+        assertNull(iphone.enableICloud())
+        now += 1_000
+        assertNull(ipad.enableICloud())
+        assertEquals("**from iPhone** via iCloud", ipadDomain.albumNote("an-1")?.content)
+        assertNotNull(ipadDomain.albumNote("an-2"))
+
+        now += 1_000
+        ipadDomain.deleteAlbumNote("an-2", "p")
+        ipad.syncNow()
+        now += 1_000
+        iphone.syncNow()
+        assertNull(iphoneDomain.albumNote("an-2"))
+        assertEquals("**from iPhone** via iCloud", iphoneDomain.albumNote("an-1")?.content)
+
+        // Remove the account from iCloud: local album notes stay on both devices.
+        val scope = iphone.currentState().accounts.single().syncProfileId!!
+        now += 1_000
+        assertNull(iphone.removeAccountFromCloud(scope))
+        now += 1_000
+        ipad.syncNow()
+        assertNotNull(iphoneDomain.albumNote("an-1"))
+        assertNotNull(ipadDomain.albumNote("an-1"))
     }
 
     @Test
