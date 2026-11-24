@@ -192,8 +192,54 @@ class NoteEditorTextTest {
         val original = "@an"
         val trigger = NoteEditorText.trigger(original, 3)!!
 
+        // typing goes on as typed; a newline anywhere in the token is Enter (see the delivery shapes below)
         assertNull(NoteEditorText.enterPicksMention(original, "@and", trigger, andromeda))
-        assertNull(NoteEditorText.enterPicksMention(original, "@a\nn", trigger, andromeda))
-        assertNull(NoteEditorText.enterPicksMention(original, "@an\n\n", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention(original, "@a", trigger, andromeda))
+    }
+
+    @Test
+    fun should_pickOnEnter_whateverShapeTheKeyboardDeliversItIn() {
+        val original = "x @Ni y"
+        val trigger = NoteEditorText.trigger(original, 5)!!
+        val picked = "x $link y"
+
+        // a bare newline at the token's end
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Ni\n y", trigger, andromeda)?.text)
+        // the composing word committed (auto-corrected / completed) with the newline in one batch
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Nice\n y", trigger, andromeda)?.text)
+        // the composing word replaced by the newline
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @\n y", trigger, andromeda)?.text)
+        // a newline and a space (some keyboards add one) after the word
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Ni \n y", trigger, andromeda)?.text)
+    }
+
+    @Test
+    fun should_pickOnEnter_beforeANewlineAlreadyAfterTheToken() {
+        val original = "@an\nnext line"
+        val trigger = NoteEditorText.trigger(original, 3)!!
+
+        val fix = NoteEditorText.enterPicksMention(original, "@an\n\nnext line", trigger, andromeda)!!
+
+        assertEquals("$link \nnext line", fix.text)
+    }
+
+    @Test
+    fun should_leaveNewlinesOutsideTheToken_asTyped() {
+        val original = "a\n@an"
+        val trigger = NoteEditorText.trigger(original, 5)!!
+
+        // before the @ (another line), or touching text past the token: not Enter at the popup
+        assertNull(NoteEditorText.enterPicksMention(original, "\na\n@an", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention("@an b", "@an\n", NoteEditorText.trigger("@an b", 3)!!, andromeda))
+    }
+
+    @Test
+    fun should_openTheTrigger_onAFullWidthAt_followedByCommittedChinese() {
+        // Gboard's Chinese keyboard types "＠" and commits characters from its own candidate strip
+        assertEquals(MentionTrigger(0, 3, "灯塔"), NoteEditorText.trigger("＠灯塔", 3))
+        assertEquals("灯塔", NoteEditorText.trigger("这首像＠灯塔", 6)?.query)
+        assertEquals("", NoteEditorText.trigger("这首像＠", 4)?.query)
+        val fix = NoteEditorText.insertMention("这首像＠灯塔", 6, 6, NoteEditorText.trigger("这首像＠灯塔", 6), andromeda)
+        assertEquals("这首像$link ", fix.text)
     }
 }

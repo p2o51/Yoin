@@ -53,13 +53,33 @@ object NoteEditorText {
     }
 
     /**
-     * Enter on the soft keyboard while the @ popup is open: the newline it typed at the `@`'s end becomes [pick]
-     * (the popup's top or highlighted row) instead. Null for any other edit, which stands as typed.
+     * Enter on the soft keyboard while the @ popup is open: [pick] (the popup's top or highlighted row) takes the
+     * `@` token's place and the newline is dropped. Keyboards deliver that Enter in different shapes, all taken
+     * here: a bare "\n" at the token's end; the composing word committed (or auto-corrected, auto-completed)
+     * together with the newline in one batch ("@Ni" → "@Nice\n"); the composing word replaced by the newline
+     * ("@Ni" → "@\n"); a newline that lands next to another one already after the token. Any edit that inserts
+     * a newline inside or at the end of the token, and changes nothing past it, counts. Null for any other edit,
+     * which stands as typed.
      */
     fun enterPicksMention(original: String, edited: String, trigger: MentionTrigger, pick: NoteMention): NoteEdit? {
-        if (trigger.end > original.length) return null
-        val expected = original.substring(0, trigger.end) + "\n" + original.substring(trigger.end)
-        if (edited != expected) return null
+        if (trigger.end > original.length || trigger.start >= trigger.end) return null
+        if (original.getOrNull(trigger.start)?.let { it in TRIGGER_CHARS } != true) return null
+        // The changed span, its start held at the token's end at most (a newline typed before another newline
+        // after the token reads as inserted there, not further on).
+        var prefix = 0
+        val maxPrefix = minOf(original.length, edited.length, trigger.end)
+        while (prefix < maxPrefix && original[prefix] == edited[prefix]) prefix++
+        var suffix = 0
+        while (suffix < minOf(original.length, edited.length) - prefix &&
+            original[original.length - 1 - suffix] == edited[edited.length - 1 - suffix]
+        ) {
+            suffix++
+        }
+        val removedEnd = original.length - suffix
+        val inserted = edited.substring(prefix, edited.length - suffix)
+        if ('\n' !in inserted) return null
+        // Inside the token (after its `@`) up to its end, and nothing after the token touched.
+        if (prefix <= trigger.start || prefix > trigger.end || removedEnd > trigger.end) return null
         return insertMention(original, trigger.end, trigger.end, trigger, pick)
     }
 

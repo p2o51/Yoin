@@ -144,6 +144,11 @@ fun NoteMarkupField(
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         lineLimits = lineLimits,
         inputTransformation = state.inputTransformation,
+        // A keyboard that sends Enter as an editor action instead of a newline: the same pick while @ is open.
+        onKeyboardAction = { performDefault ->
+            val row = enterPick
+            if (popupOpen && row != null) pick(row) else performDefault()
+        },
         outputTransformation = output,
         onTextLayout = { result ->
             result()?.let {

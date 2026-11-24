@@ -44,6 +44,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -94,7 +95,8 @@ internal fun MentionPopup(
     onExpand: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val position = remember(anchor) { CaretPopupPosition(anchor) }
+    val marginPx = with(LocalDensity.current) { PopupMargin.roundToPx() }
+    val position = remember(anchor, marginPx) { CaretPopupPosition(anchor, marginPx) }
     val visible = remember { MutableTransitionState(false) }.apply { targetState = true }
     Popup(
         popupPositionProvider = position,
@@ -242,26 +244,38 @@ private fun highlightMatch(title: String, query: String) = buildAnnotatedString 
     append(title.substring(at + query.trim().length))
 }
 
-/** Places the popup's bottom-left at the caret's top (above the line), or its top at the line's bottom. */
-private class CaretPopupPosition(private val caret: Rect) : PopupPositionProvider {
+/**
+ * Places the popup so it never covers the line being written (2026-11-24 tablet QA: on a phone it hid the draft's
+ * first line): above the whole field when there's room (the write bar's words stay in view), else above the
+ * caret's line, else below it. Horizontally it starts at the caret.
+ */
+private class CaretPopupPosition(private val caret: Rect, private val marginPx: Int) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
-    ): IntOffset {
-        val margin = 8
-        val caretTop = anchorBounds.top + caret.top.toInt()
-        val caretBottom = anchorBounds.top + caret.bottom.toInt()
-        val x = (anchorBounds.left + caret.left.toInt() - 16)
-            .coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin))
-        val above = caretTop - popupContentSize.height - margin
-        val y = if (above >= margin) above else caretBottom + margin
-        return IntOffset(x, y)
+    ): IntOffset = mentionPopupOffset(anchorBounds, caret, windowSize, popupContentSize, marginPx)
+}
+
+/** [CaretPopupPosition]'s placement: [field] in window pixels, [caret] relative to it. */
+internal fun mentionPopupOffset(field: IntRect, caret: Rect, window: IntSize, popup: IntSize, margin: Int): IntOffset {
+    val caretTop = field.top + caret.top.toInt()
+    val caretBottom = field.top + caret.bottom.toInt()
+    val x = (field.left + caret.left.toInt() - margin * 2)
+        .coerceIn(margin, (window.width - popup.width - margin).coerceAtLeast(margin))
+    val aboveField = field.top - popup.height - margin
+    val aboveLine = caretTop - popup.height - margin
+    val y = when {
+        aboveField >= margin -> aboveField
+        aboveLine >= margin -> aboveLine
+        else -> caretBottom + margin
     }
+    return IntOffset(x, y)
 }
 
 private val PopupWidth = 312.dp
+private val PopupMargin = 8.dp
 private val PopupMaxListHeight = 300.dp
 
 /**
