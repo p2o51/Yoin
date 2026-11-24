@@ -12,14 +12,12 @@ import com.gpo.yoin.player.sing.dsp.SeparationModel
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.zip.CRC32
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -211,57 +209,79 @@ internal object LiteRtRuntime {
 }
 
 /**
- * On-device Sing through LiteRT: the builds the meta lists for this device ([SingLiteRtPlan] — the
- * Tensor TPU with this SoC's AOT build, then the GPU, then the CPU with the fp16 build), copied out of the
- * APK's assets into no-backup storage on first use and SHA-256-checked against [SingLiteRtPlan.TRUSTED_SHA256]
- * on every open. A session is a [SingRoutedModel] over that plan.
+ * On-device Sing through LiteRT: the builds [models] resolves for this device (the Play AI Pack's group
+ * for this SoC, or the bundled builds of a test APK — [SingModelResolver]), routed by [SingLiteRtPlan]: the
+ * Tensor TPU with this SoC's AOT build, then the GPU, then the CPU with the fp16 build. Every build is
+ * SHA-256-checked against [SingLiteRtPlan.TRUSTED] on every open. A session is a [SingRoutedModel] over
+ * the plan.
+ *
+ * Which builds the device has is known only once they are here (the pack may still need downloading):
+ * [modelId] and [gateTag] name the build this SoC is expected to get first
+ * ([SingLiteRtPlan.expectedSha256]), so the cache and the device gate don't wait for the download.
  */
 class LiteRtSingBackend(
     private val context: Context,
-    private val catalog: LiteRtCatalog,
+    private val models: SingModelResolver,
     private val threads: Int,
-    socManufacturer: String? = socManufacturer(),
-    socModel: String? = socModel(),
-    npuAllowed: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+    private val socManufacturer: String? = socManufacturer(),
+    private val socModel: String? = socModel(),
+    private val npuAllowed: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
 ) : SingSeparationBackend {
-    val plan: List<LiteRtCandidate> = SingLiteRtPlan.plan(catalog, socManufacturer, socModel, npuAllowed)
+    /** The builds on the device and the router's order over them. */
+    private class Resolved(val set: SingModelSet, val plan: List<LiteRtCandidate>)
 
-    private val dir = File(context.noBackupFilesDir, MODEL_DIR)
+    @Volatile private var resolved: Resolved? = null
+
+    /** False once [SingModelResolver.local] found nothing: asked again only by [ensure]. */
+    @Volatile private var lookedLocally = false
+
     private val mutex = Mutex()
 
     /** "Google Tensor G6" (Build.SOC_MANUFACTURER, Build.SOC_MODEL), for the Labs row and logs. */
     private val soc: String? = listOfNotNull(socManufacturer, socModel).joinToString(" ").ifEmpty { null }
 
-    init {
-        require(plan.isNotEmpty()) { "no LiteRT build for this device" }
-        Log.d(TAG, "LiteRT plan for SoC $socManufacturer/$socModel: ${plan.joinToString(" → ")}")
-    }
+    private val expected: String = SingLiteRtPlan.expectedSha256(socManufacturer, socModel, npuAllowed)?.take(12) ?: "none"
 
-    private val models: List<LiteRtModelMeta> = plan.map { it.model }.distinct()
+    override val modelId: String = "litert:$expected"
 
-    override val modelId: String = "litert:" + models.joinToString("+") { it.sha256.take(12) }
+    override val gateTag: String = "litert-$LITERT_VERSION|$threads|$expected"
 
-    override val gateTag: String = "litert-$LITERT_VERSION|$threads|" + plan.joinToString(",") { "${it.model.sha256.take(12)}@${it.accelerator}" }
+    /** The router's order, once the builds are here (empty before). */
+    val plan: List<LiteRtCandidate> get() = resolved?.plan.orEmpty()
 
     override val readyModel: File?
-        get() = models.all { fileFor(it).length() == it.bytes }.let { ready -> if (ready) fileFor(plan.first().model) else null }
+        get() {
+            val r = resolved ?: lookLocally() ?: return null
+            return if (r.set.complete()) r.set.fileFor(r.plan.first().model) else null
+        }
 
     override suspend fun ensure(onProgress: (Float) -> Unit): File = mutex.withLock {
         withContext(Dispatchers.IO) {
-            val total = models.sumOf { it.bytes }.toFloat()
-            var done = 0L
-            for (meta in models) {
-                ensureActive()
-                val target = fileFor(meta)
-                if (target.length() != meta.bytes || sha256(target) != meta.sha256) copyFromAssets(meta, target)
-                done += meta.bytes
-                onProgress(done / total)
-            }
-            fileFor(plan.first().model)
+            val set = models.resolve(onProgress)
+            val r = resolve(set) ?: throw SingModelUnavailable("${set.origin}: no LiteRT build this device may run")
+            resolved = r
+            r.set.fileFor(r.plan.first().model)
         }
     }
 
+    private fun lookLocally(): Resolved? {
+        if (lookedLocally) return null
+        lookedLocally = true
+        return models.local()?.let(::resolve)?.also { resolved = it }
+    }
+
+    private fun resolve(set: SingModelSet): Resolved? {
+        val plan = SingLiteRtPlan.plan(set.catalog, socManufacturer, socModel, npuAllowed)
+        Log.i(TAG, "Sing models from ${set.origin}; LiteRT plan for SoC $socManufacturer/$socModel: ${plan.joinToString(" → ").ifEmpty { "none" }}")
+        if (plan.isEmpty()) return null
+        if (!plan.first().model.sha256.lowercase().startsWith(expected)) {
+            Log.w(TAG, "first build ${buildName(plan.first())} is not the one expected for this SoC ($expected)")
+        }
+        return Resolved(set, plan)
+    }
+
     override fun open(model: File): SeparationModel {
+        val r = checkNotNull(resolved) { "models not resolved" }
         val t0 = System.nanoTime()
         val report = SingAcceleratorReport.get(context)
         // Each backend left this session and why: one that wouldn't open is unavailable, one whose chunk
@@ -269,10 +289,10 @@ class LiteRtSingBackend(
         var opening: LiteRtCandidate? = null
         val left = mutableListOf<Pair<SingAccelerator, SingFallbackReason>>()
         return SingRoutedModel(
-            candidates = plan,
+            candidates = r.plan,
             open = { candidate ->
                 opening = candidate
-                openCandidate(candidate).also { opening = null }
+                openCandidate(r, candidate).also { opening = null }
             },
             onRunning = { candidate ->
                 val run = SingBackendRun(
@@ -295,58 +315,50 @@ class LiteRtSingBackend(
         }
     }
 
-    private fun openCandidate(candidate: LiteRtCandidate): SeparationModel {
+    private fun openCandidate(r: Resolved, candidate: LiteRtCandidate): SeparationModel {
         val meta = candidate.model
-        val file = fileFor(meta)
+        val file = r.set.fileFor(meta)
         if (!file.isFile) throw FileNotFoundException(file.path)
         // Checked on every open: only a build this code trusts runs, whatever is on disk.
-        val sha = sha256(file)
-        if (sha != meta.sha256.lowercase() || sha !in SingLiteRtPlan.TRUSTED_SHA256) {
-            throw IOException("${meta.file}: SHA-256 $sha is not the trusted ${meta.sha256}")
-        }
+        SingModelFiles.verify(file, meta)
         val t0 = System.nanoTime()
         return LiteRtSeparationModel.open(
             context = context,
             file = file,
             accelerator = candidate.accelerator,
             threads = threads,
-            gpuCacheKey = "lyra-${sha.take(16)}",
-            npuEnvironment = plan.any { it.accelerator == SingAccelerator.NPU },
+            gpuCacheKey = "lyra-${meta.sha256.lowercase().take(16)}",
+            npuEnvironment = r.plan.any { it.accelerator == SingAccelerator.NPU },
         ).also {
             Log.d(TAG, "LiteRT ${label(candidate)} compiled in ${(System.nanoTime() - t0) / 1_000_000} ms")
         }
     }
 
-    private fun copyFromAssets(meta: LiteRtModelMeta, target: File) {
-        dir.mkdirs()
-        val part = File(dir, target.name + ".part")
-        context.assets.open("${SingLiteRtPlan.ASSET_DIR}/${meta.file}").use { input -> part.outputStream().use { input.copyTo(it, 64 * 1024) } }
-        val sha = sha256(part)
-        if (sha != meta.sha256.lowercase() || sha !in SingLiteRtPlan.TRUSTED_SHA256) {
-            part.delete()
-            throw IOException("${meta.file}: SHA-256 $sha does not match ${meta.sha256}")
-        }
-        if (!part.renameTo(target)) {
-            part.delete()
-            throw IOException("${meta.file}: could not move into place")
-        }
-    }
-
-    private fun fileFor(meta: LiteRtModelMeta) = File(dir, meta.file)
-
     companion object {
         private const val TAG = "YoinSing"
         const val LITERT_VERSION = "2.4.0"
+
+        /** Where bundled builds are copied to (noBackupFilesDir); AI Pack builds stay where Play puts them. */
         const val MODEL_DIR = "sing-model-litert"
 
-        /** The bundled meta, or null when this APK has no LiteRT builds. */
-        fun bundledCatalog(context: Context): LiteRtCatalog? = try {
-            context.assets.open(SingLiteRtPlan.META_ASSET).use { SingLiteRtPlan.parse(it.readBytes().decodeToString()) }
-        } catch (e: FileNotFoundException) {
-            null
-        } catch (e: Exception) {
-            Log.w(TAG, "LiteRT model meta unreadable", e)
-            null
+        /**
+         * Where this build's models come from, in order: the bundled builds when the APK has them
+         * ([bundled]: BuildConfig.SING_BUNDLED_MODELS, `-PyoinSingBundledModels=true`), then the Play AI Pack.
+         */
+        fun resolver(context: Context, bundled: Boolean, log: (String) -> Unit = { Log.i(TAG, it) }): SingModelResolver {
+            val maker = socManufacturer()
+            val model = socModel()
+            val sources = buildList {
+                if (bundled) {
+                    add(
+                        BundledSingModelSource(SingAssetReader.of(context), File(context.noBackupFilesDir, MODEL_DIR)) {
+                            SingLiteRtPlan.matchesSoc(it, maker, model)
+                        },
+                    )
+                }
+                add(AiPackSingModelSource(PlayAiPackClient(context)))
+            }
+            return SingModelResolver(sources, log)
         }
 
         fun socManufacturer(): String? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MANUFACTURER else null
@@ -360,22 +372,8 @@ class LiteRtSingBackend(
             return "$build on ${candidate.accelerator}$tpu"
         }
 
-        /** "Tensor G6 AOT", "fp16" (the trusted build's name), else the file name. */
+        /** "Tensor G6 AOT", "fp16" (the trusted build's name), else the build's id or file. */
         fun buildName(candidate: LiteRtCandidate): String =
-            SingLiteRtPlan.TRUSTED_SHA256[candidate.model.sha256.lowercase()] ?: candidate.model.file
-
-        private fun sha256(file: File): String {
-            if (!file.isFile) return ""
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val n = input.read(buffer)
-                    if (n < 0) break
-                    digest.update(buffer, 0, n)
-                }
-            }
-            return digest.digest().joinToString("") { "%02x".format(it) }
-        }
+            SingLiteRtPlan.TRUSTED_SHA256[candidate.model.sha256.lowercase()] ?: candidate.model.id ?: candidate.model.file
     }
 }

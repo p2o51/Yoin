@@ -30,6 +30,7 @@ castFramework = "22.0.0"
 # builds) through the Tensor dispatch library, the GPU (OpenCL/OpenGL accelerator) and the CPU (XNNPACK).
 # app/build.gradle.kts packages arm64-v8a only.
 litert = "2.4.0"
+playAiDelivery = "0.2.0-beta01"
 
 # Desktop ONNX Runtime, unit tests only (Sing's model parity test against Prism's Python onnxruntime
 # reference outputs, made with 1.32.0). Not in the app.
@@ -129,6 +130,8 @@ onnxruntime-jvm = { group = "com.microsoft.onnxruntime", name = "onnxruntime", v
 litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 litert-gpu = { group = "com.google.ai.edge.litert", name = "litert-gpu", version.ref = "litert" }
 litert-npu-google-tensor = { group = "com.google.ai.edge.litert", name = "litert-npu-runtime-google-tensor", version.ref = "litert" }
+# Sing: Play AI Delivery, fetches the on-demand AI Pack with the LiteRT builds (:sing-model-pack)
+play-ai-delivery = { group = "com.google.android.play", name = "ai-delivery", version.ref = "playAiDelivery" }
 
 # Cast
 cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
@@ -192,6 +195,7 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+android-ai-pack = { id = "com.android.ai-pack", version.ref = "agp" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

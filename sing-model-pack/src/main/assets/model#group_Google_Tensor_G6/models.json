@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pack": "sing_model_pack",
+  "group": "Google_Tensor_G6",
+  "models": [
+    {"id": "lyra_sing_lite-tensor_g6-aot", "file": "lyra_sing_lite.tflite",
+     "sha256": "0534f3d74f7f0d5e5f32131d70ff25550399becaf3b45098f81b769119c2b355", "bytes": 8287936,
+     "precision": "bf16-aot", "socManufacturer": "Google", "socModel": "Tensor G6", "accelerators": ["NPU"]}
+  ]
+}

@@ -8,7 +8,8 @@ import java.io.IOException
  * Where on-device Sing's model comes from and what runs it, for [OnDeviceSingStreamProvider]: the model
  * file(s) made ready ([ensure]), and a session opened on them ([open], one [SeparationModel] per
  * session, kept warm by [SingSessionPool]). LiteRT runs it ([LiteRtSingBackend]: Tensor TPU → GPU → CPU
- * over the builds bundled in the APK); [NoSingBackend] stands in where LiteRT can't be set up.
+ * over the Play AI Pack's builds for this SoC, or a test APK's bundled ones — [SingModelResolver]);
+ * [NoSingBackend] stands in where LiteRT can't be set up.
  */
 interface SingSeparationBackend {
     /** Names what the separation's output comes from: part of the vocal cache key. */
@@ -27,10 +28,7 @@ interface SingSeparationBackend {
     fun open(model: File): SeparationModel
 }
 
-/**
- * No model on this device (the APK's LiteRT meta is missing or unreadable, or lists no build this device
- * may run): every Sing request fails as [SingFailure.ModelUnavailable].
- */
+/** LiteRT can't be set up here: every Sing request fails as [SingFailure.ModelUnavailable]. */
 class NoSingBackend(private val reason: String) : SingSeparationBackend {
     override val modelId: String = "none"
     override val gateTag: String = "none"

@@ -10,6 +10,7 @@
 local.properties
 /app/build
 /shared/build
+/sing-model-pack/build
 /playground/*/build
 /app/release
 /release/

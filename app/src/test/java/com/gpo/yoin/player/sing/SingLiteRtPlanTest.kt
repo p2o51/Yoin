@@ -13,7 +13,7 @@ class SingLiteRtPlanTest {
     private val g5 = "lyra_sing_lite_tensor_g5.tflite"
     private val fp16 = "lyra_sing_lite_fp16.tflite"
 
-    /** The bundled meta (assets/sing/litert/models.json), word for word. */
+    /** A meta listing all three builds (the bundled meta before the AI Pack; a bundled-models APK merges to the same). */
     private val meta = """
         {
           "version": 1,
@@ -102,7 +102,7 @@ class SingLiteRtPlanTest {
     }
 
     @Test
-    fun should_trustExactlyTheThreeBundledBuilds() {
+    fun should_trustExactlyTheThreeBuilds() {
         assertEquals(catalog.models.map { it.sha256 }.toSet(), SingLiteRtPlan.TRUSTED_SHA256.keys)
     }
 }

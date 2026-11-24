@@ -7,12 +7,16 @@ import kotlinx.serialization.json.Json
 enum class SingAccelerator { NPU, GPU, CPU }
 
 /**
- * One LiteRT build of Lyra-Sing-Lite as the model meta lists it (assets/sing/litert/models.json, bundled in
- * the APK; a per-SoC Play AI Pack is the planned delivery). Every build has the exported model's contract: signature
+ * One LiteRT build of Lyra-Sing-Lite as a model meta lists it: the `models.json` next to the build in each
+ * device group of the Play AI Pack `sing_model_pack` (or, in a `-PyoinSingBundledModels=true` APK, the same
+ * metas bundled under assets/sing/bundled/<group>/). Every build has the exported model's contract: signature
  * `serving_default`, `args_0` [1, 4, 512, 256] float32 in, `output_0` [1, 4, 512, 256] float32 out.
  */
 @Serializable
 data class LiteRtModelMeta(
+    /** Names the build ("lyra_sing_lite-tensor_g5-aot"): what the runtime got, for logs. */
+    val id: String? = null,
+    /** The build's file, relative to the meta's directory. */
     val file: String,
     val sha256: String,
     val bytes: Long,
@@ -29,8 +33,22 @@ data class LiteRtModelMeta(
     val accelerators: List<SingAccelerator>,
 )
 
+/**
+ * A model meta: the builds in one place. In the AI Pack, one meta per device group ([group]: `Google_Tensor_G6`,
+ * `Google_Tensor_G5`, `other`), so the runtime knows which group's builds Play delivered.
+ */
 @Serializable
-data class LiteRtCatalog(val version: Int = 1, val models: List<LiteRtModelMeta>)
+data class LiteRtCatalog(
+    val version: Int = 1,
+    /** The AI Pack the meta comes from (`sing_model_pack`), if any. */
+    val pack: String? = null,
+    /** The pack's device group the meta is for, as device_targeting_configuration.xml names it ("other": the rest). */
+    val group: String? = null,
+    val models: List<LiteRtModelMeta>,
+)
+
+/** A build this code will load (see [SingLiteRtPlan.TRUSTED]): its name, and the SoC an AOT build is for. */
+data class TrustedBuild(val name: String, val socManufacturer: String? = null, val socModel: String? = null)
 
 /** One step of the router: this build on this accelerator. */
 data class LiteRtCandidate(val model: LiteRtModelMeta, val accelerator: SingAccelerator) {
@@ -44,8 +62,8 @@ data class LiteRtCandidate(val model: LiteRtModelMeta, val accelerator: SingAcce
  * vocal; int16x8 has no fast CPU kernels).
  */
 object SingLiteRtPlan {
-    const val ASSET_DIR = "sing/litert"
-    const val META_ASSET = "$ASSET_DIR/models.json"
+    /** A model meta's file name, next to the builds it lists. */
+    const val META_FILE = "models.json"
 
     /** Builds the CPU may run: float weights only. */
     private val CPU_PRECISIONS = setOf("fp16", "fp32")
@@ -57,14 +75,29 @@ object SingLiteRtPlan {
      * The builds this code will load, by SHA-256 (checked again on every open): a meta can name only
      * these. (lyra-sing-lite artifacts/tflite/official_ai_pack, 2026-11-24.)
      */
-    val TRUSTED_SHA256: Map<String, String> = mapOf(
+    val TRUSTED: Map<String, TrustedBuild> = mapOf(
         // model#group_Google_Tensor_G6/lyra_sing_lite.tflite, 8 287 936 B
-        "0534f3d74f7f0d5e5f32131d70ff25550399becaf3b45098f81b769119c2b355" to "Tensor G6 AOT",
+        "0534f3d74f7f0d5e5f32131d70ff25550399becaf3b45098f81b769119c2b355" to TrustedBuild("Tensor G6 AOT", "Google", "Tensor G6"),
         // model#group_Google_Tensor_G5/lyra_sing_lite.tflite, 7 372 736 B
-        "10bd17fb365d23f1fea5dc91c307409827eb4d7c9b0ce38993efee9c70a0a500" to "Tensor G5 AOT",
+        "10bd17fb365d23f1fea5dc91c307409827eb4d7c9b0ce38993efee9c70a0a500" to TrustedBuild("Tensor G5 AOT", "Google", "Tensor G5"),
         // model#group_other/lyra_sing_lite.tflite = lyra_sing_lite_fp16.tflite, 4 465 088 B
-        "176b9dd47bcc3de24e27c14bc4edb44bf1fff6d74e95c53476a4f5a7a1610651" to "fp16",
+        "176b9dd47bcc3de24e27c14bc4edb44bf1fff6d74e95c53476a4f5a7a1610651" to TrustedBuild("fp16"),
     )
+
+    /** [TRUSTED]'s builds by name ("fp16", "Tensor G6 AOT"). */
+    val TRUSTED_SHA256: Map<String, String> = TRUSTED.mapValues { it.value.name }
+
+    /**
+     * The build this device should run first, known before any model is here (the AI Pack may not be
+     * downloaded yet): this SoC's AOT build where there is one (and [npuAllowed]), else the generic one — what
+     * Play's device targeting delivers first. Names the cache and gate ([LiteRtSingBackend.modelId]).
+     */
+    fun expectedSha256(socManufacturer: String?, socModel: String?, npuAllowed: Boolean): String? {
+        val forSoc = TRUSTED.entries.firstOrNull { (_, build) ->
+            npuAllowed && build.socModel != null && socMatches(build.socManufacturer, build.socModel, socManufacturer, socModel)
+        }
+        return (forSoc ?: TRUSTED.entries.firstOrNull { it.value.socModel == null })?.key
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -74,9 +107,12 @@ object SingLiteRtPlan {
      * Whether [meta] is for this device: a build without a SoC is for any; an AOT build only for the SoC
      * it was compiled for. Play matches the strings exactly; here also ignoring case and outer spaces.
      */
-    fun matchesSoc(meta: LiteRtModelMeta, socManufacturer: String?, socModel: String?): Boolean {
-        val wantModel = meta.socModel ?: return meta.socManufacturer == null
-        val wantMaker = meta.socManufacturer ?: return false
+    fun matchesSoc(meta: LiteRtModelMeta, socManufacturer: String?, socModel: String?): Boolean =
+        socMatches(meta.socManufacturer, meta.socModel, socManufacturer, socModel)
+
+    private fun socMatches(wantMaker: String?, wantModel: String?, socManufacturer: String?, socModel: String?): Boolean {
+        if (wantModel == null) return wantMaker == null
+        if (wantMaker == null) return false
         return socManufacturer?.trim().equals(wantMaker, ignoreCase = true) &&
             socModel?.trim().equals(wantModel, ignoreCase = true)
     }

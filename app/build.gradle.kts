@@ -1,4 +1,5 @@
 import java.util.Properties
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -39,6 +40,12 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         !taskName.contains("ReleaseDebugSigned", ignoreCase = true)
 }
 
+// Sing's LiteRT models come from the Play AI Pack :sing-model-pack (on demand, per device group), so the base
+// APK carries none. -PyoinSingBundledModels=true also bundles them in the APK (assets/sing/bundled/<group>/,
+// copied from the pack at build time) for builds Play doesn't install: Yoin Nano, the debug-signed release
+// APKs, local test builds. Off by default; never on for a Play upload.
+val singBundledModels = providers.gradleProperty("yoinSingBundledModels").orNull == "true"
+
 if (releaseTaskRequested && !hasReleaseKeystore) {
     throw GradleException(
         "Release signing requires ${releaseKeystorePropertiesFile.path}. " +
@@ -73,7 +80,19 @@ android {
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
+        buildConfigField("boolean", "SING_BUNDLED_MODELS", singBundledModels.toString())
         manifestPlaceholders["appLabel"] = "@string/app_name"
+    }
+
+    // Sing's models: the on-demand AI Pack, its device groups split by SoC (official device targeting from
+    // lyra-sing-lite: Tensor G6 and G5 get their AOT build, every other device the fp16 one).
+    assetPacks += listOf(":sing-model-pack")
+    bundle {
+        deviceTargetingConfig = file("device_targeting_configuration.xml")
+        deviceGroup {
+            enableSplit = true
+            defaultGroup = "other"
+        }
     }
 
     androidResources {
@@ -215,6 +234,43 @@ android {
     }
 }
 
+/**
+ * The AI Pack's groups copied for a bundled-models APK: model#group_<group>/… → sing/bundled/<group>/… in a
+ * generated assets directory (BundledSingModelSource reads them; the metas are the pack's own).
+ */
+abstract class SingBundledModels : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packAssets: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val fs: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        val groupDir = Regex("^model#group_([^/]+)/")
+        fs.sync {
+            from(packAssets)
+            into(outputDir.dir("sing/bundled"))
+            includeEmptyDirs = false
+            eachFile { path = path.replace(groupDir, "$1/") }
+        }
+    }
+}
+
+if (singBundledModels) {
+    val singBundled = tasks.register<SingBundledModels>("singBundledModels") {
+        packAssets.set(layout.projectDirectory.dir("../sing-model-pack/src/main/assets"))
+        outputDir.set(layout.buildDirectory.dir("generated/singBundledModels"))
+    }
+    androidComponents.onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(singBundled, SingBundledModels::outputDir)
+    }
+}
+
 // Room writes each schema version to app/schemas/ (commit them): the record later migrations are checked against.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -272,6 +328,8 @@ dependencies {
     implementation(libs.litert)
     implementation(libs.litert.gpu)
     implementation(libs.litert.npu.google.tensor)
+    // Sing: fetches the on-demand AI Pack sing_model_pack (AiPackManager)
+    implementation(libs.play.ai.delivery)
     implementation(libs.cast.framework)
     implementation(libs.genai.prompt)
     ksp(libs.genai.schema.compiler)

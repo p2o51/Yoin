@@ -9,6 +9,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.player.OfflineFirstDataSource
 import com.gpo.yoin.player.mediaCacheDataSourceFactory
@@ -817,16 +818,15 @@ class OnDeviceSingStreamProvider(
         }
 
         /**
-         * LiteRT over the builds bundled in the APK (Tensor TPU → GPU → CPU); with no meta or no build for
-         * this device, [NoSingBackend] (every request fails cleanly).
+         * LiteRT over the builds for this device: the Play AI Pack `sing_model_pack` (fetched on first Sing),
+         * or in a `-PyoinSingBundledModels=true` APK the bundled ones first (Tensor TPU → GPU → CPU). With
+         * neither (a sideloaded release, the pack unavailable) every request fails as
+         * [SingFailure.ModelUnavailable] once the models are asked for.
          */
-        private fun createBackend(context: Context): SingSeparationBackend {
-            val catalog = LiteRtSingBackend.bundledCatalog(context)
-                ?: return NoSingBackend("no LiteRT model meta in this APK")
-            return runCatching { LiteRtSingBackend(context, catalog, defaultThreads()) }
+        private fun createBackend(context: Context): SingSeparationBackend =
+            runCatching { LiteRtSingBackend(context, LiteRtSingBackend.resolver(context, BuildConfig.SING_BUNDLED_MODELS), defaultThreads()) }
                 .onFailure { Log.w(TAG, "LiteRT unavailable here", it) }
                 .getOrElse { NoSingBackend("LiteRT unavailable: ${it.message}") }
-        }
 
         /**
          * Big cores only, roughly: half the cores, 2..4 — the CPU backend's XNNPACK threads (the router's
