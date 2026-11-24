@@ -1294,8 +1294,13 @@ struct NowPlayingView: View, Equatable {
     }
 
     // 4. Text tabs.
+    // The pager's state is read here and handed to the ForEach as values: its row closure only
+    // captures `self` otherwise, and NowPlayingView's `==` (inputs only, never its @State) let
+    // SwiftUI keep the old rows, so the highlight stayed on the first tab it was drawn on.
     private var tabs: some View {
         let busy = currentAboutBusy
+        let position = pagerPosition
+        let shown = shownTab
         return HStack(spacing: 0) {
             ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
                 let i = page.rawValue
@@ -1307,15 +1312,18 @@ struct NowPlayingView: View, Equatable {
                         .padding(.leading, 6)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
-                let on = shownTab == i
+                let on = shown == i
+                // How selected it reads follows the finger (1 on the page, 0 a page away).
+                let sel = NowPlayingPager.selection(of: i, at: position)
                 Button { settlePager(on: i) } label: {
-                    // CompactTextTabs: labelLarge (Bold when selected).
+                    // CompactTextTabs: labelLarge (Bold on the page the pager is heading for).
                     Text(page.title)
                         .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : nil)
-                        .foregroundStyle(scheme.onSurfaceVariant.opacity(on ? 1 : 0.5))
-                        .scaleEffect(x: on ? Tokens.np.TAB_SELECTED_STRETCH.cg : 1, y: 1, anchor: .leading)
+                        .foregroundStyle(scheme.onSurfaceVariant.opacity(0.5 + 0.5 * sel))
+                        .scaleEffect(x: 1 + (Tokens.np.TAB_SELECTED_STRETCH.cg - 1) * sel, y: 1, anchor: .leading)
                 }
                 .buttonStyle(.plain).pointerHighlight()
+                .accessibilityAddTraits(on ? .isSelected : [])
                 .padding(.leading, i == 0 ? 0 : (page == .note && busy ? 6 : Tokens.np.TAB_GAP.cg))
             }
         }
@@ -1329,6 +1337,9 @@ struct NowPlayingView: View, Equatable {
     /// primaryContainer-tinted.
     private var expandedTabs: some View {
         let busy = currentAboutBusy
+        // As in `tabs`: the pager's state goes into the rows as values.
+        let position = pagerPosition
+        let shown = shownTab
         return GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
@@ -1339,28 +1350,29 @@ struct NowPlayingView: View, Equatable {
                             .frame(width: 28, height: NowPlayingExpanded.tabRow)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
                     }
-                    let on = shownTab == page.rawValue
+                    let on = shown == page.rawValue
+                    // The selected pill's tint and ink pass to the next with the finger.
+                    let sel = NowPlayingPager.selection(of: page.rawValue, at: position)
                     let dark = colorScheme == .dark
-                    let tabInk: Color = if !on && lab.oneAccentPerLayer {
+                    let selectedInk: Color = lab.usesAccentOnColor("npFloating", dark: dark) ? scheme.onPrimary : Color.white
+                    let restInk: Color = if lab.oneAccentPerLayer {
                         scheme.onSurface
-                    } else if on {
-                        lab.usesAccentOnColor("npFloating", dark: dark) ? scheme.onPrimary : Color.white
                     } else {
                         lab.usesContainerOnColor("npFloating", dark: dark) ? scheme.onPrimaryContainer : Color.white
                     }
+                    let restTint = lab.oneAccentPerLayer ? scheme.surfaceContainerHighest : scheme.primaryContainer
+                    let restStrength = GlassLab.solidSurfaces ? 1 : 0.6
                     Button { settlePager(on: page.rawValue) } label: {
                         Text(page.title)
                             .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
-                            .foregroundStyle(tabInk)
+                            .foregroundStyle(restInk.mix(with: selectedInk, by: Double(sel)))
                             .labContrast(on ? "transportPrimary" : "npPills")
                             .frame(maxWidth: .infinity)
                             .frame(height: NowPlayingExpanded.tabRow)
                             // The unselected thinner on glass so selection reads in light too; solid keeps opaque roles.
                             .npPillGlass("npFloating",
-                                         tint: on ? scheme.primary
-                                             : lab.oneAccentPerLayer ? scheme.surfaceContainerHighest
-                                             : scheme.primaryContainer,
-                                         strength: on || GlassLab.solidSurfaces ? 1 : 0.6, in: Capsule())
+                                         tint: restTint.mix(with: scheme.primary, by: Double(sel)),
+                                         strength: restStrength + (1 - restStrength) * Double(sel), in: Capsule())
                             .contentShape(.capsule)
                             .animation(Yoin.effects, value: on)
                     }
@@ -1804,12 +1816,10 @@ struct NowPlayingView: View, Equatable {
     // MARK: Detail pager (Android HorizontalPager over Lyrics / About / Note)
 
     /// Where the pager is: the settled tab, less the finger's drag in pages.
-    private var pagerPosition: CGFloat { CGFloat(tab) - pagerDrag / max(pagerWidth, 1) }
+    private var pagerPosition: CGFloat { NowPlayingPager.position(tab: tab, drag: pagerDrag, width: pagerWidth) }
 
     /// The page the pager is heading for: the tabs show it.
-    private var shownTab: Int {
-        min(max(Int(pagerPosition.rounded()), 0), NowPlayingDetailPage.allCases.count - 1)
-    }
+    private var shownTab: Int { NowPlayingPager.shownTab(position: pagerPosition) }
 
     /// One page across: the window plus the column's two margins, so a
     /// neighbour comes in from the screen's edge, not from inside the margin.
@@ -1887,26 +1897,14 @@ struct NowPlayingView: View, Equatable {
 
     /// Past the first or last page the drag resists (a rubber band).
     private func pagerRubberBand(_ dx: CGFloat) -> CGFloat {
-        let last = CGFloat(NowPlayingDetailPage.allCases.count - 1)
-        let raw = CGFloat(tab) - dx / max(pagerWidth, 1)
-        guard raw < 0 || raw > last else { return dx }
-        let edge = raw < 0 ? CGFloat(tab) : CGFloat(tab) - last
-        let past = abs(dx) - abs(edge * pagerWidth)
-        let eased = pow(max(past, 0), 0.7)
-        return (dx < 0 ? -1 : 1) * (abs(edge * pagerWidth) + eased)
+        NowPlayingPager.rubberBand(tab: tab, dx: dx, width: pagerWidth)
     }
 
     /// Release: a fling or a drag past a third of a page turns it; the
     /// pager lands on the spatial spring either way.
     private func pagerReleased(velocity: CGFloat, cancelled: Bool) {
-        let last = NowPlayingDetailPage.allCases.count - 1
-        var target = tab
-        if !cancelled {
-            let moved = -pagerDrag / max(pagerWidth, 1)
-            if velocity < -400 || moved > 0.35 { target = tab + 1 }
-            if velocity > 400 || moved < -0.35 { target = tab - 1 }
-        }
-        target = min(max(target, 0), last)
+        let target = NowPlayingPager.releaseTarget(tab: tab, drag: pagerDrag, width: pagerWidth,
+                                                   velocity: velocity, cancelled: cancelled)
         if target != tab { UISelectionFeedbackGenerator().selectionChanged() }
         settlePager(on: target)
     }
