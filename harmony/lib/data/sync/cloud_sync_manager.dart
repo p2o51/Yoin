@@ -110,7 +110,12 @@ class CloudSyncManager implements CloudSyncController {
   static const _codeUpdatePrefix = 'update:';
   static const _errorPrefix = 'error:';
 
-  static const _yoinFileKinds = {SyncFileProps.kindState, SyncFileProps.kindArtifacts, SyncFileProps.kindReset};
+  static const _yoinFileKinds = {
+    SyncFileProps.kindState,
+    SyncFileProps.kindArtifacts,
+    SyncFileProps.kindReset,
+    SyncFileProps.kindPurge,
+  };
 
   SyncEngine _engine() => _engineInstance ??= SyncEngine(
     db: _db,
@@ -446,6 +451,9 @@ class CloudSyncManager implements CloudSyncController {
   });
 
   @override
+  void resumeAccountSync(String localProfileId) => _accountAction(() => _binder.resumeSyncing(localProfileId));
+
+  @override
   void removeDevice(String deviceId) => _launch(() async {
     await ensureInitialized();
     await _lock.run(() async {
@@ -552,6 +560,8 @@ class CloudSyncManager implements CloudSyncController {
       _db.putMeta(SyncMetaKeys.epoch, '$newestEpoch');
       myEpoch = newestEpoch;
     }
+
+    await _applyPurgeMarkers(files, myEpoch);
 
     final dataFiles = files.where((f) {
       final kind = f.appProperties[SyncFileProps.kind];
@@ -676,6 +686,44 @@ class CloudSyncManager implements CloudSyncController {
     final updateFrom = _updateRequiredFrom;
     if (updateFrom != null) return '$_codeUpdatePrefix$updateFrom';
     return null;
+  }
+
+  /// Applies every scope purge marker ("remove this account from the cloud",
+  /// written by Android or iOS) this device hasn't applied yet, newest per
+  /// scope, before any peer file is merged (CloudSyncCore.applyPurgeMarkers,
+  /// docs/cloud-sync.md).
+  Future<void> _applyPurgeMarkers(List<RemoteFile> files, int resetEpoch) async {
+    final markers = files.where((f) => f.appProperties[SyncFileProps.kind] == SyncFileProps.kindPurge).toList();
+    if (markers.isEmpty) return;
+    final engine = _engine();
+    final applied = engine.purgedScopes();
+    final newest = <String, int>{};
+    for (final file in markers) {
+      var scope = file.appProperties[SyncFileProps.scope];
+      if (scope != null && scope.isEmpty) scope = null;
+      var epoch = int.tryParse(file.appProperties[SyncFileProps.epoch] ?? '');
+      if (scope == null || epoch == null) {
+        ScopePurgeMarker? marker;
+        try {
+          final bytes = await _transport.download(file.id);
+          marker = bytes == null ? null : SnapshotCodec.decodePurge(bytes);
+        } catch (_) {
+          marker = null;
+        }
+        if (marker == null) continue;
+        scope = marker.scope;
+        epoch = marker.epoch;
+      }
+      if (scope == SyncFormat.globalScope || epoch < resetEpoch) continue;
+      final seen = newest[scope];
+      if (seen == null || epoch > seen) newest[scope] = epoch;
+    }
+    for (final MapEntry(key: scope, value: epoch) in newest.entries) {
+      final known = applied[scope];
+      if (known != null && known >= epoch) continue;
+      await engine.applyScopePurge(scope, epoch);
+      await _binder.markPurged(scope);
+    }
   }
 
   Future<RemoteFile?> _upload(RemoteFile? existing, OutgoingFile file, String me) async {

@@ -72,7 +72,10 @@ class CloudSyncStrings {
   String accountDuplicate(String other) => _zh ? '与 $other 相同' : 'Same as $other'; // settings_sync_account_duplicate
   String get accountNotSynced => _zh ? '未同步' : 'Not synced'; // settings_sync_account_not_synced
   String get accountChanged => _zh ? '已暂停' : 'Paused'; // settings_sync_account_changed
+  String get accountRemovedFromCloud =>
+      _zh ? '已从云端移除' : 'Removed from the cloud'; // settings_sync_account_removed_from_cloud
   String get startSyncing => _zh ? '开始同步' : 'Start syncing'; // settings_sync_start_syncing
+  String get resume => _zh ? '恢复同步' : 'Resume syncing'; // settings_sync_resume
   String get keepBefore => _zh ? '继续按此前方式同步' : 'Keep syncing as before'; // settings_sync_keep_before
   String get startFresh => _zh ? '重新开始' : 'Start fresh'; // settings_sync_start_fresh
   String linkTo(String name) => _zh ? '关联到 $name' : 'Link to $name'; // settings_sync_link_to

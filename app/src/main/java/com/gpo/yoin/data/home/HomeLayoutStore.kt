@@ -38,7 +38,7 @@ data class HomeSectionPref(
  * The whole stored layout: [sections] (as [HomeSectionPref]s), and [wide], the
  * two-column memory of which sections pair up (`{"pairs":[["left","right"], …]}`,
  * owner 2026-11-23), opaque here like a section's config. Null [wide]: written
- * by a build without it (older Android, iOS, HarmonyOS all drop the key when
+ * by a build without it (older Android and iOS drop the key when
  * they write), so the UI layer derives it again. Older readers skip the key.
  */
 data class HomeLayoutDocument(

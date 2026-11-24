@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io' show gzip;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/memory/memory_copy_cache.dart';
 import 'package:yoin/data/memory/memory_store.dart';
@@ -9,7 +12,9 @@ import 'package:yoin/data/sync/auth/google_oauth.dart';
 import 'package:yoin/data/sync/cloud_sync_manager.dart';
 import 'package:yoin/data/sync/cloud_sync_providers.dart';
 import 'package:yoin/data/sync/cloud_sync_state.dart';
+import 'package:yoin/data/sync/engine/snapshot_codec.dart';
 import 'package:yoin/data/sync/identity/account_binder.dart';
+import 'package:yoin/data/sync/identity/account_fingerprints.dart';
 import 'package:yoin/data/sync/sync_contracts.dart';
 import 'package:yoin/data/sync/sync_database.dart';
 import 'package:yoin/playback/local_ratings.dart';
@@ -317,5 +322,135 @@ void main() {
     expect(a.auth.forgets, 1);
     expect(await a.memory.songNotes(), hasLength(1));
     expect(drive.files, isNotEmpty);
+  });
+
+  group('scope purge markers (another device removed an account from the cloud)', () {
+    final alice = AccountFingerprints.deterministicId(
+      AccountFingerprints.subsonic('https://music.example.com', 'alice')!,
+    );
+
+    /// What Android's removeAccountFromCloud writes (CloudSyncCore / CloudSyncManager).
+    void plantMarker(String scope, int epoch, {String id = 'purge-1', bool withProps = true}) {
+      drive.files[id] = FakeDriveFile(
+        id,
+        SyncFileProps.purgeFileName(epoch, 'android'),
+        {
+          SyncFileProps.kind: SyncFileProps.kindPurge,
+          if (withProps) SyncFileProps.epoch: '$epoch',
+          if (withProps) SyncFileProps.scope: scope,
+          SyncFileProps.deviceId: 'android',
+        },
+        SnapshotCodec.encodePurge(
+          ScopePurgeMarker(scope: scope, epoch: epoch, at: epoch, deviceId: 'android', deviceName: 'Pixel 9'),
+        ),
+      );
+    }
+
+    String dataFiles() => [
+      for (final f in drive.files.values)
+        if (f.appProperties[SyncFileProps.kind] != SyncFileProps.kindPurge)
+          utf8.decode(SnapshotCodec.isGzip(f.bytes) ? gzip.decode(f.bytes) : f.bytes),
+    ].join('\n');
+
+    Future<void> syncAll(List<Phone> phones, int at) async {
+      for (final p in phones) {
+        p.clock = at;
+        await p.sync.syncNowAndWait();
+      }
+    }
+
+    test('should_stopEveryDeviceFromReuploading_when_anAccountIsRemovedFromTheCloud', () async {
+      final c = Phone('Tablet', drive);
+      await c.start(user: 'bob');
+      await a.memory.putSongNote(note('n-alice', "alice's note", 900));
+      await c.memory.putSongNote(note('n-bob', "bob's note", 900));
+      await a.turnOn();
+      await b.turnOn();
+      await c.turnOn();
+      expect((await b.memory.songNotes()).map((n) => n.id), ['n-alice']);
+
+      plantMarker(alice, 2000);
+      await syncAll([a, b, c], 3000);
+      await b.memory.putSongNote(note('n-later', 'written after the removal', 3000));
+      await syncAll([b, a, c], 4000);
+
+      final contents = dataFiles().replaceAll(RegExp(r'"purges":\{[^}]*\}'), '');
+      expect(contents, isNot(contains("alice's note")));
+      expect(contents, isNot(contains('written after the removal')));
+      expect(contents, isNot(contains(alice)), reason: 'descriptor and records gone too');
+      expect(contents, contains("bob's note"), reason: 'other accounts keep syncing');
+      expect(dataFiles(), contains('"purges":{"$alice":2000}'), reason: 'files acknowledge the purge');
+      expect(a.state.accounts.single.status, isA<AccountRemovedFromCloud>());
+      expect(b.state.accounts.single.status, isA<AccountRemovedFromCloud>());
+      expect(c.state.accounts.single.status, isA<AccountSyncing>());
+      expect((await b.memory.songNotes()).map((n) => n.id), unorderedEquals(['n-alice', 'n-later']));
+      expect((await a.memory.songNotes()).map((n) => n.id), ['n-alice'], reason: 'local data stays');
+      expect(c.state.cloudOnlyAccounts.where((r) => r.syncProfileId == alice), isEmpty);
+    });
+
+    test('should_readTheMarkerFile_when_itsPropertiesAreMissing', () async {
+      await a.memory.putSongNote(note('n1', 'first note', 900));
+      await a.turnOn();
+      plantMarker(alice, 2000, withProps: false);
+      await syncAll([a], 3000);
+      expect(a.state.accounts.single.status, isA<AccountRemovedFromCloud>());
+      expect(dataFiles(), isNot(contains('first note')));
+    });
+
+    test('should_keepANewDeviceFromUploadingIt_when_itJoinsAfterTheRemoval', () async {
+      await a.memory.putSongNote(note('n1', 'first note', 900));
+      await a.turnOn();
+      plantMarker(alice, 2000);
+      await syncAll([a], 3000);
+
+      await b.memory.putSongNote(note('n-fresh', 'fresh device note', 3500));
+      b.clock = 4000;
+      await b.turnOn();
+
+      expect(b.state.accounts.single.status, isA<AccountRemovedFromCloud>());
+      expect(dataFiles(), isNot(contains('fresh device note')));
+      expect((await b.memory.songNotes()).map((n) => n.id), ['n-fresh']);
+    });
+
+    test('should_syncAgainWithNewVersions_when_resumedAfterTheRemoval', () async {
+      await a.memory.putSongNote(note('n1', 'kept note', 900));
+      await a.turnOn();
+      await b.turnOn();
+      plantMarker(alice, 2000);
+      await syncAll([a, b], 3000);
+      expect(dataFiles(), isNot(contains('kept note')));
+
+      a.sync.resumeAccountSync(a.profile.id);
+      await settle();
+      await syncAll([a], 4000);
+
+      expect(a.state.accounts.single.status, isA<AccountSyncing>());
+      expect(dataFiles(), contains('kept note'), reason: 're-published after the purge epoch');
+      await syncAll([b], 5000);
+      expect(
+        b.state.accounts.single.status,
+        isA<AccountRemovedFromCloud>(),
+        reason: 'still removed on the other device until resumed there',
+      );
+      b.sync.resumeAccountSync(b.profile.id);
+      await settle();
+      await syncAll([b], 6000);
+      expect(b.state.accounts.single.status, isA<AccountSyncing>());
+      expect((await b.memory.songNotes()).map((n) => n.content), ['kept note']);
+    });
+
+    test('should_ignoreAMarkerFromBeforeTheReset_when_cloudDataWasDeletedSince', () async {
+      await a.memory.putSongNote(note('n1', 'one', 900));
+      await a.turnOn();
+      plantMarker(alice, 2000);
+      a.clock = 3000;
+      await a.sync.deleteCloudData();
+
+      expect(drive.files.values.map((f) => f.appProperties[SyncFileProps.kind]), [SyncFileProps.kindReset]);
+      a.clock = 4000;
+      await a.turnOn();
+      expect(a.state.accounts.single.status, isA<AccountSyncing>(), reason: 'a reset clears the removal');
+      expect(dataFiles(), contains('"one"'));
+    });
   });
 }
