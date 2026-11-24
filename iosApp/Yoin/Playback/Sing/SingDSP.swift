@@ -10,7 +10,20 @@ import Foundation
 /// - `normalized = false` (unnormalized forward DFT, exact match to `torch.stft`)
 enum SingDSP {
     static let coreSampleRate: Double = 22_050
+    /// Apple's `AVAssetWriter` MPEG-4 AAC encoder caps at 48 kHz; Hi-Res tracks (88.2 / 96 / 192 kHz FLAC)
+    /// must be downsampled to 44.1 kHz or 48 kHz before writing `quad.m4a`.
+    static let maxAACOutputSampleRate: Double = 48_000
     static let nFFT = 1024
+
+    /// Picks a lossless-aligned AAC-safe output sample rate (<= 48 kHz) for a decoded track.
+    static func outputSampleRate(for sourceSampleRate: Double) -> Double {
+        guard sourceSampleRate > maxAACOutputSampleRate else { return sourceSampleRate }
+        let rem44 = sourceSampleRate.truncatingRemainder(dividingBy: 44_100)
+        if abs(rem44) < 1.0 || abs(rem44 - 44_100) < 1.0 {
+            return 44_100
+        }
+        return maxAACOutputSampleRate
+    }
     static let hopLength = 256
     static let halfFFT = nFFT / 2 // 512
     static let nBins = halfFFT + 1 // 513 (DC + bins 1..512)

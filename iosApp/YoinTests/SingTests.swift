@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import XCTest
 @testable import Yoin
 
@@ -338,14 +339,23 @@ final class SingTests: XCTestCase {
         XCTAssertEqual(controller.sliderPosition, 0.55, accuracy: 1e-6)
     }
 
-    // MARK: - 10. CoreML ANE + ODR (`sing_model_v1`) end-to-end separation & Race-to-Idle lease
+    // MARK: - 10. CoreML ANE + ODR (`sing_model_v1` `.mlpackage.zip`) end-to-end separation & Race-to-Idle lease
 
     func test_should_loadSingModelViaODR_and_separateRealAudioWithZeroStrideCorruption() async throws {
-        // 1. Verify ODR provider loads `LyraSingLite.mlmodelc` via tag `sing_model_v1` (computeUnits = .all)
-        //    and releases ODR access cleanly on `lease.release()`.
-        let odrProvider = SingModelODRProvider(bundle: .main)
+        // 1. Verify ODR provider fetches `LyraSingLite.mlpackage.zip` via tag `sing_model_v1`,
+        //    verifies SHA-256, unpacks & compiles once into `SingModelStore`, and hits the fast path on reload.
+        let modelStoreDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sing-odr-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: modelStoreDir) }
+        let modelStore = SingModelStore(baseDirectory: modelStoreDir)
+        let odrProvider = SingModelODRProvider(bundle: .main, modelStore: modelStore)
+
         let lease = try await odrProvider.loadModel { _ in }
         XCTAssertEqual(lease.sourceDescription, "CoreML ANE+ODR (sing_model_v1)")
+
+        let installedLease = try await odrProvider.loadModel { _ in }
+        XCTAssertEqual(installedLease.sourceDescription, "CoreML ANE+ODR (sing_model_v1, installed)")
+        installedLease.release()
 
         // 2. Synthesize a 6.0 s stereo WAV clip (44.1 kHz, >= 3 chunks) and run full `SingCoreMLSeparator` pipeline.
         let sr = 44_100.0
@@ -374,6 +384,7 @@ final class SingTests: XCTestCase {
 
         let separator = SingCoreMLSeparator(
             odrProvider: odrProvider,
+            modelStore: modelStore,
             stemCache: SingStemCache(directory: cacheDir, maxBytes: 50 * 1024 * 1024)
         )
         let (quadURL, metrics) = try await separator.separateToQuadM4A(
@@ -397,6 +408,124 @@ final class SingTests: XCTestCase {
                 XCTAssertTrue(outCh[c][i].isFinite, "Non-finite output sample on channel \(c) at \(i)")
             }
         }
+    }
+
+    // MARK: - 12. Hi-Res (> 48 kHz) AAC output sample-rate capping
+
+    func test_should_capHiResOutputSampleRateForAAC_and_separate96kHzAudioCleanly() async throws {
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 44_100), 44_100)
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 48_000), 48_000)
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 88_200), 44_100)
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 96_000), 48_000)
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 176_400), 44_100)
+        XCTAssertEqual(SingDSP.outputSampleRate(for: 192_000), 48_000)
+
+        let modelStoreDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sing-hires-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: modelStoreDir) }
+        let modelStore = SingModelStore(baseDirectory: modelStoreDir)
+        let odrProvider = SingModelODRProvider(bundle: .main, modelStore: modelStore)
+        let lease = try await odrProvider.loadModel { _ in }
+
+        let sr = 96_000.0
+        let frameCount = Int(sr * 2.0)
+        let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("sing-96k-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: wavURL) }
+
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2))
+        let pcm = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)))
+        pcm.frameLength = AVAudioFrameCount(frameCount)
+        let ch = try XCTUnwrap(pcm.floatChannelData)
+        for i in 0..<frameCount {
+            let t = Double(i) / sr
+            ch[0][i] = Float(0.25 * sin(2.0 * Double.pi * 440.0 * t))
+            ch[1][i] = Float(0.25 * cos(2.0 * Double.pi * 440.0 * t))
+        }
+        do {
+            let wavFile = try AVAudioFile(forWriting: wavURL, settings: format.settings)
+            try wavFile.write(from: pcm)
+        }
+
+        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("sing-96k-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+        let separator = SingCoreMLSeparator(
+            odrProvider: odrProvider,
+            modelStore: modelStore,
+            stemCache: SingStemCache(directory: cacheDir, maxBytes: 50 * 1024 * 1024)
+        )
+        let (quadURL, _) = try await separator.separateToQuadM4A(
+            inputURL: wavURL,
+            modelLease: lease,
+            cacheKey: "hires-96k"
+        )
+        let quadFile = try AVAudioFile(forReading: quadURL)
+        XCTAssertEqual(quadFile.processingFormat.channelCount, 4)
+        XCTAssertEqual(quadFile.processingFormat.sampleRate, 48_000, accuracy: 1.0)
+    }
+
+    // MARK: - 13. Real MTAudioProcessingTap 4-channel Quad playback & vocal suppression
+
+    func test_should_receive4ChannelsInAudioTap_and_suppressVocalsWhenGainIsZero() async throws {
+        let sr = 44_100.0
+        let frames = 44_100
+        let instL: [Float] = (0..<frames).map { i in Float(0.22 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        let instR: [Float] = (0..<frames).map { i in Float(0.22 * sin(2.0 * Double.pi * 220.0 * Double(i) / sr)) }
+        let vocL: [Float] = (0..<frames).map { i in Float(0.55 * sin(2.0 * Double.pi * 1200.0 * Double(i) / sr)) }
+        let vocR: [Float] = (0..<frames).map { i in Float(0.55 * sin(2.0 * Double.pi * 1200.0 * Double(i) / sr)) }
+
+        let quadURL = FileManager.default.temporaryDirectory.appendingPathComponent("sing-tap-test-\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: quadURL) }
+        try await SingQuadM4AWriter.write(
+            instL: instL, instR: instR, vocL: vocL, vocR: vocR, sampleRate: sr, to: quadURL
+        )
+
+        let asset = AVURLAsset(url: quadURL)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(tracks.first)
+
+        let mixer = SingQuadDownmixer(initialGain: 0.0, sampleRate: sr)
+        let observedChannels = OSAllocatedUnfairLock(initialState: 0)
+        let mix = try XCTUnwrap(SingQuadAudioTap.makeAudioMix(for: track, mixer: mixer) { ch, _, _ in
+            observedChannels.withLock { $0 = ch }
+        })
+
+        let reader = try AVAssetReader(asset: asset)
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+            AVNumberOfChannelsKey: 2,
+        ]
+        let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: outputSettings)
+        output.audioMix = mix
+        XCTAssertTrue(reader.canAdd(output))
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+
+        var rendered: [Float] = []
+        while let sb = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(sb) else { continue }
+            var length = 0
+            var ptr: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &ptr) == noErr,
+                  let ptr else { continue }
+            let count = length / MemoryLayout<Float>.size
+            let floats = UnsafeBufferPointer(start: UnsafeRawPointer(ptr).assumingMemoryBound(to: Float.self), count: count)
+            rendered.append(contentsOf: floats)
+        }
+        XCTAssertEqual(reader.status, .completed)
+        XCTAssertEqual(observedChannels.withLock { $0 }, 4, "MTAudioProcessingTap MUST receive 4 channels (not downmixed stereo)")
+
+        // Check mid-clip stereo peak: with vocal gain == 0.0, 0.55 vocal is completely silenced and peak stays near 0.22 (inst only).
+        let midStart = rendered.count / 4
+        let midEnd = (rendered.count * 3) / 4
+        var peak: Float = 0
+        for i in midStart..<midEnd {
+            peak = max(peak, abs(rendered[i]))
+        }
+        XCTAssertGreaterThan(peak, 0.14, "Instrumental signal should remain audible")
+        XCTAssertLessThan(peak, 0.34, "Vocal signal (0.55 amplitude) must be suppressed when gain == 0")
     }
 
     // MARK: - 11. Sing UI Motion Geometry (A + 1)

@@ -247,6 +247,7 @@ final class AppModel {
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         sing.avOutputProvider = { [weak playbackSystem] in playbackSystem?.avOutput }
         sing.serverAccountProvider = { [weak session] in session?.account }
+        playbackSystem.onTrackChange = { [weak sing] track in sing?.onTrackChanged(track) }
         #if DEBUG
         profiles.useFakeSpotify()
         #endif
