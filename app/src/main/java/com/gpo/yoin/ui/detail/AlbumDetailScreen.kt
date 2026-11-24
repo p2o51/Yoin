@@ -792,7 +792,7 @@ private fun AlbumDetailContent(
                     albumName = content.albumName,
                     albumVersion = content.albumVersion,
                     artistName = content.artistName,
-                    year = content.year,
+                    releaseDate = albumHeaderDate(content.releaseDate, content.year),
                     titleColor = titleColor,
                     accentText = accentText,
                     pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -825,7 +825,7 @@ private fun AlbumDetailContent(
                             albumName = content.albumName,
                             albumVersion = content.albumVersion,
                             artistName = content.artistName,
-                            year = content.year,
+                            releaseDate = albumHeaderDate(content.releaseDate, content.year),
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
                             selectedPage = pagerState.settledPage,
                             pageCount = pageCount,
@@ -1013,7 +1013,8 @@ private fun AlbumTopHeader(
     albumName: String,
     albumVersion: String?,
     artistName: String,
-    year: Int?,
+    // The release date as the meta line shows it ("22.6.12", "22.6", "2022"); null shows none.
+    releaseDate: String?,
     titleColor: Color,
     accentText: Color,
     pageFraction: () -> Float,
@@ -1088,7 +1089,7 @@ private fun AlbumTopHeader(
                     groups = buildList {
                         if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
                         add(MetaGroup.Kind(stringResource(R.string.detail_album_kind), accent = true))
-                        if (year != null) add(MetaGroup.Plain(year.toString()))
+                        if (releaseDate != null) add(MetaGroup.Plain(releaseDate))
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -1146,7 +1147,7 @@ internal fun AlbumBarHeaderTwin(
     albumName: String,
     albumVersion: String? = null,
     artistName: String,
-    year: Int?,
+    releaseDate: String?,
     pageFraction: () -> Float,
     selectedPage: Int,
     pageCount: Int,
@@ -1170,7 +1171,7 @@ internal fun AlbumBarHeaderTwin(
             albumName = albumName,
             albumVersion = albumVersion,
             artistName = artistName,
-            year = year,
+            releaseDate = releaseDate,
             titleColor = onBar,
             accentText = onBar,
             pageFraction = pageFraction,
@@ -1385,17 +1386,17 @@ private fun AlbumHeroDetails(
         // Total track count + runtime, then when it was last played — left-aligned
         // with the flowing titles. Tapping the time opens the scrapbook page.
         if (content.songs.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // On one baseline (not centred): the count line and "今天 14:05" are separate texts whose fonts
+            // put their baselines at different heights in their boxes.
+            Row(modifier = Modifier.fillMaxWidth()) {
                 AlbumTrackCountLabel(
                     count = content.trackTotal,
                     totalDurationSeconds = content.totalDuration,
+                    modifier = Modifier.alignByBaseline(),
                 )
                 content.lastPlayedAt?.let { at ->
                     Spacer(modifier = Modifier.width(12.dp))
-                    AlbumHeroLastPlay(epochMillis = at, interactive = interactive)
+                    AlbumHeroLastPlay(epochMillis = at, interactive = interactive, modifier = Modifier.alignByBaseline())
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
@@ -1686,6 +1687,19 @@ private fun AlbumTrackList(
                     onToggleStar = { onToggleStar(song.id) },
                     showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
                     modifier = Modifier.seamFade(),
+                )
+            }
+        }
+        // The release date closes the list, as precisely as the service dates it (Spotify does the same):
+        // just the date, no label.
+        val releaseDate = content.releaseDate
+        if (releaseDate != null && content.songs.isNotEmpty()) {
+            item(key = "album-release-date") {
+                AlbumReleaseDateLine(
+                    date = releaseDate,
+                    modifier = Modifier
+                        .padding(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 6.dp)
+                        .seamFade(),
                 )
             }
         }

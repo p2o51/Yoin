@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.model.Playlist
@@ -134,6 +135,13 @@ internal data class AlbumDto(
     val addedAt: String? = null,
     val releaseType: String? = null,
     val version: String? = null,
+    val releaseDate: ReleaseDateDto? = null,
+    /**
+     * True on every row written since albums keep [releaseDate]. An album page row without it
+     * predates the date and is read again ([DetailCacheStore.readAlbum]) rather than served
+     * dateless for the cache's week.
+     */
+    val dated: Boolean = false,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -150,6 +158,7 @@ internal data class AlbumDto(
         addedAt = addedAt,
         releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
         version = version,
+        releaseDate = releaseDate?.toDomain(),
     )
 
     companion object {
@@ -168,7 +177,23 @@ internal data class AlbumDto(
             addedAt = a.addedAt,
             releaseType = a.releaseType?.name,
             version = a.version,
+            releaseDate = a.releaseDate?.let(ReleaseDateDto::from),
+            dated = true,
         )
+    }
+}
+
+/** [ReleaseDate] on disk; a cached album from before it existed reads as null. */
+@Serializable
+internal data class ReleaseDateDto(
+    val year: Int,
+    val month: Int? = null,
+    val day: Int? = null,
+) {
+    fun toDomain(): ReleaseDate? = ReleaseDate.of(year, month, day)
+
+    companion object {
+        fun from(d: ReleaseDate): ReleaseDateDto = ReleaseDateDto(d.year, d.month, d.day)
     }
 }
 

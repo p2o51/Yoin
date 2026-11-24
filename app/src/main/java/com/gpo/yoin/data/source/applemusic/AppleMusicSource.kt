@@ -12,6 +12,8 @@ import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.ReleaseDate
+import com.gpo.yoin.data.model.orMorePrecise
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -987,13 +989,31 @@ class AppleMusicSource(
             val a = resource.attributes()
             val artist = resource.related("artists").firstOrNull()
             val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
+            val releaseDate = appleReleaseDate(a.text("releaseDate"), catalog?.attributes()?.text("releaseDate"))
             return Album(
                 catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
-                a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
+                a["trackCount"]?.jsonPrimitive?.intOrNull, null, releaseDate?.year,
                 (a["genreNames"] ?: catalog?.attributes()?.get("genreNames"))
                     ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
-                libraryAddedAt = a.text("dateAdded")
+                libraryAddedAt = a.text("dateAdded"),
+                releaseDate = releaseDate,
             )
+        }
+
+        /**
+         * An album's `releaseDate` ("2023-10-27", or just "2023"). A library album often carries only the
+         * year, or nothing, while its `catalog` album has the full date: the catalog's is used when the
+         * library's is missing, or is less precise and the same year (a different year is a different
+         * release, so the library's own stays).
+         */
+        internal fun appleReleaseDate(own: String?, catalog: String?): ReleaseDate? {
+            val mine = ReleaseDate.parseIso(own)
+            val theirs = ReleaseDate.parseIso(catalog)
+            return when {
+                mine == null -> theirs
+                theirs == null || theirs.year != mine.year -> mine
+                else -> mine.orMorePrecise(theirs)
+            }
         }
 
         /**

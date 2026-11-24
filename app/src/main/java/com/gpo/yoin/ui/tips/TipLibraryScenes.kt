@@ -694,7 +694,7 @@ private fun BoxScope.DemoAlbumPage(album: DemoAlbum, cover: String, onLongPressR
                 AlbumBarHeaderTwin(
                     albumName = album.name,
                     artistName = album.artist,
-                    year = 2024,
+                    releaseDate = "2024",
                     pageFraction = { 0f },
                     selectedPage = 0,
                     pageCount = 2,
