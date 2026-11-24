@@ -629,6 +629,58 @@ class HomeFeedDensityTest {
         }
     }
 
+    // ---- Recently Added with no albums (2026-11-24, small tablet in portrait) ----
+
+    /** Window width → (columns, rows) for 8 tracks with no albums, portrait (Capped frame, C = min(W, 720) − 32). */
+    @Test
+    fun should_fillContentWidth_when_noAlbumsAtEveryPortraitWidth() {
+        // The demo's 8 tracks: two rows on a phone, then up to four rows of as many columns as fit.
+        val expected = mapOf(
+            360f to (2 to 2), // C 328, cover columns 3
+            412f to (2 to 2), // C 380
+            600f to (3 to 3), // C 568, cover columns 4: 3 + 3 + 2
+            640f to (3 to 3), // C 608, cover columns 5
+            700f to (3 to 3),
+            760f to (3 to 3), // ≈ the owner's small tablet (C 688 at rest)
+            800f to (3 to 3),
+            839f to (3 to 3),
+        )
+        for ((window, grid) in expected) {
+            val content = minOf(window, 720f) - 32f
+            val cover = feedCoverColumnsFor(content.dp)
+            val units = feedUnitsFor(content.dp, if (window < 600f) LayoutMode.Compact else LayoutMode.Medium)
+            val rows = recentlyAddedTrackRows(units, isCompactHeight = false)
+            val lone = recentlyAddedLoneGrid(cover, trackCount = 8, maxRows = rows)
+            assertEquals("W=$window", grid, lone.columns to lone.rows)
+            // The tiles never drop below ~156dp across the whole content width on a tablet.
+            val tile = (content - 8f * (lone.columns - 1)) / lone.columns
+            assertTrue("W=$window tile=$tile", tile >= 109f)
+            if (units >= 3) assertTrue("W=$window tile=$tile", tile >= 155f)
+        }
+    }
+
+    @Test
+    fun should_seatEveryLoadedTrack_when_noAlbumsOnTablet() {
+        // 16 tracks (the ViewModel's ceiling) at the owner's width: 3 × 4, the tablet portrait's own count.
+        val lone = recentlyAddedLoneGrid(coverColumns = 5, trackCount = RecentlyAddedMaxTracks, maxRows = 4)
+        assertEquals(RecentlyAddedLoneGrid(3, 4), lone)
+        // Wider (cover columns ≥ 6) seats the whole load, 4 × 4.
+        val wide = recentlyAddedLoneGrid(coverColumns = 6, trackCount = RecentlyAddedMaxTracks, maxRows = 4)
+        assertEquals(RecentlyAddedMaxTracks, wide.columns * wide.rows)
+    }
+
+    @Test
+    fun should_keepPhoneTwoColumns_when_noAlbumsAndFewTracks() {
+        // A lone tile keeps its column width; 3 tracks take 3 columns where they fit.
+        assertEquals(RecentlyAddedLoneGrid(2, 1), recentlyAddedLoneGrid(coverColumns = 5, trackCount = 1, maxRows = 4))
+        assertEquals(RecentlyAddedLoneGrid(2, 1), recentlyAddedLoneGrid(coverColumns = 5, trackCount = 2, maxRows = 4))
+        assertEquals(RecentlyAddedLoneGrid(3, 1), recentlyAddedLoneGrid(coverColumns = 5, trackCount = 3, maxRows = 4))
+        // Phones (cover columns 3) stay 2 × 2 whatever the supply.
+        assertEquals(RecentlyAddedLoneGrid(2, 2), recentlyAddedLoneGrid(coverColumns = 3, trackCount = 16, maxRows = 2))
+        // The landscape phone (two rows, wide content) seats 4 × 2.
+        assertEquals(RecentlyAddedLoneGrid(4, 2), recentlyAddedLoneGrid(coverColumns = 7, trackCount = 16, maxRows = 2))
+    }
+
     // ---- Rediscover ----
 
     @Test

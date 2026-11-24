@@ -111,6 +111,7 @@ fun AlbumCard(
                 version = version,
                 titleStyle = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.fillMaxWidth().seamFade(),
+                nameEllipsizes = false,
             ) { text, titleModifier ->
                 MarqueeText(
                     text = text,
