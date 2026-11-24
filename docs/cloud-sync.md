@@ -97,7 +97,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 ## 开关语义
 
 - **在本设备关闭**：只停本机，保留本机数据、本机副本和云端数据；其他设备照常。
-- **删除云端数据**（所有设备）：先确认当前 Google 账号就是同步用的那个 → 写重置标记 → 本机关闭 → 删除 Drive 里所有 Yoin 文件（中途断网下次打开 App 会接着删）。其他设备看到标记后自动关闭、不会再传回去。本机数据都还在。
+- **删除云端数据**（所有设备）：先确认当前 Google 账号就是同步用的那个 → 写重置标记 → 本机关闭 → 删除 Drive 里所有 Yoin 文件（中途断网下次打开 App 会接着删）。其他设备看到标记后自动关闭、不会再传回去。本机数据都还在。所有同步类型一样处理，专辑笔记（`album_note`）也在内：Drive 里的记录随文件删掉、各设备的副本清空，本机的专辑笔记留着，重新开启后作为新数据再上传（不是墓碑；HarmonyOS 有测试覆盖）。
   - 不撤销 Google 授权：撤销是按账号生效的，其他设备会因此读不到重置标记。想彻底断开，可在 Google 账号 › 第三方应用与服务里移除 Yoin。
 - **被别的设备「移出同步」**：这台设备下次同步时发现只有自己的文件没了（别的设备还在），会自动重新上传；只有所有设备的文件都没了（比如在 Drive 设置里删了隐藏数据）才停下来问你。
 
@@ -121,7 +121,8 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 
 - 旧版本只认 `state` / `artifacts` / `reset` 三种 `yoinKind`，其余文件直接跳过；信封按 `ignoreUnknownKeys` 解析，新增的 `purges` 字段被忽略；不带 `purges` 的信封照旧可读（字段可空、为空时不写，所以没有清除时文件字节与以前完全一样，golden 测试不变）。
 - 代价：旧版本不懂清除，会继续把这个账号的旧数据留在自己的文件里传回去。新版本不收这些记录，但 Drive 里旧版本的文件要等那台设备更新后才干净。旧版本「删除云端数据」不会删清除标记（只删它认识的三种），留着无害。
-- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎同样移植了「应用标记」（引擎、绑定、信封 `purges`、发布时排在 epoch 之后）和 `resumeAccountSync`，所以也会停止回传；云同步页的账号行显示「已从云端移除」和「恢复同步」，但还不能发起移除（`harmony/docs/cloud-sync.md`）。
+- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎同样移植了「应用标记」（引擎、绑定、信封 `purges`、发布时排在 epoch 之后）和 `resumeAccountSync`，所以也会停止回传；自 parity phase 2（2026-11-24）起也能发起移除（`CloudSyncManager.removeAccountFromCloud`，epoch 规则、标记文件名、`appProperties` 和内容与 Android 相同）：云同步页的账号行和「Drive 里有，本机没有」的行点开是这个账号的云端数据页（条数、笔记 / 专辑评分与乐评 / 单曲评分 / Memories 标题，可搜索），⋮ 里有「查看云端数据」「从云端移除…」，确认框用 Android 的文案（`harmony/docs/cloud-sync.md`）。
+- **跨端金样**：`:shared` 的 `SyncPurgeGoldenTest`（androidHostTest）写出并校验 `shared/src/commonTest/resources/golden/sync-purge.json`：标记的编码与文件名、解码（含 kotlinx 把 `"epoch":"5"` 这样的数字字符串读成 Long）、合并时哪些记录被拒收、`applyScopePurge` 逐次调用的结果、恢复同步后版本时间的抬升和信封里的 `purges`。HarmonyOS 的 Dart 引擎用 `harmony/test/data/sync/sync_purge_golden_test.dart` 对照它；改动只能从 Kotlin 一侧重新生成（`YOIN_WRITE_SYNC_GOLDEN=1 ./gradlew :shared:testAndroidHostTest --tests '*SyncPurgeGoldenTest*'`）。
 
 ## 导出与导入
 
@@ -214,5 +215,5 @@ Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这
 - 手打歌词单独同步（缓存规则已改为用户选的行不按天数过期、整体 10 MiB LRU，见 `data/lyrics/LyricsCachePolicy.kt`，前提已具备）
 - 播放历史（按月分块文件）
 - 自动清理长期不活跃设备的文件
-- iOS、HarmonyOS 发起「从云端移除」与对应界面（两边都已应用清除标记，见「从云端移除一个账号」）
+- iOS 发起「从云端移除」与对应界面（已应用清除标记，见「从云端移除一个账号」；HarmonyOS 自 parity phase 2 起已能发起）
 - 转移后在本机删掉旧账号卡片的入口（All Memories / 搜索会合并所有本机账号，不删会看到两份）

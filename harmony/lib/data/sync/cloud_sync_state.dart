@@ -5,6 +5,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import 'cloud_data_views.dart';
+
 @immutable
 final class CloudSyncState {
   const CloudSyncState({
@@ -16,6 +18,7 @@ final class CloudSyncState {
     this.cloudOnlyAccounts = const [],
     this.devices = const [],
     this.lastSummaryCount,
+    this.scopeCounts = const {},
   });
 
   final CloudSyncPhase phase;
@@ -32,6 +35,11 @@ final class CloudSyncState {
   /// "Synced from other devices" line); null when there is nothing to say.
   final int? lastSummaryCount;
 
+  /// What each account (syncProfileId) holds in the cloud, from this device's
+  /// replica (Android's CloudDataSummary.scopes); an account holding nothing
+  /// is absent. Empty while sync is off.
+  final Map<String, CloudScopeCounts> scopeCounts;
+
   bool get enabled => phase.enabled;
 
   CloudSyncState copyWith({CloudSyncPhase? phase}) => CloudSyncState(
@@ -43,6 +51,7 @@ final class CloudSyncState {
     cloudOnlyAccounts: cloudOnlyAccounts,
     devices: devices,
     lastSummaryCount: lastSummaryCount,
+    scopeCounts: scopeCounts,
   );
 
   @override
@@ -55,7 +64,8 @@ final class CloudSyncState {
       listEquals(other.accounts, accounts) &&
       listEquals(other.cloudOnlyAccounts, cloudOnlyAccounts) &&
       listEquals(other.devices, devices) &&
-      other.lastSummaryCount == lastSummaryCount;
+      other.lastSummaryCount == lastSummaryCount &&
+      mapEquals(other.scopeCounts, scopeCounts);
 
   @override
   int get hashCode => Object.hash(
@@ -67,6 +77,7 @@ final class CloudSyncState {
     Object.hashAll(cloudOnlyAccounts),
     Object.hashAll(devices),
     lastSummaryCount,
+    Object.hashAllUnordered(scopeCounts.entries.map((e) => Object.hash(e.key, e.value))),
   );
 }
 
@@ -235,6 +246,7 @@ final class SyncAccountRow {
     required this.provider,
     required this.displayName,
     required this.status,
+    this.syncProfileId,
   });
 
   final String localProfileId;
@@ -242,16 +254,20 @@ final class SyncAccountRow {
   final String displayName;
   final SyncAccountStatus status;
 
+  /// The cross-device account it is bound to; null while unbound (not synced, needs reconnect, a duplicate).
+  final String? syncProfileId;
+
   @override
   bool operator ==(Object other) =>
       other is SyncAccountRow &&
       other.localProfileId == localProfileId &&
       other.provider == provider &&
       other.displayName == displayName &&
-      other.status == status;
+      other.status == status &&
+      other.syncProfileId == syncProfileId;
 
   @override
-  int get hashCode => Object.hash(localProfileId, provider, displayName, status);
+  int get hashCode => Object.hash(localProfileId, provider, displayName, status, syncProfileId);
 }
 
 sealed class SyncAccountStatus {
@@ -438,4 +454,14 @@ abstract interface class CloudSyncController {
 
   /// Delete another device's files from Drive (it re-uploads if it is still alive).
   void removeDevice(String deviceId);
+
+  /// All devices: remove one music account's data ([syncProfileId]) from Drive. Writes a scope purge
+  /// marker, drops the account from this replica and re-uploads; every device that sees the marker stops
+  /// syncing that account (local data stays everywhere). Works for accounts only in Drive and for local
+  /// ones. Throws on failure.
+  Future<void> removeAccountFromCloud(String syncProfileId);
+
+  /// One account's notes, ratings, reviews and Memories titles as the cloud holds them (this device's
+  /// replica; read-only, no network).
+  Future<CloudAccountContent> cloudAccountContent(String syncProfileId);
 }
