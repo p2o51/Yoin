@@ -1410,7 +1410,9 @@ struct AlbumRateSheet: View {
     @State private var draft: Double?
     @State private var dragging = false
     @State private var text = ""
-    @FocusState private var focused: Bool
+    /// The review field's keyboard (the note editor is a UIKit text view: a plain flag, not a FocusState).
+    @State private var focused = false
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
     @Environment(AppModel.self) private var model: AppModel?
     @Environment(\.dismiss) private var dismiss
 
@@ -1523,13 +1525,12 @@ struct AlbumRateSheet: View {
     /// corners closed, 20 once open (a spatial spring); "Review" as its hint.
     private var reviewField: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("", text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant), axis: .vertical)
-                .lineLimit(3...)
-                .font(.gsf(Tokens.type.bodyLarge.size.cg))
-                .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyLarge))
-                .foregroundStyle(scheme.onSurface)
-                .tint(scheme.primary)
-                .focused($focused)
+            // It grows with the words and never scrolls inside (Android, owner 10-06).
+            NoteMarkupEditor(model: editor, text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant),
+                             size: Tokens.type.bodyLarge.size.cg, textColor: scheme.onSurface, mentionColor: scheme.primary,
+                             tint: scheme.primary, scheme: scheme, lines: 3...400,
+                             lineSpacing: YoinType.lineSpacing(Tokens.type.bodyLarge), focused: $focused)
+                .accessibilityLabel(Text("Review"))
             // Where the words go on NeoDB: a short comment (with its count) or a review.
             if !text.isEmpty {
                 AlbumReviewRoute(text: text, scheme: scheme)
