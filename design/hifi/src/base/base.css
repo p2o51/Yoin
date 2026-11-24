@@ -46,5 +46,6 @@ button { font: inherit; color: inherit; }
 
 /* covers: an <svg><use> filling its box, corner set by the caller */
 .cv { display: block; position: relative; overflow: hidden; border-radius: var(--r-xs); background: var(--surfaceContainerHigh); }
-.cv > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cv > svg, .cv > img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cv > img { object-fit: cover; }
 .tall .screen { position: relative; }

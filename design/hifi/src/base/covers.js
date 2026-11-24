@@ -73,8 +73,14 @@ ${sym('late', quad('slow', 'harbor', 'glass', 'soda'))}
 ${sym('sunday', quad('soda', 'paper', 'harbor', 'yehang'))}
 </svg>`;
 }
+/** Raster covers by key: only the real catalogue (catalog-real.js) fills this; the demo covers are SVG. */
+const COVER_IMG = {};
+/** What's playing in the bottom bars of pages that aren't Now Playing (the real catalogue swaps it). */
+const NOW_PLAYING = { t: '灯塔', s: '林间', k: 'yehang' };
 /** A cover as a square block; size/shape come from the caller's CSS (.cv is 100% of its box). */
-function cover(key, cls = '') { return `<span class="cv ${cls}"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><use href="#cv-${key}"/></svg></span>`; }
+function cover(key, cls = '') {
+  if (COVER_IMG[key]) return `<span class="cv ${cls}"><img src="${COVER_IMG[key]}" alt=""></span>`;
+  return `<span class="cv ${cls}"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><use href="#cv-${key}"/></svg></span>`; }
 /** Inline palette vars for a card / backdrop: --pal (base), --acc, and the theme ink (--ink). */
 function artVars(key) { const a = ART[key] || ART.glass; return `--pal:${a.base};--acc:${a.acc}`; }
 

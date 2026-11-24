@@ -7,7 +7,7 @@ const AL_CTL = [
   { key: 'page', label: 'Page', options: [['overview', 'Overview'], ['scrapbook', 'Scrapbook']], def: 'overview' },
   { key: 'pull', label: 'Overview', options: [['rest', 'At rest'], ['up', 'Pulled up']], def: 'rest' },
   { key: 'sticky', label: 'Sticky', options: [['off', 'Off'], ['edit', 'Writing']], def: 'off' },
-  { key: 'playing', label: 'Playing', options: [['yes', '灯塔'], ['no', 'Nothing']], def: 'yes' },
+  { key: 'playing', label: 'Playing', options: [['yes', 'Something'], ['no', 'Nothing']], def: 'yes' },
   // the release date at the service's precision (0.6.3 (32)); 'year' = the album page before it, for before/after figures
   { key: 'date', label: 'Date', options: [['full', 'Release date'], ['year', 'Year only (before 0.6.3 (32))']], def: 'full' },
   // the Scrapbook scrolled down to its receipt
@@ -15,7 +15,7 @@ const AL_CTL = [
 ];
 function renderAlbum(st, size) {
   const page = st.page === 'scrapbook' ? 1 : 0, opts = { page, pulled: st.pull === 'up', editing: st.sticky === 'edit' };
-  const playing = st.playing === 'yes' ? CAT.huisheng && { k: 'yehang', s: '林间' } : null, title = '灯塔';
+  const playing = st.playing === 'yes' ? { k: NOW_PLAYING.k, s: NOW_PLAYING.s } : null, title = NOW_PLAYING.t;
   if (size.cls === 'expanded') {
     const shell = `<div class="lib">${libHeader('medium', 'albums')}<div class="lib-body">${libSort('Recents')}${libGrid(LIB_ALL.filter((x) => x.kind === 'album'), 5)}</div></div>`;
     return `${paneSplit(shell, albumPane(st.album, { ...opts, W: 656 }))}${barDissolve(size)}${detailBar(size, { mode: 'shell', playing, title })}`;

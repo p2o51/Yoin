@@ -17,10 +17,14 @@ const Proto = {
     const q = new URLSearchParams(location.search);
     const ctl = [{ key: 'w', label: 'Width', options: Object.entries(SIZES).map(([k, v]) => [k, v.label.split(' ')[0]]), def: 'phone' },
       { key: 'theme', label: 'Theme', options: [['dark', 'Dark'], ['light', 'Light']], def: 'dark' },
-      { key: 'lang', label: 'Language', options: [['en', 'EN'], ['zh', '中文']], def: 'en' }, ...(opts.controls || [])];
+      { key: 'lang', label: 'Language', options: [['en', 'EN'], ['zh', '中文']], def: 'en' },
+      { key: 'catalog', label: 'Catalogue', options: [['demo', 'Demo'], ['real', 'Real (site)']], def: 'demo' }, ...(opts.controls || [])];
     this.controls = ctl;
     for (const c of ctl) this.state[c.key] = q.get(c.key) && c.options.some((o) => o[0] === q.get(c.key)) ? q.get(c.key) : c.def;
     this.state.tall = q.get('tall') === '1';
+    // the real catalogue (yoin-site's covers, by ?covers=<url>, default the sibling yoin-site checkout) swaps the data once
+    this.covers = q.get('covers') || '../../../../yoin-site/public/img/music/';
+    if (this.state.catalog === 'real') useRealCatalog(this.state.lang, this.covers);
     document.body.insertAdjacentHTML('afterbegin', coverSprite() +
       `<div class="pbar" role="toolbar"><h1>${opts.title}<small>Yoin Hi-Fi · Android</small></h1>${ctl.map((c) =>
         `<div class="pgrp" data-k="${c.key}"><span>${c.label}</span><div class="seg">${c.options.map((o) => `<button type="button" data-v="${o[0]}">${o[1]}</button>`).join('')}</div></div>`).join('')}</div>
@@ -32,13 +36,22 @@ const Proto = {
     addEventListener('resize', () => this.fit());
     this.render();
   },
-  set(k, v) { this.state[k] = v; this.render(); },
+  set(k, v) {
+    this.state[k] = v;
+    // the catalogue's data is swapped in place at load: changing it (or its language) reloads the page
+    if (k === 'catalog' || (k === 'lang' && this.state.catalog === 'real')) {
+      const q = new URLSearchParams(location.search); q.set(k, v); if (this.state.catalog === 'real') q.set('covers', this.covers);
+      location.search = q.toString(); return;
+    }
+    this.render();
+  },
   render() {
     const s = this.state, size = SIZES[s.w], dark = s.theme === 'dark';
     document.body.classList.toggle('ui-dark', dark);
     document.documentElement.lang = s.lang === 'zh' ? 'zh-Hans' : 'en';
     for (const g of document.querySelectorAll('.pgrp')) for (const b of g.querySelectorAll('button')) b.setAttribute('aria-pressed', String(s[g.dataset.k] === b.dataset.v));
     const q = new URLSearchParams(); for (const c of this.controls) if (s[c.key] !== c.def) q.set(c.key, s[c.key]); if (s.tall) q.set('tall', '1');
+    if (s.catalog === 'real' && new URLSearchParams(location.search).has('covers')) q.set('covers', this.covers);
     history.replaceState(null, '', q.toString() ? '?' + q : location.pathname);
     const dev = document.querySelector('.device');
     dev.dataset.size = size.cls; dev.dataset.w = s.w;

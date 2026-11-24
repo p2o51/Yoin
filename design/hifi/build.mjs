@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const SRC = join(ROOT, 'src'), DIST = join(ROOT, 'dist');
 const LIMIT = 200 * 1024;
-const BASE = ['base/base', 'base/palette', 'base/icons', 'base/shapes', 'base/covers', 'base/proto'];
+const BASE = ['base/base', 'base/palette', 'base/icons', 'base/shapes', 'base/covers', 'base/catalog-real', 'base/proto'];
 const FONT = 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wdth,wght,ROND@6..144,25..151,100..1000,0..100&display=swap';
 
 const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');

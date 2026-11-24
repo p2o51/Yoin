@@ -52,9 +52,9 @@ function renderLib(st, size) {
   if (st.search === 'on') return libSearch(size);
   const open = st.detail !== 'none';
   if (open && size.cls === 'expanded') {
-    return `${paneSplit(libScreen(st, size, 600, 'medium'), albumPane('harbor', { W: 656 }))}${barDissolve(size)}${detailBar(size, { mode: 'shell', playing: { k: 'yehang', s: '林间' }, title: '灯塔' })}`;
+    return `${paneSplit(libScreen(st, size, 600, 'medium'), albumPane('harbor', { W: 656 }))}${barDissolve(size)}${detailBar(size, { mode: 'shell', playing: { k: NOW_PLAYING.k, s: NOW_PLAYING.s }, title: NOW_PLAYING.t })}`;
   }
-  if (open) return `${albumPane('harbor', { W: size.w })}${barDissolve(size)}${detailBar(size, { playing: { k: 'yehang', s: '林间' }, title: '灯塔' })}`;
+  if (open) return `${albumPane('harbor', { W: size.w })}${barDissolve(size)}${detailBar(size, { playing: { k: NOW_PLAYING.k, s: NOW_PLAYING.s }, title: NOW_PLAYING.t })}`;
   return `${libScreen(st, size, size.w, size.cls)}${barDissolve(size)}${bottomBar({ size, active: 'library', playing: CAT.yehang, title: '灯塔' })}`;
 }
 Proto.init({ title: 'Library', controls: LIB_CTL, scheme: (st) => (st.detail !== 'none' ? 'harbor' : 'yehang'), render: renderLib });

@@ -8,11 +8,14 @@
    --bezel clean wraps the screen in a plain dark bezel on a transparent background; --bezel none (the default) is
    the bare screen, square-cornered, with its status and gesture bars, for a page that draws its own frame (the
    site's changelog does). Prototype-only notes (the keyboard's "not Yoin" label) are hidden.
-   Every export uses the prototypes' one demo catalogue (src/base/covers.js CAT), so names and covers match
-   across the site.
+   --catalog demo (default) uses the prototypes' SVG demo catalogue (src/base/covers.js CAT); --catalog real uses
+   the owner's library with its real covers (src/base/catalog-real.js), the one yoin-site's figures show, read from
+   --covers <dir> (default: the sibling yoin-site checkout's public/img/music). --lang picks each catalogue's
+   English or Chinese demo content as well as the UI language.
 
    node design/hifi/export.mjs --page album --state "page=scrapbook&at=receipt" --frame phone --theme light \
-        [--lang zh] [--name album-receipt] [--out dir] [--format webp|png|html|all] [--scale 2] [--bezel none|clean]
+        [--lang zh] [--catalog demo|real] [--covers dir] [--name album-receipt] [--out dir] [--format webp|png|html|all]
+        [--scale 2] [--bezel none|clean]
    node design/hifi/export.mjs --batch design/hifi/site/0.6.3-32.json [--out dir]
         a list of exports in one go (see README, "Export for the website"): every entry × its themes × its langs, named
         <name>-<theme>[-zh].<ext>; the file's "out" is relative to the file, --out overrides it.
@@ -53,6 +56,12 @@ if (args.batch) {
   jobs.push({ ...args, out: args.out || join(ROOT, 'exports') });
 }
 for (const j of jobs) {
+  j.catalog ||= 'demo';
+  if (!['demo', 'real'].includes(j.catalog)) { console.error(USAGE); process.exit(2); }
+  if (j.catalog === 'real') {
+    j.covers = resolve(j.covers || args.covers || join(ROOT, '../../../yoin-site/public/img/music'));
+    if (!existsSync(join(j.covers, 'weyes-512.webp'))) { console.error(`--catalog real needs yoin-site's covers: no weyes-512.webp in ${j.covers} (pass --covers <yoin-site>/public/img/music)`); process.exit(2); }
+  }
   j.frame ||= 'phone'; j.theme ||= 'light'; j.lang ||= 'en'; j.format ||= 'webp'; j.scale = +(j.scale || 2); j.bezel ||= 'none';
   j.state = (j.state || '').replace(/^\?/, '');
   if (!j.page || !SIZES[j.frame] || !['light', 'dark'].includes(j.theme) || !['en', 'zh'].includes(j.lang) || !['none', 'clean'].includes(j.bezel)) { console.error(USAGE); process.exit(2); }
@@ -98,17 +107,21 @@ try {
 }
 if (failed) process.exit(1);
 
-async function exportOne({ page, state, frame, theme, lang, name, out, format, scale, bezel }) {
+async function exportOne({ page, state, frame, theme, lang, catalog, covers, name, out, format, scale, bezel }) {
   const [W, H] = SIZES[frame], pad = bezel === 'clean' ? (frame === 'phone' ? 12 : 16) : 0;
   const EXPORT_CSS = exportCss(W, H, pad, frame, bezel);
   const ctx = await browser.newContext({ viewport: { width: W + 2 * pad, height: H + 2 * pad }, deviceScaleFactor: scale });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', (e) => errors.push(e.message));
-  const url = pathToFileURL(join(ROOT, 'dist', page + '.html')).href + `?w=${frame}&theme=${theme}&lang=${lang}${state ? '&' + state : ''}`;
+  const real = catalog === 'real' ? `&catalog=real&covers=${encodeURIComponent(pathToFileURL(covers).href + '/')}` : '';
+  const url = pathToFileURL(join(ROOT, 'dist', page + '.html')).href + `?w=${frame}&theme=${theme}&lang=${lang}${real}${state ? '&' + state : ''}`;
   await p.goto(url, { waitUntil: 'networkidle' }).catch(() => p.goto(url));
   await p.addStyleTag({ content: EXPORT_CSS });
   await p.evaluate(() => document.fonts.ready);
+  await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {}))));
+  const broken = await p.evaluate(() => [...document.images].filter((i) => !i.naturalWidth).map((i) => i.getAttribute('src')));
+  if (broken.length) errors.push('missing covers: ' + [...new Set(broken)].join(', '));
   await p.evaluate(() => window.dispatchEvent(new Event('resize')));
   await p.waitForTimeout(300);
   if (errors.length) { await ctx.close(); throw new Error('page error: ' + errors.join('; ')); }
@@ -153,7 +166,9 @@ async function exportOne({ page, state, frame, theme, lang, name, out, format, s
         `<title>Yoin</title><link rel="stylesheet" href="${FONT}"><style>${css}\n${EXPORT_CSS}\n.dev-wrap{transform-origin:0 0}</style></head>` +
         `<body class="${document.body.className}">${spriteHtml}<div class="stage"><div class="dev-wrap" style="width:${W}px;height:${H}px">${dev.outerHTML}</div></div>${fit}</body></html>\n`;
     }, { W, H, FONT, EXPORT_CSS, lang });
-    writeFileSync(join(out, name + '.html'), html);
+    // the real covers are files next to yoin-site: inline them, so the frame needs nothing but the font
+    const inlined = html.replace(/src="(file:[^"]+?\.webp)"/g, (_, u) => `src="data:image/webp;base64,${readFileSync(fileURLToPath(u)).toString('base64')}"`);
+    writeFileSync(join(out, name + '.html'), inlined);
     written.push(name + '.html');
   }
   for (const f of written) console.log(`${join(out, f)}  ${(readFileSync(join(out, f)).length / 1024).toFixed(1)} KiB`);
