@@ -229,6 +229,7 @@ final class AppModel {
         self.mockPlayback = mock
         #if DEBUG
         SongAboutDemo.launch(album: mock.album, track: mock.track)
+        NoteMentionsDemo.seed()
         #endif
         self.playbackSystem = PlaybackSystem.live()
         let sources = SourceSelection(subsonicSignedIn: false)
