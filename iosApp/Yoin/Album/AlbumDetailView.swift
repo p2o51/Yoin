@@ -782,7 +782,9 @@ struct AlbumDetailView: View {
         if let comment {
             Button { rating = true } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(comment.text).lineLimit(3)
+                    NoteMarkupText(text: comment.text, size: Tokens.type.bodyMedium.size.cg,
+                                   mentionColor: app.primary, glyphColor: app.primary)
+                        .lineLimit(3)
                         .multilineTextAlignment(.leading)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurface)

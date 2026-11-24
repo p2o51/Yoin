@@ -346,8 +346,8 @@ struct AlbumScrapbookView: View {
             Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
-                Text(review)
-                    .font(.gsf(15)).lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
+                NoteMarkupText(text: review, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.primary)
+                    .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
                 if let reviewAt {
                     Text(reviewAt)
@@ -382,9 +382,9 @@ struct AlbumScrapbookView: View {
             }
             // Album note sticky: own row on the end side, tucks 6 over the review.
             if let albumNote {
-            Text(albumNote)
+            NoteMarkupText(text: albumNote, size: 14.5, mentionColor: s.onSecondaryContainer, glyphColor: s.primary)
                 // userTextStyle at 14.5: line 1.5 em.
-                .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
+                .lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
                 .foregroundStyle(s.onSecondaryContainer)
                 .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
                 .frame(width: min(0.72 * 368, Tokens.detail.SCRAPBOOK_STICKY_MAX_WIDTH.cg), alignment: .leading)
@@ -393,7 +393,7 @@ struct AlbumScrapbookView: View {
                 .modifier(layer(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper)), depth: 0.45))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
-                .accessibilityLabel("Album note: \(albumNote)")
+                .accessibilityLabel("Album note: \(NoteMarkupRender.words(albumNote))")
             }
         }
     }
@@ -677,7 +677,7 @@ struct AlbumScrapbookView: View {
                             Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            Text(n.text).font(.gsf(15))
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary)
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                                 .foregroundStyle(s.onSurface)
                                 .multilineTextAlignment(.leading)
@@ -688,7 +688,8 @@ struct AlbumScrapbookView: View {
                     }
                     .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
-                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
+                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(NoteMarkupRender.words(n.text))")
+                        : String(localized: "Note at \(n.time): \(NoteMarkupRender.words(n.text))"))
                 }
                 if ns.count > ScrapbookRules.notesShown {
                     // Android "+N notes": the rest in the sheet's Notes tab.
