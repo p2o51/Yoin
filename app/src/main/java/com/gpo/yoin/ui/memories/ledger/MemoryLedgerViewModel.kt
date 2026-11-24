@@ -8,8 +8,8 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.MemoryLedgerDao
 import com.gpo.yoin.data.memory.LedgerAlbumLookup
 import com.gpo.yoin.data.memory.MemoryGrid
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
 import com.gpo.yoin.data.memory.MemoryLedgerRows
 import com.gpo.yoin.data.memory.MemoryLedgerStats
 import com.gpo.yoin.data.memory.buildMemoryGrid
