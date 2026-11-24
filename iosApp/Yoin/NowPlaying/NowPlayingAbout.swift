@@ -547,7 +547,6 @@ struct AskGeminiBar: View {
     var scheme: CoverScheme
     var onFocus: () -> Void
     var onDismissError: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
 
     static let height: CGFloat = 56
     static let corner: CGFloat = 28
@@ -592,12 +591,13 @@ struct AskGeminiBar: View {
         .accessibilityAddTraits(loading ? [] : .isButton)
     }
 
-    /// On solid/opaque containers (or in light mode): onPrimaryContainer;
-    /// on thin dark glass: white so the label doesn't sink into the glass.
-    private var onGlass: Color {
-        GlassLab.shared.usesContainerOnColor("npFloating", dark: colorScheme == .dark)
-            ? scheme.onPrimaryContainer : .white
-    }
+    /// The bar is tinted primaryContainer, so its words are onPrimaryContainer, in light and dark,
+    /// on glass and solid (Android AskGeminiBar: label, typed question, placeholder at 60 %). The
+    /// cover schemes' dark primaryContainer is a light tone, where the fixed white this replaced
+    /// read at about 2.5:1.
+    static func ink(_ scheme: CoverScheme) -> Color { scheme.onPrimaryContainer }
+
+    private var onGlass: Color { Self.ink(scheme) }
 
     private func label(_ text: String, color: Color) -> some View {
         Text(text)
@@ -626,15 +626,11 @@ struct AskGeminiField: View {
     var focus: FocusState<Bool>.Binding
     var prompts: [String] = []
     var onSubmit: (String) -> Void
-    @Environment(\.colorScheme) private var colorScheme
 
     static let height: CGFloat = 252
 
-    /// As on the bar: onPrimaryContainer on solid/light, white on thin dark glass.
-    private var onGlass: Color {
-        GlassLab.shared.usesContainerOnColor("npFloating", dark: colorScheme == .dark)
-            ? scheme.onPrimaryContainer : .white
-    }
+    /// As on the bar: onPrimaryContainer.
+    private var onGlass: Color { AskGeminiBar.ink(scheme) }
     private var showsPrompts: Bool { text.isEmpty && !prompts.isEmpty }
 
     var body: some View {
