@@ -163,7 +163,9 @@ val NoteStampColumnWidth = 40.dp
  * Shared by the collapsed Note window and the expanded Note page, so a note
  * looks the same in both — no cards, no rail, no per-row buttons. [text] is
  * the stored note (light Markdown and mentions, [NoteMarkupText]); a mention
- * is a link when [onMentionClick] is given.
+ * opens what it names (or [onMentionClick]) and peeks on a long press.
+ * [interactive] false (the collapsed window) draws the same but takes no
+ * touch at all: a tap anywhere goes to the host, which expands (owner 2026-11-24).
  */
 @Composable
 fun NoteLine(
@@ -176,6 +178,7 @@ fun NoteLine(
     meta: String? = null,
     onMentionClick: ((NoteMention) -> Unit)? = null,
     onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
+    interactive: Boolean = true,
 ) {
     val glance = emphasis == NoteLineEmphasis.Glance
     val scheme = MaterialTheme.colorScheme
@@ -258,13 +261,12 @@ fun NoteLine(
         }
         Column(modifier = Modifier.weight(1f).alignByBaseline()) {
             // The stored Markdown drawn: headings, lists, to-dos, bold / italic and mentions.
-            BasicText(
-                text = rememberNoteMarkup(
-                    text,
-                    mentionColor = scheme.primary,
-                    onMentionClick = onMentionClick,
-                    onToggleChecklist = onToggleChecklist,
-                ),
+            NoteMarkupBody(
+                text = text,
+                mentionColor = scheme.primary,
+                onMentionClick = onMentionClick,
+                onToggleChecklist = onToggleChecklist,
+                interactive = interactive,
                 style = bodyStyle.copy(
                     fontWeight = when {
                         glance && isActive -> FontWeight.Bold
@@ -432,6 +434,9 @@ class NoteWriteBarState internal constructor(val draftState: NoteDraftState) {
 fun rememberNoteWriteBarState(draftState: NoteDraftState): NoteWriteBarState =
     remember(draftState) { NoteWriteBarState(draftState) }
 
+/** 记下 is live with words to file, or for an edit that changed (emptied, it deletes the note). */
+internal val NoteDraft.canSave: Boolean get() = if (isEditing) !isUntouchedEdit else text.isNotBlank()
+
 /** The bar is open while it has focus or holds unsaved words. */
 internal fun noteWriteBarOpen(focused: Boolean, draftText: String): Boolean = focused || draftText.isNotEmpty()
 
@@ -528,6 +533,13 @@ fun NoteWriteBar(
     DisposableEffect(state) {
         onDispose { state.focused = false }
     }
+    // A note line long-pressed for editing: its words are in the draft; take the keyboard.
+    LaunchedEffect(draftState.pendingEditFocus) {
+        if (draftState.pendingEditFocus) {
+            draftState.pendingEditFocus = false
+            state.requestWriting()
+        }
+    }
     LaunchedEffect(state.pendingFocus, focusGate) {
         if (state.pendingFocus && focusGate) {
             state.pendingFocus = false
@@ -544,7 +556,12 @@ fun NoteWriteBar(
             !state.focused -> imeShown = false
             imeVisible -> imeShown = true
             else -> {
-                if (shouldCollapseNoteWriteBar(imeShown, imeVisible, draftState.draft.text.isEmpty())) {
+                val draftNow = draftState.draft
+                if (imeShown && draftNow.isUntouchedEdit) {
+                    // An edit put away unchanged closes: the bar returns to its capsule, the note as it was.
+                    draftState.cancelEdit(currentTarget, latestPosition())
+                    focusManager.clearFocus()
+                } else if (shouldCollapseNoteWriteBar(imeShown, imeVisible, draftNow.text.isEmpty())) {
                     focusManager.clearFocus()
                 }
                 imeShown = false
@@ -620,7 +637,7 @@ fun NoteWriteBar(
                 tint = scheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
-            inline -> NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
+            inline -> NoteSavePill(enabled = draft.canSave, onClick = save)
         }
     }
     val footerSlot: @Composable () -> Unit = {
@@ -635,7 +652,7 @@ fun NoteWriteBar(
                         .horizontalScroll(rememberScrollState()),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
+                NoteSavePill(enabled = draft.canSave, onClick = save)
             }
         }
     }

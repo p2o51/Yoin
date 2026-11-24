@@ -183,6 +183,9 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
                 trackAlbum = { container.repository.findTrackAlbum(it) },
                 navigate = ::openNoteDestination,
                 resolveCover = { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key), 120) },
+                artwork = { resolved ->
+                    container.repository.mentionArtworkUrl(resolved.mention.kind, resolved.id, MentionArtworkSizePx)
+                },
                 accountChanges = container.profileManager.activeProfileId,
             )
         }
@@ -216,3 +219,6 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         ProvideSeamBarField(content = content)
     }
 }
+
+/** The mention thumbnail and peek card's cover, requested once at the larger (peek) size. */
+private const val MentionArtworkSizePx = 240
