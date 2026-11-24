@@ -8,7 +8,7 @@ import {
   MethodResult
 } from '@ohos/flutter_ohos';
 import { common } from '@kit.AbilityKit';
-import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
@@ -22,6 +22,8 @@ const TAG = 'YoinShare';
 /** The images handed to the share sheet / the gallery dialog live here; the previous ones are dropped. */
 const SHARE_DIR = 'shared';
 const SHARE_PREFIX = 'yoin-lyrics-';
+/** A file the user picked (Import from backup), copied here; Dart deletes it once read. */
+const PICK_PREFIX = 'yoin-picked-';
 
 /**
  * Serves `yoin/share` for Dart's `ChannelTextShare` (a page's or a song's name and link, Android DetailMenu's
@@ -32,6 +34,10 @@ const SHARE_PREFIX = 'yoin-lyrics-';
  * - `shareImage` {bytes, name, caption} writes the PNG to the cache and opens the system share sheet (Share Kit);
  * - `saveImage` {bytes, name} writes it to the cache and asks the system's save dialog to put it in the gallery
  *   (photoAccessHelper.showAssetsCreationDialog — the user confirms, no storage permission needed).
+ * - `saveFile` {path, name} asks where to keep a file the app wrote (the system's document picker, Android's
+ *   SAF CreateDocument: Settings › Export all data) and copies it there;
+ * - `pickFile` {} lets the user pick one file (the document picker, Android's OpenDocument: Import from backup) and
+ *   copies it into the cache, answering its path, or null when nothing was picked.
  * Each answers true when the sheet / the save went through, false otherwise (declined, failed).
  */
 export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler {
@@ -69,6 +75,24 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
         typeof title === 'string' ? title as string : '')
         .then((ok: boolean) => result.success(ok))
         .catch(() => result.success(false));
+      return;
+    }
+    if (call.method === 'saveFile') {
+      const path: Any = call.argument('path');
+      const name: Any = call.argument('name');
+      if (typeof path !== 'string' || !this.isSandboxed(path as string) || typeof name !== 'string') {
+        result.error('bad_args', 'saveFile needs a path in the app sandbox and a name', null);
+        return;
+      }
+      this.saveFile(path as string, name as string)
+        .then((ok: boolean) => result.success(ok))
+        .catch(() => result.success(false));
+      return;
+    }
+    if (call.method === 'pickFile') {
+      this.pickFile()
+        .then((path: string | null) => result.success(path))
+        .catch(() => result.success(null));
       return;
     }
     if (call.method === 'shareText') {
@@ -218,6 +242,59 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'shareFile failed: %{public}d', (e as BusinessError).code ?? -1);
       return false;
+    }
+  }
+
+  /** The document picker's save dialog for [path], suggested as [name]; the file is copied where the user chose. */
+  private async saveFile(path: string, name: string): Promise<boolean> {
+    try {
+      const options = new picker.DocumentSaveOptions();
+      options.newFileNames = [name];
+      const uris: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (uris.length === 0) {
+        return false;
+      }
+      const source = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      const target = fileIo.openSync(uris[0], fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+      try {
+        fileIo.copyFileSync(source.fd, target.fd);
+      } finally {
+        fileIo.closeSync(source);
+        fileIo.closeSync(target);
+      }
+      return true;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'saveFile failed: %{public}d', (e as BusinessError).code ?? -1);
+      return false;
+    }
+  }
+
+  /** The document picker's select dialog (one file); the pick is copied to cacheDir/shared and its path answered. */
+  private async pickFile(): Promise<string | null> {
+    try {
+      const options = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      const uris: string[] = await new picker.DocumentViewPicker(this.context).select(options);
+      if (uris.length === 0) {
+        return null;
+      }
+      const dir = `${this.context.cacheDir}/${SHARE_DIR}`;
+      if (!fileIo.accessSync(dir)) {
+        fileIo.mkdirSync(dir);
+      }
+      const path = `${dir}/${PICK_PREFIX}${Date.now()}`;
+      const source = fileIo.openSync(uris[0], fileIo.OpenMode.READ_ONLY);
+      const target = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.WRITE_ONLY);
+      try {
+        fileIo.copyFileSync(source.fd, target.fd);
+      } finally {
+        fileIo.closeSync(source);
+        fileIo.closeSync(target);
+      }
+      return path;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'pickFile failed: %{public}d', (e as BusinessError).code ?? -1);
+      return null;
     }
   }
 

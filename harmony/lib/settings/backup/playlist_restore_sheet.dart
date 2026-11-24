@@ -386,7 +386,10 @@ class _MatchingProgressState extends State<_MatchingProgress> with SingleTickerP
               Container(
                 width: PlaylistBackupMetrics.matchingCookie,
                 height: PlaylistBackupMetrics.matchingCookie,
-                decoration: ShapeDecoration(color: colors.primaryContainer, shape: PolygonBorder(MaterialShapes.cookie9Sided)),
+                decoration: ShapeDecoration(
+                  color: colors.primaryContainer,
+                  shape: PolygonBorder(MaterialShapes.cookie9Sided),
+                ),
                 alignment: Alignment.center,
                 child: SizedBox.square(
                   dimension: PlaylistBackupMetrics.matchingIndicator,
@@ -557,7 +560,7 @@ class _ReviewState extends State<_Review> {
                 for (final (i, (filter, label, count)) in filters.indexed) ...[
                   if (i > 0) const SizedBox(width: PlaylistBackupMetrics.actionGap),
                   Expanded(
-                    child: _ConnectedToggle(
+                    child: ConnectedToggle(
                       label: '$label $count',
                       checked: _filter == filter,
                       index: i,
@@ -695,8 +698,9 @@ class _CountBadge extends StatelessWidget {
 
 /// One of the connected filter buttons (ButtonGroup ToggleButton): the group's outer corners round, the
 /// inner ones tight; checked, it rounds all the way on the spatial spring and fills on the effects spring.
-class _ConnectedToggle extends StatefulWidget {
-  const _ConnectedToggle({
+class ConnectedToggle extends StatefulWidget {
+  const ConnectedToggle({
+    super.key,
     required this.label,
     required this.checked,
     required this.index,
@@ -711,10 +715,10 @@ class _ConnectedToggle extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_ConnectedToggle> createState() => _ConnectedToggleState();
+  State<ConnectedToggle> createState() => _ConnectedToggleState();
 }
 
-class _ConnectedToggleState extends State<_ConnectedToggle> with TickerProviderStateMixin {
+class _ConnectedToggleState extends State<ConnectedToggle> with TickerProviderStateMixin {
   late final SpringValue _fill = SpringValue(
     vsync: this,
     initial: widget.checked ? 1 : 0,
@@ -727,7 +731,7 @@ class _ConnectedToggleState extends State<_ConnectedToggle> with TickerProviderS
   );
 
   @override
-  void didUpdateWidget(_ConnectedToggle old) {
+  void didUpdateWidget(ConnectedToggle old) {
     super.didUpdateWidget(old);
     if (old.checked == widget.checked) return;
     final target = widget.checked ? 1.0 : 0.0;
@@ -1067,7 +1071,11 @@ class ReviewMark extends StatefulWidget {
     required this.checked,
     required this.enabled,
     required this.onToggle,
+    this.label,
   });
+
+  /// What checking the row does, for screen readers; playlist restore's "Add to playlist" when null.
+  final String? label;
 
   final ReviewStatus status;
   final bool checked;
@@ -1119,7 +1127,7 @@ class _ReviewMarkState extends State<ReviewMark> with TickerProviderStateMixin {
     final colors = Theme.of(context).colorScheme;
     final rest = widget.status == ReviewStatus.uncertain ? colors.tertiaryContainer : colors.surfaceContainerHighest;
     return Semantics(
-      label: strings.cdCheck,
+      label: widget.label ?? strings.cdCheck,
       checked: widget.checked,
       enabled: widget.enabled,
       button: true,
@@ -1570,7 +1578,6 @@ class _Outcome extends StatefulWidget {
 
 class _OutcomeState extends State<_Outcome> with SingleTickerProviderStateMixin {
   late final SpringValue _appear = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
-
 
   @override
   void initState() {

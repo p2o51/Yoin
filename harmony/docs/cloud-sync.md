@@ -96,6 +96,42 @@ Google Cloud project** as Android's (otherwise it sees a different, empty
    runs, and Cloud sync says “Cloud sync isn't available in this build of Yoin.”
    with the package name under Details.
 
+## Export, import from backup, Transfer Memories
+
+Android's「导出与导入」and「转移 Memories」(repo root `docs/cloud-sync.md`), the same
+file format and rules, so a backup made on any platform imports on any other.
+
+| Piece | Where |
+| --- | --- |
+| The core, ported from `:shared` `portability/` | `lib/data/portability/`: `backup_format.dart` (manifest, dates), `backup_files.dart` (`BackupExport`, `BackupParser`), `readable_export.dart`, `snapshot_assembler.dart`, `backup_import.dart` (`ImportPlanner`, `BackupMerger`), `memories/` (`MemoryItems`, `TransferRules`, `MigrationIds`, `MemoryTransferApplier`) |
+| Golden checks | `test/data/portability/backup_export_golden_test.dart`, `backup_import_golden_test.dart` (on the real sync adapters and stores), `memories_transfer_golden_test.dart`, against `shared/src/commonTest/resources/golden/*.json`; regenerate those only from the Kotlin side |
+| The ports on this app's stores | `harmony_stores.dart`: `MemoryStore`, `MemoryCopyCache`, the `LocalRatings` notifier, `TrackAlbumLinkStore`, plays (names for the readable Markdown, facts for matching) |
+| Matching for transfers | `memories/memory_matching.dart` (Android `MemoryTransfer.plan`: ISRC, `TrackMatcher` search, title only; albums by the votes of matched songs, then album search) over the target account's `MusicSource` (`SourceMemoryCatalog`) |
+| Service | `memories_portability.dart` (`MemoriesPortability`), `portability_providers.dart`; runs under the sync lock (`CloudSyncManager.runPortability`) |
+| Zip | `backup_zip.dart`, pure-Dart `archive` 3.x (MIT; 4.x pulls in `posix`/FFI) |
+| Files | `backup_file_io.dart` → `lib/platform/share/document_files.dart` → ArkTS `SharePlugin.ets` `saveFile` / `pickFile` (`picker.DocumentViewPicker`; Android's SAF CreateDocument / OpenDocument) |
+| Screens | `lib/settings/sync/`: `backup_screens.dart` / `backup_view_model.dart` (export, import review per account: into an account here / keep in the cloud only / skip, global data, SHA-256 status, result), `transfer_screens.dart` / `transfer_view_model.dart` (source, target, summary, matching, review, result), `portability_strings.dart` (Android's EN + zh, keys in comments) |
+| Entries | Cloud sync page: a "Backup file" group with sync off (Download all data, Import from backup, Transfer Memories; Android keeps Transfer on each account's page, but HarmonyOS ships with sync off) and Android's backup group with sync on; an account's cloud data page has Transfer Memories |
+
+Cloud sync is off in builds without the Google client (above), so all three work
+without it:
+
+- With no sync store (sync never turned on) nothing creates one: scopes are the ones a
+  binding would get (Subsonic fingerprint, else `local-<account id>`), the transfer
+  ledger is kept on the key-value store (`memories_transfer_ledger.v1`, the same keys
+  Android keeps in `sync_meta`), and backups are signed with a device id kept under
+  `portability_device_id.v1`. The manifest's location is `this-device`.
+- "Keep in the cloud only" is offered only when a sync store exists (as Android: it
+  merges into the replica, uploaded by the next sync). Accounts only in the cloud are
+  transfer sources only while sync is on.
+- There is no Spotify here. A backup's (or the replica's) Spotify accounts are carried
+  into exports untouched; on import they can only stay in the file or go cloud-only,
+  and they can be the source of a Memories transfer into an account on this device.
+- Yoin's AI words are kept for albums only (Android's only entity type today); a
+  transfer leaves any other entity type out.
+- Dates in the readable Markdown and the file name use the device's time zone (Dart
+  has no tz database; the golden tests carry the two zone rules they use).
+
 ## Differences from Android
 
 - No “Needs Google Play services” states; the account picker is Google's own page
@@ -125,8 +161,8 @@ Google Cloud project** as Android's (otherwise it sees a different, empty
   `test/data/sync/sync_purge_golden_test.dart`); a marker's numbers are read as
   kotlinx reads a Long (an integral number, or a string like `"5"`).
 - The cloud data page of one account (tap an account row, or ⋮ › View cloud data)
-  is Android's `CloudAccountPage` without its Transfer Memories button (no Memories
-  transfer here yet) and without the crumb (Harmony's sub-pages have none). Names
+  is Android's `CloudAccountPage` (Transfer Memories from it included) without the
+  crumb (Harmony's sub-pages have none). Names
   come from the account's own notes and album notes only (Android also asks this
   device's plays). As on Android, the Notes tab lists song notes while the counts
   include album notes too. Android's All files and Global data pages aren't ported.
