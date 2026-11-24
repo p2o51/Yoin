@@ -94,6 +94,16 @@ A note's value is inseparable from the second it was pinned to, so:
   badge; entries from the active profile carry none. Tapping a badged entry reuses the
   existing cross-account switch/confirm flow.
 
+## Where the rules live
+
+Since parity p3 (2026-11-24) the matching, ranking, the All page's layout, the chips and the
+note open target are `:shared` code (`shared/src/commonMain/kotlin/com/gpo/yoin/shared/search/`):
+Android wraps it in `data/search/`, iOS calls it through `YoinMemorySearch`
+(`iosApp/docs/shared-kmp.md`), and other ports are checked against
+`shared/src/commonTest/resources/golden/memory-search.json`. Change a rule there, then
+regenerate the golden (`YOIN_WRITE_SEARCH_GOLDEN=1`) and, if Android's answer changes on
+purpose, the pin (`YOIN_WRITE_SEARCH_PIN=1`).
+
 ## Explicitly out of scope here
 
 - Card shape, visual hierarchy, highlight styling, empty states, motion, transitions.
