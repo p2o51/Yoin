@@ -89,7 +89,8 @@ struct NowPlayingView: View, Equatable {
     /// The kept draft is going back in: its song and moment stand (no re-align to now).
     @State private var restoringDraft = false
     @State private var notesSaved = 0
-    @FocusState private var composerFocused: Bool
+    /// The write bar's keyboard (the note editor is a UIKit text view: a plain flag, not a FocusState).
+    @State private var composerFocused = false
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
     @State private var askDraft = ""
     @FocusState private var askFieldFocused: Bool

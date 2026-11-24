@@ -319,11 +319,13 @@ struct NoteComposer: View {
     var scheme: CoverScheme
     @Binding var text: String
     var anchorMs: Int64?
-    var focus: FocusState<Bool>.Binding
+    var focus: Binding<Bool>
     var onRealign: () -> Void
     var onSave: () -> Void
     /// Editing a saved note: Cancel beside Save leaves it as it was.
     var onCancel: (() -> Void)? = nil
+    /// The words' editor: @ mentions, the formatting row (Android NoteEditorState).
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
 
     private var canSave: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -342,20 +344,16 @@ struct NoteComposer: View {
                 }
                 .buttonStyle(.plain).pointerHighlight()
                 .accessibilityLabel("Moment")
-                TextField(text: $text, prompt: Text("Write a note")
-                    .foregroundStyle(scheme.onSurfaceVariant.opacity(0.8)), axis: .vertical) {
-                    Text("Note")
-                }
-                .font(.gsf(16))
-                .tracking(0)
-                .foregroundStyle(scheme.onSurface)
-                .tint(scheme.primary)
-                .lineLimit(2...6)
-                .focused(focus)
+                NoteMarkupEditor(model: editor, text: $text,
+                                 prompt: Text("Write a note").foregroundStyle(scheme.onSurfaceVariant.opacity(0.8)),
+                                 size: 16, textColor: scheme.onSurface, mentionColor: scheme.primary,
+                                 tint: scheme.primary, scheme: scheme, lines: 2...6, focused: focus)
+                .accessibilityLabel(Text("Note"))
                 // First line centered on the 36 pt stamp (bodyLarge 24 pt line).
                 .padding(.top, 6)
             }
             HStack(spacing: 4) {
+                NoteFormatRow(model: editor, scheme: scheme)
                 Spacer(minLength: 0)
                 if let onCancel {
                     Button(action: onCancel) {
