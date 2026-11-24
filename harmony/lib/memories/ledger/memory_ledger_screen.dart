@@ -28,6 +28,7 @@ import '../../data/memory/memory_ledger.dart';
 import '../../data/memory/memory_ledger_list.dart';
 import '../../detail/detail_page.dart';
 import '../../detail/detail_routes.dart';
+import '../../notes/note_markup_text.dart';
 import '../../nowplaying/haptics.dart';
 import '../../settings/settings_colors.dart';
 import '../../settings/settings_components.dart';
@@ -1087,11 +1088,12 @@ class _TimelineAlbumCard extends StatelessWidget {
               if (review != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text(
+                  child: NoteMarkupText(
                     review,
                     maxLines: 6,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurface),
+                    mentionColor: theme.colorScheme.onSurface,
                   ),
                 ),
               if (item.songs.isNotEmpty)
@@ -1257,7 +1259,7 @@ class _NoteCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (text != null && text.trim().isNotEmpty)
-            Text(
+            NoteMarkupText(
               text,
               maxLines: 10,
               overflow: TextOverflow.ellipsis,
@@ -1266,6 +1268,7 @@ class _NoteCard extends StatelessWidget {
                 height: 28 / 19,
                 color: theme.colorScheme.onSurface,
               ).copyWith(fontWeight: FontWeight.w400),
+              mentionColor: theme.colorScheme.onSurface,
             )
           else if (entry.score != null)
             _ScoreLine(score: entry.score!, size: 30),
@@ -1511,11 +1514,12 @@ class _SongGridCard extends StatelessWidget {
         if (note != null && note.trim().isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text(
+            child: NoteMarkupText(
               note,
               maxLines: 5,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium!.copyWith(color: theme.colorScheme.onSurface),
+              mentionColor: theme.colorScheme.onSurface,
             ),
           ),
         _CardFoot(score: item.score, at: item.at, state: state),
