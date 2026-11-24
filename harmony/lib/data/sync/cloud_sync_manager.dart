@@ -445,7 +445,9 @@ class CloudSyncManager implements CloudSyncController {
       }
       final purged = await _engine().purgeScopeLocally(plan.oldScope, localProfileId);
       await _binder.completeStartFresh(plan);
-      if (purged > 0) _notifyDomain(const {SyncKinds.songNote, SyncKinds.trackRating, SyncKinds.albumRating});
+      if (purged > 0) {
+        _notifyDomain(const {SyncKinds.songNote, SyncKinds.albumNote, SyncKinds.trackRating, SyncKinds.albumRating});
+      }
     });
     await _runCycle(force: true);
   });
@@ -794,7 +796,11 @@ class CloudSyncManager implements CloudSyncController {
     if (touched.isNotEmpty) _notifyDomain(touched);
     _db.deleteMeta(SyncMetaKeys.lastSummary);
     int count(String kind) => applied.appliedLive.values.fold(0, (sum, byKind) => sum + (byKind[kind] ?? 0));
-    final restored = count(SyncKinds.songNote) + count(SyncKinds.trackRating) + count(SyncKinds.albumRating);
+    final restored =
+        count(SyncKinds.songNote) +
+        count(SyncKinds.albumNote) +
+        count(SyncKinds.trackRating) +
+        count(SyncKinds.albumRating);
     if (restored == 0) return;
     _db.putMeta(SyncMetaKeys.lastSummary, '$restored');
   }
