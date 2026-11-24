@@ -217,11 +217,15 @@ internal object SingIcons {
 }
 
 /**
- * Pure, testable state machine implementing the two-step anti-accidental-dismiss left-drag rule:
- * 1. Dragging to `0%` in one continuous gesture stops at minimum and NEVER turns Sing off, no matter
- *    how far past the left edge the finger travels.
- * 2. Only when vocal is ALREADY at `0%`, the user lifts their finger, and starts a NEW drag left past
- *    [dismissThresholdPx] does Sing turn off.
+ * Pure, testable state machine for the vocal slider's exit-by-overpull rule (owner, 2026-11-24):
+ * 1. Dragging down / left stops at `0%` and NEVER turns Sing off, however far the finger goes.
+ * 2. Dragging up / right past `100%` (the original mix) shows a small elastic overpull; once the finger
+ *    is [dismissThresholdPx] past the point where the level reached `100%`, Sing turns off at once, in
+ *    the same gesture (pulling past the top is rare enough to need no release-and-redrag guard).
+ *
+ * [drag] is for the lyrics capsule, which moves relative to where the finger went down; [at] is for an
+ * absolute slider (the collapsed vertical / stacked vocal slider), fed the unclamped level under the
+ * finger.
  */
 @Stable
 internal class SingCapsuleDismissState(
@@ -235,8 +239,6 @@ internal class SingCapsuleDismissState(
 
     var isActive: Boolean = false
         private set
-    var startedAtMinimum: Boolean = false
-        private set
     var startLevel: Float = SingGainCurve.DEFAULT_POSITION
         private set
     var dismissed: Boolean = false
@@ -244,38 +246,44 @@ internal class SingCapsuleDismissState(
 
     fun begin(currentLevel: Float) {
         isActive = true
-        startedAtMinimum = currentLevel <= MIN_EPSILON
         startLevel = currentLevel.coerceIn(0f, 1f)
         dismissed = false
     }
 
+    /** The capsule: the finger moved [translationX] (right = up) over a [trackWidthPx] track. */
     fun drag(translationX: Float, trackWidthPx: Float): StepResult {
         if (!isActive) begin(startLevel)
-        if (dismissed) return StepResult.Dismiss
+        val width = trackWidthPx.coerceAtLeast(1f)
+        return stepAt(startLevel * width + translationX, width)
+    }
 
-        if (startedAtMinimum && translationX < 0f) {
-            val pull = -translationX
+    /**
+     * An absolute slider: [rawLevel] is the level under the finger, not clamped (above 1 past the top
+     * end), over a [trackPx] track.
+     */
+    fun at(rawLevel: Float, trackPx: Float): StepResult {
+        val track = trackPx.coerceAtLeast(1f)
+        return stepAt(rawLevel * track, track)
+    }
+
+    /** The finger [levelPx] along a [trackPx] track from its 0 % end (past [trackPx]: overpull). */
+    private fun stepAt(levelPx: Float, trackPx: Float): StepResult {
+        if (dismissed) return StepResult.Dismiss
+        val pull = levelPx - trackPx
+        if (pull > 0f) {
             val threshold = dismissThresholdPx.coerceAtLeast(12f)
             if (pull >= threshold) {
                 dismissed = true
                 return StepResult.Dismiss
             }
-            return StepResult.Update(level = 0f, overpullProgress = (pull / threshold).coerceIn(0f, 1f))
+            return StepResult.Update(level = 1f, overpullProgress = (pull / threshold).coerceIn(0f, 1f))
         }
-
-        val width = trackWidthPx.coerceAtLeast(1f)
-        val raw = (startLevel + translationX / width).coerceIn(0f, 1f)
-        return StepResult.Update(level = SingGainCurve.snap(raw), overpullProgress = 0f)
+        return StepResult.Update(level = SingGainCurve.snap((levelPx / trackPx).coerceIn(0f, 1f)), overpullProgress = 0f)
     }
 
     fun end() {
         isActive = false
-        startedAtMinimum = false
         dismissed = false
-    }
-
-    companion object {
-        const val MIN_EPSILON = 0.005f
     }
 }
 
@@ -288,7 +296,7 @@ internal class SingCapsuleDismissState(
  * - Active ([SingMode.Ready]): expands on [YoinMotion.defaultSpatialSpec] into a `124.dp` short Capsule
  *   (`surfaceVariant` track + `primary` flat-edged fill clipped by the outer capsule for crisp contrast),
  *   protected by `Modifier.systemGestureExclusion()`, with subtle 12% detent notch, left mic tap-to-exit,
- *   two-step anti-accidental-dismiss left-drag, and **zero percentage text**.
+ *   exit by dragging right past 100% ([SingCapsuleDismissState]), and **zero percentage text**.
  */
 @Composable
 internal fun SingLyricsCapsuleKey(
@@ -387,7 +395,8 @@ internal fun SingLyricsCapsuleKey(
         Box(
             modifier = modifier
                 .offset {
-                    val overpullPx = if (isActive) (-animatedOverpull * 6.dp.toPx()) else 0f
+                    // Pulled past 100%: the capsule leans right, the way the finger goes.
+                    val overpullPx = if (isActive) (animatedOverpull * 6.dp.toPx()) else 0f
                     val shakePx = errorShakeDp.value.dp.toPx()
                     IntOffset((overpullPx + shakePx).roundToInt(), 0)
                 }
@@ -607,15 +616,27 @@ internal fun SingVocalSlider(
     morphProgress: Float = 1f,
     /** RatingBar's current 0..1 fill fraction so the fill glides continuously on morph. */
     fromRatingFraction: Float = 0f,
-    /** Optional frozen position used during exit morph so resetting 0% → 12% never flashes a fill. */
+    /** Optional frozen position used during exit morph so resetting 100% → 12% never flashes a fill. */
     overridePosition: Float? = null,
+    /** Dragging up / right past 100% by ~28dp turns Sing off ([SingCapsuleDismissState]); null: no exit. */
+    onExit: (() -> Unit)? = null,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
+    val density = LocalDensity.current
     val latestOnLevelChange by rememberUpdatedState(onLevelChange)
+    val latestOnExit by rememberUpdatedState(onExit)
     val latestHaptics by rememberUpdatedState(haptics)
     var dragging by remember { mutableStateOf(false) }
     var trackDimensionPx by remember { mutableIntStateOf(1) }
+    val thresholdPx = with(density) { 28.dp.toPx() }
+    val dismissState = remember(thresholdPx) { SingCapsuleDismissState(thresholdPx) }
+    var overpull by remember { mutableFloatStateOf(0f) }
+    val animatedOverpull by animateFloatAsState(
+        targetValue = overpull,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "singVocalSliderOverpull",
+    )
 
     val targetFraction = (overridePosition ?: level.position).coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(
@@ -632,6 +653,11 @@ internal fun SingVocalSlider(
     Box(
         modifier = modifier
             .then(if (isVertical) Modifier.width(48.dp) else Modifier.fillMaxWidth().height(48.dp))
+            .offset {
+                // Pulled past 100%: the slider leans the way the finger goes (up, or right).
+                val px = (animatedOverpull * 6.dp.toPx()).roundToInt()
+                if (isVertical) IntOffset(0, -px) else IntOffset(px, 0)
+            }
             .systemGestureExclusion()
             .clip(YoinShapeTokens.Full)
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -642,37 +668,54 @@ internal fun SingVocalSlider(
                 contentDescription = vocalLabel
                 progressBarRangeInfo = ProgressBarRangeInfo(current = targetFraction, range = 0f..1f)
             }
-            .pointerInput(orientation) {
+            .pointerInput(orientation, dismissState) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     dragging = true
                     var wasInDetent = false
-                    fun applyAt(rawPos: Float) {
-                        val raw = if (isVertical) {
-                            1f - (rawPos / trackDimensionPx)
-                        } else {
-                            rawPos / trackDimensionPx
+                    var exited = false
+                    dismissState.begin(0f) // absolute: only the overpull state matters
+
+                    /** Applies the finger at [rawPos]; false once the drag past 100% turned Sing off. */
+                    fun applyAt(rawPos: Float): Boolean {
+                        val track = trackDimensionPx.toFloat()
+                        val raw = if (isVertical) 1f - (rawPos / track) else rawPos / track
+                        val exitable = latestOnExit != null
+                        when (val step = dismissState.at(if (exitable) raw else raw.coerceIn(0f, 1f), track)) {
+                            is SingCapsuleDismissState.StepResult.Update -> {
+                                overpull = step.overpullProgress
+                                val inDetent = step.level == SingGainCurve.DEFAULT_POSITION
+                                if (inDetent && !wasInDetent) {
+                                    latestHaptics.performTick()
+                                }
+                                wasInDetent = inDetent
+                                latestOnLevelChange(step.level)
+                            }
+                            SingCapsuleDismissState.StepResult.Dismiss -> {
+                                latestHaptics.performConfirm()
+                                overpull = 0f
+                                latestOnExit?.invoke()
+                                return false
+                            }
                         }
-                        val snapped = SingGainCurve.snap(raw)
-                        val inDetent = snapped == SingGainCurve.DEFAULT_POSITION
-                        if (inDetent && !wasInDetent) {
-                            latestHaptics.performTick()
-                        }
-                        wasInDetent = inDetent
-                        latestOnLevelChange(snapped)
+                        return true
                     }
                     applyAt(if (isVertical) down.position.y else down.position.x)
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            applyAt(if (isVertical) change.position.y else change.position.x)
                             change.consume()
+                            if (!exited) {
+                                exited = !applyAt(if (isVertical) change.position.y else change.position.x)
+                            }
                             if (!change.pressed) break
                         }
                     } finally {
+                        dismissState.end()
                         dragging = false
+                        overpull = 0f
                     }
                 }
             },
@@ -841,8 +884,8 @@ internal fun SingAwareRatingBarSlot(
     ratingBar: @Composable () -> Unit,
 ) {
     val active = showSing && sing != null
-    // Snapshot the live vocal level while active so exiting at 0% (which resets remembered level to 12%
-    // for the next session) morphs cleanly from 0% → rating without flashing a ~15% fill at the bottom.
+    // Snapshot the live vocal level while active so exiting at 100% (which resets the remembered level to
+    // 12% for the next session) morphs cleanly from 100% → rating without dropping to a ~34% fill first.
     var lastActivePosition by remember { mutableFloatStateOf(sing?.vocalLevel?.position ?: SingGainCurve.DEFAULT_POSITION) }
     if (showSing && sing != null) {
         lastActivePosition = sing.vocalLevel.position
@@ -874,6 +917,7 @@ internal fun SingAwareRatingBarSlot(
                 morphProgress = morph,
                 fromRatingFraction = ratingFraction,
                 overridePosition = if (active) null else lastActivePosition,
+                onExit = if (active) sing.onExit else null,
                 modifier = Modifier.fillMaxSize(),
             )
         }

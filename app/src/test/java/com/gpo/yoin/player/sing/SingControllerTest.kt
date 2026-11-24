@@ -122,18 +122,28 @@ class SingControllerTest {
     }
 
     @Test
-    fun should_resetVocalLevelToDefault_when_exitingAtZero_and_preserveWhenAboveZero() = runTest(UnconfinedTestDispatcher()) {
+    fun should_resetVocalLevelToDefault_when_exitingAtMax_and_keepZeroOrCustomOtherwise() = runTest(UnconfinedTestDispatcher()) {
         val c = controller(FakeProvider())
         c.onCurrentItem(song1)
         c.enter()
 
-        // Exiting at 0% (two-step left-drag dismiss) resets remembered level to 12% default.
-        c.setVocalLevel(0f)
-        assertEquals(0f, c.vocalLevel.value.position, 0f)
+        // Exiting at the top (the drag past 100 % exit) resets the remembered level to the 12 % default.
+        c.setVocalLevel(1f)
+        c.exit()
+        assertEquals(VocalLevel.DEFAULT, c.vocalLevel.value)
+        c.enter()
+        c.setVocalLevel(0.996f)
         c.exit()
         assertEquals(VocalLevel.DEFAULT, c.vocalLevel.value)
 
-        // Exiting above 0% preserves user's custom level.
+        // Exiting at 0 % (mic or exit button) keeps 0 %.
+        c.enter()
+        c.setVocalLevel(0f)
+        assertEquals(0f, c.vocalLevel.value.position, 0f)
+        c.exit()
+        assertEquals(0f, c.vocalLevel.value.position, 0f)
+
+        // Exiting anywhere in between keeps the user's level.
         c.enter()
         val custom = SingGainCurve.positionFor(0.45f)
         c.setVocalLevel(custom)

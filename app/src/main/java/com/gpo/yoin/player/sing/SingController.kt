@@ -121,9 +121,10 @@ class SingController(
             curve = SingRampCurve.EaseInOut,
         )
         _state.update {
-            // Exiting from 0 % (e.g. via the two-step left-drag dismiss) resets the remembered level
-            // back to the 12 % default so the next time Sing opens the capsule is never empty.
-            val nextLevel = if (it.vocalLevel.position <= MIN_RESET_THRESHOLD) VocalLevel.DEFAULT else it.vocalLevel
+            // Exiting at the top (the drag past 100 % that turns Sing off) resets the remembered level to
+            // the 12 % default, so the next Sing doesn't start at the original mix. Anything else,
+            // 0 % included (mic or exit button), is kept as the user left it.
+            val nextLevel = if (it.vocalLevel.position >= MAX_RESET_THRESHOLD) VocalLevel.DEFAULT else it.vocalLevel
             it.copy(enabled = false, vocalLevel = nextLevel, request = null, status = null, handedOver = false)
         }
         refreshAvailability()
@@ -241,6 +242,7 @@ class SingController(
     }
 
     companion object {
-        private const val MIN_RESET_THRESHOLD = 0.005f
+        /** Exiting at or above this position (the drag-past-max exit) resets the level to the default. */
+        const val MAX_RESET_THRESHOLD = 0.995f
     }
 }
