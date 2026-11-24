@@ -14,7 +14,7 @@ import com.gpo.yoin.player.sing.dsp.SeparationModel
 class SingRoutedModel<C : Any>(
     candidates: List<C>,
     private val open: (C) -> SeparationModel,
-    /** A candidate's first good chunk: it is the one running (logs, the Tensor TPU label). */
+    /** A candidate's first good chunk: it is the one running (logs, the Labs backend row). */
     private val onRunning: (C) -> Unit = {},
     /** A candidate failed to open or to run (logs). */
     private val onFailure: (C, Throwable) -> Unit = { _, _ -> },

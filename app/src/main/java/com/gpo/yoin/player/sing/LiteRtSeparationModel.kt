@@ -229,6 +229,9 @@ class LiteRtSingBackend(
     private val dir = File(context.noBackupFilesDir, MODEL_DIR)
     private val mutex = Mutex()
 
+    /** "Google Tensor G6" (Build.SOC_MANUFACTURER, Build.SOC_MODEL), for the Labs row and logs. */
+    private val soc: String? = listOfNotNull(socManufacturer, socModel).joinToString(" ").ifEmpty { null }
+
     init {
         require(plan.isNotEmpty()) { "no LiteRT build for this device" }
         Log.d(TAG, "LiteRT plan for SoC $socManufacturer/$socModel: ${plan.joinToString(" → ")}")
@@ -261,14 +264,32 @@ class LiteRtSingBackend(
     override fun open(model: File): SeparationModel {
         val t0 = System.nanoTime()
         val report = SingAcceleratorReport.get(context)
+        // Each backend left this session and why: one that wouldn't open is unavailable, one whose chunk
+        // threw or overflowed failed.
+        var opening: LiteRtCandidate? = null
+        val left = mutableListOf<Pair<SingAccelerator, SingFallbackReason>>()
         return SingRoutedModel(
             candidates = plan,
-            open = { candidate -> openCandidate(candidate) },
-            onRunning = { candidate ->
-                Log.i(TAG, "Sing backend: LiteRT ${label(candidate)}")
-                report.record(candidate.accelerator)
+            open = { candidate ->
+                opening = candidate
+                openCandidate(candidate).also { opening = null }
             },
-            onFailure = { candidate, e -> Log.w(TAG, "LiteRT ${label(candidate)} failed; trying the next backend", e) },
+            onRunning = { candidate ->
+                val run = SingBackendRun(
+                    accelerator = candidate.accelerator,
+                    model = buildName(candidate),
+                    fallback = SingBackendLabel.fallback(candidate.accelerator, left),
+                    soc = soc,
+                )
+                Log.i(TAG, "Sing backend: LiteRT ${label(candidate)} — ${SingBackendLabel.summary(run)}, SoC ${soc ?: "unknown"}")
+                report.record(run)
+            },
+            onFailure = { candidate, e ->
+                val reason = if (opening == candidate) SingFallbackReason.UNAVAILABLE else SingFallbackReason.FAILED
+                opening = null
+                left += candidate.accelerator to reason
+                Log.w(TAG, "LiteRT ${label(candidate)} ${reason.name.lowercase()}; trying the next backend", e)
+            },
         ).also {
             Log.d(TAG, "session open ${(System.nanoTime() - t0) / 1_000_000} ms (LiteRT ${it.active?.let(::label)})")
         }
@@ -334,10 +355,14 @@ class LiteRtSingBackend(
 
         /** "Tensor G5 AOT on NPU (Tensor TPU)", "fp16 on GPU", … */
         fun label(candidate: LiteRtCandidate): String {
-            val build = SingLiteRtPlan.TRUSTED_SHA256[candidate.model.sha256.lowercase()] ?: candidate.model.file
+            val build = buildName(candidate)
             val tpu = if (candidate.accelerator == SingAccelerator.NPU) " (Tensor TPU)" else ""
             return "$build on ${candidate.accelerator}$tpu"
         }
+
+        /** "Tensor G6 AOT", "fp16" (the trusted build's name), else the file name. */
+        fun buildName(candidate: LiteRtCandidate): String =
+            SingLiteRtPlan.TRUSTED_SHA256[candidate.model.sha256.lowercase()] ?: candidate.model.file
 
         private fun sha256(file: File): String {
             if (!file.isFile) return ""

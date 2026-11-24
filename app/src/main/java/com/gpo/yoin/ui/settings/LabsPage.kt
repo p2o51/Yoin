@@ -24,8 +24,9 @@ import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.highlight.NanoStatus
-import com.gpo.yoin.player.sing.SingAccelerator
 import com.gpo.yoin.player.sing.SingAcceleratorReport
+import com.gpo.yoin.player.sing.SingBackendLabel
+import com.gpo.yoin.player.sing.SingBackendRun
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -48,7 +49,7 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     val optedIn by processor.optedIn.collectAsState()
     val greetingsOn by processor.greetingsEnabled.collectAsState()
     val aboutFollowUpsOn by processor.aboutFollowUpsEnabled.collectAsState()
-    val singAccelerator by SingAcceleratorReport.get(context).last.collectAsState()
+    val singBackend by SingAcceleratorReport.get(context).last.collectAsState()
     LaunchedEffect(processor) { processor.checkNow() }
     LabsPageBody(
         state = LabsState(
@@ -59,7 +60,7 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
             lyricsOn = optedIn,
             greetingsOn = greetingsOn,
             aboutFollowUpsOn = aboutFollowUpsOn,
-            singOnTensorTpu = singAccelerator == SingAccelerator.NPU,
+            singBackend = singBackend,
         ),
         onDownload = processor::downloadNow,
         onCheckAgain = processor::checkNow,
@@ -73,9 +74,6 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     )
 }
 
-/** Technical name, not translated. */
-private const val TENSOR_TPU_LABEL = "Tensor TPU"
-
 /** What the Labs page shows: Nano here (null while it's never been asked), why not, and each beta switch. */
 internal data class LabsState(
     val nano: NanoStatus?,
@@ -83,8 +81,8 @@ internal data class LabsState(
     val lyricsOn: Boolean,
     val greetingsOn: Boolean = false,
     val aboutFollowUpsOn: Boolean = false,
-    /** On-device Sing's last session ran on the Google Tensor TPU (LiteRT NPU). */
-    val singOnTensorTpu: Boolean = false,
+    /** What on-device Sing's last session ran on; null until it has run a chunk. */
+    val singBackend: SingBackendRun? = null,
 )
 
 /** The page itself, stateless, so the Tips demo can show the real thing. */
@@ -145,13 +143,15 @@ internal fun LabsPageBody(
                         },
                     )
                 }
-                if (state.singOnTensorTpu) {
-                    // Only once the NPU has actually run a Sing session; the label is the chip's own name.
+                state.singBackend?.let { run ->
+                    // Once Sing has run a chunk anywhere: the backend (and any fallback), the build and SoC.
+                    // Technical labels (SingBackendLabel), not translated.
                     item {
                         SettingsItem(
                             icon = YoinSymbols.Mic,
                             title = stringResource(R.string.np_sing),
-                            summary = TENSOR_TPU_LABEL,
+                            summary = SingBackendLabel.summary(run),
+                            summaryDetail = SingBackendLabel.detail(run),
                         )
                     }
                 }
