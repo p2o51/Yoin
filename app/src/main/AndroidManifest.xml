@@ -218,6 +218,32 @@
                 <data android:mimeType="application/json" />
             </intent-filter>
         </activity>
+        <!-- "Open in Yoin" in the share sheet (docs/open-in-yoin.md): shared text (a Spotify / Apple Music link, or
+             anything to search) handed to the shell. The alias is the exported, labelled entry; there is
+             deliberately no VIEW filter for open.spotify.com or music.apple.com, so Yoin never takes over links. -->
+        <activity
+            android:name=".ui.openin.OpenInShareActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yoin.WidgetTrampoline" />
+        <activity-alias
+            android:name=".OpenInYoin"
+            android:exported="true"
+            android:label="@string/open_in_share_label"
+            android:targetActivity=".ui.openin.OpenInShareActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity-alias>
+        <!-- Choose a match for a link from a service the user has no account on. Plain Activity: native
+             cross-Activity predictive back. -->
+        <activity
+            android:name=".ui.openin.OpenInResultsActivity"
+            android:exported="false" />
         <!-- The Spotoolfy recap (docs/spotoolfy-migration.md §6). Plain Activity: native cross-Activity
              predictive back to the landing or to Settings. -->
         <activity

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「在 Yoin 中打开」分享入口与剪贴板音乐链接提示（docs/open-in-yoin.md）。文案：Rebecca，2026-11-24。 -->
+<resources>
+    <string name="open_in_share_label">在 Yoin 中打开</string>
+
+    <string name="open_in_listen">收听</string>
+    <string name="open_in_open">打开</string>
+    <string name="open_in_link_in_clipboard">剪贴板里有 %1$s 链接</string>
+    <string name="open_in_search">搜索</string>
+    <string name="open_in_search_on">在 %1$s 中搜索</string>
+
+    <string name="open_in_results_title">选择匹配结果</string>
+    <string name="open_in_results_description">未能确认完全一致的结果，以下是在 %1$s 中找到的相近内容。</string>
+    <string name="open_in_results_empty">在 %1$s 中未找到相关结果。</string>
+
+    <string name="settings_music_links_title">音乐链接</string>
+    <string name="settings_music_links_summary_on">剪贴板识别已开启</string>
+    <string name="settings_music_links_summary_off">剪贴板识别已关闭</string>
+    <string name="settings_clipboard_links_title">识别剪贴板中的音乐链接</string>
+    <string name="settings_clipboard_links_summary">仅在打开 Yoin 时检查剪贴板，只识别音乐链接，其他内容不会上传或保存。</string>
+    <string name="settings_music_links_share_title">在 Yoin 中打开</string>
+    <string name="settings_music_links_share_body">在其他应用的分享菜单里选择「在 Yoin 中打开」，即可直接传入歌曲或链接。</string>
+    <string name="settings_music_links_cross_title">跨服务打开与搜索</string>
+    <string name="settings_music_links_cross_body">已登录对应服务的链接会直接打开，未登录对应服务时会在你当前使用的服务中搜索。</string>
+</resources>

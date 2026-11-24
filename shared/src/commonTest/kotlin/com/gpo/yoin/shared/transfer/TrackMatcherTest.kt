@@ -169,6 +169,20 @@ class TrackMatcherTest {
         }
     }
 
+    @Test
+    fun should_askForTheBareAlbumAndItsFirstArtist_when_searchingAnAlbum() {
+        assertEquals("Abbey Road The Beatles", TrackMatcher.albumQuery("Abbey Road (Remastered 2009)", "The Beatles, George Martin"))
+        assertEquals("Abbey Road", TrackMatcher.albumQuery("Abbey Road", null))
+        // Nothing left once the tags are gone: the name as it is.
+        assertEquals("(Remastered) Band", TrackMatcher.albumQuery("(Remastered)", "Band"))
+    }
+
+    @Test
+    fun should_tellVersionsApart_when_oneTitleIsLive() {
+        assertTrue(TrackMatcher.sameVersion("Album", "Album (Deluxe Edition)"))
+        assertTrue(!TrackMatcher.sameVersion("Album", "Album (Live)"))
+    }
+
     private fun track(
         id: String,
         title: String,

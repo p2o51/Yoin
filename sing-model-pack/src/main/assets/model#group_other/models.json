@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pack": "sing_model_pack",
+  "group": "other",
+  "models": [
+    {"id": "lyra_sing_lite-fp16", "file": "lyra_sing_lite.tflite",
+     "sha256": "176b9dd47bcc3de24e27c14bc4edb44bf1fff6d74e95c53476a4f5a7a1610651", "bytes": 4465088,
+     "precision": "fp16", "accelerators": ["GPU", "CPU"]}
+  ]
+}

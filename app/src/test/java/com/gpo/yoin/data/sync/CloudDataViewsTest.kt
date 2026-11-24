@@ -1,8 +1,8 @@
 package com.gpo.yoin.data.sync
 
-import com.gpo.yoin.data.sync.backup.ReadableAlbum
-import com.gpo.yoin.data.sync.backup.ReadableNames
-import com.gpo.yoin.data.sync.backup.ReadableTrack
+import com.gpo.yoin.shared.portability.ReadableAlbum
+import com.gpo.yoin.shared.portability.ReadableNames
+import com.gpo.yoin.shared.portability.ReadableTrack
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject

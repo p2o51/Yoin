@@ -15,15 +15,29 @@ import com.gpo.yoin.data.sync.adapters.YoinSyncAdapters
 import com.gpo.yoin.data.sync.engine.toWire
 import com.gpo.yoin.data.sync.identity.AccountFingerprints
 import com.gpo.yoin.data.sync.identity.CloudAccountDescriptor
-import com.gpo.yoin.data.transfer.memories.InMemoryTransferLedger
 import com.gpo.yoin.data.transfer.memories.MemoryCatalog
-import com.gpo.yoin.data.transfer.memories.MemoryItems
 import com.gpo.yoin.data.transfer.memories.MemorySource
 import com.gpo.yoin.data.transfer.memories.MemoryTransfer
 import com.gpo.yoin.data.transfer.memories.SyncMetaTransferLedger
-import com.gpo.yoin.data.transfer.memories.TransferAccount
 import com.gpo.yoin.data.transfer.memories.TransferPlan
-import com.gpo.yoin.data.transfer.memories.TransferResult
+import com.gpo.yoin.data.transfer.memories.fromProfile
+import com.gpo.yoin.data.transfer.memories.fromRecords
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.BackupReadException
+import com.gpo.yoin.shared.portability.BackupScopes
+import com.gpo.yoin.shared.portability.BackupSource
+import com.gpo.yoin.shared.portability.ExportSummary
+import com.gpo.yoin.shared.portability.ImportPlan
+import com.gpo.yoin.shared.portability.ImportResult
+import com.gpo.yoin.shared.portability.ImportTarget
+import com.gpo.yoin.shared.portability.ReadableAlbum
+import com.gpo.yoin.shared.portability.ReadableLabels
+import com.gpo.yoin.shared.portability.ReadableNames
+import com.gpo.yoin.shared.portability.ReadableTrack
+import com.gpo.yoin.shared.portability.memories.InMemoryTransferLedger
+import com.gpo.yoin.shared.portability.memories.MemoryItems
+import com.gpo.yoin.shared.portability.memories.TransferAccount
+import com.gpo.yoin.shared.portability.memories.TransferResult
 import java.io.InputStream
 import java.io.OutputStream
 import java.time.ZoneId
@@ -251,7 +265,7 @@ class MemoriesPortability(
         private const val KEY_DEVICE_ID = "device_id"
 
         /** "host[:port]" of a Subsonic "user @ host[:port]" hint. */
-        fun serverKeyOf(hint: String?): String? = hint?.substringAfter(" @ ", "")?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotEmpty)
+        fun serverKeyOf(hint: String?): String? = BackupScopes.serverKeyOf(hint)
     }
 }
 

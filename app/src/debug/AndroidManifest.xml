@@ -6,6 +6,13 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
+        <!-- Sing model probe (shell via DUMP): checks AI Pack delivery without an account. -->
+        <receiver android:name=".player.sing.SingModelProbeReceiver" android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.gpo.yoin.debug.SING_MODEL" />
+            </intent-filter>
+        </receiver>
         <activity android:name=".debug.SpotifyForegroundProbeActivity" android:exported="true"
             android:permission="android.permission.DUMP" android:launchMode="singleTop" android:theme="@style/Theme.Yoin" />
         <service android:name=".debug.SpotifyForegroundProbeService" android:exported="false"

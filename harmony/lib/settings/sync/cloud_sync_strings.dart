@@ -98,8 +98,7 @@ class CloudSyncStrings {
       _zh ? '歌曲与专辑评分、专辑评论' : 'Song and album ratings, album reviews'; // settings_sync_what_ratings
   String get whatHome => _zh ? '首页布局' : 'Home layout'; // settings_sync_what_home
   String get whatTranslations => _zh ? 'AI 歌词翻译' : 'AI lyric translations'; // settings_sync_what_translations
-  String get whatPlaylistBackups =>
-      _zh ? '歌单云备份' : 'Playlist cloud backup'; // settings_sync_what_playlist_backups
+  String get whatPlaylistBackups => _zh ? '歌单云备份' : 'Playlist cloud backup'; // settings_sync_what_playlist_backups
   String get whatAccounts => _zh ? '账号名称、服务器地址' : 'Account names, server addresses'; // settings_sync_what_accounts
   String get whatStays => _zh ? '仅保存在本地' : 'Stays on this device'; // settings_sync_what_stays
   String get whatHistory => _zh ? '播放记录' : 'Listening history'; // settings_sync_what_history
@@ -197,4 +196,76 @@ class CloudSyncStrings {
       : n == 1
       ? 'It was removed on this device from $account. Restore it here, or delete it on all your devices.'
       : 'They were removed on this device from $account. Restore them here, or delete them on all your devices.'; // settings_sync_review_dialog_body
+
+  // Cloud data: one account's data in the cloud, and removing it.
+  String get googleDrive => 'Google Drive'; // settings_sync_google_drive
+  String get cloudOnly => _zh ? '仅在云端' : 'Cloud only'; // settings_sync_cloud_only
+  String fromDevice(String device) => _zh ? '来自 $device' : 'From $device'; // settings_sync_from_device
+  String cdAccountOptions(String name) =>
+      _zh ? '$name 的更多选项' : 'More options for $name'; // settings_sync_cd_account_options
+  String get menuView => _zh ? '查看云端数据' : 'View cloud data'; // settings_sync_menu_view
+  String get menuRemove => _zh ? '从云端移除…' : 'Remove from cloud…'; // settings_sync_menu_remove
+  String get removeAction => _zh ? '从云端移除' : 'Remove from cloud'; // settings_sync_remove_action
+  String browserReadonly(String where) =>
+      _zh ? '$where 云端副本（只读）' : 'Cloud copy on $where (read-only)'; // settings_sync_browser_readonly
+  String get browserSearch => _zh ? '搜索笔记、乐评或歌名' : 'Search notes, reviews, or songs'; // settings_sync_browser_search
+  String get loading => _zh ? '正在读取…' : 'Loading…'; // settings_sync_loading
+  String get filesFailed => _zh
+      ? '无法读取云端文件，请检查网络后重试。'
+      : "Couldn't read the cloud files. Check your connection and try again."; // settings_sync_files_failed
+  String get tabNotes => _zh ? '笔记' : 'Notes'; // settings_sync_tab_notes
+  String get tabAlbums => _zh ? '专辑评分与乐评' : 'Album ratings & reviews'; // settings_sync_tab_albums
+  String get tabSongs => _zh ? '单曲评分' : 'Song ratings'; // settings_sync_tab_songs
+  String get tabTitles => _zh ? 'Memories 标题' : 'Memories titles'; // settings_sync_tab_titles
+  String get unknownSong => _zh ? '未知歌曲' : 'Unknown song'; // settings_sync_unknown_song
+  String get unknownAlbum => _zh ? '未知专辑' : 'Unknown album'; // settings_sync_unknown_album
+  String get ratingOnly => _zh ? '仅评分' : 'Rating only'; // settings_sync_rating_only
+  String get titleCustom => _zh ? '自定义标题' : 'Custom title'; // settings_sync_title_custom
+  String get titleAi => _zh ? 'AI 标题' : 'AI title'; // settings_sync_title_ai
+  String get noData => _zh ? '暂无数据' : 'No data yet'; // settings_sync_no_data
+  String get noMatches => _zh ? '没有找到匹配内容' : 'No matches'; // settings_sync_no_matches
+
+  // An account's counts: "128 notes" as value + unit (settings_sync_unit_*).
+  String unitNotes(int n) => _zh ? '条笔记' : (n == 1 ? 'note' : 'notes'); // settings_sync_unit_notes
+  String unitAlbums(int n) =>
+      _zh ? '条专辑评分与乐评' : (n == 1 ? 'album rating & review' : 'album ratings & reviews'); // settings_sync_unit_albums
+  String unitSongRatings(int n) =>
+      _zh ? '条单曲评分' : (n == 1 ? 'song rating' : 'song ratings'); // settings_sync_unit_song_ratings
+  String unitTitles(int n) =>
+      _zh ? '个 Memories 标题' : (n == 1 ? 'Memories title' : 'Memories titles'); // settings_sync_unit_titles
+
+  // Remove from the cloud (RemoveFromCloudDialog).
+  String removeTitle(String name) =>
+      _zh ? '从云端移除 $name？' : 'Remove $name from the cloud?'; // settings_sync_remove_title
+  String removeBody(String where, String what) =>
+      _zh ? '将删除此账号在 $where 中的 $what。' : 'This deletes $what of this account from $where.'; // settings_sync_remove_body
+  String get removeBodyLocal => _zh
+      ? '此设备上的数据会保留，但该账号将停止同步。'
+      : 'Data on this device stays, but this account stops syncing.'; // settings_sync_remove_body_local
+  String removeBodyCloudDevice(String device) => _zh
+      ? '其他仍登录该账号的设备（如 $device）也会停止上传其数据。'
+      : 'Other devices still signed in to this account (like $device) also stop uploading its data.'; // settings_sync_remove_body_cloud_device
+  String get removeBodyCloud => _zh
+      ? '其他仍登录该账号的设备也会停止上传其数据。'
+      : 'Other devices still signed in to this account also stop uploading its data.'; // settings_sync_remove_body_cloud
+  String get removeBodyTransferred => _zh
+      ? '已转移到其他账号的内容不受影响。'
+      : "Anything already transferred to other accounts isn't affected."; // settings_sync_remove_body_transferred
+  String get removeConfirm => _zh ? '移除' : 'Remove'; // settings_sync_remove_confirm
+  String get removeCancel => _zh ? '取消' : 'Cancel'; // settings_sync_remove_cancel
+  String get removeAllData => _zh ? '全部数据' : 'all its data'; // settings_sync_remove_all_data
+  String countNotes(int n) => _zh ? '$n 条笔记' : (n == 1 ? '$n note' : '$n notes'); // settings_sync_count_notes
+  String countAlbums(int n) => _zh
+      ? '$n 条专辑评分与乐评'
+      : (n == 1 ? '$n album rating & review' : '$n album ratings & reviews'); // settings_sync_count_albums
+  String countSongRatings(int n) =>
+      _zh ? '$n 条单曲评分' : (n == 1 ? '$n song rating' : '$n song ratings'); // settings_sync_count_song_ratings
+  String countTitles(int n) =>
+      _zh ? '$n 个 Memories 标题' : (n == 1 ? '$n Memories title' : '$n Memories titles'); // settings_sync_count_titles
+  String get listSeparator => _zh ? '、' : ', '; // settings_sync_list_separator
+  String listLast(String head, String last) => _zh ? '$head和$last' : '$head and $last'; // settings_sync_list_last
+  String removed(String name) => _zh ? '已从云端移除 $name' : 'Removed $name from the cloud'; // settings_sync_removed
+  String removeFailed(String name) => _zh
+      ? '无法从云端移除 $name，请检查网络后重试。'
+      : "Couldn't remove $name from the cloud. Check your connection and try again."; // settings_sync_remove_failed
 }

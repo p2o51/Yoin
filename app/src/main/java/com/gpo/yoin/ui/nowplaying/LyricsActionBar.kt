@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,7 @@ import androidx.compose.material3.SearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,75 +68,87 @@ internal fun LyricsActionBar(
     val selectInteraction = remember { MutableInteractionSource() }
     val recenterInteraction = remember { MutableInteractionSource() }
     val interactions = listOf(searchInteraction, translateInteraction, selectInteraction, recenterInteraction)
+    val sing = LocalNowPlayingSing.current
 
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        LyricsKeyRow(
-            interactions = interactions,
-            iconSize = iconSize,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(LyricsKeyGap),
             modifier = modifier,
         ) {
-            val searchKey: @Composable () -> Unit = {
+            LyricsKeyRow(
+                interactions = interactions,
+                iconSize = iconSize,
+            ) {
+                val searchKey: @Composable () -> Unit = {
+                    LyricsActionIcon(
+                        icon = rememberVectorPainter(YoinSymbols.Search),
+                        contentDescription = stringResource(R.string.np_cd_search_lyrics),
+                        interactionSource = searchInteraction,
+                        enabled = actionInFlight == null,
+                        onClick = onSearchClick,
+                        size = iconSize,
+                    )
+                }
+                if (searchBarState != null) {
+                    // A bare, see-through collapsed SearchBar: the only public way to give
+                    // SearchBarState its collapsed bounds, so the expanded search grows
+                    // out of this key.
+                    SearchBar(
+                        state = searchBarState,
+                        inputField = searchKey,
+                        shape = RoundedCornerShape(iconSize * 0.31f),
+                        colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                    )
+                } else {
+                    searchKey()
+                }
+                // The translate key stays lit while its own translation runs, so
+                // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
+                // content to 38% alpha); taps are ignored until it finishes.
+                val translating = actionInFlight == LyricsAction.Translate
                 LyricsActionIcon(
-                    icon = rememberVectorPainter(YoinSymbols.Search),
-                    contentDescription = stringResource(R.string.np_cd_search_lyrics),
-                    interactionSource = searchInteraction,
+                    icon = rememberTranslateSymbolPainter(translating = translating),
+                    contentDescription = stringResource(R.string.np_cd_translate_lyrics),
+                    interactionSource = translateInteraction,
+                    enabled = (actionInFlight == null || translating) && canTranslate,
+                    onClick = { if (actionInFlight == null) onTranslateClick() },
+                    size = iconSize,
+                    // Showing / hiding plucks when the lines move (NowPlayingScreen).
+                    tapHaptic = false,
+                )
+                // ✓ = select lines (copy / share as image). Editing the
+                // LRC moved into select mode's own bar; with no lines to
+                // select the ✓ still opens the editor (paste lyrics).
+                LyricsActionIcon(
+                    icon = rememberVectorPainter(YoinSymbols.Check),
+                    contentDescription = if (canSelect) {
+                        stringResource(R.string.np_cd_select_lyrics)
+                    } else {
+                        stringResource(R.string.np_cd_add_lyrics)
+                    },
+                    interactionSource = selectInteraction,
                     enabled = actionInFlight == null,
-                    onClick = onSearchClick,
+                    onClick = onSelectClick,
+                    size = iconSize,
+                )
+                LyricsActionIcon(
+                    icon = rememberVectorPainter(YoinSymbols.Recenter),
+                    contentDescription = stringResource(R.string.np_cd_return_current_line),
+                    interactionSource = recenterInteraction,
+                    enabled = actionInFlight == null && canRecenter,
+                    onClick = onRecenterClick,
                     size = iconSize,
                 )
             }
-            if (searchBarState != null) {
-                // A bare, see-through collapsed SearchBar: the only public way to give
-                // SearchBarState its collapsed bounds, so the expanded search grows
-                // out of this key.
-                SearchBar(
-                    state = searchBarState,
-                    inputField = searchKey,
-                    shape = RoundedCornerShape(iconSize * 0.31f),
-                    colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
+            if (sing?.isSupported == true) {
+                SingLyricsCapsuleKey(
+                    sing = sing,
+                    iconSize = iconSize,
                 )
-            } else {
-                searchKey()
             }
-            // The translate key stays lit while its own translation runs, so
-            // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
-            // content to 38% alpha); taps are ignored until it finishes.
-            val translating = actionInFlight == LyricsAction.Translate
-            LyricsActionIcon(
-                icon = rememberTranslateSymbolPainter(translating = translating),
-                contentDescription = stringResource(R.string.np_cd_translate_lyrics),
-                interactionSource = translateInteraction,
-                enabled = (actionInFlight == null || translating) && canTranslate,
-                onClick = { if (actionInFlight == null) onTranslateClick() },
-                size = iconSize,
-                // Showing / hiding plucks when the lines move (NowPlayingScreen).
-                tapHaptic = false,
-            )
-            // ✓ = select lines (copy / share as image). Editing the
-            // LRC moved into select mode's own bar; with no lines to
-            // select the ✓ still opens the editor (paste lyrics).
-            LyricsActionIcon(
-                icon = rememberVectorPainter(YoinSymbols.Check),
-                contentDescription = if (canSelect) {
-                    stringResource(R.string.np_cd_select_lyrics)
-                } else {
-                    stringResource(R.string.np_cd_add_lyrics)
-                },
-                interactionSource = selectInteraction,
-                enabled = actionInFlight == null,
-                onClick = onSelectClick,
-                size = iconSize,
-            )
-            LyricsActionIcon(
-                icon = rememberVectorPainter(YoinSymbols.Recenter),
-                contentDescription = stringResource(R.string.np_cd_return_current_line),
-                interactionSource = recenterInteraction,
-                enabled = actionInFlight == null && canRecenter,
-                onClick = onRecenterClick,
-                size = iconSize,
-            )
         }
     }
 }

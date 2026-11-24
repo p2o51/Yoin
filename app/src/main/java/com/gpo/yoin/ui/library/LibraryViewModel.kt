@@ -188,6 +188,7 @@ class LibraryViewModel(
     )
     private var lastSorted: SortedLibraryLists? = null
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
+    private var pendingSearchShortcutQuery: String = ""
     private var searchFocusRequestCounter = 0L
     private var searchAttemptCounter = 0
     private var libraryDataGeneration = 0L
@@ -312,6 +313,7 @@ class LibraryViewModel(
         allSettled = false
         publishLists()
         pendingSearchShortcutScope = null
+        pendingSearchShortcutQuery = ""
         searchAttemptCounter += 1
         searchRequestFlow.value = LibrarySearchRequest(
             "",
@@ -354,7 +356,9 @@ class LibraryViewModel(
                 val pendingScope = pendingSearchShortcutScope
                     ?.let(::normaliseSearchScope)
                     ?: LibrarySearchScope.CurrentLibrary
+                val pendingQuery = pendingSearchShortcutQuery
                 pendingSearchShortcutScope = null
+                pendingSearchShortcutQuery = ""
                 _uiState.value = LibraryUiState.Content(
                     selectedTab = LibraryTab.All,
                     // null = not loaded yet; the sorted lists arrive through
@@ -366,9 +370,9 @@ class LibraryViewModel(
                     songs = null,
                     playlists = null,
                     favorites = null,
-                    searchQuery = "",
+                    searchQuery = pendingQuery,
                     searchResults = null,
-                    isSearching = false,
+                    isSearching = pendingQuery.isNotBlank(),
                     searchScope = pendingScope,
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
                     canSearchAppleMusicCatalog = canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC),
@@ -384,7 +388,7 @@ class LibraryViewModel(
                 ).withLastSorted()
                 applySortSettings(sortSettings, capabilities)
                 publishLists()
-                searchRequestFlow.value = LibrarySearchRequest("", pendingScope)
+                searchRequestFlow.value = LibrarySearchRequest(pendingQuery, pendingScope)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (!isDataLoadCurrent(generation, profileId)) return@launch
@@ -1212,6 +1216,7 @@ class LibraryViewModel(
 
     fun showLibraryHome() {
         pendingSearchShortcutScope = null
+        pendingSearchShortcutQuery = ""
         searchRequestFlow.value = LibrarySearchRequest("", LibrarySearchScope.CurrentLibrary)
         updateContent {
             copy(
@@ -1228,21 +1233,26 @@ class LibraryViewModel(
         }
     }
 
-    fun openSearchShortcut(scope: LibrarySearchScope) {
+    /**
+     * Opens Search in [scope], empty or already searching [query] (text shared to "Open in Yoin",
+     * docs/open-in-yoin.md).
+     */
+    fun openSearchShortcut(scope: LibrarySearchScope, query: String = "") {
         val current = _uiState.value as? LibraryUiState.Content
         if (current == null) {
             // Keep the requested scope while the active source resolves;
             // loadInitialData normalises it against the resulting provider.
             pendingSearchShortcutScope = scope
+            pendingSearchShortcutQuery = query
             return
         }
         val effectiveScope = normaliseSearchScope(scope)
-        searchRequestFlow.value = LibrarySearchRequest("", effectiveScope)
+        searchRequestFlow.value = LibrarySearchRequest(query, effectiveScope)
         _uiState.value = current.copy(
             searchScope = effectiveScope,
-            searchQuery = "",
+            searchQuery = query,
             searchResults = null,
-            isSearching = false,
+            isSearching = query.isNotBlank(),
             searchError = null,
             searchFilter = LibrarySearchFilter.All,
             searchFocusRequestId = nextSearchFocusRequestId(),

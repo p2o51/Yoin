@@ -5,7 +5,10 @@ import com.gpo.yoin.data.sync.SyncBindingEntity
 import com.gpo.yoin.data.sync.SyncFormat
 import com.gpo.yoin.data.sync.SyncKinds
 import com.gpo.yoin.data.sync.engine.SyncEngine
-import com.gpo.yoin.data.transfer.memories.MigrationIds
+import com.gpo.yoin.shared.portability.BackupKinds
+import com.gpo.yoin.shared.portability.ImportTarget
+import com.gpo.yoin.shared.portability.ParsedBackup
+import com.gpo.yoin.shared.portability.memories.MigrationIds
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

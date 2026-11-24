@@ -30,6 +30,9 @@ class NoteLine extends StatefulWidget {
     this.emphasis = NoteLineEmphasis.page,
     this.distance = 0,
     this.meta,
+    this.editing = false,
+    this.interactive = true,
+    this.onToggleChecklist,
   });
 
   final String? stamp;
@@ -38,6 +41,15 @@ class NoteLine extends StatefulWidget {
   final NoteLineEmphasis emphasis;
   final int? distance;
   final String? meta;
+
+  /// Open in the write bar for rewriting: the line recedes to [NowPlayingNoteTokens.editingAlpha].
+  final bool editing;
+
+  /// False (Now Playing collapsed): mentions and to-dos take no touch; the host's tap expands.
+  final bool interactive;
+
+  /// A tap on a to-do's box (its line index).
+  final void Function(int lineIndex)? onToggleChecklist;
 
   @override
   State<NoteLine> createState() => _NoteLineState();
@@ -54,7 +66,9 @@ class _NoteLineState extends State<NoteLine> with TickerProviderStateMixin {
 
   bool get _glance => widget.emphasis == NoteLineEmphasis.glance;
 
-  double get _targetAlpha => noteLineAlpha(active: widget.active, distance: widget.distance, emphasis: widget.emphasis);
+  double get _targetAlpha =>
+      noteLineAlpha(active: widget.active, distance: widget.distance, emphasis: widget.emphasis) *
+      (widget.editing ? _N.editingAlpha : 1);
 
   double get _targetScale => widget.active ? 1 : (_glance ? _N.glanceInactiveScale : _N.pageInactiveScale);
 
@@ -138,7 +152,12 @@ class _NoteLineState extends State<NoteLine> with TickerProviderStateMixin {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        NoteMarkupText(widget.text, style: bodyStyle.copyWith(color: textColor)),
+                        NoteMarkupText(
+                          widget.text,
+                          style: bodyStyle.copyWith(color: textColor),
+                          interactive: widget.interactive,
+                          onToggleChecklist: widget.onToggleChecklist,
+                        ),
                         if (widget.meta != null)
                           Padding(
                             padding: const EdgeInsets.only(top: _N.metaGap),

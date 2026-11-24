@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../notes/editor/note_format_toolbar.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'note_controller.dart';
@@ -73,10 +75,12 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
       _imeShown = true;
     } else {
       if (shouldCollapseNoteWriteBar(
-        imeWasShown: _imeShown,
-        imeVisible: imeVisible,
-        draftEmpty: _notes.draft.text.isEmpty,
-      )) {
+            imeWasShown: _imeShown,
+            imeVisible: imeVisible,
+            draftEmpty: _notes.draft.text.isEmpty,
+          ) ||
+          // An edit put away unchanged closes (the bar returns to its capsule, the note as it was).
+          (_imeShown && _notes.draft.isUntouchedEdit)) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _notes.focus.unfocus());
       }
       _imeShown = false;
@@ -110,13 +114,15 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
     final open = _notes.open;
     final draft = _notes.draft;
     final hasWords = draft.text.trim().isNotEmpty;
-    final field = TextField(
+    final canSave = draft.canSave;
+    final field = NoteMarkupField(
       controller: _notes.text,
       focusNode: _notes.focus,
       minLines: open ? _N.barOpenMinLines : 1,
       maxLines: open ? _N.barOpenMaxLines : 1,
       style: text.bodyLarge!.copyWith(color: colors.onSurface),
       cursorColor: colors.primary,
+      mentionPopup: open,
       // A click / tap away from the bar over an empty draft puts the field
       // down (no soft keyboard to dismiss on a 2in1 with its keyboard on).
       onTapOutside: (_) {
@@ -172,8 +178,15 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
               padding: const EdgeInsetsDirectional.only(top: _N.barFooterGap, start: _N.barFooterInset),
               child: Row(
                 children: [
-                  const Spacer(),
-                  _SavePill(enabled: hasWords, label: strings.noteSave, onTap: _notes.save),
+                  // The formatting row beside Save (Android NoteWriteBar + NoteFormatToolbar).
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: NoteFormatToolbar(controller: _notes.text),
+                    ),
+                  ),
+                  const SizedBox(width: _N.barItemGap),
+                  _SavePill(enabled: canSave, label: strings.noteSave, onTap: _notes.save),
                 ],
               ),
             ),

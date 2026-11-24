@@ -2,8 +2,8 @@ package com.gpo.yoin.ui.settings.sync
 
 import app.cash.turbine.test
 import com.gpo.yoin.data.transfer.ReviewStatus
-import com.gpo.yoin.data.transfer.memories.MatchStatus
 import com.gpo.yoin.data.transfer.memories.MemorySource
+import com.gpo.yoin.shared.portability.memories.MatchStatus
 import com.gpo.yoin.testutil.MainDispatcherRule
 import java.io.IOException
 import kotlinx.coroutines.test.runTest

@@ -129,6 +129,8 @@ class MainActivity : ComponentActivity(), ShellShortcutHost {
         // A fresh install holds the shell back until the landing check (a cheap prefs read).
         if (savedInstanceState == null && !SharedPrefsLandingStore(this).isDone()) landingGate.holdShell = true
         handleLandingIntent(intent, fresh = savedInstanceState == null)
+        // The clipboard prompt looks once per foreground, when this window has focus (docs/open-in-yoin.md).
+        (application as YoinApplication).container.clipboardLinkWatcher.install()
         // Offer this window's playback to another device (Continue On, Android 17), and show the card of a
         // hand-off that started it.
         ContinueOnWindows.install(this)
@@ -298,6 +300,10 @@ class MainActivity : ComponentActivity(), ShellShortcutHost {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         shellWindowFocused = hasFocus
+        // Only the shell itself reads the clipboard: not under the landing (no account to open a link in yet).
+        if (hasFocus && !landingGate.showing && !landingGate.holdShell) {
+            (application as YoinApplication).container.clipboardLinkWatcher.onShellFocused()
+        }
         // A shortcut that opened another window never sees its key come up here.
         if (!hasFocus) shortcutKeyDown = null
     }
