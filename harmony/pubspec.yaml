@@ -17,6 +17,7 @@ dependencies:
   http: ^1.6.0
   material_color_utilities: any
   # Yoin Symbols, built from the sibling checkout like the Android app (AGENTS.md "Icons").
+  pinyin: ^3.3.0
   yoin_symbols:
     path: ../../yoin-symbols/flutter
 

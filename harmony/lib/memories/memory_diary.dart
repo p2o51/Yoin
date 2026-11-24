@@ -16,6 +16,8 @@ import 'package:flutter/rendering.dart';
 import '../data/model/model.dart';
 import '../data/notes/note_markup.dart';
 import '../neodb/neodb_lines.dart';
+import '../notes/editor/note_editor_controller.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../notes/note_markup_text.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/app_messages.dart';
@@ -455,7 +457,8 @@ class _DiaryEntry extends StatefulWidget {
 }
 
 class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin {
-  final TextEditingController _text = TextEditingController();
+  /// The review's words as stored (mentions as links), edited with @ and chips.
+  final NoteEditorController _text = NoteEditorController();
   final FocusNode _focus = FocusNode();
   bool _saving = false;
 
@@ -500,10 +503,10 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
     super.dispose();
   }
 
-  bool get _writing => _focus.hasFocus || _text.text.isNotEmpty;
+  bool get _writing => _focus.hasFocus || _text.storedText.isNotEmpty;
 
   Future<void> _save() async {
-    final words = _text.text.trim();
+    final words = _text.storedText.trim();
     if (words.isEmpty || _saving) return;
     setState(() => _saving = true);
     final ok = await widget.onSave(words);
@@ -604,7 +607,7 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
                       label: strings.reviewSave,
                       semanticsLabel: strings.cdSaveReview,
                       tones: widget.tones,
-                      onTap: _text.text.trim().isEmpty ? null : _save,
+                      onTap: _text.storedText.trim().isEmpty ? null : _save,
                     ),
                   ],
                 ),
@@ -627,7 +630,7 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
       constraints: const BoxConstraints(minHeight: 64),
       child: Semantics(
         label: widget.strings.cdReviewField,
-        child: TextField(
+        child: NoteMarkupField(
           controller: _text,
           focusNode: _focus,
           enabled: widget.interactive && !_saving,

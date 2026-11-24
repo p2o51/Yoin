@@ -110,23 +110,40 @@ final class NoteTarget {
 /// and playhead until it's saved or explicitly re-aligned.
 @immutable
 final class NoteDraft {
-  const NoteDraft({this.text = '', this.anchorMs, this.target});
+  const NoteDraft({this.text = '', this.anchorMs, this.target, this.editingNoteId, this.editingOriginal});
 
   final String text;
   final int? anchorMs;
   final NoteTarget? target;
 
+  /// Rewriting this existing note (long-pressed on the Note page) instead of writing a new one.
+  final String? editingNoteId;
+
+  /// The note's words as they were when the edit began: an edit left unchanged closes without a trace.
+  final String? editingOriginal;
+
+  /// An existing note is open in the bar.
+  bool get isEditing => editingNoteId != null;
+
+  /// Editing, with nothing changed yet.
+  bool get isUntouchedEdit => isEditing && text == editingOriginal;
+
+  /// What Save may do: an edit once changed (emptied, it deletes its note), a new note with words.
+  bool get canSave => isEditing ? !isUntouchedEdit : text.trim().isNotEmpty;
+
   /// Words that belong to a song other than [current].
   bool isForOtherTrack(NoteTarget current) => text.isNotEmpty && target != null && target!.trackId != current.trackId;
 
-  /// No words yet: (re)bind to [current] at [positionMs].
+  /// No words yet: (re)bind to [current] at [positionMs]. An edit keeps its note.
   NoteDraft followIfEmpty(NoteTarget current, int positionMs) =>
-      text.isEmpty ? NoteDraft(anchorMs: positionMs, target: current) : this;
+      text.isEmpty && !isEditing ? NoteDraft(anchorMs: positionMs, target: current) : this;
 
   /// Typing. An unbound draft — or an emptied one still bound to a song that
   /// has since ended — binds to [current] at [positionMs] with its first word.
+  /// An edit stays the note it opened, emptied or not.
   NoteDraft edit(String newText, NoteTarget current, int positionMs) {
     final t = target;
+    if (isEditing) return _copy(text: newText);
     if (t == null || (text.isEmpty && t.trackId != current.trackId)) {
       return NoteDraft(text: newText, anchorMs: positionMs, target: current);
     }
@@ -134,13 +151,25 @@ final class NoteDraft {
   }
 
   /// "Align to now": the moment moves to [positionMs] on [current], words kept.
-  NoteDraft realign(NoteTarget current, int positionMs) => NoteDraft(text: text, anchorMs: positionMs, target: current);
+  NoteDraft realign(NoteTarget current, int positionMs) => _copy(anchorMs: positionMs, target: current);
+
+  /// [noteId]'s words ([content], filed at [anchorMs]) opened for rewriting, bound to its song.
+  NoteDraft beginEdit(String noteId, String content, int? anchorMs, NoteTarget song) =>
+      NoteDraft(text: content, anchorMs: anchorMs, target: song, editingNoteId: noteId, editingOriginal: content);
 
   /// After a save: an empty draft for what's playing now.
   NoteDraft cleared(NoteTarget current, int positionMs) => NoteDraft(anchorMs: positionMs, target: current);
 
   /// A draft without a song yet, or one started on [trackId], lands in that song's list.
   bool belongsTo(MediaId trackId) => target == null || target!.trackId == trackId;
+
+  NoteDraft _copy({String? text, int? anchorMs, NoteTarget? target}) => NoteDraft(
+    text: text ?? this.text,
+    anchorMs: anchorMs ?? this.anchorMs,
+    target: target ?? this.target,
+    editingNoteId: editingNoteId,
+    editingOriginal: editingOriginal,
+  );
 }
 
 /// The stamp's realign glyph appears once the playhead has moved this far from the draft's moment.
