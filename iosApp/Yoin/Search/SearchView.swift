@@ -183,6 +183,8 @@ struct SearchView: View {
                 withTransaction(t) { resetPhoneSession() }
             }
         }
+        // Open in Yoin hands an open Search its text.
+        .onReceive(NotificationCenter.default.publisher(for: .yoinSearchStartQuery)) { _ in takeStartQuery() }
         // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
         .task { if model.searchActive, !staged { await start() } }
         .task {
@@ -203,6 +205,13 @@ struct SearchView: View {
             guard !Task.isCancelled else { return }
             await model.store.runSearch(query, scope: scope.store)
         }
+    }
+
+    /// Open in Yoin's shared text (no music link in it): the field opens holding it, taken once.
+    private func takeStartQuery() {
+        guard let start = model.searchStartQuery else { return }
+        model.searchStartQuery = nil
+        if query != start { query = start }
     }
 
     private func resetPhoneSession() {
@@ -245,6 +254,7 @@ struct SearchView: View {
             canSearchCatalog: canSearchCatalog
         )
         if scope != targetScope { scope = targetScope }
+        takeStartQuery()
         staged = true
         let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
         let fromBar = model.searchOrigin == .bar && !grown

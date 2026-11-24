@@ -20,6 +20,9 @@ enum Route: Hashable {
     /// What others say on NeoDB about an album (Android NeoDbVoicesActivity, #192): from the rate sheet's
     /// NeoDB line and the memory diary.
     case neoDBVoices(Album)
+    /// Choose a match: a music link from a service the user has no account on, searched on the account in
+    /// use (Open in Yoin, docs/open-in-yoin.md; Android OpenInResultsActivity).
+    case openInResults(OpenInResultsRequest)
 }
 
 enum ShellSection: Hashable {
@@ -168,6 +171,12 @@ final class AppModel {
     /// What the screens read from that server (signed out: nothing; the
     /// screens fall back to the mock library).
     let store: LibraryStore
+    /// "Open in Yoin" (the share extension) and the clipboard music-link card (OpenIn/).
+    let openIn = OpenInCoordinator()
+    /// The clipboard check on each return to the front (OpenIn/ClipboardLinks.swift).
+    @ObservationIgnored let clipboardWatcher = ClipboardLinkWatcher()
+    /// Text Search opens with, taken once (Open in Yoin's shared text that holds no link).
+    @ObservationIgnored var searchStartQuery: String?
     /// Queue sheet on Now Playing.
     var queueSheetOpen = false
     /// Bumps when songs went into Spotify's own queue: the queue sheet reads it again.
@@ -251,6 +260,7 @@ final class AppModel {
         profiles.useFakeSpotify()
         #endif
         observeSpotifyAccount()
+        configureOpenIn()
         memories.onOpenChange = { [weak self] open in self?.noteBackSurface(.memories, open: open) }
         #if DEBUG
         if let order = UserDefaults.standard.string(forKey: "backOrderDemo") {
@@ -393,6 +403,7 @@ final class AppModel {
         signInFromLaunchArguments()
         runProfilesScript()
         runSpotifyIssueDemo()
+        OpenInDemo.launch(self)
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
@@ -550,7 +561,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, .openInResults, nil: return nil
         }
     }
 
@@ -893,7 +904,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil:
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, .openInResults, nil:
             return []
         }
     }
