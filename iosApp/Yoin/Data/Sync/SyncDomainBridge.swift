@@ -5,6 +5,7 @@ import YoinShared
 extension TrackRatingRow: @retroactive @unchecked Sendable {}
 extension AlbumRatingRow: @retroactive @unchecked Sendable {}
 extension SongNoteRow: @retroactive @unchecked Sendable {}
+extension AlbumNoteRow: @retroactive @unchecked Sendable {}
 extension AlbumTitleRow: @retroactive @unchecked Sendable {}
 extension MemoryCopyRow: @retroactive @unchecked Sendable {}
 extension SongAboutRow: @retroactive @unchecked Sendable {}
@@ -72,15 +73,18 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     private let notesStore: @MainActor () -> NotesStore
     private let ratingsStore: @MainActor () -> LocalRatings
     private let albumStore: @MainActor () -> AlbumMemoryStore
+    private let albumNotesStore: @MainActor () -> AlbumNotesStore
 
     init(accounts: @escaping @MainActor () -> Accounts,
          notes: @escaping @MainActor () -> NotesStore = { NotesStore.shared },
          ratings: @escaping @MainActor () -> LocalRatings = { LocalRatings.shared },
-         albums: @escaping @MainActor () -> AlbumMemoryStore = { AlbumMemoryStore.shared }) {
+         albums: @escaping @MainActor () -> AlbumMemoryStore = { AlbumMemoryStore.shared },
+         albumNotes: @escaping @MainActor () -> AlbumNotesStore = { AlbumNotesStore.shared }) {
         self.accounts = accounts
         notesStore = notes
         ratingsStore = ratings
         albumStore = albums
+        albumNotesStore = albumNotes
     }
 
     /// The provider of [profileId]'s account; nil when it isn't on this device.
@@ -291,6 +295,46 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
                   self.profileId(provider: n.provider, scope: n.scope) == profileId else { return true }
             // Removed from its own account's notes, whichever account is in use.
             return reading(profileId) { notesStore().syncRemove(id: id) }
+        }
+    }
+
+    // MARK: Album notes (Android album_notes, `album_note`)
+
+    @MainActor
+    private func row(_ n: AlbumNote) -> AlbumNoteRow? {
+        guard let profile = profileId(provider: n.provider, scope: n.scope) else { return nil }
+        return AlbumNoteRow(id: n.id, profileId: profile, albumId: n.albumId, provider: n.provider, content: n.content,
+                            createdAt: n.createdAt, updatedAt: n.updatedAt, albumName: n.albumName, artist: n.artist)
+    }
+
+    func albumNotes(profileId: String) -> [AlbumNoteRow] {
+        main {
+            albumNotesStore().everyAccount.compactMap { self.row($0) }.filter { $0.profileId == profileId }
+        }
+    }
+
+    /// Whichever account holds it (the adapter checks the owner), as for song notes.
+    func albumNote(id: String) -> AlbumNoteRow? {
+        main { albumNotesStore().syncNote(id: id).flatMap { self.row($0) } }
+    }
+
+    func putAlbumNote(row: AlbumNoteRow) -> Bool {
+        main {
+            // Written under the row's account (syncPut stamps the scope in use).
+            reading(row.profileId) {
+                albumNotesStore().syncPut(AlbumNote(id: row.id, provider: row.provider, albumId: row.albumId,
+                                                    content: row.content, createdAt: row.createdAt,
+                                                    updatedAt: row.updatedAt, albumName: row.albumName,
+                                                    artist: row.artist))
+            }
+        }
+    }
+
+    func deleteAlbumNote(id: String, profileId: String) -> Bool {
+        main {
+            guard let n = albumNotesStore().syncNote(id: id),
+                  self.profileId(provider: n.provider, scope: n.scope) == profileId else { return true }
+            return reading(profileId) { albumNotesStore().syncRemove(id: id) }
         }
     }
 

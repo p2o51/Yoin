@@ -151,14 +151,109 @@ class NoteEditorTextTest {
         val text = "- [ ] 听 $link\n- 一条"
         val display = NoteEditorDisplay.of(text)
         val shown = display.replacements.map { it.shown }
-        assertEquals(listOf(NoteEditorDisplay.TODO, "@Andromeda", NoteEditorDisplay.BULLET), shown)
+        assertEquals(listOf(NoteEditorDisplay.TODO, chipText("Andromeda"), NoteEditorDisplay.BULLET), shown)
         // the caret after the chip's link sits after the chip's words
         val afterLink = text.indexOf(link) + link.length
-        assertEquals(NoteEditorDisplay.TODO.length + 2 + "@Andromeda".length, display.toDisplay(afterLink))
+        assertEquals(NoteEditorDisplay.TODO.length + 2 + chipText("Andromeda").length, display.toDisplay(afterLink))
         // inside the link: snapped to the chip's end
         assertEquals(display.toDisplay(afterLink), display.toDisplay(afterLink - 3))
         val chip = display.styles.single { it.kind == NoteEditorDisplay.Kind.Chip }
         assertEquals(andromeda, chip.mention)
-        assertEquals("@Andromeda".length, chip.end - chip.start)
+        assertEquals(chipText("Andromeda").length, chip.end - chip.start)
+    }
+
+    // ── @ mode: composing text and Enter (notes 0.6.4) ───────────────────
+
+    @Test
+    fun should_keepTheTriggerOpen_acrossSpacesTheKeyboardIsStillComposing() {
+        // a pinyin keyboard shows "niu yue" in the field (composing) before it commits 纽约
+        val text = "像 @niu yue"
+        assertEquals("niu yue", NoteEditorText.trigger(text, text.length, composition = 3 until text.length)?.query)
+        // committed, the same space ends the mention
+        assertNull(NoteEditorText.trigger(text, text.length))
+        // a composition elsewhere doesn't excuse a committed space before it
+        assertNull(NoteEditorText.trigger("@a b", 4, composition = 3 until 4))
+    }
+
+    @Test
+    fun should_turnTheNewlineIntoTheTopRow_when_enterIsPressedAtAnOpenPopup() {
+        val original = "像 @andr 的"
+        val trigger = NoteEditorText.trigger(original, 7)!!
+        val edited = "像 @andr\n 的"
+
+        val fix = NoteEditorText.enterPicksMention(original, edited, trigger, andromeda)!!
+
+        assertEquals("像 $link 的", fix.text)
+        assertEquals("像 $link ".length, fix.selectionStart)
+    }
+
+    @Test
+    fun should_leaveOtherEdits_when_thePopupIsOpen() {
+        val original = "@an"
+        val trigger = NoteEditorText.trigger(original, 3)!!
+
+        // typing goes on as typed; a newline anywhere in the token is Enter (see the delivery shapes below)
+        assertNull(NoteEditorText.enterPicksMention(original, "@and", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention(original, "@a", trigger, andromeda))
+    }
+
+    @Test
+    fun should_pickOnEnter_whateverShapeTheKeyboardDeliversItIn() {
+        val original = "x @Ni y"
+        val trigger = NoteEditorText.trigger(original, 5)!!
+        val picked = "x $link y"
+
+        // a bare newline at the token's end
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Ni\n y", trigger, andromeda)?.text)
+        // the composing word committed (auto-corrected / completed) with the newline in one batch
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Nice\n y", trigger, andromeda)?.text)
+        // the composing word replaced by the newline
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @\n y", trigger, andromeda)?.text)
+        // a newline and a space (some keyboards add one) after the word
+        assertEquals(picked, NoteEditorText.enterPicksMention(original, "x @Ni \n y", trigger, andromeda)?.text)
+    }
+
+    @Test
+    fun should_pickOnEnter_beforeANewlineAlreadyAfterTheToken() {
+        val original = "@an\nnext line"
+        val trigger = NoteEditorText.trigger(original, 3)!!
+
+        val fix = NoteEditorText.enterPicksMention(original, "@an\n\nnext line", trigger, andromeda)!!
+
+        assertEquals("$link \nnext line", fix.text)
+    }
+
+    @Test
+    fun should_leaveNewlinesOutsideTheToken_asTyped() {
+        val original = "a\n@an"
+        val trigger = NoteEditorText.trigger(original, 5)!!
+
+        // before the @ (another line), or touching text past the token: not Enter at the popup
+        assertNull(NoteEditorText.enterPicksMention(original, "\na\n@an", trigger, andromeda))
+        assertNull(NoteEditorText.enterPicksMention("@an b", "@an\n", NoteEditorText.trigger("@an b", 3)!!, andromeda))
+    }
+
+    @Test
+    fun should_openTheTrigger_onAFullWidthAt_followedByCommittedChinese() {
+        // Gboard's Chinese keyboard types "＠" and commits characters from its own candidate strip
+        assertEquals(MentionTrigger(0, 3, "灯塔"), NoteEditorText.trigger("＠灯塔", 3))
+        assertEquals("灯塔", NoteEditorText.trigger("这首像＠灯塔", 6)?.query)
+        assertEquals("", NoteEditorText.trigger("这首像＠", 4)?.query)
+        val fix = NoteEditorText.insertMention("这首像＠灯塔", 6, 6, NoteEditorText.trigger("这首像＠灯塔", 6), andromeda)
+        assertEquals("这首像$link ", fix.text)
+    }
+
+    @Test
+    fun should_holdAChipTogether_soTheEditorNeverBreaksInsideIt() {
+        val shown = chipText("Northern Field Recordings")
+
+        // no ordinary space, and a word joiner between every two characters: no break opportunity inside
+        assertEquals(false, shown.contains(' '))
+        assertEquals("@Northern Field Recordings", shown.replace("\u2060", "").replace('\u00A0', ' '))
+        assertEquals(shown.length, "@Northern Field Recordings".length * 2 - 1)
+        assertEquals("@\u2060林\u2060间", chipText("林间"))
+        // an emoji's surrogate pair and an accent mark stay one character
+        assertEquals("@\u2060\uD83C\uDF0A", chipText("\uD83C\uDF0A"))
+        assertEquals("@\u2060e\u0301", chipText("e\u0301"))
     }
 }

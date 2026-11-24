@@ -443,6 +443,10 @@ final class LibraryStore {
     @ObservationIgnored var jbiHiddenStore = JbiHiddenStore.shared
     /// Bumps when a card is hidden, so [home] is built again without it.
     private var jbiHiddenTick = 0
+    /// Whose turn the memory 1×2 is; nil = the app's (`JbiMemoryTurn.shared`, made when Home first needs it). Tests swap it.
+    @ObservationIgnored var jbiMemoryTurn: JbiMemoryTurn?
+    /// The album the memory 1×2 shows, on which turn and account.
+    @ObservationIgnored private var jbiMemoryShown: (turn: Int64, scope: String, albumId: String)?
 
     /// The keys hidden on this account now (reading it tracks a hide, for the mock shelf's redraw).
     func hiddenJbiKeys(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Set<String> {
@@ -614,8 +618,16 @@ final class LibraryStore {
         var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
         o.activities = HomeHistory.activityPicks(records, resolve: inputs.resolve)
         // A memory or noted-track card hidden for now makes way for the next one (Android's pickers skip it).
-        if let rated = HomeHistory.ratedAlbumSignal(memories.filter { !hidden.contains(jbiAlbumHideKey($0.album.id)) }) {
+        // The memory 1×2 takes turns (JbiMemoryTurn; reading it redraws Home on a new turn), never the
+        // bubble's latest memory; within a turn the album it shows stays while it is still a memory.
+        let turn = (jbiMemoryTurn ?? .shared).turn
+        let shown = jbiMemoryShown.flatMap { $0.turn == turn && $0.scope == homeScope ? $0.albumId : nil }
+        if let rated = HomeHistory.ratedAlbumSignal(memories.filter { !hidden.contains(jbiAlbumHideKey($0.album.id)) },
+                                                    avoid: HomeMemories.pickLatest(memories.filter(\.isMemoryEligible))?.albumId,
+                                                    prefer: shown, turn: turn,
+                                                    recentlyPlayedBefore: inputs.now - HomeHistory.jbiRecentPlayMs) {
             o.signals.append(rated)
+            jbiMemoryShown = (turn, homeScope, rated.album.id.rawId)
         }
         var signalInputs = inputs
         signalInputs.notes = inputs.notes.filter { !hidden.contains(jbiSongHideKey(MediaId(provider: $0.provider, rawId: $0.trackId))) }

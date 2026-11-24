@@ -155,4 +155,70 @@ class NoteDraftTest {
             draftFieldValue("the outro hits", held),
         )
     }
+
+    // ── editing a note from the Note page (owner 2026-11-24) ─────────────
+
+    @Test
+    fun should_openTheNotesWordsAndMoment_when_editBegins() {
+        val draft = NoteDraft().beginEdit("n1", "the outro hits", anchorMs = 91_000L, song = songA)
+
+        assertEquals("the outro hits", draft.text)
+        assertEquals(91_000L, draft.anchorMs)
+        assertEquals("n1", draft.editingNoteId)
+        assertTrue(draft.isUntouchedEdit)
+        assertFalse(draft.canSave)
+    }
+
+    @Test
+    fun should_stayTheSameNote_whileEditedEmptiedOrTheSongChanges() {
+        val editing = NoteDraft().beginEdit("n1", "words", anchorMs = 10_000L, song = songA)
+        val emptied = editing.edit("", songB, positionMs = 1_000L).followIfEmpty(songB, positionMs = 2_000L)
+
+        assertEquals("n1", emptied.editingNoteId)
+        assertEquals(songA, emptied.target)
+        assertEquals(10_000L, emptied.anchorMs)
+        assertTrue(emptied.canSave)
+    }
+
+    @Test
+    fun should_saveTheEditUnderItsNote_andAnEmptiedOneAsADelete() {
+        val editing = NoteDraft().beginEdit("n1", "words", anchorMs = 10_000L, song = songA)
+
+        val changed = editing.edit("better words ", songA, 0L).realign(songA, 12_000L).toSaveRequest()!!
+        assertEquals(NoteSaveRequest("better words", 12_000L, songA, editingNoteId = "n1"), changed)
+
+        val emptied = editing.edit("  ", songA, 0L).toSaveRequest()!!
+        assertEquals("", emptied.content)
+        assertEquals("n1", emptied.editingNoteId)
+        // a new note never saves blank
+        assertNull(NoteDraft().edit("  ", songA, 0L).toSaveRequest())
+    }
+
+    @Test
+    fun should_neverDropUnsavedWords_forAnEdit() {
+        val state = NoteDraftState(NoteDraft().edit("a new thought", songA, 5_000L))
+
+        assertFalse(state.beginEdit("n1", "old note", 1_000L, songA))
+        assertEquals("a new thought", state.draft.text)
+        // the bar still opens, on the words that were waiting
+        assertTrue(state.pendingEditFocus)
+
+        val empty = NoteDraftState()
+        assertTrue(empty.beginEdit("n1", "old note", 1_000L, songA))
+        assertEquals("old note", empty.draft.text)
+        // an untouched edit gives way to another note's
+        assertTrue(empty.beginEdit("n2", "other note", 2_000L, songA))
+        assertEquals("n2", empty.draft.editingNoteId)
+    }
+
+    @Test
+    fun should_closeAnUntouchedEdit_andSurviveRotation() {
+        val state = NoteDraftState()
+        state.beginEdit("n1", "old note", 1_000L, songA)
+        val restored = NoteDraft.fromSaveable(state.draft.toSaveable())
+        assertEquals(state.draft, restored)
+
+        state.cancelEdit(songB, 3_000L)
+        assertEquals(NoteDraft(anchorMs = 3_000L, target = songB), state.draft)
+    }
 }

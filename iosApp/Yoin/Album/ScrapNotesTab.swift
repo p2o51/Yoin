@@ -165,8 +165,7 @@ struct ScrapNotesTab: View {
             // Android's darker sheet; here it barely showed): a primary wash over the paper.
             ScrapNoteCard(scheme: scheme, lit: open) {
                 if let at { ScrapNoteStamp(text: at, scheme: scheme) }
-                Text(note.content)
-                    .font(.gsf(15))
+                NoteMarkupText(text: note.content, size: 15, mentionColor: scheme.primary, glyphColor: scheme.primary)
                     .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                     .foregroundStyle(scheme.onSurface)
                     .multilineTextAlignment(.leading)

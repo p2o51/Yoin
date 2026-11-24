@@ -10,7 +10,11 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import com.gpo.yoin.ui.notes.editor.LocalWindowTaps
+import com.gpo.yoin.ui.notes.editor.WindowTaps
+import com.gpo.yoin.ui.notes.editor.windowTapSource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -57,10 +61,13 @@ fun YoinModalBottomSheet(
             )
         }
     }
+    // The sheet is a window of its own: its taps end an @ mode in an editor on it.
+    val sheetTaps = remember { WindowTaps() }
     ProvideSheetBack(back) {
+      CompositionLocalProvider(LocalWindowTaps provides sheetTaps) {
         ModalBottomSheet(
             onDismissRequest = onDismissRequest,
-            modifier = modifier,
+            modifier = modifier.windowTapSource(sheetTaps),
             sheetState = sheetState,
             containerColor = containerColor,
             contentWindowInsets = contentWindowInsets,
@@ -69,5 +76,6 @@ fun YoinModalBottomSheet(
             SheetWindowBackInput(back)
             content()
         }
+      }
     }
 }

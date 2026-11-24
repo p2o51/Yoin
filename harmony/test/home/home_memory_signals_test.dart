@@ -91,18 +91,88 @@ void main() {
       expect(averaged.trackBasis, isTrue);
     });
 
-    test('should_preferReviewedAndAvoidTheHeaderLatest_when_picking', () {
+    // HomeMemoryPillTest.kt / HomeJbiRichShelfTest.kt: the memory 1×2s take turns.
+    test('should_preferAnotherAlbumForJbiCard_when_pillShowsLatest', () {
+      final pool = [candidate('latest', albumRating: 9, review: true), candidate('older', albumRating: 7)];
+      expect(pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest')!.albumId.rawId, 'older');
+    });
+
+    test('should_keepShownJbiAlbum_when_itIsStillAMemory', () {
+      final pool = [candidate('latest', albumRating: 9, review: true), candidate('older', albumRating: 7)];
+      expect(
+        pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', preferRawAlbumId: 'latest')!.albumId.rawId,
+        'latest',
+      );
+      final notesOnly = [candidate('shown', notes: 3), candidate('rated', albumRating: 7)];
+      expect(pickJbiMemoryCandidate(notesOnly, preferRawAlbumId: 'shown')!.albumId.rawId, 'shown');
+    });
+
+    test('should_dropShownJbiAlbum_when_itIsNoLongerAMemory', () {
+      expect(pickJbiMemoryCandidate([candidate('rated', albumRating: 7)], preferRawAlbumId: 'gone')!.albumId.rawId, 'rated');
+    });
+
+    test('should_reuseSameAlbumForJbiCard_when_onlyOneMemory', () {
+      expect(pickJbiMemoryCandidate([candidate('only', albumRating: 8)], avoidRawAlbumId: 'only')!.albumId.rawId, 'only');
+      expect(pickJbiMemoryCandidates(const []), isEmpty);
+    });
+
+    test('should_pickUnscoredMemoryForJbiCard_when_itHasOnlyNotes', () {
+      // Owner 2026-11-20: a memory takes its turn scored or not (its card then shows no score).
+      expect(pickJbiMemoryCandidate([candidate('notes', notes: 4)])!.albumId.rawId, 'notes');
+    });
+
+    test('should_dealDistinctMemoriesIntoTheSlots_when_pickingSeveralMemories', () {
       final pool = [
-        candidate('a', albumRating: 8, review: true),
-        candidate('b', albumRating: 9),
-        candidate('c', review: true),
-        candidate('d'),
+        candidate('a', albumRating: 8),
+        candidate('b', albumRating: 8, review: true),
+        candidate('c', albumRating: 8),
+        candidate('d', albumRating: 8, review: true),
+        candidate('e'),
+        candidate('latest', albumRating: 8, review: true),
       ];
-      expect(pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'a')!.albumId.rawId, 'c');
-      expect(pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'a', preferRawAlbumId: 'b')!.albumId.rawId, 'b');
-      expect(pickJbiMemoryCandidates(pool, avoidRawAlbumId: 'a', count: 3).map((c) => c.albumId.rawId), ['c', 'b']);
-      expect(pickJbiMemoryCandidate([candidate('a', review: true)], avoidRawAlbumId: 'a')!.albumId.rawId, 'a');
-      expect(pickJbiMemoryCandidates([candidate('d')]), isEmpty);
+      final picks = pickJbiMemoryCandidates(pool, avoidRawAlbumId: 'latest', count: 4, turn: 1);
+      expect(picks, hasLength(4));
+      expect(picks.map((c) => c.albumId).toSet(), hasLength(4));
+      expect(picks.where((c) => c.albumId.rawId == 'latest'), isEmpty);
+      expect(picks.first, pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', turn: 1));
+    });
+
+    test('should_takeTurnsEachOpening_when_severalMemoriesQualify_scoredOrNot', () {
+      final pool = [
+        candidate('a', albumRating: 8),
+        candidate('b', albumRating: 8, review: true),
+        candidate('c', albumRating: 8),
+        candidate('e'),
+        candidate('latest', albumRating: 8, review: true),
+      ];
+      // One round: each memory, scored or not, leads once; never the header's latest.
+      final round = [
+        for (var turn = 0; turn < 4; turn++) pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', turn: turn)!.albumId.rawId,
+      ];
+      expect(round.toSet(), {'a', 'b', 'c', 'e'});
+      // The same within one turn.
+      expect(
+        pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', turn: 20000),
+        pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', turn: 20000),
+      );
+      // The next round runs in another order.
+      final rounds = {
+        for (var r = 0; r < 6; r++)
+          [for (var turn = r * 4; turn < r * 4 + 4; turn++) pickJbiMemoryCandidate(pool, avoidRawAlbumId: 'latest', turn: turn)!.albumId.rawId].join(),
+      };
+      expect(rounds.length, greaterThan(1));
+    });
+
+    test('should_skipARecentlyPlayedMemory_when_othersRemain', () {
+      final pool = [
+        candidate('played', albumRating: 8, plays: AlbumPlays(albumId: MediaId.subsonic('played'), playCount: 1, firstPlayedAt: 9000, lastPlayedAt: 9000)),
+        candidate('quiet', albumRating: 8, plays: AlbumPlays(albumId: MediaId.subsonic('quiet'), playCount: 1, firstPlayedAt: 1000, lastPlayedAt: 1000)),
+      ];
+      for (var turn = 0; turn < 6; turn++) {
+        expect(pickJbiMemoryCandidate(pool, turn: turn, recentlyPlayedBefore: 5000)!.albumId.rawId, 'quiet');
+      }
+      // Alone, it still shows.
+      expect(pickJbiMemoryCandidate([pool.first], recentlyPlayedBefore: 5000)!.albumId.rawId, 'played');
     });
 
     test('should_buildWideCardsWithScoreAndBasis_when_memoryAndNote', () {

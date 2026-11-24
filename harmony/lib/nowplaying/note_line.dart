@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../notes/note_markup_text.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
@@ -137,7 +138,7 @@ class _NoteLineState extends State<NoteLine> with TickerProviderStateMixin {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(widget.text, style: bodyStyle.copyWith(color: textColor)),
+                        NoteMarkupText(widget.text, style: bodyStyle.copyWith(color: textColor)),
                         if (widget.meta != null)
                           Padding(
                             padding: const EdgeInsets.only(top: _N.metaGap),

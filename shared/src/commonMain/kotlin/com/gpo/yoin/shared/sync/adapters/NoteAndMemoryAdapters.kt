@@ -11,7 +11,7 @@ import com.gpo.yoin.shared.sync.SyncKinds
 import kotlinx.serialization.json.JsonObject
 
 /*
- * Ports of Android's SongNoteSyncAdapter, AlbumTitleSyncAdapter,
+ * Ports of Android's SongNoteSyncAdapter, AlbumNoteSyncAdapter, AlbumTitleSyncAdapter,
  * MemoryCopySyncAdapter / MemoryTitleSyncAdapter and SongAboutSyncAdapter.
  */
 
@@ -94,6 +94,86 @@ class SongNoteSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
             positionMs = positionMs,
         )
     }
+}
+
+/**
+ * `album_notes` <-> [SyncKinds.ALBUM_NOTE] (Android's AlbumNoteSyncAdapter, notes revamp 2026-11-23): the
+ * song note's rules. Key = note id (globally unique), a note id that already lives under another local
+ * profile is never re-parented ([SkipReason.OWNED_ELSEWHERE]), deletes are scoped by profile and propagate as
+ * tombstones, last writer wins with a live edit beating a concurrent delete. `updatedAt` is a synced field,
+ * so apply writes the payload's value. Records an engine carried opaquely before it had this adapter are
+ * applied on its next cycle like any unapplied record, keyed by id, so none is written twice.
+ */
+class AlbumNoteSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
+    override val kind = SyncKinds.ALBUM_NOTE
+    override val kindVersion = 1
+    override val fileClass = FileClass.STATE
+    override val perAccount = true
+    override val propagatesDeletes = true
+    override val conflictPolicy = ConflictPolicy.LWW_LIVE_WINS
+
+    override suspend fun readAll(localProfileId: String?): List<DomainRow> {
+        val profileId = requireNotNull(localProfileId) { "album_note is per-account" }
+        return domain.albumNotes(profileId).map { note ->
+            DomainRow(key = note.id, projection = projection(note), rowTs = note.updatedAt)
+        }
+    }
+
+    override fun project(payload: JsonObject): JsonObject? = parse(payload, id = "", profileId = "")?.let(::projection)
+
+    override suspend fun apply(
+        localProfileId: String?,
+        key: String,
+        payload: JsonObject,
+        versionTs: Long,
+        expectedLocalHash: String?,
+    ): ApplyOutcome {
+        val profileId = requireNotNull(localProfileId) { "album_note is per-account" }
+        val existing = domain.albumNote(key)
+        if (existing != null && existing.profileId != profileId) {
+            return ApplyOutcome.Skipped(SkipReason.OWNED_ELSEWHERE, null)
+        }
+        val currentHash = existing?.let(::projection).hashOrNull()
+        val row = parse(payload, id = key, profileId = profileId)
+            ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
+        if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
+        domain.putAlbumNote(row).orFailWrite("putAlbumNote")
+        return ApplyOutcome.Applied(domain.albumNote(key)?.let(::projection).hashOrNull())
+    }
+
+    override suspend fun delete(localProfileId: String?, key: String, expectedLocalHash: String?): ApplyOutcome {
+        val profileId = requireNotNull(localProfileId) { "album_note is per-account" }
+        val current = domain.albumNote(key)?.takeIf { it.profileId == profileId } ?: return ApplyOutcome.Applied(null)
+        val currentHash = projection(current).hashOrNull()
+        if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
+        domain.deleteAlbumNote(key, profileId).orFailWrite("deleteAlbumNote")
+        return ApplyOutcome.Applied(null)
+    }
+
+    /** Android's projection, field for field and in its order. */
+    private fun projection(note: AlbumNoteRow) = JsonObject(
+        mapOf(
+            "albumId" to jsonString(note.albumId),
+            "provider" to jsonString(note.provider),
+            "content" to jsonString(note.content),
+            "createdAt" to jsonLong(note.createdAt),
+            "updatedAt" to jsonLong(note.updatedAt),
+            "albumName" to jsonString(note.albumName),
+            "artist" to jsonString(note.artist),
+        ),
+    )
+
+    private fun parse(payload: JsonObject, id: String, profileId: String): AlbumNoteRow? = AlbumNoteRow(
+        id = id,
+        profileId = profileId,
+        albumId = payload.requiredString("albumId")?.takeIf(String::isNotEmpty) ?: return null,
+        provider = payload.requiredString("provider")?.takeIf(String::isNotEmpty) ?: return null,
+        content = payload.requiredString("content") ?: return null,
+        createdAt = payload.requiredLong("createdAt") ?: return null,
+        updatedAt = payload.requiredLong("updatedAt") ?: return null,
+        albumName = payload.requiredString("albumName") ?: return null,
+        artist = payload.requiredString("artist") ?: return null,
+    )
 }
 
 /**

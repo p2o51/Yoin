@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/home/home_section.dart';
 
@@ -128,6 +130,73 @@ void main() {
       expect(HomeRowPreset.fromId('xl'), HomeRowPreset.xl);
       expect(HomeRowPreset.fromId('xxl'), isNull);
       expect(HomeRowPreset.byId(null), HomeRowPreset.l);
+    });
+  });
+
+  group('unknown keys', () {
+    // An Android document (HomeLayoutStore): the two-column memory under `wide`,
+    // half spans in the configs, plus keys a newer build might add.
+    Map<String, Object?> android() => (jsonDecode('''
+{
+  "version": 1,
+  "sections": [
+    {"id": "activities", "enabled": true, "config": {"span": "half", "units": 3}},
+    {"id": "jump_back_in", "enabled": true, "config": {"span": "half"}, "pinned": [1, 2]},
+    {"id": "recently_added", "enabled": true},
+    {"id": "rediscover", "enabled": false},
+    {"id": "recently_played", "enabled": true},
+    {"id": "your_playlists", "enabled": true},
+    {"id": "other_profiles", "enabled": true},
+    {"id": "lyric_highlight", "enabled": true},
+    {"id": "memory_grid", "enabled": true},
+    {"id": "made_for_you", "enabled": true}
+  ],
+  "wide": {"pairs": [["activities", "jump_back_in"], ["future_a", "future_b"]], "note": "x"},
+  "future": {"a": [1, {"b": null}]}
+}
+''') as Map).cast<String, Object?>();
+
+    test('should_writeWideAndOtherKeysBack_when_reorderedAndHidden', () {
+      final layout = HomeLayout.fromJson(android());
+      final moved = withSectionMoved(layout, layout.visibleV1Sections, HomeSection.recentlyPlayed, 0);
+      final hidden = withSectionEnabled(moved, HomeSection.yourPlaylists, false);
+      final resized = withSectionRows(hidden, HomeSection.jumpBackIn, HomeRowPreset.m);
+      final out = jsonDecode(jsonEncode(resized.toJson())) as Map<String, Object?>;
+      expect(out['version'], 1);
+      expect(out['wide'], android()['wide']);
+      expect(out['future'], android()['future']);
+      final sections = (out['sections']! as List).cast<Map<String, Object?>>();
+      expect(sections.first['id'], 'recently_played');
+      expect(sections.firstWhere((s) => s['id'] == 'your_playlists')['enabled'], isFalse);
+      final jbi = sections.firstWhere((s) => s['id'] == 'jump_back_in');
+      expect(jbi['pinned'], [1, 2]);
+      expect(jbi['config'], {'span': 'half', 'rows': 'm'});
+      expect(sections.firstWhere((s) => s['id'] == 'activities')['config'], {'span': 'half', 'units': 3});
+    });
+
+    test('should_keepWide_when_reorderingByCommit', () {
+      final layout = HomeLayout.fromJson(android());
+      final order = layout.visibleV1Sections.reversed.toList();
+      final next = withSectionsOrdered(layout, layout.visibleV1Sections, order);
+      expect(next.toJson()['wide'], android()['wide']);
+      expect(HomeLayout.fromJson(next.toJson()).sections, next.sections);
+    });
+
+    test('should_notWriteWide_when_neverRead', () {
+      expect(HomeLayout.defaultLayout.toJson().keys, ['version', 'sections']);
+    });
+
+    test('should_forgetWide_when_reset', () {
+      final layout = HomeLayout.fromJson({
+        ...android(),
+        'sections': [
+          ...(android()['sections']! as List),
+          {'id': 'future_thing', 'enabled': true},
+        ],
+      });
+      final reset = resetLayout(layout);
+      expect(reset.toJson().containsKey('wide'), isFalse);
+      expect(reset.sections.last.id, 'future_thing');
     });
   });
 }

@@ -88,6 +88,71 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertNil(HomeLayoutCodec.decode(Data("nope".utf8)))
     }
 
+    /// Android's document with its two-column memory (`wide`, design.md「两栏的并排记忆」), a key no build
+    /// knows yet, and unknown keys on an entry.
+    private let androidWideDoc = #"{"version":1,"sections":[{"id":"activities","enabled":true,"config":{"span":"half"}},"#
+        + #"{"id":"jump_back_in","enabled":true,"config":{"span":"half"},"pinned":{"at":[1,2]}},"#
+        + #"{"id":"rediscover","enabled":true},{"id":"lyric_highlight","enabled":true}],"#
+        + #""wide":{"pairs":[["activities","jump_back_in"],["lyric_highlight","future_section"]],"note":"keep"},"#
+        + #""future":{"a":[1,2.5,true,null],"b":"x"}}"#
+
+    private func object(_ data: Data) -> NSDictionary {
+        (try? JSONSerialization.jsonObject(with: data)) as? NSDictionary ?? [:]
+    }
+
+    func test_should_keepUnknownDocumentAndEntryKeys_when_reorderedAndHidden() throws {
+        let original = object(Data(androidWideDoc.utf8))
+        let d = try XCTUnwrap(HomeLayoutCodec.decodeDocument(Data(androidWideDoc.utf8)))
+        let layout = HomeLayout.reconcile(d.prefs).movedShown(.rediscover, to: 0).withEnabled(.activities, false)
+        let doc = object(HomeLayoutCodec.encode(layout.toPrefs(), extras: d.extras))
+        // The document's other keys, as they were.
+        XCTAssertEqual(doc["wide"] as? NSDictionary, original["wide"] as? NSDictionary)
+        XCTAssertEqual(doc["future"] as? NSDictionary, original["future"] as? NSDictionary)
+        XCTAssertEqual(doc["version"] as? Int, 1)
+        // The edit landed; each entry keeps its config and its other keys.
+        let sections = try XCTUnwrap(doc["sections"] as? [NSDictionary])
+        XCTAssertEqual(sections.prefix(4).map { $0["id"] as? String }, ["rediscover", "activities", "jump_back_in", "lyric_highlight"])
+        XCTAssertEqual(sections[1], ["id": "activities", "enabled": false, "config": ["span": "half"]] as NSDictionary)
+        XCTAssertEqual(sections[2], ["id": "jump_back_in", "enabled": true, "config": ["span": "half"],
+                                     "pinned": ["at": [1, 2]]] as NSDictionary)
+        // And it reads back the same.
+        let again = try XCTUnwrap(HomeLayoutCodec.decodeDocument(HomeLayoutCodec.encode(layout.toPrefs(), extras: d.extras)))
+        XCTAssertEqual(again.prefs, layout.toPrefs())
+        XCTAssertEqual(again.extras.map(object), d.extras.map(object))
+    }
+
+    func test_should_writeNoExtraKeys_when_documentHasNone() {
+        XCTAssertNil(HomeLayoutCodec.decodeDocument(Data(#"{"version":1,"sections":[{"id":"activities","enabled":true}]}"#.utf8))?.extras)
+        XCTAssertEqual(object(HomeLayoutCodec.encode([HomeSectionPref(id: "activities", enabled: true)])).allKeys.count, 2)
+    }
+
+    func test_should_keepAndroidsWideMemory_when_syncedLayoutIsEditedOnIOS() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = HomeLayoutStore(fileURL: url)
+        XCTAssertTrue(store.applySynced(json: androidWideDoc, updatedAt: 700, scope: "acc"))
+        // Through the file and back, then edited (Edit Home saves each step).
+        let reopened = HomeLayoutStore(fileURL: url)
+        let edit = HomeEditController(store: reopened)
+        edit.load(scope: "acc")
+        edit.enter()
+        edit.move(.rediscover, to: 0)
+        edit.hide(.lyricHighlight)
+        let sent = try XCTUnwrap(reopened.synced("acc"))
+        XCTAssertGreaterThan(sent.updatedAt, 700)
+        let doc = object(Data(sent.json.utf8))
+        let original = object(Data(androidWideDoc.utf8))
+        XCTAssertEqual(doc["wide"] as? NSDictionary, original["wide"] as? NSDictionary)
+        XCTAssertEqual(doc["future"] as? NSDictionary, original["future"] as? NSDictionary)
+        XCTAssertEqual(reopened.layout("acc").shownSections.first, .rediscover)
+        XCTAssertEqual(reopened.layout("acc").trayed, [.lyricHighlight])
+        // Still there after a reopen, and Reset clears it with the rest.
+        XCTAssertEqual(object(Data(try XCTUnwrap(HomeLayoutStore(fileURL: url).synced("acc")).json.utf8))["wide"] as? NSDictionary,
+                       original["wide"] as? NSDictionary)
+        edit.reset()
+        XCTAssertNil(reopened.synced("acc"))
+    }
+
     func test_should_persistPerAccount_when_saved() {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }

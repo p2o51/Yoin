@@ -12,6 +12,7 @@ import '../data/ai/ai_service.dart' show MemoryNarrationText;
 import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../playback/local_ratings.dart';
 import 'copy/memory_copy.dart';
 import 'copy/memory_voice.dart';
@@ -149,12 +150,14 @@ AlbumMemoryDraft draftAlbumMemory({
   final input = MemoryCopyInput(
     albumName: album?.name ?? candidate.albumName,
     aiTitle: aiTitle,
-    review: review?.text,
+    // Yoin's copy (card excerpts, the voice) reads the words alone: marks
+    // dropped, mentions as their names, so a card never quotes a raw link.
+    review: review == null ? null : NoteMarkup.plainText(review.text),
     reviewWrittenOn: review == null ? null : dayOf(review.writtenAt),
     notes: [
       for (final w in oldestFirst)
         MemoryCopyNote(
-          text: w.text,
+          text: NoteMarkup.plainText(w.text),
           writtenOn: dayOf(w.writtenAt),
           track: copyTrackById[w.trackId] ?? MemoryCopyTrack(number: 1 << 31, title: w.trackTitle ?? ''),
           positionMs: w.positionMs,

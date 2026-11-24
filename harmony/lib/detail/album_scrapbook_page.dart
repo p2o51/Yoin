@@ -11,9 +11,12 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
+import '../home/widgets/spring_height.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../nowplaying/haptics.dart';
+import '../notes/note_markup_text.dart';
 import '../nowplaying/note_logic.dart' show formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
@@ -34,6 +37,8 @@ import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_strings.dart';
 import 'scrapbook_focus.dart';
+
+part 'album_scrapbook_stickies.dart';
 
 /// The scrapbook's layout numbers (AlbumScrapbookPage.kt ScrapbookLayout, D3
 /// §5.1) beyond the ones [DetailTokens] already carries.
@@ -98,6 +103,42 @@ abstract final class ScrapbookLayout {
   /// "View in Scrapbook" / "Manage in Scrapbook": the room left above the song's piece, and its swell.
   static const double focusMargin = 24;
   static const double focusSwell = 0.04;
+
+  /// The album's stickies (AlbumScrapbookPage.kt / AlbumScrapbookNotes.kt): a share of the space they
+  /// are given, at most 280 (a fixed sheet, not as wide as its words).
+  static const double stickyWidthFactor = 0.72;
+  static const double stickyMaxWidth = 280;
+
+  /// How far the stickies ride over the review's foot; the air under the emblem on a phone; the wide indent.
+  static const double stickyTuck = 6;
+  static const double stickyEmblemGap = 6;
+  static const double stickyIndentWide = 24;
+
+  /// Between stickies in the pile.
+  static const double stickyGap = 10;
+
+  /// The corner fold: legs of this length (D3: a 12px cut on the diagonal), its inner corner, its ink.
+  static const double stickyFold = 17;
+  static const double stickyFoldRadius = 4;
+  static const double stickyFoldInk = 0.32;
+
+  /// A sticky's words and their room; an editor's room.
+  static const double stickyText = 14.5;
+  static const EdgeInsetsDirectional stickyPadding = EdgeInsetsDirectional.fromSTEB(18, 14, 18, 18);
+  static const EdgeInsetsDirectional stickyEditorPadding = EdgeInsetsDirectional.fromSTEB(14, 12, 14, 14);
+
+  /// The dashed sticky that writes the next note, and its glyph.
+  static const Size stickyDashed = Size(64, 56);
+  static const double stickyDashedGlyph = 22;
+
+  /// Pager parallax depth of a sticky; an editor leans this share of its sticky's tilt; a new one leans this much.
+  static const double stickyDepth = 0.45;
+  static const double stickyEditorLean = 0.4;
+  static const double stickyNewTilt = 0.6;
+
+  /// The editor's height in lines.
+  static const int stickyMinLines = 3;
+  static const int stickyMaxLines = 10;
 }
 
 /// Whether [piece] shows [songId] (its own cluster, or a contact sheet frame).
@@ -126,6 +167,9 @@ final class ScrapbookColors {
     required this.onTicketNow,
     required this.review,
     required this.onReview,
+    required this.sticky,
+    required this.onSticky,
+    required this.stickyFold,
     required this.note,
     required this.onNote,
     required this.ask,
@@ -152,6 +196,10 @@ final class ScrapbookColors {
       onTicketNow: s.onSecondaryContainer,
       review: s.primaryContainer,
       onReview: s.onPrimaryContainer,
+      sticky: s.secondaryContainer,
+      onSticky: s.onSecondaryContainer,
+      // The folded corner: the sticky's paper with a third of the secondary ink (D3).
+      stickyFold: Color.lerp(s.secondaryContainer, s.secondary, ScrapbookLayout.stickyFoldInk)!,
       note: s.surfaceContainerHighest,
       onNote: s.onSurface,
       ask: s.tertiaryContainer,
@@ -168,7 +216,7 @@ final class ScrapbookColors {
     );
   }
 
-  final Color ink, onInk, ticket, onTicket, ticketNow, onTicketNow, review, onReview;
+  final Color ink, onInk, ticket, onTicket, ticketNow, onTicketNow, review, onReview, sticky, onSticky, stickyFold;
   final Color note, onNote, ask, onAsk, askMark, onAskMark, tag, onTag, receipt, onReceipt, outline, muted, dots;
 
   static ScrapbookColors lerp(ScrapbookColors a, ScrapbookColors b, double t) {
@@ -182,6 +230,9 @@ final class ScrapbookColors {
       onTicketNow: l(a.onTicketNow, b.onTicketNow),
       review: l(a.review, b.review),
       onReview: l(a.onReview, b.onReview),
+      sticky: l(a.sticky, b.sticky),
+      onSticky: l(a.onSticky, b.onSticky),
+      stickyFold: l(a.stickyFold, b.stickyFold),
       note: l(a.note, b.note),
       onNote: l(a.onNote, b.onNote),
       ask: l(a.ask, b.ask),
@@ -205,6 +256,7 @@ final class ScrapbookColors {
       other.ticket == ticket &&
       other.ticketNow == ticketNow &&
       other.review == review &&
+      other.sticky == sticky &&
       other.note == note &&
       other.ask == ask &&
       other.tag == tag &&
@@ -214,7 +266,7 @@ final class ScrapbookColors {
       other.muted == muted;
 
   @override
-  int get hashCode => Object.hash(ink, ticket, ticketNow, review, note, receipt, dots, onTicket, muted);
+  int get hashCode => Object.hash(ink, ticket, ticketNow, review, sticky, note, receipt, dots, onTicket, muted);
 }
 
 /// The album's page 2 (AlbumScrapbookPage): dotted paper that scrolls with
@@ -259,6 +311,9 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   String? _pulsedKey;
   bool _focusScheduled = false;
   StreamSubscription<ScrapEvent>? _events;
+
+  /// An album sticky being written in place (the dashed sticky, a sticky tapped, or bare paper tapped).
+  final _stickies = StickyEditing();
 
   @override
   void initState() {
@@ -348,6 +403,42 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     }
   }
 
+  /// The open sticky saved (Android StickyPile onSave): a new note, new words, or a delete with Undo.
+  void _saveSticky(String open, String text) {
+    final edit = stickySave(open, text);
+    if (edit != null) {
+      final editor = ref.read(albumScrapbookEditorProvider(widget.album.id).notifier);
+      editor.edit(edit);
+      if (edit is ScrapAlbumNoteTextEdit && edit.text.isEmpty) {
+        // "Deleted · Undo" (owner 2026-10-29: like Google Photos): the sticky goes at once, Undo writes it back.
+        ref
+            .read(playbackControllerProvider.notifier)
+            .showMessage(
+              DetailStrings.of(context).stickyDeleted,
+              actionLabel: DetailStrings.of(context).scrapUndo,
+              long: true,
+              onAction: () => editor.edit(ScrapRestoreAlbumNoteEdit(edit.noteId)),
+            );
+      }
+    }
+    _stickies.close();
+  }
+
+  /// A tap on bare paper starts an album note at the top (prototype scenario 5); pieces take their own taps first.
+  void _onPaperTap() {
+    if (_stickies.open != null) return;
+    _stickies.startNew();
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scroll.jumpTo(position.minScrollExtent);
+      return;
+    }
+    _scrollSpring
+      ..value = position.pixels
+      ..animateWith(SpringSimulation(YoinSprings.defaultSpatial, position.pixels, position.minScrollExtent, 0));
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -379,6 +470,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     if (_flight?.pageScrolling == _scrollingToFocus) _flight?.pageScrolling = null;
     widget.focus?.removeListener(_scheduleFocus);
     _events?.cancel();
+    _stickies.dispose();
     _scrollSpring.dispose();
     _t.dispose();
     _pulse.dispose();
@@ -433,42 +525,46 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
                     },
                     child: SingleChildScrollView(
                       controller: _scroll,
-                      child: CustomPaint(
-                        painter: _DottedPaper(c.dots),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                              top: ScrapbookLayout.topInset,
-                              bottom: ScrapbookLayout.bottomInset + bottomInset,
-                            ),
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: SizedBox(
-                                width: contentWidth,
-                                child: _ScrapMasonry(
-                                  lanes: lanes,
-                                  rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
-                                  children: [
-                                    for (final piece in pieces)
-                                      _ScrapSpan(
-                                        key: ValueKey(piece.key),
-                                        fullLine: piece.fullLine,
-                                        child: KeyedSubtree(
-                                          key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
-                                          child: AnimatedBuilder(
-                                            animation: _pulse,
-                                            builder: (context, child) => Transform.scale(
-                                              scale: _pulsedKey == piece.key
-                                                  ? 1 + ScrapbookLayout.focusSwell * _pulse.value
-                                                  : 1,
-                                              child: child,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _onPaperTap,
+                        child: CustomPaint(
+                          painter: _DottedPaper(c.dots),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                top: ScrapbookLayout.topInset,
+                                bottom: ScrapbookLayout.bottomInset + bottomInset,
+                              ),
+                              child: Align(
+                                alignment: Alignment.topCenter,
+                                child: SizedBox(
+                                  width: contentWidth,
+                                  child: _ScrapMasonry(
+                                    lanes: lanes,
+                                    rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
+                                    children: [
+                                      for (final piece in pieces)
+                                        _ScrapSpan(
+                                          key: ValueKey(piece.key),
+                                          fullLine: piece.fullLine,
+                                          child: KeyedSubtree(
+                                            key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
+                                            child: AnimatedBuilder(
+                                              animation: _pulse,
+                                              builder: (context, child) => Transform.scale(
+                                                scale: _pulsedKey == piece.key
+                                                    ? 1 + ScrapbookLayout.focusSwell * _pulse.value
+                                                    : 1,
+                                                child: child,
+                                              ),
+                                              child: _piece(piece, wide),
                                             ),
-                                            child: _piece(piece, wide),
                                           ),
                                         ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -489,7 +585,13 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   /// Each piece fades into the seam like text (AlbumScrapbookPage.kt seamFade);
   /// the opening's cover breaks up as a graphic (seamDissolve, in _Opening).
   Widget _piece(ScrapPiece piece, bool wide) => switch (piece) {
-    ScrapOpening() => _Opening(piece: piece, album: widget.album, coverUrl: widget.coverUrl, wide: wide),
+    ScrapOpening() => _Opening(
+      piece: piece,
+      album: widget.album,
+      coverUrl: widget.coverUrl,
+      wide: wide,
+      stickyPile: _StickyPile(stickies: piece.stickies, editing: _stickies, onSave: _saveSticky),
+    ),
     ScrapTrackCluster() => _scrapFade(_TrackCluster(piece: piece, album: widget.album, wide: wide)),
     ScrapContactSheet() => _scrapFade(_ContactSheet(piece: piece, album: widget.album)),
     ScrapNotYet() => _scrapFade(const _NotYet()),
@@ -569,12 +671,21 @@ void _playAlbumFrom(WidgetRef ref, Album album, int index, {int positionMs = 0})
 }
 
 class _Opening extends ConsumerWidget {
-  const _Opening({required this.piece, required this.album, required this.coverUrl, required this.wide});
+  const _Opening({
+    required this.piece,
+    required this.album,
+    required this.coverUrl,
+    required this.wide,
+    required this.stickyPile,
+  });
 
   final ScrapOpening piece;
   final Album album;
   final String? coverUrl;
   final bool wide;
+
+  /// The album's stickies and the dashed one to write the next (album_scrapbook_stickies.dart).
+  final Widget stickyPile;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -585,7 +696,9 @@ class _Opening extends ConsumerWidget {
     // A long review gets the full width under the cover; on a phone the
     // column beside the cover belongs to the title when there is one.
     final reviewBeside =
-        (wide || review == null || weightedLength(review) <= ScrapbookRules.openingBesideBudget) &&
+        (wide ||
+            review == null ||
+            weightedLength(NoteMarkup.plainText(review)) <= ScrapbookRules.openingBesideBudget) &&
         (wide || title == null);
     final url = coverUrl;
     return MemoryPaletteBuilder(
@@ -611,68 +724,121 @@ class _Opening extends ConsumerWidget {
                 ),
         );
         final besideGap = emblem * DetailTokens.scrapbookBadgeOverhangX + 8;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // The review at most 420 wide, the stickies tucked over its foot, stepped in (wide layouts).
+        Widget reviewWithStickies() => _ScrapStack(
+          mirror: false,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _CoverWithEmblem(
-                  album: album,
-                  coverUrl: url,
-                  side: coverSide,
-                  emblem: emblem,
-                  tilt: piece.coverTilt,
-                  palette: palette,
-                  onEmblemTap: openSheet,
+            _ScrapSlot(
+              cross: false,
+              overlap: 0,
+              child: Align(
+                alignment: AlignmentDirectional.topStart,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                  child: reviewPiece(),
                 ),
-                if (title != null) ...[
-                  SizedBox(width: besideGap),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SeamFade(
-                            fontSize: Theme.of(context).textTheme.headlineSmall?.fontSize ?? 24,
-                            child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
-                          ),
-                          const SizedBox(height: 16),
-                          _scrapFade(_ScrapLastPlay(albumId: album.id)),
-                          if (reviewBeside) ...[
-                            const SizedBox(height: 16),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
-                              child: reviewPiece(),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
+              ),
+            ),
+            _ScrapSlot(
+              cross: false,
+              overlap: ScrapbookLayout.stickyTuck,
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(start: ScrapbookLayout.stickyIndentWide),
+                child: _StickyWidth(child: stickyPile),
+              ),
+            ),
+          ],
+        );
+        return _ScrapStack(
+          mirror: false,
+          children: [
+            _ScrapSlot(
+              cross: false,
+              overlap: 0,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _CoverWithEmblem(
+                    album: album,
+                    coverUrl: url,
+                    side: coverSide,
+                    emblem: emblem,
+                    tilt: piece.coverTilt,
+                    palette: palette,
+                    onEmblemTap: openSheet,
                   ),
-                ] else if (reviewBeside) ...[
-                  SizedBox(width: besideGap),
-                  Flexible(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                  if (title != null) ...[
+                    SizedBox(width: besideGap),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 4),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            reviewPiece(),
+                            SeamFade(
+                              fontSize: Theme.of(context).textTheme.headlineSmall?.fontSize ?? 24,
+                              child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                            ),
+                            const SizedBox(height: 16),
+                            _scrapFade(_ScrapLastPlay(albumId: album.id)),
+                            if (reviewBeside) ...[
+                              // Wide: the review (and the stickies tucked under it) follows the title in its column.
+                              const SizedBox(height: 16),
+                              reviewWithStickies(),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else if (reviewBeside && wide) ...[
+                    // Wide: the stickies stay in the review's column, tucked under it and clear of the emblem.
+                    SizedBox(width: besideGap),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            reviewWithStickies(),
                             const SizedBox(height: 16),
                             _scrapFade(_ScrapLastPlay(albumId: album.id)),
                           ],
                         ),
                       ),
                     ),
-                  ),
+                  ] else if (reviewBeside) ...[
+                    SizedBox(width: besideGap),
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              reviewPiece(),
+                              const SizedBox(height: 16),
+                              _scrapFade(_ScrapLastPlay(albumId: album.id)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-            if (!reviewBeside) ...[const SizedBox(height: 4), reviewPiece()],
+            if (!reviewBeside) _ScrapSlot(cross: false, overlap: -4, child: reviewPiece()),
+            // Phone: the stickies on a row of their own on the far side. Under the cover they keep a little
+            // air below the emblem; under a full-width review they tuck over the review's foot.
+            if (!wide)
+              _ScrapSlot(
+                cross: true,
+                overlap: reviewBeside ? -ScrapbookLayout.stickyEmblemGap : ScrapbookLayout.stickyTuck,
+                widthFactor: ScrapbookLayout.stickyWidthFactor,
+                maxWidth: ScrapbookLayout.stickyMaxWidth,
+                child: stickyPile,
+              ),
           ],
         );
       },
@@ -849,9 +1015,10 @@ class _ReviewClipping extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  NoteMarkupText(
                     text,
                     style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.55, color: colors.onReview),
+                    mentionColor: colors.onReview,
                   ),
                   // When it was written, quietly at the foot (owner 2026-10-05).
                   if (at != null) ...[
@@ -1663,9 +1830,10 @@ class _NoteLine extends StatelessWidget {
     final strings = DetailStrings.of(context);
     final theme = Theme.of(context);
     final at = note.positionMs == null ? null : formatNotePosition(note.positionMs!);
+    final words = NoteMarkup.plainText(note.content);
     return Semantics(
       button: true,
-      label: at == null ? strings.scrapCdNote(note.content) : strings.scrapCdNoteAt(at, note.content),
+      label: at == null ? strings.scrapCdNote(words) : strings.scrapCdNoteAt(at, words),
       excludeSemantics: true,
       child: InkWell(
         customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
@@ -1690,9 +1858,10 @@ class _NoteLine extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: Text(
+                child: NoteMarkupText(
                   note.content,
                   style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.5, color: colors.onNote),
+                  mentionColor: colors.ink,
                 ),
               ),
             ],

@@ -23,6 +23,7 @@ import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
 import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../detail/detail_cache.dart';
 import '../memories/copy/memory_copy.dart';
 import '../memories/home_memory_pill.dart';
@@ -32,10 +33,14 @@ import 'home_album_memory_mark.dart';
 import 'home_selection.dart';
 import 'home_ui_state.dart';
 import 'home_view_model.dart';
+import 'jbi_memory_turn.dart';
 import 'rediscover_selection.dart';
 
 /// Memory 1×2s past the first, for the longer shelves.
 const int jbiExtraMemoryCards = 2;
+
+/// A memory played this recently sits out its turn while others remain (Android JBI_RECENT_PLAY_MS).
+const int jbiRecentPlayMs = 2 * 60 * 60 * 1000;
 
 /// Note 1×2s past the first.
 const int jbiExtraNoteCards = 2;
@@ -95,39 +100,85 @@ final class HomeMemorySignals {
       trackBasis: !hasReview && !hasManualRating && ratedTrackCount > 0 && totalTracks > 0,
     );
 
-bool _qualifies(AlbumMemoryCandidate c) => c.hasAlbumReview || c.albumRating != null || c.averageSongRating != null;
-
-/// The grid's memory 1×2 (pickJbiMemoryCandidate): the strongest memory with
-/// a review, else with any score, preferring another album than the header's
-/// latest memory; [preferRawAlbumId] (the album already shown) wins while it
-/// still qualifies.
-AlbumMemoryCandidate? pickJbiMemoryCandidate(List<AlbumMemoryCandidate> candidates, {String? avoidRawAlbumId, String? preferRawAlbumId}) {
-  AlbumMemoryCandidate? pick(Iterable<AlbumMemoryCandidate> pool) =>
-      pool.where((c) => c.hasAlbumReview).firstOrNull ?? pool.where((c) => c.albumRating != null || c.averageSongRating != null).firstOrNull;
-  if (preferRawAlbumId != null) {
-    final kept = candidates.where((c) => c.albumId.rawId == preferRawAlbumId && _qualifies(c)).firstOrNull;
-    if (kept != null) return kept;
-  }
-  return pick(candidates.where((c) => c.albumId.rawId != avoidRawAlbumId)) ?? pick(candidates);
-}
-
-/// Up to [count] memory 1×2s: the pick first, then the other qualifying
-/// albums — reviewed before rated — never the header's latest among the extras.
+/// The memories Jump Back In's 1×2s show, in their fixed slots
+/// (HomeViewModel.kt pickJbiMemoryCandidates): every memory in [candidates]
+/// takes a turn — scored or not (owner 2026-11-20) — the next ones each new
+/// [turn] (jbi_memory_turn.dart), the same within one. The order is a deck
+/// shuffled anew each round, so every memory comes up once a round and no
+/// round runs like the last. Never the header's latest memory
+/// ([avoidRawAlbumId]) nor an album played since [recentlyPlayedBefore] while
+/// others remain; the album already shown ([preferRawAlbumId]) stays first
+/// while it is a memory, so writing on it doesn't reshuffle the grid.
 List<AlbumMemoryCandidate> pickJbiMemoryCandidates(
   List<AlbumMemoryCandidate> candidates, {
   String? avoidRawAlbumId,
   String? preferRawAlbumId,
   int count = 1,
+  int turn = 0,
+  int? recentlyPlayedBefore,
 }) {
-  final first = pickJbiMemoryCandidate(candidates, avoidRawAlbumId: avoidRawAlbumId, preferRawAlbumId: preferRawAlbumId);
-  if (first == null) return const [];
-  if (count <= 1) return [first];
-  final seen = <String>{first.albumId.rawId};
-  final rest = [
+  final seen = <String>{};
+  final all = [
     for (final c in candidates)
-      if (c.albumId.rawId != avoidRawAlbumId && _qualifies(c) && seen.add(c.albumId.rawId)) c,
+      if (seen.add(c.albumId.rawId)) c,
+  ]..sort((a, b) => a.albumId.rawId.compareTo(b.albumId.rawId));
+  if (all.isEmpty || count <= 0) return const [];
+  final fresh = [
+    for (final c in all)
+      if (c.albumId.rawId != avoidRawAlbumId &&
+          !(recentlyPlayedBefore != null && c.lastPlayedAt != null && c.lastPlayedAt! >= recentlyPlayedBefore))
+        c,
   ];
-  return [first, ...rest.where((c) => c.hasAlbumReview), ...rest.where((c) => !c.hasAlbumReview)].take(count).toList();
+  final notLatest = [
+    for (final c in all)
+      if (c.albumId.rawId != avoidRawAlbumId) c,
+  ];
+  final pool = fresh.isNotEmpty ? fresh : (notLatest.isNotEmpty ? notLatest : all);
+  final deck = _jbiDeck(pool, turn);
+  final start = turn % pool.length;
+  final dealt = [for (var i = 0; i < count && i < pool.length; i++) deck[(start + i) % deck.length]];
+  final kept = preferRawAlbumId == null ? null : all.where((c) => c.albumId.rawId == preferRawAlbumId).firstOrNull;
+  if (kept == null) return dealt;
+  return [kept, ...dealt.where((c) => c.albumId.rawId != preferRawAlbumId)].take(count).toList();
+}
+
+/// [pickJbiMemoryCandidates]' first: the main 1×2's memory.
+AlbumMemoryCandidate? pickJbiMemoryCandidate(
+  List<AlbumMemoryCandidate> candidates, {
+  String? avoidRawAlbumId,
+  String? preferRawAlbumId,
+  int turn = 0,
+  int? recentlyPlayedBefore,
+}) => pickJbiMemoryCandidates(
+  candidates,
+  avoidRawAlbumId: avoidRawAlbumId,
+  preferRawAlbumId: preferRawAlbumId,
+  turn: turn,
+  recentlyPlayedBefore: recentlyPlayedBefore,
+).firstOrNull;
+
+/// [pool] (in a stable order) shuffled for the round [turn] falls in: the same
+/// on every device and every refresh of that round (a seeded Fisher–Yates over
+/// the albums' ids, the same 64-bit steps as Android's jbiDeck), a new order
+/// each round.
+List<AlbumMemoryCandidate> _jbiDeck(List<AlbumMemoryCandidate> pool, int turn) {
+  final n = pool.length;
+  final round = turn >= 0 ? turn ~/ n : -((-turn + n - 1) ~/ n);
+  var seed = round * 6364136223846793005 + 1442695040888963407;
+  for (final c in pool) {
+    for (final unit in c.albumId.rawId.codeUnits) {
+      seed = seed * 31 + unit;
+    }
+  }
+  final deck = [...pool];
+  for (var i = deck.length - 1; i >= 1; i--) {
+    seed = seed * 6364136223846793005 + 1442695040888963407;
+    final j = (seed >>> 33) % (i + 1);
+    final tmp = deck[i];
+    deck[i] = deck[j];
+    deck[j] = tmp;
+  }
+  return deck;
 }
 
 /// The rated / reviewed album 1×2 for [c]; a tap opens Memories on it.
@@ -179,7 +230,8 @@ HomeWidgetCard noteWidgetCard(SongNote note, {double? rating}) {
     signal: JbiSignal(
       scoreText: rating == null ? null : MemoryScores.text(rating),
       basisDateMs: note.updatedAt,
-      comment: note.content.trim(),
+      // The words alone: marks dropped, mentions as their names (Android NoteMarkup.plainText).
+      comment: NoteMarkup.plainText(note.content).trim(),
     ),
   );
 }
@@ -237,6 +289,9 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
   StreamSubscription<MemoryStoreChange>? _changes;
   StreamSubscription<void>? _linkChanges;
   int _generation = 0;
+
+  /// The turn the memory cards on screen were dealt for.
+  int? _builtTurn;
   Timer? _debounce;
 
   @override
@@ -260,6 +315,8 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
     ref.read(trackAlbumLinkerProvider);
     // Cloud sync brought Yoin's AI titles from another device.
     ref.listen(memoryCopySyncRevisionProvider, (_, _) => _schedule(source?.provider, store));
+    // A new turn (the app started, or came back after a while) deals the memory cards again.
+    ref.listen(jbiMemoryTurnProvider, (_, _) => _schedule(source?.provider, store));
     ref.onDispose(() {
       _changes?.cancel();
       _linkChanges?.cancel();
@@ -288,6 +345,7 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
     if (provider == null || store == null) return;
     try {
       final now = ref.read(homeClockProvider)().millisecondsSinceEpoch;
+      final turn = await ref.read(jbiMemoryTurnProvider.notifier).ready();
       final notes = await store.songNotes();
       final ratings = await store.albumRatings();
       final titles = await store.titles();
@@ -327,12 +385,17 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
       if (!ref.mounted || generation != _generation) return;
       final eligible = pool.where((c) => c.isMemoryEligible).toList();
       final latest = pickLatestMemory(eligible);
-      final previous = state.memoryCards.isEmpty ? null : memoryCardRawAlbumId(state.memoryCards.first);
+      // Writing on the album shown keeps it; a new turn is exactly when it should change.
+      final previous = state.memoryCards.isEmpty || turn != _builtTurn
+          ? null
+          : memoryCardRawAlbumId(state.memoryCards.first);
       final memories = pickJbiMemoryCandidates(
         eligible,
         avoidRawAlbumId: latest?.albumId.rawId,
         preferRawAlbumId: previous,
         count: 1 + jbiExtraMemoryCards,
+        turn: turn,
+        recentlyPlayedBefore: now - jbiRecentPlayMs,
       );
       final noteCards = [
         for (final n in pickJbiNotes(notes)) noteWidgetCard(n, rating: trackRatings[n.trackId]?.rating),
@@ -346,6 +409,7 @@ class HomeMemorySignalsNotifier extends Notifier<HomeMemorySignals> {
           memoryWidgetCard(c, title: titles[c.albumId]?.title ?? await _cachedAiTitle(store.profileId, c.albumId)),
       ];
       if (!ref.mounted || generation != _generation) return;
+      _builtTurn = turn;
       state = HomeMemorySignals(
         scope: '$provider|${store.profileId}',
         memoryCards: memoryCards,

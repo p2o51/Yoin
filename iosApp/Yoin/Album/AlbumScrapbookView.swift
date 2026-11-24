@@ -4,7 +4,7 @@ import YoinShared
 /// Album page 2, the scrapbook (Android detail/AlbumScrapbookPage.kt,
 /// AlbumScrapbook.kt), phone width = one lane, every piece a full-width row
 /// 28 pt apart on dot paper. Order: opening cluster (cover + emblem, title,
-/// Last Play, review, album note) → per track in order: a cluster for tracks
+/// Last Play, review, the album's notes as stickies) → per track in order: a cluster for tracks
 /// with notes or the best score, contact sheets of two for score-only runs →
 /// receipt. Tilts come from an FNV-1a hash of "albumId/key" (shared Kotlin; graphics only;
 /// layout stays square). A server album shows the listener's own records
@@ -67,6 +67,14 @@ struct AlbumScrapbookView: View {
     @State private var pointedOut: MediaId?
     @State private var pulsed: MediaId?
     @State private var award: ScoreEmblemAward?
+    /// The album sticky being written in place (Android StickyEditing): nil, `ScrapStickyRules.new` (the
+    /// dashed sticky or bare paper), or the id of the note being edited; [stickyDraft] holds its words.
+    @State private var stickyOpen: String?
+    @State private var stickyDraft = ""
+    /// The scroll view's visible height: the paper reaches the bottom, so bare paper takes a tap anywhere.
+    @State private var paperMinHeight: CGFloat = 0
+    /// The opening cluster's scroll id (a tap on bare paper brings the new sticky into view).
+    private static let openingID = "scrap-opening"
 
     private var s: CoverScheme { CoverScheme(album: album, dark: colorScheme == .dark) }
 
@@ -103,8 +111,21 @@ struct AlbumScrapbookView: View {
         guard let at = memories.album(provider: provider, albumId: album.id.rawId)?.reviewUpdatedAt else { return nil }
         return HomeHistory.relativeDay(at, now: Int64(Date().timeIntervalSince1970 * 1000))
     }
-    /// The album note (Android album_notes): not synced and not written on iOS yet.
-    private var albumNote: String? { isMock ? String(localized: "Bought on a rainy Tuesday in Shimokitazawa.") : nil }
+    /// The album's notes (Android album_notes, synced as `album_note`), oldest first; the mock's hand-set one.
+    private var albumNotes: [AlbumNote] {
+        if isMock {
+            return [AlbumNote(id: "mock-albumnote", provider: provider, albumId: album.id.rawId,
+                              content: String(localized: "Bought on a rainy Tuesday in Shimokitazawa."),
+                              createdAt: 0, updatedAt: 0, albumName: album.title, artist: album.artist)]
+        }
+        return AlbumNotesStore.shared.notes(provider: provider, albumId: album.id.rawId)
+    }
+    /// Every album note as a sticky, leaning against the review and then each other (Android buildAlbumScrapbook).
+    private var stickies: [ScrapSticky] {
+        ScrapStickyRules.stickies(albumNotes, reviewTilt: tilt("review", Tilt.paper)) { tilt($0, Tilt.paper) }
+    }
+    /// Stickies are written here on a real album (the mock's stand-in is for screenshots).
+    private var stickiesEditable: Bool { !isMock }
 
     private func notes(_ t: Track) -> [Note]? {
         if isMock {
@@ -169,6 +190,7 @@ struct AlbumScrapbookView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.detail.SCRAPBOOK_PIECE_GAP.cg) {
                 opening(bun: currentBun)
+                    .id(Self.openingID)
                 ForEach(Array(builtBlocks.enumerated()), id: \.offset) { i, b in
                     block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2),
                           trackScores: trackScores, bestTrackId: bestTrackId)
@@ -182,7 +204,23 @@ struct AlbumScrapbookView: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
             .padding(.bottom, 112)
-            .background { DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45)) }
+            .frame(minHeight: paperMinHeight, alignment: .top)
+            .background {
+                DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45))
+                    .contentShape(.rect)
+                    // A tap on bare paper starts an album note at the top (Android prototype scenario 5);
+                    // the pieces take their own taps first.
+                    .onTapGesture {
+                        guard stickiesEditable, stickyOpen == nil else { return }
+                        startNewSticky()
+                        withAnimation(Yoin.spatial) { proxy.scrollTo(Self.openingID, anchor: .top) }
+                    }
+            }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { g in
+            g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom
+        } action: { _, height in
+            paperMinHeight = max(0, height)
         }
         .scrollIndicators(.hidden)
         // The header's room as a bar: pieces fade under the status bar with
@@ -212,6 +250,7 @@ struct AlbumScrapbookView: View {
         }
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
+        .onChange(of: ScrapbookFocusRequest.shared.pendingAlbum) { _, _ in openFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in
             openFocus()
             #if DEBUG
@@ -253,11 +292,15 @@ struct AlbumScrapbookView: View {
 
     /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
     /// pager has come to rest here, the song's sheet opens at that row's editor.
+    /// A note's album mention wanted just this page: it is taken and that's all.
     private func openFocus() {
-        guard settled, ScrapbookFocusRequest.shared.pending != nil else { return }
+        let request = ScrapbookFocusRequest.shared
+        guard settled, request.pending != nil || request.pendingAlbum != nil else { return }
         // Next turn: a sheet state written during the page's first update is dropped.
         Task {
-            guard onScreen, let focus = ScrapbookFocusRequest.shared.take(for: album.tracks.map(\.id)),
+            guard onScreen else { return }
+            _ = request.takeAlbum(album.id)
+            guard let focus = request.take(for: album.tracks.map(\.id)),
                   let t = album.tracks.first(where: { $0.id == focus.songId }) else { return }
             guard focus.openSheet else { return pointedOut = t.id }
             trackSheet = ScrapSheetOpen(track: t, editing: focus.edit)
@@ -346,8 +389,8 @@ struct AlbumScrapbookView: View {
             Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
-                Text(review)
-                    .font(.gsf(15)).lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
+                NoteMarkupText(text: review, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.primary)
+                    .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
                 if let reviewAt {
                     Text(reviewAt)
@@ -380,22 +423,98 @@ struct AlbumScrapbookView: View {
                 .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
                 .padding(.top, 8)
             }
-            // Album note sticky: own row on the end side, tucks 6 over the review.
-            if let albumNote {
-            Text(albumNote)
-                // userTextStyle at 14.5: line 1.5 em.
-                .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
-                .foregroundStyle(s.onSecondaryContainer)
-                .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
-                .frame(width: min(0.72 * 368, Tokens.detail.SCRAPBOOK_STICKY_MAX_WIDTH.cg), alignment: .leading)
-                .background { StickyNote(fill: s.secondaryContainer,
-                                         flap: s.secondaryContainer.mix(with: s.secondary, by: 0.32, in: .perceptual)) }
-                .modifier(layer(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper)), depth: 0.45))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
-                .accessibilityLabel("Album note: \(albumNote)")
+            // The album's notes: a sticky each, then the dashed one to write the next (Android StickyPile); a
+            // row of their own on the end side, 72 % of the width (at most 280), tucked 6 over the review.
+            if stickiesEditable || !stickies.isEmpty {
+                stickyPile
+                    .frame(width: min(0.72 * max(0, pageWidth - 32), Tokens.detail.SCRAPBOOK_STICKY_MAX_WIDTH.cg),
+                           alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
             }
         }
+    }
+
+    // MARK: Album stickies (Android AlbumScrapbookNotes.kt)
+
+    /// The stickies, oldest first, and the dashed sticky (or an editor in place of one).
+    private var stickyPile: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(stickies) { sticky in
+                if stickyOpen == sticky.noteId {
+                    ScrapStickyEditor(text: $stickyDraft, scheme: s,
+                                      onSave: { saveSticky(sticky.noteId) }, onCancel: closeSticky)
+                        .modifier(layer(sticky.tilt * 0.4, depth: 0.45))
+                } else if stickiesEditable {
+                    let words = NoteMarkupRender.words(sticky.text)
+                    Button { openSticky(sticky) } label: { ScrapStickyCard(text: sticky.text, scheme: s) }
+                        .buttonStyle(.plain).pointerHighlight()
+                        .accessibilityLabel(Text("Album note: \(words)"))
+                        .accessibilityHint(Text("Edit album note: \(words)"))
+                        .modifier(layer(sticky.tilt, depth: 0.45))
+                } else {
+                    // The mock's stand-in: looked at, not written (no dimmed, disabled button).
+                    ScrapStickyCard(text: sticky.text, scheme: s)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text("Album note: \(NoteMarkupRender.words(sticky.text))"))
+                        .modifier(layer(sticky.tilt, depth: 0.45))
+                }
+            }
+            if stickyOpen == ScrapStickyRules.new {
+                // Android: a new sticky's editor leans 0.6°, at 0.4 of it while open.
+                ScrapStickyEditor(text: $stickyDraft, scheme: s,
+                                  onSave: { saveSticky(ScrapStickyRules.new) }, onCancel: closeSticky)
+                    .modifier(layer(0.6 * 0.4, depth: 0.45))
+            } else if stickyOpen == nil, stickiesEditable {
+                DashedSticky(scheme: s, action: startNewSticky)
+            }
+        }
+        .animation(Yoin.spatial, value: stickyOpen)
+        .animation(Yoin.spatial, value: stickies)
+    }
+
+    private func startNewSticky() {
+        guard stickiesEditable else { return }
+        stickyDraft = ""
+        withAnimation(Yoin.spatial) { stickyOpen = ScrapStickyRules.new }
+    }
+
+    /// A sticky opens in place with its words (another open sticky closes, unsaved, as on Android).
+    private func openSticky(_ sticky: ScrapSticky) {
+        guard stickiesEditable, stickyOpen != sticky.noteId else { return }
+        stickyDraft = sticky.text
+        withAnimation(Yoin.spatial) { stickyOpen = sticky.noteId }
+    }
+
+    private func closeSticky() {
+        withAnimation(Yoin.spatial) { stickyOpen = nil }
+    }
+
+    /// Saves the open sticky (Android stickySave + the page's notice): a new note, new words, or a delete
+    /// with Undo. A write that didn't reach the disk keeps the editor open with its words.
+    private func saveSticky(_ open: String) {
+        let store = AlbumNotesStore.shared
+        let toast = PlaylistActions.shared
+        switch ScrapStickyRules.save(open: open, text: stickyDraft) {
+        case nil:
+            break
+        case .add(let words):
+            guard store.add(provider: provider, albumId: album.id.rawId, content: words, albumName: album.title,
+                            artist: album.artist) != nil
+            else { return toast.show(String(localized: "Couldn't save the note")) }
+        case .text(let noteId, let text):
+            guard store.edit(id: noteId, content: text) != nil
+            else { return toast.show(String(localized: "Couldn't save the note")) }
+        case .delete(let noteId):
+            guard let gone = store.delete(id: noteId)
+            else { return toast.show(String(localized: "Couldn't delete the note. Try again")) }
+            toast.show(String(localized: "Album note deleted"), action: .init(label: String(localized: "Undo")) {
+                if !AlbumNotesStore.shared.restore(gone) {
+                    PlaylistActions.shared.show(String(localized: "Couldn't restore the note. Try again"))
+                }
+            })
+        }
+        closeSticky()
     }
 
     // MARK: Memory title (Android OpeningTitle)
@@ -677,7 +796,7 @@ struct AlbumScrapbookView: View {
                             Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            Text(n.text).font(.gsf(15))
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary)
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                                 .foregroundStyle(s.onSurface)
                                 .multilineTextAlignment(.leading)
@@ -688,7 +807,8 @@ struct AlbumScrapbookView: View {
                     }
                     .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
-                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
+                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(NoteMarkupRender.words(n.text))")
+                        : String(localized: "Note at \(n.time): \(NoteMarkupRender.words(n.text))"))
                 }
                 if ns.count > ScrapbookRules.notesShown {
                     // Android "+N notes": the rest in the sheet's Notes tab.
@@ -831,8 +951,8 @@ struct AlbumScrapbookView: View {
         if isMock {
             rows += [("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4")]
         } else {
-            // Android receiptLines: rated tracks on this page, track notes (+ the album note), questions asked.
-            let noteCount = album.tracks.reduce(0) { $0 + (notes($1)?.count ?? 0) } + (albumNote == nil ? 0 : 1)
+            // Android receiptLines: rated tracks on this page, track notes (+ the album notes), questions asked.
+            let noteCount = album.tracks.reduce(0) { $0 + (notes($1)?.count ?? 0) } + stickies.count
             let asked = album.tracks.reduce(0) { n, t in
                 n + SongAboutStore.shared.entries(SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist,
                                                                      album: album.title))
@@ -939,27 +1059,34 @@ struct TicketShape: Shape {
     }
 }
 
-/// Sticky note: 16 pt corners, bottom-right corner cut from (w−17, h) to
-/// (w, h−17), with the folded flap drawn in the flap color.
+/// The sticky's outline (Android StickyShape): 16 pt corners, the bottom-right corner cut on the diagonal
+/// from (w−17, h) to (w, h−17), where it folds over.
+struct StickyOutline: Shape {
+    func path(in r: CGRect) -> Path {
+        let w = r.width, h = r.height, c = Tokens.shape.CARD.cg
+        var p = Path()
+        p.move(to: CGPoint(x: c, y: 0))
+        p.addLine(to: CGPoint(x: w - c, y: 0))
+        p.addQuadCurve(to: CGPoint(x: w, y: c), control: CGPoint(x: w, y: 0))
+        p.addLine(to: CGPoint(x: w, y: h - 17))
+        p.addLine(to: CGPoint(x: w - 17, y: h))
+        p.addLine(to: CGPoint(x: c, y: h))
+        p.addQuadCurve(to: CGPoint(x: 0, y: h - c), control: CGPoint(x: 0, y: h))
+        p.addLine(to: CGPoint(x: 0, y: c))
+        p.addQuadCurve(to: CGPoint(x: c, y: 0), control: .zero)
+        return p.offsetBy(dx: r.minX, dy: r.minY)
+    }
+}
+
+/// Sticky note: the sticky outline filled, with the folded flap drawn in the flap color.
 struct StickyNote: View {
     var fill: Color
     var flap: Color
     var body: some View {
         GeometryReader { g in
-            let w = g.size.width, h = g.size.height, c = Tokens.shape.CARD.cg
+            let w = g.size.width, h = g.size.height
             ZStack {
-                Path { p in
-                    p.move(to: CGPoint(x: c, y: 0))
-                    p.addLine(to: CGPoint(x: w - c, y: 0))
-                    p.addQuadCurve(to: CGPoint(x: w, y: c), control: CGPoint(x: w, y: 0))
-                    p.addLine(to: CGPoint(x: w, y: h - 17))
-                    p.addLine(to: CGPoint(x: w - 17, y: h))
-                    p.addLine(to: CGPoint(x: c, y: h))
-                    p.addQuadCurve(to: CGPoint(x: 0, y: h - c), control: CGPoint(x: 0, y: h))
-                    p.addLine(to: CGPoint(x: 0, y: c))
-                    p.addQuadCurve(to: CGPoint(x: c, y: 0), control: .zero)
-                }
-                .fill(fill)
+                StickyOutline().fill(fill)
                 Path { p in
                     p.move(to: CGPoint(x: w - 17, y: h))
                     p.addLine(to: CGPoint(x: w - 17, y: h - 13))
@@ -1354,7 +1481,7 @@ struct AlbumRateSheet: View {
             text = Self.unsaved.removeValue(forKey: album.id) ?? record?.review ?? ""
             neo.sheetOpened(album)
         }
-        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: normalizedText != record?.review) }
+        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: wordsUnsaved) }
         // Saved as they are typed (a second after the last key), not only when the sheet goes: a sheet
         // that never closes cleanly kept nothing (Codex 11-07).
         .task(id: text) {
@@ -1371,6 +1498,9 @@ struct AlbumRateSheet: View {
             Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
         }
     }
+
+    /// Words that differ from the saved review (whitespace around them aside).
+    private var wordsUnsaved: Bool { normalizedText != record?.review && !NotesStore.sameWords(text, record?.review) }
 
     private var normalizedText: String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1427,7 +1557,7 @@ struct AlbumRateSheet: View {
                                     reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now))
         }
         NeoDBPendingStore.shared.markRatingChanged(provider: album.id.provider, albumId: album.id.rawId)
-        neo.edited(album, unsavedWords: normalizedText != record?.review)
+        neo.edited(album, unsavedWords: wordsUnsaved)
         CloudSync.shared.localChanged()
     }
 
@@ -1439,6 +1569,8 @@ struct AlbumRateSheet: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.isEmpty ? nil : trimmed
         let was = record
+        // Unchanged words keep the stored review byte for byte (an Android review's markup and spacing).
+        if NotesStore.sameWords(text, was?.review) { return true }
         guard normalized != was?.review, was != nil || normalized != nil else { return true }
         guard memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
                                       rating: was?.rating ?? 0, review: normalized,

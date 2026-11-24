@@ -158,6 +158,14 @@ final class NotesStore {
     /// Index in `stored` of the visible note [id].
     private func index(_ id: String) -> Int? { stored.firstIndex { $0.id == id && visible($0) } }
 
+    /// Whether an edit left the words as they were (only whitespace around them may differ): then nothing
+    /// is written and the stored text, mentions and markup included, is kept exactly as it was.
+    nonisolated static func sameWords(_ edited: String, _ stored: String?) -> Bool {
+        guard let stored else { return false }
+        return edited == stored
+            || edited.trimmingCharacters(in: .whitespacesAndNewlines) == stored.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static var defaultURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("Yoin", isDirectory: true).appendingPathComponent("notes.json")
@@ -231,6 +239,8 @@ final class NotesStore {
     func update(id: String, content: String) -> SongNote? {
         let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty, let i = index(id) else { return nil }
+        // The same words: the stored text stays byte for byte (an Android note's markup, its spacing).
+        if Self.sameWords(content, stored[i].content) { return stored[i] }
         var next = stored
         next[i].content = words
         next[i].updatedAt = nowMs

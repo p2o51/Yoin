@@ -30,9 +30,10 @@ object NoteEditorText {
     /**
      * The `@` the caret is typing after, or null. The `@` must start a word (line start, or after anything but
      * an ASCII letter, digit, `_` or `.`: an e-mail address isn't a mention), the words after it hold no space
-     * and no other `@`, and it isn't inside a mention link already.
+     * and no other `@`, and it isn't inside a mention link already. A space inside the keyboard's [composition]
+     * (a pinyin keyboard spelling "niu yue" before it commits 纽约) doesn't end it; a committed one does.
      */
-    fun trigger(text: String, caret: Int): MentionTrigger? {
+    fun trigger(text: String, caret: Int, composition: IntRange? = null): MentionTrigger? {
         if (caret < 1 || caret > text.length) return null
         val lineStart = text.lastIndexOf('\n', caret - 1) + 1
         var i = caret - 1
@@ -44,10 +45,42 @@ object NoteEditorText {
                 if (NoteMarkup.mentionSpans(text).any { i >= it.start && i < it.end }) return null
                 return MentionTrigger(i, caret, text.substring(i + 1, caret))
             }
-            if (c.isWhitespace() || c == '​') return null
+            val composing = composition != null && i in composition
+            if ((c.isWhitespace() && !composing) || c == '\u200b' || c == '\n') return null
             i--
         }
         return null
+    }
+
+    /**
+     * Enter on the soft keyboard while the @ popup is open: [pick] (the popup's top or highlighted row) takes the
+     * `@` token's place and the newline is dropped. Keyboards deliver that Enter in different shapes, all taken
+     * here: a bare "\n" at the token's end; the composing word committed (or auto-corrected, auto-completed)
+     * together with the newline in one batch ("@Ni" → "@Nice\n"); the composing word replaced by the newline
+     * ("@Ni" → "@\n"); a newline that lands next to another one already after the token. Any edit that inserts
+     * a newline inside or at the end of the token, and changes nothing past it, counts. Null for any other edit,
+     * which stands as typed.
+     */
+    fun enterPicksMention(original: String, edited: String, trigger: MentionTrigger, pick: NoteMention): NoteEdit? {
+        if (trigger.end > original.length || trigger.start >= trigger.end) return null
+        if (original.getOrNull(trigger.start)?.let { it in TRIGGER_CHARS } != true) return null
+        // The changed span, its start held at the token's end at most (a newline typed before another newline
+        // after the token reads as inserted there, not further on).
+        var prefix = 0
+        val maxPrefix = minOf(original.length, edited.length, trigger.end)
+        while (prefix < maxPrefix && original[prefix] == edited[prefix]) prefix++
+        var suffix = 0
+        while (suffix < minOf(original.length, edited.length) - prefix &&
+            original[original.length - 1 - suffix] == edited[edited.length - 1 - suffix]
+        ) {
+            suffix++
+        }
+        val removedEnd = original.length - suffix
+        val inserted = edited.substring(prefix, edited.length - suffix)
+        if ('\n' !in inserted) return null
+        // Inside the token (after its `@`) up to its end, and nothing after the token touched.
+        if (prefix <= trigger.start || prefix > trigger.end || removedEnd > trigger.end) return null
+        return insertMention(original, trigger.end, trigger.end, trigger, pick)
     }
 
     /** [mention] as a link in place of [trigger] (or at the selection), followed by a space; caret after it. */

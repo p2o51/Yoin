@@ -15,6 +15,7 @@ struct TipIllustration: View {
         "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments", "LibrarySearch", "Labs",
         "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts", "KeyboardShortcuts", "LibraryRefresh",
         "SpotifySpeakers", "HomeScreenWidgets", "ContinueOn", "AiServices", "CloudSync", "AppleMusicSongNames", "ICloudSync",
+        "AlbumStickies",
     ]
 
     static func has(_ id: String) -> Bool { scenes.contains(id) }
@@ -49,6 +50,7 @@ struct TipIllustration: View {
             case "CloudSync": CloudSyncDemo(playing: playing, scheme: scheme)
             case "AppleMusicSongNames": AppleMusicSongNamesDemo(playing: playing, scheme: scheme)
             case "ICloudSync": ICloudSyncDemo(playing: playing, scheme: scheme)
+            case "AlbumStickies": AlbumStickiesDemo(playing: playing, scheme: scheme)
             case "Name": NameDemo(playing: playing, scheme: scheme)
             default: EmptyView()
             }

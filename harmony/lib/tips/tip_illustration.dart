@@ -54,6 +54,7 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.memoriesDiary => MemoriesDiaryDemo(playing: playing),
   HomeBubbleTip.cloudSync => CloudSyncDemo(playing: playing),
   HomeBubbleTip.welcomeGuide => WelcomeGuideDemo(playing: playing),
+  HomeBubbleTip.appleMusicSongNames => AppleMusicSongNamesDemo(playing: playing),
   HomeBubbleTip.keyboardShortcuts => KeyboardShortcutsDemo(playing: playing),
   HomeBubbleTip.volumeLeveling => VolumeLevelingDemo(playing: playing),
   HomeBubbleTip.homeScreenWidgets => HomeScreenWidgetsDemo(playing: playing),

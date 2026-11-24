@@ -1348,7 +1348,9 @@ class CloudSyncCore(
     private suspend fun summarize(applied: ApplyResult) {
         dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
         fun count(kind: String) = applied.appliedLive.values.sumOf { it[kind] ?: 0 }
-        val restored = count(SyncKinds.SONG_NOTE) + count(SyncKinds.TRACK_RATING) + count(SyncKinds.ALBUM_RATING)
+        // Android CloudSyncManager's sum: notes, album notes and ratings.
+        val restored = count(SyncKinds.SONG_NOTE) + count(SyncKinds.ALBUM_NOTE) + count(SyncKinds.TRACK_RATING) +
+            count(SyncKinds.ALBUM_RATING)
         if (restored == 0) return
         putMeta(SyncMetaKeys.LAST_SUMMARY, summaryText(restored))
     }
