@@ -86,7 +86,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Records
 
-    private struct Note { var time: String; var text: String; var positionMs: Int64? = nil }
+    private struct Note { var time: String; var text: String; var positionMs: Int64? = nil; var id: String? = nil }
 
     /// The mock library: hand-set records (screenshots); a server album: the listener's own.
     private var isMock: Bool { album.id.provider == "mock" }
@@ -138,7 +138,8 @@ struct AlbumScrapbookView: View {
         }
         let list = NotesStore.shared.notes(provider: provider, trackId: t.id.rawId)
         return list.isEmpty ? nil : list.map {
-            Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content, positionMs: $0.positionMs)
+            Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content, positionMs: $0.positionMs,
+                 id: $0.id)
         }
     }
 
@@ -200,6 +201,8 @@ struct AlbumScrapbookView: View {
                     receipt(trackScores: trackScores)
                         .frame(maxWidth: .infinity)
                 }
+                // Android: the page's last block, the writings elsewhere that mention this album or its songs.
+                backlinks
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
@@ -272,7 +275,7 @@ struct AlbumScrapbookView: View {
         .sheet(item: $trackSheet) { open in
             ScrapTrackSheet(track: open.track, album: album, scheme: s, store: model.store,
                             scoreEditable: !isMock, initialEditing: open.editing, initialTab: open.tab,
-                            onPlayFrom: { ms in play(open.track, at: ms) })
+                            initialNote: open.note, onPlayFrom: { ms in play(open.track, at: ms) })
                 .reportsSheetRise()
                 .ySolidSheet(s.surfaceContainerLow)
         }
@@ -447,7 +450,10 @@ struct AlbumScrapbookView: View {
                         .modifier(layer(sticky.tilt * 0.4, depth: 0.45))
                 } else if stickiesEditable {
                     let words = NoteMarkupRender.words(sticky.text)
-                    Button { openSticky(sticky) } label: { ScrapStickyCard(text: sticky.text, scheme: s) }
+                    Button { openSticky(sticky) } label: {
+                        ScrapStickyCard(text: sticky.text, scheme: s,
+                                        onToggleChecklist: { NoteChecklist.toggleAlbumNote(sticky.noteId, line: $0) })
+                    }
                         .buttonStyle(.plain).pointerHighlight()
                         .accessibilityLabel(Text("Album note: \(words)"))
                         .accessibilityHint(Text("Edit album note: \(words)"))
@@ -790,13 +796,15 @@ struct AlbumScrapbookView: View {
             Capsule().fill(s.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(ns.prefix(ScrapbookRules.notesShown).enumerated()), id: \.offset) { _, n in
-                    // A note plays the song from its moment (Android NoteLine).
-                    Button { play(t, at: n.positionMs) } label: {
+                    // A note opens itself (owner 2026-11-24, no longer plays): the sheet's Notes page, the note
+                    // brought into view and ringed, Edit and Play from a tap away.
+                    Button { trackSheet = ScrapSheetOpen(track: t, tab: .notes, note: n.id) } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary)
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary,
+                                           onToggleChecklist: n.id.map { id in { NoteChecklist.toggleSongNote(id, line: $0) } })
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                                 .foregroundStyle(s.onSurface)
                                 .multilineTextAlignment(.leading)
@@ -932,6 +940,26 @@ struct AlbumScrapbookView: View {
     private static func bold(_ text: String) -> AttributedString {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(text)
+    }
+
+    // MARK: Mentioned in (Android AlbumScrapbookNotes.kt BacklinksSection)
+
+    @ViewBuilder
+    private var backlinks: some View {
+        let links = NoteBacklinks.current(album)
+        if !links.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                ScrapBacklinksHeader(count: links.count, scheme: s)
+                ForEach(links) { link in
+                    ScrapBacklinkCard(link: link, scheme: s) {
+                        NoteMentions.navigate(ScrapBacklinkCard.target(link.source, provider: album.id.provider))
+                    }
+                    .modifier(layer(tilt("bl/\(link.source.sortKey)", Tilt.card) * 0.6, depth: 0.3))
+                }
+            }
+            .padding(.top, 8)
+            .transition(.opacity)
+        }
     }
 
     // MARK: Receipt
@@ -1410,7 +1438,9 @@ struct AlbumRateSheet: View {
     @State private var draft: Double?
     @State private var dragging = false
     @State private var text = ""
-    @FocusState private var focused: Bool
+    /// The review field's keyboard (the note editor is a UIKit text view: a plain flag, not a FocusState).
+    @State private var focused = false
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
     @Environment(AppModel.self) private var model: AppModel?
     @Environment(\.dismiss) private var dismiss
 
@@ -1523,13 +1553,12 @@ struct AlbumRateSheet: View {
     /// corners closed, 20 once open (a spatial spring); "Review" as its hint.
     private var reviewField: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("", text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant), axis: .vertical)
-                .lineLimit(3...)
-                .font(.gsf(Tokens.type.bodyLarge.size.cg))
-                .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyLarge))
-                .foregroundStyle(scheme.onSurface)
-                .tint(scheme.primary)
-                .focused($focused)
+            // It grows with the words and never scrolls inside (Android, owner 10-06).
+            NoteMarkupEditor(model: editor, text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant),
+                             size: Tokens.type.bodyLarge.size.cg, textColor: scheme.onSurface, mentionColor: scheme.primary,
+                             tint: scheme.primary, scheme: scheme, lines: 3...400,
+                             lineSpacing: YoinType.lineSpacing(Tokens.type.bodyLarge), focused: $focused)
+                .accessibilityLabel(Text("Review"))
             // Where the words go on NeoDB: a short comment (with its count) or a review.
             if !text.isEmpty {
                 AlbumReviewRoute(text: text, scheme: scheme)

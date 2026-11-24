@@ -48,7 +48,8 @@ if [ -f "$OUT" ]; then
 fi
 
 echo "[$(date '+%F %T')] building $SHA -> $OUT" >> "$LOG"
-if ./gradlew assembleReleaseDebugSigned -q >> "$LOG" 2>&1; then
+# Sideloaded, so no Play AI Pack: bundle Sing's models in the APK.
+if ./gradlew assembleReleaseDebugSigned -PyoinSingBundledModels=true -q >> "$LOG" 2>&1; then
     cp app/build/outputs/apk/releaseDebugSigned/app-releaseDebugSigned.apk "$OUT"
     echo "[$(date '+%F %T')] OK $OUT ($(du -h "$OUT" | cut -f1))" >> "$LOG"
 else

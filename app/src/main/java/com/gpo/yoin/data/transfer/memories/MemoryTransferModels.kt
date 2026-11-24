@@ -2,7 +2,14 @@ package com.gpo.yoin.data.transfer.memories
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.sync.backup.ParsedBackup
+import com.gpo.yoin.shared.portability.BackupAccount
+import com.gpo.yoin.shared.portability.ParsedBackup
+import com.gpo.yoin.shared.portability.memories.AlbumMatchMethod
+import com.gpo.yoin.shared.portability.memories.MatchStatus
+import com.gpo.yoin.shared.portability.memories.MemoryItems
+import com.gpo.yoin.shared.portability.memories.SourceRef
+import com.gpo.yoin.shared.portability.memories.TransferAccount
+import com.gpo.yoin.shared.portability.memories.TransferCounts
 
 /** Where Memories are copied from. Copy, never move: the source is only read. */
 sealed interface MemorySource {
@@ -15,18 +22,6 @@ sealed interface MemorySource {
     /** One account of a backup file that was read ([com.gpo.yoin.data.sync.backup.BackupReader]). */
     data class BackupAccount(val backup: ParsedBackup, val scope: String) : MemorySource
 }
-
-/** One side of a transfer. */
-data class TransferAccount(
-    /** The account's scope (sync id, or "local-<profile id>"): what copied note ids are derived from. */
-    val scope: String,
-    val provider: String,
-    val displayName: String,
-    /** Subsonic "host[:port]": two Subsonic accounts share ids only on one server. */
-    val serverKey: String?,
-    /** The local profile, when the account is on this device. */
-    val localProfileId: String?,
-)
 
 /**
  * What the UI layer provides: the TARGET account's catalog (to find counterparts) and, where it can, what a
@@ -45,36 +40,6 @@ interface MemoryCatalog {
     suspend fun searchTracks(query: String): List<Track>
 
     suspend fun searchAlbums(query: String): List<Album>
-}
-
-/** A song or album on the source side: provider + raw id. */
-data class SourceRef(val provider: String, val id: String) {
-    override fun toString(): String = "$provider:$id"
-}
-
-enum class MatchStatus {
-    /** Same id space: the key is copied as it is. */
-    Direct,
-
-    /** Found with confidence (ISRC, title + artist + duration, or the album of its matched songs). */
-    Matched,
-
-    /** Close candidates only: not copied unless the user picks one. */
-    Uncertain,
-
-    /** Nothing found (or nothing known about the source to search with). */
-    Unmatched,
-
-    /** The user picked the counterpart (this run or a previous one). */
-    Picked,
-}
-
-enum class AlbumMatchMethod {
-    /** Most of the album's matched songs are on this target album. */
-    Tracks,
-
-    /** Album search by title + artist. */
-    Search,
 }
 
 data class TrackMatch(
@@ -96,23 +61,6 @@ data class AlbumMatch(
     val chosen: Album?,
     val method: AlbumMatchMethod? = null,
 )
-
-/** Counts per Memories kind, for previews and results. */
-data class TransferCounts(
-    val songNotes: Int = 0,
-    val trackRatings: Int = 0,
-    val albumRatings: Int = 0,
-    val albumReviews: Int = 0,
-    val albumNotes: Int = 0,
-    val albumTitles: Int = 0,
-    val memoryTitles: Int = 0,
-    val memoryCopies: Int = 0,
-    val trackAlbumLinks: Int = 0,
-) {
-    val total: Int
-        get() = songNotes + trackRatings + albumRatings + albumReviews + albumNotes + albumTitles + memoryTitles +
-            memoryCopies + trackAlbumLinks
-}
 
 /**
  * A transfer ready to run: what will be copied from [source] into [target], and for songs/albums whose ids
@@ -162,19 +110,3 @@ data class TransferPlan(
         },
     )
 }
-
-/** What [MemoryTransfer.execute] did. */
-data class TransferResult(
-    /** New rows in the target. */
-    val copied: TransferCounts,
-    /** Target rows updated (a newer source value, a review joined, a missing field filled). */
-    val updated: TransferCounts,
-    /** The target already had it (same value, or a newer one). */
-    val kept: TransferCounts,
-    /** Reviews where both texts were kept. */
-    val reviewsJoined: Int,
-    /** Items whose song or album has no counterpart (yet): retried on the next run. */
-    val unmatched: TransferCounts,
-    /** Items a previous run already copied. */
-    val skippedPreviously: Int,
-)

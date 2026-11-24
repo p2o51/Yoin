@@ -23,7 +23,12 @@ import 'cloud_sync_strings.dart';
 
 @immutable
 final class CloudSyncPageState {
-  const CloudSyncPageState({required this.sync, this.turningOn = false, this.deleting = false});
+  const CloudSyncPageState({
+    required this.sync,
+    this.turningOn = false,
+    this.deleting = false,
+    this.removing = const {},
+  });
 
   final CloudSyncState sync;
 
@@ -31,18 +36,27 @@ final class CloudSyncPageState {
   final bool turningOn;
   final bool deleting;
 
-  CloudSyncPageState copyWith({CloudSyncState? sync, bool? turningOn, bool? deleting}) => CloudSyncPageState(
-    sync: sync ?? this.sync,
-    turningOn: turningOn ?? this.turningOn,
-    deleting: deleting ?? this.deleting,
-  );
+  /// Accounts (syncProfileId) being removed from the cloud.
+  final Set<String> removing;
+
+  CloudSyncPageState copyWith({CloudSyncState? sync, bool? turningOn, bool? deleting, Set<String>? removing}) =>
+      CloudSyncPageState(
+        sync: sync ?? this.sync,
+        turningOn: turningOn ?? this.turningOn,
+        deleting: deleting ?? this.deleting,
+        removing: removing ?? this.removing,
+      );
 
   @override
   bool operator ==(Object other) =>
-      other is CloudSyncPageState && other.sync == sync && other.turningOn == turningOn && other.deleting == deleting;
+      other is CloudSyncPageState &&
+      other.sync == sync &&
+      other.turningOn == turningOn &&
+      other.deleting == deleting &&
+      setEquals(other.removing, removing);
 
   @override
-  int get hashCode => Object.hash(sync, turningOn, deleting);
+  int get hashCode => Object.hash(sync, turningOn, deleting, Object.hashAllUnordered(removing));
 }
 
 /// How long after coming back from the browser a sign-in may still land
@@ -149,6 +163,23 @@ class CloudSyncViewModel extends Notifier<CloudSyncPageState> {
   void resumeAccountSync(String localProfileId) => _controller.resumeAccountSync(localProfileId);
 
   void removeDevice(String deviceId) => _controller.removeDevice(deviceId);
+
+  /// "Remove from cloud", after the confirmation: every device stops syncing [syncProfileId]; local data
+  /// stays. The call outlives the page; its message shows on the app's snackbar either way. True when
+  /// the account is out of the cloud.
+  Future<bool> removeFromCloud(String syncProfileId, String displayName, CloudSyncStrings strings) async {
+    if (state.removing.contains(syncProfileId)) return false;
+    state = state.copyWith(removing: {...state.removing, syncProfileId});
+    var ok = true;
+    try {
+      await _controller.removeAccountFromCloud(syncProfileId);
+    } catch (_) {
+      ok = false;
+    }
+    if (ref.mounted) state = state.copyWith(removing: {...state.removing}..remove(syncProfileId));
+    _message(ok ? strings.removed(displayName) : strings.removeFailed(displayName));
+    return ok;
+  }
 
   /// A music account was just added from "In your Drive": sync now so its data comes down at once.
   void onAccountAdded() {

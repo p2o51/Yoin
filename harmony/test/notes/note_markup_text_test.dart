@@ -12,6 +12,7 @@ import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/notes/note_mentions.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/theme/theme.dart';
+import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../support/library_fake_source.dart';
 
@@ -39,8 +40,9 @@ TextSpan? _parentOf(InlineSpan root, String text) {
   return null;
 }
 
-InlineSpan _drawn(WidgetTester tester) =>
-    tester.widget<RichText>(find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText))).text;
+InlineSpan _drawn(WidgetTester tester) => tester
+    .widget<RichText>(find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText)).first)
+    .text;
 
 Widget _app(Widget child, {List overrides = const []}) => ProviderScope(
   overrides: [...overrides],
@@ -82,19 +84,92 @@ void main() {
     expect(name.recognizer, isNull);
   });
 
-  testWidgets('should_tintAndOpen_when_mentionResolves', (tester) async {
+  testWidgets('should_drawAPillWithCoverAndTint_andOpenOnTap_when_mentionResolves', (tester) async {
     NoteMention? opened;
     await tester.pumpWidget(
-      _app(NoteMarkupText('**像** $_link 一样', isMentionResolved: (_) => true, onMentionTap: (m) => opened = m)),
+      _app(
+        NoteMarkupText(
+          '**像** $_link 一样',
+          isMentionResolved: (_) => true,
+          artworkUrl: (_) => null,
+          onMentionTap: (m) => opened = m,
+        ),
+      ),
     );
-    final drawn = _drawn(tester);
-    expect(drawn.toPlainText(), '像 Blue 一样');
-    final name = _spanOf(drawn, 'Blue')!;
+    final pill = tester.widget<MentionPill>(find.byType(MentionPill));
     final scheme = Theme.of(tester.element(find.byType(NoteMarkupText))).colorScheme;
-    expect(name.style!.color, scheme.primary);
-    expect(name.style!.fontWeight, FontWeight.w600);
-    (name.recognizer! as TapGestureRecognizer).onTap!();
+    expect(pill.tint, scheme.primary);
+    expect(pill.nameStyle.fontWeight, FontWeight.w600);
+    // no picture yet: the album symbol on the tint
+    expect(find.descendant(of: find.byType(MentionPill), matching: find.byIcon(YoinSymbols.album)), findsOneWidget);
+    expect(find.text('Blue'), findsOneWidget);
+    await tester.tap(find.byType(MentionPill));
     expect(opened?.mediaId, 'subsonic:al1');
+  });
+
+  testWidgets('should_peekWhileHeld_andOpenNothing_when_longPressed', (tester) async {
+    NoteMention? opened;
+    await tester.pumpWidget(
+      _app(
+        NoteMarkupText(
+          'x [@Andromeda](yoin:track/subsonic:t2?a=Weyes%20Blood&al=Titanic%20Rising) y',
+          isMentionResolved: (_) => true,
+          artworkUrl: (_) => null,
+          onMentionTap: (m) => opened = m,
+        ),
+      ),
+    );
+    final gesture = await tester.startGesture(tester.getCenter(find.byType(MentionPill)));
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
+    expect(find.byType(MentionPeekCard), findsOneWidget);
+    expect(find.text('Weyes Blood'), findsOneWidget);
+    expect(find.text('Titanic Rising'), findsOneWidget);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(MentionPeekCard), findsNothing);
+    expect(opened, isNull);
+  });
+
+  testWidgets('should_takeNoTouch_when_notInteractive', (tester) async {
+    var hostTaps = 0;
+    NoteMention? opened;
+    await tester.pumpWidget(
+      _app(
+        GestureDetector(
+          onTap: () => hostTaps++,
+          child: NoteMarkupText(
+            '$_link\n- [ ] four',
+            interactive: false,
+            isMentionResolved: (_) => true,
+            artworkUrl: (_) => null,
+            onMentionTap: (m) => opened = m,
+            onToggleChecklist: (_) => fail('inert'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(MentionPill));
+    expect(opened, isNull);
+    expect(hostTaps, 1);
+  });
+
+  testWidgets('should_tickTheTodo_when_itsBoxIsTapped', (tester) async {
+    final ticked = <int>[];
+    await tester.pumpWidget(_app(NoteMarkupText('# Side A\n- [ ] one\n- [x] two', onToggleChecklist: ticked.add)));
+    final drawn = _drawn(tester);
+    (_spanOf(drawn, NoteMarkupGlyphs.todo)!.recognizer! as TapGestureRecognizer).onTap!();
+    (_spanOf(drawn, NoteMarkupGlyphs.done)!.recognizer! as TapGestureRecognizer).onTap!();
+    expect(ticked, [1, 2]);
+  });
+
+  test('should_holdThePillToTheLine_andCutTheName_when_tooLong', () {
+    final short = mentionPillGeometry(fontPx: 10, nameWidthPx: 40, lineWidthPx: 300);
+    expect(short.truncated, isFalse);
+    expect(short.widthEm, closeTo((10 * 1.97 + 40 + 1) / 10, 1e-9));
+    final long = mentionPillGeometry(fontPx: 10, nameWidthPx: 900, lineWidthPx: 300);
+    expect(long.truncated, isTrue);
+    expect(long.widthEm * 10, 299);
   });
 
   testWidgets('should_resolveForTheAccountInUse_when_noOverride', (tester) async {
@@ -119,11 +194,10 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
     }
     await tester.pump();
-    final drawn = _drawn(tester);
-    expect(drawn.toPlainText(), 'Blue Song t9 Weyes Blood');
-    expect(_spanOf(drawn, 'Blue')!.recognizer, isNotNull, reason: 'same provider: by id');
-    expect(_spanOf(drawn, 'Song t9')!.recognizer, isNotNull, reason: 'a Spotify song known here by name');
-    expect(_spanOf(drawn, 'Weyes Blood')!.style, isNull, reason: "an artist can't be matched by name");
+    final pills = tester.widgetList<MentionPill>(find.byType(MentionPill)).map((p) => p.mention.title).toList();
+    expect(pills, ['Blue', 'Song t9'], reason: 'same provider by id; a Spotify song known here by name');
+    final name = _spanOf(_drawn(tester), 'Weyes Blood')!;
+    expect(name.style, isNull, reason: "an artist can't be matched by name");
   });
 
   testWidgets('should_openTheSongsAlbumScrapbookOnIt_when_trackMentionTapped', (tester) async {
@@ -152,11 +226,13 @@ void main() {
     );
     await tester.runAsync(() => container.read(activeSourceProvider.future));
     await tester.pump();
-    final recognizer = _spanOf(_drawn(tester), 'Song t1')!.recognizer! as TapGestureRecognizer;
-    await tester.runAsync(() async {
-      recognizer.onTap!();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    });
+    final pill = tester.widget<MentionPill>(find.byType(MentionPill));
+    await tester.runAsync(() async => pill.onTap());
+    // The lookups run on both clocks (the store's queue on the test's): turn each.
+    for (var i = 0; i < 20 && left.isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
     expect(left, hasLength(1), reason: 'the surface gets out of the way first (Now Playing closes)');
 
     final notes = container.read(noteMentionsProvider.notifier);

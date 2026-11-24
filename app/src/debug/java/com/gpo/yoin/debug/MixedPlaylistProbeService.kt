@@ -433,7 +433,7 @@ class MixedPlaylistProbeService : MediaSessionService() {
         wantsPlay: Boolean,
         action: suspend (MixedPlaylistTicket) -> Unit
     ): ListenableFuture<*> {
-        val future = SettableFuture.create<Void>()
+        val future = SettableFuture.create<Void?>()
         val ticket = epochs.begin(targetEntry)
         commandJob?.cancel(CancellationException("Superseded mixed probe command"))
         mirror.wantsPlay = wantsPlay
@@ -481,7 +481,7 @@ class MixedPlaylistProbeService : MediaSessionService() {
         ticket: MixedPlaylistTicket,
         name: String,
         code: String,
-        future: SettableFuture<Void>
+        future: SettableFuture<Void?>
     ) {
         needsFullBarrier = true
         var stopped = false

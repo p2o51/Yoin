@@ -80,6 +80,8 @@ struct NowPlayingView: View, Equatable {
     /// holds its words and moment; Save writes them back, Cancel leaves it.
     /// A new note's unsaved draft waits in `parkedDraft` meanwhile.
     @State private var editingNoteId: String?
+    /// A note emptied in the write bar and saved: the Note page deletes it with Undo.
+    @State private var noteDeleteRequest: SongNote?
     @State private var parkedDraft: (words: String, anchorMs: Int64?, target: NoteTarget?)?
     /// The song the draft is written FOR (Android NoteDraft.target): bound
     /// with its moment when writing begins, held across a skip until saved,
@@ -89,7 +91,8 @@ struct NowPlayingView: View, Equatable {
     /// The kept draft is going back in: its song and moment stand (no re-align to now).
     @State private var restoringDraft = false
     @State private var notesSaved = 0
-    @FocusState private var composerFocused: Bool
+    /// The write bar's keyboard (the note editor is a UIKit text view: a plain flag, not a FocusState).
+    @State private var composerFocused = false
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
     @State private var askDraft = ""
     @FocusState private var askFieldFocused: Bool
@@ -2011,7 +2014,9 @@ struct NowPlayingView: View, Equatable {
             },
             onRealign: { NotesStore.shared.realign(id: $0, positionMs: $1) },
             editingId: editingNoteId,
-            onEdit: { startEditing($0) }
+            onEdit: { startEditing($0) },
+            deleteRequest: noteDeleteRequest,
+            onDeleteRequestTaken: { noteDeleteRequest = nil }
         )
     }
 
@@ -2906,6 +2911,11 @@ struct NowPlayingView: View, Equatable {
     private func saveEdit(_ id: String) {
         // Deleted meanwhile: nothing to write back to.
         guard let before = NotesStore.shared.notes.first(where: { $0.id == id }) else { return endEditing() }
+        // Emptied: the note is deleted, Undo standing in its line (Android: an emptied edit deletes).
+        if !draft.contains(where: { !$0.isWhitespace }) {
+            noteDeleteRequest = before
+            return endEditing()
+        }
         guard NotesStore.shared.update(id: id, content: draft) != nil else {
             // Not written: the words stay in the field (blank words do nothing).
             if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show(String(localized: "Couldn't save the note")) }

@@ -1,0 +1,2733 @@
+{
+  "about": "Golden vectors for Memories transfer mapping, generated from :shared Kotlin by PortabilityGoldenTest (androidHostTest). Do not edit by hand. Refs are \"provider:id\"; composite keys use U+001F. `cases` run MemoryTransferApplier: items + picks + ledger + target rows (before) -> result, ledger entries to store, target rows (after). Ratings are floats.",
+  "compatible": [
+    {
+      "source": "s-a",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-a",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-a",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-b",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-b",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": true
+    },
+    {
+      "source": "s-c",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-c",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-c",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-c",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-c",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-c",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-d",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-d",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-d",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-d",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-d",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "a-1",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "a-1",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "a-1",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "a-1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "a-1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "a-2",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "a-2",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "a-2",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "a-2",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "a-2",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-s1",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-s1",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-s1",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-s1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-s1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-s2",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "s-s2",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-s2",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "s-s2",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "s-s2",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "s-a",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-b",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-c",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-d",
+      "ref": "subsonic:1",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-1",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:1440857781",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:library:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:i.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "a-2",
+      "ref": "applemusic:l.abc",
+      "compatible": false
+    },
+    {
+      "source": "local-l1",
+      "target": "s-s1",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "s-s2",
+      "ref": "spotify:4uLU6hMCjMI75M1A2tKUQC",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": true
+    },
+    {
+      "source": "local-l1",
+      "target": "local-l1",
+      "ref": "local:f1",
+      "compatible": true
+    }
+  ],
+  "migrationIds": [
+    {
+      "srcScope": "s-a",
+      "srcId": "n1",
+      "dstScope": "s-b",
+      "id": "mig-dbcbd0b919d0742d"
+    },
+    {
+      "srcScope": "s-a",
+      "srcId": "n1",
+      "dstScope": "s-c",
+      "id": "mig-91e4b26d909683d0"
+    },
+    {
+      "srcScope": "local-p1",
+      "srcId": "3f2c-uuid",
+      "dstScope": "s-x",
+      "id": "mig-5b8255c6cf04da56"
+    },
+    {
+      "srcScope": "s-晴天",
+      "srcId": "笔记",
+      "dstScope": "a-1",
+      "id": "mig-8eed0d1ac3f07e3c"
+    }
+  ],
+  "remapMentions": [
+    {
+      "text": "a [@X](yoin:track/subsonic:t1) b [@Y](yoin:album/subsonic:al1) c [@Z](yoin:artist/subsonic:ar1)",
+      "tracks": {
+        "subsonic:t1": "spotify:s1",
+        "subsonic:keep": "subsonic:keep"
+      },
+      "albums": {
+        "subsonic:al1": "spotify:spA"
+      },
+      "out": "a [@X](yoin:track/spotify:s1) b [@Y](yoin:album/spotify:spA) c [@Z](yoin:artist/subsonic:ar1)"
+    },
+    {
+      "text": "same ids [@X](yoin:track/subsonic:keep)",
+      "tracks": {
+        "subsonic:t1": "spotify:s1",
+        "subsonic:keep": "subsonic:keep"
+      },
+      "albums": {
+        "subsonic:al1": "spotify:spA"
+      },
+      "out": "same ids [@X](yoin:track/subsonic:keep)"
+    },
+    {
+      "text": "no mentions at all",
+      "tracks": {
+        "subsonic:t1": "spotify:s1",
+        "subsonic:keep": "subsonic:keep"
+      },
+      "albums": {
+        "subsonic:al1": "spotify:spA"
+      },
+      "out": "no mentions at all"
+    },
+    {
+      "text": "晴天 [@晴天 🌤️](yoin:track/subsonic:t1?a=周杰伦&al=叶惠美) **bold**",
+      "tracks": {
+        "subsonic:t1": "spotify:s1",
+        "subsonic:keep": "subsonic:keep"
+      },
+      "albums": {
+        "subsonic:al1": "spotify:spA"
+      },
+      "out": "晴天 [@晴天 🌤️](yoin:track/spotify:s1?a=%E5%91%A8%E6%9D%B0%E4%BC%A6&al=%E5%8F%B6%E6%83%A0%E7%BE%8E) **bold**"
+    }
+  ],
+  "joinReviews": [
+    {
+      "target": "Target review.  \n",
+      "source": "  Source review.\n",
+      "sourceAccount": "Old account",
+      "out": "Target review.\n\n— 来自 Old account\nSource review."
+    },
+    {
+      "target": "",
+      "source": "x",
+      "sourceAccount": "A",
+      "out": "\n\n— 来自 A\nx"
+    }
+  ],
+  "ledgerMetaPrefix": [
+    {
+      "srcScope": "s-old",
+      "dstProfileId": "spot",
+      "prefix": "transfer:4df2d26f6fe94088:"
+    }
+  ],
+  "cases": [
+    {
+      "name": "same-server-direct",
+      "input": {
+        "source": {
+          "scope": "s-old",
+          "provider": "subsonic",
+          "displayName": "Old account",
+          "serverKey": "music.example.com",
+          "localProfileId": "old"
+        },
+        "target": {
+          "scope": "s-new",
+          "provider": "subsonic",
+          "displayName": "New account",
+          "serverKey": "MUSIC.example.com",
+          "localProfileId": "new"
+        },
+        "items": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "track": "subsonic:t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "track": "subsonic:t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "trackRatings": [
+            {
+              "track": "subsonic:t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "track": "subsonic:t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "track": "subsonic:t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRatings": [
+            {
+              "album": "subsonic:al1",
+              "rating": 8.0,
+              "updatedAt": 2300
+            }
+          ],
+          "albumReviews": [
+            {
+              "album": "subsonic:al1",
+              "review": "  Source review [@One](yoin:track/subsonic:t1).  ",
+              "updatedAt": 2300,
+              "reviewUpdatedAt": 2310
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "album": "subsonic:al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "albumTitles": [
+            {
+              "album": "subsonic:al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memoryTitles": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "title": "AI Title",
+              "titlePromptHash": "th",
+              "updatedAt": 2600
+            },
+            {
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "title": "Track AI",
+              "titlePromptHash": null,
+              "updatedAt": 2600
+            }
+          ],
+          "memoryCopies": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "track": "subsonic:t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "track": "subsonic:t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ],
+          "trackFacts": {
+            "subsonic:t2": {
+              "title": "Second Song",
+              "artist": "Artist",
+              "album": "Rain Album",
+              "albumId": "al1",
+              "durationSec": 200
+            }
+          },
+          "albumFacts": {
+            "subsonic:al1": {
+              "name": "Rain Album",
+              "artist": "Artist"
+            }
+          }
+        },
+        "tracks": [],
+        "albums": [],
+        "ledger": {},
+        "now": 99000,
+        "target_rows": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRows": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": []
+        }
+      },
+      "expected": {
+        "result": {
+          "copied": {
+            "songNotes": 2,
+            "trackRatings": 3,
+            "albumRatings": 1,
+            "albumReviews": 1,
+            "albumNotes": 1,
+            "albumTitles": 1,
+            "memoryTitles": 2,
+            "memoryCopies": 1,
+            "trackAlbumLinks": 2
+          },
+          "updated": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "kept": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "unmatched": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "reviewsJoined": 0,
+          "skippedPreviously": 0
+        },
+        "ledgerEntries": {
+          "note:n1": "copied|mig-24aa8b6964d5b1bd",
+          "note:n2": "copied|mig-363f3f5d01e40392",
+          "track_rating:subsonic:t1": "copied|subsonic\u001ft1",
+          "track_rating:subsonic:t2": "copied|subsonic\u001ft2",
+          "track_rating:subsonic:t3": "copied|subsonic\u001ft3",
+          "album_rating:subsonic:al1": "copied|subsonic\u001fal1",
+          "album_review:subsonic:al1": "copied|subsonic\u001fal1",
+          "album_note:an1": "copied|mig-6beae903040efc94",
+          "album_title:subsonic:al1": "copied|subsonic\u001fal1",
+          "memory_title:subsonic\u001falbum\u001fal1": "copied|subsonic\u001falbum\u001fal1",
+          "memory_title:subsonic\u001ftrack\u001ft1": "copied|subsonic\u001ftrack\u001ft1",
+          "memory_copy:subsonic\u001falbum\u001fal1": "copied|subsonic\u001falbum\u001fal1",
+          "link:subsonic:t1": "copied|subsonic\u001ft1",
+          "link:subsonic:t2": "copied|subsonic\u001ft2"
+        },
+        "target_rows": {
+          "songNotes": [
+            {
+              "id": "mig-24aa8b6964d5b1bd",
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "mig-363f3f5d01e40392",
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "mig-6beae903040efc94",
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRows": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Source review [@One](yoin:track/subsonic:t1).",
+              "reviewUpdatedAt": 2310,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "copy": "",
+              "promptHash": "",
+              "generatedAt": 0,
+              "title": "Track AI",
+              "titlePromptHash": null
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "same-server-conflicts",
+      "input": {
+        "source": {
+          "scope": "s-old",
+          "provider": "subsonic",
+          "displayName": "Old account",
+          "serverKey": "music.example.com",
+          "localProfileId": "old"
+        },
+        "target": {
+          "scope": "s-new",
+          "provider": "subsonic",
+          "displayName": "New account",
+          "serverKey": "MUSIC.example.com",
+          "localProfileId": "new"
+        },
+        "items": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "track": "subsonic:t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "track": "subsonic:t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "trackRatings": [
+            {
+              "track": "subsonic:t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "track": "subsonic:t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "track": "subsonic:t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRatings": [
+            {
+              "album": "subsonic:al1",
+              "rating": 8.0,
+              "updatedAt": 2300
+            }
+          ],
+          "albumReviews": [
+            {
+              "album": "subsonic:al1",
+              "review": "  Source review [@One](yoin:track/subsonic:t1).  ",
+              "updatedAt": 2300,
+              "reviewUpdatedAt": 2310
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "album": "subsonic:al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "albumTitles": [
+            {
+              "album": "subsonic:al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memoryTitles": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "title": "AI Title",
+              "titlePromptHash": "th",
+              "updatedAt": 2600
+            },
+            {
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "title": "Track AI",
+              "titlePromptHash": null,
+              "updatedAt": 2600
+            }
+          ],
+          "memoryCopies": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "track": "subsonic:t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "track": "subsonic:t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ],
+          "trackFacts": {
+            "subsonic:t2": {
+              "title": "Second Song",
+              "artist": "Artist",
+              "album": "Rain Album",
+              "albumId": "al1",
+              "durationSec": 200
+            }
+          },
+          "albumFacts": {
+            "subsonic:al1": {
+              "name": "Rain Album",
+              "artist": "Artist"
+            }
+          }
+        },
+        "tracks": [],
+        "albums": [],
+        "ledger": {},
+        "now": 99000,
+        "target_rows": {
+          "songNotes": [
+            {
+              "id": "mig-24aa8b6964d5b1bd",
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "older copy",
+              "createdAt": 1500,
+              "updatedAt": 1500,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": null
+            }
+          ],
+          "albumNotes": [],
+          "trackRatings": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 4.0,
+              "updatedAt": 9000
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 2.0,
+              "updatedAt": 1000
+            }
+          ],
+          "albumRows": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 0.0,
+              "review": "Target review.",
+              "reviewUpdatedAt": 1000,
+              "updatedAt": 1000
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "Their title",
+              "updatedAt": 9000
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "",
+              "promptHash": "",
+              "generatedAt": 0,
+              "title": "Own AI",
+              "titlePromptHash": "x"
+            }
+          ],
+          "trackAlbumLinks": []
+        }
+      },
+      "expected": {
+        "result": {
+          "copied": {
+            "songNotes": 1,
+            "trackRatings": 1,
+            "albumRatings": 1,
+            "albumReviews": 0,
+            "albumNotes": 1,
+            "albumTitles": 0,
+            "memoryTitles": 1,
+            "memoryCopies": 1,
+            "trackAlbumLinks": 2
+          },
+          "updated": {
+            "songNotes": 1,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 1,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "kept": {
+            "songNotes": 0,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 1,
+            "memoryTitles": 1,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "unmatched": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "reviewsJoined": 1,
+          "skippedPreviously": 0
+        },
+        "ledgerEntries": {
+          "note:n1": "copied|mig-24aa8b6964d5b1bd",
+          "note:n2": "copied|mig-363f3f5d01e40392",
+          "track_rating:subsonic:t1": "copied|subsonic\u001ft1",
+          "track_rating:subsonic:t2": "copied|subsonic\u001ft2",
+          "track_rating:subsonic:t3": "copied|subsonic\u001ft3",
+          "album_rating:subsonic:al1": "copied|subsonic\u001fal1",
+          "album_review:subsonic:al1": "copied|subsonic\u001fal1",
+          "album_note:an1": "copied|mig-6beae903040efc94",
+          "album_title:subsonic:al1": "copied|subsonic\u001fal1",
+          "memory_title:subsonic\u001falbum\u001fal1": "copied|subsonic\u001falbum\u001fal1",
+          "memory_title:subsonic\u001ftrack\u001ft1": "copied|subsonic\u001ftrack\u001ft1",
+          "memory_copy:subsonic\u001falbum\u001fal1": "copied|subsonic\u001falbum\u001fal1",
+          "link:subsonic:t1": "copied|subsonic\u001ft1",
+          "link:subsonic:t2": "copied|subsonic\u001ft2"
+        },
+        "target_rows": {
+          "songNotes": [
+            {
+              "id": "mig-24aa8b6964d5b1bd",
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 1500,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "mig-363f3f5d01e40392",
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "mig-6beae903040efc94",
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 4.0,
+              "updatedAt": 9000
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "songId": "t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRows": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Target review.\n\n— 来自 Old account\nSource review [@One](yoin:track/subsonic:t1).",
+              "reviewUpdatedAt": 2310,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "Their title",
+              "updatedAt": 9000
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "Own AI",
+              "titlePromptHash": "x"
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "copy": "",
+              "promptHash": "",
+              "generatedAt": 0,
+              "title": "Track AI",
+              "titlePromptHash": null
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "profileId": "new",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "cross-service-picks",
+      "input": {
+        "source": {
+          "scope": "s-old",
+          "provider": "subsonic",
+          "displayName": "Old account",
+          "serverKey": "music.example.com",
+          "localProfileId": "old"
+        },
+        "target": {
+          "scope": "s-spot",
+          "provider": "spotify",
+          "displayName": "Spotify",
+          "serverKey": null,
+          "localProfileId": "spot"
+        },
+        "items": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "track": "subsonic:t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "track": "subsonic:t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "trackRatings": [
+            {
+              "track": "subsonic:t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "track": "subsonic:t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "track": "subsonic:t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRatings": [
+            {
+              "album": "subsonic:al1",
+              "rating": 8.0,
+              "updatedAt": 2300
+            }
+          ],
+          "albumReviews": [
+            {
+              "album": "subsonic:al1",
+              "review": "  Source review [@One](yoin:track/subsonic:t1).  ",
+              "updatedAt": 2300,
+              "reviewUpdatedAt": 2310
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "album": "subsonic:al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "albumTitles": [
+            {
+              "album": "subsonic:al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memoryTitles": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "title": "AI Title",
+              "titlePromptHash": "th",
+              "updatedAt": 2600
+            },
+            {
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "title": "Track AI",
+              "titlePromptHash": null,
+              "updatedAt": 2600
+            }
+          ],
+          "memoryCopies": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "track": "subsonic:t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "track": "subsonic:t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ],
+          "trackFacts": {
+            "subsonic:t2": {
+              "title": "Second Song",
+              "artist": "Artist",
+              "album": "Rain Album",
+              "albumId": "al1",
+              "durationSec": 200
+            }
+          },
+          "albumFacts": {
+            "subsonic:al1": {
+              "name": "Rain Album",
+              "artist": "Artist"
+            }
+          }
+        },
+        "tracks": [
+          {
+            "source": "subsonic:t1",
+            "status": "Matched",
+            "chosen": {
+              "provider": "spotify",
+              "id": "sp1",
+              "title": "Song One (Remaster)",
+              "artist": "Artist",
+              "albumProvider": "spotify",
+              "albumId": "spA"
+            }
+          },
+          {
+            "source": "subsonic:t2",
+            "status": "Picked",
+            "chosen": {
+              "provider": "spotify",
+              "id": "sp2",
+              "title": "",
+              "artist": null,
+              "albumProvider": "spotify",
+              "albumId": "spB"
+            }
+          },
+          {
+            "source": "subsonic:t3",
+            "status": "Uncertain",
+            "chosen": null
+          }
+        ],
+        "albums": [
+          {
+            "source": "subsonic:al1",
+            "status": "Picked",
+            "chosen": {
+              "provider": "spotify",
+              "id": "spA",
+              "name": "Rain Album (Deluxe)",
+              "artist": "Artist"
+            }
+          }
+        ],
+        "ledger": {},
+        "now": 99000,
+        "target_rows": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRows": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": []
+        }
+      },
+      "expected": {
+        "result": {
+          "copied": {
+            "songNotes": 2,
+            "trackRatings": 2,
+            "albumRatings": 1,
+            "albumReviews": 1,
+            "albumNotes": 1,
+            "albumTitles": 1,
+            "memoryTitles": 1,
+            "memoryCopies": 1,
+            "trackAlbumLinks": 2
+          },
+          "updated": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "kept": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "unmatched": {
+            "songNotes": 0,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 1,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "reviewsJoined": 0,
+          "skippedPreviously": 0
+        },
+        "ledgerEntries": {
+          "note:n1": "copied|mig-8a425eecad5c3367",
+          "note:n2": "copied|mig-611ac506e8f8a0ee",
+          "track_rating:subsonic:t1": "copied|spotify\u001fsp1",
+          "track_rating:subsonic:t2": "copied|spotify\u001fsp2",
+          "track_rating:subsonic:t3": "unmatched",
+          "album_rating:subsonic:al1": "copied|spotify\u001fspA",
+          "album_review:subsonic:al1": "copied|spotify\u001fspA",
+          "album_note:an1": "copied|mig-89376784660625cd",
+          "album_title:subsonic:al1": "copied|spotify\u001fspA",
+          "memory_title:subsonic\u001falbum\u001fal1": "copied|spotify\u001falbum\u001fspA",
+          "memory_title:subsonic\u001ftrack\u001ft1": "unmatched",
+          "memory_copy:subsonic\u001falbum\u001fal1": "copied|spotify\u001falbum\u001fspA",
+          "link:subsonic:t1": "copied|spotify\u001fsp1",
+          "link:subsonic:t2": "copied|spotify\u001fsp2",
+          "track:subsonic:t1": "matched|spotify:sp1",
+          "track:subsonic:t2": "chosen|spotify:sp2",
+          "track:subsonic:t3": "unmatched",
+          "album:subsonic:al1": "chosen|spotify:spA"
+        },
+        "target_rows": {
+          "songNotes": [
+            {
+              "id": "mig-611ac506e8f8a0ee",
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            },
+            {
+              "id": "mig-8a425eecad5c3367",
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp1",
+              "content": "first listen [@Rain](yoin:album/spotify:spA) [@One](yoin:track/spotify:sp1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One (Remaster)",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "mig-89376784660625cd",
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album (Deluxe)",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "songId": "sp1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "songId": "sp2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRows": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "rating": 8.0,
+              "review": "Source review [@One](yoin:track/spotify:sp1).",
+              "reviewUpdatedAt": 2310,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "entityType": "album",
+              "entityId": "spA",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp1",
+              "albumId": "spA",
+              "source": "import",
+              "updatedAt": 2700
+            },
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp2",
+              "albumId": "spB",
+              "source": "import",
+              "updatedAt": 2710
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "cross-service-rerun",
+      "input": {
+        "source": {
+          "scope": "s-old",
+          "provider": "subsonic",
+          "displayName": "Old account",
+          "serverKey": "music.example.com",
+          "localProfileId": "old"
+        },
+        "target": {
+          "scope": "s-spot",
+          "provider": "spotify",
+          "displayName": "Spotify",
+          "serverKey": null,
+          "localProfileId": "spot"
+        },
+        "items": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "track": "subsonic:t1",
+              "content": "first listen [@Rain](yoin:album/subsonic:al1) [@One](yoin:track/subsonic:t1) [@B](yoin:artist/subsonic:ar1)",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Song One",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "track": "subsonic:t2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "trackRatings": [
+            {
+              "track": "subsonic:t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "track": "subsonic:t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            },
+            {
+              "track": "subsonic:t3",
+              "rating": 0.0,
+              "updatedAt": 2160
+            }
+          ],
+          "albumRatings": [
+            {
+              "album": "subsonic:al1",
+              "rating": 8.0,
+              "updatedAt": 2300
+            }
+          ],
+          "albumReviews": [
+            {
+              "album": "subsonic:al1",
+              "review": "  Source review [@One](yoin:track/subsonic:t1).  ",
+              "updatedAt": 2300,
+              "reviewUpdatedAt": 2310
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "album": "subsonic:al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album",
+              "artist": "Artist"
+            }
+          ],
+          "albumTitles": [
+            {
+              "album": "subsonic:al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memoryTitles": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "title": "AI Title",
+              "titlePromptHash": "th",
+              "updatedAt": 2600
+            },
+            {
+              "provider": "subsonic",
+              "entityType": "track",
+              "entityId": "t1",
+              "title": "Track AI",
+              "titlePromptHash": null,
+              "updatedAt": 2600
+            }
+          ],
+          "memoryCopies": [
+            {
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "track": "subsonic:t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            },
+            {
+              "track": "subsonic:t2",
+              "albumId": "al9",
+              "source": "play",
+              "updatedAt": 2710
+            }
+          ],
+          "trackFacts": {
+            "subsonic:t2": {
+              "title": "Second Song",
+              "artist": "Artist",
+              "album": "Rain Album",
+              "albumId": "al1",
+              "durationSec": 200
+            }
+          },
+          "albumFacts": {
+            "subsonic:al1": {
+              "name": "Rain Album",
+              "artist": "Artist"
+            }
+          }
+        },
+        "tracks": [
+          {
+            "source": "subsonic:t1",
+            "status": "Matched",
+            "chosen": {
+              "provider": "spotify",
+              "id": "sp1",
+              "title": "Song One (Remaster)",
+              "artist": "Artist",
+              "albumProvider": "spotify",
+              "albumId": "spA"
+            }
+          },
+          {
+            "source": "subsonic:t2",
+            "status": "Picked",
+            "chosen": {
+              "provider": "spotify",
+              "id": "sp2",
+              "title": "",
+              "artist": null,
+              "albumProvider": "spotify",
+              "albumId": "spB"
+            }
+          },
+          {
+            "source": "subsonic:t3",
+            "status": "Uncertain",
+            "chosen": null
+          }
+        ],
+        "albums": [
+          {
+            "source": "subsonic:al1",
+            "status": "Picked",
+            "chosen": {
+              "provider": "spotify",
+              "id": "spA",
+              "name": "Rain Album (Deluxe)",
+              "artist": "Artist"
+            }
+          }
+        ],
+        "ledger": {
+          "note:n1": "copied|mig-8a425eecad5c3367",
+          "track:subsonic:t3": "unmatched",
+          "track_rating:subsonic:t1": "copied|spotify\u001fsp1"
+        },
+        "now": 99000,
+        "target_rows": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRows": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": []
+        }
+      },
+      "expected": {
+        "result": {
+          "copied": {
+            "songNotes": 1,
+            "trackRatings": 1,
+            "albumRatings": 1,
+            "albumReviews": 1,
+            "albumNotes": 1,
+            "albumTitles": 1,
+            "memoryTitles": 1,
+            "memoryCopies": 1,
+            "trackAlbumLinks": 2
+          },
+          "updated": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "kept": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "unmatched": {
+            "songNotes": 0,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 1,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "reviewsJoined": 0,
+          "skippedPreviously": 2
+        },
+        "ledgerEntries": {
+          "note:n2": "copied|mig-611ac506e8f8a0ee",
+          "track_rating:subsonic:t2": "copied|spotify\u001fsp2",
+          "track_rating:subsonic:t3": "unmatched",
+          "album_rating:subsonic:al1": "copied|spotify\u001fspA",
+          "album_review:subsonic:al1": "copied|spotify\u001fspA",
+          "album_note:an1": "copied|mig-89376784660625cd",
+          "album_title:subsonic:al1": "copied|spotify\u001fspA",
+          "memory_title:subsonic\u001falbum\u001fal1": "copied|spotify\u001falbum\u001fspA",
+          "memory_title:subsonic\u001ftrack\u001ft1": "unmatched",
+          "memory_copy:subsonic\u001falbum\u001fal1": "copied|spotify\u001falbum\u001fspA",
+          "link:subsonic:t1": "copied|spotify\u001fsp1",
+          "link:subsonic:t2": "copied|spotify\u001fsp2",
+          "track:subsonic:t1": "matched|spotify:sp1",
+          "track:subsonic:t2": "chosen|spotify:sp2",
+          "track:subsonic:t3": "unmatched",
+          "album:subsonic:al1": "chosen|spotify:spA"
+        },
+        "target_rows": {
+          "songNotes": [
+            {
+              "id": "mig-611ac506e8f8a0ee",
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp2",
+              "content": "no title here",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "",
+              "artist": "",
+              "positionMs": null
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "mig-89376784660625cd",
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Rain Album (Deluxe)",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "songId": "sp2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRows": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "rating": 8.0,
+              "review": "Source review [@One](yoin:track/spotify:sp1).",
+              "reviewUpdatedAt": 2310,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "albumId": "spA",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "entityType": "album",
+              "entityId": "spA",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp1",
+              "albumId": "spA",
+              "source": "import",
+              "updatedAt": 2700
+            },
+            {
+              "profileId": "spot",
+              "provider": "spotify",
+              "trackId": "sp2",
+              "albumId": "spB",
+              "source": "import",
+              "updatedAt": 2710
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "apple-library-ids",
+      "input": {
+        "source": {
+          "scope": "a-1",
+          "provider": "applemusic",
+          "displayName": "a-1",
+          "serverKey": null,
+          "localProfileId": "a1"
+        },
+        "target": {
+          "scope": "a-2",
+          "provider": "applemusic",
+          "displayName": "a-2",
+          "serverKey": null,
+          "localProfileId": "a2"
+        },
+        "items": {
+          "songNotes": [],
+          "trackRatings": [
+            {
+              "track": "applemusic:1440857781",
+              "rating": 8.0,
+              "updatedAt": 2000
+            },
+            {
+              "track": "applemusic:i.abc",
+              "rating": 7.0,
+              "updatedAt": 2000
+            }
+          ],
+          "albumRatings": [],
+          "albumReviews": [],
+          "albumNotes": [],
+          "albumTitles": [
+            {
+              "album": "applemusic:library:l.abc",
+              "title": "Library album",
+              "updatedAt": 2000
+            }
+          ],
+          "memoryTitles": [],
+          "memoryCopies": [],
+          "trackAlbumLinks": [
+            {
+              "track": "applemusic:1440857781",
+              "albumId": "library:l.abc",
+              "source": "detail",
+              "updatedAt": 2000
+            },
+            {
+              "track": "applemusic:1440857782",
+              "albumId": "1440857700",
+              "source": "detail",
+              "updatedAt": 2000
+            }
+          ],
+          "trackFacts": {},
+          "albumFacts": {}
+        },
+        "tracks": [],
+        "albums": [],
+        "ledger": {},
+        "now": 99000,
+        "target_rows": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRows": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": []
+        }
+      },
+      "expected": {
+        "result": {
+          "copied": {
+            "songNotes": 0,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 1
+          },
+          "updated": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "kept": {
+            "songNotes": 0,
+            "trackRatings": 0,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 0,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 0
+          },
+          "unmatched": {
+            "songNotes": 0,
+            "trackRatings": 1,
+            "albumRatings": 0,
+            "albumReviews": 0,
+            "albumNotes": 0,
+            "albumTitles": 1,
+            "memoryTitles": 0,
+            "memoryCopies": 0,
+            "trackAlbumLinks": 1
+          },
+          "reviewsJoined": 0,
+          "skippedPreviously": 0
+        },
+        "ledgerEntries": {
+          "track_rating:applemusic:1440857781": "copied|applemusic\u001f1440857781",
+          "track_rating:applemusic:i.abc": "unmatched",
+          "album_title:applemusic:library:l.abc": "unmatched",
+          "link:applemusic:1440857781": "unmatched",
+          "link:applemusic:1440857782": "copied|applemusic\u001f1440857782"
+        },
+        "target_rows": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [
+            {
+              "profileId": "a2",
+              "provider": "applemusic",
+              "songId": "1440857781",
+              "rating": 8.0,
+              "updatedAt": 2000
+            }
+          ],
+          "albumRows": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [
+            {
+              "profileId": "a2",
+              "provider": "applemusic",
+              "trackId": "1440857782",
+              "albumId": "1440857700",
+              "source": "detail",
+              "updatedAt": 2000
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

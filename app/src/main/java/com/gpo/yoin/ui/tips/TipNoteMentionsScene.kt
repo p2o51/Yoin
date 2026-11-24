@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.shared.notes.MentionKind
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.shared.notes.NoteTool
 import com.gpo.yoin.ui.component.NoteLine
 import com.gpo.yoin.ui.notes.editor.MentionCandidate
 import com.gpo.yoin.ui.notes.editor.MentionRow
@@ -68,7 +69,7 @@ internal fun NoteMentionsDemo(playing: Boolean) {
             delay(55)
         }
         moveTo("mentionTool", fx = 0.08f)
-        tap { editor.apply(com.gpo.yoin.ui.notes.editor.NoteTool.Mention) }
+        tap { editor.apply(NoteTool.Mention) }
         popup = true
         delay(900)
         moveTo("mentionRow1")

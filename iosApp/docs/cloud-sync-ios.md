@@ -54,6 +54,20 @@ Start fresh removes the old account's synced rows from this device, so it waits 
 - `AndroidGoldenCompatTest` (JVM and iOS simulator): the shared codec re-encodes Android's files byte for byte and recomputes the same content hashes; shared adapters over the same rows produce exactly Android's records; a device joining from Android's files restores every row and republishes Android's records unchanged (including kinds it has no adapter for).
 - Android's own sync tests ported to `shared/src/commonTest`: SyncEngineTest (43), SnapshotCodecTest, AccountFingerprintsTest, AccountBinderTest, plus Ktor Drive client tests and CloudSyncCoreTest (read-only first pull, reset elsewhere, Start fresh put off while the old account's changes are not uploaded). `./gradlew :shared:allTests`.
 
+## Backup file and Memories transfer (parity p2 step B)
+
+Settings › Cloud sync has Android's backup group: **Download all cloud data** (sync off: **Download all data**), **Import from backup** and, with sync on, **Transfer Memories**. Pages: `Settings/BackupFlowView.swift` (export → save sheet → summary; import → read → review → result) and `Settings/TransferFlowView.swift` (source → target → summary → matching → review → copy → done), built from `Settings/SyncFlowPieces.swift`. Copy is Android's, keyed by its resource names in `Localizable.xcstrings` (`SyncCopy.s` keeps Android's argument order; plurals are `%lld <unit>`).
+
+- `Data/Sync/Portability.swift`: export (`YoinBackup.exportBackup` with the sync location, the UI language, `TimeZone.current` and the song / album names this device's plays know), unzip + `readBackup` (`ReadFailure`: not a backup / too new / checksum / unreadable), import plan and apply (global data always, like Android), the import targets (`targetOptions`), and transfer matching (`TransferMatching`: Android's matching order with the shared `TrackMatcher`; review rows → `TrackPick` / `AlbumPick`).
+- `Data/Sync/BackupZip.swift`: Android BackupWriter's entries and order, DEFLATE, UTF-8 names; reads through the central directory (Android's data descriptors work too), with the manifest / snapshot size limits.
+- `Data/Sync/MemoryCatalogs.swift`: the target account's catalog, opened on its own (Subsonic `search3`, Apple Music catalog + ISRC, Spotify search + `isrc:`), and the source service's ISRC when the source is on this device.
+- `Data/Memories/TrackAlbumLinkStore.swift`: `track_album_links` (`Application Support/Yoin/track-album-links.json`), not synced, written by imports and transfers.
+- Every call runs inside `CloudSync.withBackup` (the sync lock; no cycle meanwhile); an import or copy that wrote something syncs at once when sync is on.
+
+Debug builds: `-screen settings -portabilityDemo <step>` opens Cloud sync and one page at a fixed step on made-up accounts (nothing is written): `page`, `export-running`, `exported`, `export-failed`, `reading`, `read-failed`, `review`, `importing`, `imported`, `import-failed`, `xfer-source`, `xfer-target`, `xfer-summary`, `xfer-matching`, `xfer-review`, `xfer-copying`, `xfer-done`, `xfer-failed`.
+
+Not on iOS yet: transfer counts per account (Android reads them from its cloud data summary), the transfer entries on an account's row / page and after a re-sign-in, a backup file as a transfer source, the Tips entry.
+
 ## Fake Drive QA (no Google)
 
 ```sh

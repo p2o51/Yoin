@@ -3,12 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
-import 'package:yoin_symbols/yoin_symbols.dart';
 
-import '../data/memory/memory_store.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
-import '../ui/component/yoin_dropdown_menu.dart';
 import 'haptics.dart';
 import 'note_controller.dart';
 import 'note_empty_doodle.dart';
@@ -19,15 +16,13 @@ import 'playhead_clock.dart';
 
 typedef _N = NowPlayingNoteTokens;
 
-enum _NoteAction { realign, delete }
-
 /// The Expanded Note page (Android NoteFullscreenPane): the song's notes read
 /// like its lyrics — a time stamp, then the words, the note the playhead is
 /// inside lit, the list gliding to keep it ~22 % down (timeline order) — with
 /// the note count and the Timeline ⇄ Created switch above. No cards, no
 /// per-row buttons: tap an anchored line to play from its moment, long-press
-/// it for "Align to now" / "Delete" (a deleted line offers Undo in its place
-/// for a few seconds). Writing happens in the write bar docked below (the
+/// it to rewrite it in the write bar (its line dims meanwhile; emptied and
+/// saved it is deleted, and offers Undo in its place for a few seconds). Writing happens in the write bar docked below (the
 /// accessory slot); while it is open the list holds still and a "Writing…"
 /// row shows where the draft will land. Empty: "No notes yet", nothing else.
 class NotePage extends StatefulWidget {
@@ -159,38 +154,6 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
     return false;
   }
 
-  Future<void> _openMenu(BuildContext rowContext, SongNote note) async {
-    final strings = NowPlayingStrings.of(context);
-    YoinHaptics.longPress();
-    // "Now" as of the long-press: what the menu shows is what it files.
-    final now = widget.clock.positionMs();
-    final chosen = await showYoinDropdownMenu<_NoteAction>(
-      context: rowContext,
-      anchor: globalRectOf(rowContext),
-      semanticLabel: strings.noteActions,
-      items: [
-        // The moment it would move to, quieter at the item's end: no dot.
-        YoinMenuItem(
-          value: _NoteAction.realign,
-          label: strings.noteRealign,
-          icon: YoinSymbols.musicNote,
-          trailingText: formatNotePosition(now),
-        ),
-        YoinMenuItem(value: _NoteAction.delete, label: strings.noteDelete, icon: YoinSymbols.delete),
-      ],
-    );
-    switch (chosen) {
-      case _NoteAction.realign:
-        YoinHaptics.tick();
-        await _notes.realignNote(note, now);
-      case _NoteAction.delete:
-        YoinHaptics.reject();
-        _notes.delete(note);
-      case null:
-        break;
-    }
-  }
-
   /// This build's rows, with an undo row whose window just closed kept in
   /// place while it collapses (the rows below glide up into its room).
   List<NoteRow> _rows() {
@@ -256,23 +219,24 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
     Widget row(int index, NoteRow r) {
       final key = _rowKeys.putIfAbsent(r.key, GlobalKey.new);
       final Widget child = switch (r) {
-        NoteLineRow(:final note) => Builder(
-          builder: (rowContext) => Semantics(
-            button: note.positionMs != null,
-            onTapHint: note.positionMs == null ? null : strings.notePlayFrom(formatNotePosition(note.positionMs!)),
-            onLongPressHint: strings.noteActions,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: note.positionMs == null ? null : () => _notes.playFrom(note),
-              onLongPress: () => _openMenu(rowContext, note),
-              onSecondaryTap: () => _openMenu(rowContext, note),
-              child: NoteLine(
-                stamp: note.positionMs == null ? null : formatNotePosition(note.positionMs!),
-                text: note.content,
-                active: note.id == _lit,
-                distance: litIndex >= 0 ? (index - litIndex).abs() : null,
-                meta: showDate ? formatNoteDate(note.createdAt, nowMs: nowMs, zh: strings.zh) : null,
-              ),
+        NoteLineRow(:final note) => Semantics(
+          button: note.positionMs != null,
+          onTapHint: note.positionMs == null ? null : strings.notePlayFrom(formatNotePosition(note.positionMs!)),
+          onLongPressHint: strings.noteEdit,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: note.positionMs == null ? null : () => _notes.playFrom(note),
+            // A long press opens the note in the write bar (owner 2026-11-24, replacing the menu).
+            onLongPress: () => _notes.beginEdit(note),
+            onSecondaryTap: () => _notes.beginEdit(note),
+            child: NoteLine(
+              stamp: note.positionMs == null ? null : formatNotePosition(note.positionMs!),
+              text: note.content,
+              active: note.id == _lit,
+              distance: litIndex >= 0 ? (index - litIndex).abs() : null,
+              meta: showDate ? formatNoteDate(note.createdAt, nowMs: nowMs, zh: strings.zh) : null,
+              editing: note.id == _notes.editingId,
+              onToggleChecklist: (line) => _notes.toggleChecklist(note, line),
             ),
           ),
         ),

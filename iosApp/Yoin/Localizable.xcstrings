@@ -1496,32 +1496,12 @@
         }
       }
     },
-    "Back up and export": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备份与导出"
-          }
-        }
-      }
-    },
     "Back up now": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "立即备份"
-          }
-        }
-      }
-    },
-    "Backups": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备份"
           }
         }
       }
@@ -4207,16 +4187,6 @@
         }
       }
     },
-    "None yet": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暂无"
-          }
-        }
-      }
-    },
     "Not a Spotify song": {
       "localizations": {
         "zh-Hans": {
@@ -6193,7 +6163,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories\u00a0标\u2060题"
+            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories 标⁠题"
           }
         }
       }
@@ -11658,26 +11628,6 @@
         }
       }
     },
-    "iCloud backup": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iCloud 备份"
-          }
-        }
-      }
-    },
-    "Drive backup": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drive 备份"
-          }
-        }
-      }
-    },
     "Reading your iCloud": {
       "localizations": {
         "zh-Hans": {
@@ -11794,26 +11744,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "云同步尚未就绪。"
-          }
-        }
-      }
-    },
-    "Couldn't back up your iCloud data.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法备份你的 iCloud 数据。"
-          }
-        }
-      }
-    },
-    "Couldn't back up your Drive data.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法备份你的 Drive 数据。"
           }
         }
       }
@@ -12050,6 +11980,3784 @@
           "stringUnit": {
             "state": "translated",
             "value": "小技巧已读 %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Mention": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提及"
+          }
+        }
+      }
+    },
+    "Searching…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索中…"
+          }
+        }
+      }
+    },
+    "Song: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲：%@"
+          }
+        }
+      }
+    },
+    "Album: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑：%@"
+          }
+        }
+      }
+    },
+    "Artist: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "艺术家：%@"
+          }
+        }
+      }
+    },
+    "Bold": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗体"
+          }
+        }
+      }
+    },
+    "Italic": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "斜体"
+          }
+        }
+      }
+    },
+    "Heading": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题"
+          }
+        }
+      }
+    },
+    "To-do": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待办"
+          }
+        }
+      }
+    },
+    "Mention a song, album, or artist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提及歌曲、专辑或艺术家"
+          }
+        }
+      }
+    },
+    "notes.mention.empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No results"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配结果"
+          }
+        }
+      }
+    },
+    "Mentioned in": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被提及"
+          }
+        }
+      }
+    },
+    "Album note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑笔记"
+          }
+        }
+      }
+    },
+    "notes_backlink_kind_review": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "乐评"
+          }
+        }
+      }
+    },
+    "%lld places": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld place"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld places"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 处"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%@, %@: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$@：%3$@"
+          }
+        }
+      }
+    },
+    "playlist_restore_all": {
+      "comment": "Android R.string.playlist_restore_all",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        }
+      }
+    },
+    "playlist_restore_matched": {
+      "comment": "Android R.string.playlist_restore_matched",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matched"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匹配"
+          }
+        }
+      }
+    },
+    "playlist_restore_not_found": {
+      "comment": "Android R.string.playlist_restore_not_found",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not found"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到"
+          }
+        }
+      }
+    },
+    "playlist_restore_picked": {
+      "comment": "Android R.string.playlist_restore_picked",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picked"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选"
+          }
+        }
+      }
+    },
+    "playlist_restore_to_check": {
+      "comment": "Android R.string.playlist_restore_to_check",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To check"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待确认"
+          }
+        }
+      }
+    },
+    "settings_sync_busy": {
+      "comment": "Android R.string.settings_sync_busy",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working on it…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在进行，请稍候"
+          }
+        }
+      }
+    },
+    "settings_sync_cloud_only": {
+      "comment": "Android R.string.settings_sync_cloud_only",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在云端"
+          }
+        }
+      }
+    },
+    "settings_sync_done": {
+      "comment": "Android R.string.settings_sync_done",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "settings_sync_export_about": {
+      "comment": "Android R.string.settings_sync_export_about",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About this file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "说明"
+          }
+        }
+      }
+    },
+    "settings_sync_export_contents": {
+      "comment": "Android R.string.settings_sync_export_contents",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup contents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份内容"
+          }
+        }
+      }
+    },
+    "settings_sync_export_data": {
+      "comment": "Android R.string.settings_sync_export_data",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lossless snapshot for restoring"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可无损还原的数据快照"
+          }
+        }
+      }
+    },
+    "settings_sync_export_failed": {
+      "comment": "Android R.string.settings_sync_export_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create the backup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法生成备份"
+          }
+        }
+      }
+    },
+    "settings_sync_export_failed_summary": {
+      "comment": "Android R.string.settings_sync_export_failed_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing complete was saved. Check the storage location and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有保存完整的文件。请检查保存位置后重试。"
+          }
+        }
+      }
+    },
+    "settings_sync_export_lossless": {
+      "comment": "Android R.string.settings_sync_export_lossless",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lossless restore"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可无损还原"
+          }
+        }
+      }
+    },
+    "settings_sync_export_lossless_summary": {
+      "comment": "Android R.string.settings_sync_export_lossless_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge it back with Import from backup, without duplicates"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过「从备份文件导入」合并，不会产生重复"
+          }
+        }
+      }
+    },
+    "settings_sync_export_manifest": {
+      "comment": "Android R.string.settings_sync_export_manifest",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export time, account summary, and SHA-256 checksum"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出时间、账号摘要与 SHA-256 校验"
+          }
+        }
+      }
+    },
+    "settings_sync_export_offline": {
+      "comment": "Android R.string.settings_sync_export_offline",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Readable offline"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脱机可读"
+          }
+        }
+      }
+    },
+    "settings_sync_export_offline_summary": {
+      "comment": "Android R.string.settings_sync_export_offline_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One Markdown file per album, with ratings, reviews, and notes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每张专辑对应一份 Markdown，含评分、乐评与笔记"
+          }
+        }
+      }
+    },
+    "settings_sync_export_private": {
+      "comment": "Android R.string.settings_sync_export_private",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No credentials included"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不含隐私凭据"
+          }
+        }
+      }
+    },
+    "settings_sync_export_private_summary": {
+      "comment": "Android R.string.settings_sync_export_private_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwords, credentials, API keys, play history, and audio cache are never exported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码、登录凭据、API 密钥、播放记录与音频缓存均不导出"
+          }
+        }
+      }
+    },
+    "settings_sync_export_read_failures %1$@": {
+      "comment": "Android R.string.settings_sync_export_read_failures",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some data couldn't be read on this device, so its last synced copy was used: %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分数据无法从此设备读取，已改用上次同步的副本：%1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_export_readable": {
+      "comment": "Android R.string.settings_sync_export_readable",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown sorted by account and album"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按账号与专辑整理的 Markdown"
+          }
+        }
+      }
+    },
+    "settings_sync_export_running": {
+      "comment": "Android R.string.settings_sync_export_running",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating backup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在打包"
+          }
+        }
+      }
+    },
+    "settings_sync_export_running_summary": {
+      "comment": "Android R.string.settings_sync_export_running_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gathering your cloud data into a ZIP backup."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在整理云端数据并生成 ZIP 备份。"
+          }
+        }
+      }
+    },
+    "settings_sync_export_running_summary_local": {
+      "comment": "Android R.string.settings_sync_export_running_summary_local",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gathering the data on this device into a ZIP backup."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在整理此设备上的数据并生成 ZIP 备份。"
+          }
+        }
+      }
+    },
+    "settings_sync_export_saved": {
+      "comment": "Android R.string.settings_sync_export_saved",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存"
+          }
+        }
+      }
+    },
+    "settings_sync_export_summary": {
+      "comment": "Android R.string.settings_sync_export_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export a single ZIP with a restorable snapshot and readable Markdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为单个 ZIP，含可还原快照与可读 Markdown"
+          }
+        }
+      }
+    },
+    "settings_sync_export_title": {
+      "comment": "Android R.string.settings_sync_export_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download all cloud data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载全部云端数据"
+          }
+        }
+      }
+    },
+    "settings_sync_export_title_local": {
+      "comment": "Android R.string.settings_sync_export_title_local",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download all data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载全部数据"
+          }
+        }
+      }
+    },
+    "settings_sync_from_device %1$@": {
+      "comment": "Android R.string.settings_sync_from_device",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_google_drive": {
+      "comment": "Android R.string.settings_sync_google_drive",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Drive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Drive"
+          }
+        }
+      }
+    },
+    "settings_sync_icloud": {
+      "comment": "Android R.string.settings_sync_icloud",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud"
+          }
+        }
+      }
+    },
+    "settings_sync_import_cancel": {
+      "comment": "Android R.string.settings_sync_import_cancel",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "settings_sync_import_choose": {
+      "comment": "Android R.string.settings_sync_import_choose",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import destination"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择导入目标"
+          }
+        }
+      }
+    },
+    "settings_sync_import_cloud": {
+      "comment": "Android R.string.settings_sync_import_cloud",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept in cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留在云端"
+          }
+        }
+      }
+    },
+    "settings_sync_import_cloud_only_note": {
+      "comment": "Android R.string.settings_sync_import_cloud_only_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not signed in on this device: the data stays in the cloud and links up when you sign in"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备未登录该账号，数据将保留在云端，登录后自动关联"
+          }
+        }
+      }
+    },
+    "settings_sync_import_confirm": {
+      "comment": "Android R.string.settings_sync_import_confirm",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge and import"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并导入"
+          }
+        }
+      }
+    },
+    "settings_sync_import_done": {
+      "comment": "Android R.string.settings_sync_import_done",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入"
+          }
+        }
+      }
+    },
+    "settings_sync_import_done_summary %1$@": {
+      "comment": "Android R.string.settings_sync_import_done_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged into %1$@. Other devices get it with the next sync."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据已合并到 %1$@，下次同步时将推送到其他设备。"
+          }
+        }
+      }
+    },
+    "settings_sync_import_done_summary_local": {
+      "comment": "Android R.string.settings_sync_import_done_summary_local",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged into this device."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据已合并到此设备。"
+          }
+        }
+      }
+    },
+    "settings_sync_import_exported": {
+      "comment": "Android R.string.settings_sync_import_exported",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出时间"
+          }
+        }
+      }
+    },
+    "settings_sync_import_failed": {
+      "comment": "Android R.string.settings_sync_import_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import didn't finish"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入没有完成"
+          }
+        }
+      }
+    },
+    "settings_sync_import_failed_kinds %1$@": {
+      "comment": "Android R.string.settings_sync_import_failed_kinds",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't write: %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下数据未能写入：%1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_import_failed_summary": {
+      "comment": "Android R.string.settings_sync_import_failed_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was lost. Try again in a moment."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有数据不受影响，请稍后再试。"
+          }
+        }
+      }
+    },
+    "settings_sync_import_global": {
+      "comment": "Android R.string.settings_sync_import_global",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局数据"
+          }
+        }
+      }
+    },
+    "settings_sync_import_info": {
+      "comment": "Android R.string.settings_sync_import_info",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup info"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份信息"
+          }
+        }
+      }
+    },
+    "settings_sync_import_into_profile %1$@": {
+      "comment": "Android R.string.settings_sync_import_into_profile",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Into %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入到 %1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_import_keep_cloud": {
+      "comment": "Android R.string.settings_sync_import_keep_cloud",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep in the cloud only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅留在云端"
+          }
+        }
+      }
+    },
+    "settings_sync_import_merge_into %1$@": {
+      "comment": "Android R.string.settings_sync_import_merge_into",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge into %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并到 %1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_import_purged_note": {
+      "comment": "Android R.string.settings_sync_import_purged_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account was removed from the cloud. Import it into an account on this device, or skip it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账号已从云端移除，只能导入到此设备上的账号，或跳过。"
+          }
+        }
+      }
+    },
+    "settings_sync_import_reading": {
+      "comment": "Android R.string.settings_sync_import_reading",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifying backup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在校验备份"
+          }
+        }
+      }
+    },
+    "settings_sync_import_refused %1$@": {
+      "comment": "Android R.string.settings_sync_import_refused",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not kept in the cloud (removed from the cloud): %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下账号已从云端移除，未保留在云端：%1$@"
+          }
+        }
+      }
+    },
+    "settings_sync_import_review": {
+      "comment": "Android R.string.settings_sync_import_review",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review import"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核对导入内容"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_add": {
+      "comment": "Android R.string.settings_sync_import_rule_add",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只增不删"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_add_summary": {
+      "comment": "Android R.string.settings_sync_import_rule_add_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes missing from the backup aren't deleted"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份中缺失的笔记不会被删除"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_rating": {
+      "comment": "Android R.string.settings_sync_import_rule_rating",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest rating wins"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "评分取较新值"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_rating_summary": {
+      "comment": "Android R.string.settings_sync_import_rule_rating_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clearing a rating counts as a change too"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消评分也会按修改时间覆盖"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_review": {
+      "comment": "Android R.string.settings_sync_import_rule_review",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep both reviews"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "乐评双向保留"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rule_review_summary": {
+      "comment": "Android R.string.settings_sync_import_rule_review_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the two differ, both are kept, marked with device and date"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两边内容不同时合并保留，并标注设备与日期"
+          }
+        }
+      }
+    },
+    "settings_sync_import_rules": {
+      "comment": "Android R.string.settings_sync_import_rules",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge rules"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并规则"
+          }
+        }
+      }
+    },
+    "settings_sync_import_running": {
+      "comment": "Android R.string.settings_sync_import_running",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在导入"
+          }
+        }
+      }
+    },
+    "settings_sync_import_same_account": {
+      "comment": "Android R.string.settings_sync_import_same_account",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merges into the same account on this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并到此设备上的同一账号"
+          }
+        }
+      }
+    },
+    "settings_sync_import_skip": {
+      "comment": "Android R.string.settings_sync_import_skip",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过"
+          }
+        }
+      }
+    },
+    "settings_sync_import_skipped": {
+      "comment": "Android R.string.settings_sync_import_skipped",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过"
+          }
+        }
+      }
+    },
+    "settings_sync_import_summary": {
+      "comment": "Android R.string.settings_sync_import_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migrate from another cloud service, or restore without Google services"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他云服务迁移，或在无 Google 服务的设备上还原"
+          }
+        }
+      }
+    },
+    "settings_sync_import_this_device": {
+      "comment": "Android R.string.settings_sync_import_this_device",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备"
+          }
+        }
+      }
+    },
+    "settings_sync_import_this_device_inline": {
+      "comment": "Android R.string.settings_sync_import_this_device_inline",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备"
+          }
+        }
+      }
+    },
+    "settings_sync_import_title": {
+      "comment": "Android R.string.settings_sync_import_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from backup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从备份文件导入"
+          }
+        }
+      }
+    },
+    "settings_sync_import_verified": {
+      "comment": "Android R.string.settings_sync_import_verified",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verified"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "校验通过"
+          }
+        }
+      }
+    },
+    "settings_sync_import_verified_summary": {
+      "comment": "Android R.string.settings_sync_import_verified_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHA-256 matches, file intact"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHA-256 一致，文件完整"
+          }
+        }
+      }
+    },
+    "settings_sync_import_written": {
+      "comment": "Android R.string.settings_sync_import_written",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入"
+          }
+        }
+      }
+    },
+    "settings_sync_kind_notes": {
+      "comment": "Android R.string.settings_sync_kind_notes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记"
+          }
+        }
+      }
+    },
+    "settings_sync_kind_other": {
+      "comment": "Android R.string.settings_sync_kind_other",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他数据"
+          }
+        }
+      }
+    },
+    "settings_sync_kind_ratings": {
+      "comment": "Android R.string.settings_sync_kind_ratings",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ratings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "评分"
+          }
+        }
+      }
+    },
+    "settings_sync_kind_reviews": {
+      "comment": "Android R.string.settings_sync_kind_reviews",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviews"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "乐评"
+          }
+        }
+      }
+    },
+    "settings_sync_kind_titles": {
+      "comment": "Android R.string.settings_sync_kind_titles",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memories titles"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memories 标题"
+          }
+        }
+      }
+    },
+    "settings_sync_list_last %1$@ %2$@": {
+      "comment": "Android R.string.settings_sync_list_last",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ and %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@和%2$@"
+          }
+        }
+      }
+    },
+    "settings_sync_list_separator": {
+      "comment": "Android R.string.settings_sync_list_separator",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、"
+          }
+        }
+      }
+    },
+    "settings_sync_no_data": {
+      "comment": "Android R.string.settings_sync_no_data",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No data yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无数据"
+          }
+        }
+      }
+    },
+    "settings_sync_read_checksum": {
+      "comment": "Android R.string.settings_sync_read_checksum",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backup is damaged or was changed (SHA-256 doesn't match)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份已损坏或被修改（SHA-256 不一致）。"
+          }
+        }
+      }
+    },
+    "settings_sync_read_failed": {
+      "comment": "Android R.string.settings_sync_read_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read this backup file."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取此备份文件。"
+          }
+        }
+      }
+    },
+    "settings_sync_read_not_backup": {
+      "comment": "Android R.string.settings_sync_read_not_backup",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This isn't a Yoin backup file."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这不是 Yoin 备份文件。"
+          }
+        }
+      }
+    },
+    "settings_sync_read_too_new": {
+      "comment": "Android R.string.settings_sync_read_too_new",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This backup was made by a newer Yoin. Update Yoin to import it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此备份由较新版本的 Yoin 生成，请先更新 Yoin。"
+          }
+        }
+      }
+    },
+    "settings_sync_remove_all_data": {
+      "comment": "Android R.string.settings_sync_remove_all_data",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all its data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部数据"
+          }
+        }
+      }
+    },
+    "settings_sync_remove_failed %1$@": {
+      "comment": "Android R.string.settings_sync_remove_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't remove %1$@ from the cloud. Check your connection and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从云端移除 %1$@，请检查网络后重试。"
+          }
+        }
+      }
+    },
+    "settings_sync_section_backup": {
+      "comment": "Android R.string.settings_sync_section_backup",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup and migration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份与迁移"
+          }
+        }
+      }
+    },
+    "settings_sync_section_backup_file": {
+      "comment": "Android R.string.settings_sync_section_backup_file",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份文件"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_about %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_about",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld song About entry"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld song About entries"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条歌曲关于"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_accounts %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_accounts",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld account"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld accounts"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个账号"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_albums %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_albums",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld album rating & review"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld album ratings & reviews"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条专辑评分与乐评"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_backups %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_backups",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld playlist backup"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld playlist backups"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 份歌单备份"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_count %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_count",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld items"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_items %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_items",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld items"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条数据"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_kb": {
+      "comment": "Android R.string.settings_sync_unit_kb",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KB"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_mb": {
+      "comment": "Android R.string.settings_sync_unit_mb",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MB"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_notes %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_notes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld note"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld notes"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条笔记"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_song_ratings %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_song_ratings",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld song rating"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld song ratings"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条单曲评分"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_songs %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_songs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld song"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld songs"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 首"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_title_count %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_title_count",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld title"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld titles"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_titles %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_titles",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Memories title"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Memories titles"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个 Memories 标题"
+          }
+        }
+      }
+    },
+    "settings_sync_unit_translations %lld": {
+      "comment": "Android R.plurals.settings_sync_unit_translations",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld lyric translation"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld lyric translations"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条歌词翻译"
+          }
+        }
+      }
+    },
+    "settings_sync_unknown_song": {
+      "comment": "Android R.string.settings_sync_unknown_song",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown song"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知歌曲"
+          }
+        }
+      }
+    },
+    "settings_xfer_add_account": {
+      "comment": "Android R.string.settings_xfer_add_account",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add account…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加账号…"
+          }
+        }
+      }
+    },
+    "settings_xfer_add_account_summary": {
+      "comment": "Android R.string.settings_xfer_add_account_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The target account must be signed in on this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标账号需先登录在此设备上"
+          }
+        }
+      }
+    },
+    "settings_xfer_albums_note %1$lld %2$lld %3$lld %4$@": {
+      "comment": "Android R.string.settings_xfer_albums_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Album ratings & reviews: %1$lld albums, %2$lld matched; the other %3$lld stay in %4$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑评分与乐评：共 %1$lld 张，已匹配 %2$lld 张，其余 %3$lld 张保留在 %4$@。"
+          }
+        }
+      }
+    },
+    "settings_xfer_badge_direct": {
+      "comment": "Android R.string.settings_xfer_badge_direct",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct copy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_badge_match": {
+      "comment": "Android R.string.settings_xfer_badge_match",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs matching"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需匹配曲目"
+          }
+        }
+      }
+    },
+    "settings_xfer_badge_partial": {
+      "comment": "Android R.string.settings_xfer_badge_partial",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partial match"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分需匹配"
+          }
+        }
+      }
+    },
+    "settings_xfer_cancel": {
+      "comment": "Android R.string.settings_xfer_cancel",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "settings_xfer_cancel_body": {
+      "comment": "Android R.string.settings_xfer_cancel_body",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing has been written yet; neither account changes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未写入任何数据，两个账号均不会改变。"
+          }
+        }
+      }
+    },
+    "settings_xfer_cancel_confirm": {
+      "comment": "Android R.string.settings_xfer_cancel_confirm",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel transfer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消转移"
+          }
+        }
+      }
+    },
+    "settings_xfer_cancel_keep": {
+      "comment": "Android R.string.settings_xfer_cancel_keep",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep going"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续"
+          }
+        }
+      }
+    },
+    "settings_xfer_cancel_title": {
+      "comment": "Android R.string.settings_xfer_cancel_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel the transfer?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消转移？"
+          }
+        }
+      }
+    },
+    "settings_xfer_card_removed %1$@": {
+      "comment": "Android R.string.settings_xfer_card_removed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %1$@'s account card. Its cloud data is kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除 %1$@ 的账号卡片，云端数据已保留"
+          }
+        }
+      }
+    },
+    "settings_xfer_change": {
+      "comment": "Android R.string.settings_xfer_change",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改"
+          }
+        }
+      }
+    },
+    "settings_xfer_choose_match": {
+      "comment": "Android R.string.settings_xfer_choose_match",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a match"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择匹配项"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean": {
+      "comment": "Android R.string.settings_xfer_clean",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove original cloud data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清理原账号云端数据"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean_body %1$@ %2$@ %3$@": {
+      "comment": "Android R.string.settings_xfer_clean_body",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes %2$@ of %1$@ from the cloud. What was copied to %3$@ isn't affected."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将从云端删除 %1$@ 的 %2$@，已复制到 %3$@ 的内容不受影响。"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean_later": {
+      "comment": "Android R.string.settings_xfer_clean_later",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍后再说"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean_now": {
+      "comment": "Android R.string.settings_xfer_clean_now",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清理"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean_summary %1$@ %2$@": {
+      "comment": "Android R.string.settings_xfer_clean_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once %1$@ looks right, you can delete %2$@'s copy from the cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认 %1$@ 正常后，可从云端删除 %2$@ 的副本"
+          }
+        }
+      }
+    },
+    "settings_xfer_clean_title %1$@": {
+      "comment": "Android R.string.settings_xfer_clean_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@'s cloud data?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清理 %1$@ 的云端数据？"
+          }
+        }
+      }
+    },
+    "settings_xfer_cleaned %1$@": {
+      "comment": "Android R.string.settings_xfer_cleaned",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted %1$@'s data from the cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从云端删除 %1$@ 的数据"
+          }
+        }
+      }
+    },
+    "settings_xfer_close": {
+      "comment": "Android R.string.settings_xfer_close",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "settings_xfer_cloud_note %1$@": {
+      "comment": "Android R.string.settings_xfer_cloud_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is only in the cloud. No need to sign in again: Yoin reads the cloud copy directly."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 仅在云端，无需重新登录，Yoin 会直接读取云端副本。"
+          }
+        }
+      }
+    },
+    "settings_xfer_copy_only %1$@": {
+      "comment": "Android R.string.settings_xfer_copy_only",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy only, never move: %1$@ keeps all its data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅复制不移动，%1$@ 的原有数据保持不变。"
+          }
+        }
+      }
+    },
+    "settings_xfer_copying %1$@": {
+      "comment": "Android R.string.settings_xfer_copying",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copying to %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在复制到 %1$@"
+          }
+        }
+      }
+    },
+    "settings_xfer_direct_songs": {
+      "comment": "Android R.string.settings_xfer_direct_songs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "direct"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首直接复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_done_kept %1$@": {
+      "comment": "Android R.string.settings_xfer_done_kept",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ keeps all its data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的原有数据已保留。"
+          }
+        }
+      }
+    },
+    "settings_xfer_done_title %1$@": {
+      "comment": "Android R.string.settings_xfer_done_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到 %1$@"
+          }
+        }
+      }
+    },
+    "settings_xfer_dup_notes": {
+      "comment": "Android R.string.settings_xfer_dup_notes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep all notes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记双向保留"
+          }
+        }
+      }
+    },
+    "settings_xfer_dup_notes_summary": {
+      "comment": "Android R.string.settings_xfer_dup_notes_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes on the same song are shown together by time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一首歌的笔记按时间合并展示"
+          }
+        }
+      }
+    },
+    "settings_xfer_dup_ratings": {
+      "comment": "Android R.string.settings_xfer_dup_ratings",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest rating wins"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "评分取较新值"
+          }
+        }
+      }
+    },
+    "settings_xfer_dup_reviews": {
+      "comment": "Android R.string.settings_xfer_dup_reviews",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep both reviews"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "乐评合并保留"
+          }
+        }
+      }
+    },
+    "settings_xfer_dup_reviews_summary %1$@": {
+      "comment": "Android R.string.settings_xfer_dup_reviews_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separated by “— from %1$@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以「— 来自 %1$@」分隔"
+          }
+        }
+      }
+    },
+    "settings_xfer_duplicates": {
+      "comment": "Android R.string.settings_xfer_duplicates",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicates"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复处理"
+          }
+        }
+      }
+    },
+    "settings_xfer_finished %1$@": {
+      "comment": "Android R.string.settings_xfer_finished",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy complete. %1$@ keeps all its data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制完成，%1$@ 的原有数据已保留"
+          }
+        }
+      }
+    },
+    "settings_xfer_from %1$@": {
+      "comment": "Android R.string.settings_xfer_from",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %1$@"
+          }
+        }
+      }
+    },
+    "settings_xfer_head_source": {
+      "comment": "Android R.string.settings_xfer_head_source",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose source account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择来源账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_head_target": {
+      "comment": "Android R.string.settings_xfer_head_target",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose target account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择目标账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_left_note %1$@": {
+      "comment": "Android R.string.settings_xfer_left_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracks not found or not checked stay in %1$@. You can transfer them again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到或未勾选的条目将保留在 %1$@，日后可随时重试。"
+          }
+        }
+      }
+    },
+    "settings_xfer_match_songs": {
+      "comment": "Android R.string.settings_xfer_match_songs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to match"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首需匹配"
+          }
+        }
+      }
+    },
+    "settings_xfer_matching": {
+      "comment": "Android R.string.settings_xfer_matching",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matching"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配方式"
+          }
+        }
+      }
+    },
+    "settings_xfer_matching_on %1$@": {
+      "comment": "Android R.string.settings_xfer_matching_on",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matching on %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在匹配 %1$@ 曲库"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_direct": {
+      "comment": "Android R.string.settings_xfer_method_direct",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct copy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_direct_summary %1$@": {
+      "comment": "Android R.string.settings_xfer_method_direct_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ track IDs work across accounts, so nothing needs matching."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的曲目 ID 跨账号通用，无需匹配。"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_match": {
+      "comment": "Android R.string.settings_xfer_method_match",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match tracks first"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先匹配曲目"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_match_summary %1$@": {
+      "comment": "Android R.string.settings_xfer_method_match_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matched by ISRC first, then by title, artist, and duration. You check the unsure ones; tracks not found stay in %1$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先按 ISRC 匹配，其次按歌名、艺人与时长；待确认项由你核对，未匹配项保留在 %1$@。"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_partial": {
+      "comment": "Android R.string.settings_xfer_method_partial",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostly direct, the rest matched"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大部分直接复制，其余需匹配"
+          }
+        }
+      }
+    },
+    "settings_xfer_method_partial_summary": {
+      "comment": "Android R.string.settings_xfer_method_partial_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Catalog tracks copy directly; tracks private to the original library are matched again by title and artist."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目录曲目直接复制；仅限原资料库的私有曲目将按歌名与艺人重新匹配。"
+          }
+        }
+      }
+    },
+    "settings_xfer_neodb_note": {
+      "comment": "Android R.string.settings_xfer_neodb_note",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied ratings aren't pushed to NeoDB again, and running it again skips what was already copied."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制的评分不会重复推送至 NeoDB，再次运行会自动跳过已复制项。"
+          }
+        }
+      }
+    },
+    "settings_xfer_next": {
+      "comment": "Android R.string.settings_xfer_next",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一步"
+          }
+        }
+      }
+    },
+    "settings_xfer_no_targets": {
+      "comment": "Android R.string.settings_xfer_no_targets",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No other account on this device to copy into."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上没有可复制到的其他账号。"
+          }
+        }
+      }
+    },
+    "settings_xfer_nothing_new": {
+      "comment": "Android R.string.settings_xfer_nothing_new",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing new"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无新增内容"
+          }
+        }
+      }
+    },
+    "settings_xfer_progress %1$lld %2$lld": {
+      "comment": "Android R.string.settings_xfer_progress",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "settings_xfer_read_failed %1$@": {
+      "comment": "Android R.string.settings_xfer_read_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read %1$@'s data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 %1$@ 的数据。"
+          }
+        }
+      }
+    },
+    "settings_xfer_remove_card": {
+      "comment": "Android R.string.settings_xfer_remove_card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove original account card from this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成后移除此设备上的原账号卡片"
+          }
+        }
+      }
+    },
+    "settings_xfer_remove_card_summary": {
+      "comment": "Android R.string.settings_xfer_remove_card_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avoids duplicates in All Memories and Search; cloud data stays intact."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "避免「全部 Memories」与搜索出现重复内容，云端数据仍会保留。"
+          }
+        }
+      }
+    },
+    "settings_xfer_review_lead %1$@ %2$lld %3$@": {
+      "comment": "Android R.string.settings_xfer_review_lead",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looked up %2$lld tracks of %1$@ on %3$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已为 %1$@ 的 %2$lld 首曲目在 %3$@ 中查找对应版本。"
+          }
+        }
+      }
+    },
+    "settings_xfer_review_partial_lead %1$lld %2$lld": {
+      "comment": "Android R.string.settings_xfer_review_partial_lead",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld catalog tracks copy directly. Check the matches for these %2$lld private tracks."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 首目录曲目将直接复制，以下 %2$lld 首私有曲目请核对匹配结果。"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_ai_titles": {
+      "comment": "Android R.string.settings_xfer_row_ai_titles",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Memories titles and blurbs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Memories 标题与文案"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_albums": {
+      "comment": "Android R.string.settings_xfer_row_albums",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Album ratings & reviews"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑评分与乐评"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_custom_titles": {
+      "comment": "Android R.string.settings_xfer_row_custom_titles",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Memories titles"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义 Memories 标题"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_links": {
+      "comment": "Android R.string.settings_xfer_row_links",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Track and album links"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "曲目与专辑归属"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_links_summary": {
+      "comment": "Android R.string.settings_xfer_row_links_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes stay grouped under their albums"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留笔记所属的专辑分组"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_notes": {
+      "comment": "Android R.string.settings_xfer_row_notes",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记"
+          }
+        }
+      }
+    },
+    "settings_xfer_row_song_ratings": {
+      "comment": "Android R.string.settings_xfer_row_song_ratings",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Song ratings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单曲评分"
+          }
+        }
+      }
+    },
+    "settings_xfer_run_failed": {
+      "comment": "Android R.string.settings_xfer_run_failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The copy didn't finish. Try again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制没有完成，请稍后再试。"
+          }
+        }
+      }
+    },
+    "settings_xfer_skip_all": {
+      "comment": "Android R.string.settings_xfer_skip_all",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing new to copy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有新增内容需要复制。"
+          }
+        }
+      }
+    },
+    "settings_xfer_skip_some": {
+      "comment": "Android R.string.settings_xfer_skip_some",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only new items, or ones that weren't matched before, are copied."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅复制新增或此前未匹配的内容。"
+          }
+        }
+      }
+    },
+    "settings_xfer_skip_title %1$@": {
+      "comment": "Android R.string.settings_xfer_skip_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipping %1$@ items already transferred"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过 %1$@ 条已转移内容"
+          }
+        }
+      }
+    },
+    "settings_xfer_source_group": {
+      "comment": "Android R.string.settings_xfer_source_group",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_start_copy": {
+      "comment": "Android R.string.settings_xfer_start_copy",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start copying"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_start_match": {
+      "comment": "Android R.string.settings_xfer_start_match",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start matching"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始匹配"
+          }
+        }
+      }
+    },
+    "settings_xfer_stays": {
+      "comment": "Android R.string.settings_xfer_stays",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stays in source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留原账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_step %1$lld %2$lld %3$@": {
+      "comment": "Android R.string.settings_xfer_step",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %1$lld of %2$lld: %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 步，共 %2$lld 步：%3$@"
+          }
+        }
+      }
+    },
+    "settings_xfer_step_copy": {
+      "comment": "Android R.string.settings_xfer_step_copy",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_step_review": {
+      "comment": "Android R.string.settings_xfer_step_review",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match tracks"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核对曲目"
+          }
+        }
+      }
+    },
+    "settings_xfer_step_source": {
+      "comment": "Android R.string.settings_xfer_step_source",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择来源"
+          }
+        }
+      }
+    },
+    "settings_xfer_step_summary": {
+      "comment": "Android R.string.settings_xfer_step_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review summary"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认内容"
+          }
+        }
+      }
+    },
+    "settings_xfer_step_target": {
+      "comment": "Android R.string.settings_xfer_step_target",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择目标"
+          }
+        }
+      }
+    },
+    "settings_xfer_summary": {
+      "comment": "Android R.string.settings_xfer_summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy notes, ratings, and reviews to another account without changing the original"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将笔记、评分与乐评复制到另一个账号，原数据保留"
+          }
+        }
+      }
+    },
+    "settings_xfer_summary_title": {
+      "comment": "Android R.string.settings_xfer_summary_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review what will be copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认转移内容"
+          }
+        }
+      }
+    },
+    "settings_xfer_target_group": {
+      "comment": "Android R.string.settings_xfer_target_group",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_target_unreachable %1$@": {
+      "comment": "Android R.string.settings_xfer_target_unreachable",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach %1$@. Try again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 %1$@，请稍后再试。"
+          }
+        }
+      }
+    },
+    "settings_xfer_tile_copied": {
+      "comment": "Android R.string.settings_xfer_tile_copied",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        }
+      }
+    },
+    "settings_xfer_tile_left": {
+      "comment": "Android R.string.settings_xfer_tile_left",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left in source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留原账号"
+          }
+        }
+      }
+    },
+    "settings_xfer_tile_skipped": {
+      "comment": "Android R.string.settings_xfer_tile_skipped",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过"
+          }
+        }
+      }
+    },
+    "settings_xfer_title": {
+      "comment": "Android R.string.settings_xfer_title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer Memories"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转移 Memories"
+          }
+        }
+      }
+    },
+    "settings_xfer_total %1$@": {
+      "comment": "Android R.string.settings_xfer_total",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in total"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %1$@ 条"
+          }
+        }
+      }
+    },
+    "settings_xfer_what": {
+      "comment": "Android R.string.settings_xfer_what",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What will be copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将复制的内容"
           }
         }
       }

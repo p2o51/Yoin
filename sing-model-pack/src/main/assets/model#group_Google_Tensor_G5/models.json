@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "pack": "sing_model_pack",
+  "group": "Google_Tensor_G5",
+  "models": [
+    {"id": "lyra_sing_lite-tensor_g5-aot", "file": "lyra_sing_lite.tflite",
+     "sha256": "10bd17fb365d23f1fea5dc91c307409827eb4d7c9b0ce38993efee9c70a0a500", "bytes": 7372736,
+     "precision": "bf16-aot", "socManufacturer": "Google", "socModel": "Tensor G5", "accelerators": ["NPU"]},
+    {"id": "lyra_sing_lite-fp16", "file": "lyra_sing_lite_fp16.tflite",
+     "sha256": "176b9dd47bcc3de24e27c14bc4edb44bf1fff6d74e95c53476a4f5a7a1610651", "bytes": 4465088,
+     "precision": "fp16", "accelerators": ["GPU", "CPU"]}
+  ]
+}

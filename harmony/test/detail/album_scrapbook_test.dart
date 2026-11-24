@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/detail/album_scrapbook_track_sheet.dart';
+import 'package:yoin/data/notes/note_markup.dart';
+import 'package:yoin/notes/editor/note_editor_controller.dart';
+import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
@@ -430,6 +434,75 @@ void main() {
       await close(tester);
     });
 
+    testWidgets('should_tickAStickysTodo_without_openingIt', (tester) async {
+      final (_, _, store) = await open(tester);
+      await store.putAlbumNote(_albumNote('an1', '- [ ] find the vinyl', created: 10));
+      await toScrapbook(tester);
+      final words = find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText));
+      final sticky = words.evaluate().firstWhere(
+        (e) => (e.widget as RichText).text.toPlainText().contains('find the vinyl'),
+      );
+      await tester.tapAt(tester.getTopLeft(find.byElementPredicate((e) => e == sticky)) + const Offset(4, 8));
+      await settle(tester);
+      expect((await store.albumNotes(_album.id)).single.content, '- [x] find the vinyl');
+      expect(find.byType(TextField), findsNothing, reason: 'the box ticks; the sticky stays shut');
+      await close(tester);
+    });
+
+    testWidgets('should_saveAMention_when_writtenOnASticky', (tester) async {
+      final (_, _, store) = await open(tester);
+      await toScrapbook(tester);
+      await tester.tap(find.bySemanticsLabel('Write an album note'));
+      await settle(tester);
+      final field = tester.widget<TextField>(find.byType(TextField));
+      final controller = field.controller! as NoteEditorController;
+      controller.text = 'like ';
+      controller.insertMention(
+        NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al9', title: 'Court and Spark'),
+      );
+      await settle(tester);
+      expect(find.text('@Court and Spark'), findsOneWidget, reason: 'one chip in the editor');
+      await tester.tap(find.text('Save'));
+      await settle(tester);
+      expect((await store.albumNotes(_album.id)).single.content, 'like [@Court and Spark](yoin:album/subsonic:al9)');
+      await close(tester);
+    });
+
+    testWidgets('should_listMentionsFromElsewhere_underMentionedIn', (tester) async {
+      final (_, _, store) = await open(tester);
+      final album = NoteMarkup.serializeMention(
+        NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al1', title: 'Blue'),
+      );
+      final song = NoteMarkup.serializeMention(
+        NoteMention(kind: MentionKind.track, provider: 'subsonic', id: 't3', title: 'Song t3'),
+      );
+      // On another album's song: listed. On this album's own song: already on this page.
+      await store.putSongNote(
+        SongNote(
+          id: 'elsewhere',
+          trackId: MediaId.subsonic('x9'),
+          albumId: MediaId.subsonic('al-other'),
+          content: 'sounds like $album',
+          createdAt: 5,
+          updatedAt: 5,
+          title: 'Other song',
+          positionMs: 83000,
+        ),
+      );
+      await store.putSongNote(_note('own', 2, text: 'see $song'));
+      await store.setAlbumReview(MediaId.subsonic('al-two'), 'then $song again', nowMs: 9);
+      await toScrapbook(tester);
+      await tester.scrollUntilVisible(find.text('Mentioned in'), 300, scrollable: find.byType(Scrollable).last);
+      await settle(tester);
+
+      expect(find.text('Mentioned in'), findsOneWidget);
+      expect(find.text('2 places'), findsOneWidget);
+      expect(find.text('Other song'), findsOneWidget);
+      expect(find.text('sounds like Blue', findRichText: true), findsOneWidget);
+      expect(find.text('then Song t3 again', findRichText: true), findsOneWidget);
+      await close(tester);
+    });
+
     testWidgets('should_closeTheEditor_when_itsStickyIsDeletedElsewhere', (tester) async {
       final (_, _, store) = await open(tester);
       await store.putAlbumNote(_albumNote('an1', 'synced sticky'));
@@ -466,7 +539,7 @@ void main() {
       }
     });
 
-    testWidgets('should_playFromNoteMoment_when_noteTapped', (tester) async {
+    testWidgets('should_openTheNoteInTheTrackSheet_notPlay_when_noteTapped', (tester) async {
       final (_, engine, store) = await open(tester);
       await store.putSongNote(_note('n1', 3, at: 61000, text: 'the bridge'));
       await store.setAlbumReview(_album.id, 'Late-night record.', nowMs: 1);
@@ -481,7 +554,11 @@ void main() {
 
       await tester.tap(find.text('the bridge'));
       await settle(tester);
-      expect(engine.startIndex, 2);
+      // The track sheet on its Note tab, the note in view; nothing started playing.
+      expect(find.byType(ScrapTrackSheet), findsOneWidget);
+      expect(tester.widget<ScrapTrackSheet>(find.byType(ScrapTrackSheet)).focusNote, 'n1');
+      expect(find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('the bridge')), findsOneWidget);
+      expect(engine.startIndex, -1);
       await close(tester);
     });
   });

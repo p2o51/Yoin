@@ -23,6 +23,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "Yoin"
 include(":app")
+// Sing's LiteRT models, a Play AI Pack (on demand, per device group): see sing-model-pack/build.gradle.kts
+include(":sing-model-pack")
 include(":shared")
 include(":playground:track-match")
 
