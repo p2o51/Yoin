@@ -303,6 +303,15 @@ final class AccountChanged extends SyncAccountStatus {
   int get hashCode => 5;
 }
 
+/// Removed from the cloud (a scope purge marker, from any device): not synced here until resumed.
+final class AccountRemovedFromCloud extends SyncAccountStatus {
+  const AccountRemovedFromCloud();
+  @override
+  bool operator ==(Object other) => other is AccountRemovedFromCloud;
+  @override
+  int get hashCode => 6;
+}
+
 /// An account whose data is in Drive but not connected on this device.
 @immutable
 final class CloudAccountRow {
@@ -423,6 +432,9 @@ abstract interface class CloudSyncController {
 
   /// Fingerprint changed to a different account: drop the old account's synced items here, sync as the new one.
   void startFreshAccount(String localProfileId);
+
+  /// An account removed from the cloud ([AccountRemovedFromCloud]) syncs again from this device.
+  void resumeAccountSync(String localProfileId);
 
   /// Delete another device's files from Drive (it re-uploads if it is still alive).
   void removeDevice(String deviceId);

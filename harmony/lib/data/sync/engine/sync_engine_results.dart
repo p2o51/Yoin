@@ -104,6 +104,7 @@ final class MergeResult {
     required this.opaque,
     required this.malformed,
     required this.changedByScope,
+    this.purged = 0,
   });
 
   final String fileId;
@@ -118,6 +119,9 @@ final class MergeResult {
   final int opaque;
   final int malformed;
   final ScopeKindCounts changedByScope;
+
+  /// Records dropped because their scope was removed from the cloud at or after their version.
+  final int purged;
 
   bool get changed => inserted + replaced + keptBoth > 0;
 }

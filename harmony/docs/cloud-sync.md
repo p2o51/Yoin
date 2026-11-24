@@ -38,7 +38,7 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | Bindings and fingerprints | `lib/data/sync/identity/` (fp:v1 byte-identical to Android: the same server gets the same `s-…` scope on both) |
 | Drive REST | `lib/data/sync/drive/drive_app_data_client.dart` (Dart `http`, no logging) |
 | Google sign-in | `lib/data/sync/auth/google_oauth.dart` |
-| Manager (cycles, reset markers, devices, states) | `lib/data/sync/cloud_sync_manager.dart` |
+| Manager (cycles, reset and scope purge markers, devices, states) | `lib/data/sync/cloud_sync_manager.dart` |
 | Platform seam | `lib/platform/sync/cloud_sync_host.dart` → ArkTS `ohos/entry/src/main/ets/yoin/sync/CloudSyncPlugin.ets` (`yoin/cloud_sync`); Windows: `DesktopCloudSyncHost` |
 | Settings › Sync and storage › Cloud sync | `lib/settings/sync/` |
 
@@ -104,5 +104,14 @@ Google Cloud project** as Android's (otherwise it sees a different, empty
   Client ID, which HarmonyOS doesn't have); new wording for HarmonyOS should come
   from the owner's copy model.
 - The browser's return page shows only “Yoin ✓” (no copy exists for it).
+- “Remove from the cloud” for one account can't be started here yet (no copy for
+  the dialog). Markers other devices write (`yoin-purge-*`) are applied before peers
+  are merged, as in `CloudSyncCore`: the account's records and descriptor leave the
+  replica, its binding becomes Removed from the cloud (not captured, applied or
+  described; a profile added later binds that way too), this device's files carry
+  `"purges"`, and records of the scope are taken only from files that acknowledge
+  the purge and only after its epoch. Local data stays. Resume syncing on the
+  account row joins the scope again, stamped after the epoch; Delete cloud data
+  deletes the markers and clears the removal (`docs/cloud-sync.md`「从云端移除一个账号」).
 - The replica is a JSON snapshot rather than SQLite; a crash between a domain write
   and the snapshot save is repaired on the next capture, as on Android.
