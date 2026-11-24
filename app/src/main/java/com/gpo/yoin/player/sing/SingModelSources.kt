@@ -129,7 +129,7 @@ class BundledSingModelSource(
                 throw IOException("bundled $group/${SingLiteRtPlan.META_FILE} unreadable", e)
             }
             meta.models.filter(keep).map { it.copy(file = "$group/${it.file}") }
-        }
+        }.distinctBy { it.sha256.lowercase() } // fp16 is in every group: copied once
         if (groups.isEmpty()) null else LiteRtCatalog(group = groups.joinToString("+"), models = models)
     }
 

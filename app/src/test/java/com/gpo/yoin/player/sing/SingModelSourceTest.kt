@@ -7,6 +7,7 @@ import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -78,12 +79,16 @@ class SingModelSourceTest {
         val g6 = meta("Google_Tensor_G6")
         assertEquals("sing_model_pack", g6.pack)
         assertEquals("Google_Tensor_G6", g6.group)
-        assertEquals("lyra_sing_lite-tensor_g6-aot", g6.models.single().id)
-        assertEquals(listOf(SingAccelerator.NPU), g6.models.single().accelerators)
-        assertEquals("Tensor G6" to "Google", g6.models.single().let { it.socModel to it.socManufacturer })
+        // Tensor groups: the SoC's AOT build for the NPU, and fp16 so the router can still fall back to GPU/CPU.
+        assertEquals(listOf("lyra_sing_lite-tensor_g6-aot", "lyra_sing_lite-fp16"), g6.models.map { it.id })
+        assertEquals(listOf(listOf(SingAccelerator.NPU), listOf(SingAccelerator.GPU, SingAccelerator.CPU)), g6.models.map { it.accelerators })
+        assertEquals("Tensor G6" to "Google", g6.models.first().let { it.socModel to it.socManufacturer })
+        assertNull(g6.models[1].socModel)
         val g5 = meta("Google_Tensor_G5")
-        assertEquals(listOf(SingAccelerator.NPU), g5.models.single().accelerators)
-        assertEquals("Tensor G5", g5.models.single().socModel)
+        assertEquals(listOf("lyra_sing_lite-tensor_g5-aot", "lyra_sing_lite-fp16"), g5.models.map { it.id })
+        assertEquals(listOf(SingAccelerator.NPU), g5.models.first().accelerators)
+        assertEquals("Tensor G5", g5.models.first().socModel)
+        assertEquals(g5.models[1].sha256, meta("other").models.single().sha256)
         val other = meta("other")
         assertEquals("lyra_sing_lite-fp16", other.models.single().id)
         assertEquals(listOf(SingAccelerator.GPU, SingAccelerator.CPU), other.models.single().accelerators)
@@ -110,7 +115,7 @@ class SingModelSourceTest {
         // "other" is Play's own default group: never declared, every device no group matched.
         assertEquals(listOf("Google_Tensor_G6", "Google_Tensor_G5"), declared.map { it.first })
         for ((group, maker, model) in declared) {
-            val m = meta(group).models.single()
+            val m = meta(group).models.single { it.socModel != null }
             assertEquals(group, maker, m.socManufacturer)
             assertEquals(group, model, m.socModel)
         }
@@ -128,8 +133,8 @@ class SingModelSourceTest {
         assertEquals("Google_Tensor_G5", local!!.catalog.group)
         val set = resolver.resolve()
         assertEquals(0, client.fetches)
-        assertEquals("lyra_sing_lite-tensor_g5-aot", set.catalog.models.single().id)
-        assertTrue(set.fileFor(set.catalog.models.single()).isFile)
+        assertEquals(listOf("lyra_sing_lite-tensor_g5-aot", "lyra_sing_lite-fp16"), set.catalog.models.map { it.id })
+        assertTrue(set.catalog.models.all { set.fileFor(it).isFile })
         assertTrue(set.origin, set.origin.contains("Google_Tensor_G5"))
     }
 
@@ -202,7 +207,8 @@ class SingModelSourceTest {
         assertNull(resolver.local()) // not copied out yet
         val set = resolver.resolve()
         assertEquals(0, client.fetches)
-        assertEquals(setOf("Google_Tensor_G5/lyra_sing_lite.tflite", "other/lyra_sing_lite.tflite"), set.catalog.models.map { it.file }.toSet())
+        // The G5 AOT build and fp16 once (every group has it).
+        assertEquals(listOf("Tensor G5 AOT", "fp16"), set.catalog.models.map { SingLiteRtPlan.TRUSTED_SHA256.getValue(it.sha256) })
         set.catalog.models.forEach { SingModelFiles.verify(set.fileFor(it), it) }
         val plan = SingLiteRtPlan.plan(set.catalog, "Google", "Tensor G5", npuAllowed = true)
         assertEquals(
@@ -219,8 +225,9 @@ class SingModelSourceTest {
         val assets = DirAssets(root)
         val source = BundledSingModelSource(assets, tmp.newFolder("nb")) { SingLiteRtPlan.matchesSoc(it, "Qualcomm", "SM8750") }
         val set = source.obtain {}
-        assertEquals(listOf("other/lyra_sing_lite.tflite"), set.catalog.models.map { it.file })
-        assertEquals(listOf("${BundledSingModelSource.ASSET_DIR}/other/lyra_sing_lite.tflite"), assets.opened.filter { it.endsWith(".tflite") })
+        assertEquals(listOf("fp16"), set.catalog.models.map { SingLiteRtPlan.TRUSTED_SHA256.getValue(it.sha256) })
+        assertEquals(1, assets.opened.count { it.endsWith(".tflite") })
+        SingModelFiles.verify(set.fileFor(set.catalog.models.single()), set.catalog.models.single())
     }
 
     @Test
@@ -261,7 +268,7 @@ class SingModelSourceTest {
         val other = tmp.newFile("other.tflite").apply { writeBytes(ByteArray(m.bytes.toInt()) { 7 }) }
         rejects(other, m.copy(sha256 = SingModelFiles.sha256(other)))
         // A trusted hash in the meta, but the file is another build.
-        rejects(File(groupDir("Google_Tensor_G5"), "lyra_sing_lite.tflite"), meta("Google_Tensor_G5").models.single().copy(sha256 = m.sha256))
+        rejects(File(groupDir("Google_Tensor_G5"), "lyra_sing_lite.tflite"), meta("Google_Tensor_G5").models.first().copy(sha256 = m.sha256))
     }
 
     // --- the backend before and after the models are here ---------------------------------------------------
@@ -291,7 +298,10 @@ class SingModelSourceTest {
         val backend = LiteRtSingBackend(context, SingModelResolver(listOf(AiPackSingModelSource(client))), 2, "Google", "Tensor G6", true)
         val file = backend.ensure {}
         assertEquals(File(assets, "model/lyra_sing_lite.tflite").path, file.path)
-        assertEquals(listOf("Tensor G6 AOT on NPU (Tensor TPU)"), backend.plan.map { LiteRtSingBackend.label(it) })
+        assertEquals(
+            listOf("Tensor G6 AOT on NPU (Tensor TPU)", "fp16 on GPU", "fp16 on CPU"),
+            backend.plan.map { LiteRtSingBackend.label(it) },
+        )
         assertEquals(file.path, backend.readyModel?.path)
     }
 
@@ -299,7 +309,11 @@ class SingModelSourceTest {
     fun should_failAsModelUnavailable_when_deliveredGroupHasNothingForThisSoc() = runBlocking {
         // A pack meta whose only build is another SoC's AOT: nothing this device may run.
         val context = mockk<Context>(relaxed = true)
-        val client = FakeAiPack(location = delivered("Google_Tensor_G5"))
+        val assets = delivered("Google_Tensor_G5")
+        val metaFile = File(assets, "model/${SingLiteRtPlan.META_FILE}")
+        val onlyAot = meta("Google_Tensor_G5").let { it.copy(models = it.models.filter { m -> m.socModel != null }) }
+        metaFile.writeText(Json.encodeToString(LiteRtCatalog.serializer(), onlyAot))
+        val client = FakeAiPack(location = assets)
         val backend = LiteRtSingBackend(context, SingModelResolver(listOf(AiPackSingModelSource(client))), 2, "Qualcomm", "SM8750", true)
         val e = runCatching { backend.ensure {} }.exceptionOrNull()
         assertTrue(e.toString(), e is SingModelUnavailable)
