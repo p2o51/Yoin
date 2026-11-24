@@ -564,6 +564,13 @@ final class MemoryStore {
     ];
   }
 
+  /// Every album note of the account, newest first (Android NoteMentionDao's album notes, for 被提及).
+  Future<List<AlbumNote>> allAlbumNotes() async {
+    await _tail;
+    final notes = [...await _loadAlbumNotes()]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return List.unmodifiable(notes);
+  }
+
   /// [albumId]'s notes, oldest first (Android AlbumNoteDao.observeForAlbum).
   Future<List<AlbumNote>> albumNotes(MediaId albumId) async {
     await _tail;
