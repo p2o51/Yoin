@@ -2,6 +2,7 @@ import Compression
 import CoreML
 import CryptoKit
 import Foundation
+import os
 
 /// Bounded LRU disk cache for 4-channel Quad AAC `.m4a` stems (`[I_L, I_R, V_L, V_R]`).
 actor SingStemCache {
@@ -284,11 +285,16 @@ enum SingZipExtractor {
 }
 
 /// On-device `Lyra-Sing-Lite` CoreML separator implementing the Race-to-Idle strategy:
+/// - Acquires `LyraSingLite.mlmodelc` on demand via Apple ODR (`sing_model_v1`, `computeUnits = .all`)
+///   with fallback to `SingModelStore` (local dev/test `.mlpackage` or HTTPS SHA-256 ZIP).
 /// - Single fullband decode (zero MP3 priming offset)
-/// - 22,050 Hz STFT → `[1, 4, 512, 256]` RMS-normalized CoreML chunks → Hann OLA → iSTFT → upsample
+/// - 22,050 Hz STFT → `[1, 4, 512, 256]` RMS-normalized CoreML chunks (ANE stride-safe) → Hann OLA → iSTFT → upsample
 /// - `I_full = X_full - V_full` (100% untouched sub-bass `<85 Hz` and air/cymbals `>10.5 kHz`)
-/// - Writes 4ch Quad AAC `.m4a` into `SingStemCache`, then drops `MLModel` immediately (`0%` idle memory).
+/// - Releases `MLModel` + ODR access immediately after inference (`0%` idle memory), then writes 4ch Quad AAC `.m4a` into `SingStemCache`.
 final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.gpo.yoin", category: "SingCoreML")
+
+    let odrProvider: SingModelODRProvider?
     let modelStore: SingModelStore
     let stemCache: SingStemCache
     private let remoteModelZipURL: URL?
@@ -296,7 +302,29 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
     /// Speed-gate threshold from the handoff spec: 1 chunk (`2.97 s`) taking `> 2.0 s` (`RTF > 0.7`) is too slow.
     static let maxAllowedChunkSeconds: Double = 2.0
 
-    init(modelStore: SingModelStore = SingModelStore(), stemCache: SingStemCache = SingStemCache(), remoteModelZipURL: URL? = nil) {
+    /// Per-song timing telemetry captured during `separateToQuadM4A` (useful for on-device ANE profiling).
+    struct SeparationMetrics: Sendable {
+        let modelSource: String
+        let odrCached: Bool
+        let modelAcquireMs: Double
+        let decodeStftMs: Double
+        let chunkCount: Int
+        let firstChunkMs: Double
+        let meanChunkMs: Double
+        let p50ChunkMs: Double
+        let inferTotalMs: Double
+        let istftResampleMs: Double
+        let encodeMs: Double
+        let totalMs: Double
+    }
+
+    init(
+        odrProvider: SingModelODRProvider? = SingModelODRProvider(),
+        modelStore: SingModelStore = SingModelStore(),
+        stemCache: SingStemCache = SingStemCache(),
+        remoteModelZipURL: URL? = nil
+    ) {
+        self.odrProvider = odrProvider
         self.modelStore = modelStore
         self.stemCache = stemCache
         self.remoteModelZipURL = remoteModelZipURL
@@ -319,6 +347,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         defer { continuation.finish() }
         let cacheKey = "local|\(SingModelAsset.version)|\(songId)"
         if let cached = await stemCache.hit(forKey: cacheKey) {
+            Self.logger.info("Stem cache hit for \(songId, privacy: .public)")
             continuation.yield(.ready(source: .localFile(cached)))
             return
         }
@@ -331,32 +360,34 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             return
         }
 
-        let compiledURL: URL
-        if await modelStore.isInstalled {
-            compiledURL = await modelStore.compiledModelURL
-        } else if let remoteModelZipURL {
-            continuation.yield(.downloadingModel(progress: 0))
-            do {
-                compiledURL = try await modelStore.downloadAndInstall(from: remoteModelZipURL) { progress in
-                    continuation.yield(.downloadingModel(progress: progress))
-                }
-            } catch SingModelStore.SingModelError.checksumMismatch {
-                continuation.yield(.failed(.modelChecksumMismatch))
-                return
-            } catch {
-                continuation.yield(.failed(.modelDownloadFailed(error.localizedDescription)))
-                return
+        let acquireStart = CFAbsoluteTimeGetCurrent()
+        let lease: SingModelLease
+        do {
+            lease = try await acquireModelLease(continuation: continuation)
+        } catch is CancellationError {
+            return
+        } catch SingModelStore.SingModelError.checksumMismatch {
+            continuation.yield(.failed(.modelChecksumMismatch))
+            return
+        } catch let err as ModelUnavailableError {
+            if err.needsDownload {
+                continuation.yield(.needsModelDownload)
+            } else {
+                continuation.yield(.failed(.modelDownloadFailed(err.message)))
             }
-        } else {
-            continuation.yield(.needsModelDownload)
+            return
+        } catch {
+            continuation.yield(.failed(.modelDownloadFailed(error.localizedDescription)))
             return
         }
+        let acquireMs = (CFAbsoluteTimeGetCurrent() - acquireStart) * 1000.0
 
         continuation.yield(.preparing(stage: .warming, etaSeconds: nil))
         do {
-            let outputURL = try await separateToQuadM4A(
+            let (outputURL, _) = try await separateToQuadM4A(
                 inputURL: localAudioURL,
-                compiledModelURL: compiledURL,
+                modelLease: lease,
+                modelAcquireMs: acquireMs,
                 cacheKey: cacheKey,
                 onStage: { stage, eta in
                     continuation.yield(.preparing(stage: stage, etaSeconds: eta))
@@ -364,27 +395,104 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             )
             continuation.yield(.ready(source: .localFile(outputURL)))
         } catch let err as SpeedGateError {
+            lease.release()
             continuation.yield(.failed(.deviceTooSlow(chunkSeconds: err.chunkSeconds)))
         } catch is CancellationError {
+            lease.release()
             return
         } catch {
+            lease.release()
             continuation.yield(.failed(.separationFailed(error.localizedDescription)))
         }
+    }
+
+    private struct ModelUnavailableError: Error {
+        let needsDownload: Bool
+        let message: String
+    }
+
+    /// Primary acquisition: Apple ODR (`sing_model_v1`, `computeUnits = .all`).
+    /// Fallback: pre-installed local `.mlmodelc` in `SingModelStore` or optional HTTPS ZIP download.
+    private func acquireModelLease(
+        continuation: AsyncStream<SingState>.Continuation
+    ) async throws -> SingModelLease {
+        var odrFailureMessage: String?
+        if let odrProvider {
+            continuation.yield(.downloadingModel(progress: 0))
+            do {
+                return try await odrProvider.loadModel { progress in
+                    continuation.yield(.downloadingModel(progress: progress))
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                odrFailureMessage = error.localizedDescription
+                Self.logger.notice("ODR load failed (\(error.localizedDescription, privacy: .public)); checking local fallback store")
+            }
+        }
+
+        let compiledURL: URL
+        if await modelStore.isInstalled {
+            compiledURL = await modelStore.compiledModelURL
+        } else if let remoteModelZipURL {
+            continuation.yield(.downloadingModel(progress: 0))
+            compiledURL = try await modelStore.downloadAndInstall(from: remoteModelZipURL) { progress in
+                continuation.yield(.downloadingModel(progress: progress))
+            }
+        } else if let odrFailureMessage {
+            throw ModelUnavailableError(needsDownload: false, message: odrFailureMessage)
+        } else {
+            throw ModelUnavailableError(needsDownload: true, message: "Sing model not installed")
+        }
+
+        let config = MLModelConfiguration()
+        config.computeUnits = .all
+        let model = try await MLModel.load(contentsOf: compiledURL, configuration: config)
+        return SingModelLease(model: model, sourceDescription: "CoreML LocalStore", odrCached: true)
     }
 
     struct SpeedGateError: Error {
         let chunkSeconds: Double
     }
 
-    /// Fullband separation into a cached 4-channel Quad AAC `.m4a`. Loads `MLModel` locally and lets ARC
-    /// deallocate it before returning (Race-to-Idle).
+    /// Convenience entry point for tests / local `.mlmodelc` verification.
     func separateToQuadM4A(
         inputURL: URL,
         compiledModelURL: URL,
         cacheKey: String,
         onStage: @Sendable (SingStage, Int?) -> Void = { _, _ in }
     ) async throws -> URL {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let config = MLModelConfiguration()
+        config.computeUnits = .all
+        let model = try await MLModel.load(contentsOf: compiledModelURL, configuration: config)
+        let loadMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000.0
+        let lease = SingModelLease(model: model, sourceDescription: "CoreML Direct", odrCached: true)
+        let (url, _) = try await separateToQuadM4A(
+            inputURL: inputURL,
+            modelLease: lease,
+            modelAcquireMs: loadMs,
+            cacheKey: cacheKey,
+            onStage: onStage
+        )
+        return url
+    }
+
+    /// Fullband separation into a cached 4-channel Quad AAC `.m4a`.
+    /// Releases `modelLease` (dropping `MLModel` + calling `endAccessingResources()`) as soon as
+    /// CoreML inference completes — before AAC encoding begins (Race-to-Idle).
+    func separateToQuadM4A(
+        inputURL: URL,
+        modelLease: SingModelLease,
+        modelAcquireMs: Double = 0,
+        cacheKey: String,
+        onStage: @Sendable (SingStage, Int?) -> Void = { _, _ in }
+    ) async throws -> (URL, SeparationMetrics) {
+        let totalStart = CFAbsoluteTimeGetCurrent()
+        defer { modelLease.release() }
+
         try Task.checkCancellation()
+        let decodeStart = CFAbsoluteTimeGetCurrent()
         let (mixL, mixR, sr) = try SingDSP.decodeFullbandStereo(url: inputURL)
         try Task.checkCancellation()
 
@@ -393,8 +501,9 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
 
         let specL = SingDSP.stft(mix22L)
         let specR = SingDSP.stft(mix22R)
+        let decodeStftMs = (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000.0
+
         let tTot = min(specL.frameCount, specR.frameCount)
-        let hiBins = SingDSP.hiBins // 512 (bins 1..512)
         let chunkT = SingDSP.chunkFrames // 256
         let stepT = SingDSP.chunkStep // 160
 
@@ -410,18 +519,22 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             starts.append(max(0, tTot - chunkT))
         }
 
-        let (vocSpecL, vocSpecR) = try runCoreMLChunks(
-            compiledModelURL: compiledModelURL,
+        let inferStart = CFAbsoluteTimeGetCurrent()
+        let (vocSpecL, vocSpecR, chunkTimesMs) = try runCoreMLChunks(
+            model: modelLease.model,
             specL: specL,
             specR: specR,
             tTot: tTot,
             starts: starts,
             onStage: onStage
         )
-        // `MLModel` is now completely released (Race-to-Idle).
+        let inferTotalMs = (CFAbsoluteTimeGetCurrent() - inferStart) * 1000.0
+        // Race-to-Idle: release ODR resource access right after inference burst.
+        modelLease.release()
         try Task.checkCancellation()
 
         onStage(.encoding, 2)
+        let istftStart = CFAbsoluteTimeGetCurrent()
         let voc22L = SingDSP.istft(vocSpecL, targetLength: n22)
         let voc22R = SingDSP.istft(vocSpecR, targetLength: n22)
         let (vocFullL, vocFullR) = try SingDSP.resampleStereo(left: voc22L, right: voc22R, from: SingDSP.coreSampleRate, to: sr)
@@ -439,8 +552,9 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             instL[i] = mixL[i] - vl
             instR[i] = mixR[i] - vr
         }
-        _ = hiBins
+        let istftResampleMs = (CFAbsoluteTimeGetCurrent() - istftStart) * 1000.0
 
+        let encodeStart = CFAbsoluteTimeGetCurrent()
         let tempOut = FileManager.default.temporaryDirectory.appendingPathComponent("sing-\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: tempOut) }
         try await SingQuadM4AWriter.write(
@@ -451,87 +565,145 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             sampleRate: sr,
             to: tempOut
         )
-        return try await stemCache.store(tempFile: tempOut, forKey: cacheKey)
+        let storedURL = try await stemCache.store(tempFile: tempOut, forKey: cacheKey)
+        let encodeMs = (CFAbsoluteTimeGetCurrent() - encodeStart) * 1000.0
+        let totalMs = (CFAbsoluteTimeGetCurrent() - totalStart) * 1000.0
+
+        let sortedChunks = chunkTimesMs.sorted()
+        let firstChunkMs = chunkTimesMs.first ?? 0
+        let meanChunkMs = chunkTimesMs.isEmpty ? 0 : chunkTimesMs.reduce(0, +) / Double(chunkTimesMs.count)
+        let p50ChunkMs = sortedChunks.isEmpty ? 0 : sortedChunks[sortedChunks.count / 2]
+
+        let metrics = SeparationMetrics(
+            modelSource: modelLease.sourceDescription,
+            odrCached: modelLease.odrCached,
+            modelAcquireMs: modelAcquireMs,
+            decodeStftMs: decodeStftMs,
+            chunkCount: chunkTimesMs.count,
+            firstChunkMs: firstChunkMs,
+            meanChunkMs: meanChunkMs,
+            p50ChunkMs: p50ChunkMs,
+            inferTotalMs: inferTotalMs,
+            istftResampleMs: istftResampleMs,
+            encodeMs: encodeMs,
+            totalMs: totalMs
+        )
+        let summary = String(
+            format: "[SingCoreML] source=%@ odrCached=%@ acquire=%.1fms decodeStft=%.1fms chunks=%d first=%.2fms mean=%.2fms p50=%.2fms infer=%.1fms istft=%.1fms encode=%.1fms total=%.1fms",
+            metrics.modelSource,
+            metrics.odrCached ? "yes" : "no",
+            metrics.modelAcquireMs,
+            metrics.decodeStftMs,
+            metrics.chunkCount,
+            metrics.firstChunkMs,
+            metrics.meanChunkMs,
+            metrics.p50ChunkMs,
+            metrics.inferTotalMs,
+            metrics.istftResampleMs,
+            metrics.encodeMs,
+            metrics.totalMs
+        )
+        Self.logger.info("\(summary, privacy: .public)")
+        #if DEBUG
+        print(summary)
+        #endif
+
+        return (storedURL, metrics)
     }
 
     private func runCoreMLChunks(
-        compiledModelURL: URL,
+        model: MLModel,
         specL: SingDSP.Spectrogram,
         specR: SingDSP.Spectrogram,
         tTot: Int,
         starts: [Int],
         onStage: @Sendable (SingStage, Int?) -> Void
-    ) throws -> (SingDSP.Spectrogram, SingDSP.Spectrogram) {
-        let config = MLModelConfiguration()
-        config.computeUnits = .all
-        let model = try MLModel(contentsOf: compiledModelURL, configuration: config)
-
+    ) throws -> (SingDSP.Spectrogram, SingDSP.Spectrogram, [Double]) {
         let hiBins = SingDSP.hiBins
         let chunkT = SingDSP.chunkFrames
         let frameStride = hiBins * chunkT
         let elemCount = 4 * frameStride
 
         let inputArray = try MLMultiArray(shape: [1, 4, NSNumber(value: hiBins), NSNumber(value: chunkT)], dataType: .float32)
+        let inStrides = inputArray.strides.map(\.intValue)
+        let inS1 = inStrides.count >= 4 ? inStrides[1] : frameStride
+        let inS2 = inStrides.count >= 4 ? inStrides[2] : chunkT
+        let inS3 = inStrides.count >= 4 ? inStrides[3] : 1
+        let inContiguous = (inS3 == 1 && inS2 == chunkT && inS1 == frameStride)
         let inPtr = inputArray.dataPointer.assumingMemoryBound(to: Float.self)
+        let inBackingCount = max(elemCount, 4 * inS1)
 
         var outAcc = [Float](repeating: 0, count: 4 * hiBins * tTot)
         var wtAcc = [Float](repeating: 0, count: tTot)
         let olaWin = SingDSP.chunkOLAWindow
+        var chunkTimesMs: [Double] = []
+        chunkTimesMs.reserveCapacity(starts.count)
 
         for (chunkIdx, start) in starts.enumerated() {
             try Task.checkCancellation()
             let valid = min(chunkT, tTot - start)
-            memset(inPtr, 0, elemCount * MemoryLayout<Float>.size)
+            memset(inPtr, 0, inBackingCount * MemoryLayout<Float>.size)
 
             var sumSq: Double = 0
-            for f in 0..<hiBins {
-                let srcBin = f + 1 // Drop DC bin 0 → bins 1..512
-                let srcRow = srcBin * tTot + start
-                let dstRow = f * chunkT
-                for t in 0..<valid {
-                    let lr = specL.real[srcRow + t]
-                    let li = specL.imag[srcRow + t]
-                    let rr = specR.real[srcRow + t]
-                    let ri = specR.imag[srcRow + t]
-                    inPtr[0 * frameStride + dstRow + t] = lr
-                    inPtr[1 * frameStride + dstRow + t] = li
-                    inPtr[2 * frameStride + dstRow + t] = rr
-                    inPtr[3 * frameStride + dstRow + t] = ri
-                    sumSq += Double(lr * lr + li * li + rr * rr + ri * ri)
-                }
-            }
-            let rms = Float(sqrt(sumSq / Double(elemCount) + 1e-6))
-            let invRms = 1.0 / rms
-            for i in 0..<elemCount { inPtr[i] *= invRms }
-
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let provider = try MLDictionaryFeatureProvider(dictionary: ["mix_spec": MLFeatureValue(multiArray: inputArray)])
-            let prediction = try model.prediction(from: provider)
-            let elapsed = CFAbsoluteTimeGetCurrent() - t0
-
-            if chunkIdx == 0 {
-                if elapsed > Self.maxAllowedChunkSeconds {
-                    throw SpeedGateError(chunkSeconds: elapsed)
-                }
-                let estRemain = max(1, Int((elapsed * Double(max(0, starts.count - 1)) + 2.0).rounded()))
-                onStage(.separating, estRemain)
-            }
-
-            guard let outArray = prediction.featureValue(for: "voc_spec")?.multiArrayValue else {
-                throw NSError(domain: "SingCoreMLSeparator", code: -20, userInfo: [NSLocalizedDescriptionKey: "Missing voc_spec output"])
-            }
-            let outPtr = outArray.dataPointer.assumingMemoryBound(to: Float.self)
-            for c in 0..<4 {
-                let cInOff = c * frameStride
-                let cOutOff = c * hiBins * tTot
+            if inContiguous {
                 for f in 0..<hiBins {
-                    let inRow = cInOff + f * chunkT
-                    let outRow = cOutOff + f * tTot + start
+                    let srcBin = f + 1 // Drop DC bin 0 → bins 1..512
+                    let srcRow = srcBin * tTot + start
+                    let dstRow = f * chunkT
                     for t in 0..<valid {
-                        outAcc[outRow + t] += (outPtr[inRow + t] * rms) * olaWin[t]
+                        let lr = specL.real[srcRow + t]
+                        let li = specL.imag[srcRow + t]
+                        let rr = specR.real[srcRow + t]
+                        let ri = specR.imag[srcRow + t]
+                        inPtr[0 * frameStride + dstRow + t] = lr
+                        inPtr[1 * frameStride + dstRow + t] = li
+                        inPtr[2 * frameStride + dstRow + t] = rr
+                        inPtr[3 * frameStride + dstRow + t] = ri
+                        sumSq += Double(lr * lr + li * li + rr * rr + ri * ri)
                     }
                 }
+                let rms = Float(sqrt(sumSq / Double(elemCount) + 1e-6))
+                let invRms = 1.0 / rms
+                for i in 0..<elemCount { inPtr[i] *= invRms }
+                let (outArray, elapsed) = try predictChunk(model: model, inputArray: inputArray)
+                chunkTimesMs.append(elapsed * 1000.0)
+                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, onStage: onStage)
+                accumulateOutput(outArray: outArray, rms: rms, hiBins: hiBins, chunkT: chunkT, tTot: tTot, start: start, valid: valid, olaWin: olaWin, outAcc: &outAcc)
+            } else {
+                for f in 0..<hiBins {
+                    let srcBin = f + 1
+                    let srcRow = srcBin * tTot + start
+                    let dstRow = f * inS2
+                    for t in 0..<valid {
+                        let lr = specL.real[srcRow + t]
+                        let li = specL.imag[srcRow + t]
+                        let rr = specR.real[srcRow + t]
+                        let ri = specR.imag[srcRow + t]
+                        let col = dstRow + t * inS3
+                        inPtr[0 * inS1 + col] = lr
+                        inPtr[1 * inS1 + col] = li
+                        inPtr[2 * inS1 + col] = rr
+                        inPtr[3 * inS1 + col] = ri
+                        sumSq += Double(lr * lr + li * li + rr * rr + ri * ri)
+                    }
+                }
+                let rms = Float(sqrt(sumSq / Double(elemCount) + 1e-6))
+                let invRms = 1.0 / rms
+                for c in 0..<4 {
+                    let cOff = c * inS1
+                    for f in 0..<hiBins {
+                        let row = cOff + f * inS2
+                        for t in 0..<valid {
+                            inPtr[row + t * inS3] *= invRms
+                        }
+                    }
+                }
+                let (outArray, elapsed) = try predictChunk(model: model, inputArray: inputArray)
+                chunkTimesMs.append(elapsed * 1000.0)
+                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, onStage: onStage)
+                accumulateOutput(outArray: outArray, rms: rms, hiBins: hiBins, chunkT: chunkT, tTot: tTot, start: start, valid: valid, olaWin: olaWin, outAcc: &outAcc)
             }
+
             for t in 0..<valid {
                 wtAcc[start + t] += olaWin[t]
             }
@@ -557,7 +729,96 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         }
         return (
             SingDSP.Spectrogram(binCount: SingDSP.nBins, frameCount: tTot, real: vocRealL, imag: vocImagL),
-            SingDSP.Spectrogram(binCount: SingDSP.nBins, frameCount: tTot, real: vocRealR, imag: vocImagR)
+            SingDSP.Spectrogram(binCount: SingDSP.nBins, frameCount: tTot, real: vocRealR, imag: vocImagR),
+            chunkTimesMs
         )
+    }
+
+    private func predictChunk(model: MLModel, inputArray: MLMultiArray) throws -> (MLMultiArray, Double) {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let provider = try MLDictionaryFeatureProvider(dictionary: ["mix_spec": MLFeatureValue(multiArray: inputArray)])
+        let prediction = try model.prediction(from: provider)
+        let elapsed = CFAbsoluteTimeGetCurrent() - t0
+        guard let outArray = prediction.featureValue(for: "voc_spec")?.multiArrayValue else {
+            throw NSError(domain: "SingCoreMLSeparator", code: -20, userInfo: [NSLocalizedDescriptionKey: "Missing voc_spec output"])
+        }
+        return (outArray, elapsed)
+    }
+
+    private func handleChunkTiming(
+        chunkIdx: Int,
+        elapsed: Double,
+        totalChunks: Int,
+        onStage: @Sendable (SingStage, Int?) -> Void
+    ) throws {
+        if chunkIdx == 0 {
+            if elapsed > Self.maxAllowedChunkSeconds {
+                throw SpeedGateError(chunkSeconds: elapsed)
+            }
+            let estRemain = max(1, Int((elapsed * Double(max(0, totalChunks - 1)) + 2.0).rounded()))
+            onStage(.separating, estRemain)
+        }
+    }
+
+    /// Accumulates `voc_spec` into the Hann OLA spectrogram buffer while honoring ANE's potentially padded
+    /// `MLMultiArray.strides` (64-byte row alignment on Apple Neural Engine).
+    private func accumulateOutput(
+        outArray: MLMultiArray,
+        rms: Float,
+        hiBins: Int,
+        chunkT: Int,
+        tTot: Int,
+        start: Int,
+        valid: Int,
+        olaWin: [Float],
+        outAcc: inout [Float]
+    ) {
+        let frameStride = hiBins * chunkT
+        let strides = outArray.strides.map(\.intValue)
+        let s1 = strides.count >= 4 ? strides[1] : frameStride
+        let s2 = strides.count >= 4 ? strides[2] : chunkT
+        let s3 = strides.count >= 4 ? strides[3] : 1
+
+        if outArray.dataType == .float32 {
+            let outPtr = outArray.dataPointer.assumingMemoryBound(to: Float.self)
+            if s3 == 1 && s2 == chunkT && s1 == frameStride {
+                for c in 0..<4 {
+                    let cInOff = c * frameStride
+                    let cOutOff = c * hiBins * tTot
+                    for f in 0..<hiBins {
+                        let inRow = cInOff + f * chunkT
+                        let outRow = cOutOff + f * tTot + start
+                        for t in 0..<valid {
+                            outAcc[outRow + t] += (outPtr[inRow + t] * rms) * olaWin[t]
+                        }
+                    }
+                }
+            } else {
+                for c in 0..<4 {
+                    let cInOff = c * s1
+                    let cOutOff = c * hiBins * tTot
+                    for f in 0..<hiBins {
+                        let inRow = cInOff + f * s2
+                        let outRow = cOutOff + f * tTot + start
+                        for t in 0..<valid {
+                            outAcc[outRow + t] += (outPtr[inRow + t * s3] * rms) * olaWin[t]
+                        }
+                    }
+                }
+            }
+        } else {
+            // Defensive fallback if CoreML ever delivers Float16/Double multiarray.
+            for c in 0..<4 {
+                let cOutOff = c * hiBins * tTot
+                for f in 0..<hiBins {
+                    let outRow = cOutOff + f * tTot + start
+                    for t in 0..<valid {
+                        let idx = c * s1 + f * s2 + t * s3
+                        let v = outArray[idx].floatValue
+                        outAcc[outRow + t] += (v * rms) * olaWin[t]
+                    }
+                }
+            }
+        }
     }
 }

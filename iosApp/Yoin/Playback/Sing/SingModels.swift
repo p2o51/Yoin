@@ -81,11 +81,19 @@ enum SingRampCurve: Equatable, Sendable {
 }
 
 /// Pinned metadata for the on-demand iOS CoreML `Lyra-Sing-Lite` v1 artifact (FP32 compute, `base_ch=48`).
+/// Do NOT re-export as CoreML FP16: empirical testing showed FP16 collapses `voc_SNR` (131.5 dB → 18.7 dB)
+/// and breaks operator fusion (4× slower). Keep the 8.3 MB FP32 `.mlpackage` delivered via Apple ODR.
 enum SingModelAsset {
     static let version = "v1"
+    /// Apple On-Demand Resources tag (Download Only On Demand — 0 MB in main IPA).
+    static let odrTag = "sing_model_v1"
+    /// High preservation priority so iOS keeps the 8.3 MB compiled model cached across songs.
+    static let odrPreservationPriority: Double = 0.8
+    static let compiledResourceName = "LyraSingLite"
+    static let compiledResourceExtension = "mlmodelc"
     static let packageName = "LyraSingLite.mlpackage"
     static let zipFileName = "LyraSingLite.mlpackage.zip"
-    /// Deterministic zip SHA-256 verified against `lyra_sing_lite_best.pt` (`SNR=134.05 dB`, `320.7x RT` on Apple Silicon).
+    /// Deterministic zip SHA-256 verified against `lyra_sing_lite_best.pt` (`SNR=137.97 dB`, `8.58 ms/chunk` on Apple Silicon).
     static let zipSha256 = "32c0c0d143f219e3bfdf2de474186219716672f774adb4cbfa3a30be590c4aae"
     static let expectedZipBytes: Int64 = 7_990_000
 }

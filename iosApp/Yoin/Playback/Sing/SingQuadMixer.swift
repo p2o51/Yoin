@@ -470,5 +470,8 @@ enum SingQuadM4AWriter {
         guard writer.status == .completed else {
             throw WriterError.writingFailed(writer.error?.localizedDescription ?? "finishWriting failed")
         }
+        guard FileManager.default.fileExists(atPath: outputURL.path) else {
+            throw WriterError.writingFailed("AVAssetWriter completed without output file at \(outputURL.path) (frames=\(totalFrames), sr=\(sampleRate))")
+        }
     }
 }

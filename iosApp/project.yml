@@ -33,6 +33,13 @@ targets:
     platform: iOS
     sources:
       - path: Yoin
+      # Sing on-device CoreML model (8.3 MB FP32, do NOT convert to FP16): delivered via Apple ODR
+      # tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
+      - path: OnDemandResources/LyraSingLite.mlpackage
+        type: file
+        buildPhase: resources
+        resourceTags:
+          - sing_model_v1
     # YoinShared: the Kotlin Multiplatform :shared module (MCU, Palette,
     # YoinTokens, layout / colour algorithms) as a static XCFramework.
     # docs/shared-kmp.md.
@@ -166,6 +173,10 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Apple On-Demand Resources for Sing's `sing_model_v1` CoreML model pack (0 MB main IPA).
+        ENABLE_ON_DEMAND_RESOURCES: YES
+        # Load `LyraSingLite.mlmodelc` dynamically via `SingModelODRProvider` (no generated Swift wrapper).
+        COREML_CODEGEN_LANGUAGE: None
     scheme:
       testTargets:
         - YoinTests

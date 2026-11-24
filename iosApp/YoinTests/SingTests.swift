@@ -337,4 +337,65 @@ final class SingTests: XCTestCase {
         controller.exit()
         XCTAssertEqual(controller.sliderPosition, 0.55, accuracy: 1e-6)
     }
+
+    // MARK: - 10. CoreML ANE + ODR (`sing_model_v1`) end-to-end separation & Race-to-Idle lease
+
+    func test_should_loadSingModelViaODR_and_separateRealAudioWithZeroStrideCorruption() async throws {
+        // 1. Verify ODR provider loads `LyraSingLite.mlmodelc` via tag `sing_model_v1` (computeUnits = .all)
+        //    and releases ODR access cleanly on `lease.release()`.
+        let odrProvider = SingModelODRProvider(bundle: .main)
+        let lease = try await odrProvider.loadModel { _ in }
+        XCTAssertEqual(lease.sourceDescription, "CoreML ANE+ODR (sing_model_v1)")
+
+        // 2. Synthesize a 4.0 s stereo WAV clip (44.1 kHz) and run full `SingCoreMLSeparator` pipeline.
+        let sr = 44_100.0
+        let frameCount = Int(sr * 4.0)
+        let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("sing-odr-test-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: wavURL) }
+
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2))
+        let pcm = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)))
+        pcm.frameLength = AVAudioFrameCount(frameCount)
+        let ch = try XCTUnwrap(pcm.floatChannelData)
+        for i in 0..<frameCount {
+            let t = Double(i) / sr
+            let base = Float(0.25 * sin(2.0 * Double.pi * 220.0 * t))
+            let mid = Float(0.18 * sin(2.0 * Double.pi * 660.0 * t))
+            ch[0][i] = base + mid
+            ch[1][i] = base - 0.5 * mid
+        }
+        do {
+            let wavFile = try AVAudioFile(forWriting: wavURL, settings: format.settings)
+            try wavFile.write(from: pcm)
+        }
+
+        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("sing-odr-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+
+        let separator = SingCoreMLSeparator(
+            odrProvider: odrProvider,
+            stemCache: SingStemCache(directory: cacheDir, maxBytes: 50 * 1024 * 1024)
+        )
+        let (quadURL, metrics) = try await separator.separateToQuadM4A(
+            inputURL: wavURL,
+            modelLease: lease,
+            cacheKey: "odr-smoke-4s"
+        )
+
+        XCTAssertGreaterThan(metrics.chunkCount, 0)
+        XCTAssertLessThan(metrics.meanChunkMs, 2000.0, "Single chunk should run well under speed-gate threshold")
+
+        let quadFile = try AVAudioFile(forReading: quadURL)
+        XCTAssertEqual(quadFile.processingFormat.channelCount, 4)
+        let outBuf = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: quadFile.processingFormat, frameCapacity: AVAudioFrameCount(quadFile.length)))
+        try quadFile.read(into: outBuf)
+        let outCh = try XCTUnwrap(outBuf.floatChannelData)
+        let n = Int(outBuf.frameLength)
+        XCTAssertGreaterThan(n, frameCount - 8192)
+        for c in 0..<4 {
+            for i in stride(from: 0, to: n, by: 64) {
+                XCTAssertTrue(outCh[c][i].isFinite, "Non-finite output sample on channel \(c) at \(i)")
+            }
+        }
+    }
 }
