@@ -1355,7 +1355,7 @@ struct AlbumRateSheet: View {
             text = Self.unsaved.removeValue(forKey: album.id) ?? record?.review ?? ""
             neo.sheetOpened(album)
         }
-        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: normalizedText != record?.review) }
+        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: wordsUnsaved) }
         // Saved as they are typed (a second after the last key), not only when the sheet goes: a sheet
         // that never closes cleanly kept nothing (Codex 11-07).
         .task(id: text) {
@@ -1372,6 +1372,9 @@ struct AlbumRateSheet: View {
             Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
         }
     }
+
+    /// Words that differ from the saved review (whitespace around them aside).
+    private var wordsUnsaved: Bool { normalizedText != record?.review && !NotesStore.sameWords(text, record?.review) }
 
     private var normalizedText: String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1428,7 +1431,7 @@ struct AlbumRateSheet: View {
                                     reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now))
         }
         NeoDBPendingStore.shared.markRatingChanged(provider: album.id.provider, albumId: album.id.rawId)
-        neo.edited(album, unsavedWords: normalizedText != record?.review)
+        neo.edited(album, unsavedWords: wordsUnsaved)
         CloudSync.shared.localChanged()
     }
 
@@ -1440,6 +1443,8 @@ struct AlbumRateSheet: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.isEmpty ? nil : trimmed
         let was = record
+        // Unchanged words keep the stored review byte for byte (an Android review's markup and spacing).
+        if NotesStore.sameWords(text, was?.review) { return true }
         guard normalized != was?.review, was != nil || normalized != nil else { return true }
         guard memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
                                       rating: was?.rating ?? 0, review: normalized,
