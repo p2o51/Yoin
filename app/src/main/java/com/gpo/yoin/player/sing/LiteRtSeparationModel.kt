@@ -1,5 +1,6 @@
 package com.gpo.yoin.player.sing
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.util.Log
@@ -70,6 +71,10 @@ class LiteRtSeparationModel private constructor(
          * op the compiler left out); the GPU runs fp16 kernels with no silent fallback to the CPU, so a
          * GPU session is one; the CPU runs XNNPACK on [threads] threads.
          */
+        // disableAutoFallbackToCpu() is marked test-only in LiteRT 2.4, but it is the only way to make a
+        // GPU session fail instead of quietly running on the CPU; the router does its own GPU -> CPU step
+        // and reports the backend it really got. Verified on Tensor G2 (tablet) and the owner's phone.
+        @SuppressLint("RestrictedApi")
         internal fun open(
             context: Context,
             file: File,
