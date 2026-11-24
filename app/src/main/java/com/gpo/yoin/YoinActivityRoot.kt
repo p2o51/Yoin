@@ -7,6 +7,11 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
+import com.gpo.yoin.ui.notes.editor.LocalWindowTaps
+import com.gpo.yoin.ui.notes.editor.WindowTaps
+import com.gpo.yoin.ui.notes.editor.windowTapSource
 import com.gpo.yoin.ui.nowplaying.LocalCoverDarkScheme
 import com.gpo.yoin.ui.nowplaying.LocalCoverField
 import com.gpo.yoin.ui.nowplaying.LocalCoverNeighbours
@@ -190,6 +195,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
             )
         }
     }
+    val windowTaps = remember { WindowTaps() }
     val mentionCandidates = remember(app) {
         app?.container?.let { container ->
             RepositoryMentionCandidateSource(
@@ -214,9 +220,13 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         *motionProfileValues(motionProfile),
         LocalYoinWindowInfo provides windowInfo,
         LocalShellChromeInsets provides shellChromeInsets,
+        LocalWindowTaps provides windowTaps,
     ) {
-        // This window's floating bar, for the seams' bottom field (dissolve-final §1.2).
-        ProvideSeamBarField(content = content)
+        // Every tap in this window, heard (not taken) before the page: ends an editor's @ mode.
+        Box(modifier = Modifier.windowTapSource(windowTaps), propagateMinConstraints = true) {
+            // This window's floating bar, for the seams' bottom field (dissolve-final §1.2).
+            ProvideSeamBarField(content = content)
+        }
     }
 }
 

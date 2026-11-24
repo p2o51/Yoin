@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
@@ -19,6 +21,7 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -89,6 +92,7 @@ fun NoteMarkupField(
     val haptics = rememberYoinHaptics()
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var fieldTopPx by remember { mutableIntStateOf(0) }
+    val fieldBounds = remember { FieldBounds() }
     val output = remember(colors) { NoteEditorOutputTransformation(colors) }
     val trigger = state.trigger
     var rows by remember { mutableStateOf(MentionCandidates.Empty) }
@@ -121,6 +125,17 @@ fun NoteMarkupField(
     // What a soft keyboard's Enter picks (its newline becomes this mention).
     // Read here, in composition, so new rows or a moved highlight hand Enter the row now on top.
     val enterPick = if (popupOpen) rows.all.getOrNull(state.highlighted)?.mention else null
+    // A tap anywhere else in this window ends mention mode (the keyboard's and the popup's own touches never
+    // arrive here: they are other windows).
+    val windowTaps = LocalWindowTaps.current
+    DisposableEffect(windowTaps, popupOpen, state) {
+        val stop = if (windowTaps != null && popupOpen) {
+            windowTaps.listen { at -> if (tapEndsMention(fieldBounds.inWindow(), at)) state.dismissPopup() }
+        } else {
+            null
+        }
+        onDispose { stop?.invoke() }
+    }
     SideEffect { state.enterPick = enterPick }
     val pick: (com.gpo.yoin.shared.notes.NoteMention) -> Unit = { mention ->
         haptics.performConfirm()
@@ -171,7 +186,12 @@ fun NoteMarkupField(
             }
         },
         decorator = TextFieldDecorator { inner ->
-            Box(modifier = Modifier.onGloballyPositioned { fieldTopPx = it.positionInWindow().y.roundToInt() }) {
+            Box(
+                modifier = Modifier.onGloballyPositioned {
+                    fieldTopPx = it.positionInWindow().y.roundToInt()
+                    fieldBounds.coordinates = it
+                },
+            ) {
                 if (placeholder != null && state.fieldState.text.isEmpty()) {
                     Text(
                         text = placeholder,
@@ -261,6 +281,13 @@ private fun MentionCandidates.withoutSearchRows(): MentionCandidates {
 
 private fun MentionCandidates.capped(): MentionCandidates =
     copy(tracks = tracks.take(PopupRowsPerKind), albums = albums.take(PopupRowsPerKind), artists = artists.take(PopupRowsPerKind))
+
+/** Where the field is laid out, read when a tap lands (not state: nothing redraws for it). */
+private class FieldBounds {
+    var coordinates: LayoutCoordinates? = null
+
+    fun inWindow(): Rect? = coordinates?.takeIf { it.isAttached }?.boundsInWindow()
+}
 
 /** The @ popup shows while an `@` is typed at the caret of the focused field (and the search sheet isn't up). */
 internal fun mentionPopupOpen(enabled: Boolean, trigger: MentionTrigger?, focused: Boolean, searchOpen: Boolean): Boolean =

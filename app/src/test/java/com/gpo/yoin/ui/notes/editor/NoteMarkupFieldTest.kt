@@ -4,7 +4,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.performTextReplacement
 import com.gpo.yoin.shared.notes.MentionKind
 import com.gpo.yoin.shared.notes.NoteMarkup
@@ -155,4 +159,48 @@ class NoteMarkupFieldTest {
         rule.waitForIdle()
         assertNull(state.enterPick)
     }
+
+    @Test
+    fun should_endMentionMode_onATapElsewhereInTheWindow_thoughNothingTakesFocus() {
+        val state = NoteEditorState("")
+        val taps = WindowTaps()
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(LocalWindowTaps provides taps) {
+                YoinTheme {
+                    androidx.compose.foundation.layout.Column(Modifier.windowTapSource(taps)) {
+                        NoteMarkupField(
+                            state = state,
+                            candidates = source,
+                            romanizer = MentionRomanizer.None,
+                            modifier = Modifier.testTag("field"),
+                        )
+                        // blank background: not focusable, not clickable
+                        androidx.compose.foundation.layout.Box(
+                            Modifier
+                                .testTag("blank")
+                                .androidxSize(),
+                        )
+                    }
+                }
+            }
+        }
+        rule.onNodeWithTag("field").performTextInput("@")
+        rule.waitForIdle()
+        rule.onNodeWithTag("field").performTextInput("N")
+        rule.waitForIdle()
+        assertEquals("New York", state.enterPick?.title)
+
+        // a tap in the field itself keeps it
+        rule.onNodeWithTag("field").performTouchInput { click(center) }
+        rule.waitForIdle()
+        assertEquals("N", state.query)
+
+        // a tap on the blank area ends it, though the field keeps focus
+        rule.onNodeWithTag("blank").performTouchInput { click(center) }
+        rule.waitForIdle()
+        assertNull(state.trigger)
+        assertNull(state.enterPick)
+    }
 }
+
+private fun Modifier.androidxSize(): Modifier = this.then(Modifier.size(200.dp))
