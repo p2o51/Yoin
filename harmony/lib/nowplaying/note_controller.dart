@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../data/memory/memory_store.dart';
+import '../data/notes/note_markup.dart';
+import '../notes/editor/note_editor_controller.dart';
 import 'haptics.dart';
 import 'note_logic.dart';
 
@@ -31,8 +33,8 @@ class NowPlayingNotes extends ChangeNotifier {
   VoidCallback? onSaved;
   VoidCallback? onDeleted;
 
-  /// The write bar's one field: its words are the draft's words.
-  final TextEditingController text = TextEditingController();
+  /// The write bar's one field: its words (stored text, [NoteEditorController.storedText]) are the draft's words.
+  final NoteEditorController text = NoteEditorController();
   final FocusNode focus = FocusNode(debugLabel: 'noteWriteBar');
 
   final NoteDeletion _deletion = NoteDeletion();
@@ -70,8 +72,13 @@ class NowPlayingNotes extends ChangeNotifier {
   bool get open => noteWriteBarOpen(focused: focused, draftText: _draft.text);
 
   /// The "Writing…" row on the Note page: words waiting, or the field just
-  /// taken for a new note — never the empty draft a save leaves behind.
-  bool get showDraftRow => draftHere && (_draft.text.isNotEmpty || (focused && !_justSaved));
+  /// taken for a new note — never the empty draft a save leaves behind, nor
+  /// an edit (its own line stays, dimmed).
+  bool get showDraftRow =>
+      draftHere && !_draft.isEditing && (_draft.text.isNotEmpty || (focused && !_justSaved));
+
+  /// The note open in the write bar for rewriting (its line dims on the Note page).
+  String? get editingId => _draft.editingNoteId;
 
   /// The Write pill asked for the keyboard; the stage hasn't landed yet.
   bool get pendingFocus => _pendingFocus;
@@ -151,9 +158,10 @@ class NowPlayingNotes extends ChangeNotifier {
 
   void _onText() {
     final current = _current;
-    if (current == null || text.text == _draft.text) return;
-    if (text.text.isNotEmpty) _justSaved = false;
-    _draft = _draft.edit(text.text, current, positionMs());
+    final words = text.storedText;
+    if (current == null || words == _draft.text) return;
+    if (words.isNotEmpty) _justSaved = false;
+    _draft = _draft.edit(words, current, positionMs());
     _notify();
   }
 
@@ -162,8 +170,40 @@ class NowPlayingNotes extends ChangeNotifier {
     // The moment writing begins is the moment the note means.
     if (focus.hasFocus && current != null) _draft = _draft.followIfEmpty(current, positionMs());
     if (focus.hasFocus) _pendingFocus = false;
-    if (!focus.hasFocus) _justSaved = false;
+    if (!focus.hasFocus) {
+      _justSaved = false;
+      // An edit put away unchanged closes: the bar returns to its capsule, the note as it was.
+      if (_draft.isUntouchedEdit) _cancelEdit();
+    }
     _notify();
+  }
+
+  /// A long press on a note line (Now Playing expanded, owner 2026-11-24): its
+  /// words go into the write bar, which takes focus; saving rewrites that note
+  /// (an emptied one is deleted, with Undo). Words not yet saved (a new note,
+  /// or a changed edit of another one) are never dropped for it: the bar opens
+  /// on them instead (false).
+  bool beginEdit(SongNote note) {
+    final current = _current;
+    if (current == null) return false;
+    YoinHaptics.longPress();
+    if (_draft.text.trim().isNotEmpty && _draft.editingNoteId != note.id && !_draft.isUntouchedEdit) {
+      focus.requestFocus();
+      return false;
+    }
+    _draft = _draft.beginEdit(note.id, note.content, note.positionMs, current);
+    _justSaved = false;
+    text.setStoredText(note.content);
+    focus.requestFocus();
+    _notify();
+    return true;
+  }
+
+  void _cancelEdit() {
+    final current = _current;
+    if (current == null || !_draft.isEditing) return;
+    _draft = _draft.cleared(current, positionMs());
+    if (text.text.isNotEmpty) text.clear();
   }
 
   /// The stamp chip while writing: the draft's moment becomes "now".
@@ -178,6 +218,7 @@ class NowPlayingNotes extends ChangeNotifier {
   /// Save: files the words under the song and moment the draft was started
   /// on, clears the draft for what's playing and keeps the keyboard up.
   Future<void> save() async {
+    if (_draft.isEditing) return _saveEdit();
     final words = _draft.text.trim();
     final target = _draft.target ?? _current;
     final current = _current;
@@ -204,6 +245,70 @@ class NowPlayingNotes extends ChangeNotifier {
     _notify();
     final store = await _resolveStore();
     await store?.putSongNote(note);
+  }
+
+  /// Save on an edit: the same note (id, creation time) with the new words at
+  /// the stamp's moment; emptied, it is deleted with the usual Undo.
+  Future<void> _saveEdit() async {
+    final current = _current;
+    final id = _draft.editingNoteId;
+    if (current == null || id == null || !_draft.canSave) return;
+    final words = _draft.text.trim();
+    final anchor = _draft.anchorMs;
+    SongNote? original;
+    for (final n in _stored) {
+      if (n.id == id) original = n;
+    }
+    _draft = _draft.cleared(current, positionMs());
+    _justSaved = true;
+    text.clear();
+    if (original == null) {
+      _notify();
+      return;
+    }
+    if (words.isEmpty) {
+      YoinHaptics.reject();
+      delete(original);
+      return;
+    }
+    final rewritten = SongNote(
+      id: original.id,
+      trackId: original.trackId,
+      albumId: original.albumId,
+      content: words,
+      createdAt: original.createdAt,
+      updatedAt: nowMs(),
+      title: original.title,
+      artist: original.artist,
+      positionMs: anchor,
+    );
+    YoinHaptics.confirm();
+    onSaved?.call();
+    _stored = [for (final n in _stored) n.id == id ? rewritten : n];
+    _notify();
+    final store = await _resolveStore();
+    await store?.putSongNote(rewritten);
+  }
+
+  /// A to-do's box ticked on a drawn note: the note saved with it flipped.
+  Future<void> toggleChecklist(SongNote note, int lineIndex) async {
+    final content = NoteMarkup.toggleChecklist(note.content, lineIndex);
+    if (content == note.content) return;
+    final ticked = SongNote(
+      id: note.id,
+      trackId: note.trackId,
+      albumId: note.albumId,
+      content: content,
+      createdAt: note.createdAt,
+      updatedAt: nowMs(),
+      title: note.title,
+      artist: note.artist,
+      positionMs: note.positionMs,
+    );
+    _stored = [for (final n in _stored) n.id == note.id ? ticked : n];
+    _notify();
+    final store = await _resolveStore();
+    await store?.putSongNote(ticked);
   }
 
   /// The Write pill: take focus (and the keyboard) once the Note page has landed.
