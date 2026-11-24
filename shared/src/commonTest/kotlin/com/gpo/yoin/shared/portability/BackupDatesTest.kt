@@ -26,6 +26,12 @@ class BackupDatesTest {
     }
 
     @Test
+    fun should_fallBackToAnAbbreviation_when_theIdIsNotAZoneName() {
+        // NSTimeZone.timeZoneWithAbbreviation on iOS, java.time's SHORT_IDS on Android: both Asia/Tokyo.
+        assertEquals("2023-11-15 07:13", BackupDates.dateTime(1_700_000_000_000, "JST"))
+    }
+
+    @Test
     fun should_refuse_when_zoneIsUnknown() {
         assertFailsWith<IllegalArgumentException> { BackupDates.dateTime(0, "Mars/Olympus_Mons") }
     }

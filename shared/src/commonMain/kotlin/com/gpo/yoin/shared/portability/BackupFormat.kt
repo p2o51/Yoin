@@ -3,6 +3,7 @@ package com.gpo.yoin.shared.portability
 import com.gpo.yoin.shared.sync.CanonicalJson
 import com.gpo.yoin.shared.sync.SyncEnvelope
 import com.gpo.yoin.shared.sync.SyncFormat
+import com.gpo.yoin.shared.sync.SyncLocations
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -37,7 +38,25 @@ object BackupFormat {
 
     /** [BackupSource.location] values. */
     const val LOCATION_GOOGLE_DRIVE = "google-drive"
+    const val LOCATION_ICLOUD = "icloud"
     const val LOCATION_THIS_DEVICE = "this-device"
+
+    /** Every [BackupSource.location] this version writes. */
+    val LOCATIONS: Set<String> = setOf(LOCATION_GOOGLE_DRIVE, LOCATION_ICLOUD, LOCATION_THIS_DEVICE)
+
+    /**
+     * The [BackupSource.location] for where Cloud sync keeps this device's data: null (sync off) is
+     * [LOCATION_THIS_DEVICE]; a [LOCATIONS] value is kept as is; a sync location id
+     * ([com.gpo.yoin.shared.sync.SyncLocations]: "google_drive", "icloud") maps to its backup value.
+     * Throws [IllegalArgumentException] for anything else.
+     */
+    fun locationOf(syncLocation: String?): String = when (syncLocation) {
+        null -> LOCATION_THIS_DEVICE
+        in LOCATIONS -> syncLocation
+        SyncLocations.GOOGLE_DRIVE -> LOCATION_GOOGLE_DRIVE
+        SyncLocations.ICLOUD -> LOCATION_ICLOUD
+        else -> throw IllegalArgumentException("Unknown sync location $syncLocation")
+    }
 
     /** Hard limits while reading, against a hostile or corrupt zip. */
     const val MAX_MANIFEST_BYTES = 1L shl 20
@@ -99,7 +118,7 @@ data class BackupManifest(
 
 @Serializable
 data class BackupSource(
-    /** [BackupFormat.LOCATION_GOOGLE_DRIVE] when Cloud sync was on, else [BackupFormat.LOCATION_THIS_DEVICE]. */
+    /** Where Cloud sync kept the data: [BackupFormat.LOCATION_GOOGLE_DRIVE] / [BackupFormat.LOCATION_ICLOUD], else [BackupFormat.LOCATION_THIS_DEVICE]. */
     @SerialName("location") val location: String,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("deviceName") val deviceName: String,

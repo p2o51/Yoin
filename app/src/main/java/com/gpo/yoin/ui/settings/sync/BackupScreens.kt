@@ -453,10 +453,11 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
                 SettingsItem(
                     icon = YoinSymbols.Cloud,
                     title = stringResource(
-                        if (manifest.source.location == BackupFormat.LOCATION_GOOGLE_DRIVE) {
-                            R.string.settings_sync_google_drive
-                        } else {
-                            R.string.settings_sync_import_this_device
+                        when (manifest.source.location) {
+                            BackupFormat.LOCATION_GOOGLE_DRIVE -> R.string.settings_sync_google_drive
+                            // An iPhone / iPad backup made while syncing with iCloud.
+                            BackupFormat.LOCATION_ICLOUD -> R.string.settings_sync_icloud
+                            else -> R.string.settings_sync_import_this_device
                         },
                     ),
                     summaryContent = {

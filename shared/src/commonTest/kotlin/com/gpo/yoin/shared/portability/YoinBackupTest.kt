@@ -55,13 +55,15 @@ class YoinBackupTest {
     fun should_exportReadPlanAndImport_throughTheFacade() = runTest {
         val phone = Device("dev-a", "iPhone", withReplica = false).apply { seed() }
 
-        val export = phone.backup.exportBackup(1_795_400_000_000, false, "zh-Hans", "Asia/Shanghai", emptyList(), emptyList())
+        val export = phone.backup.exportBackup(1_795_400_000_000, null, "zh-Hans", "Asia/Shanghai", emptyList(), emptyList())
 
         assertEquals("yoin-backup-2026-11-23.zip", export.fileName)
         assertEquals(BackupFormat.LOCATION_THIS_DEVICE, export.manifest.source.location)
         assertTrue(export.readable.single().path.startsWith("readable/Alice/"))
         assertTrue(export.readable.single().text.contains("评分: 8 / 10"))
-        val parsed = phone.backup.readBackup(export.manifestJson.encodeToByteArray(), export.snapshotJson.encodeToByteArray(), export.readable.size)
+        val read = phone.backup.readBackup(export.manifestJson.encodeToByteArray(), export.snapshotJson.encodeToByteArray(), export.readable.size)
+        assertEquals(null, read.error)
+        val parsed = read.backup!!
 
         val tablet = Device("dev-b", "iPad", withReplica = true)
         tablet.domain.profileList += SyncProfile("t1", "subsonic", "Alice on iPad", 1_000, subsonicServerUrl = url, subsonicUsername = "alice")
@@ -80,23 +82,36 @@ class YoinBackupTest {
     }
 
     @Test
-    fun should_reportReadFailuresAsFlatErrors() = runTest {
+    fun should_reportReadFailuresAsFlatResults() = runTest {
         val phone = Device("dev-a", "iPhone", withReplica = false).apply { seed() }
-        val export = phone.backup.exportBackup(1, false, "en", "UTC", emptyList(), emptyList())
+        val export = phone.backup.exportBackup(1, null, "en", "UTC", emptyList(), emptyList())
+        val manifest = export.manifestJson.encodeToByteArray()
+        val snapshot = export.snapshotJson.encodeToByteArray()
 
-        val tampered = assertFailsWith<BackupReadException> {
-            phone.backup.readBackup(export.manifestJson.encodeToByteArray(), "{}".encodeToByteArray(), 0)
+        fun kind(manifestJson: ByteArray?, snapshotJson: ByteArray?) = phone.backup.readBackup(manifestJson, snapshotJson, 0).let {
+            assertEquals(null, it.backup)
+            it.error!!
         }
-        assertEquals(YoinBackupErrorKind.CHECKSUM_MISMATCH, YoinBackup.errorOf(tampered).kind)
-        val newer = assertFailsWith<BackupReadException> {
-            phone.backup.readBackup(
-                export.manifestJson.replace("\"formatVersion\": 1", "\"formatVersion\": 7").encodeToByteArray(),
-                export.snapshotJson.encodeToByteArray(),
-                0,
-            )
-        }
-        assertEquals(YoinBackupError(YoinBackupErrorKind.TOO_NEW, 7, newer.message.orEmpty()), YoinBackup.errorOf(newer))
+        assertEquals(YoinBackupErrorKind.CHECKSUM_MISMATCH, kind(manifest, "{}".encodeToByteArray()).kind)
+        val newer = kind(export.manifestJson.replace("\"formatVersion\": 1", "\"formatVersion\": 7").encodeToByteArray(), snapshot)
+        assertEquals(YoinBackupErrorKind.TOO_NEW, newer.kind)
+        assertEquals(7, newer.formatVersion)
+        assertEquals(YoinBackupErrorKind.NOT_A_BACKUP, kind(null, snapshot).kind)
+        assertEquals(YoinBackupErrorKind.NOT_A_BACKUP, kind("not json".encodeToByteArray(), snapshot).kind)
+        assertEquals(YoinBackupErrorKind.CORRUPT, kind(manifest, null).kind)
         assertEquals(YoinBackupErrorKind.OTHER, YoinBackup.errorOf(IllegalStateException("x")).kind)
+    }
+
+    @Test
+    fun should_writeTheSyncLocation_into_theManifestSource() = runTest {
+        val phone = Device("dev-a", "iPhone", withReplica = false).apply { seed() }
+        suspend fun location(sync: String?) = phone.backup.exportBackup(1, sync, "en", "UTC", emptyList(), emptyList()).manifest.source.location
+
+        assertEquals(BackupFormat.LOCATION_THIS_DEVICE, location(null))
+        assertEquals(BackupFormat.LOCATION_GOOGLE_DRIVE, location("google_drive"))
+        assertEquals(BackupFormat.LOCATION_ICLOUD, location("icloud"))
+        assertEquals(BackupFormat.LOCATION_GOOGLE_DRIVE, location(BackupFormat.LOCATION_GOOGLE_DRIVE))
+        assertFailsWith<IllegalArgumentException> { location("dropbox") }
     }
 
     @Test

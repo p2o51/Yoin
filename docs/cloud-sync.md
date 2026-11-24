@@ -138,7 +138,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 文件名 `yoin-backup-YYYY-MM-DD.zip`，里面：
 
 ```
-manifest.json          格式与版本、导出时间、来源（google-drive / this-device）、设备 ID 与名称、
+manifest.json          格式与版本、导出时间、来源（google-drive / icloud / this-device）、设备 ID 与名称、
                        App 版本、每个账号的描述（服务、名称、「用户名 @ 主机」、店面；不含任何凭据）、
                        每个账号每类的条数、data/snapshot.json 的 SHA-256 / 字节数 / 条数 / 墓碑数
 data/snapshot.json     一个 SyncEnvelope（fileClass = "backup"），records 就是 Drive 状态文件里的

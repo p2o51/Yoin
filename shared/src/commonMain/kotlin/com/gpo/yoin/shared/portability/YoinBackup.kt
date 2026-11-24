@@ -31,8 +31,8 @@ import com.gpo.yoin.shared.sync.identity.SyncProfile
 /*
  * The Swift facade over the backup / import / transfer core (docs/cloud-sync.md「导出与导入」「转移 Memories」).
  * Flat data classes and enums only, no default arguments, no sealed types; suspend calls are `async throws`
- * in Swift, the one synchronous call is @Throws. iOS keeps the zip, the file pickers and the UI; it hands
- * the facade its stores (the same [SyncDomain] CloudSyncKit uses), its replica (CloudSyncKit.store, or
+ * in Swift; the synchronous [YoinBackup.readBackup] never throws (it returns a flat [YoinReadBackupResult]).
+ * iOS keeps the zip, the file pickers and the UI; it hands the facade its stores (the same [SyncDomain] CloudSyncKit uses), its replica (CloudSyncKit.store, or
  * null before sync ever ran) and a [YoinTrackAlbumLinkStore].
  *
  * Call it while no sync runs (the replica isn't locked here), and flush CloudSyncKit's store after an
@@ -96,6 +96,9 @@ enum class YoinBackupErrorKind {
 }
 
 data class YoinBackupError(val kind: YoinBackupErrorKind, val formatVersion: Int, val message: String)
+
+/** What [YoinBackup.readBackup] found: [backup] when the file is a readable Yoin backup, else [error]. */
+data class YoinReadBackupResult(val backup: ParsedBackup?, val error: YoinBackupError?)
 
 enum class YoinImportTargetKind { INTO_PROFILE, CLOUD_ONLY, SKIP }
 
@@ -211,23 +214,26 @@ class YoinBackup(
     // ---- export
 
     /**
-     * Everything this device would sync now, plus accounts it can't, as the backup's files. [cloudSyncOn]
-     * marks the source as Google Drive / iCloud vs this device; [language] picks the readable labels ("zh…" =
-     * Chinese); dates and the file name use the time zone [zoneId] (TimeZone.current.identifier).
+     * Everything this device would sync now, plus accounts it can't, as the backup's files. [syncLocation] is
+     * where Cloud sync keeps the data (null = sync off: "this-device"; "google_drive" / "icloud", or the
+     * [BackupFormat] location constants) and lands in the manifest's source; anything else throws.
+     * [language] picks the readable labels ("zh…" = Chinese); dates and the file name use the time zone
+     * [zoneId] (TimeZone.current.identifier).
      */
     @Throws(Throwable::class)
     suspend fun exportBackup(
         nowMs: Long,
-        cloudSyncOn: Boolean,
+        syncLocation: String?,
         language: String,
         zoneId: String,
         knownAlbums: List<YoinKnownAlbum>,
         knownTracks: List<YoinKnownTrack>,
     ): YoinBackupExport {
+        val location = BackupFormat.locationOf(syncLocation)
         val content = SnapshotAssembler(adapters, backupReplica(nowMs), backupDomain, deviceId, deviceName, appVersionCode)
             .build(domain.profiles(), nowMs)
         val source = BackupSource(
-            location = if (cloudSyncOn) BackupFormat.LOCATION_GOOGLE_DRIVE else BackupFormat.LOCATION_THIS_DEVICE,
+            location = location,
             deviceId = deviceId,
             deviceName = deviceName,
             appVersionName = appVersionName,
@@ -249,11 +255,13 @@ class YoinBackup(
     /**
      * Checks what the platform read out of the zip: [manifestJson] / [snapshotJson] are the entries
      * `manifest.json` / `data/snapshot.json` (null when missing), [readableFiles] the entries under readable/.
-     * Throws [BackupReadException]; [errorOf] turns it into a [YoinBackupError].
+     * Never throws: a file that isn't a readable Yoin backup comes back as [YoinReadBackupResult.error].
      */
-    @Throws(Throwable::class)
-    fun readBackup(manifestJson: ByteArray?, snapshotJson: ByteArray?, readableFiles: Int): ParsedBackup =
-        BackupParser.parse(manifestJson, snapshotJson, readableFiles)
+    fun readBackup(manifestJson: ByteArray?, snapshotJson: ByteArray?, readableFiles: Int): YoinReadBackupResult = try {
+        YoinReadBackupResult(BackupParser.parse(manifestJson, snapshotJson, readableFiles), null)
+    } catch (e: Exception) {
+        YoinReadBackupResult(null, errorOf(e))
+    }
 
     /** Where each account of [backup] would go by default, and what the user may choose instead. */
     @Throws(Throwable::class)
@@ -455,8 +463,8 @@ class YoinBackup(
             localProfileId?.let { tracks[listOf(it, provider, trackId)] }
     }
 
-    companion object {
-        /** A failed [readBackup] (or any other call) as a flat error for Swift. */
+    internal companion object {
+        /** A failed read as a flat error. */
         fun errorOf(error: Throwable): YoinBackupError = when (error) {
             is BackupReadException.NotABackup -> YoinBackupError(YoinBackupErrorKind.NOT_A_BACKUP, 0, error.message.orEmpty())
             is BackupReadException.TooNew -> YoinBackupError(YoinBackupErrorKind.TOO_NEW, error.formatVersion, error.message.orEmpty())
