@@ -2,12 +2,16 @@ package com.gpo.yoin.data.search
 
 import com.gpo.yoin.data.local.MemoryLedgerDao
 import com.gpo.yoin.data.memory.LedgerAlbumLookup
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
 import com.gpo.yoin.data.memory.MemoryLedgerRows
 import com.gpo.yoin.data.memory.buildMemoryLedger
-import com.gpo.yoin.data.memory.ledgerAlbumKey
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.ledgerAlbumKey
+import com.gpo.yoin.shared.search.MemoryAttachment
+import com.gpo.yoin.shared.search.MemorySearchMatches
+import com.gpo.yoin.shared.search.MemorySearchPort
+import com.gpo.yoin.shared.search.MemorySearchService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -18,30 +22,33 @@ import kotlinx.coroutines.sync.withLock
  * runs beside the service's search and can answer before it does.
  *
  * [profileIds] are the accounts that count (a removed account's rows don't), null for all; [lookup]
- * names an album Yoin never played, as the ledger page does.
+ * names an album Yoin never played, as the ledger page does. The search itself is :shared's
+ * ([MemorySearchService]); this is its [MemorySearchPort] on Room.
  */
 class MemorySearchSource(
     private val dao: MemoryLedgerDao,
     private val profileIds: suspend () -> Set<String>?,
     private val lookup: LedgerAlbumLookup = LedgerAlbumLookup { _, _, _ -> null },
 ) {
+    private val service = MemorySearchService(
+        object : MemorySearchPort {
+            override suspend fun ledger(): List<MemoryLedgerEntry> = this@MemorySearchSource.ledger()
+
+            override suspend fun aiTitles(): Map<String, String> = this@MemorySearchSource.aiTitles()
+        },
+    )
     private val mutex = Mutex()
     private var stamp: Long? = null
     private var accounts: Set<String>? = null
     private var entries: List<MemoryLedgerEntry> = emptyList()
 
     /** The memories and notes [query] meets, best first. Blank finds nothing (and reads nothing). */
-    suspend fun search(query: String, activeProfileId: String?): MemorySearchMatches {
-        val parsed = SearchQuery(query)
-        if (parsed.isBlank) return MemorySearchMatches.Empty
-        return searchMemoryLedger(ledger(), parsed, activeProfileId, aiTitles())
-    }
+    suspend fun search(query: String, activeProfileId: String?): MemorySearchMatches =
+        service.search(query, activeProfileId)
 
     /** The memories kept on [albums] in the account in use, by album id ([memoryAttachments]). */
-    suspend fun attachments(albums: List<Album>, activeProfileId: String?): Map<MediaId, MemoryAttachment> {
-        if (albums.isEmpty() || activeProfileId == null) return emptyMap()
-        return memoryAttachments(albums, ledger(), activeProfileId, aiTitles())
-    }
+    suspend fun attachments(albums: List<Album>, activeProfileId: String?): Map<MediaId, MemoryAttachment> =
+        service.attachments(albums.map { it.id.toRef() }, activeProfileId).mapKeys { (ref, _) -> ref.toMediaId() }
 
     private suspend fun ledger(): List<MemoryLedgerEntry> = mutex.withLock {
         val now = dao.changes().first()

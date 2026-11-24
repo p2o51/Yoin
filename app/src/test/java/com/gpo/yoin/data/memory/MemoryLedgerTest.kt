@@ -1,5 +1,8 @@
 package com.gpo.yoin.data.memory
 
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
 import com.gpo.yoin.data.local.AlbumMemoryTitle
 import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumRating

@@ -1,10 +1,14 @@
 package com.gpo.yoin.ui.navigation
 
+import com.gpo.yoin.data.memory.mediaId
 import com.gpo.yoin.ui.memories.MemoryOtherProfile
 import com.gpo.yoin.ui.library.seekWhenCurrent
 import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
-import com.gpo.yoin.data.search.NoteSearchHit
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.data.model.MediaRef
+import com.gpo.yoin.shared.search.NoteOpenAction
+import com.gpo.yoin.shared.search.NoteSearchHit
+import com.gpo.yoin.shared.search.noteOpenTarget
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -1109,22 +1113,30 @@ private fun YoinShell(
             navigateToAlbumFromShell(album.mediaId.toString(), null)
         }
     }
+    // Where a note leads is :shared's (noteOpenTarget, the same iOS follows); playing, switching and opening are here.
     val openSearchNote: (NoteSearchHit, Track?) -> Unit = { note, track ->
-        if (track != null) {
-            app.container.playSearchResults(listOf(track), 0)
-            note.positionMs?.let { position ->
-                shellScope.launch { app.container.playbackManager.seekWhenCurrent(track.id.rawId, position) }
-            }
-        } else {
-            val album = note.album
-            val songId = note.songId
-            val provider = note.provider
-            if (album != null) {
-                openInAccount(note.profileId, note.trackTitle ?: album.name) {
-                    if (songId != null && provider != null) ScrapbookFocusRequest.request(MediaId(provider, songId).toString())
-                    navigateToAlbumFromShell(album.mediaId.toString(), null)
+        val target = noteOpenTarget(
+            note,
+            track?.id?.let { MediaRef(it.provider, it.rawId) },
+            app.container.profileManager.activeProfileId.value,
+        )
+        when (target.action) {
+            NoteOpenAction.PlaySong -> if (track != null) {
+                app.container.playSearchResults(listOf(track), 0)
+                target.seekToMs?.let { position ->
+                    shellScope.launch { app.container.playbackManager.seekWhenCurrent(track.id.rawId, position) }
                 }
             }
+            NoteOpenAction.OpenAlbum -> {
+                val album = target.album
+                if (album != null) {
+                    openInAccount(target.profileId, target.subject ?: "") {
+                        target.song?.let { ScrapbookFocusRequest.request(MediaId(it.provider, it.rawId).toString()) }
+                        navigateToAlbumFromShell(MediaId(album.provider, album.rawId).toString(), null)
+                    }
+                }
+            }
+            NoteOpenAction.None -> Unit
         }
     }
     MemorySwitchNotice(searchSwitchGate)

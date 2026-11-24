@@ -1,8 +1,18 @@
 package com.gpo.yoin.data.search
 
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.search.SearchQuery
+import com.gpo.yoin.shared.search.FoldedText
+import com.gpo.yoin.shared.search.SearchScore
+import com.gpo.yoin.shared.search.SearchFragment
+import com.gpo.yoin.shared.search.fragment
+import com.gpo.yoin.shared.search.ledgerMarkOf
+import com.gpo.yoin.shared.search.NoteSearchHit
+import com.gpo.yoin.shared.search.searchMemoryLedger
+import com.gpo.yoin.shared.search.SEARCH_ALL_MAX_ROWS
+import com.gpo.yoin.shared.search.SEARCH_ALL_MAX_WIDE
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId

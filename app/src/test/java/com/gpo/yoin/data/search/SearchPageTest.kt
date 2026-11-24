@@ -1,6 +1,18 @@
 package com.gpo.yoin.data.search
 
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.search.SearchQuery
+import com.gpo.yoin.shared.search.MatchStrength
+import com.gpo.yoin.shared.search.MatchTier
+import com.gpo.yoin.shared.search.SearchScore
+import com.gpo.yoin.shared.search.SearchFragment
+import com.gpo.yoin.shared.search.fragment
+import com.gpo.yoin.shared.search.MemoryHitField
+import com.gpo.yoin.shared.search.MemorySearchHit
+import com.gpo.yoin.shared.search.NoteSearchHit
+import com.gpo.yoin.shared.search.MemorySearchMatches
+import com.gpo.yoin.shared.search.MemoryAttachment
+import com.gpo.yoin.shared.search.SearchSection
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
