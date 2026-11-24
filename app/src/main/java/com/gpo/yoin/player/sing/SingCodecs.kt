@@ -7,10 +7,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Build
-import com.gpo.yoin.player.sing.dsp.getAt
-import com.gpo.yoin.player.sing.dsp.putAt
 import java.io.File
-import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -24,7 +21,8 @@ import kotlin.math.sqrt
 class DecodedPcm(val left: FloatBuffer, val right: FloatBuffer, val frames: Int, val sampleRate: Int)
 
 /**
- * Decodes a song once to stereo float PCM with MediaExtractor + MediaCodec, into [SingWorkDir] buffers.
+ * How on-device Sing turns a decoded song into its stereo float X ([SingStreamDecoder] decodes, as the
+ * separation needs it):
  *
  * - Mono plays as L = R. More than two channels fold down to stereo (front pair, centre and rear at
  *   −3 dB, normalised so the fold-down can't clip): 3 = L R C, 4 = L R Ls Rs, 5 = L R C Ls Rs,
@@ -34,97 +32,6 @@ class DecodedPcm(val left: FloatBuffer, val right: FloatBuffer, val frames: Int,
  *   I = X − V is taken from these very samples, never a second decode (MP3 priming would shift it).
  */
 object SingPcmDecoder {
-    fun decode(file: File, work: SingWorkDir, cancelled: () -> Boolean = { false }): DecodedPcm {
-        val extractor = MediaExtractor()
-        try {
-            extractor.setDataSource(file.absolutePath)
-            val track = (0 until extractor.trackCount).firstOrNull {
-                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: throw IOException("no audio track")
-            extractor.selectTrack(track)
-            val format = extractor.getTrackFormat(track)
-            val mime = format.getString(MediaFormat.KEY_MIME)!!
-            val delay = format.intOr(KEY_ENCODER_DELAY, 0)
-            val padding = format.intOr(KEY_ENCODER_PADDING, 0)
-            // Ask compressed decoders for float output. For audio/raw (WAV) the key describes the
-            // *input* samples, so overriding it would make 16-bit data be read as float (half the
-            // frames, NaN garbage) — keep the container's own encoding there.
-            if (mime != MediaFormat.MIMETYPE_AUDIO_RAW) {
-                format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT)
-            }
-
-            var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val expected = if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                (format.getLong(MediaFormat.KEY_DURATION) * sampleRate / 1_000_000L * 102 / 100 + 4096).toInt()
-            } else {
-                GrowingFloats.INITIAL
-            }
-            val left = GrowingFloats(work, expected)
-            val right = GrowingFloats(work, expected)
-            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            var floatOut = false
-            var skip = delay
-            // A codec buffer's samples, read in bulk (a get per sample from the codec's direct buffer
-            // goes through a JNI-style call on ART).
-            var floats = FloatArray(0)
-            var shorts = ShortArray(0)
-
-            runCodec(
-                codec = MediaCodec.createDecoderByType(mime).apply { configure(format, null, null, 0) },
-                extractor = extractor,
-                cancelled = cancelled,
-                onFormat = { out ->
-                    sampleRate = out.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                    channels = out.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                    floatOut = out.intOr(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT) == AudioFormat.ENCODING_PCM_FLOAT
-                },
-                onOutput = { buffer ->
-                    val bytes = if (floatOut) 4 else 2
-                    val frames = buffer.remaining() / (bytes * channels)
-                    val samples = frames * channels
-                    if (floatOut) {
-                        if (floats.size < samples) floats = FloatArray(samples)
-                        buffer.asFloatBuffer().get(floats, 0, samples)
-                    } else {
-                        if (shorts.size < samples) shorts = ShortArray(samples)
-                        buffer.asShortBuffer().get(shorts, 0, samples)
-                    }
-                    for (f in 0 until frames) {
-                        if (skip > 0) {
-                            skip--
-                            continue
-                        }
-                        val at = f * channels
-                        fun s(c: Int): Float = if (floatOut) floats[at + c] else shorts[at + c] / 32768f
-                        val l: Float
-                        val r: Float
-                        when (channels) {
-                            1 -> {
-                                l = s(0)
-                                r = l
-                            }
-                            2 -> {
-                                l = s(0)
-                                r = s(1)
-                            }
-                            else -> foldDown(channels, ::s).let { (a, b) ->
-                                l = a
-                                r = b
-                            }
-                        }
-                        left.add(if (l.isFinite()) l else 0f)
-                        right.add(if (r.isFinite()) r else 0f)
-                    }
-                },
-            )
-            val frames = (left.size - padding).coerceAtLeast(0)
-            if (frames == 0) throw IOException("no audio decoded")
-            return DecodedPcm(left.finish(), right.finish(), frames, sampleRate)
-        } finally {
-            extractor.release()
-        }
-    }
-
     internal fun foldDown(channels: Int, s: (Int) -> Float): Pair<Float, Float> = when (channels) {
         1 -> s(0).let { it to it }
         2 -> s(0) to s(1)
@@ -137,10 +44,6 @@ object SingPcmDecoder {
     private fun norm(v: Float, sum: Float) = v / sum
 
     private const val M3 = 0.70710677f
-
-    // Framework keys MediaExtractor sets from LAME / iTunSMPB headers (no public constants before API 30's).
-    private const val KEY_ENCODER_DELAY = "encoder-delay"
-    private const val KEY_ENCODER_PADDING = "encoder-padding"
 }
 
 /**
@@ -391,57 +294,3 @@ private fun runCodec(
 }
 
 private fun MediaFormat.intOr(key: String, default: Int): Int = if (containsKey(key)) getInteger(key) else default
-
-/**
- * Appends floats to mapped buffers, doubling (and copying) as it fills. Values gather in a heap array
- * and go into the mapping a block at a time.
- */
-private class GrowingFloats(private val work: SingWorkDir, initial: Int) {
-    private var buffer: FloatBuffer = work.floats(initial.coerceAtLeast(4096))
-    private val pending = FloatArray(STAGE)
-    private var pendingCount = 0
-
-    /** Values added so far (flushed or not). */
-    var size = 0
-        private set
-
-    fun add(v: Float) {
-        pending[pendingCount++] = v
-        size++
-        if (pendingCount == STAGE) flush()
-    }
-
-    fun finish(): FloatBuffer {
-        flush()
-        return buffer
-    }
-
-    private fun flush() {
-        val flushed = size - pendingCount
-        if (size > buffer.capacity()) {
-            var capacity = buffer.capacity()
-            while (capacity < size) capacity *= 2
-            val bigger = work.floats(capacity)
-            val copy = FloatArray(STAGE)
-            var at = 0
-            while (at < flushed) {
-                val count = minOf(STAGE, flushed - at)
-                buffer.getAt(at, copy, 0, count)
-                bigger.putAt(at, copy, 0, count)
-                at += count
-            }
-            work.release(buffer)
-            buffer = bigger
-        }
-        buffer.putAt(flushed, pending, 0, pendingCount)
-        pendingCount = 0
-    }
-
-    companion object {
-        /** A minute of 44.1 kHz audio. */
-        const val INITIAL = 44_100 * 60
-
-        /** Values gathered before they go into the mapping. */
-        private const val STAGE = 4096
-    }
-}

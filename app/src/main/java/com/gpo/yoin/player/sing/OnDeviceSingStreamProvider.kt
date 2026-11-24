@@ -8,22 +8,26 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.player.OfflineFirstDataSource
 import com.gpo.yoin.player.mediaCacheDataSourceFactory
+import com.gpo.yoin.player.sing.dsp.IntervalSet
 import com.gpo.yoin.player.sing.dsp.LiveVocalSeparator
 import com.gpo.yoin.player.sing.dsp.SeparationModel
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
@@ -40,9 +44,14 @@ import okhttp3.OkHttpClient
  * playing and the mixer takes the vocal out of it ([SingMixerAudioProcessor]) as soon as the vocal
  * stem V covers the next few seconds.
  *
- * A request decodes the song once (X, as Media3 plays it: encoder delay and padding trimmed) while the
- * ORT session opens alongside ([SingSessionPool.prewarm]), writes X's mono reference into a fresh
- * [SingVocalTrack], and separates chunk by chunk ([LiveVocalSeparator]) from where the listener is —
+ * A request decodes the song (X, as Media3 plays it: encoder delay and padding trimmed) as it's needed
+ * ([SingStreamDecoder], straight from the player's data source chain — the bytes ExoPlayer already
+ * cached aren't fetched again): a FLAC or WAV from where the listener is, then on to the end, then the
+ * start; other formats in one streamed pass from the start. The model, the gate and the ORT session
+ * ([SingSessionPool.prewarm]) get ready alongside. Each chunk runs as soon as the PCM it reads is in
+ * ([LiveVocalSeparator.inputRange]; nothing near the end before the song's true length is known, as a
+ * chunk there depends on it), X's mono reference going into the [SingVocalTrack] as it decodes, the
+ * listener's place first. Chunk by chunk ([LiveVocalSeparator]) from where the listener is —
  * far enough ahead of a moving playhead that the first [SingReadiness.READY_AHEAD_MS] are in by the
  * time it gets there ([SingReadiness.planLead], on the ms/chunk measured live) — then on to the end,
  * then the beginning. [SingStatus.Ready] ([SingSource.Live]) comes once V covers
@@ -53,6 +62,9 @@ import okhttp3.OkHttpClient
  * goes back to the pool, which closes it after a minute unused (or at once on Sing off) — so the next
  * song with Sing on, its session also opened ahead as this one nears its end, doesn't wait for it.
  * Asked again, a song costs nothing: a cache hit is the same live path with every block already in.
+ * A song left unfinished (Sing off, another song, the app killed) keeps its partial track in the cache
+ * ([SingCache.PARTIAL_SUFFIX], LRU like the rest); asked again, it is carried on — Ready at once if V
+ * already covers the playhead, and only the missing blocks separated ([LiveVocalSeparator.markFinal]).
  *
  * Memory, per second of 44.1 kHz audio, all in memory-mapped files rather than the Java heap (they
  * count in the app's PSS, but are file pages the system can write back and drop): X, the decoded mix,
@@ -107,7 +119,10 @@ class OnDeviceSingStreamProvider(
     /** When each request started, for a playhead estimate before the first report. */
     private val requestNanos = ConcurrentHashMap<String, Long>()
 
-    /** The last track handed out, so a repeated request for the same song maps nothing new. */
+    /** A seekable decode didn't line up once: this process decodes from the start from then on. */
+    @Volatile private var seekUnreliable = false
+
+    /** The last track handed out (finished or not), so a repeated request for the same song maps nothing new. */
     @Volatile private var lastTrack: Pair<String, SingVocalTrack>? = null
 
     private class Playhead(val positionMs: Long, val atNanos: Long, val playing: Boolean)
@@ -209,127 +224,285 @@ class OnDeviceSingStreamProvider(
         return state
     }
 
+    /** A seekable decode met segments that didn't line up: decode again from the start. */
+    private class RetrySequential(cause: Throwable) : Exception(cause)
+
     private suspend fun prepare(request: SingRequest, state: MutableStateFlow<SingStatus>): SingStatus {
         val started = System.nanoTime()
-        state.value = SingStatus.Preparing(stage = SingStatus.Preparing.Stage.Model)
-        val model = try {
-            modelStore.ensure { state.value = SingStatus.Preparing(it * 0.05f, SingStatus.Preparing.Stage.Model) }
-        } catch (e: IOException) {
-            Log.w(TAG, "model unavailable", e)
-            return SingStatus.Failed(SingFailure.ModelDownload, e.message)
-        }
-        val gate = gate(model)
-        verdict = gate
-        if (gate is SingDeviceGate.Verdict.Insufficient) {
-            sessions.close()
-            return SingStatus.Unavailable(gate.reason)
-        }
-
-        val key = cacheKey(request)
         cachedTrack(request)?.let { return SingStatus.Ready(SingSource.Live(it)) }
         val uri = request.streamUri ?: return SingStatus.Unavailable(SingUnavailableReason.NoSource)
-        // The session opens while the song is fetched and decoded: neither needs the other.
-        sessions.prewarm(model)
-
-        SingWorkDir(File(context.cacheDir, WORK_DIR)).use { work ->
-            state.value = SingStatus.Preparing(0.05f, SingStatus.Preparing.Stage.Reading)
-            val sourceFile = work.file(".src")
-            var copyMs = 0L
-            var decodeMs = 0L
-            var sourceBytes = 0L
-            val mix = try {
-                val copyStart = System.nanoTime()
-                copySource(uri, sourceFile)
-                copyMs = (System.nanoTime() - copyStart) / 1_000_000
-                sourceBytes = sourceFile.length()
-                currentCoroutineContextCheck()
-                val decodeStart = System.nanoTime()
-                val decoded = SingPcmDecoder.decode(sourceFile, work) { !isActiveFor(request) }
-                decodeMs = (System.nanoTime() - decodeStart) / 1_000_000
-                decoded
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "decode failed", e)
-                return SingStatus.Failed(SingFailure.Decode, e.message)
-            } finally {
-                sourceFile.delete()
-            }
-            if (mix.frames > SingVocalTrack.MAX_FRAMES) return SingStatus.Failed(SingFailure.Decode, "song too long")
-            val seconds = mix.frames.toDouble() / mix.sampleRate
-            Log.d(
-                TAG,
-                "source ${sourceBytes / 1024} KB in $copyMs ms; decoded ${"%.1f".format(seconds)} s " +
-                    "@ ${mix.sampleRate} Hz in $decodeMs ms (X mapped: ${mix.frames.toLong() * 8 / 1_048_576} MB)",
-            )
-
-            val part = cache.partFile(key)
-            var committed = false
+        var sequentialOnly = seekUnreliable
+        var gated = false
+        while (true) {
             try {
-                val track = SingVocalTrack.create(part, mix.sampleRate, mix.frames)
-                track.writeReference(mix.left, mix.right)
+                return attempt(request, state, uri, started, sequentialOnly, gated) { gated = true }
+            } catch (e: RetrySequential) {
+                if (sequentialOnly) return SingStatus.Failed(SingFailure.Decode, e.cause?.message)
+                Log.w(TAG, "decoding from the listener's place didn't line up (${e.cause?.message}): from the start", e.cause)
+                // This process won't seek-decode again; what that decode made is not kept.
+                seekUnreliable = true
+                sequentialOnly = true
+                dropPartial(cacheKey(request))
+            }
+        }
+    }
+
+    /**
+     * One go at [request]: the decoder starts at once (from the listener's place when the format allows,
+     * [SingStreamDecoder]) alongside the model, the gate and the session; a kept partial track is
+     * carried on (Ready at once if it covers the playhead); then [separate] as the PCM comes in.
+     */
+    private suspend fun attempt(
+        request: SingRequest,
+        state: MutableStateFlow<SingStatus>,
+        uri: String,
+        started: Long,
+        sequentialOnly: Boolean,
+        gated: Boolean,
+        onGated: () -> Unit,
+    ): SingStatus = SingWorkDir(File(context.cacheDir, WORK_DIR)).use { work ->
+        coroutineScope {
+            val key = cacheKey(request)
+            val reader = SingSourceReader(sourceFactory, uri.toUri())
+            val decoder = SingStreamDecoder(reader, work, sequentialOnly)
+            // A little before the listener: the first chunk reads ~3 s before the frames it makes.
+            decoder.wantMs = (playheadMs(request).positionMs - FIRST_DECODE_BEFORE_MS).coerceAtLeast(0L)
+            val decodeFailure = AtomicReference<Throwable?>(null)
+            val decodeStart = System.nanoTime()
+            var decodeEnd = 0L
+            val decodeJob = launch(Dispatchers.IO) {
+                try {
+                    decoder.run { !isActive }
+                    decodeEnd = System.nanoTime()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    decodeFailure.set(e)
+                } finally {
+                    reader.close()
+                }
+            }
+            var track: SingVocalTrack? = null
+            try {
+                if (!gated) {
+                    state.value = SingStatus.Preparing(stage = SingStatus.Preparing.Stage.Model)
+                    val model = try {
+                        modelStore.ensure { state.value = SingStatus.Preparing(it * 0.05f, SingStatus.Preparing.Stage.Model) }
+                    } catch (e: IOException) {
+                        Log.w(TAG, "model unavailable", e)
+                        return@coroutineScope SingStatus.Failed(SingFailure.ModelDownload, e.message)
+                    }
+                    val gate = gate(model)
+                    verdict = gate
+                    if (gate is SingDeviceGate.Verdict.Insufficient) {
+                        sessions.close()
+                        return@coroutineScope SingStatus.Unavailable(gate.reason)
+                    }
+                    onGated()
+                }
+                val model = modelStore.file
+                // The session opens while the song is fetched and decoded: neither needs the other.
+                sessions.prewarm(model)
+
+                // A song Sing worked on before: carry on from what it kept.
+                var ready = false
+                track = resumeTrack(key)?.also { kept ->
+                    Log.d(
+                        TAG,
+                        "carrying on a kept track: ${"%.0f".format(kept.coverage * 100)} % in" +
+                            if (kept.droppedOnOpen > 0) " (${kept.droppedOnOpen} blocks failed their CRC)" else "",
+                    )
+                    if (SingReadiness.isReadyAt(kept, playheadMs(request).positionMs)) {
+                        ready = true
+                        Log.d(TAG, "ready ${(System.nanoTime() - started) / 1_000_000} ms after the request (kept track)")
+                        state.value = SingStatus.Ready(SingSource.Live(kept))
+                    }
+                }
+                if (!ready) state.value = SingStatus.Preparing(0.05f, SingStatus.Preparing.Stage.Reading)
+
+                val pcm = try {
+                    decoder.format.await()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: SingProgressivePcm.Misplaced) {
+                    throw RetrySequential(e)
+                } catch (e: Exception) {
+                    return@coroutineScope decodeFailed(state, e)
+                }
+                Log.d(
+                    TAG,
+                    "first bytes ${nanosSince(started, reader.firstBytesNanos)} ms, header ${nanosSince(started, decoder.headerNanos)} ms, " +
+                        "format ${(System.nanoTime() - started) / 1_000_000} ms after the request",
+                )
+                if (track != null && (track.sampleRate != pcm.sampleRate || track.frames > pcm.capacity)) {
+                    Log.w(TAG, "kept track (${track.frames} frames @ ${track.sampleRate} Hz) doesn't fit the song as it decodes: starting over")
+                    track = null
+                    dropPartial(key)
+                }
+                val frames = track?.frames ?: pcm.estimatedFrames?.coerceAtMost(pcm.capacity) ?: run {
+                    // The container doesn't say how long the song is: wait for the end.
+                    while (pcm.exactFrames < 0) {
+                        decodeFailure.get()?.let { throw if (it is SingProgressivePcm.Misplaced) it else DecodeFailed(it) }
+                        delay(DECODE_POLL_MS)
+                    }
+                    pcm.exactFrames
+                }
+                if (frames > SingVocalTrack.MAX_FRAMES) return@coroutineScope SingStatus.Failed(SingFailure.Decode, "song too long")
+                val working = track ?: SingVocalTrack.create(cache.partialFile(key), pcm.sampleRate, frames)
+                track = working
+                working.file?.let(cache::pin)
+                lastTrack = key to working
+
                 val waitStart = System.nanoTime()
                 val lease = sessions.take(model)
-                Log.d(TAG, "session in hand ${(System.nanoTime() - waitStart) / 1_000_000} ms after decode")
-                try {
-                    separate(request, state, lease.session, mix, track, work, started)
+                Log.d(TAG, "session in hand ${(System.nanoTime() - waitStart) / 1_000_000} ms after the format")
+                val done = try {
+                    separate(request, state, lease.session, pcm, decoder, decodeFailure, key, working, work, started, ready)
                 } finally {
                     sessions.give(lease)
                     saveGate()
                 }
-                track.finish()
-                track.file = cache.commit(key, part)
-                committed = true
-                lastTrack = key to track
+                track = done
+                done.finish()
+                val part = checkNotNull(done.file)
+                done.file = cache.commit(key, part)
+                lastTrack = key to done
+                val seconds = done.frames.toDouble() / done.sampleRate
                 Log.d(
                     TAG,
                     "separated ${"%.1f".format(seconds)} s in ${(System.nanoTime() - started) / 1_000_000} ms " +
-                        "(source $copyMs ms, decode $decodeMs ms, ${"%.0f".format(chunkMs ?: 0.0)} ms/chunk)",
+                        "(decode ${if (decodeEnd > 0) (decodeEnd - decodeStart) / 1_000_000 else -1} ms in ${decoder.segments} segment(s), " +
+                        "${reader.bytesRead / 1024} KB read over ${reader.opens} connection(s), " +
+                        "${"%.0f".format(chunkMs ?: 0.0)} ms/chunk)",
                 )
-                return SingStatus.Ready(SingSource.Live(track))
+                SingStatus.Ready(SingSource.Live(done))
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: RetrySequential) {
+                throw e
+            } catch (e: SingProgressivePcm.Misplaced) {
+                throw RetrySequential(e)
+            } catch (e: DecodeFailed) {
+                decodeFailed(state, e.cause ?: e)
             } catch (e: Exception) {
                 Log.w(TAG, "separation failed", e)
-                return SingStatus.Failed(SingFailure.Inference, e.message)
+                SingStatus.Failed(SingFailure.Inference, e.message)
             } finally {
-                if (!committed) part.delete()
+                decodeJob.cancel()
+                reader.abort()
+                // Whatever isn't finished stays in the cache as a partial track, to be carried on.
+                track?.file?.let { cache.unpin(it) }
+                cache.trim()
             }
         }
+    }
+
+    /**
+     * The song couldn't be read (the network went, say). Already Ready (a kept track covering the
+     * listener, or enough separated): Sing stays on with what's there — the mixer lets the vocal
+     * through where V is missing — and the next request carries on. Otherwise it failed.
+     */
+    private fun decodeFailed(state: MutableStateFlow<SingStatus>, e: Throwable): SingStatus {
+        val shown = state.value as? SingStatus.Ready
+        Log.w(TAG, if (shown != null) "decode failed; staying on with the vocal so far" else "decode failed", e)
+        return shown ?: SingStatus.Failed(SingFailure.Decode, e.message)
+    }
+
+    /** The decoder gave up (not a misplaced segment): the song can't be read. */
+    private class DecodeFailed(cause: Throwable) : Exception(cause)
+
+    private fun nanosSince(started: Long, at: Long): Long = if (at == 0L) -1 else (at - started) / 1_000_000
+
+    /**
+     * [key]'s unfinished track: the one in memory (its flags as they are) or the kept file (checked
+     * block by block); null when there's none.
+     */
+    private fun resumeTrack(key: String): SingVocalTrack? {
+        lastTrack?.let { (k, track) ->
+            if (k == key && !track.isComplete && track.file?.isFile == true) return track
+        }
+        val file = cache.getPartial(key) ?: return null
+        val track = SingVocalTrack.open(file, partial = true)
+        if (track == null) {
+            // Not a partial track (cut short, an old version): nothing to carry on.
+            file.delete()
+            return null
+        }
+        // (All in but never stamped finished — the app died right then: it's finished below.)
+        return track
+    }
+
+    private fun dropPartial(key: String) {
+        lastTrack?.let { (k, track) -> if (k == key && !track.isComplete) lastTrack = null }
+        cache.partialFile(key).delete()
     }
 
     /** A committed plan: separate from [positionMs] until the playhead overtakes it or jumps. */
     private class Target(val positionMs: Long, val seekGeneration: Int)
 
+    /** A separator for [track]'s song over [pcm], skipping what [track] already has. */
+    private fun separatorFor(pcm: SingProgressivePcm, track: SingVocalTrack, work: SingWorkDir): LiveVocalSeparator =
+        LiveVocalSeparator(pcm.left, pcm.right, track.frames, track.sampleRate, work::floats).also { separator ->
+            for ((from, to) in track.readyRanges()) separator.markFinal(from, to)
+        }
+
     /**
-     * Runs every chunk of the song, the listener's first, writing V into [track] as it's final, and
-     * says [SingStatus.Ready] once V covers [SingReadiness.READY_AHEAD_MS] from the playhead.
+     * Runs every chunk the song still needs, the listener's first, as their input decodes, writing V
+     * (and the mix reference) into the track as it's final, and says [SingStatus.Ready] once V covers
+     * [SingReadiness.READY_AHEAD_MS] from the playhead. Returns the finished track — [initial], or the
+     * one remade at the song's true length if decoding found the container's estimate off.
      */
     private suspend fun separate(
         request: SingRequest,
         state: MutableStateFlow<SingStatus>,
         session: SeparationModel,
-        mix: DecodedPcm,
-        track: SingVocalTrack,
+        pcm: SingProgressivePcm,
+        decoder: SingStreamDecoder,
+        decodeFailure: AtomicReference<Throwable?>,
+        key: String,
+        initial: SingVocalTrack,
         work: SingWorkDir,
         startedNanos: Long,
-    ) {
-        val rate = mix.sampleRate
-        val separator = LiveVocalSeparator(mix.left, mix.right, mix.frames, rate, work::floats)
-        val sink = LiveVocalSeparator.VocalSink { from, to, left, right, offset -> track.writeVocal(from, to, left, right, offset) }
+        readyAlready: Boolean,
+    ): SingVocalTrack {
+        var track = initial
+        val rate = track.sampleRate
+        var separator = separatorFor(pcm, track, work)
+        var sink = LiveVocalSeparator.VocalSink { from, to, left, right, offset -> track.writeVocal(from, to, left, right, offset) }
         separator.start(sink)
-        val seconds = mix.frames.toDouble() / rate
-        var ready = false
+        var references = IntervalSet()
+        var seconds = track.frames.toDouble() / rate
+        var ready = readyAlready
         var run = 0
         var expected = DEFAULT_READY_CHUNKS
         var target: Target? = null
         var lastChunk = -2
         var nextCoverageLog = COVERAGE_LOG_SECONDS
+        var waitingFor = -1
+        var firstInputLogged = false
         while (true) {
             currentCoroutineContextCheck()
             if (!isActiveFor(request)) throw CancellationException("Sing cancelled")
+            decodeFailure.get()?.let { throw if (it is SingProgressivePcm.Misplaced) it else DecodeFailed(it) }
             val playhead = playheadMs(request)
             val playFrame = playhead.positionMs * rate / 1000
+
+            // Decoding found the song's true length, and the track was sized by the container's estimate.
+            val exact = pcm.exactFrames
+            if (exact >= 0 && exact != track.frames) {
+                if (exact > SingVocalTrack.MAX_FRAMES) throw DecodeFailed(IOException("song too long"))
+                track = remake(key, track, exact)
+                separator = separatorFor(pcm, track, work)
+                sink = LiveVocalSeparator.VocalSink { from, to, left, right, offset -> track.writeVocal(from, to, left, right, offset) }
+                separator.start(sink)
+                references = IntervalSet()
+                seconds = track.frames.toDouble() / rate
+                target = null
+                if (ready) state.value = SingStatus.Ready(SingSource.Live(track))
+            }
+            writeReferences(pcm, track, references, playFrame)
+            if (separator.isFinished) break
+
             val seekGeneration = seeks[request.key] ?: 0
             // Where V should start: from the playhead's own readiness block when it's paused or V is
             // there (filling what's missing from there on, then on to the end), else where the playhead
@@ -365,6 +538,34 @@ class OnDeviceSingStreamProvider(
                 SingReadiness.chunkForTarget(separator, track, fromMs)
             }
             if (chunk < 0) break
+
+            // Its input decoded? Before the song's length is known, nothing near the estimated end runs:
+            // what a chunk there computes depends on the length.
+            val (inputFrom, inputTo) = separator.inputRange(chunk)
+            val lengthKnown = pcm.exactFrames >= 0
+            val tailBlocked = !lengthKnown && inputTo > track.frames - SingProgressivePcm.tailGuardFrames(track.frames, rate)
+            if (tailBlocked || !pcm.isDecoded(inputFrom, inputTo)) {
+                if (!tailBlocked) decoder.wantFrame = inputFrom.toLong()
+                if (waitingFor != chunk) {
+                    waitingFor = chunk
+                    Log.d(
+                        TAG,
+                        "chunk $chunk waits for ${if (tailBlocked) "the song's length" else "its input"} " +
+                            "(${"%.1f".format(inputFrom.toDouble() / rate)}–${"%.1f".format(inputTo.toDouble() / rate)} s)",
+                    )
+                }
+                delay(DECODE_POLL_MS)
+                continue
+            }
+            if (!firstInputLogged) {
+                firstInputLogged = true
+                Log.d(
+                    TAG,
+                    "decoded to the listener's place ${(System.nanoTime() - startedNanos) / 1_000_000} ms after the request " +
+                        "(${"%.1f".format(inputFrom.toDouble() / rate)}–${"%.1f".format(inputTo.toDouble() / rate)} s)",
+                )
+            }
+            waitingFor = -1
             if (why != null || (chunk != lastChunk + 1 && chunk != lastChunk - 1)) {
                 Log.d(
                     TAG,
@@ -377,6 +578,7 @@ class OnDeviceSingStreamProvider(
             separator.runChunk(chunk, session, sink)
             val ms = (System.nanoTime() - t0) / 1e6
             recordChunk(ms)
+            if (run == 0) Log.d(TAG, "first chunk done ${(System.nanoTime() - startedNanos) / 1_000_000} ms after the request")
             lastChunk = chunk
             run++
             val covered = track.coverage * seconds
@@ -406,7 +608,67 @@ class OnDeviceSingStreamProvider(
                 }
             }
         }
+        // The mix reference for the whole song before it's kept (the decode is all in by now).
+        while (!references.covers(0, track.frames)) {
+            currentCoroutineContextCheck()
+            decodeFailure.get()?.let { throw if (it is SingProgressivePcm.Misplaced) it else DecodeFailed(it) }
+            if (!writeReferences(pcm, track, references, 0, budget = Int.MAX_VALUE)) delay(DECODE_POLL_MS)
+        }
         check(separator.isFinished && track.isComplete) { "vocal track incomplete" }
+        return track
+    }
+
+    /**
+     * Writes the mix reference where the song is decoded and [done] doesn't have it yet, around
+     * [priorityFrame] first (the aligner looks there), at most [budget] frames a call so a chunk never
+     * waits long for it. True when it wrote anything.
+     */
+    private fun writeReferences(
+        pcm: SingProgressivePcm,
+        track: SingVocalTrack,
+        done: IntervalSet,
+        priorityFrame: Long,
+        budget: Int = REFERENCE_BUDGET_SECONDS * track.sampleRate,
+    ): Boolean {
+        val todo = ArrayList<Pair<Int, Int>>()
+        for ((from, to) in pcm.decodedRanges()) {
+            val a = from.coerceIn(0, track.frames)
+            val b = to.coerceIn(0, track.frames)
+            if (a < b) todo += done.gaps(a, b)
+        }
+        if (todo.isEmpty()) return false
+        val p = priorityFrame.coerceIn(0L, track.frames.toLong()).toInt() - track.sampleRate
+        todo.sortBy { (from, to) -> if (to <= p) Int.MAX_VALUE - (p - to) else maxOf(0, from - p) }
+        var left = budget
+        for ((from, to) in todo) {
+            if (left <= 0) break
+            val start = if (to > p && from < p) maxOf(from, p) else from
+            val end = minOf(to, start + left)
+            track.writeReference(start, end, pcm.left, pcm.right)
+            done.add(start, end)
+            left -= end - start
+        }
+        return true
+    }
+
+    /**
+     * [old] remade at the song's true length [frames] (the container's estimate was off), every whole
+     * block it has carried over; it takes [old]'s place in the cache.
+     */
+    private fun remake(key: String, old: SingVocalTrack, frames: Int): SingVocalTrack {
+        Log.d(TAG, "the song is $frames frames, not ${old.frames}: remaking the track")
+        val file = cache.partialFile(key)
+        val fresh = File(file.path + SingCache.REMAKE_SUFFIX)
+        cache.pin(fresh)
+        val track = SingVocalTrack.create(fresh, old.sampleRate, frames)
+        track.copyReadyFrom(old)
+        old.file?.let(cache::unpin)
+        check(fresh.renameTo(file)) { "could not move the remade track in" }
+        cache.unpin(fresh)
+        track.file = file
+        cache.pin(file)
+        lastTrack = key to track
+        return track
     }
 
     /**
@@ -511,23 +773,6 @@ class OnDeviceSingStreamProvider(
         }
     }
 
-    private fun copySource(uri: String, into: File) {
-        val source = sourceFactory.createDataSource()
-        try {
-            source.open(DataSpec(uri.toUri()))
-            into.outputStream().use { out ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val n = source.read(buffer, 0, buffer.size)
-                    if (n < 0) break
-                    out.write(buffer, 0, n)
-                }
-            }
-        } finally {
-            source.close()
-        }
-    }
-
     private fun cacheKey(request: SingRequest) = SingCache.keyFor(request, modelStore.config.sha256)
 
     private fun isActiveFor(request: SingRequest): Boolean = jobs[request.key]?.isActive == true
@@ -558,6 +803,15 @@ class OnDeviceSingStreamProvider(
 
         /** A plan is overtaken once the playhead passes its start by this much with V still not there. */
         private const val OVERTAKEN_SLACK_MS = 1_000L
+
+        /** Decoding starts this far before the listener's place (a chunk's window and the resampler's reach). */
+        private const val FIRST_DECODE_BEFORE_MS = 6_000L
+
+        /** How often the separation looks again for the input a chunk waits on. */
+        private const val DECODE_POLL_MS = 15L
+
+        /** Mix reference written per chunk, at most (seconds of audio). */
+        private const val REFERENCE_BUDGET_SECONDS = 20
 
         /** Coverage goes to the log every this many seconds of audio. */
         private const val COVERAGE_LOG_SECONDS = 10.0
