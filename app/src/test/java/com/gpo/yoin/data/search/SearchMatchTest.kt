@@ -1,5 +1,11 @@
 package com.gpo.yoin.data.search
 
+import com.gpo.yoin.shared.search.SearchQuery
+import com.gpo.yoin.shared.search.MatchStrength
+import com.gpo.yoin.shared.search.MatchTier
+import com.gpo.yoin.shared.search.SearchScore
+import com.gpo.yoin.shared.search.fragment
+import com.gpo.yoin.shared.search.FRAGMENT_MAX_CHARS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

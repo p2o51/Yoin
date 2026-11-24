@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.toShape
 import androidx.compose.ui.text.style.TextOverflow
 import com.gpo.yoin.data.memory.MemoryGridScale
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.buildMemoryGrid
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

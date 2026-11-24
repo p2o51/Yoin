@@ -1,11 +1,10 @@
-package com.gpo.yoin.data.search
+package com.gpo.yoin.shared.search
 
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
-import com.gpo.yoin.data.memory.ledgerAlbumKey
-import com.gpo.yoin.data.model.Album
-import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.data.model.MediaRef
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.ledgerAlbumKey
 import com.gpo.yoin.shared.notes.NoteMarkup
 
 /*
@@ -32,7 +31,7 @@ enum class MemoryHitField(val tier: MatchTier) {
 /** What kind of mark an album's cover wears (Home's rule, HomeAlbumMemoryMark.kt): your score, else your tracks' average, else notes. */
 enum class LedgerMarkKind { AlbumRating, TrackAverage, NotesOnly }
 
-/** An album's memory mark: what [com.gpo.yoin.ui.home.HomeAlbumMemoryMark] draws. Reviews and titles alone wear none. */
+/** An album's memory mark: what Home's HomeAlbumMemoryMark draws. Reviews and titles alone wear none. */
 data class LedgerMark(val kind: LedgerMarkKind, val score: Float?, val noteCount: Int)
 
 /** The mark for one album's ledger [entries] (any kinds), or null when nothing on it earns one. */
@@ -67,7 +66,7 @@ data class MemorySearchHit(
     val mark: LedgerMark? = null,
 )
 
-/** A song note the query met. Opening it plays the song from [positionMs]. */
+/** A song note the query met. Opening it plays the song from [positionMs] ([noteOpenTarget]). */
 data class NoteSearchHit(
     val entryId: String,
     val profileId: String,
@@ -123,10 +122,9 @@ private val MemoryLedgerEntry.makesMemory: Boolean
     get() = kind.wrote || kind == MemoryLedgerKind.AlbumRating
 
 /**
- * Searches the ledger's [entries] (every account's, as [com.gpo.yoin.data.memory.buildMemoryLedger] made
- * them) for [query]. [aiTitles] holds AI-written memory titles by album key; the listener's own title
- * (a [MemoryLedgerKind.Title] entry) wins over it. Same-strength hits from [activeProfileId] come first,
- * then newer ones; the account never lifts a weaker hit over a stronger one.
+ * Searches the ledger's [entries] (every account's) for [query]. [aiTitles] holds AI-written memory titles
+ * by album key; the listener's own title (a [MemoryLedgerKind.Title] entry) wins over it. Same-strength hits
+ * from [activeProfileId] come first, then newer ones; the account never lifts a weaker hit over a stronger one.
  */
 fun searchMemoryLedger(
     entries: List<MemoryLedgerEntry>,
@@ -250,18 +248,18 @@ private fun noteHit(entry: MemoryLedgerEntry, query: SearchQuery, activeProfileI
 }
 
 /**
- * The memories kept on [albums] (a search's album rows), by album id. Phase 1 attaches only on the
- * exact album in the account in use, `(profileId, provider, albumId)`: never by a similar title, since
- * a wrong attachment is worse than a missing one (docs/search.md). [aiTitles] as in [searchMemoryLedger].
+ * The memories kept on [albums] (a search's album rows, as provider + raw id), by album. Phase 1 attaches
+ * only on the exact album in the account in use, `(profileId, provider, albumId)`: never by a similar title,
+ * since a wrong attachment is worse than a missing one (docs/search.md). [aiTitles] as in [searchMemoryLedger].
  */
 fun memoryAttachments(
-    albums: List<Album>,
+    albums: List<MediaRef>,
     entries: List<MemoryLedgerEntry>,
     activeProfileId: String?,
     aiTitles: Map<String, String> = emptyMap(),
-): Map<MediaId, MemoryAttachment> {
+): Map<MediaRef, MemoryAttachment> {
     if (activeProfileId == null || albums.isEmpty()) return emptyMap()
-    val wanted = albums.associateBy { ledgerAlbumKey(activeProfileId, it.id.provider, it.id.rawId) }
+    val wanted = albums.associateBy { ledgerAlbumKey(activeProfileId, it.provider, it.rawId) }
     val found = HashMap<String, MutableList<MemoryLedgerEntry>>()
     val everything = HashMap<String, MutableList<MemoryLedgerEntry>>()
     entries.forEach { entry ->
@@ -280,7 +278,7 @@ fun memoryAttachments(
         if (kept.isEmpty() && mark == null) return@mapNotNull null
         val title = kept.filter { it.kind == MemoryLedgerKind.Title }.maxByOrNull { it.at }?.text
             ?: aiTitles[key]
-        album.id to MemoryAttachment(
+        album to MemoryAttachment(
             albumKey = key,
             title = title?.takeIf { it.isNotBlank() },
             albumScore = kept.filter { it.kind == MemoryLedgerKind.AlbumRating }.maxByOrNull { it.at }?.score,
@@ -291,4 +289,4 @@ fun memoryAttachments(
 }
 
 /** A note's or review's words for search: mention names, no Markdown marks, no `yoin:` links (NoteMarkup). */
-internal fun noteWords(text: String): String = NoteMarkup.plainText(text)
+fun noteWords(text: String): String = NoteMarkup.plainText(text)

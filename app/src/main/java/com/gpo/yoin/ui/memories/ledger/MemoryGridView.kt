@@ -43,7 +43,7 @@ import com.gpo.yoin.data.memory.MemoryGrid
 import com.gpo.yoin.data.memory.MemoryGridCell
 import com.gpo.yoin.data.memory.MemoryGridMark
 import com.gpo.yoin.data.memory.MemoryGridScale
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle

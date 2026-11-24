@@ -6,23 +6,25 @@ import androidx.compose.runtime.Stable
 import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.shared.search.SearchFilter
+import com.gpo.yoin.shared.search.SearchSection
+import com.gpo.yoin.shared.search.searchFilters
+import com.gpo.yoin.shared.search.shownRows
 
 /**
- * What the search surface lists: every type ([All]), one type alone, or [Memories]: the listener's own
- * notes and memories the query met (#Yoin:#18). Declared in chip order.
+ * What the search surface lists: every type ([LibrarySearchFilter.All]), one type alone, or
+ * [LibrarySearchFilter.Memories]: the listener's own notes and memories the query met (#Yoin:#18). Declared in
+ * chip order. The chips and what each lists are :shared's ([SearchFilter], the same iOS uses).
  */
-enum class LibrarySearchFilter { All, Songs, Albums, Memories, Artists, Playlists }
+typealias LibrarySearchFilter = SearchFilter
 
 /**
- * Most rows of each type the All list shows. The remote searches return
- * fewer (Spotify 10, Subsonic 20, Apple Music 25 a type); only Spotify's
- * saved-library search, which filters the synced snapshot, can match more,
- * and a type filter shows all of its type.
+ * Most rows of each type the All list shows ([com.gpo.yoin.shared.search.SEARCH_ALL_ROWS_PER_TYPE]).
  */
-internal const val SEARCH_ALL_ROWS_PER_TYPE = 40
+internal const val SEARCH_ALL_ROWS_PER_TYPE = com.gpo.yoin.shared.search.SEARCH_ALL_ROWS_PER_TYPE
 
 /**
- * The type chips the search surface offers in [scope]. Capability alone
+ * The type chips the search surface offers in [scope] ([searchFilters]). Capability alone
  * decides, never whether the current results hold that type, so the row
  * doesn't reshuffle as results land. Playlists need
  * [Capability.SEARCH_PLAYLISTS] (Spotify, Apple Music; not Subsonic, whose
@@ -30,39 +32,29 @@ internal const val SEARCH_ALL_ROWS_PER_TYPE = 40
  * hold playlists ([Capability.PLAYLISTS_READ]).
  */
 internal fun searchFiltersFor(capabilities: Set<Capability>, scope: LibrarySearchScope): List<LibrarySearchFilter> =
-    LibrarySearchFilter.entries.filter { filter ->
-        when (filter) {
-            LibrarySearchFilter.Playlists ->
-                Capability.SEARCH_PLAYLISTS in capabilities &&
-                    (scope != LibrarySearchScope.CurrentLibrary || Capability.PLAYLISTS_READ in capabilities)
-            else -> true
-        }
-    }
+    searchFilters(
+        canSearchPlaylists = Capability.SEARCH_PLAYLISTS in capabilities,
+        canReadPlaylists = Capability.PLAYLISTS_READ in capabilities,
+        savedLibrary = scope == LibrarySearchScope.CurrentLibrary,
+    )
 
 /** This filter when [available] offers it, otherwise [LibrarySearchFilter.All]. */
 internal fun LibrarySearchFilter.normalisedTo(available: List<LibrarySearchFilter>): LibrarySearchFilter =
     takeIf { it in available } ?: LibrarySearchFilter.All
 
 /**
- * The part of these results [filter] lists. Switching fetches nothing: a
- * type shows what the mixed search already returned, and reads its next
- * page only as its list nears the end ([searchMoreFor]). All keeps at most
- * [SEARCH_ALL_ROWS_PER_TYPE] of each type.
+ * The part of these results [filter] lists ([shownRows]). Switching
+ * fetches nothing: a type shows what the mixed search already returned, and
+ * reads its next page only as its list nears the end ([searchMoreFor]). All
+ * keeps at most [SEARCH_ALL_ROWS_PER_TYPE] of each type. Memories come from
+ * the ledger, not the service ([com.gpo.yoin.data.search.SearchPage.memories]).
  */
-internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults = when (filter) {
-    LibrarySearchFilter.All -> SearchResults(
-        tracks = tracks.take(SEARCH_ALL_ROWS_PER_TYPE),
-        albums = albums.take(SEARCH_ALL_ROWS_PER_TYPE),
-        artists = artists.take(SEARCH_ALL_ROWS_PER_TYPE),
-        playlists = playlists.take(SEARCH_ALL_ROWS_PER_TYPE)
-    )
-    LibrarySearchFilter.Artists -> SearchResults(artists = artists)
-    LibrarySearchFilter.Albums -> SearchResults(albums = albums)
-    LibrarySearchFilter.Songs -> SearchResults(tracks = tracks)
-    LibrarySearchFilter.Playlists -> SearchResults(playlists = playlists)
-    // Memories come from the ledger, not the service ([com.gpo.yoin.data.search.SearchPage.memories]).
-    LibrarySearchFilter.Memories -> SearchResults()
-}
+internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults = SearchResults(
+    tracks = tracks.take(filter.shownRows(SearchSection.Songs, tracks.size)),
+    albums = albums.take(filter.shownRows(SearchSection.Albums, albums.size)),
+    artists = artists.take(filter.shownRows(SearchSection.Artists, artists.size)),
+    playlists = playlists.take(filter.shownRows(SearchSection.Playlists, playlists.size)),
+)
 
 /** The one type this filter lists; null for [LibrarySearchFilter.All]. */
 internal val LibrarySearchFilter.resultType: SearchResultType?
