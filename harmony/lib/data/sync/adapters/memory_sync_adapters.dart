@@ -1,8 +1,9 @@
-/// The kinds kept in an account's [MemoryStore]: song notes, the album score
-/// and the album review (two kinds over one row), and the user's own Memory
-/// titles (Android adapters/SongNoteSyncAdapter.kt, AlbumRatingSyncAdapter.kt,
-/// AlbumReviewSyncAdapter.kt, AlbumTitleSyncAdapter.kt). Payload shapes are
-/// Android's, so either app reads the other's records.
+/// The kinds kept in an account's [MemoryStore]: song notes, album notes, the
+/// album score and the album review (two kinds over one row), and the user's
+/// own Memory titles (Android adapters/SongNoteSyncAdapter.kt,
+/// AlbumNoteSyncAdapter.kt, AlbumRatingSyncAdapter.kt, AlbumReviewSyncAdapter.kt,
+/// AlbumTitleSyncAdapter.kt). Payload shapes are Android's, so either app reads
+/// the other's records.
 library;
 
 import '../../memory/memory_store.dart';
@@ -148,6 +149,122 @@ class SongNoteSyncAdapter extends SyncAdapter {
       final currentHash = hashOrNull(_projection(rows.songNotes[index]));
       if (currentHash != expectedLocalHash) return Skipped(SkipReason.changedLocally, currentHash);
       rows.songNotes.removeAt(index);
+      return const Applied(null);
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------- album_note
+
+/// Album notes <-> [SyncKinds.albumNote] (notes revamp: an album holds any
+/// number of notes). Modelled on [SongNoteSyncAdapter], as Android's is: key =
+/// note id (globally unique), deletes propagate as tombstones, last writer
+/// wins with a live edit beating a concurrent delete. Each account keeps its
+/// own rows here, so a note is never re-parented to another account and a
+/// delete only reaches the account it was synced for.
+///
+/// `updatedAt` is a synced field: apply writes the payload's value, which
+/// keeps the read-back projection identical to the payload's.
+class AlbumNoteSyncAdapter extends SyncAdapter {
+  AlbumNoteSyncAdapter(this._memory);
+
+  final MemoryStoreFor _memory;
+
+  @override
+  String get kind => SyncKinds.albumNote;
+  @override
+  int get kindVersion => 1;
+  @override
+  FileClass get fileClass => FileClass.state;
+  @override
+  bool get perAccount => true;
+  @override
+  bool get propagatesDeletes => true;
+  @override
+  ConflictPolicy get conflictPolicy => ConflictPolicy.lwwLiveWins;
+
+  @override
+  Future<List<DomainRow>> readAll(String? localProfileId) async {
+    final rows = await _memory(_requireProfile(localProfileId, kind)).syncRead();
+    return [
+      for (final note in rows.albumNotes) DomainRow(key: note.id, projection: _projection(note), rowTs: note.updatedAt),
+    ];
+  }
+
+  static JsonMap _projection(AlbumNote note) => {
+    'albumId': note.albumId.rawId,
+    'provider': note.albumId.provider,
+    'content': note.content,
+    'createdAt': note.createdAt,
+    'updatedAt': note.updatedAt,
+    'albumName': note.albumName,
+    'artist': note.artist,
+  };
+
+  @override
+  JsonMap? project(JsonMap payload) {
+    final note = _parse('', payload);
+    return note == null ? null : _projection(note);
+  }
+
+  /// [payload] as a note with [id]; null when a field is missing or malformed.
+  static AlbumNote? _parse(String id, JsonMap payload) {
+    final albumId = requiredString(payload, 'albumId');
+    final provider = requiredString(payload, 'provider');
+    final content = requiredString(payload, 'content');
+    final createdAt = requiredLong(payload, 'createdAt');
+    final updatedAt = requiredLong(payload, 'updatedAt');
+    final albumName = requiredString(payload, 'albumName');
+    final artist = requiredString(payload, 'artist');
+    if (albumId == null || albumId.isEmpty || provider == null || provider.isEmpty || provider.contains(':')) {
+      return null;
+    }
+    if (content == null || createdAt == null || updatedAt == null || albumName == null || artist == null) return null;
+    return AlbumNote(
+      id: id,
+      albumId: MediaId(provider, albumId),
+      content: content,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      albumName: albumName,
+      artist: artist,
+    );
+  }
+
+  @override
+  Future<ApplyOutcome> apply(
+    String? localProfileId,
+    String key,
+    JsonMap payload,
+    int versionTs,
+    String? expectedLocalHash,
+  ) {
+    final store = _memory(_requireProfile(localProfileId, kind));
+    return store.syncEdit((rows) {
+      final index = rows.albumNotes.indexWhere((n) => n.id == key);
+      final existing = index < 0 ? null : rows.albumNotes[index];
+      final currentHash = existing == null ? null : hashOrNull(_projection(existing));
+      final note = _parse(key, payload);
+      if (note == null) return Skipped(SkipReason.unsupported, currentHash);
+      if (currentHash != expectedLocalHash) return Skipped(SkipReason.changedLocally, currentHash);
+      if (index < 0) {
+        rows.albumNotes.add(note);
+      } else {
+        rows.albumNotes[index] = note;
+      }
+      return Applied(hashOrNull(_projection(note)));
+    });
+  }
+
+  @override
+  Future<ApplyOutcome> delete(String? localProfileId, String key, String? expectedLocalHash) {
+    final store = _memory(_requireProfile(localProfileId, kind));
+    return store.syncEdit((rows) {
+      final index = rows.albumNotes.indexWhere((n) => n.id == key);
+      if (index < 0) return const Applied(null);
+      final currentHash = hashOrNull(_projection(rows.albumNotes[index]));
+      if (currentHash != expectedLocalHash) return Skipped(SkipReason.changedLocally, currentHash);
+      rows.albumNotes.removeAt(index);
       return const Applied(null);
     });
   }

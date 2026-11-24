@@ -54,6 +54,13 @@ enum Tips {
             text: "In your Apple Music account settings, show each song in its original language or pick another storefront region",
             titleZhHans: "Apple Music 歌曲名",
             textZhHans: "在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区"),
+        // Album notes (Android AlbumStickies, notes phase 1b): a tap on the scrapbook's bare paper writes a
+        // sticky; Android's lines.
+        Tip(id: "AlbumStickies", icon: "note", updated: "2026-11-23",
+            title: "Album notes",
+            text: "Tap an empty spot in an album's Scrapbook to stick notes onto the whole album",
+            titleZhHans: "专辑笔记",
+            textZhHans: "轻点专辑剪贴簿的空白处，可以给整张专辑贴上多张笔记"),
         // iCloud (CloudKit) sync location (Settings › Cloud sync › Sync location, Apple platforms only).
         Tip(id: "ICloudSync", icon: "cloud", updated: "2026-11-23",
             title: "iCloud sync",

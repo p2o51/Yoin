@@ -7,8 +7,9 @@
 /// Besides what is the listener's own — the review, the track scores, the
 /// notes, the plays and the Memory title (theirs, else Yoin's AI title) — a
 /// track's Ask / About rows from Now Playing show as a question card (or the
-/// About paragraph's first sentence) with its facts as tags. The album-note
-/// sticky is not built (nothing writes album notes any more).
+/// About paragraph's first sentence) with its facts as tags. An album holds
+/// any number of album notes (owner 2026-11-22): one sticky each under the
+/// cover and review, oldest first, then a dashed one to write the next.
 ///
 /// This file is the model, its pure builder and its live loader;
 /// album_scrapbook_page.dart draws it.
@@ -314,8 +315,26 @@ sealed class ScrapPiece {
   bool get fullLine;
 }
 
+/// One album note on the page: its id, its words (stored note markup) and its lean.
+@immutable
+final class ScrapSticky {
+  const ScrapSticky({required this.noteId, required this.text, required this.tilt});
+
+  final String noteId;
+  final String text;
+  final double tilt;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrapSticky && other.noteId == noteId && other.text == text && other.tilt == tilt;
+
+  @override
+  int get hashCode => Object.hash(noteId, text, tilt);
+}
+
 /// Cover (with the score emblem hanging off its corner) beside the review,
-/// or a blank pen to write one; the user's Memory title and Last Play beside the cover.
+/// or a blank pen to write one; the user's Memory title and Last Play beside
+/// the cover; the album's notes as stickies pressed under them.
 final class ScrapOpening extends ScrapPiece {
   const ScrapOpening({
     required this.review,
@@ -323,6 +342,7 @@ final class ScrapOpening extends ScrapPiece {
     required this.reviewTilt,
     this.title,
     this.reviewAt,
+    this.stickies = const [],
   });
 
   final String? review;
@@ -334,6 +354,9 @@ final class ScrapOpening extends ScrapPiece {
 
   /// When the review was written (epoch ms); null without a review.
   final int? reviewAt;
+
+  /// Every album note, oldest first: the first leans against the review, the rest alternate.
+  final List<ScrapSticky> stickies;
 
   @override
   String get key => 'opening';
@@ -449,6 +472,7 @@ final class AlbumScrapbookData {
     this.aiTitle,
     this.starred = const {},
     this.about = const {},
+    this.albumNotes = const [],
   });
 
   final String? review;
@@ -471,6 +495,9 @@ final class AlbumScrapbookData {
 
   /// Ask / About rows matched to the tracks.
   final Map<MediaId, ScrapAbout> about;
+
+  /// The album's own notes, any order (the builder sorts them oldest first).
+  final List<AlbumNote> albumNotes;
 }
 
 String? _written(String? text) {
@@ -561,14 +588,29 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   final pieces = <ScrapPiece>[];
   final review = data.review?.trim();
   final hasReview = review != null && review.isNotEmpty;
+  final reviewTilt = tilt(hasReview ? 'review' : 'ghost', ScrapbookRules.cardTilts);
+  // The first sticky leans against the review clipping, each next one against the one above.
+  final albumNotes = [...data.albumNotes.where((n) => !n.isBlank)]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  double? previousStickyTilt;
+  final stickies = [
+    for (final (i, note) in albumNotes.indexed)
+      ScrapSticky(
+        noteId: note.id,
+        text: note.content.trim(),
+        tilt: previousStickyTilt = i == 0
+            ? oppositeTilt(reviewTilt, tilt('albumnote', ScrapbookRules.paperTilts))
+            : oppositeTilt(previousStickyTilt, tilt('albumnote/${note.id}', ScrapbookRules.paperTilts)),
+      ),
+  ];
   pieces.add(
     ScrapOpening(
       review: hasReview ? review : null,
       coverTilt: tilt('cover', ScrapbookRules.coverTilts),
-      reviewTilt: tilt(hasReview ? 'review' : 'ghost', ScrapbookRules.cardTilts),
+      reviewTilt: reviewTilt,
       // The user's own name, else Yoin's AI title (scrapTitle).
       title: _written(data.title) ?? _written(data.aiTitle),
       reviewAt: hasReview ? data.reviewAt : null,
+      stickies: stickies,
     ),
   );
 
@@ -657,6 +699,7 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   if (tracks.isNotEmpty &&
       !tracks.any(touched) &&
       !hasReview &&
+      stickies.isEmpty &&
       _written(data.title) == null &&
       _written(data.aiTitle) == null &&
       !played) {
@@ -667,7 +710,8 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   if (plays != null && plays.playCount > 0) {
     final ids = {for (final t in tracks) t.track.id};
     final rated = data.ratings.keys.where(ids.contains).length;
-    final notes = [for (final id in ids) ...?data.notes[id]].where((n) => !n.isBlank).length;
+    // Every album note counts with the track notes (D3's receipt).
+    final notes = [for (final id in ids) ...?data.notes[id]].where((n) => !n.isBlank).length + stickies.length;
     pieces.add(
       ScrapReceipt(
         header: '${album.name} — ${album.artist ?? ''}'.toUpperCase(),
@@ -747,6 +791,7 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
       final trackPlays = await store?.trackPlays() ?? const <TrackPlays>[];
       final plays = await store?.playsOf(albumId);
       final title = await store?.titleOf(albumId);
+      final albumNotes = await store?.albumNotes(albumId) ?? const <AlbumNote>[];
       final aboutRows = await _aboutStore()?.byAlbum(normalizeAboutKey(album.name)) ?? const <SongAboutEntry>[];
       final aiTitle = store == null ? null : await _aiTitle(store.profileId);
       if (!ref.mounted || generation != _generation) return;
@@ -765,6 +810,7 @@ class AlbumScrapbookNotifier extends Notifier<List<ScrapPiece>?> {
         title: title?.title,
         aiTitle: aiTitle,
         about: matchAboutToTracks(aboutRows, album.tracks),
+        albumNotes: albumNotes,
         starred: {
           for (final t in album.tracks)
             if (starred[t.id] ?? t.isStarred) t.id,

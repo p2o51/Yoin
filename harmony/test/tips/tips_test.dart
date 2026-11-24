@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/applemusic/apple_music_name_region.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/home/home_lyric_count_handle.dart' show HomeLyricCountPicker;
@@ -326,6 +327,17 @@ void main() {
       expect(chosen(SeamTopStyle.tide), isTrue);
       expect(await playUntil(tester, () => chosen(SeamTopStyle.dots)), isTrue);
       expect(await playUntil(tester, () => chosen(SeamTopStyle.cookie)), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_pickOriginalThenJapan_when_theAppleMusicSongNamesDemoTaps', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.appleMusicSongNames);
+      bool shows(String text) => find.textContaining(text, skipOffstage: false).evaluate().isNotEmpty;
+      final japan = AppleMusicStorefrontOption.jp.displayName(zh: false);
+      expect(shows('Song names'), isTrue);
+      expect(shows(japan), isFalse);
+      expect(await playUntil(tester, () => shows(japan)), isTrue);
       expect(tester.takeException(), isNull);
       await leave(tester);
     });

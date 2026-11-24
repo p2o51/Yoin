@@ -8,6 +8,12 @@
 ///   the remote Review goes; longer, it is the Review's body and the short
 ///   comment is cleared; cleared, both go. A pull takes the Review first, the
 ///   short comment otherwise.
+/// - Format and mentions (notes revamp, owner 2026-11-22): a Review body gets
+///   [neoDbReviewText] (mentions flattened to their names, the light Markdown
+///   as written); a short comment (NeoDB renders no Markdown there) gets
+///   [neoDbShortCommentText], the plain words. The length is counted on the
+///   plain words. A pull that finds that very projection on NeoDB keeps the
+///   local text ([neoDbHoldsLocalReview]), mentions and formatting included.
 /// - The Mark POST overwrites the whole Mark: it is read first and its tags,
 ///   comment and visibility merged back, so other clients' fields stay.
 /// - The album ↔ item map ([NeoDbMappings]); a miss searches "name artist".
@@ -16,6 +22,7 @@ library;
 
 import '../memory/memory_store.dart';
 import '../model/model.dart';
+import '../notes/note_markup.dart';
 import 'neodb_api.dart';
 import 'neodb_config.dart';
 import 'neodb_models.dart';
@@ -27,6 +34,24 @@ const int neoDbShortCommentMax = 360;
 
 /// [text] fits NeoDB's short comment (counted as code points).
 bool isNeoDbShortComment(String text) => text.runes.length <= neoDbShortCommentMax;
+
+/// The review as NeoDB gets it: mentions flattened to their names, every
+/// other character as written (Android neoDbReviewText).
+String neoDbReviewText(String? review) => review == null ? '' : NoteMarkup.toNeoDb(review);
+
+/// The review as a NeoDB short comment gets it: plain words, mentions as
+/// names, no Markdown marks (Android neoDbShortCommentText).
+String neoDbShortCommentText(String? review) => review == null ? '' : NoteMarkup.plainText(review);
+
+/// [remote] is what Yoin would send for [local]: for a Review body
+/// ([asShortComment] false) the Markdown projection, for a short comment the
+/// plain words. Whitespace at the ends doesn't count (NeoDB may trim). Then
+/// the local text stays as it is (Android neoDbHoldsLocalReview).
+bool neoDbHoldsLocalReview(String? local, String remote, {required bool asShortComment}) {
+  if (local == null || local.trim().isEmpty) return false;
+  final sent = asShortComment ? neoDbShortCommentText(local) : neoDbReviewText(local);
+  return sent.trim() == remote.trim();
+}
 
 final class NeoDbNotSignedIn implements Exception {
   const NeoDbNotSignedIn();
@@ -75,8 +100,11 @@ class NeoDbSyncService {
     final itemUuid = await _resolveAlbumUuid(album, session);
     if (itemUuid == null) throw const NeoDbAlbumNotFound();
 
-    final text = local.review ?? '';
-    final short = text.trim().isNotEmpty && isNeoDbShortComment(text);
+    // What NeoDB gets: a long review's body keeps its Markdown with mentions as
+    // names; a short comment (no Markdown rendering there) gets the plain words.
+    final text = neoDbReviewText(local.review);
+    final shortText = neoDbShortCommentText(local.review);
+    final short = text.trim().isNotEmpty && isNeoDbShortComment(shortText);
     // The Mark carries the score and, for a short text, the text itself.
     final existing = await _api.getShelfItem(session.instance, session.token, itemUuid);
     await _api.postShelfMark(
@@ -92,7 +120,7 @@ class NeoDbSyncService {
         commentText: !local.reviewNeedsSync
             ? existing?.commentText
             // Long or cleared: the short comment goes ("" says so on purpose).
-            : (short ? text : ''),
+            : (short ? shortText : ''),
         tags: existing?.tags ?? const [],
       ),
     );
@@ -137,8 +165,8 @@ class NeoDbSyncService {
     final double mergedRating = existing?.ratingNeedsSync == true
         ? existing!.rating
         : (remoteGrade != null && existing != null && existing.rating > 0 && existing.rating.round() == remoteGrade)
-            ? existing.rating
-            : (remoteGrade?.toDouble() ?? existing?.rating ?? 0);
+        ? existing.rating
+        : (remoteGrade?.toDouble() ?? existing?.rating ?? 0);
 
     ReviewResponse? review;
     try {
@@ -148,11 +176,16 @@ class NeoDbSyncService {
     }
     final reviewUuid = review == null ? null : (review.uuid ?? existing?.neoDbReviewUuid);
     final reviewBody = review?.body;
-    final remoteText = (reviewBody != null && reviewBody.trim().isNotEmpty)
-        ? reviewBody
-        : (remote?.commentText != null && remote!.commentText!.trim().isNotEmpty ? remote.commentText : null);
+    final remoteReview = (reviewBody != null && reviewBody.trim().isNotEmpty) ? reviewBody : null;
+    final remoteText =
+        remoteReview ??
+        (remote?.commentText != null && remote!.commentText!.trim().isNotEmpty ? remote.commentText : null);
     final String? mergedReview = existing?.reviewNeedsSync == true
         ? existing!.review
+        // NeoDB holds what Yoin sent (its projection): keep the words with their mentions and Markdown.
+        : remoteText != null &&
+              neoDbHoldsLocalReview(existing?.review, remoteText, asShortComment: remoteReview == null)
+        ? existing?.review
         : remoteText ?? (review != null ? reviewBody : existing?.review);
     final String? mergedUuid = existing?.reviewNeedsSync == true
         ? existing!.neoDbReviewUuid

@@ -6,6 +6,7 @@ import 'package:yoin/data/about/song_about_store.dart';
 import 'package:yoin/data/ai/ai_service.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/notes/note_markup.dart';
 import 'package:yoin/detail/album_scrapbook.dart';
 import 'package:yoin/detail/album_scrapbook_page.dart';
 import 'package:yoin/detail/album_scrapbook_sheet_model.dart';
@@ -200,13 +201,16 @@ void main() {
   });
 
   group('sheet', () {
-    Future<(ProviderContainer, MemoryStore, SongAboutStore)> openPage2(WidgetTester tester) async {
+    Future<(ProviderContainer, MemoryStore, SongAboutStore)> openPage2(
+      WidgetTester tester, {
+      String noteText = 'the bridge',
+    }) async {
       final engine = FakePlaybackEngine();
       final kv = InMemoryStore();
       final store = MemoryStore(InMemoryStore(), profileId: 'p');
       final about = SongAboutStore.shared(kv);
       await store.setAlbumReview(_album.id, 'Late-night record.', nowMs: 1);
-      await store.putSongNote(_note('n1', 2, text: 'the bridge'));
+      await store.putSongNote(_note('n1', 2, text: noteText));
       await about.upsertAll([
         _row(1, SongAboutKinds.ask, 'who', 'Joni wrote it alone.', prompt: 'Who wrote it?', title: 'The writer'),
         _row(1, SongAboutKinds.canonical, AboutFields.lyricist, 'Joni Mitchell'),
@@ -326,6 +330,62 @@ void main() {
       final notes = await store.notesForTracks({_t(2)});
       expect(notes.map((n) => n.content), containsAll(['the bridge', 'second thought']));
       expect(notes.firstWhere((n) => n.content == 'second thought').positionMs, isNull);
+      await _close(tester);
+    });
+
+    // An Android note: bold, a mention of this album, a done and an empty to-do (its trailing space included).
+    const androidNote = '**Bold** see [@Blue](yoin:album/subsonic:al1?a=Joni)\n- [x] done\n- [ ] ';
+
+    Future<void> openNoteEditor(WidgetTester tester) async {
+      await tester.longPress(find.text('Song t2'));
+      await _settle(tester);
+      await tester.tap(find.text('Note · 1'));
+      await _settle(tester);
+      await tester.tap(find.textContaining('Bold see Blue', findRichText: true).last);
+      await _settle(tester);
+      await tester.tap(find.text('Edit'));
+      await _settle(tester);
+    }
+
+    testWidgets('should_drawMarkupNotRawLinks_when_androidNoteShown', (tester) async {
+      await openPage2(tester, noteText: androidNote);
+      expect(find.textContaining('Bold see Blue', findRichText: true), findsWidgets);
+      expect(find.textContaining('yoin:', findRichText: true), findsNothing);
+      expect(find.textContaining('**', findRichText: true), findsNothing);
+      await tester.longPress(find.text('Song t2'));
+      await _settle(tester);
+      await tester.tap(find.text('Note · 1'));
+      await _settle(tester);
+      expect(find.textContaining('☑  done', findRichText: true), findsWidgets);
+      expect(find.textContaining('yoin:', findRichText: true), findsNothing);
+      await _close(tester);
+    });
+
+    testWidgets('should_keepStoredTextExactly_when_noteEditedAndLeftAsItWas', (tester) async {
+      final (_, store, _) = await openPage2(tester, noteText: androidNote);
+      await openNoteEditor(tester);
+      // The editor is plain text: it holds the stored markup as written.
+      final field = tester.widget<TextField>(find.byType(TextField).last);
+      expect(field.controller!.text, androidNote);
+      await tester.tap(find.text('Done'));
+      await _settle(tester);
+      final note = (await store.notesForTracks({_t(2)})).single;
+      expect(note.content, androidNote);
+      expect(note.updatedAt, 0, reason: 'nothing written');
+      await _close(tester);
+    });
+
+    testWidgets('should_keepEveryMark_when_noteWordsEdited', (tester) async {
+      final (_, store, _) = await openPage2(tester, noteText: androidNote);
+      await openNoteEditor(tester);
+      final edited = androidNote.replaceFirst('done', 'done twice');
+      await tester.enterText(find.byType(TextField).last, edited);
+      await tester.tap(find.text('Done'));
+      await _settle(tester);
+      final note = (await store.notesForTracks({_t(2)})).single;
+      expect(note.content, edited.trim());
+      expect(NoteMarkup.mentions(note.content).single.mediaId, 'subsonic:al1');
+      expect(note.content, startsWith('**Bold** see [@Blue](yoin:album/subsonic:al1?a=Joni)\n- [x] done twice\n'));
       await _close(tester);
     });
 

@@ -199,4 +199,42 @@ class NoteMentionControllerTest {
             NoteMentionController.destinationOf(BacklinkSource.AlbumNote("an", MediaId.subsonic("al-3"), "X", "Y"), trackAlbum),
         )
     }
+
+    @Test
+    fun should_fetchAMentionsArtworkOnce_andForgetItOnAnotherAccount() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        var account = MentionAccount("p1", "subsonic")
+        var fetched = 0
+        val c = NoteMentionController(
+            resolver = MentionResolver { MentionResolution.Resolved(it, MediaId.subsonic(it.id), MentionResolution.Via.Id) },
+            account = { account },
+            scope = scope,
+            trackAlbum = { null },
+            navigate = { _, _ -> },
+            artwork = { resolved ->
+                fetched++
+                "https://covers/${resolved.id.rawId}".takeIf { resolved.mention.kind != MentionKind.Artist }
+            },
+        )
+        val artist = NoteMention(MentionKind.Artist, "subsonic", "ar1", "Weyes Blood")
+
+        assertNull(c.artworkUrl(ownTrack))
+        assertNull(c.artworkUrl(ownTrack))
+        scope.advanceUntilIdle()
+        assertEquals("https://covers/t2", c.artworkUrl(ownTrack))
+        assertEquals(1, fetched)
+
+        // none known: asked once, then stays without
+        assertNull(c.artworkUrl(artist))
+        scope.advanceUntilIdle()
+        assertNull(c.artworkUrl(artist))
+        assertEquals(2, fetched)
+
+        // another account asks again, under its own key
+        account = MentionAccount("p2", "subsonic")
+        assertNull(c.artworkUrl(ownTrack))
+        scope.advanceUntilIdle()
+        assertEquals("https://covers/t2", c.artworkUrl(ownTrack))
+        assertEquals(3, fetched)
+    }
 }

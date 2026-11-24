@@ -74,6 +74,9 @@ class FakeCloudSync implements CloudSyncController {
   void startFreshAccount(String localProfileId) => calls.add('fresh:$localProfileId');
 
   @override
+  void resumeAccountSync(String localProfileId) => calls.add('resume:$localProfileId');
+
+  @override
   void removeDevice(String deviceId) => calls.add('remove:$deviceId');
 }
 

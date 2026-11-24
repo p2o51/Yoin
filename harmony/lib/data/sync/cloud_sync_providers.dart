@@ -55,6 +55,7 @@ const yoinPackageName = 'com.gpo.yoin';
 /// KeyValueStore keys whose writes mean "a synced row changed here".
 bool isSyncedKey(String key) =>
     key.startsWith('song_notes.v1.') ||
+    key.startsWith('album_notes.v1.') ||
     key.startsWith('local_ratings.') ||
     key.startsWith('album_ratings.v1.') ||
     key.startsWith('memory_titles.v1.') ||
@@ -83,6 +84,7 @@ List<SyncAdapter> yoinSyncAdapters({
   Future<void> Function(String songKey)? onLyricsSeeded,
 }) => [
   SongNoteSyncAdapter(memory),
+  AlbumNoteSyncAdapter(memory),
   TrackRatingSyncAdapter(ratings),
   AlbumRatingSyncAdapter(memory),
   AlbumReviewSyncAdapter(memory),

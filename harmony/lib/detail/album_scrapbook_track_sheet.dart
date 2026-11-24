@@ -30,6 +30,7 @@ import '../data/about/song_about_store.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../memories/memory_rate_sheet.dart' show HorizontalRatingBar;
+import '../notes/note_markup_text.dart';
 import '../nowplaying/about_logic.dart' show remainingQuickPrompts;
 import '../nowplaying/about_widgets.dart' show QuickPrompts, ThinkingDots, markdownBoldSpan;
 import '../nowplaying/haptics.dart';
@@ -1855,7 +1856,9 @@ class _NotesTabState extends State<_NotesTab> {
                 onDone: (text) {
                   if (text.trim().isEmpty) return _deleteNote(note.id);
                   setState(() => _editingNote = null);
-                  if (text.trim() != note.content) widget.onEdit(ScrapNoteTextEdit(note.id, text));
+                  // Words left as they were write nothing: the stored text (its markup, an
+                  // Android to-do's trailing space) stays exactly as it is.
+                  if (text.trim() != note.content.trim()) widget.onEdit(ScrapNoteTextEdit(note.id, text));
                 },
               ),
               ScrapNoteCardRow(:final note) => Builder(
@@ -2016,7 +2019,7 @@ class _NoteCard extends StatelessWidget {
                   if (at != null) _NoteStamp(at, colors),
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(
+                    child: NoteMarkupText(
                       note.content,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         fontSize: 15,
@@ -2024,6 +2027,7 @@ class _NoteCard extends StatelessWidget {
                         letterSpacing: 0,
                         color: colors.onNote,
                       ),
+                      mentionColor: colors.ink,
                     ),
                   ),
                 ],

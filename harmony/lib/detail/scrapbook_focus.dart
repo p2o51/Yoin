@@ -5,7 +5,8 @@
 /// brings the song into view there, opening its track sheet on the About
 /// row's editor when the request names one. A request nobody
 /// takes within [ScrapbookFocusRequest.freshFor] is dropped, so it can't
-/// hijack a later visit.
+/// hijack a later visit. A note's album mention asks with the album's own id:
+/// the album page moves to page 2 and brings nothing in particular into view.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -15,8 +16,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/about/song_about_store.dart';
 import '../data/model/model.dart';
 
-/// One waiting request: the song, when it was asked for, and the About row to
-/// open editing (null = just bring the song into view).
+/// One waiting request: the song (or the album itself: page 2 alone), when it
+/// was asked for, and the About row to open editing (null = just bring the
+/// song into view).
 @immutable
 final class ScrapbookFocus {
   const ScrapbookFocus(this.songId, this.at, {this.edit});

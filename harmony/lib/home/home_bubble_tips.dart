@@ -32,6 +32,7 @@ enum HomeBubbleTip {
   memoriesDiary(YoinSymbols.article, (2026, 11, 17)),
   cloudSync(YoinSymbols.cloud, (2026, 11, 17)),
   welcomeGuide(YoinSymbols.refresh, (2026, 11, 16)),
+  appleMusicSongNames(YoinSymbols.translate, (2026, 11, 23)),
   keyboardShortcuts(YoinSymbols.keyboard, (2026, 11, 17)),
   volumeLeveling(YoinSymbols.volumeUp, (2026, 11, 13)),
   homeScreenWidgets(YoinSymbols.library, (2026, 11, 13), desktop: false),
@@ -96,6 +97,8 @@ enum HomeBubbleTip {
     memoriesDiary => zh ? '回忆日记' : 'Memory diary', // Carbon 2026-11-16
     cloudSync => zh ? '云同步' : 'Cloud sync', // Carbon 2026-11-16
     welcomeGuide => zh ? '欢迎向导' : 'Welcome guide', // Carbon 2026-11-16
+    appleMusicSongNames =>
+      zh ? 'Apple Music 歌曲名' : 'Apple Music song names', // home_tip_apple_music_names_title
     keyboardShortcuts => zh ? '键盘快捷键' : 'Keyboard shortcuts', // home_tip_keyboard_shortcuts_title
     volumeLeveling => zh ? '音量平衡' : 'Volume leveling', // home_tip_volume_leveling_title
     homeScreenWidgets => zh ? '服务卡片' : 'Service widgets', // Carbon 2026-11-16 (Android: home_tip_widgets_title)
@@ -188,6 +191,12 @@ enum HomeBubbleTip {
           ? '随时可在设置 › 帮助与关于 › 欢迎向导中重新打开首次引导，选择音乐服务并连接'
           : 'Reopen the first-run setup guide any time in Settings › Help and about › Welcome guide to choose a service '
                 'and connect',
+    // home_tip_apple_music_names
+    appleMusicSongNames =>
+      zh
+          ? '在 Apple Music 账号设置里，可按歌曲原地区显示原名，或切换其他商店地区'
+          : 'In your Apple Music account settings, show each song in its original language or pick another storefront '
+                'region',
     // Carbon 2026-11-17 (.argon/harmony-tips-1117d: Ctrl+1/2/3 joined; Android's home_tip_keyboard_shortcuts
     // names a list HarmonyOS doesn't have).
     keyboardShortcuts =>

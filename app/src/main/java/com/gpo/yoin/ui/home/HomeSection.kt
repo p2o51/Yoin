@@ -720,7 +720,7 @@ data class HomeLayout(
          * A null / empty saved layout ("never customized") yields [Default].
          *
          * The two-column memory comes from [wide] when there is one. Without it (an
-         * older build, iOS or HarmonyOS wrote last: they drop it) it is the pairs the
+         * older build or iOS wrote last: they drop it) it is the pairs the
          * `half` flags show, or [WideDefault]'s when they show none. A pair
          * [WideDefault] holds for a section this read appended joins it when both
          * sections are free. The flags are then set from the memory.

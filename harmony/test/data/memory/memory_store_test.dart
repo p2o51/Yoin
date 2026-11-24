@@ -63,6 +63,47 @@ void main() {
     expect(jsonDecode(kv.values[MemoryStore.songNotesKey('p1')]!), isA<List<Object?>>());
   });
 
+  group('album notes', () {
+    AlbumNote albumNote(String id, String content, {int at = 1, MediaId? on}) => AlbumNote(
+      id: id,
+      albumId: on ?? album,
+      content: content,
+      createdAt: at,
+      updatedAt: at,
+      albumName: 'Charm',
+      artist: 'Clairo',
+    );
+
+    test('should_keepSeveralPerAlbumOldestFirst_when_notesAdded', () async {
+      final store = MemoryStore(kv, profileId: 'p1');
+      final changes = <MemoryStoreChange>[];
+      final sub = store.changes.listen(changes.add);
+      addTearDown(sub.cancel);
+      await store.putAlbumNote(albumNote('b', 'second', at: 20));
+      await store.putAlbumNote(albumNote('a', 'first', at: 10));
+      await store.putAlbumNote(albumNote('c', 'elsewhere', at: 5, on: MediaId.subsonic('al2')));
+
+      final reread = await MemoryStore(kv, profileId: 'p1').albumNotes(album);
+      expect([for (final n in reread) n.id], ['a', 'b']);
+      expect(reread.first.albumName, 'Charm');
+      expect(jsonDecode(kv.values[MemoryStore.albumNotesKey('p1')]!), isA<List<Object?>>());
+      expect(await MemoryStore(kv, profileId: 'p2').albumNotes(album), isEmpty);
+      expect(changes, everyElement(MemoryStoreChange.albumNotes));
+    });
+
+    test('should_replaceAndDelete_when_editedBlankOrRemoved', () async {
+      final store = MemoryStore(kv, profileId: 'p1');
+      await store.putAlbumNote(albumNote('a', 'first'));
+      await store.putAlbumNote(albumNote('b', 'second', at: 2));
+      await store.putAlbumNote(albumNote('a', 'first, again'));
+      expect([for (final n in await store.albumNotes(album)) n.content], ['first, again', 'second']);
+
+      await store.putAlbumNote(albumNote('a', '   '));
+      await store.deleteAlbumNote('b');
+      expect(await store.albumNotes(album), isEmpty);
+    });
+  });
+
   test('should_deleteNote_when_replacedWithBlank', () async {
     final store = MemoryStore(kv, profileId: 'p1');
     await store.putSongNote(SongNote(id: 'n1', trackId: song, content: 'x', createdAt: 1, updatedAt: 1));

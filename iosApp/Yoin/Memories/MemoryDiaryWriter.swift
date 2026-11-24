@@ -186,8 +186,8 @@ struct MemoryDiaryEntry: View {
         let paragraphs = text.split(separator: "\n").map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return VStack(alignment: .leading, spacing: DiaryType.review * 0.85) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, p in
-                Text(p)
-                    .font(.gsf(size, large ? .medium : .regular))
+                NoteMarkupText(text: p, size: size, weight: large ? .medium : .regular,
+                               mentionColor: scheme.primary, glyphColor: scheme.primary)
                     .lineSpacing(DiaryType.lineSpacing(size, large ? 1.25 : DiaryType.reviewLine))
                     .foregroundStyle(scheme.onSurface)
                     .fixedSize(horizontal: false, vertical: true)

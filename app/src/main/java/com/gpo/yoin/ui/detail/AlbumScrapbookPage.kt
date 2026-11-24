@@ -584,7 +584,11 @@ private fun ScrapbookPaper(
                                 playing = piece.track.songId == currentTrackId,
                                 answerBudget = if (wide) ScrapbookRules.AnswerBudgetWide else ScrapbookRules.AnswerBudget,
                                 onPlay = { onSongClick(piece.track.songId) },
-                                onNote = { line -> onNoteMomentClick(line.songId, line.positionMs) },
+                                // A note opens on its own (the track sheet's Note tab, marked), where 修改 and
+                                // 从这里播放 are; a tap no longer plays (owner 2026-11-24).
+                                onNote = { line ->
+                                    trackSheet = ScrapSheetOpen(line.songId, ScrapSheetTab.Notes, note = line.noteId)
+                                },
                                 onMoreNotes = { trackSheet = ScrapSheetOpen(piece.track.songId, ScrapSheetTab.Notes) },
                                 onManage = { trackSheet = ScrapSheetOpen(piece.track.songId) },
                                 modifier = slot,
@@ -659,6 +663,7 @@ private fun ScrapbookPaper(
                     snackbar = removedSnackbar,
                     initialTab = open.tab,
                     initialEditing = open.editing,
+                    initialNote = open.note,
                 )
             }
         }
@@ -1694,7 +1699,10 @@ private fun NotesClipping(
 
 private val NoteStampColumn = 42.dp
 
-/** A note, lyric-plain: the time stamp (empty without an anchor) and the words on one baseline. */
+/**
+ * A note, lyric-plain: the time stamp (empty without an anchor) and the words on one baseline. A tap opens
+ * the note ([onClick]: the track sheet's Note tab on it); a mention in it opens what it names.
+ */
 @Composable
 private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -> Unit) {
     val at = line.positionMs?.let(::formatNotePosition)
@@ -1704,11 +1712,6 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
     } else {
         stringResource(R.string.detail_scrap_cd_note, words)
     }
-    val playLabel = if (at != null) {
-        stringResource(R.string.detail_scrap_cd_play_from, at)
-    } else {
-        stringResource(R.string.detail_scrap_cd_play)
-    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1716,7 +1719,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
             .clearAndSetSemantics {
                 contentDescription = description
                 role = Role.Button
-                onClick(label = playLabel) {
+                onClick {
                     onClick()
                     true
                 }

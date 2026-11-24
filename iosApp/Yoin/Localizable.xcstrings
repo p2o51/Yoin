@@ -1151,6 +1151,46 @@
         }
       }
     },
+    "Album note deleted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除专辑笔记"
+          }
+        }
+      }
+    },
+    "Edit album note: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑专辑笔记：%@"
+          }
+        }
+      }
+    },
+    "Write about the whole album": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给整张专辑写点什么"
+          }
+        }
+      }
+    },
+    "Write an album note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写专辑笔记"
+          }
+        }
+      }
+    },
     "Album page · pulled-up top bar": {},
     "Album rating %@": {
       "localizations": {
