@@ -81,6 +81,20 @@ void main() {
     expect(row?.reviewUpdatedAt, 1);
   });
 
+  testWidgets('should_holdAndKeepAndroidMarkup_when_reviewClosedUntouched', (tester) async {
+    const review = '# 天堂\n- 吉他像雾\n**后来**在 [@Andromeda](yoin:track/applemusic:1445555555?a=Weyes%20Blood) 里 _轻_';
+    await MemoryStore(kv, profileId: profile.id).setAlbumReview(album, review, nowMs: 1);
+    await pumpSheet(tester);
+    // The field edits the stored text as written: the markup, not its drawing.
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, review);
+    Navigator.of(tester.element(find.byType(AlbumRateSheet))).pop();
+    await tester.pumpAndSettle();
+
+    final row = await MemoryStore(kv, profileId: profile.id).albumRating(album);
+    expect(row?.review, review);
+    expect(row?.reviewUpdatedAt, 1);
+  });
+
   testWidgets('should_storeScore_when_barDragged', (tester) async {
     await pumpSheet(tester);
     final bar = find.byWidgetPredicate((w) => w is Semantics && (w.properties.slider ?? false));
