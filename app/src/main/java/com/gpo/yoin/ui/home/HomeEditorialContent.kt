@@ -2760,6 +2760,7 @@ private fun ActivityHeroCard(
                     titleStyle = heroTitleStyle,
                     modifier = Modifier.fillMaxWidth(),
                     tagStyle = MaterialTheme.typography.labelMedium,
+                    nameEllipsizes = false,
                 ) { text, titleModifier ->
                     MarqueeText(
                         text = text,
@@ -3140,7 +3141,7 @@ private val RecentlyAddedTrackCover = 52.dp
 private val RecentlyAddedAlbumStackGap = 14.dp
 
 @Composable
-private fun RecentlyAddedSection(
+internal fun RecentlyAddedSection(
     tracks: List<Track>,
     albums: List<Album>,
     extractBackdropColors: Boolean,
@@ -3169,15 +3170,36 @@ private fun RecentlyAddedSection(
     val grid = LocalHomeGridHeight.current
     val gridUnits = grid?.units?.coerceIn(HomeSection.RecentlyAdded.unitRange)
     val half = LocalHomeColumn.current.half
-    val maxColumns = if (gridUnits != null) {
-        homeGridTrackColumns(frame.contentWidth.value.let { if (half) (it - HomeSpanTokens.ColumnGap.value) / 2f else it })
+    // No albums to follow the tracks (off the two-column grid): the grid is the whole row, so it takes
+    // the full content width with columns to match (HomeFeedDensity: recentlyAddedLoneGrid).
+    val loneGrid = if (gridUnits == null && albums.isEmpty()) {
+        recentlyAddedLoneGrid(
+            coverColumns = windowInfo.feedCoverColumns,
+            trackCount = tracks.size,
+            maxRows = recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf),
+        )
     } else {
-        recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+        null
     }
-    val rows = if (gridUnits != null) homeGridTrackRows(gridUnits) else recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    val maxColumns = when {
+        gridUnits != null -> homeGridTrackColumns(
+            frame.contentWidth.value.let { if (half) (it - HomeSpanTokens.ColumnGap.value) / 2f else it },
+        )
+        loneGrid != null -> loneGrid.columns
+        else -> recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+    }
+    val rows = when {
+        gridUnits != null -> homeGridTrackRows(gridUnits)
+        loneGrid != null -> loneGrid.rows
+        else -> recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    }
     val rowHeight = gridUnits?.let { homeGridTrackRowDp(it).dp }
     val shownTracks = remember(tracks, maxColumns, rows) { tracks.take(maxColumns * rows) }
-    val gridColumns = if (gridUnits != null) maxColumns else recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    val gridColumns = if (gridUnits != null || loneGrid != null) {
+        maxColumns
+    } else {
+        recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    }
     val albumStack = gridUnits ?: recentlyAddedAlbumStack(rows)
     val shownAlbums = remember(albums, maxColumns, albumStack) {
         albums.take(recentlyAddedAlbumLimit(maxColumns)).chunked(albumStack)
@@ -3214,8 +3236,9 @@ private fun RecentlyAddedSection(
                     // read in the layout pass only, so a column spring
                     // never re-subcomposes the shelf. A page wide when paged.
                     modifier = Modifier.layout { measurable, constraints ->
-                        // On the grid a full row's tracks take the whole content width (no cap).
-                        val width = pageWidth?.roundToPx() ?: if (grid != null) {
+                        // On the grid a full row's tracks take the whole content width (no cap), and so
+                        // do tracks with no albums after them.
+                        val width = pageWidth?.roundToPx() ?: if (grid != null || loneGrid != null) {
                             (frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2).roundToPx()
                         } else recentlyAddedGridWidth(
                             // Less the plate's content inset (V2; else 0).
