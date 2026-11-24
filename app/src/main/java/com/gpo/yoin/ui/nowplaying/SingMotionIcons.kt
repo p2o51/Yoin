@@ -3,8 +3,6 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -190,13 +188,13 @@ internal fun SingPreparingMicIcon(
     LaunchedEffect(preparing, reduced) {
         if (preparing) {
             if (reduced) {
+                // Static calm dim mic under Remove animations / reduced motion: never run a loop,
+                // because animator_duration_scale == 0 turns tween() into 0ms and would strobe at 120Hz.
                 split.snapTo(0f)
-                val breathe = tween<Float>(durationMillis = 850, easing = FastOutSlowInEasing)
-                var dim = true
-                while (isActive) {
-                    reducedAlpha.animateTo(if (dim) 0.45f else 1f, breathe)
-                    dim = !dim
-                }
+                barL.snapTo(3.2f)
+                barC.snapTo(8.8f)
+                barR.snapTo(3.2f)
+                reducedAlpha.animateTo(0.58f, defaultEffects)
             } else {
                 reducedAlpha.snapTo(1f)
                 var step = 0

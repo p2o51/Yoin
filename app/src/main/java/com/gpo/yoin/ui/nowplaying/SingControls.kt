@@ -303,6 +303,8 @@ internal fun SingLyricsCapsuleKey(
     sing: NowPlayingSingUi,
     iconSize: Dp = 52.dp,
     modifier: Modifier = Modifier,
+    maxExpandedWidth: Dp = Dp.Unspecified,
+    onCapsuleExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val density = LocalDensity.current
@@ -311,11 +313,19 @@ internal fun SingLyricsCapsuleKey(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     var wasPreparing by remember { mutableStateOf(isPreparing) }
     var capsuleExpanded by remember { mutableStateOf(isActive) }
+    val latestOnExpandedChange by rememberUpdatedState(onCapsuleExpandedChange)
+
+    fun updateCapsuleExpanded(expanded: Boolean) {
+        if (capsuleExpanded != expanded) {
+            capsuleExpanded = expanded
+            latestOnExpandedChange?.invoke(expanded)
+        }
+    }
 
     LaunchedEffect(isPreparing, isActive, reduced) {
         if (isPreparing) {
             wasPreparing = true
-            capsuleExpanded = false
+            updateCapsuleExpanded(false)
         } else if (isActive) {
             if (wasPreparing && !reduced) {
                 // Hold expansion briefly while SingPreparingMicIcon fast-settles back to the resting mic pose
@@ -323,14 +333,19 @@ internal fun SingLyricsCapsuleKey(
                 delay(160L)
             }
             wasPreparing = false
-            capsuleExpanded = true
+            updateCapsuleExpanded(true)
         } else {
             wasPreparing = false
-            capsuleExpanded = false
+            updateCapsuleExpanded(false)
         }
     }
 
-    val expandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
+    val defaultExpandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
+    val expandedWidth = if (maxExpandedWidth != Dp.Unspecified) {
+        maxExpandedWidth.coerceIn(iconSize, defaultExpandedWidth)
+    } else {
+        defaultExpandedWidth
+    }
     val targetWidth = if (capsuleExpanded) expandedWidth else iconSize
     val targetCorner = if (capsuleExpanded) iconSize / 2 else iconSize * 0.31f
 
@@ -599,7 +614,7 @@ internal fun SingLyricsCapsuleKey(
                     onSettledHome = {
                         if (latestSing.isActive && !capsuleExpanded) {
                             wasPreparing = false
-                            capsuleExpanded = true
+                            updateCapsuleExpanded(true)
                         }
                     },
                 )

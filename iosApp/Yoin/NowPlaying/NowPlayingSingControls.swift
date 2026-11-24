@@ -127,14 +127,13 @@ struct SingPreparingMicGlyph: View {
             .task(id: "\(isPreparing)-\(reduceMotion)") {
                 if isPreparing {
                     if reduceMotion {
+                        // Static calm dim mic under Reduce Motion (1:1 with Android SingPreparingMicIcon).
                         split = 0
-                        var dim = true
-                        while !Task.isCancelled {
-                            withAnimation(.easeInOut(duration: 0.85)) {
-                                reducedOpacity = dim ? 0.45 : 1.0
-                            }
-                            try? await Task.sleep(for: .milliseconds(850))
-                            dim.toggle()
+                        barL = 3.2
+                        barC = 8.8
+                        barR = 3.2
+                        withAnimation(Yoin.effects) {
+                            reducedOpacity = 0.58
                         }
                     } else {
                         reducedOpacity = 1
