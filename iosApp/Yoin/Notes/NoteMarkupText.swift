@@ -288,6 +288,12 @@ final class MentionHitBox: @unchecked Sendable {
         lock.lock(); rects = next; lock.unlock()
     }
 
+    /// The first pill's rect.
+    var first: CGRect? {
+        lock.lock(); defer { lock.unlock() }
+        return rects.first?.rect
+    }
+
     /// The pill under [point] (within a few points), and its first rect.
     func hit(_ point: CGPoint, slop: CGFloat = 6) -> (ordinal: Int, rect: CGRect)? {
         lock.lock(); defer { lock.unlock() }
@@ -416,10 +422,31 @@ struct NoteMarkupText: View {
             MentionPeekPresenter.shared.show(pill.mention, cover: cover, from: rect)
         })
         .accessibilityRepresentation { Text(Self.join(pieces, style: style)) }
+        #if DEBUG
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            Self.peekDemo(frame, hits: hits, pills: pills)
+        }
+        #endif
         .task(id: refs.compactMap { $0?.key }) {
             for ref in refs.compactMap({ $0 }) { await CoverArtwork.shared.load(ref) }
         }
     }
+
+    #if DEBUG
+    private static var peekDemoShown = false
+
+    /// `-noteMentionsDemo peek`: the first pill drawn is held as if long-pressed (screenshots).
+    private static func peekDemo(_ frame: CGRect, hits: MentionHitBox, pills: [NoteMentionPill]) {
+        guard NoteMentionsDemo.mode == "peek", !peekDemoShown, let pill = pills.first else { return }
+        peekDemoShown = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard let hit = hits.first else { return }
+            MentionPeekPresenter.shared.show(pill.mention, cover: NoteMentionArtwork.shared.mockImage(pill.mention),
+                                             from: hit.offsetBy(dx: frame.minX, dy: frame.minY))
+        }
+    }
+    #endif
 
     /// Each pill's loaded cover (tracked: one landing later redraws), by ordinal.
     private static func covers(_ pills: [NoteMentionPill], _ refs: [CoverRef?]) -> [Int: Image] {

@@ -157,7 +157,7 @@ struct MentionPeekCard: View {
                     Image(uiImage: cover).resizable().scaledToFill()
                 } else {
                     s.surfaceContainerHighest.overlay {
-                        YoinIcon(peek.kind.symbol, size: 28).foregroundStyle(s.onSurfaceVariant)
+                        Image(peek.kind.symbol).font(.system(size: 24)).foregroundStyle(s.onSurfaceVariant)
                     }
                 }
             }
