@@ -69,7 +69,7 @@ abstract final class SnapshotCodec {
       throw const MalformedSyncFileException('Unreadable sync file header');
     }
     final purges = root['purges'];
-    if (purges != null && (purges is! Map || purges.values.any((v) => v is! int))) {
+    if (purges != null && (purges is! Map || purges.values.any((v) => _long(v) == null))) {
       throw const MalformedSyncFileException('Unreadable scope purges');
     }
     return SyncEnvelope(
@@ -83,7 +83,7 @@ abstract final class SnapshotCodec {
       writtenAt: writtenAt,
       appVersionCode: appVersionCode,
       records: [for (final r in records) ?WireRecord.tryParse(r)],
-      purges: purges == null ? null : {for (final e in (purges as Map).entries) '${e.key}': e.value as int},
+      purges: purges == null ? null : {for (final e in (purges as Map).entries) '${e.key}': _long(e.value)!},
     );
   }
 
@@ -109,16 +109,28 @@ abstract final class SnapshotCodec {
   static ScopePurgeMarker decodePurge(Uint8List bytes) {
     final root = _parseRoot(bytes);
     final scope = root['scope'];
-    final epoch = root['epoch'];
-    final at = root['at'];
+    final epoch = _long(root['epoch']);
+    final at = _long(root['at']);
     final deviceId = root['deviceId'];
     final deviceName = root['deviceName'];
-    if (scope is! String || epoch is! int || at is! int || deviceId is! String || deviceName is! String) {
+    if (scope is! String || epoch == null || at == null || deviceId is! String || deviceName is! String) {
       throw const MalformedSyncFileException('Unreadable scope purge marker');
     }
     if (scope.isEmpty) throw const MalformedSyncFileException('Scope purge marker without a scope');
     return ScopePurgeMarker(scope: scope, epoch: epoch, at: at, deviceId: deviceId, deviceName: deviceName);
   }
+
+  /// A Long field as kotlinx reads it from a JSON tree: an integral number, or
+  /// a string Kotlin's `toLong()` accepts ("5", "-5", "+5"; not "5.0", " 5", "0x5").
+  /// The scope purge (marker and the envelope's `purges`) reads its numbers so
+  /// (shared/src/commonTest/resources/golden/sync-purge.json).
+  static int? _long(Object? value) {
+    if (value is int) return value;
+    if (value is String && _kotlinLong.hasMatch(value)) return int.tryParse(value);
+    return null;
+  }
+
+  static final _kotlinLong = RegExp(r'^[+-]?[0-9]+$');
 
   static bool isGzip(Uint8List bytes) => bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b;
 
