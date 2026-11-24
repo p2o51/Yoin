@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 /// Stable wire names of synced record kinds.
 abstract final class SyncKinds {
   static const songNote = 'song_note';
+  static const albumNote = 'album_note';
   static const trackRating = 'track_rating';
   static const albumRating = 'album_rating';
   static const albumReview = 'album_review';
