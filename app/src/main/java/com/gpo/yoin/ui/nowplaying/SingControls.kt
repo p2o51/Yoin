@@ -2,12 +2,10 @@
 
 package com.gpo.yoin.ui.nowplaying
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
@@ -78,6 +75,8 @@ import com.gpo.yoin.player.sing.SingGainCurve
 import com.gpo.yoin.player.sing.SingMode
 import com.gpo.yoin.player.sing.VocalLevel
 import com.gpo.yoin.ui.component.handPointer
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -308,9 +307,31 @@ internal fun SingLyricsCapsuleKey(
     val density = LocalDensity.current
     val isActive = sing.isActive
     val isPreparing = sing.isPreparing
+    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    var wasPreparing by remember { mutableStateOf(isPreparing) }
+    var capsuleExpanded by remember { mutableStateOf(isActive) }
+
+    LaunchedEffect(isPreparing, isActive, reduced) {
+        if (isPreparing) {
+            wasPreparing = true
+            capsuleExpanded = false
+        } else if (isActive) {
+            if (wasPreparing && !reduced) {
+                // Hold expansion briefly while SingPreparingMicIcon fast-settles back to the resting mic pose
+                // (~120ms), with a hard safety ceiling so cached 0.7s prep never feels sluggish.
+                delay(160L)
+            }
+            wasPreparing = false
+            capsuleExpanded = true
+        } else {
+            wasPreparing = false
+            capsuleExpanded = false
+        }
+    }
+
     val expandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
-    val targetWidth = if (isActive) expandedWidth else iconSize
-    val targetCorner = if (isActive) iconSize / 2 else iconSize * 0.31f
+    val targetWidth = if (capsuleExpanded) expandedWidth else iconSize
+    val targetCorner = if (capsuleExpanded) iconSize / 2 else iconSize * 0.31f
 
     val animatedWidth by animateDpAsState(
         targetValue = targetWidth,
@@ -359,7 +380,7 @@ internal fun SingLyricsCapsuleKey(
     // vs `primary` fill) when expanded so the vocal fill has crisp, unmistakable contrast across every cover.
     val containerColor by animateColorAsState(
         targetValue = when {
-            isActive -> MaterialTheme.colorScheme.surfaceVariant
+            capsuleExpanded -> MaterialTheme.colorScheme.surfaceVariant
             errorFlash -> MaterialTheme.colorScheme.errorContainer
             else -> MaterialTheme.colorScheme.primaryContainer
         },
@@ -368,7 +389,7 @@ internal fun SingLyricsCapsuleKey(
     )
     val contentColor by animateColorAsState(
         targetValue = when {
-            isActive -> MaterialTheme.colorScheme.onSurfaceVariant
+            capsuleExpanded -> MaterialTheme.colorScheme.onSurfaceVariant
             errorFlash -> MaterialTheme.colorScheme.onErrorContainer
             else -> MaterialTheme.colorScheme.onPrimaryContainer
         },
@@ -396,13 +417,13 @@ internal fun SingLyricsCapsuleKey(
             modifier = modifier
                 .offset {
                     // Pulled past 100%: the capsule leans right, the way the finger goes.
-                    val overpullPx = if (isActive) (animatedOverpull * 6.dp.toPx()) else 0f
+                    val overpullPx = if (capsuleExpanded) (animatedOverpull * 6.dp.toPx()) else 0f
                     val shakePx = errorShakeDp.value.dp.toPx()
                     IntOffset((overpullPx + shakePx).roundToInt(), 0)
                 }
                 .size(width = animatedWidth, height = iconSize)
                 .then(
-                    if (isActive) {
+                    if (capsuleExpanded) {
                         // Extend exclusion all the way to the window's right edge (and 8dp vertically)
                         // so starting a drag in the margin between the capsule and screen edge never
                         // triggers Android's edge back gesture.
@@ -426,7 +447,7 @@ internal fun SingLyricsCapsuleKey(
                 .background(containerColor)
                 .handPointer()
                 .semantics {
-                    if (isActive) {
+                    if (capsuleExpanded) {
                         contentDescription = vocalLabel
                         progressBarRangeInfo = ProgressBarRangeInfo(
                             current = liveLevel,
@@ -438,7 +459,7 @@ internal fun SingLyricsCapsuleKey(
                     }
                 }
                 .then(
-                    if (!isActive) {
+                    if (!capsuleExpanded) {
                         Modifier.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = ripple(),
@@ -508,9 +529,9 @@ internal fun SingLyricsCapsuleKey(
                         }
                     },
                 ),
-            contentAlignment = if (isActive) Alignment.CenterStart else Alignment.Center,
+            contentAlignment = if (capsuleExpanded) Alignment.CenterStart else Alignment.Center,
         ) {
-            if (isActive) {
+            if (capsuleExpanded) {
                 // Plain flat-edged rectangle clipped cleanly by the outer capsule — disappears cleanly at 0%.
                 Box(
                     modifier = Modifier
@@ -569,30 +590,18 @@ internal fun SingLyricsCapsuleKey(
                     )
                 }
             } else {
-                AnimatedContent(
-                    targetState = isPreparing,
-                    transitionSpec = {
-                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                SingPreparingMicIcon(
+                    preparing = isPreparing,
+                    tint = contentColor,
+                    size = 22.dp,
+                    fastSettle = isActive && !capsuleExpanded,
+                    onSettledHome = {
+                        if (latestSing.isActive && !capsuleExpanded) {
+                            wasPreparing = false
+                            capsuleExpanded = true
+                        }
                     },
-                    contentAlignment = Alignment.Center,
-                    label = "singKeyContent",
-                ) { preparing ->
-                    if (preparing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = contentColor,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = SingIcons.Mic,
-                            contentDescription = null,
-                            tint = contentColor,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
+                )
             }
         }
     }
@@ -852,10 +861,10 @@ internal fun SingExitButton(
         contentAlignment = Alignment.Center,
     ) {
         if (isPreparing) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(22.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            SingPreparingMicIcon(
+                preparing = true,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                size = 22.dp,
             )
         } else {
             Icon(
@@ -925,9 +934,10 @@ internal fun SingAwareRatingBarSlot(
 }
 
 /**
- * Restrained spatial-spring in-place morph between the Favorite heart circle and [SingExitButton].
- * Keeps a steady `44.dp` circle with no extra bounce or shape wobble: background color blends
- * continuously on [YoinMotion.spatialSpring] while the heart and `MicOff` glyphs cross-scale cleanly.
+ * Option 1 (**麦头展成爱心**) true 6-cubic Bézier in-place morph between the Favorite heart circle and
+ * [SingExitButton]. Keeps a steady `44.dp` circle while the mic capsule blooms point-for-point into
+ * the `yoin_favorite` heart contour on Expressive spatial spring, the diagonal slash retracts on
+ * `S·fast`, and container/content colors glide on `defaultEffects`.
  */
 @Composable
 internal fun SingAwareFavoriteSlot(
@@ -938,32 +948,70 @@ internal fun SingAwareFavoriteSlot(
     favoriteButtons: @Composable () -> Unit,
 ) {
     val active = showSing && sing != null
+    val preparing = active && sing.isPreparing
+    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+
+    // morph: 0f = MicOff (Sing active), 1f = Heart (Normal)
     val morph by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = YoinMotion.spatialSpring(),
+        targetValue = if (active) 0f else 1f,
+        animationSpec = if (reduced) {
+            YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard)
+        } else {
+            YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive)
+        },
         label = "singFavoriteMorphProgress",
     )
-    val clamped = morph.coerceIn(0f, 1f)
+    // slash: 1f = drawn across mic (active & ready), 0f = retracted
+    val slash by animateFloatAsState(
+        targetValue = if (active && !preparing) 1f else 0f,
+        animationSpec = if (reduced) {
+            YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard)
+        } else {
+            YoinMotion.fastSpatialSpec(role = YoinMotionRole.Standard)
+        },
+        label = "singFavoriteSlashProgress",
+    )
+    val bgMix by animateFloatAsState(
+        targetValue = if (active) 0f else 1f,
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "singFavoriteBgMix",
+    )
+    val heartFillAlpha by animateFloatAsState(
+        targetValue = if (!active && isStarred) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "singFavoriteFillAlpha",
+    )
+
     val heartBg = if (isStarred) {
         MaterialTheme.colorScheme.tertiary
     } else {
         MaterialTheme.colorScheme.tertiaryContainer
     }
-    val blendedBg = lerp(heartBg, MaterialTheme.colorScheme.primaryContainer, clamped)
+    val heartFg = if (isStarred) {
+        MaterialTheme.colorScheme.onTertiary
+    } else {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    val clampedBg = bgMix.coerceIn(0f, 1f)
+    val blendedBg = lerp(MaterialTheme.colorScheme.primaryContainer, heartBg, clampedBg)
+    val blendedFg = lerp(MaterialTheme.colorScheme.onPrimaryContainer, heartFg, clampedBg)
+
+    val atHeartRest = !active && morph >= 0.995f && slash <= 0.005f
+    val atSingRest = active && morph <= 0.005f && (preparing || slash >= 0.995f)
 
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        if (clamped <= 0.01f) {
+        if (atHeartRest) {
             favoriteButtons()
-        } else if (clamped >= 0.99f && sing != null) {
+        } else if (atSingRest && sing != null) {
             SingExitButton(
                 onExit = sing.onExit,
                 isPreparing = sing.isPreparing,
             )
         } else {
-            // Mid-morph: one steady 44dp circle whose fill color blends continuously while icons swap cleanly.
+            // Mid-morph: single steady 44dp circle with true 6-cubic mic ↔ heart path interpolation.
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -971,31 +1019,13 @@ internal fun SingAwareFavoriteSlot(
                     .background(blendedBg),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        val s = (1f - 0.18f * clamped).coerceAtLeast(0.8f)
-                        scaleX = s
-                        scaleY = s
-                        alpha = (1f - clamped * 1.4f).coerceIn(0f, 1f)
-                    },
-                ) {
-                    favoriteButtons()
-                }
-                if (sing != null) {
-                    Icon(
-                        imageVector = SingIcons.MicOff,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .graphicsLayer {
-                                val s = (0.82f + 0.18f * clamped).coerceIn(0.8f, 1f)
-                                scaleX = s
-                                scaleY = s
-                                alpha = ((clamped - 0.15f) / 0.85f).coerceIn(0f, 1f)
-                            },
-                    )
-                }
+                SingHeartMicMorphIcon(
+                    morph = morph,
+                    slashProgress = slash,
+                    heartFillAlpha = heartFillAlpha,
+                    tint = blendedFg,
+                    size = 22.dp,
+                )
             }
         }
     }
