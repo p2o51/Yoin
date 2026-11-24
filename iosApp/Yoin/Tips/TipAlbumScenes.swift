@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /*
  * An album page on the demo phone (Android ui/tips/TipLibraryScenes.kt `DemoAlbumPage`): the app's own page
