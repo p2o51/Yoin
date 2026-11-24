@@ -187,10 +187,7 @@ extension AppModel {
         let track = album.tracks.first { $0.id.rawId == c.songId }
             ?? Track(id: MediaId(provider: c.provider, rawId: c.songId), number: 1, title: c.title,
                      durationSec: Int(c.durationMs / 1000), rating: nil)
-        // The song starts at the line (a little before it, so it's heard whole). Waiting for the load to
-        // finish buffering and seeking then played up to 6 s of a Spotify song's intro first: Spotify never
-        // says it stopped buffering (audit 11-15 #43).
-        let at = c.startMs.map { max(0, Double($0) / 1000 - 0.3) } ?? 0
-        play([PlaylistEntry(album: album, track: track)], startSec: at)
+        // Settings IA v4 (#yoin:485b61d3): tapping a lyric card on Home plays the song from the beginning.
+        play([PlaylistEntry(album: album, track: track)], startSec: 0)
     }
 }

@@ -10,13 +10,54 @@ sealed class SettingsPane {
   /// page's own back button, and system back) returns there. Null for the
   /// pages the list opens directly.
   SettingsPane? get parent => switch (this) {
+    DownloadsPane(:final fromStorage) when fromStorage => const StoragePane(),
     StreamQualityPane(:final profileId) ||
     DownloadsPane(:final profileId) ||
     VolumeLevelingPane(:final profileId) => AccountPane(profileId),
     AiTiersPane() || AiTryPane() => const AiPane(),
+    ScrollEdgePane() || ScreenCornersPane() => const AppearancePane(),
+    CloudSyncPane() || NeoDbPane() || PlaylistBackupsPane() => const SyncAndBackupsPane(),
     PlaylistBackupPane() => const PlaylistBackupsPane(),
+    TipsPane() => const HelpAndFeedbackPane(),
+    LicensesPane() => const AboutPane(),
     _ => null,
   };
+}
+
+/// Settings › Features and appearance › Appearance (v4).
+final class AppearancePane extends SettingsPane {
+  const AppearancePane();
+  @override
+  bool operator ==(Object other) => other is AppearancePane;
+  @override
+  int get hashCode => 16;
+}
+
+/// Settings › Sync and storage › Sync and backups (v4).
+final class SyncAndBackupsPane extends SettingsPane {
+  const SyncAndBackupsPane();
+  @override
+  bool operator ==(Object other) => other is SyncAndBackupsPane;
+  @override
+  int get hashCode => 17;
+}
+
+/// Settings › Sync and storage › Storage (v4).
+final class StoragePane extends SettingsPane {
+  const StoragePane();
+  @override
+  bool operator ==(Object other) => other is StoragePane;
+  @override
+  int get hashCode => 18;
+}
+
+/// Settings › Help and about › Help and feedback (v4).
+final class HelpAndFeedbackPane extends SettingsPane {
+  const HelpAndFeedbackPane();
+  @override
+  bool operator ==(Object other) => other is HelpAndFeedbackPane;
+  @override
+  int get hashCode => 19;
 }
 
 final class AccountPane extends SettingsPane {
@@ -42,15 +83,17 @@ final class StreamQualityPane extends SettingsPane {
 }
 
 /// The account in use's Downloads page (DownloadsPage.kt), opened from that
-/// account's page.
+/// account's page or from Settings › Storage ([fromStorage]).
 final class DownloadsPane extends SettingsPane {
-  const DownloadsPane(this.profileId);
+  const DownloadsPane(this.profileId, {this.fromStorage = false});
   final String profileId;
+  final bool fromStorage;
 
   @override
-  bool operator ==(Object other) => other is DownloadsPane && other.profileId == profileId;
+  bool operator ==(Object other) =>
+      other is DownloadsPane && other.profileId == profileId && other.fromStorage == fromStorage;
   @override
-  int get hashCode => Object.hash(4, profileId);
+  int get hashCode => Object.hash(4, profileId, fromStorage);
 }
 
 /// Volume leveling (VolumeLevelingPage.kt), opened from a Subsonic account's

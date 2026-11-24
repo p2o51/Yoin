@@ -158,49 +158,42 @@ struct ServerSettingsView: View {
         }
     }
 
-    // MARK: Features
+    // MARK: Features and appearance
 
-    /// Features: AI features and Yoin Labs (Android #189 #191).
+    /// Settings IA v4: 3 groups × 6 rows — Features and appearance (AI features + Appearance),
+    /// Sync and storage (Sync and backups + Storage), Help and about (Help and feedback + About Yoin).
     private var featuresGroup: some View {
-        group(String(localized: "Features")) {
+        group(String(localized: "Features and appearance")) {
             [pageRow(String(localized: "AI features"), summary: geminiSummary, pane: .aiFeatures) {
                 AIFeaturesPage()
              },
-             pageRow("Yoin Labs", summary: String(localized: "Experimental features"), pane: .labs) {
-                LabsView()
+             pageRow(String(localized: "Appearance"), summary: appearanceSummary, pane: .appearance) {
+                AppearanceSettingsPage()
              }]
         }
     }
 
     private var geminiSummary: String {
         let g = GeminiSettings.shared
-        return g.apiKey.isEmpty ? String(localized: "Song info, Ask Gemini, translation and Memory titles") : g.targetLanguage
+        return g.hasKey
+            ? GeminiSettingsSection.configuredSummary(g)
+            : String(localized: "Song info, Ask Gemini, translation and Memory titles")
+    }
+
+    private var appearanceSummary: String {
+        GlassLab.shared.solidSurfaces ? String(localized: "Solid surfaces") : String(localized: "Liquid Glass")
     }
 
     // MARK: Help and about
 
-    /// Android #191's last group, in its order: Tips, Welcome guide, Docs, Send feedback, Yoin (the
-    /// version; the website and privacy policy inside), Open source licenses; and iOS's Export log.
     private var aboutGroup: some View {
-        group(String(localized: "Help and about")) {
-            [Row(TipsEntryRow(app: app), pane: .tips),
-             Row(Button { model.openWelcomeGuide() } label: {
-                SettingsRowLabel(title: String(localized: "Welcome guide"), app: app)
-             }
-             .buttonStyle(.plain).pointerHighlight()),
-             Row(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
-             Row(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
-             // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
-             Row(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
-                SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"),
-                                 app: app, trailing: "share")
-             }
-             .buttonStyle(.plain).pointerHighlight()),
-             pageRow("Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), pane: .about) {
-                AboutYoinView()
+        let tipsSummary = Tips.helpSummary(read: TipReadStore.shared.read.count, total: Tips.all.count)
+        return group(String(localized: "Help and about")) {
+            [pageRow(String(localized: "Help and feedback"), summary: tipsSummary, pane: .helpAndFeedback) {
+                HelpAndFeedbackPage()
              },
-             pageRow(String(localized: "Open source licenses"), pane: .licenses) {
-                OpenSourceLicensesView()
+             pageRow(String(localized: "About Yoin"), summary: String(localized: "Version \(AboutLinks.versionName())"), pane: .about) {
+                AboutYoinView()
              }]
         }
     }

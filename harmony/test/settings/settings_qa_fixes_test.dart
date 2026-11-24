@@ -147,8 +147,10 @@ void main() {
   group('licenses pane', () {
     testWidgets('should_clipPageToPanelCorners_when_licensesInPane', (tester) async {
       await pump(tester, const Size(1280, 900));
-      // Features and Sync and storage push Help and about below the fold.
-      await tester.ensureVisible(find.text('Open source licenses'));
+      // Features and Sync and storage push Help and about below the fold; Licenses lives inside About Yoin (v4).
+      await tester.ensureVisible(find.text('About Yoin'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('About Yoin'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Open source licenses'));
       await tester.runAsync(settle);
@@ -195,6 +197,9 @@ void main() {
     testWidgets('should_countTipAsRead_when_tippedInTipsAndBackInSettings', (tester) async {
       await pump(tester, const Size(400, 1600));
       const strings = SettingsStrings.forLanguage(chinese: false);
+      expect(find.text(helpTipsSummary(strings, const {})), findsOneWidget);
+      await tester.tap(find.text('Help and feedback'));
+      await tester.pumpAndSettle();
       expect(find.text(tipsReadSummary(strings, const {})), findsOneWidget);
       // Opening the page alone reads nothing (Android: a tip is read on its own page).
       await tester.tap(find.text('Tips'));
@@ -214,6 +219,9 @@ void main() {
       Navigator.of(tester.element(find.byType(TipsScreen))).pop();
       await tester.pumpAndSettle();
       expect(find.text(tipsReadSummary(strings, {tip})), findsOneWidget);
+      Navigator.of(tester.element(find.text('Help and feedback').first)).pop();
+      await tester.pumpAndSettle();
+      expect(find.text(helpTipsSummary(strings, {tip})), findsOneWidget);
     });
   });
 

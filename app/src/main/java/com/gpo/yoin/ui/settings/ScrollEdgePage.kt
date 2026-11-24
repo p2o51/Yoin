@@ -47,9 +47,6 @@ import com.gpo.yoin.ui.theme.YoinTheme
  */
 @Composable
 internal fun ScrollEdgePageContent(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val haptics = rememberYoinHaptics()
-    val selected = currentSeamTopStyle()
     Column(modifier = modifier) {
         Text(
             text = stringResource(R.string.settings_scroll_edge_intro),
@@ -57,6 +54,16 @@ internal fun ScrollEdgePageContent(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 20.dp).seamFade(),
         )
+        ScrollEdgeCardsSection()
+    }
+}
+
+@Composable
+internal fun ScrollEdgeCardsSection(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val haptics = rememberYoinHaptics()
+    val selected = currentSeamTopStyle()
+    Column(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SeamTopStyle.entries.forEach { style ->
                 StyleCard(

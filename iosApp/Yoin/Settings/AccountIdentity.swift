@@ -57,6 +57,15 @@ extension Profile.Service {
     func tone(dark: Bool) -> LandingTone { LandingTone(landing, dark: dark) }
 
     var glyph: String { landing.glyph }
+
+    /// What this account's page configures, shown under the account name on Settings cards and rows (v4).
+    var scopeHint: String {
+        switch self {
+        case .subsonic: String(localized: "Quality and downloads")
+        case .appleMusic: String(localized: "Song and artist names")
+        case .spotify: String(localized: "Connection and devices")
+        }
+    }
 }
 
 /// The eight avatar silhouettes as one animatable shape (a scalloped circle by
