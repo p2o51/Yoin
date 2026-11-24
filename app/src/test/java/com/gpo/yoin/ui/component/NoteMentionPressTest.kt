@@ -95,21 +95,56 @@ class NoteMentionPressTest {
     // ── how a mention is drawn ──────────────────────────────────────────
 
     @Test
-    fun should_frameTheNameWithItsCoverAndRoom_inOnePill() {
+    fun should_drawTheMentionAsOneUnbreakableSlot_namedByItsTitle() {
         val tapped = mutableListOf<NoteMention>()
         val built = buildNoteMarkup(NoteMarkup.parse(text), style, onMentionClick = { tapped += it })
 
         val mention = built.mentions.single()
         val inline = built.text.getStringAnnotations(0, built.text.length)
             .filter { it.tag == "androidx.compose.foundation.text.inlineContent" }
-            .map { it.item }
-        assertEquals(listOf(mentionThumbId(0), mentionTailId(0)), inline)
-        // the link (and the pill) cover thumbnail + name + room, so a tap on the cover opens it too
+        // one slot (cover + name on the pill): the line can only break before or after it, never inside
+        assertEquals(listOf(mentionPillId(0)), inline.map { it.item })
+        assertEquals(mention.start, inline.single().start)
+        assertEquals(mention.end, inline.single().end)
+        // its alternate text is the name, so the text (and TalkBack) still reads it
+        assertEquals("New York", built.text.text.substring(mention.start, mention.end))
         val link = built.text.getLinkAnnotations(0, built.text.length).single()
         assertEquals(mention.start, link.start)
         assertEquals(mention.end, link.end)
-        assertTrue(built.text.text.substring(mention.start, mention.end).contains("New York"))
         assertNotNull(drawnMentionAt(built.mentions, mention.start))
+    }
+
+    @Test
+    fun should_keepAHeadingsMentionAtTheHeadingsSize() {
+        val built = buildNoteMarkup(NoteMarkup.parse("# ${NoteMarkup.serializeMention(newYork)}\n林间 ${NoteMarkup.serializeMention(newYork)}"), style)
+
+        assertEquals(listOf(1.15f, 1f), built.mentions.map { it.scale })
+    }
+
+    // ── a pill never breaks; a name longer than the line is cut inside it ─────
+
+    @Test
+    fun should_sizeThePillToItsCoverAndName_whenItFits() {
+        val pill = mentionPillGeometry(fontPx = 40f, nameWidthPx = 200, lineWidthPx = 1000)
+
+        assertEquals(false, pill.truncated)
+        // lead + cover + gap + tail (in ems) + the name's own width
+        assertEquals((40f * 1.97f + 201f) / 40f, pill.widthEm, 0.01f)
+    }
+
+    @Test
+    fun should_holdThePillToTheLine_andCutTheName_whenItIsLongerThanALine() {
+        val pill = mentionPillGeometry(fontPx = 40f, nameWidthPx = 5_000, lineWidthPx = 600)
+
+        assertEquals(true, pill.truncated)
+        assertTrue(pill.widthEm * 40f <= 600f)
+    }
+
+    @Test
+    fun should_stillShowTheCoverAndALetter_onAVeryNarrowLine() {
+        val pill = mentionPillGeometry(fontPx = 40f, nameWidthPx = 300, lineWidthPx = 10)
+
+        assertTrue(pill.widthEm >= 1.97f + 1f - 0.01f)
     }
 
     @Test

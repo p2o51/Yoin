@@ -10,8 +10,11 @@ import com.gpo.yoin.shared.notes.NoteMention
  * text is not interactive at all: the tap goes to the host, which expands.
  */
 
-/** A mention as drawn: its place in the built text ([start] until [end], thumbnail and padding included). */
-internal data class DrawnMention(val ordinal: Int, val mention: NoteMention, val start: Int, val end: Int)
+/**
+ * A mention as drawn: its place in the built text ([start] until [end]: its pill's one slot, or its name) and
+ * its text's size against the paragraph's ([scale]: a heading's is larger).
+ */
+internal data class DrawnMention(val ordinal: Int, val mention: NoteMention, val start: Int, val end: Int, val scale: Float = 1f)
 
 /** The mention drawn over text offset [offset], if any. */
 internal fun drawnMentionAt(mentions: List<DrawnMention>, offset: Int): DrawnMention? =

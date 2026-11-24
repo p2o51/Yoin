@@ -8,6 +8,17 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.State
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,15 +52,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
@@ -66,7 +76,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -132,8 +141,9 @@ fun buildNoteAnnotatedString(
 internal data class NoteMarkupBuild(val text: AnnotatedString, val mentions: List<DrawnMention>)
 
 /**
- * [buildNoteAnnotatedString] with, for [thumbnails], each resolved mention framed by two inline slots: its
- * cover before the name ([mentionThumbId]) and a little room after it ([mentionTailId]), inside its pill.
+ * [buildNoteAnnotatedString] with, for [thumbnails], each resolved mention as ONE inline slot
+ * ([mentionPillId]: cover + name on a pill, its name the slot's alternate text), so a line never breaks inside
+ * it: a pill that doesn't fit moves whole to the next line (owner 2026-11-24 tablet QA).
  */
 internal fun buildNoteMarkup(
     document: NoteDocument,
@@ -147,16 +157,14 @@ internal fun buildNoteMarkup(
     val drawn = ArrayList<DrawnMention>()
     val text = buildAnnotatedString {
         fun mentionBody(ordinal: Int, title: String) {
-            if (thumbnails) appendInlineContent(mentionThumbId(ordinal), " ")
-            append(title)
-            if (thumbnails) appendInlineContent(mentionTailId(ordinal), " ")
+            if (thumbnails) appendInlineContent(mentionPillId(ordinal), title) else append(title)
         }
-        fun inlines(nodes: List<NoteInline>) {
+        fun inlines(nodes: List<NoteInline>, scale: Float = 1f) {
             nodes.forEach { node ->
                 when (node) {
                     is NoteInline.Text -> append(node.text)
-                    is NoteInline.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { inlines(node.children) }
-                    is NoteInline.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { inlines(node.children) }
+                    is NoteInline.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { inlines(node.children, scale) }
+                    is NoteInline.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { inlines(node.children, scale) }
                     is NoteInline.Mention -> {
                         val mention = node.mention
                         if (!isMentionResolved(mention)) {
@@ -175,7 +183,7 @@ internal fun buildNoteMarkup(
                             } else {
                                 withStyle(mentionStyle) { mentionBody(ordinal, mention.title) }
                             }
-                            drawn += DrawnMention(ordinal, mention, start, length)
+                            drawn += DrawnMention(ordinal, mention, start, length, scale)
                         }
                     }
                 }
@@ -185,9 +193,10 @@ internal fun buildNoteMarkup(
             if (index > 0) append('\n')
             when (block) {
                 is NoteBlock.Paragraph -> inlines(block.inlines)
-                is NoteBlock.Heading -> withStyle(
-                    SpanStyle(fontWeight = FontWeight.Bold, fontSize = if (block.level == 1) 1.15.em else 1.05.em),
-                ) { inlines(block.inlines) }
+                is NoteBlock.Heading -> {
+                    val scale = if (block.level == 1) HeadingScale1 else HeadingScale2
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = scale.em)) { inlines(block.inlines, scale) }
+                }
                 is NoteBlock.Bullet -> {
                     append(NoteMarkupGlyphs.BULLET)
                     inlines(block.inlines)
@@ -222,9 +231,10 @@ internal fun buildNoteMarkup(
 
 internal const val TodoTagPrefix = "todo:"
 
-internal fun mentionThumbId(ordinal: Int) = "mention-thumb:$ordinal"
+internal fun mentionPillId(ordinal: Int) = "mention-pill:$ordinal"
 
-internal fun mentionTailId(ordinal: Int) = "mention-tail:$ordinal"
+private const val HeadingScale1 = 1.15f
+private const val HeadingScale2 = 1.05f
 
 /** The mention span: the given colour, a touch heavier than the words around it. */
 fun noteMentionStyle(color: Color): SpanStyle = SpanStyle(color = color, fontWeight = FontWeight.SemiBold)
@@ -285,6 +295,7 @@ internal fun NoteMarkupBody(
     onMentionClick: ((NoteMention) -> Unit)? = null,
     onToggleChecklist: ((lineIndex: Int) -> Unit)? = null,
     interactive: Boolean = true,
+    onTextLayout: (TextLayoutResult) -> Unit = {},
 ) {
     val document = remember(text) { NoteMarkup.parse(text) }
     val controller = LocalNoteMentions.current
@@ -315,22 +326,16 @@ internal fun NoteMarkupBody(
     }
     // Covers arrive in the background (read in composition: one landing redraws its thumbnail).
     val artworks = build.mentions.map { controller?.artworkUrl(it.mention) }
-    val inline = remember(build, artworks, mentionColor) { mentionInlineContent(build.mentions, artworks, mentionColor) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    var pressed by remember { mutableStateOf<Int?>(null) }
+    val pressed = remember { mutableStateOf<Int?>(null) }
     var peek by remember { mutableStateOf<DrawnMention?>(null) }
-    val pressShown by animateFloatAsState(
-        targetValue = if (pressed != null) 1f else 0f,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "mentionPress",
-    )
     val haptics = rememberYoinHaptics()
     val press = if (interactive && build.mentions.isNotEmpty()) {
         Modifier.mentionPress(
             mentions = build.mentions,
             layout = { layout },
             onTap = { mention -> latestClick?.invoke(mention) },
-            onPressed = { pressed = it?.ordinal },
+            onPressed = { pressed.value = it?.ordinal },
             onPeek = { mention ->
                 if (mention != null) haptics.performLongPress()
                 peek = mention
@@ -339,21 +344,37 @@ internal fun NoteMarkupBody(
     } else {
         Modifier
     }
-    Box(modifier = modifier) {
+    val text: @Composable (Map<String, InlineTextContent>) -> Unit = { inline ->
         BasicText(
             text = build.text,
-            modifier = Modifier
-                .drawBehind {
-                    layout?.let { drawMentionPills(it, build.mentions, mentionColor, pressed, pressShown) }
-                }
-                .then(press),
+            modifier = press,
             style = style,
             color = color,
             maxLines = maxLines,
             overflow = overflow,
             inlineContent = inline,
-            onTextLayout = { layout = it },
+            onTextLayout = {
+                layout = it
+                onTextLayout(it)
+            },
         )
+    }
+    Box(modifier = modifier) {
+        if (build.mentions.isEmpty()) {
+            text(emptyMap())
+        } else {
+            // A pill's width is its cover and name as they measure, held to the line's width (a longer name
+            // ends in an ellipsis inside the pill), so it is laid out as one unbreakable slot.
+            BoxWithConstraints {
+                val measurer = rememberTextMeasurer()
+                val density = LocalDensity.current
+                val lineWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+                val inline = remember(build, artworks, mentionColor, style, lineWidth, density) {
+                    mentionPills(build.mentions, artworks, mentionColor, style, lineWidth, density, measurer, pressed)
+                }
+                text(inline)
+            }
+        }
         MentionPeek(
             peek = peek,
             anchor = { mention -> layout?.let { mentionAnchor(it, mention) } },
@@ -362,67 +383,135 @@ internal fun NoteMarkupBody(
     }
 }
 
-/** The inline slots of every drawn mention: its thumbnail, and the room after its name. */
-private fun mentionInlineContent(
+/** One pill slot per drawn mention, each [Placeholder] as wide as its cover and name (capped at [lineWidth]). */
+private fun mentionPills(
     mentions: List<DrawnMention>,
     artworks: List<String?>,
     tint: Color,
+    style: TextStyle,
+    lineWidth: Int,
+    density: Density,
+    measurer: TextMeasurer,
+    pressed: State<Int?>,
 ): Map<String, InlineTextContent> = buildMap {
+    val base = style.fontSize.takeIf { it.isSp } ?: DefaultMentionFontSize
     mentions.forEachIndexed { index, drawn ->
+        val nameStyle = style.merge(
+            TextStyle(color = tint, fontSize = base * drawn.scale, fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Normal),
+        ).copy(lineHeight = TextUnit.Unspecified) // one line in the pill: its own height, centred
+
+        val geometry = with(density) {
+            mentionPillGeometry(
+                fontPx = nameStyle.fontSize.toPx(),
+                nameWidthPx = measurer.measure(drawn.mention.title, nameStyle, maxLines = 1, softWrap = false).size.width,
+                lineWidthPx = lineWidth,
+            )
+        }
         put(
-            mentionThumbId(drawn.ordinal),
+            mentionPillId(drawn.ordinal),
             InlineTextContent(
-                Placeholder(width = MentionThumbSlot, height = 1.em, placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter),
-            ) { MentionThumb(drawn.mention, artworks.getOrNull(index), tint) },
-        )
-        put(
-            mentionTailId(drawn.ordinal),
-            InlineTextContent(
-                Placeholder(width = MentionTailSlot, height = 1.em, placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter),
-            ) {},
+                Placeholder(
+                    width = geometry.widthEm.em,
+                    height = MentionPillHeightEm.em,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                ),
+            ) {
+                MentionPill(
+                    drawn = drawn,
+                    url = artworks.getOrNull(index),
+                    tint = tint,
+                    nameStyle = nameStyle,
+                    thumb = with(density) { (nameStyle.fontSize.toPx() * MentionThumbEm).toDp() },
+                    pressed = { pressed.value == drawn.ordinal },
+                )
+            },
         )
     }
 }
 
-/** The thumbnail slot: a little room inside the pill, the cover (as tall as the text), a gap before the name. */
-private val MentionThumbSlot = 1.5.em
-private val MentionTailSlot = 0.3.em
-private const val MentionThumbLead = 0.4f
+/** A pill's width in ems of its own text, and whether the name had to be cut to fit the line. */
+internal data class MentionPillGeometry(val widthEm: Float, val truncated: Boolean)
+
+/**
+ * The pill around a name [nameWidthPx] wide in text of [fontPx]: lead, cover, gap, name, tail. Never wider than
+ * the line ([lineWidthPx]); a name that would make it so is cut (with an ellipsis) inside the pill.
+ */
+internal fun mentionPillGeometry(fontPx: Float, nameWidthPx: Int, lineWidthPx: Int): MentionPillGeometry {
+    val chrome = fontPx * (MentionPadStartEm + MentionThumbEm + MentionGapEm + MentionPadEndEm)
+    val natural = chrome + nameWidthPx + 1f
+    val room = (lineWidthPx - 1).toFloat().coerceAtLeast(chrome + fontPx)
+    val width = minOf(natural, room)
+    return MentionPillGeometry(widthEm = width / fontPx, truncated = natural > room)
+}
+
+private val DefaultMentionFontSize = 14.sp
+private const val MentionPadStartEm = 0.22f
+private const val MentionThumbEm = 1f
+private const val MentionGapEm = 0.3f
+private const val MentionPadEndEm = 0.45f
+private const val MentionPillHeightEm = 1.3f
+
+/** Cover and name on the pill (a shade deeper while pressed); the name ends in an ellipsis when cut. */
+@Composable
+private fun MentionPill(
+    drawn: DrawnMention,
+    url: String?,
+    tint: Color,
+    nameStyle: TextStyle,
+    thumb: Dp,
+    pressed: () -> Boolean,
+) {
+    val fill by animateFloatAsState(
+        targetValue = if (pressed()) MentionPillAlpha + MentionPillPressedAlpha else MentionPillAlpha,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "mentionPill",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            // The text around it already reads the name (the slot's alternate text, and its link for TalkBack).
+            .clearAndSetSemantics {}
+            .drawBehind { drawRoundRect(tint.copy(alpha = fill), cornerRadius = CornerRadius(size.height / 2f)) }
+            .padding(start = with(LocalDensity.current) { (nameStyle.fontSize.toPx() * MentionPadStartEm).toDp() }),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MentionThumb(drawn.mention, url, tint, Modifier.size(thumb))
+        Spacer(Modifier.width(with(LocalDensity.current) { (nameStyle.fontSize.toPx() * MentionGapEm).toDp() }))
+        BasicText(
+            text = drawn.mention.title,
+            style = nameStyle,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+    }
+}
 
 /** A mention's cover (an artist's picture, round), or its kind's symbol on the pill's tint while there is none. */
 @Composable
-private fun MentionThumb(mention: NoteMention, url: String?, tint: Color) {
+private fun MentionThumb(mention: NoteMention, url: String?, tint: Color, modifier: Modifier = Modifier) {
     val shape = if (mention.kind == MentionKind.Artist) CircleShape else MentionThumbShape
-    Layout(
-        content = {
-            Box(
-                modifier = Modifier
-                    .clip(shape)
-                    .background(tint.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (url == null || LocalInspectionMode.current) {
-                    Icon(
-                        imageVector = mention.kind.symbol(),
-                        contentDescription = null,
-                        tint = tint,
-                        modifier = Modifier.fillMaxSize(0.72f),
-                    )
-                } else {
-                    AsyncImage(
-                        model = url,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-        },
-    ) { measurables, constraints ->
-        val side = constraints.maxHeight
-        val thumb = measurables.first().measure(Constraints.fixed(side, side))
-        layout(constraints.maxWidth, constraints.maxHeight) {
-            thumb.place(((constraints.maxWidth - side) * MentionThumbLead).roundToInt(), 0)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(tint.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (url == null || LocalInspectionMode.current) {
+            Icon(
+                imageVector = mention.kind.symbol(),
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.fillMaxSize(0.72f),
+            )
+        } else {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
@@ -435,64 +524,12 @@ internal fun MentionKind.symbol(): ImageVector = when (this) {
     MentionKind.Artist -> YoinSymbols.Artist
 }
 
-/** Each mention's pill, one per line it runs over; the pressed one a shade deeper. */
-private fun DrawScope.drawMentionPills(
-    layout: TextLayoutResult,
-    mentions: List<DrawnMention>,
-    color: Color,
-    pressed: Int?,
-    pressShown: Float,
-) {
-    mentions.forEach { drawn ->
-        val alpha = MentionPillAlpha + if (drawn.ordinal == pressed) MentionPillPressedAlpha * pressShown else 0f
-        mentionBoxes(layout, drawn).forEach { box ->
-            drawRoundRect(
-                color = color.copy(alpha = alpha),
-                topLeft = box.topLeft,
-                size = box.size,
-                cornerRadius = CornerRadius(box.height / 2f),
-            )
-        }
-    }
-}
-
 private const val MentionPillAlpha = 0.12f
 private const val MentionPillPressedAlpha = 0.14f
 
-/** Where [drawn]'s pill sits, a box per line it runs over (lines cut by maxLines are left out). */
-private fun mentionBoxes(layout: TextLayoutResult, drawn: DrawnMention): List<Rect> {
-    val length = layout.layoutInput.text.length
-    if (drawn.start >= drawn.end || drawn.end > length) return emptyList()
-    return try {
-        val first = layout.getLineForOffset(drawn.start)
-        val last = layout.getLineForOffset(drawn.end - 1)
-        (first..last).mapNotNull { line ->
-            if (line >= layout.lineCount) return@mapNotNull null
-            val start = if (line == first) drawn.start else layout.getLineStart(line)
-            val end = if (line == last) drawn.end else layout.getLineEnd(line, visibleEnd = true)
-            if (end <= start) return@mapNotNull null
-            val a = layout.getBoundingBox(start)
-            val b = layout.getBoundingBox(end - 1)
-            val top = layout.getLineTop(line)
-            val bottom = layout.getLineBottom(line)
-            val lineHeight = bottom - top
-            val fontPx = (a.bottom - a.top).coerceAtMost(lineHeight)
-            val height = minOf(lineHeight, fontPx * MentionPillHeight)
-            val y = top + (lineHeight - height) / 2f
-            Rect(minOf(a.left, b.left), y, maxOf(a.right, b.right), y + height)
-        }
-    } catch (_: IllegalArgumentException) {
-        emptyList()
-    } catch (_: IndexOutOfBoundsException) {
-        emptyList()
-    }
-}
-
-/** The pill's height against a character box (which already holds the line's ascent and descent). */
-private const val MentionPillHeight = 0.86f
-
-/** The peek card's anchor: [drawn]'s first pill. */
-private fun mentionAnchor(layout: TextLayoutResult, drawn: DrawnMention): Rect? = mentionBoxes(layout, drawn).firstOrNull()
+/** Where [drawn]'s pill was laid out (null: cut off by maxLines). Mentions are the text's only slots, in order. */
+private fun mentionAnchor(layout: TextLayoutResult, drawn: DrawnMention): Rect? =
+    layout.placeholderRects.getOrNull(drawn.ordinal)
 
 /**
  * A finger on a mention ([MentionPressTracker]): a tap opens it ([onTap]), a long press peeks while held. It
@@ -557,19 +594,13 @@ private fun Modifier.mentionPress(
     }
 }
 
-/** The mention under [position]: the character there (or just before, at a caret offset) must be inside it. */
-private fun mentionUnder(layout: TextLayoutResult, mentions: List<DrawnMention>, position: Offset, slop: Float): DrawnMention? {
-    val offset = layout.getOffsetForPosition(position)
-    val length = layout.layoutInput.text.length
-    return listOf(offset, offset - 1)
-        .filter { it in 0 until length }
-        .firstNotNullOfOrNull { at ->
-            val box = layout.getBoundingBox(at)
-            val inside = position.x >= box.left - slop / 2 && position.x <= box.right + slop / 2 &&
-                position.y >= box.top - slop / 2 && position.y <= box.bottom + slop / 2
-            if (inside) drawnMentionAt(mentions, at) else null
-        }
-}
+/** The mention whose pill is under [position] (within half the touch slop). */
+private fun mentionUnder(layout: TextLayoutResult, mentions: List<DrawnMention>, position: Offset, slop: Float): DrawnMention? =
+    mentions.firstOrNull { drawn ->
+        val pill = mentionAnchor(layout, drawn) ?: return@firstOrNull false
+        position.x >= pill.left - slop / 2 && position.x <= pill.right + slop / 2 &&
+            position.y >= pill.top - slop / 2 && position.y <= pill.bottom + slop / 2
+    }
 
 /**
  * The card a long press on a mention brings up while the finger stays down: its cover, title, artist and
