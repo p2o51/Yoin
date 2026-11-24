@@ -56,6 +56,7 @@ struct AlbumDetailView: View {
         _motion = State(initialValue: AlbumDetailMotionState(p: initialP, page: initialPage, forcedPageFrac: Self.forcedPageFrac))
         let ready = demo != nil || initialP > 0 || initialPage > 0
             || LaunchConfig.screen != "home" || ScrapbookFocusRequest.shared.pending != nil
+            || ScrapbookFocusRequest.shared.wantsAlbum(album.id)
         _deferredReady = State(initialValue: ready)
     }
 
@@ -308,7 +309,8 @@ struct AlbumDetailView: View {
                 .zIndex(canFlyCover ? 0.5 : 1.5)
                 // Page 1: the scrapbook, scrolling under the header (albums only).
                 if currentPlaylist == nil, demo == nil,
-                   deferredReady || motion.isScrapbookVisible || ScrapbookFocusRequest.shared.pending != nil {
+                   deferredReady || motion.isScrapbookVisible || ScrapbookFocusRequest.shared.pending != nil
+                    || ScrapbookFocusRequest.shared.wantsAlbum(routeAlbum.id) {
                     Group {
                         AlbumScrapbookView(album: currentAlbum, plays: currentPlays,
                                            settled: motion.isScrapbookSettled,
@@ -423,9 +425,10 @@ struct AlbumDetailView: View {
         }
         // Cloud backup's View (the toast): this playlist's backup, pushed on this page's stack.
         .navigationDestination(item: backupRequest) { PlaylistBackupView(backupId: $0.backupId) }
-        // Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): page 2; the
-        // scrapbook takes the request there. The tracks may land after the push.
+        // Now Playing's "Manage in Scrapbook" and a note's mention (ScrapbookFocusRequest):
+        // page 2; the scrapbook takes the request there. The tracks may land after the push.
         .onChange(of: ScrapbookFocusRequest.shared.pending, initial: true) { _, _ in followScrapFocus() }
+        .onChange(of: ScrapbookFocusRequest.shared.pendingAlbum, initial: true) { _, _ in followScrapFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in followScrapFocus() }
         .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)|\(playlist?.title ?? "")") {
             guard !isMock else { return }
@@ -459,8 +462,9 @@ struct AlbumDetailView: View {
     }
 
     private func followScrapFocus() {
-        guard playlist == nil, let request = ScrapbookFocusRequest.shared.pending,
-              album.tracks.contains(where: { $0.id == request.songId }), motion.pageTarget < 1 else { return }
+        let focus = ScrapbookFocusRequest.shared
+        let forSong = focus.pending.map { r in album.tracks.contains { $0.id == r.songId } } ?? false
+        guard playlist == nil, forSong || focus.wantsAlbum(routeAlbum.id), motion.pageTarget < 1 else { return }
         if !deferredReady { deferredReady = true }
         settlePage(to: 1, velocity: 0)
     }

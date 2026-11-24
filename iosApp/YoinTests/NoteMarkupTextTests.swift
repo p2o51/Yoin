@@ -108,10 +108,29 @@ final class NoteMarkupTextTests: XCTestCase {
             XCTAssertTrue(m.take(url, in: text))
         }
         XCTAssertEqual(opened, [
-            .album(provider: "applemusic", id: "1", title: "Titanic Rising", artist: "Weyes Blood"),
+            .albumScrapbook(provider: "applemusic", id: "1", title: "Titanic Rising", artist: "Weyes Blood"),
             .track(provider: "applemusic", id: "1445555555", title: "Andromeda", artist: "Weyes Blood"),
             .artist(provider: "applemusic", id: "hd", name: "Hannah Diamond"),
         ])
+    }
+
+    func test_should_moveOnlyThatAlbumToItsScrapbook_when_anAlbumMentionAsks() {
+        let r = ScrapbookFocusRequest()
+        let titanic = MediaId(provider: "applemusic", rawId: "1")
+        let other = MediaId(provider: "applemusic", rawId: "2")
+        let now = Date()
+        r.requestAlbum(titanic, now: now)
+        XCTAssertFalse(r.wantsAlbum(other, now: now))
+        XCTAssertFalse(r.takeAlbum(other, now: now), "another album leaves it for the right one")
+        XCTAssertTrue(r.wantsAlbum(titanic, now: now))
+        XCTAssertTrue(r.wantsAlbum(titanic, now: now), "asking doesn't take it")
+        XCTAssertNil(r.take(for: [titanic], now: now), "no song is asked for")
+        XCTAssertTrue(r.takeAlbum(titanic, now: now))
+        XCTAssertFalse(r.takeAlbum(titanic, now: now), "taken once")
+        r.requestAlbum(titanic, now: now)
+        XCTAssertFalse(r.wantsAlbum(titanic, now: now.addingTimeInterval(11)))
+        XCTAssertFalse(r.takeAlbum(titanic, now: now.addingTimeInterval(11)), "a stale request is dropped")
+        XCTAssertNil(r.pendingAlbum)
     }
 
     func test_should_swallowUnknownYoinLinks_and_passOtherLinksToTheSystem() {

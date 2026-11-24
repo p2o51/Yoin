@@ -212,6 +212,7 @@ struct AlbumScrapbookView: View {
         }
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
+        .onChange(of: ScrapbookFocusRequest.shared.pendingAlbum) { _, _ in openFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in
             openFocus()
             #if DEBUG
@@ -253,11 +254,15 @@ struct AlbumScrapbookView: View {
 
     /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
     /// pager has come to rest here, the song's sheet opens at that row's editor.
+    /// A note's album mention wanted just this page: it is taken and that's all.
     private func openFocus() {
-        guard settled, ScrapbookFocusRequest.shared.pending != nil else { return }
+        let request = ScrapbookFocusRequest.shared
+        guard settled, request.pending != nil || request.pendingAlbum != nil else { return }
         // Next turn: a sheet state written during the page's first update is dropped.
         Task {
-            guard onScreen, let focus = ScrapbookFocusRequest.shared.take(for: album.tracks.map(\.id)),
+            guard onScreen else { return }
+            _ = request.takeAlbum(album.id)
+            guard let focus = request.take(for: album.tracks.map(\.id)),
                   let t = album.tracks.first(where: { $0.id == focus.songId }) else { return }
             guard focus.openSheet else { return pointedOut = t.id }
             trackSheet = ScrapSheetOpen(track: t, editing: focus.edit)

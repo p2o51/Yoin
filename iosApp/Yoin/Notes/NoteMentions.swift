@@ -5,8 +5,8 @@ import YoinShared
 
 /// Where a mention takes the reader (Android NoteDestination, by kind).
 enum NoteMentionTarget: Equatable {
-    /// [id] is the account's own album id.
-    case album(provider: String, id: String, title: String, artist: String?)
+    /// An album: its scrapbook (page 2). [id] is the account's own album id.
+    case albumScrapbook(provider: String, id: String, title: String, artist: String?)
     /// A song: its album opens on the song's scrapbook piece.
     case track(provider: String, id: String, title: String, artist: String?)
     case artist(provider: String, id: String, name: String)
@@ -95,7 +95,7 @@ final class NoteMentions {
         return true
     }
 
-    /// Opens what [mention] names: an album, a song's album at its piece, an artist. One open at a time.
+    /// Opens what [mention] names: an album's scrapbook, a song's album at its piece, an artist. One open at a time.
     func open(_ mention: YoinNoteMention) {
         if let at = openedAt, Date().timeIntervalSince(at) < Self.openCooldown { return }
         guard let current = account(), let id = resolvedId(mention),
@@ -114,7 +114,7 @@ final class NoteMentions {
 
     nonisolated static func target(_ mention: YoinNoteMention, id: String, provider: String) -> NoteMentionTarget? {
         switch mention.kind {
-        case .album: .album(provider: provider, id: id, title: mention.title, artist: mention.artist)
+        case .album: .albumScrapbook(provider: provider, id: id, title: mention.title, artist: mention.artist)
         case .track: .track(provider: provider, id: id, title: mention.title, artist: mention.artist)
         case .artist: .artist(provider: provider, id: id, name: mention.title)
         default: nil
@@ -168,7 +168,8 @@ final class NoteMentions {
         return rows
     }
 
-    /// Opens [target] the way the song menu's Go to album / View in Scrapbook / Go to artist do.
+    /// Opens [target] on the scrapbook the way the song menu's View in Scrapbook does (an album on no
+    /// particular song, Android requestAlbum), or an artist as Go to artist does.
     private static func navigate(_ target: NoteMentionTarget) {
         let model = AppModel.shared
         withAnimation(Yoin.spatial) { model.searchActive = false }
@@ -176,7 +177,8 @@ final class NoteMentions {
         switch target {
         case let .artist(provider, id, name):
             model.openArtist(name, id: provider == "mock" ? nil : id)
-        case let .album(provider, id, title, artist):
+        case let .albumScrapbook(provider, id, title, artist):
+            ScrapbookFocusRequest.shared.requestAlbum(MediaId(provider: provider, rawId: id))
             model.open(album(provider: provider, id: id, title: title, artist: artist))
         case let .track(provider, id, title, artist):
             Task { await openTrack(provider: provider, id: id, title: title, artist: artist) }
