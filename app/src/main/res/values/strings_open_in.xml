@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Open in Yoin" share target and the clipboard music-link prompt (docs/open-in-yoin.md). Copy: Rebecca, 2026-11-24. -->
+<resources>
+    <!-- The share sheet's entry (activity-alias label). -->
+    <string name="open_in_share_label">Open in Yoin</string>
+
+    <!-- Clipboard prompt. Hit (an account on the link's service): a song → Listen, anything else → Open. -->
+    <string name="open_in_listen">Listen</string>
+    <string name="open_in_open">Open</string>
+    <!-- Main line until the link's title is read; %1$s = Spotify / Apple Music. -->
+    <string name="open_in_link_in_clipboard">%1$s link in clipboard</string>
+    <!-- Found (no account on the link's service): searched on the account in use. -->
+    <string name="open_in_search">Search</string>
+    <!-- When the service searched must be named; %1$s = the service in use. -->
+    <string name="open_in_search_on">Search on %1$s</string>
+
+    <!-- Results page (a found link searched on the account in use); %1$s = the service in use. -->
+    <string name="open_in_results_title">Choose a match</string>
+    <string name="open_in_results_description">Couldn\'t confirm an exact match. Here are the closest results on %1$s.</string>
+    <string name="open_in_results_empty">No matching results found on %1$s.</string>
+
+    <!-- Settings › Features. -->
+    <string name="settings_clipboard_links_title">Detect music links in clipboard</string>
+    <string name="settings_clipboard_links_summary">Checks the clipboard only when you open Yoin. Only looks for music links; nothing else is uploaded or saved.</string>
+</resources>

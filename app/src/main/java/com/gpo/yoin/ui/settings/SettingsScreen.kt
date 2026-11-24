@@ -97,6 +97,7 @@ import androidx.core.content.FileProvider
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
@@ -289,6 +290,9 @@ fun SettingsScreen(
             )
         },
         cloudSyncSelected = cloudSyncMark.open == true,
+        clipboardLinksRow = {
+            ClipboardLinksRow((context.applicationContext as YoinApplication).container.openInSettingsStore)
+        },
         modifier = modifier,
     )
 }
@@ -323,6 +327,8 @@ fun SettingsContent(
     // Settings › Storage › Cloud sync; null in previews/tests that have no app container.
     cloudSyncRow: (@Composable () -> Unit)? = null,
     cloudSyncSelected: Boolean = false,
+    // Settings › Features › Detect music links in clipboard; null in previews/tests that have no app container.
+    clipboardLinksRow: (@Composable () -> Unit)? = null,
     // Settings › About › Spotoolfy recap: the account in use's newest import, null when it has none (D15).
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
@@ -435,6 +441,7 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Labs) },
                                             )
                                         }
+                                        clipboardLinksRow?.let { row -> item(key = "clipboard-links") { row() } }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_appearance)) {
                                         item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {

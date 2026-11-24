@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「在 Yoin 中打开」分享入口与剪贴板音乐链接提示（docs/open-in-yoin.md）。文案：Rebecca，2026-11-24。 -->
+<resources>
+    <string name="open_in_share_label">在 Yoin 中打开</string>
+
+    <string name="open_in_listen">收听</string>
+    <string name="open_in_open">打开</string>
+    <string name="open_in_link_in_clipboard">剪贴板里有 %1$s 链接</string>
+    <string name="open_in_search">搜索</string>
+    <string name="open_in_search_on">在 %1$s 中搜索</string>
+
+    <string name="open_in_results_title">选择匹配结果</string>
+    <string name="open_in_results_description">未能确认完全一致的结果，以下是在 %1$s 中找到的相近内容。</string>
+    <string name="open_in_results_empty">在 %1$s 中未找到相关结果。</string>
+
+    <string name="settings_clipboard_links_title">识别剪贴板中的音乐链接</string>
+    <string name="settings_clipboard_links_summary">仅在打开 Yoin 时检查剪贴板，只识别音乐链接，其他内容不会上传或保存。</string>
+</resources>
