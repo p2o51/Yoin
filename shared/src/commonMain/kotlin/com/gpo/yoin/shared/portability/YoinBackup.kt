@@ -176,6 +176,11 @@ class YoinTransferPlan internal constructor(
     val previouslyCopied: Int,
     /** Items whose ids carry over or were matched before: copied for sure (more once matching picks). */
     val toCopy: TransferCounts,
+    /**
+     * Songs whose ids carry over as they are and that still have something to copy (an earlier run's copies
+     * left out): the summary's "direct" count and the review's (Android TransferUiState.directSongs).
+     */
+    val directSongs: Int,
     internal val ledger: Map<String, String>,
 )
 
@@ -377,6 +382,7 @@ class YoinBackup(
             reusedAlbums = reusedAlbums,
             previouslyCopied = TransferRules.countItems(items) - TransferRules.countItems(pending),
             toCopy = TransferRules.mappableCounts(source, target, pending, { it in trackRefs }, { it in albumRefs }),
+            directSongs = pending.tracks.count { it !in tracks },
             ledger = ledger,
         )
     }

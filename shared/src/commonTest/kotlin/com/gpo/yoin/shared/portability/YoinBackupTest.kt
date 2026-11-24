@@ -129,6 +129,8 @@ class YoinBackupTest {
         assertEquals("One", plan.tracksToMatch.single().title)
         assertEquals("al1", plan.tracksToMatch.single().albumId)
         assertEquals(listOf(SourceRef("subsonic", "al1")), plan.albumsToMatch.map { it.source })
+        // Subsonic into Spotify: no song's id carries over.
+        assertEquals(0, plan.directSongs)
         val pick = TrackPick(SourceRef("subsonic", "t1"), MatchStatus.Picked, TrackTarget("spotify", "s1", "One", "Band", "spotify", "sA"))
 
         val result = device.backup.applyTransfer(plan, listOf(pick), emptyList(), 9_000)
@@ -149,9 +151,28 @@ class YoinBackupTest {
         assertEquals("s1", again.reusedTracks.single().chosen?.id)
         assertEquals(3, again.previouslyCopied)
         assertEquals(1, again.toCopy.songNotes)
+        assertEquals(0, again.directSongs)
         val second = device.backup.applyTransfer(again, again.reusedTracks, emptyList(), 11_000)
         assertEquals(1, second.copied.songNotes)
         assertEquals(3, second.skippedPreviously)
         assertEquals(2, device.domain.notes("sp").size)
+    }
+
+    @Test
+    fun should_countTheSongsThatCopyDirectly_when_bothAccountsShareAServer() = runTest {
+        val device = Device("dev-a", "iPhone", withReplica = true).apply { seed() }
+        device.domain.profileList += SyncProfile("p2", "subsonic", "Bob", 2_000, subsonicServerUrl = url, subsonicUsername = "bob")
+        val from = device.backup.transferAccountOf("p1")
+        val to = device.backup.transferAccountOf("p2")
+        val items = device.backup.memoryItems(device.backup.transferSources().first(), null)
+
+        val plan = device.backup.planTransfer(from, items, to)
+
+        assertTrue(plan.tracksToMatch.isEmpty())
+        assertTrue(plan.albumsToMatch.isEmpty())
+        assertEquals(1, plan.directSongs)
+        device.backup.applyTransfer(plan, emptyList(), emptyList(), 9_000)
+        // Everything was copied: nothing is left to copy directly.
+        assertEquals(0, device.backup.planTransfer(from, items, to).directSongs)
     }
 }

@@ -156,6 +156,18 @@ object TrackMatcher {
         return result.trim()
     }
 
+    /**
+     * What an album search on the target asks for (a Memories transfer's album without matched songs,
+     * Android MemoryTransfer.matchAlbum): the bare album name (the name as it is when nothing is left) and
+     * its first artist.
+     */
+    fun albumQuery(name: String, artist: String?): String =
+        listOfNotNull(stripDecorations(name).ifBlank { name }, artist?.let { splitArtists(it).firstOrNull() })
+            .joinToString(" ")
+
+    /** Whether two titles name the same version (neither is a live take, remix… the other isn't). */
+    fun sameVersion(a: String?, b: String?): Boolean = versionTags(a) == versionTags(b)
+
     /** The words in a title that name another recording of the song ("Live", "Remix"…). */
     internal fun versionTags(title: String?): Set<String> =
         VERSION_TAG.findAll(title.orEmpty()).map { it.value.lowercase().replace(WHITESPACE, " ") }.toSet()

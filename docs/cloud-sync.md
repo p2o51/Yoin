@@ -133,6 +133,8 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 - `:shared`：`BackupFormat` 和 manifest 模型、`BackupExport`（manifest / 快照 / readable 的字节）、`BackupParser`（校验格式、版本、SHA-256、同步 schema）、`ReadableExport`（日期按时区 `BackupDates`）、`SnapshotAssembler`（副本叠加本机数据）、`ImportPlanner` + `BackupMerger`（导入计划与合并规则）、`memories/`（`MemoryItems.fromRecords`、`TransferRules`、`MigrationIds`、`MemoryTransferApplier`）。它们只通过几个小接口读写数据：`BackupReplica`（同步副本）、`BackupDomain`（歌曲 → 专辑关联、笔记归属）、`MemoryTransferStore`（转移写目标账号）。
 - Android 只留平台部分：zip 读写（`BackupWriter` / `BackupReader`）、Room 和同步引擎的桥（`SharedBackupBridge.kt`、`RoomTransferStore`）、`MemoryItems.fromProfile`（读 Room 和播放记录）、按曲库搜索匹配（`MemoryTransfer.plan`，用 app 的 `Track` / `Album` / `TrackMatcher`）、SAF 和界面。
 - iOS 用 Swift 门面 `YoinBackup`（`shared/.../portability/YoinBackup.kt`，只有平铺的 data class 和 enum）：导出得到文件内容（zip 由 Swift 写）、读文件并校验、生成并执行导入计划、列出转移来源、生成转移计划（列出要匹配的歌和专辑、沿用账本里之前的匹配）、按匹配结果复制。iOS 侧的端口实现也在 commonMain（`StoreBackupReplica`、`SyncDomainTransferStore`、`SyncStoreTransferLedger`），Swift 只需实现 `YoinTrackAlbumLinkStore`。
+- **iOS 界面**（parity p2 step B，2026-11-24）：设置 › 云同步里和 Android 一样的「备份与迁移」组（同步开：下载全部云端数据 / 从备份文件导入 / 转移 Memories；同步关：「备份文件」组，下载全部数据 / 从备份文件导入），每一步的页面、文案（Android 的 values/ 与 values-zh-rCN/ 原文，`Localizable.xcstrings` 里按 Android 资源名作 key）和 Android 的 `BackupScreens` / `TransferScreens` 对应。导出先生成 zip，再交给系统的「存储到文件」；取消就什么也不导出。zip 由 `Data/Sync/BackupZip.swift` 写和读：条目顺序、名字与 Android `BackupWriter` 相同（manifest.json、data/snapshot.json、readable/…，DEFLATE，UTF-8 文件名），读的时候走中央目录，所以 Android 带数据描述符的 zip 也能读；读不了 → 「不是 Yoin 备份文件」，条目超限或损坏 → 「无法读取」，其余错误类型来自 `YoinBackup.readBackup`。导入、导出、转移期间持有同步锁（`CloudSyncCore.beginExclusive` / `endExclusive`，相当于 Android 的 `withReplica`），写完把副本落盘；导入或复制写了东西且同步开着时马上同步一次。导入的全局数据（设置、翻译、关于、歌单备份）和 Android 一样总是导入，审核页只显示条数，不提供开关。旧的「备份并导出」（把云端文件原样打包）已去掉；同步核心自己的自动备份（`BackupFolder`，首次拉取、删除、换位置前）不变。
+- 互通：`backup-export-ios.zip`（golden 目录）是 iOS 写出的 en-UTC golden 导出，`YoinTests` 的 `BackupPortabilityTests` 生成并核对它，Android 的 `IosBackupZipInteropTest` 用 `BackupReader` 读它（条目逐字相同、顺序相同、校验通过）。
 - 字节不变：`BackupExportPinTest`（Android）用迁移前的代码生成并钉住了固定数据导出的每个 zip 条目，迁移后逐字节相同。
 - Golden 向量（`shared/src/commonTest/resources/golden/`，`PortabilityGoldenTest` 生成并校验）：`backup-export.json`（快照 → manifest / 快照 / readable 文件，三种语言和时区）、`backup-import.json`（备份 + 设备状态 + 选择 → 计划、结果、导入后的数据）、`memories-transfer.json`（id 空间、`mig-` id、提及改写、乐评拼接，以及转移的完整用例）。
 
@@ -186,6 +188,10 @@ readable/global/歌单备份.md        歌单备份列表（含曲目）
 **目标里已经有东西时**：笔记两份都留；评分、标题以后改的为准；长评两段都留，来源的那段放在「— 来自 <来源账号名>」下面；目标自己的 AI 拟题优先。专辑行写入时 `ratingNeedsSync = false`、`reviewNeedsSync = false`，不会推到 NeoDB；单曲评分也不推到目标服务。
 
 **重跑**：每对（来源 scope，目标 profile）有一本转移账本，存在同步数据库的 `sync_meta` 里（`transfer:<hash>:<条目>`，不改任何表结构）：已复制的条目跳过并报告跳过了多少；之前匹配上的和你点选过的直接沿用；之前没找到的重新找。
+
+**iOS**（parity p2 step B）：来源是本机 profile 或只在云端的账号（和 Android 界面一样，备份文件里的账号虽然门面支持，界面还没提供）。按曲库搜索匹配在 `Data/Sync/Portability.swift` 的 `TransferMatching`（Android `MemoryTransfer.plan` 的移植：ISRC、`TrackMatcher` 标题 + 艺人 + 时长、只按标题、最后才向来源服务要 ISRC；专辑先按已匹配的歌投票，再用 `TrackMatcher.albumQuery` 搜索、`sameVersion` 区分版本），目标曲库在 `MemoryCatalogs.swift`（Subsonic `search3`、Apple Music 目录搜索与 ISRC、Spotify 搜索与 `isrc:`），审核结果变成 `TrackPick` / `AlbumPick` 交给 `YoinBackup.applyTransfer`。`YoinTransferPlan.directSongs` 给出 id 可以直接沿用、仍有东西要复制的歌数（摘要的「直接复制」和审核页的提示用它）。iOS 没有 Android 的「云端数据统计」，所以账号行不显示条数，清理确认框用「全部数据」。
+
+iOS 的歌曲 → 专辑关联存在 `TrackAlbumLinkStore`（`Application Support/Yoin/track-album-links.json`，按 profile、服务、歌曲 id），和 Android 一样不同步；目前只有导入备份和转移会写它（Android 还会从播放、专辑页和查询学到），导出时原样带上。
 
 歌曲 → 专辑关联：除了 `track_album_links` 里的，有笔记或评分、但只有播放记录知道专辑的歌也会带上一条（来源 `play`）；匹配到的歌按目标上那首歌的专辑补一条。
 
