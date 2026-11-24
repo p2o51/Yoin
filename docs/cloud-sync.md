@@ -133,6 +133,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 - `:shared`：`BackupFormat` 和 manifest 模型、`BackupExport`（manifest / 快照 / readable 的字节）、`BackupParser`（校验格式、版本、SHA-256、同步 schema）、`ReadableExport`（日期按时区 `BackupDates`）、`SnapshotAssembler`（副本叠加本机数据）、`ImportPlanner` + `BackupMerger`（导入计划与合并规则）、`memories/`（`MemoryItems.fromRecords`、`TransferRules`、`MigrationIds`、`MemoryTransferApplier`）。它们只通过几个小接口读写数据：`BackupReplica`（同步副本）、`BackupDomain`（歌曲 → 专辑关联、笔记归属）、`MemoryTransferStore`（转移写目标账号）。
 - Android 只留平台部分：zip 读写（`BackupWriter` / `BackupReader`）、Room 和同步引擎的桥（`SharedBackupBridge.kt`、`RoomTransferStore`）、`MemoryItems.fromProfile`（读 Room 和播放记录）、按曲库搜索匹配（`MemoryTransfer.plan`，用 app 的 `Track` / `Album` / `TrackMatcher`）、SAF 和界面。
 - iOS 用 Swift 门面 `YoinBackup`（`shared/.../portability/YoinBackup.kt`，只有平铺的 data class 和 enum）：导出得到文件内容（zip 由 Swift 写）、读文件并校验、生成并执行导入计划、列出转移来源、生成转移计划（列出要匹配的歌和专辑、沿用账本里之前的匹配）、按匹配结果复制。iOS 侧的端口实现也在 commonMain（`StoreBackupReplica`、`SyncDomainTransferStore`、`SyncStoreTransferLedger`），Swift 只需实现 `YoinTrackAlbumLinkStore`。
+- HarmonyOS（2026-11-24 起，parity p2 C）：Dart 移植在 `harmony/lib/data/portability/`（`BackupExport` / `BackupParser` / `ReadableExport` / `SnapshotAssembler` / `ImportPlanner` + `BackupMerger` / `memories/`），对照下面三份 golden 逐字节一致（`harmony/test/data/portability/*_golden_test.dart`；导入用例跑在 HarmonyOS 真实的同步适配器和存储上）。平台部分：zip 用纯 Dart 的 `archive`（MIT），文件用系统文件选择器（`yoin/share` 的 `saveFile` / `pickFile`，`picker.DocumentViewPicker`），端口实现在 `harmony_stores.dart`（`MemoryStore`、`MemoryCopyCache`、`LocalRatings`、`TrackAlbumLinkStore`、播放记录），入口 `MemoriesPortability`。不开云同步也能用：没有同步副本时不创建它，转移账本存在 key-value store（`memories_transfer_ledger.v1`，键和 `sync_meta` 相同），备份用一个固定的本机 id 签名；「只放在云端」只在有同步副本时出现，「只在云端的账号」作为转移来源只在同步开着时列出。HarmonyOS 没有 Spotify：备份或副本里的 Spotify 账号照样带进导出文件，导入时只能「只放在云端」（可行时）或「先不导」，也可以作为转移来源复制到本机账号，不会被悄悄丢掉。日期按本机时区写（Dart 没有时区库；golden 测试自带用到的两个时区规则）。
 - 字节不变：`BackupExportPinTest`（Android）用迁移前的代码生成并钉住了固定数据导出的每个 zip 条目，迁移后逐字节相同。
 - Golden 向量（`shared/src/commonTest/resources/golden/`，`PortabilityGoldenTest` 生成并校验）：`backup-export.json`（快照 → manifest / 快照 / readable 文件，三种语言和时区）、`backup-import.json`（备份 + 设备状态 + 选择 → 计划、结果、导入后的数据）、`memories-transfer.json`（id 空间、`mig-` id、提及改写、乐评拼接，以及转移的完整用例）。
 
@@ -182,6 +183,8 @@ readable/global/歌单备份.md        歌单备份列表（含曲目）
   - 专辑：先看这张专辑里已匹配的歌在目标上大多属于哪张专辑；没有再按专辑名 + 艺人搜索。
   - 结果分三档：已匹配 / 不确定（最多 3 个候选，不点选就不复制）/ 没找到。UI 可以 `pickTrack` / `pickAlbum` 指定。实际搜索由 UI 层提供的 `MemoryCatalog` 完成。
 - 笔记（歌曲与专辑）用新的确定性 id：`mig-` + sha256(来源 scope ␟ 原 id ␟ 目标 scope) 的前 16 位十六进制（␟ = U+001F）。不会和原笔记冲突，同一份复制在任何设备上 id 都一样。
+
+HarmonyOS 的匹配（`harmony/lib/data/portability/memories/memory_matching.dart`）照搬 Android `MemoryTransfer.plan`：歌曲先 ISRC（目标服务能查时）、再 `TrackMatcher` 搜标题 + 艺人、再只搜标题；专辑先看已匹配歌曲的多数票，再按专辑名 + 艺人搜索；目录是目标账号的 `MusicSource`。账本里之前的匹配和点选直接沿用。
 
 **目标里已经有东西时**：笔记两份都留；评分、标题以后改的为准；长评两段都留，来源的那段放在「— 来自 <来源账号名>」下面；目标自己的 AI 拟题优先。专辑行写入时 `ratingNeedsSync = false`、`reviewNeedsSync = false`，不会推到 NeoDB；单曲评分也不推到目标服务。
 

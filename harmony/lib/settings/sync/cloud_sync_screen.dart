@@ -32,10 +32,12 @@ import '../settings_metrics.dart';
 import '../settings_page.dart';
 import '../settings_rows.dart';
 import '../subsonic_setup_screen.dart';
+import 'backup_screens.dart';
 import 'cloud_account_page.dart';
 import 'cloud_sync_strings.dart';
 import 'cloud_sync_texts.dart';
 import 'cloud_sync_view_model.dart';
+import 'portability_strings.dart';
 
 /// Wall-clock time that moves every 30 s, so "2 min ago" keeps up while shown.
 class SyncClock extends StatefulWidget {
@@ -122,6 +124,7 @@ class _OffContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = CloudSyncStrings.of(context);
+    final p = PortabilityStrings.of(context);
     final phase = page.sync.phase;
     final vm = ref.read(cloudSyncViewModelProvider.notifier);
     return Column(
@@ -157,6 +160,11 @@ class _OffContent extends ConsumerWidget {
             _TextRow(icon: YoinSymbols.insights, text: s.knowHistory),
           ],
         ),
+        const SizedBox(height: SettingsMetrics.sectionGap),
+        // A backup imports without Cloud sync too (no Google services, or moving from another service). Android
+        // leaves Transfer Memories out here (it sits on each account's page there); HarmonyOS has no such row
+        // yet and ships with sync off, so it is listed here.
+        BackupGroup(title: p.sectionBackupFile, exportTitle: p.exportTitleLocal),
         const SizedBox(height: SettingsMetrics.sectionGap),
         // The action changes with what this device can do; keyed on the kind.
         SpringCrossFade(
@@ -360,6 +368,11 @@ class _OnContent extends ConsumerWidget {
             ],
           ),
         ],
+        const SizedBox(height: SettingsMetrics.sectionGap),
+        BackupGroup(
+          title: PortabilityStrings.of(context).sectionBackup,
+          exportTitle: PortabilityStrings.of(context).exportTitle,
+        ),
         const SizedBox(height: SettingsMetrics.sectionGap),
         SettingsSegments(
           children: [
