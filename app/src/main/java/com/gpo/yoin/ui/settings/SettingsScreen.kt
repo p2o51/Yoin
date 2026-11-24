@@ -292,9 +292,6 @@ fun SettingsScreen(
             )
         },
         cloudSyncSelected = cloudSyncMark.open == true,
-        clipboardLinksRow = {
-            ClipboardLinksRow((context.applicationContext as YoinApplication).container.openInSettingsStore)
-        },
         modifier = modifier,
     )
 }
@@ -329,8 +326,6 @@ fun SettingsContent(
     // Settings › Storage › Cloud sync; null in previews/tests that have no app container.
     cloudSyncRow: (@Composable () -> Unit)? = null,
     cloudSyncSelected: Boolean = false,
-    // Settings › Features › Detect music links in clipboard; null in previews/tests that have no app container.
-    clipboardLinksRow: (@Composable () -> Unit)? = null,
     // Settings › About › Spotoolfy recap: the account in use's newest import, null when it has none (D15).
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
@@ -452,7 +447,13 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Appearance) },
                                             )
                                         }
-                                        clipboardLinksRow?.let { row -> item(key = "clipboard-links") { row() } }
+                                        item(key = SettingsFeature.MusicLinks, paintsOwnSegment = listDetail) {
+                                            MusicLinksItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.MusicLinks,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.MusicLinks) },
+                                            )
+                                        }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
                                         item(key = SettingsFeature.SyncAndBackups, paintsOwnSegment = listDetail) {
@@ -1551,6 +1552,7 @@ enum class SettingsFeature {
     AiTiers,
     AiTry,
     Appearance,
+    MusicLinks,
     SyncAndBackups,
     Storage,
     HelpAndFeedback,
@@ -1607,6 +1609,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.AiTiers -> stringResource(R.string.ai_tiers_label)
         SettingsFeature.AiTry -> stringResource(R.string.ai_try)
         SettingsFeature.Appearance -> stringResource(R.string.settings_section_appearance)
+        SettingsFeature.MusicLinks -> stringResource(R.string.settings_music_links_title)
         SettingsFeature.SyncAndBackups -> stringResource(R.string.settings_sync_backups_title)
         SettingsFeature.Storage -> stringResource(R.string.settings_section_storage)
         SettingsFeature.HelpAndFeedback -> stringResource(R.string.settings_help_feedback_title)
@@ -1682,6 +1685,9 @@ internal fun SettingsFeatureScreen(
                         AiTryPageContent()
                     } else if (feature == SettingsFeature.Appearance) {
                         AppearancePageContent()
+                    } else if (feature == SettingsFeature.MusicLinks) {
+                        // Reads only the clipboard setting: no need to wait for the Settings state.
+                        MusicLinksPageContent()
                     } else if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
@@ -1766,6 +1772,28 @@ private fun AppearanceItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
+}
+
+/** Settings › Features and appearance › Music links: whether clipboard detection is on (docs/open-in-yoin.md). */
+@Composable
+private fun MusicLinksItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val store = rememberOpenInSettingsStore()
+    // No app container (previews/tests): the setting's default, on.
+    val on = store?.clipboardDetectionEnabled?.collectAsState()?.value ?: true
+    FeaturePageRow(
+        icon = YoinSymbols.Link,
+        title = stringResource(R.string.settings_music_links_title),
+        summary = stringResource(
+            if (on) R.string.settings_music_links_summary_on else R.string.settings_music_links_summary_off,
+        ),
         selected = selected,
         onClick = onOpenPage,
         listDetail = listDetail,

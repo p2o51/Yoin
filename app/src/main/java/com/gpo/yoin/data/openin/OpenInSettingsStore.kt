@@ -7,9 +7,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Settings › Features › Detect music links in clipboard (on by default), and what the clipboard check
- * remembers between foregrounds: the timestamp of the last clip it looked at and a hash of the last link it
- * offered. Never the clip itself. Kept on this device only.
+ * Settings › Features and appearance › Music links › Detect music links in clipboard (on by default), and
+ * what the clipboard check remembers between foregrounds: the timestamp of the last clip it looked at and a
+ * hash of the last link it offered. Never the clip itself. Kept on this device only.
  */
 class OpenInSettingsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

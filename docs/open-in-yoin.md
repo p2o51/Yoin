@@ -5,7 +5,7 @@ Owner-approved 2026-11-24. Android ships first; iOS and HarmonyOS reuse the `:sh
 ## What it does
 
 - **Share target "Open in Yoin"** (`在 Yoin 中打开`): text shared from any app (Spotify's or Apple Music's share sheet, a chat, a browser). A music link in it opens in Yoin; any other text goes into Library search.
-- **Clipboard prompt** (setting, on by default): when Yoin comes to the foreground and the clipboard holds a Spotify or Apple Music link it hasn't offered before, a small card at the bottom of the shell offers to open it.
+- **Clipboard prompt** (setting in Settings › Features and appearance › Music links, on by default): when Yoin comes to the foreground and the clipboard holds a Spotify or Apple Music link it hasn't offered before, a small card at the bottom of the shell offers to open it.
 - Yoin does **not** register to VIEW `open.spotify.com` / `music.apple.com` links: tapping a link elsewhere never lands in Yoin unasked.
 
 ## Supported links (`:shared` `YoinMusicLinkParser`)
@@ -45,9 +45,18 @@ The share target follows the same routing without a card (the user already chose
 
 The card auto-dismisses after 12 s (longer under TalkBack via `calculateRecommendedTimeoutMillis`), has a close button, and hides while Now Playing covers the window. Motion: `YoinMotion` expressive slide + scale + fade in, standard out; text cross-fades when the title arrives. Colours: the Continue On card's inverse surface (`continueOnCardScheme`).
 
+## Settings › Features and appearance › Music links (Carbon + Rebecca, owner-approved 2026-11-24)
+
+The third row of the 「功能与外观 / Features and appearance」 group (Settings IA v4), after AI features and Appearance: icon `YoinSymbols.Link`, title 「音乐链接 / Music links」, summary 「剪贴板识别已开启 / Clipboard detection on」 or 「剪贴板识别已关闭 / Clipboard detection off」 (live from `OpenInSettingsStore`). Like every v4 row it opens its own page, `SettingsFeature.MusicLinks` in `SettingsFeatureActivity` (on windows ≥ 840dp the `settings-setup` split rule puts it in the right pane and the row shows as the open one), titled 「音乐链接 / Music links」:
+
+1. **Detect music links in clipboard** (`ClipboardLinksRow`), the switch. The whole row toggles and is a switch to TalkBack (`Role.Switch` + on/off state, via `SettingsItem(checked = …)`).
+2. Two read-only rows explaining how links reach Yoin: **Open in Yoin** (`YoinSymbols.Share`: pick it from another app's share menu) and **Open or search across services** (`YoinSymbols.Search`: links from a signed-in service open directly, others search in the service in use).
+
+The toggle no longer sits directly in the Features group.
+
 ## Strings (copy: Rebecca, 2026-11-24)
 
-`open_in_share_label`, `open_in_listen`, `open_in_open`, `open_in_link_in_clipboard`, `open_in_search`, `open_in_search_on` (TalkBack label of a found card's Search), `open_in_results_title`, `open_in_results_description`, `open_in_results_empty`, `settings_clipboard_links_title`, `settings_clipboard_links_summary` in `res/values{,-zh-rCN}/strings_open_in.xml`. No Tip yet (owner: skip for now).
+`open_in_share_label`, `open_in_listen`, `open_in_open`, `open_in_link_in_clipboard`, `open_in_search`, `open_in_search_on` (TalkBack label of a found card's Search), `open_in_results_title`, `open_in_results_description`, `open_in_results_empty`, `settings_music_links_title`, `settings_music_links_summary_on` / `_off`, `settings_clipboard_links_title`, `settings_clipboard_links_summary`, `settings_music_links_share_title` / `_body`, `settings_music_links_cross_title` / `_body` in `res/values{,-zh-rCN}/strings_open_in.xml`. No Tip yet (owner: skip for now).
 
 ## Code
 
@@ -55,6 +64,6 @@ The card auto-dismisses after 12 s (longer under TalkBack via `calculateRecommen
 - `app/.../data/openin/`: `OpenInRouting` (hit / found, hit action), `OpenInMatcher` (ranking), `MusicLinkMetadata`, `MusicLinkResolver` (network), `OpenInCoordinator` (prompt + requests), `ClipboardLinkGate` / `ClipboardLinkWatcher`, `OpenInSettingsStore`
 - `app/.../ui/openin/`: `OpenInCard`, `OpenInShareActivity` (target of the exported `.OpenInYoin` alias), `OpenInResultsActivity` / `Screen` / `ViewModel`
 - Shell: `YoinNavHost` collects `OpenInCoordinator.requests` while resumed and draws the card above the snackbar host; `LibraryViewModel.openSearchShortcut(scope, query)`.
-- Settings › Features › Detect music links in clipboard (`ClipboardLinksRow`).
+- Settings › Features and appearance › Music links: `MusicLinksItem` (row, `SettingsScreen.kt`), `MusicLinksPage.kt` (page + `ClipboardLinksRow`).
 
 Back surfaces: Choose a match is a PushPage-style Activity with Pattern A native cross-Activity back (top-bar back button finishes); the share target has no window.

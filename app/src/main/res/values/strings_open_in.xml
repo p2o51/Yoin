@@ -19,7 +19,16 @@
     <string name="open_in_results_description">Couldn\'t confirm an exact match. Here are the closest results on %1$s.</string>
     <string name="open_in_results_empty">No matching results found on %1$s.</string>
 
-    <!-- Settings › Features. -->
+    <!-- Settings › Features and appearance › Music links: the row (its summary says whether clipboard detection is on) and its page. -->
+    <string name="settings_music_links_title">Music links</string>
+    <string name="settings_music_links_summary_on">Clipboard detection on</string>
+    <string name="settings_music_links_summary_off">Clipboard detection off</string>
+    <!-- Music links page: the toggle. -->
     <string name="settings_clipboard_links_title">Detect music links in clipboard</string>
     <string name="settings_clipboard_links_summary">Checks the clipboard only when you open Yoin. Only looks for music links; nothing else is uploaded or saved.</string>
+    <!-- Music links page: how links reach Yoin. -->
+    <string name="settings_music_links_share_title">Open in Yoin</string>
+    <string name="settings_music_links_share_body">Choose \"Open in Yoin\" from the share menu in other apps to send a song or link straight to Yoin.</string>
+    <string name="settings_music_links_cross_title">Open or search across services</string>
+    <string name="settings_music_links_cross_body">Links from a service you\'re signed into open directly; links from other services search in your current service.</string>
 </resources>

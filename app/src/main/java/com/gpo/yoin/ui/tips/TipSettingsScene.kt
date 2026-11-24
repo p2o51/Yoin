@@ -52,6 +52,7 @@ internal fun SettingsGroupsDemo(playing: Boolean) {
             SettingsGroup(title = stringResource(R.string.settings_section_features)) {
                 item { SettingsItem(icon = YoinSymbols.Sparkle, title = stringResource(R.string.settings_gemini_title)) }
                 item { SettingsItem(icon = YoinSymbols.Palette, title = stringResource(R.string.settings_section_appearance)) }
+                item { SettingsItem(icon = YoinSymbols.Link, title = stringResource(R.string.settings_music_links_title)) }
             }
             SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
                 item { SettingsItem(icon = YoinSymbols.Cloud, title = stringResource(R.string.settings_sync_backups_title)) }
