@@ -6,7 +6,8 @@ import SwiftUI
 /// - `hit` / `found`: the clipboard card for a Spotify song link, as a hit (a Spotify account) or found (none).
 ///   Its title, artist and cover are read live from the open.spotify.com page, as the app reads them without
 ///   a login; offline it falls back to the same words without a cover.
-/// - `paste`: the card before the clipboard is read (the system Paste button).
+/// - `paste`: the card before the clipboard is read ("Link in clipboard", the system Paste button).
+/// - `nolink`: after a paste with no music link in it ("No music link found").
 /// - `results`: Choose a match for that link, rows from the mock library.
 /// - `settings`: Settings › Features and appearance › Music links.
 @MainActor
@@ -29,6 +30,13 @@ enum OpenInDemo {
             Task {
                 try? await Task.sleep(for: .milliseconds(1200))
                 withAnimation(Yoin.spatial) { model.openIn.offerPaste() }
+            }
+        case "nolink":
+            // What Paste shows when the clipboard held no music link, held long enough for a screenshot.
+            model.openIn.noLinkHold = .seconds(60)
+            Task {
+                try? await Task.sleep(for: .milliseconds(1200))
+                withAnimation(Yoin.spatial) { model.openIn.pasted("https://example.com/not-music") }
             }
         case "hit", "found":
             Task {

@@ -2,13 +2,15 @@ import Foundation
 import Observation
 
 /// The card at the bottom of the shell (Android OpenInPrompt). [paste]: the clipboard probably holds a web
-/// link, not read yet; the card offers the system Paste button. Otherwise [link] as offered, then as followed
+/// link, not read yet; the card says "Link in clipboard" and offers the system Paste button. [noLink]: what was
+/// pasted holds no supported music link; the card says so for a moment, then goes. Otherwise [link] as offered, then as followed
 /// once a short link's target is known ([resolved]); [metadata] arrives a beat later, or never (the card shows
 /// its plain line until then). A hit is drawn rich (cover, title, artist, Listen / Open); a found link is text
 /// only, with Search.
 struct OpenInPrompt: Equatable, Sendable {
     var serial: Int
     var paste: Bool = false
+    var noLink: Bool = false
     var link: OpenInLink?
     var target: OpenInTarget = .found
     var metadata: MusicLinkMetadata?
@@ -48,6 +50,8 @@ final class OpenInCoordinator {
     @ObservationIgnored private var pending: [OpenInRequest] = []
     @ObservationIgnored private var serial = 0
     @ObservationIgnored private var fillTask: Task<Void, Never>?
+    /// How long "No music link found" stays before the card goes (Rebecca 2026-11-24).
+    @ObservationIgnored var noLinkHold: Duration = .milliseconds(2500)
 
     /// The clipboard probably holds a web link: the card offers Paste.
     func offerPaste() {
@@ -56,13 +60,27 @@ final class OpenInCoordinator {
         prompt = OpenInPrompt(serial: serial, paste: true)
     }
 
-    /// What the system Paste button gave. A supported link becomes the card proper; anything else closes it.
+    /// What the system Paste button gave. A supported link becomes the card proper; anything else says "No
+    /// music link found" for a moment, then the card goes.
     func pasted(_ text: String) {
         guard let link = OpenInLink.findFirst(text) else {
-            dismiss()
+            showNoLink()
             return
         }
         if !offer(link) { dismiss() }
+    }
+
+    private func showNoLink() {
+        serial += 1
+        let card = OpenInPrompt(serial: serial, noLink: true)
+        prompt = card
+        fillTask?.cancel()
+        let hold = noLinkHold
+        fillTask = Task { [weak self] in
+            try? await Task.sleep(for: hold)
+            guard !Task.isCancelled, let self, self.prompt?.serial == card.serial else { return }
+            self.prompt = nil
+        }
     }
 
     /// Show the card for [link]. False when there is no account to open or search it in (before the first

@@ -138,12 +138,28 @@ final class OpenInTests: XCTestCase {
         XCTAssertEqual(box.requests, [.showResults(link, metadata: lookup.metadata)])
     }
 
-    func testPastedTextWithoutAMusicLinkClosesTheCard() {
+    func testPastedTextWithoutAMusicLinkSaysSoThenTheCardGoes() async throws {
         let (c, box) = coordinator([profile("sub", .subsonic, created: 1)], active: "sub")
+        c.noLinkHold = .milliseconds(50)
         c.offerPaste()
         c.pasted("https://example.com/not-music")
+        XCTAssertEqual(c.prompt?.noLink, true, "No music link found, instead of closing silently")
+        XCTAssertEqual(c.prompt?.paste, false)
+        try await Task.sleep(for: .milliseconds(300))
         XCTAssertNil(c.prompt)
         XCTAssertTrue(box.requests.isEmpty)
+        c.offerPaste()
+        c.pasted("")
+        XCTAssertEqual(c.prompt?.noLink, true, "nothing readable pasted counts as no music link")
+    }
+
+    func testANewCardOutlivesTheNoLinkNotice() async throws {
+        let (c, _) = coordinator([profile("sp", .spotify, created: 1)], active: "sp")
+        c.noLinkHold = .milliseconds(50)
+        c.pasted("nothing here")
+        c.pasted(spotifyTrack)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(c.prompt?.link?.id, "003vvx7Niy0yvhvHt4a68B", "the notice's timer doesn't take the next card")
     }
 
     func testNoCardBeforeTheFirstAccount() throws {
@@ -371,6 +387,8 @@ final class OpenInTests: XCTestCase {
         XCTAssertEqual(loc("Music links"), zh ? "音乐链接" : "Music links")
         XCTAssertEqual(loc("Choose a match"), zh ? "选择匹配结果" : "Choose a match")
         XCTAssertEqual(loc("Listen"), zh ? "收听" : "Listen")
+        XCTAssertEqual(loc("Link in clipboard"), zh ? "剪贴板里有链接" : "Link in clipboard")
+        XCTAssertEqual(loc("No music link found"), zh ? "未识别到音乐链接" : "No music link found")
         XCTAssertEqual(String(localized: "\("Spotify") link in clipboard", bundle: .main),
                        zh ? "剪贴板里有 Spotify 链接" : "Spotify link in clipboard")
     }

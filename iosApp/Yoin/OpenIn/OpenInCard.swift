@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 /// The clipboard card (Android OpenInCard): small, non-modal, at the bottom of the shell over the bar, on
 /// glass like the shell's toasts. Three looks, kept visibly apart:
 ///
-/// - **Paste** (iOS only): the clipboard probably holds a web link, not read yet. The system Paste button
-///   reads it without the "pasted from" banner; nothing is read before the tap.
+/// - **Paste** (iOS only): "Link in clipboard": the clipboard probably holds a web link, not read yet. The
+///   system Paste button reads it without the "pasted from" banner; nothing is read before the tap. Pasted text
+///   with no supported link turns the card into "No music link found" for a moment.
 /// - **Hit** (an account on the link's service): cover, the service's name, title, artist, and Listen (a
 ///   song) or Open (anything else). It opens in that account.
 /// - **Found** (no such account): text only, "title · artist", and Search: searched on the account in use.
@@ -64,10 +65,21 @@ struct OpenInCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if prompt.paste {
-                // Compact: the glyph, the system's Paste and ✕ (no line of its own yet, see docs/open-in-yoin.md).
+            if prompt.paste || prompt.noLink {
+                // Before the tap: "Link in clipboard" and the system's Paste. After a paste with no music link in
+                // it: "No music link found", a moment, then the card goes (copy: Rebecca 2026-11-24).
                 linkMark
-                pasteButton
+                Text(prompt.noLink ? String(localized: "No music link found") : String(localized: "Link in clipboard"))
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentTransition(.opacity)
+                    // VoiceOver hears it, as the card leaves on its own.
+                    .onAppear {
+                        if prompt.noLink { AccessibilityNotification.Announcement(String(localized: "No music link found")).post() }
+                    }
+                if prompt.paste { pasteButton }
             } else {
                 if hit { cover } else { linkMark }
                 lines
@@ -182,7 +194,8 @@ struct OpenInCard: View {
     private var pasteButton: some View {
         PasteButton(payloadType: PastedLink.self) { items in
             Task { @MainActor in
-                if let text = items.first?.text { onPaste(text) } else { onDismiss() }
+                // Nothing readable pasted counts as no music link.
+                onPaste(items.first?.text ?? "")
             }
         }
         .buttonBorderShape(.capsule)
