@@ -188,7 +188,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `data/transfer/TrackMatcher.kt` | 纯匹配规则（有单元测试） |
+| `data/transfer/TrackMatcher.kt` | 纯匹配规则（有单元测试）；「在 Yoin 中打开」的「选择匹配结果」也用它排序（`data/openin/OpenInMatcher.kt`，[open-in-yoin.md](open-in-yoin.md)） |
 | `data/transfer/PlaylistTransfer.kt` | `resolve`（匹配）和 `writeTracks`（写入）两步 |
 | `data/transfer/RestoreReview.kt` | 审阅规则：默认勾选、改选候选、按顺序取要写的曲目 |
 | `data/backup/PlaylistBackupModels.kt` | 备份 JSON 格式、`PlaylistSnapshots`（歌单 → 备份、备份曲目 → 匹配用的 Track） |
