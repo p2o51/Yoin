@@ -445,13 +445,18 @@ struct AlbumScrapbookView: View {
                     ScrapStickyEditor(text: $stickyDraft, scheme: s,
                                       onSave: { saveSticky(sticky.noteId) }, onCancel: closeSticky)
                         .modifier(layer(sticky.tilt * 0.4, depth: 0.45))
-                } else {
+                } else if stickiesEditable {
                     let words = NoteMarkupRender.words(sticky.text)
                     Button { openSticky(sticky) } label: { ScrapStickyCard(text: sticky.text, scheme: s) }
                         .buttonStyle(.plain).pointerHighlight()
-                        .disabled(!stickiesEditable)
                         .accessibilityLabel(Text("Album note: \(words)"))
-                        .accessibilityHint(stickiesEditable ? Text("Edit album note: \(words)") : Text(verbatim: ""))
+                        .accessibilityHint(Text("Edit album note: \(words)"))
+                        .modifier(layer(sticky.tilt, depth: 0.45))
+                } else {
+                    // The mock's stand-in: looked at, not written (no dimmed, disabled button).
+                    ScrapStickyCard(text: sticky.text, scheme: s)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text("Album note: \(NoteMarkupRender.words(sticky.text))"))
                         .modifier(layer(sticky.tilt, depth: 0.45))
                 }
             }
