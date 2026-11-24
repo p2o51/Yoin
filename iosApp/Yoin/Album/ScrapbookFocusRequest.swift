@@ -7,6 +7,10 @@ import Observation
 /// and opens the song's track sheet at that row's editor. Observable, so a
 /// page already open behind Now Playing takes it too. A request nobody takes
 /// within `freshFor` is dropped, so it can't hijack a later visit.
+///
+/// A note's album mention asks for page 2 on no particular song
+/// (`requestAlbum`, Android requestAlbum): the album page that is that album
+/// moves there.
 @MainActor
 @Observable
 final class ScrapbookFocusRequest {
@@ -28,6 +32,37 @@ final class ScrapbookFocusRequest {
 
     func request(songId: MediaId, edit: SongAboutStore.Entry.Ref? = nil, openSheet: Bool = true, now: Date = Date()) {
         pending = Pending(songId: songId, at: now, edit: edit, openSheet: openSheet || edit != nil)
+    }
+
+    struct PendingAlbum: Equatable {
+        var albumId: MediaId
+        var at: Date
+    }
+
+    /// The album-level request waiting to be taken, if any.
+    private(set) var pendingAlbum: PendingAlbum?
+
+    /// Page 2 of the album `albumId`, on no particular song.
+    func requestAlbum(_ albumId: MediaId, now: Date = Date()) {
+        pendingAlbum = PendingAlbum(albumId: albumId, at: now)
+    }
+
+    /// Whether the album-level request is for `albumId` and still fresh; leaves it in place (safe in a body).
+    func wantsAlbum(_ albumId: MediaId, now: Date = Date()) -> Bool {
+        guard let request = pendingAlbum else { return false }
+        return request.albumId == albumId && now.timeIntervalSince(request.at) <= Self.freshFor
+    }
+
+    /// Takes the album-level request when it is for `albumId` and still fresh.
+    func takeAlbum(_ albumId: MediaId, now: Date = Date()) -> Bool {
+        guard let request = pendingAlbum else { return false }
+        if now.timeIntervalSince(request.at) > Self.freshFor {
+            pendingAlbum = nil
+            return false
+        }
+        guard request.albumId == albumId else { return false }
+        pendingAlbum = nil
+        return true
     }
 
     /// Takes the request when it is for one of `songIds` and still fresh; nil otherwise.

@@ -290,9 +290,10 @@ struct NoteLinesView: View, Equatable {
                 }
             }
             .frame(width: Self.stampColumn, alignment: .leading)
-            // Glance: bodyMedium Medium, the current line bodyLarge Bold.
-            Text(note.content)
-                .font(isActive ? .gsf(16, .bold) : .gsf(14, .medium))
+            // Glance: bodyMedium Medium, the current line bodyLarge Bold. The stored markup drawn; the
+            // window takes no touches, so mentions are styled, not links.
+            NoteMarkupText(text: note.content, size: isActive ? 16 : 14, weight: isActive ? .bold : .medium,
+                           mentionColor: primary, glyphColor: primary, links: false)
                 .tracking(0)
                 .foregroundStyle(isActive ? primary : onSurfaceVariant)
                 .frame(maxWidth: .infinity, alignment: .leading)
