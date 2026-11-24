@@ -250,6 +250,7 @@ class AlbumDetailViewModel(
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
+                    releaseDate = album.releaseDate,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
                     // Membership was seeded by the load itself (before Content existed), so

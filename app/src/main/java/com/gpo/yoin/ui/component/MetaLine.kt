@@ -5,10 +5,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.TextStyle
@@ -83,15 +84,34 @@ fun MetaLine(
         val width = placeables.fold(0) { acc, placeable ->
             if (acc == 0) placeable.width else acc + gapPx + placeable.width
         }
-        val height = placeables.maxOfOrNull(Placeable::height) ?: 0
+        val tops = metaLineTops(placeables.map { it.height }, placeables.map { it[FirstBaseline] })
+        val height = placeables.indices.maxOfOrNull { i -> tops[i] + placeables[i].height } ?: 0
         layout(width, height) {
             var x = 0
-            placeables.forEach { placeable ->
-                placeable.placeRelative(x, (height - placeable.height) / 2)
+            placeables.forEachIndexed { i, placeable ->
+                placeable.placeRelative(x, tops[i])
                 x += placeable.width + gapPx
             }
         }
     }
+}
+
+/**
+ * Where each group's top goes so all of them sit on one baseline. Each group is
+ * its own Text, and a Text's baseline sits where its own font puts it: a run of
+ * Han text lays out on the CJK fallback's taller ascent and descent, a run of
+ * digits or Latin on Google Sans Flex's, so centring the boxes left "2024"
+ * riding higher than "专辑" beside it (owner 2026-11-24). Falls back to centring
+ * when a group has no baseline ([AlignmentLine.Unspecified]).
+ */
+internal fun metaLineTops(heights: List<Int>, baselines: List<Int>): List<Int> {
+    if (heights.isEmpty()) return emptyList()
+    if (baselines.any { it == AlignmentLine.Unspecified }) {
+        val tallest = heights.max()
+        return heights.map { (tallest - it) / 2 }
+    }
+    val lowest = baselines.max()
+    return baselines.map { lowest - it }
 }
 
 /**
@@ -114,17 +134,29 @@ fun MetaFlow(
         verticalArrangement = Arrangement.spacedBy(2.dp),
         maxLines = maxRows,
     ) {
-        groups.forEach { group -> MetaGroupText(group, style, 1, ink, inkIsTheme = color == Color.Unspecified) }
+        // One baseline per row, as in MetaLine.
+        groups.forEach { group ->
+            MetaGroupText(group, style, 1, ink, inkIsTheme = color == Color.Unspecified, Modifier.alignByBaseline())
+        }
     }
 }
 
 @Composable
-private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink: Color, inkIsTheme: Boolean) {
+private fun MetaGroupText(
+    group: MetaGroup,
+    style: TextStyle,
+    maxLines: Int,
+    ink: Color,
+    inkIsTheme: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val scheme = MaterialTheme.colorScheme
     when (group) {
+        // The number and its unit share a baseline, not a centre line: "12" is set in Google Sans Flex and
+        // "首" in the CJK fallback, whose boxes put the baseline at different heights.
         is MetaGroup.Stat -> Row(
             horizontalArrangement = Arrangement.spacedBy(MetaInnerGap),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = modifier,
         ) {
             Text(
                 text = group.value,
@@ -132,6 +164,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink
                 color = ink,
                 maxLines = maxLines,
                 softWrap = false,
+                modifier = Modifier.alignByBaseline(),
             )
             if (group.unit.isNotEmpty()) {
                 Text(
@@ -140,6 +173,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink
                     color = ink.copy(alpha = ink.alpha * 0.6f),
                     maxLines = maxLines,
                     softWrap = false,
+                    modifier = Modifier.alignByBaseline(),
                 )
             }
         }
@@ -149,6 +183,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink
             color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
             maxLines = maxLines,
             softWrap = false,
+            modifier = modifier,
         )
         // The line's own size (a fixed labelSmall read a size smaller than the
         // artist and year beside it, owner 2026-10-15); the colour and the
@@ -163,6 +198,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink
             },
             maxLines = maxLines,
             softWrap = false,
+            modifier = modifier,
         )
     }
 }

@@ -30,6 +30,14 @@ data class Album(
      * the service doesn't say.
      */
     val version: String? = null,
+    /**
+     * The release date down to the precision the service gives (Spotify
+     * `release_date` + `release_date_precision`, Apple Music `releaseDate`,
+     * OpenSubsonic `releaseDate` / `originalReleaseDate`). [year] stays as the
+     * year every other surface reads; when both are known they agree. Null
+     * when the service gives no date.
+     */
+    val releaseDate: ReleaseDate? = null,
 ) {
     /**
      * [name] without the " (version)" a server appends to it (Navidrome's
@@ -58,4 +66,66 @@ enum class ReleaseType {
     EP,
     Single,
     Compilation,
+}
+
+/**
+ * A release date at the precision the service gave it: the year always, then
+ * the month, then the day ([day] is never set without [month]). Build one with
+ * [of] or [parseIso], which drop what isn't a real date (Spotify's "0000", a
+ * 13th month, February 30th) instead of guessing.
+ */
+data class ReleaseDate(val year: Int, val month: Int? = null, val day: Int? = null) {
+    init {
+        require(year in 1..9999) { "year $year out of range" }
+        require(month == null || month in 1..12) { "month $month out of range" }
+        require(day == null || (month != null && day in 1..daysIn(year, month))) { "day $day out of range" }
+    }
+
+    companion object {
+        /**
+         * The date from its parts, kept as far as they make a real date: an
+         * invalid month drops the month and day, an invalid day drops the day.
+         * Null without a usable year (null, 0, negative).
+         */
+        fun of(year: Int?, month: Int? = null, day: Int? = null): ReleaseDate? {
+            val y = year?.takeIf { it in 1..9999 } ?: return null
+            val m = month?.takeIf { it in 1..12 } ?: return ReleaseDate(y)
+            val d = day?.takeIf { it in 1..daysIn(y, m) }
+            return ReleaseDate(y, m, d)
+        }
+
+        /**
+         * "2023-10-27", "2023-10" or "2023" (Spotify, Apple Music), each at
+         * its own precision; longer text after the day (a time) is ignored.
+         * [precision] is Spotify's `release_date_precision` ("year", "month",
+         * "day"): it caps the precision read from the text. Null when the text
+         * holds no usable year.
+         */
+        fun parseIso(text: String?, precision: String? = null): ReleaseDate? {
+            val parts = text?.trim()?.takeIf(String::isNotEmpty)?.take(10)?.split('-') ?: return null
+            val year = parts.getOrNull(0)?.takeIf { it.length == 4 }?.toIntOrNull()
+            val month = parts.getOrNull(1)?.takeIf { it.length == 2 }?.toIntOrNull()
+            val day = parts.getOrNull(2)?.takeIf { it.length == 2 }?.toIntOrNull()
+            return when (precision?.trim()?.lowercase()) {
+                "year" -> of(year)
+                "month" -> of(year, month)
+                else -> of(year, month, day)
+            }
+        }
+
+        private fun daysIn(year: Int, month: Int): Int = java.time.YearMonth.of(year, month).lengthOfMonth()
+    }
+}
+
+/** The more precise of [this] and [other]; [this] when they are as precise (or [other] is null). */
+fun ReleaseDate?.orMorePrecise(other: ReleaseDate?): ReleaseDate? {
+    if (this == null) return other
+    if (other == null) return this
+    return if (other.precisionRank() > precisionRank()) other else this
+}
+
+private fun ReleaseDate.precisionRank(): Int = when {
+    day != null -> 2
+    month != null -> 1
+    else -> 0
 }

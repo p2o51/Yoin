@@ -88,7 +88,12 @@ class DetailCacheStore(
     private val touchesPending: MutableSet<Triple<String, String, String>> = ConcurrentHashMap.newKeySet()
 
     suspend fun readAlbum(profileId: String, id: String): Cached<Album>? =
-        read(profileId, KIND_ALBUM, id) { json.decodeFromString(AlbumDto.serializer(), it).toDomain() }
+        read(profileId, KIND_ALBUM, id) { row ->
+            val dto = json.decodeFromString(AlbumDto.serializer(), row)
+            // A row from before albums kept their release date fails like an incompatible one: a miss, read again.
+            check(dto.dated) { "album row predates release dates" }
+            dto.toDomain()
+        }
 
     /** [stillCurrent] guards a background write; see [write]. */
     suspend fun writeAlbum(profileId: String, id: String, value: Album, stillCurrent: () -> Boolean = { true }) =
