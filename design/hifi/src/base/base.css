@@ -1,0 +1,51 @@
+/* Base: type, shape tokens, the prototype chrome (switcher bar), the device frame and system bars.
+   Type = YoinTokens.Typography (Google Sans Flex, M3 scale). Google Sans Flex comes from Google Fonts
+   when online; offline it falls back to Google Sans / Roboto Flex / system. ROND 100 is only visible with
+   the real font. */
+:root {
+  --font: "Google Sans Flex", "Google Sans", "Google Sans Text", "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif;
+  --r-xs: 4px; --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-li: 20px; --r-xl: 28px; --r-xli: 32px; --r-xxl: 48px; --r-full: 999px;
+  --spring-exp: cubic-bezier(.34, 1.36, .64, 1); --spring-std: cubic-bezier(.2, 0, 0, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); background: #ebe9ef; color: #1c1b1f; -webkit-font-smoothing: antialiased; }
+body.ui-dark { background: #121215; color: #e6e1e5; }
+button { font: inherit; color: inherit; }
+.ic { display: block; flex: none; }
+.sp { flex: 1; }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rond { font-variation-settings: "ROND" 100; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ── prototype chrome ── */
+.pbar { position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: rgba(250, 249, 252, .86); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(0, 0, 0, .07); font-size: 13px; }
+.ui-dark .pbar { background: rgba(24, 24, 28, .86); border-color: rgba(255, 255, 255, .08); }
+.pbar h1 { font-size: 15px; font-weight: 600; margin: 0 8px 0 0; white-space: nowrap; }
+.pbar h1 small { font-weight: 400; opacity: .6; margin-left: 6px; }
+.pgrp { display: flex; align-items: center; gap: 6px; }
+.pgrp > span { opacity: .6; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, .06); }
+.ui-dark .seg { background: rgba(255, 255, 255, .08); }
+.seg button { border: 0; background: none; padding: 5px 11px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: #fff; color: #1c1b1f; font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .18); }
+.stage { padding: 20px 16px 40px; display: flex; justify-content: center; }
+.dev-wrap { position: relative; flex: none; }
+.dev-cap { text-align: center; font-size: 12px; opacity: .55; margin-top: 10px; }
+
+/* ── device ── */
+.device { position: absolute; left: 0; top: 0; overflow: hidden; border-radius: 30px; transform-origin: 0 0; background: var(--surface); color: var(--onSurface); box-shadow: 0 0 0 1px rgba(0, 0, 0, .2), 0 28px 60px -28px rgba(0, 0, 0, .55); --top: 36px; --bottom: 24px; isolation: isolate; }
+.device[data-size="compact"] { border-radius: 34px; }
+.sys-status { position: absolute; z-index: 40; left: 0; right: 0; top: 0; height: var(--top); display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: 13px; font-weight: 500; pointer-events: none; color: var(--onSurface); }
+.sys-status .r { display: flex; gap: 6px; align-items: center; }
+.sys-cam { position: absolute; left: 50%; top: 11px; width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%; background: #0a0a0a; box-shadow: 0 0 0 2px rgba(255, 255, 255, .04); }
+.device[data-size="expanded"] .sys-cam, .device[data-size="medium"] .sys-cam { display: none; }
+.sys-nav { position: absolute; z-index: 40; left: 50%; bottom: 8px; width: 108px; height: 4px; margin-left: -54px; border-radius: 2px; background: var(--onSurface); opacity: .55; pointer-events: none; }
+.device[data-size="expanded"] .sys-nav { width: 170px; margin-left: -85px; }
+.screen { position: absolute; inset: 0; }
+
+/* covers: an <svg><use> filling its box, corner set by the caller */
+.cv { display: block; position: relative; overflow: hidden; border-radius: var(--r-xs); background: var(--surfaceContainerHigh); }
+.cv > svg, .cv > img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cv > img { object-fit: cover; }
+.tall .screen { position: relative; }
