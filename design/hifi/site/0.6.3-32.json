@@ -1,0 +1,19 @@
+{
+  "about": "Changelog figure for Yoin 0.6.3 (32) on yoin-site (public/changelog.html, section v0-6-3-32). Screens: phone, bare (the site draws the bezel), 1.5x WebP, the real catalogue (yoin-site's covers; English content on en, Chinese on zh). '-was' = the same screen before 0.6.3 (32), for the figure's Before view.",
+  "out": "../../../../yoin-site/public/media/changelog/0.6.3-32",
+  "defaults": { "frame": "phone", "bezel": "none", "scale": 1.5, "format": "webp", "catalog": "real" },
+  "themes": ["light", "dark"],
+  "langs": ["en", "zh"],
+  "exports": [
+    { "name": "sing", "page": "now-playing", "state": "sing=1" },
+    { "name": "sing-was", "page": "now-playing", "state": "" },
+    { "name": "lyrics-sing", "page": "lyrics", "state": "sing=1" },
+    { "name": "lyrics-sing-was", "page": "lyrics", "state": "sing=none" },
+    { "name": "links", "page": "settings", "state": "page=links" },
+    { "name": "notes", "page": "now-playing", "state": "view=note" },
+    { "name": "notes-was", "page": "now-playing", "state": "view=note&mentions=text" },
+    { "name": "album", "page": "album", "state": "pull=up" },
+    { "name": "album-was", "page": "album", "state": "pull=up&date=year" },
+    { "name": "receipt", "page": "album", "state": "page=scrapbook&at=receipt" }
+  ]
+}

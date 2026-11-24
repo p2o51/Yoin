@@ -1,0 +1,21 @@
+/* Page: Notes editor — layout */
+.ne-phone, .ne-med, .ne-sticky, .dual { position: absolute; inset: 0; }
+.npcol { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; padding: var(--top) 24px 8px; }
+.ne-phone .npcol { left: 0; }
+.npcol.full .np-tgroup { margin: 8px 0 4px; }
+.npcol.full .np-tb { gap: 6px; }
+.np-panel { position: absolute; top: 0; right: 0; bottom: 0; border-radius: 28px 0 0 28px; overflow: hidden; }
+.ne-panel .npcol { left: 0; }
+.ne-card { flex: none; padding-top: 8px; }
+.nl.draft u { text-decoration: underline dashed; text-underline-offset: 5px; color: var(--onSurface); }
+.fl2 { color: var(--onSecondaryContainer); font-weight: 900; }
+.ne-pop { position: absolute; z-index: 30; }
+.ne-pop .mn { position: relative; }
+.dual-l { position: absolute; left: 24px; top: calc(var(--top) + 16px); bottom: calc(var(--bottom) + 16px); width: 380px; display: flex; flex-direction: column; }
+.dual-l .np-tb { height: 48px; } .dual-l .np-cr { margin-top: 8px; } .dual-l .np-tr { margin-top: 12px; }
+.dual-r { position: absolute; left: 452px; right: 48px; top: calc(var(--top) + 72px); display: flex; flex-direction: column; }
+.dual-r .np-ttabs { margin-bottom: 4px; }
+.dual-icons { position: absolute; right: -28px; top: -54px; display: flex; align-items: center; gap: 4px; color: var(--onSurface); }
+.dual-icons > span { width: 44px; height: 44px; display: grid; place-items: center; }
+.np-round.dark { margin-left: 6px; background: var(--surfaceContainerLowest); }
+.ne-sticky .ad-scroll { transform: translateY(-40px); }

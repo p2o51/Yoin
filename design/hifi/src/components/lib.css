@@ -1,0 +1,56 @@
+/* Library — see lib.js */
+.lib { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(180deg, var(--surfaceContainer), var(--surface) 45%, var(--surfaceContainerLow)); }
+.lib-head { position: relative; z-index: 3; }
+.lib-head.c { padding: calc(var(--top) + 8px) 16px 0; }
+.lib-head.m { padding: calc(var(--top) + 8px) 32px 0; }
+.lib-head.x { padding: calc(var(--top) + 16px) 32px 6px; display: flex; align-items: center; gap: 16px; }
+.lib-band { display: flex; align-items: center; gap: 16px; }
+.lib-head.c .lib-band { gap: 4px; }
+.lib-head h1 { margin: 0; font-size: 32px; line-height: 40px; font-weight: 400; color: var(--onSurface); flex: none; }
+.lib-head.x h1 { font-size: 28px; line-height: 36px; }
+.lib-pill { flex: 1; min-width: 0; height: 56px; border-radius: 28px; background: var(--surfaceContainerHighest); display: flex; align-items: center; gap: 12px; padding: 0 16px; color: var(--onSurfaceVariant); font-size: 16px; }
+.lib-head.x .lib-pill { flex: none; width: 360px; }
+.lib-av { width: 48px; height: 48px; display: grid; place-items: center; position: relative; flex: none; }
+.lib-av svg { position: absolute; width: 32px; height: 32px; left: 8px; top: 8px; fill: color-mix(in oklab, var(--primary) 70%, var(--surface)); }
+.lib-av span { position: relative; width: 16px; height: 16px; border-radius: 50%; margin: 20px 0 0 22px; background: var(--primaryContainer); color: var(--onPrimaryContainer); font-size: 10px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--surfaceContainer); }
+.lib-chips { display: flex; gap: 8px; padding: 16px 0 4px; overflow: hidden; white-space: nowrap; }
+.lib-head.x .lib-chips { flex: 1; min-width: 0; padding: 0; }
+.chip { height: 44px; padding: 0 16px; border-radius: 18px; display: inline-flex; align-items: center; flex: none; background: var(--surfaceContainerHigh); color: var(--onSurfaceVariant); font-size: 14px; font-weight: 500; }
+.chip.on { background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.lib-x { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; flex: none; background: var(--surfaceContainerHigh); color: var(--onSurfaceVariant); }
+.lib-body { position: relative; padding: 8px 16px 140px; }
+.lib-head.m + .lib-body, .lib-head.x + .lib-body { padding-left: 32px; padding-right: 32px; }
+.lib-sort { position: relative; height: 48px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--onSurface); }
+.lib-sort .ic { color: var(--onSurfaceVariant); }
+.lib-menu { position: absolute; z-index: 10; left: -4px; top: 44px; width: 220px; padding: 6px; border-radius: 16px; background: var(--surfaceContainer); box-shadow: 0 4px 14px rgba(0, 0, 0, .25); display: flex; flex-direction: column; }
+.lib-menu span { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-radius: 12px; font-weight: 400; font-size: 16px; }
+.lib-menu span:first-child { background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.lgrid { display: grid; column-gap: 12px; row-gap: 16px; margin-top: 4px; }
+.lt { display: flex; flex-direction: column; min-width: 0; }
+.lt-cv { width: 100%; aspect-ratio: 1; height: auto; border-radius: 4px !important; }
+.lt.round .lt-cv { border-radius: 50% !important; }
+.lt-t { margin-top: 5px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--onSurface); }
+.lt-s { font-size: 12px; line-height: 16px; color: var(--onSurfaceVariant); }
+.lt.round .lt-t, .lt.round .lt-s { text-align: center; }
+/* list rows */
+.ls { display: flex; align-items: center; gap: 12px; height: 68px; padding: 10px 0; }
+.lib-body .ls { margin: 0 -16px; padding: 10px 16px; }
+.ls-cv { width: 48px; height: 48px; border-radius: 4px !important; flex: none; }
+.ls-cv.round { border-radius: 50% !important; }
+.ls .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ls-t { display: flex; align-items: center; gap: 6px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--onSurface); min-width: 0; }
+.ls.cur .ls-t { color: var(--primary); }
+.ls-n { color: color-mix(in srgb, var(--primary) 72%, transparent); }
+.ls-m { font-size: 12px; line-height: 16px; color: var(--onSurfaceVariant); } .ls-m span { margin-left: 12px; opacity: .6; }
+.ls-d { font-size: 14px; font-weight: 500; color: var(--onSurfaceVariant); margin-left: 6px; }
+.lib-sec { padding: 18px 0 6px; font-size: 14px; font-weight: 500; color: var(--onSurfaceVariant); }
+.lib-mpill { font-size: 12px; font-weight: 500; padding: 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--surfaceContainerHighest) 90%, transparent); color: var(--onSurfaceVariant); }
+.lib-fab { position: absolute; z-index: 25; right: 16px; bottom: calc(var(--bottom) + 108px); height: 56px; padding: 0 20px 0 16px; border-radius: 16px; display: flex; align-items: center; gap: 12px; background: var(--primaryContainer); color: var(--onPrimaryContainer); font-size: 16px; font-weight: 500; }
+/* fast scroller */
+.fs { position: absolute; z-index: 12; right: 0; display: flex; flex-direction: row-reverse; align-items: center; gap: 4px; }
+.fs-h { width: 24px; height: 48px; border-radius: 24px 4px 4px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.fs-h .ic { stroke-width: 2; margin: -2px 0; }
+.fs.held .fs-h { background: var(--primary); color: var(--onPrimary); }
+.fs-ticks { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-radius: 28px; background: var(--surfaceContainerHigh); font-size: 12px; font-weight: 500; color: var(--onSurfaceVariant); }
+.fs-ticks .on { color: var(--primary); font-weight: 600; }
+.fs-bub { position: absolute; right: 150px; min-width: 56px; height: 56px; padding: 0 18px; border-radius: 28px; display: grid; place-items: center; background: var(--primaryContainer); color: var(--onPrimaryContainer); font-size: 22px; white-space: nowrap; }

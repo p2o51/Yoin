@@ -1,0 +1,12 @@
+/* memory chevron + bubble — see memory-bubble.js */
+.mchev { position: absolute; z-index: 7; left: 50%; top: calc(var(--top) - 4px); transform: translateX(-50%); color: var(--onSurfaceVariant); opacity: .55; }
+.mbub { position: absolute; z-index: 6; left: 50%; top: calc(var(--top) + 12px); transform: translateX(-50%); width: min(348px, calc(100% - 120px)); height: 48px; border-radius: 24px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 6px; background: color-mix(in oklab, var(--pal) 34%, var(--surfaceContainerHigh)); color: var(--onSurface); }
+.mbub .col b { font-size: 14px; line-height: 18px; font-weight: 600; }
+.mbub .col span { font-size: 12px; line-height: 16px; color: var(--onSurfaceVariant); }
+.mb-tail { position: absolute; left: 50%; top: -11px; width: 44px; height: 12px; margin-left: -22px; fill: color-mix(in oklab, var(--pal) 34%, var(--surfaceContainerHigh)); }
+.mb-cv { width: 36px; height: 36px; border-radius: 18px !important; flex: none; }
+.mb-stk { width: 30px; height: 30px; flex: none; transform: rotate(-14deg); }
+.mb-stk svg { width: 100%; height: 100%; fill: #f6d27a; }
+.mbub.tip { padding-left: 6px; }
+.mb-sym { width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--primary); color: var(--onPrimary); }
+.device[data-size="compact"] .mbub { width: calc(100% - 132px); margin-left: -12px; }
