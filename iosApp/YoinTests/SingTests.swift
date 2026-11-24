@@ -528,6 +528,53 @@ final class SingTests: XCTestCase {
         XCTAssertLessThan(peak, 0.34, "Vocal signal (0.55 amplitude) must be suppressed when gain == 0")
     }
 
+    // MARK: - 14. ODR hard timeout & cancellation never hang even if daemon callback never fires
+
+    func test_should_exitODRTimeoutAndCancelImmediately_evenIfCallbackNeverFires() async {
+        // 1. Timeout must return promptly even when the underlying callback never calls `finish`.
+        let cancelledOnTimeout = OSAllocatedUnfairLock(initialState: false)
+        let t0 = CFAbsoluteTimeGetCurrent()
+        do {
+            try await SingModelODRProvider.runWithHardTimeout(
+                seconds: 0.12,
+                timeoutError: SingModelODRProvider.ODRError.timedOut(tag: "sing_model_v1", seconds: 1),
+                onCancelOrTimeout: { cancelledOnTimeout.withLock { $0 = true } },
+                start: { _ in /* intentionally never call finish */ }
+            )
+            XCTFail("Expected timeout error")
+        } catch SingModelODRProvider.ODRError.timedOut {
+            let elapsed = CFAbsoluteTimeGetCurrent() - t0
+            XCTAssertLessThan(elapsed, 1.0, "Hard timeout should return immediately without waiting for hung daemon")
+            XCTAssertTrue(cancelledOnTimeout.withLock { $0 })
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // 2. Task cancellation must also escape immediately even when callback never fires.
+        let cancelledOnTaskCancel = OSAllocatedUnfairLock(initialState: false)
+        let t1 = CFAbsoluteTimeGetCurrent()
+        let task = Task {
+            try await SingModelODRProvider.runWithHardTimeout(
+                seconds: 30,
+                timeoutError: SingModelODRProvider.ODRError.timedOut(tag: "sing_model_v1", seconds: 30),
+                onCancelOrTimeout: { cancelledOnTaskCancel.withLock { $0 = true } },
+                start: { _ in /* intentionally never call finish */ }
+            )
+        }
+        try? await Task.sleep(for: .milliseconds(40))
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("Expected CancellationError")
+        } catch is CancellationError {
+            let elapsed = CFAbsoluteTimeGetCurrent() - t1
+            XCTAssertLessThan(elapsed, 1.0, "Task cancellation should escape immediately without hanging")
+            XCTAssertTrue(cancelledOnTaskCancel.withLock { $0 })
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     // MARK: - 11. Sing UI Motion Geometry (A + 1)
 
     func testSingMotionGeometryEndpointsAndMirrorSymmetry() {

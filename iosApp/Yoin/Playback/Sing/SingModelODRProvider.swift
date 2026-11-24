@@ -123,14 +123,15 @@ final class SingModelODRProvider: Sendable {
         }
         try Task.checkCancellation()
 
-        bundle.setPreservationPriority(SingModelAsset.odrPreservationPriority, forTags: [Self.tag])
-
         guard let zipURL = bundle.url(forResource: zipResourceName, withExtension: zipResourceExtension) else {
             Self.logger.error("ODR resource '\(self.zipResourceName, privacy: .public).\(self.zipResourceExtension, privacy: .public)' missing in bundle for tag '\(Self.tag, privacy: .public)'")
             throw ODRError.modelResourceMissing(tag: Self.tag, resource: "\(zipResourceName).\(zipResourceExtension)")
         }
 
         let compiledURL = try await modelStore.installFromLocalZip(zipURL)
+        // Model is now compiled and persisted in `Application Support`; drop ODR preservation
+        // priority to 0.0 so iOS can purge the duplicate 7.6 MB `.zip` assetpack on demand.
+        bundle.setPreservationPriority(0.0, forTags: [Self.tag])
         onProgress(1.0)
         try Task.checkCancellation()
 
@@ -147,25 +148,93 @@ final class SingModelODRProvider: Sendable {
         init(_ req: NSBundleResourceRequest) { self.req = req }
     }
 
-    /// Runs `req.beginAccessingResources()` with proper Swift `Task` cancellation forwarding (`req.progress.cancel()`)
-    /// and a hard timeout so a stalled Apple CDN fetch never traps Sing in an infinite loading spinner.
+    /// Thread-safe one-shot gate guaranteeing a `CheckedContinuation` is resumed exactly once,
+    /// even when `ondemandd` ignores `req.progress.cancel()` and never invokes its completion handler.
+    private final class OneShotGate: Sendable {
+        private struct State {
+            var continuation: CheckedContinuation<Void, Error>?
+            var pendingResult: Result<Void, Error>?
+            var resolved = false
+        }
+
+        private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+        func install(_ continuation: CheckedContinuation<Void, Error>) {
+            let early: Result<Void, Error>? = state.withLock { s in
+                if s.resolved {
+                    let r = s.pendingResult
+                    s.pendingResult = nil
+                    return r
+                }
+                s.continuation = continuation
+                return nil
+            }
+            if let early {
+                continuation.resume(with: early)
+            }
+        }
+
+        func finish(with result: Result<Void, Error>) {
+            let cont: CheckedContinuation<Void, Error>? = state.withLock { s in
+                guard !s.resolved else { return nil }
+                s.resolved = true
+                if let existing = s.continuation {
+                    s.continuation = nil
+                    return existing
+                }
+                s.pendingResult = result
+                return nil
+            }
+            cont?.resume(with: result)
+        }
+    }
+
+    /// Runs `req.beginAccessingResources` with immediate Swift `Task` cancellation & hard timeout
+    /// via a one-shot continuation so a hung `ondemandd` daemon never blocks structured concurrency exit.
     private static func beginAccessingWithTimeout(_ req: NSBundleResourceRequest, seconds: Int) async throws {
         let box = RequestBox(req)
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await withTaskCancellationHandler {
-                    try await box.req.beginAccessingResources()
-                } onCancel: {
-                    box.req.progress.cancel()
+        try await runWithHardTimeout(
+            seconds: Double(seconds),
+            timeoutError: ODRError.timedOut(tag: Self.tag, seconds: seconds),
+            onCancelOrTimeout: { box.req.progress.cancel() },
+            start: { finish in
+                box.req.beginAccessingResources { error in
+                    if let error {
+                        finish(.failure(error))
+                    } else {
+                        finish(.success(()))
+                    }
                 }
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(seconds))
-                box.req.progress.cancel()
-                throw ODRError.timedOut(tag: Self.tag, seconds: seconds)
+        )
+    }
+
+    /// Exposed internally for unit tests verifying hard timeout & cancellation even if `start` never completes.
+    static func runWithHardTimeout(
+        seconds: Double,
+        timeoutError: Error,
+        onCancelOrTimeout: @escaping @Sendable () -> Void,
+        start: @escaping @Sendable (@escaping @Sendable (Result<Void, Error>) -> Void) -> Void
+    ) async throws {
+        let gate = OneShotGate()
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(seconds))
+            onCancelOrTimeout()
+            gate.finish(with: .failure(timeoutError))
+        }
+        defer { timeoutTask.cancel() }
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                gate.install(cont)
+                start { result in
+                    gate.finish(with: result)
+                }
             }
-            guard let _ = try await group.next() else { return }
-            group.cancelAll()
+        } onCancel: {
+            timeoutTask.cancel()
+            onCancelOrTimeout()
+            gate.finish(with: .failure(CancellationError()))
         }
     }
 }
