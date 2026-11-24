@@ -201,6 +201,8 @@ struct AlbumScrapbookView: View {
                     receipt(trackScores: trackScores)
                         .frame(maxWidth: .infinity)
                 }
+                // Android: the page's last block, the writings elsewhere that mention this album or its songs.
+                backlinks
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
@@ -938,6 +940,26 @@ struct AlbumScrapbookView: View {
     private static func bold(_ text: String) -> AttributedString {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(text)
+    }
+
+    // MARK: Mentioned in (Android AlbumScrapbookNotes.kt BacklinksSection)
+
+    @ViewBuilder
+    private var backlinks: some View {
+        let links = NoteBacklinks.current(album)
+        if !links.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                ScrapBacklinksHeader(count: links.count, scheme: s)
+                ForEach(links) { link in
+                    ScrapBacklinkCard(link: link, scheme: s) {
+                        NoteMentions.navigate(ScrapBacklinkCard.target(link.source, provider: album.id.provider))
+                    }
+                    .modifier(layer(tilt("bl/\(link.source.sortKey)", Tilt.card) * 0.6, depth: 0.3))
+                }
+            }
+            .padding(.top, 8)
+            .transition(.opacity)
+        }
     }
 
     // MARK: Receipt
