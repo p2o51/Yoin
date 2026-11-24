@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/notes/editor/note_editor_controller.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
@@ -39,12 +40,8 @@ void main() {
           home: Builder(
             builder: (context) => Scaffold(
               body: TextButton(
-                onPressed: () => showAlbumRateSheet(
-                  context,
-                  albumId: album,
-                  albumName: 'Blue',
-                  palette: MemoryPaletteSamples.m1,
-                ),
+                onPressed: () =>
+                    showAlbumRateSheet(context, albumId: album, albumName: 'Blue', palette: MemoryPaletteSamples.m1),
                 child: const Text('open'),
               ),
             ),
@@ -86,7 +83,7 @@ void main() {
     await MemoryStore(kv, profileId: profile.id).setAlbumReview(album, review, nowMs: 1);
     await pumpSheet(tester);
     // The field edits the stored text as written: the markup, not its drawing.
-    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, review);
+    expect((tester.widget<TextField>(find.byType(TextField)).controller! as NoteEditorController).storedText, review);
     Navigator.of(tester.element(find.byType(AlbumRateSheet))).pop();
     await tester.pumpAndSettle();
 

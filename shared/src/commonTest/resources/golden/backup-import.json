@@ -1,0 +1,1538 @@
+{
+  "about": "Golden vectors for backup import (plan + merge), generated from :shared Kotlin by PortabilityGoldenTest (androidHostTest). Do not edit by hand. `backup` is the file every case reads; each case is a device (profiles, domain rows, optional replica) and the user's choices. Ratings are 0..10 doubles; rows are listed sorted. The merge label for kept-both reviews is \"<deviceName> · yyyy-MM-dd\" (UTC) of exportedAt.",
+  "backup": {
+    "manifestJson": "{\n    \"format\": \"yoin-backup\",\n    \"formatVersion\": 1,\n    \"syncSchema\": 1,\n    \"exportedAt\": 1795400000000,\n    \"source\": {\n        \"location\": \"google-drive\",\n        \"deviceId\": \"dev-phone\",\n        \"deviceName\": \"Pixel 9\",\n        \"appVersionName\": \"0.6.3\",\n        \"appVersionCode\": 28\n    },\n    \"accounts\": [\n        {\n            \"scope\": \"s-49fee702be7e88fec26de5b1\",\n            \"provider\": \"subsonic\",\n            \"displayName\": \"alice @ music\",\n            \"hint\": \"alice @ music.example.com\",\n            \"onDevice\": true,\n            \"counts\": {\n                \"album_note\": 1,\n                \"album_rating\": 2,\n                \"album_review\": 2,\n                \"album_title\": 1,\n                \"future_kind\": 1,\n                \"memory_copy\": 1,\n                \"memory_title\": 1,\n                \"song_note\": 3,\n                \"track_album_link\": 1,\n                \"track_rating\": 2\n            },\n            \"readableDir\": \"readable/alice @ music/\"\n        },\n        {\n            \"scope\": \"local-p9\",\n            \"provider\": \"applemusic\",\n            \"displayName\": \"Apple\",\n            \"onDevice\": true,\n            \"counts\": {\n                \"track_rating\": 1\n            },\n            \"readableDir\": \"readable/Apple/\"\n        },\n        {\n            \"scope\": \"s-cloud\",\n            \"provider\": \"spotify\",\n            \"displayName\": \"Carol\",\n            \"onDevice\": false,\n            \"counts\": {\n                \"song_note\": 1\n            },\n            \"readableDir\": \"readable/Carol/\"\n        },\n        {\n            \"scope\": \"s-gone\",\n            \"provider\": \"spotify\",\n            \"displayName\": \"Gone\",\n            \"onDevice\": false,\n            \"counts\": {\n                \"song_note\": 1\n            },\n            \"readableDir\": \"readable/Gone/\"\n        }\n    ],\n    \"globalCounts\": {\n        \"account\": 3,\n        \"setting\": 1\n    },\n    \"snapshot\": {\n        \"path\": \"data/snapshot.json\",\n        \"sha256\": \"9a3f8e9e5b72fbff43c864f08c3f01dcf6a4185c1338d25b0439e70587961dba\",\n        \"bytes\": 4708,\n        \"records\": 23,\n        \"tombstones\": 1\n    }\n}",
+    "snapshotJson": "{\"format\":\"yoin-sync\",\"schema\":1,\"epoch\":0,\"deviceId\":\"dev-phone\",\"deviceName\":\"Pixel 9\",\"fileClass\":\"backup\",\"shard\":0,\"writtenAt\":1795400000000,\"appVersionCode\":28,\"records\":[{\"k\":\"account\",\"kv\":1,\"s\":\"\",\"id\":\"local-p9\",\"ts\":1000,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"provider\":\"applemusic\",\"displayName\":\"Apple\",\"createdAt\":1000,\"hint\":null,\"storefront\":null,\"deviceName\":\"Pixel 9\"}},{\"k\":\"account\",\"kv\":1,\"s\":\"\",\"id\":\"s-49fee702be7e88fec26de5b1\",\"ts\":1000,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"provider\":\"subsonic\",\"displayName\":\"alice @ music\",\"createdAt\":1000,\"hint\":\"alice @ music.example.com\",\"storefront\":null,\"deviceName\":\"Pixel 9\"}},{\"k\":\"account\",\"kv\":1,\"s\":\"\",\"id\":\"s-cloud\",\"ts\":1000,\"d\":\"peer\",\"del\":false,\"v\":{\"provider\":\"spotify\",\"displayName\":\"Carol\",\"createdAt\":2,\"deviceName\":\"Tablet\"}},{\"k\":\"album_note\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"an1\",\"ts\":2400,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"albumId\":\"al1\",\"provider\":\"subsonic\",\"content\":\"album note\",\"createdAt\":2400,\"updatedAt\":2400,\"albumName\":\"Album al1\",\"artist\":\"Artist\"}},{\"k\":\"album_rating\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001fal1\",\"ts\":2300,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"albumId\":\"al1\",\"provider\":\"subsonic\",\"rating\":8.0}},{\"k\":\"album_rating\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001fal2\",\"ts\":2300,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"albumId\":\"al2\",\"provider\":\"subsonic\",\"rating\":7.0}},{\"k\":\"album_review\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001fal1\",\"ts\":2300,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"albumId\":\"al1\",\"provider\":\"subsonic\",\"review\":\"Backup review.\"}},{\"k\":\"album_review\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001fal2\",\"ts\":2300,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"albumId\":\"al2\",\"provider\":\"subsonic\",\"review\":\"Backup review 2.\"}},{\"k\":\"album_title\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001fal1\",\"ts\":2500,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"title\":\"My Title\"}},{\"k\":\"future_kind\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"f1\",\"ts\":2000,\"d\":\"peer\",\"del\":false,\"v\":{\"x\":1}},{\"k\":\"memory_copy\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001falbum\\u001fal1\",\"ts\":2600,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"copy\":\"AI copy\",\"promptHash\":\"ph\",\"generatedAt\":2600}},{\"k\":\"memory_title\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001falbum\\u001fal1\",\"ts\":2600,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"title\":\"AI Title\",\"titlePromptHash\":\"th\"}},{\"k\":\"setting\",\"kv\":1,\"s\":\"\",\"id\":\"translation_language\",\"ts\":2000,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"value\":\"Japanese\"}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"n1\",\"ts\":2000,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"trackId\":\"t1\",\"provider\":\"subsonic\",\"content\":\"first listen\",\"createdAt\":2000,\"updatedAt\":2000,\"title\":\"Title t1\",\"artist\":\"Artist\",\"positionMs\":61000,\"mood\":{\"kept\":true}}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"n2\",\"ts\":2050,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"trackId\":\"t2\",\"provider\":\"subsonic\",\"content\":\"second\",\"createdAt\":2050,\"updatedAt\":2050,\"title\":\"Title t2\",\"artist\":\"Artist\",\"positionMs\":61000}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"n3\",\"ts\":2900,\"d\":\"dev-phone\",\"pts\":2000,\"pd\":\"dev-phone\",\"del\":true},{\"k\":\"song_note\",\"kv\":9,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"n4\",\"ts\":2000,\"d\":\"peer\",\"del\":false,\"v\":{\"trackId\":\"t4\",\"provider\":\"subsonic\",\"content\":\"from the future\",\"createdAt\":2000,\"updatedAt\":2000,\"title\":\"F\",\"artist\":\"A\",\"positionMs\":null}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-cloud\",\"id\":\"c1\",\"ts\":1500,\"d\":\"peer\",\"del\":false,\"v\":{\"trackId\":\"sp1\",\"provider\":\"spotify\",\"content\":\"cloud note\",\"createdAt\":1500,\"updatedAt\":1500,\"title\":\"Cloud Song\",\"artist\":\"Cloud Artist\",\"positionMs\":null}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-gone\",\"id\":\"g1\",\"ts\":1500,\"d\":\"peer\",\"del\":false,\"v\":{\"trackId\":\"sp9\",\"provider\":\"spotify\",\"content\":\"gone note\",\"createdAt\":1500,\"updatedAt\":1500,\"title\":\"Gone\",\"artist\":\"Gone\",\"positionMs\":null}},{\"k\":\"track_album_link\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001ft1\",\"ts\":2700,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"provider\":\"subsonic\",\"trackId\":\"t1\",\"albumId\":\"al1\",\"source\":\"detail\",\"updatedAt\":2700}},{\"k\":\"track_rating\",\"kv\":1,\"s\":\"local-p9\",\"id\":\"applemusic\\u001f1440\",\"ts\":2200,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"songId\":\"1440\",\"provider\":\"applemusic\",\"rating\":7.0}},{\"k\":\"track_rating\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001ft1\",\"ts\":2100,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"songId\":\"t1\",\"provider\":\"subsonic\",\"rating\":9.0}},{\"k\":\"track_rating\",\"kv\":1,\"s\":\"s-49fee702be7e88fec26de5b1\",\"id\":\"subsonic\\u001ft2\",\"ts\":2150,\"d\":\"dev-phone\",\"del\":false,\"v\":{\"songId\":\"t2\",\"provider\":\"subsonic\",\"rating\":6.0}}]}"
+  },
+  "cases": [
+    {
+      "name": "same-account-fresh",
+      "input": {
+        "profiles": [
+          {
+            "id": "t1",
+            "provider": "subsonic",
+            "displayName": "alice here",
+            "createdAt": 1000,
+            "subsonicServerUrl": "https://music.example.com",
+            "subsonicUsername": "alice",
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": null,
+        "choices": {},
+        "importGlobal": true,
+        "applyTwice": false
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "INTO_PROFILE",
+                "profileId": "t1"
+              },
+              "sameAccount": true,
+              "options": [
+                "t1"
+              ],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 13,
+              "unchanged": 0,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": true
+        },
+        "secondResult": null,
+        "domain": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "second",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "Title t2",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Album al1",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Backup review.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 7.0,
+              "review": "Backup review 2.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            }
+          ],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": null
+      }
+    },
+    {
+      "name": "same-account-twice",
+      "input": {
+        "profiles": [
+          {
+            "id": "t1",
+            "provider": "subsonic",
+            "displayName": "alice here",
+            "createdAt": 1000,
+            "subsonicServerUrl": "https://music.example.com",
+            "subsonicUsername": "alice",
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": null,
+        "choices": {},
+        "importGlobal": true,
+        "applyTwice": true
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "INTO_PROFILE",
+                "profileId": "t1"
+              },
+              "sameAccount": true,
+              "options": [
+                "t1"
+              ],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 13,
+              "unchanged": 0,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": true
+        },
+        "secondResult": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 0,
+              "unchanged": 13,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 0,
+            "unchanged": 1,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": false
+        },
+        "domain": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "second",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "Title t2",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Album al1",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Backup review.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 7.0,
+              "review": "Backup review 2.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            }
+          ],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": null
+      }
+    },
+    {
+      "name": "same-account-conflicts",
+      "input": {
+        "profiles": [
+          {
+            "id": "t1",
+            "provider": "subsonic",
+            "displayName": "alice here",
+            "createdAt": 1000,
+            "subsonicServerUrl": "https://music.example.com",
+            "subsonicUsername": "alice",
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 4.0,
+              "updatedAt": 9000
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 2.0,
+              "updatedAt": 1000
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 3.0,
+              "review": "Tablet review.",
+              "reviewUpdatedAt": 1000,
+              "updatedAt": 1000
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 5.0,
+              "review": "Long. Backup review 2. More.",
+              "reviewUpdatedAt": 9000,
+              "updatedAt": 9000
+            }
+          ],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": null,
+        "choices": {},
+        "importGlobal": true,
+        "applyTwice": false
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "INTO_PROFILE",
+                "profileId": "t1"
+              },
+              "sameAccount": true,
+              "options": [
+                "t1"
+              ],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 9,
+              "unchanged": 1,
+              "keptLocal": 2,
+              "keptBoth": 1,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": true
+        },
+        "secondResult": null,
+        "domain": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "second",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "Title t2",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Album al1",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 4.0,
+              "updatedAt": 9000
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Tablet review.\n\n— Pixel 9 · 2026-11-23 —\nBackup review.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 5.0,
+              "review": "Long. Backup review 2. More.",
+              "reviewUpdatedAt": 9000,
+              "updatedAt": 9000
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            }
+          ],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": null
+      }
+    },
+    {
+      "name": "another-account",
+      "input": {
+        "profiles": [
+          {
+            "id": "t2",
+            "provider": "subsonic",
+            "displayName": "bob here",
+            "createdAt": 1000,
+            "subsonicServerUrl": "https://other.example.com",
+            "subsonicUsername": "bob",
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "profileId": "t2",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "bob's own note with alice's id",
+              "createdAt": 500,
+              "updatedAt": 500,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": null,
+        "choices": {
+          "s-49fee702be7e88fec26de5b1": {
+            "kind": "INTO_PROFILE",
+            "profileId": "t2"
+          }
+        },
+        "importGlobal": true,
+        "applyTwice": false
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [
+                "t2"
+              ],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 13,
+              "unchanged": 0,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": true
+        },
+        "secondResult": null,
+        "domain": {
+          "songNotes": [
+            {
+              "id": "mig-7e826d54eb5feb39",
+              "profileId": "t2",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "second",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "Title t2",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n1",
+              "profileId": "t2",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "mig-5f7b18ffa4df5c17",
+              "profileId": "t2",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Album al1",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Backup review.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            },
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 7.0,
+              "review": "Backup review 2.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "t2",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            }
+          ],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": null
+      }
+    },
+    {
+      "name": "local-scope-maps-back",
+      "input": {
+        "profiles": [
+          {
+            "id": "p9",
+            "provider": "applemusic",
+            "displayName": "Apple",
+            "createdAt": 1000,
+            "subsonicServerUrl": null,
+            "subsonicUsername": null,
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": null,
+        "choices": {},
+        "importGlobal": true,
+        "applyTwice": false
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "INTO_PROFILE",
+                "profileId": "p9"
+              },
+              "sameAccount": true,
+              "options": [
+                "p9"
+              ],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "local-p9": {
+              "written": 1,
+              "unchanged": 0,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 0,
+              "skipped": 0,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 0,
+          "cloudOnlyRefused": [],
+          "changed": true
+        },
+        "secondResult": null,
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [
+            {
+              "profileId": "p9",
+              "provider": "applemusic",
+              "songId": "1440",
+              "rating": 7.0,
+              "updatedAt": 2200
+            }
+          ],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": null
+      }
+    },
+    {
+      "name": "replica-cloud-only-and-purged",
+      "input": {
+        "profiles": [
+          {
+            "id": "t1",
+            "provider": "subsonic",
+            "displayName": "alice here",
+            "createdAt": 1000,
+            "subsonicServerUrl": "https://music.example.com",
+            "subsonicUsername": "alice",
+            "spotifyUserId": null
+          }
+        ],
+        "domain": {
+          "songNotes": [],
+          "albumNotes": [],
+          "trackRatings": [],
+          "albumRatings": [],
+          "albumTitles": [],
+          "memories": [],
+          "trackAlbumLinks": [],
+          "settings": {
+            "translationLanguage": "English"
+          }
+        },
+        "replica": {
+          "bindings": [
+            {
+              "localProfileId": "t1",
+              "syncProfileId": "s-49fee702be7e88fec26de5b1",
+              "state": "active"
+            }
+          ],
+          "meta": {
+            "purged_scope:s-gone": "1700000000000"
+          }
+        },
+        "choices": {
+          "s-gone": {
+            "kind": "CLOUD_ONLY"
+          }
+        },
+        "importGlobal": true,
+        "applyTwice": false
+      },
+      "expected": {
+        "plan": {
+          "accounts": [
+            {
+              "scope": "s-49fee702be7e88fec26de5b1",
+              "provider": "subsonic",
+              "displayName": "alice @ music",
+              "counts": {
+                "album_note": 1,
+                "album_rating": 2,
+                "album_review": 2,
+                "album_title": 1,
+                "future_kind": 1,
+                "memory_copy": 1,
+                "memory_title": 1,
+                "song_note": 3,
+                "track_album_link": 1,
+                "track_rating": 2
+              },
+              "target": {
+                "kind": "INTO_PROFILE",
+                "profileId": "t1"
+              },
+              "sameAccount": true,
+              "options": [
+                "t1"
+              ],
+              "cloudOnlyPossible": true,
+              "wasPurged": false
+            },
+            {
+              "scope": "local-p9",
+              "provider": "applemusic",
+              "displayName": "Apple",
+              "counts": {
+                "track_rating": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-cloud",
+              "provider": "spotify",
+              "displayName": "Carol",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "CLOUD_ONLY"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": true,
+              "wasPurged": false
+            },
+            {
+              "scope": "s-gone",
+              "provider": "spotify",
+              "displayName": "Gone",
+              "counts": {
+                "song_note": 1
+              },
+              "target": {
+                "kind": "SKIP"
+              },
+              "sameAccount": false,
+              "options": [],
+              "cloudOnlyPossible": false,
+              "wasPurged": true
+            }
+          ],
+          "globalCounts": {
+            "setting": 1
+          }
+        },
+        "result": {
+          "byScope": {
+            "s-49fee702be7e88fec26de5b1": {
+              "written": 13,
+              "unchanged": 0,
+              "keptLocal": 0,
+              "keptBoth": 0,
+              "tombstones": 1,
+              "skipped": 2,
+              "failedKinds": []
+            }
+          },
+          "global": {
+            "written": 1,
+            "unchanged": 0,
+            "keptLocal": 0,
+            "keptBoth": 0,
+            "tombstones": 0,
+            "skipped": 0,
+            "failedKinds": []
+          },
+          "cloudOnlyMerged": 2,
+          "cloudOnlyRefused": [
+            "s-gone"
+          ],
+          "changed": true
+        },
+        "secondResult": null,
+        "domain": {
+          "songNotes": [
+            {
+              "id": "n1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "content": "first listen",
+              "createdAt": 2000,
+              "updatedAt": 2000,
+              "title": "Title t1",
+              "artist": "Artist",
+              "positionMs": 61000
+            },
+            {
+              "id": "n2",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t2",
+              "content": "second",
+              "createdAt": 2050,
+              "updatedAt": 2050,
+              "title": "Title t2",
+              "artist": "Artist",
+              "positionMs": 61000
+            }
+          ],
+          "albumNotes": [
+            {
+              "id": "an1",
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "content": "album note",
+              "createdAt": 2400,
+              "updatedAt": 2400,
+              "albumName": "Album al1",
+              "artist": "Artist"
+            }
+          ],
+          "trackRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t1",
+              "rating": 9.0,
+              "updatedAt": 2100
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "songId": "t2",
+              "rating": 6.0,
+              "updatedAt": 2150
+            }
+          ],
+          "albumRatings": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "rating": 8.0,
+              "review": "Backup review.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            },
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al2",
+              "rating": 7.0,
+              "review": "Backup review 2.",
+              "reviewUpdatedAt": 2300,
+              "updatedAt": 2300
+            }
+          ],
+          "albumTitles": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "albumId": "al1",
+              "title": "My Title",
+              "updatedAt": 2500
+            }
+          ],
+          "memories": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "entityType": "album",
+              "entityId": "al1",
+              "copy": "AI copy",
+              "promptHash": "ph",
+              "generatedAt": 2600,
+              "title": "AI Title",
+              "titlePromptHash": "th"
+            }
+          ],
+          "trackAlbumLinks": [
+            {
+              "profileId": "t1",
+              "provider": "subsonic",
+              "trackId": "t1",
+              "albumId": "al1",
+              "source": "detail",
+              "updatedAt": 2700
+            }
+          ],
+          "settings": {
+            "translationLanguage": "Japanese"
+          }
+        },
+        "replicaRecords": [
+          {
+            "kind": "account",
+            "scope": "",
+            "key": "s-cloud",
+            "ts": 1000,
+            "device": "peer",
+            "payload": "{\"provider\":\"spotify\",\"displayName\":\"Carol\",\"createdAt\":2,\"deviceName\":\"Tablet\"}"
+          },
+          {
+            "kind": "song_note",
+            "scope": "s-cloud",
+            "key": "c1",
+            "ts": 1500,
+            "device": "peer",
+            "payload": "{\"trackId\":\"sp1\",\"provider\":\"spotify\",\"content\":\"cloud note\",\"createdAt\":1500,\"updatedAt\":1500,\"title\":\"Cloud Song\",\"artist\":\"Cloud Artist\",\"positionMs\":null}"
+          }
+        ]
+      }
+    }
+  ]
+}

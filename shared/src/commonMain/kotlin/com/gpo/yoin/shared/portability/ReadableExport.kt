@@ -1,21 +1,20 @@
-package com.gpo.yoin.data.sync.backup
+package com.gpo.yoin.shared.portability
 
-import com.gpo.yoin.data.backup.PlaylistBackupCodec
-import com.gpo.yoin.data.local.MemoryCopyCache
-import com.gpo.yoin.data.sync.SyncFormat
-import com.gpo.yoin.data.sync.SyncKinds
-import com.gpo.yoin.data.sync.WireRecord
-import com.gpo.yoin.data.sync.adapters.optionalLong
-import com.gpo.yoin.data.sync.adapters.rating
-import com.gpo.yoin.data.sync.adapters.requiredLong
-import com.gpo.yoin.data.sync.adapters.requiredString
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import com.gpo.yoin.shared.backup.PlaylistBackupCodec
+import com.gpo.yoin.shared.sync.SyncFormat
+import com.gpo.yoin.shared.sync.SyncKinds
+import com.gpo.yoin.shared.sync.WireRecord
+import com.gpo.yoin.shared.sync.adapters.Field
+import com.gpo.yoin.shared.sync.adapters.optionalLong
+import com.gpo.yoin.shared.sync.adapters.rating
+import com.gpo.yoin.shared.sync.adapters.requiredLong
+import com.gpo.yoin.shared.sync.adapters.requiredString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+
+/** One text file of a backup: its path inside the zip and its UTF-8 text. */
+data class BackupTextFile(val path: String, val text: String)
 
 /** A name for an album or song, as far as this device knows it. */
 data class ReadableAlbum(val name: String, val artist: String?)
@@ -106,7 +105,9 @@ data class ReadableLabels(
             writtenAt = "写于",
         )
 
-        fun forLocale(locale: Locale): ReadableLabels = if (locale.language == "zh") Chinese else English
+        /** Chinese for a "zh" language code (any region or script), English otherwise. */
+        fun forLanguage(language: String): ReadableLabels =
+            if (language.substringBefore('-').substringBefore('_').lowercase() == "zh") Chinese else English
     }
 }
 
@@ -116,7 +117,7 @@ data class ReadableLabels(
  * file, and readable/global/ for the playlist backups. Pure apart from [ReadableNames]; never read back.
  */
 object ReadableExport {
-    data class File(val path: String, val text: String)
+    private const val ENTITY_ALBUM = "album"
 
     private data class TrackKey(val provider: String, val trackId: String)
 
@@ -145,24 +146,27 @@ object ReadableExport {
                 albumNotes.isEmpty() && songs.isEmpty()
     }
 
-    /** [accounts] as [BackupContent.accounts] lists them; each gets [BackupAccount.readableDir] filled in. */
+    /**
+     * [accounts] as [BackupContent.accounts] lists them; each gets [BackupAccount.readableDir] filled in.
+     * Dates are written in the time zone [zoneId] (see [BackupDates]).
+     */
     suspend fun render(
         accounts: List<BackupAccount>,
         localProfiles: Map<String, String>,
         records: List<WireRecord>,
         names: ReadableNames,
         labels: ReadableLabels,
-        zone: ZoneId,
-    ): Pair<List<File>, List<BackupAccount>> {
-        val files = ArrayList<File>()
+        zoneId: String,
+    ): Pair<List<BackupTextFile>, List<BackupAccount>> {
+        val files = ArrayList<BackupTextFile>()
         val usedDirs = HashSet<String>()
         val live = records.filter { !it.deleted && it.payload != null }
         val byScope = live.groupBy { it.scope }
-        val dated = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(zone)
+        val dated = { ms: Long -> BackupDates.dateTime(ms, zoneId) }
         val updated = accounts.map { account ->
             val scoped = byScope[account.scope].orEmpty() +
                 live.filter { it.kind == SyncKinds.ACCOUNT && it.key == account.scope }
-            val pages = pagesOf(account, localProfiles[account.scope], scoped, names)
+            val pages = pagesOf(localProfiles[account.scope], scoped, names)
             if (pages.isEmpty()) return@map account
             val dir = unique(sanitize(account.displayName.ifBlank { account.scope }), usedDirs)
             val usedFiles = HashSet<String>()
@@ -181,18 +185,17 @@ object ReadableExport {
                     else -> "${labels.unknownAlbum} ${page.key.albumId}"
                 }
                 val text = albumMarkdown(page, title, artist, account, labels, dated)
-                files += File("${BackupFormat.READABLE_DIR}$dir/${unique(sanitize(fileName), usedFiles)}.md", text)
+                files += BackupTextFile("${BackupFormat.READABLE_DIR}$dir/${unique(sanitize(fileName), usedFiles)}.md", text)
             }
             account.copy(readableDir = "${BackupFormat.READABLE_DIR}$dir/")
         }
         playlistMarkdown(live.filter { it.kind == SyncKinds.PLAYLIST_BACKUP }, labels, dated)?.let {
-            files += File("${BackupFormat.READABLE_GLOBAL_DIR}${sanitize(labels.playlistBackupsFile)}.md", it)
+            files += BackupTextFile("${BackupFormat.READABLE_GLOBAL_DIR}${sanitize(labels.playlistBackupsFile)}.md", it)
         }
         return files to updated
     }
 
     private suspend fun pagesOf(
-        account: BackupAccount,
         profileId: String?,
         records: List<WireRecord>,
         names: ReadableNames,
@@ -241,7 +244,7 @@ object ReadableExport {
                 }
                 SyncKinds.MEMORY_TITLE -> {
                     val parts = record.key.split(SyncFormat.KEY_SEPARATOR)
-                    if (parts.size == 3 && parts[1] == MemoryCopyCache.ENTITY_ALBUM) {
+                    if (parts.size == 3 && parts[1] == ENTITY_ALBUM) {
                         payload.requiredString("title")?.takeIf(String::isNotBlank)?.let {
                             page(AlbumKey(parts[0], parts[2])).aiTitle = it
                         }
@@ -283,7 +286,7 @@ object ReadableExport {
         artist: String?,
         account: BackupAccount,
         labels: ReadableLabels,
-        dated: DateTimeFormatter,
+        dated: (Long) -> String,
     ): String = buildString {
         if (page.key.albumId.isEmpty()) {
             appendLine("# ${labels.songsWithoutAlbum}")
@@ -302,14 +305,17 @@ object ReadableExport {
             appendLine("## ${labels.review}")
             appendLine()
             appendLine(review.trim())
-            page.reviewAt?.let { appendLine(); appendLine("_${labels.writtenAt} ${dated.format(Instant.ofEpochMilli(it))}_") }
+            page.reviewAt?.let {
+                appendLine()
+                appendLine("_${labels.writtenAt} ${dated(it)}_")
+            }
         }
         if (page.albumNotes.isNotEmpty()) {
             appendLine()
             appendLine("## ${labels.albumNotes}")
             for (note in page.albumNotes.sortedBy { it.requiredLong(BackupFields.CREATED_AT) ?: 0L }) {
                 appendLine()
-                appendLine("### ${dated.format(Instant.ofEpochMilli(note.requiredLong(BackupFields.CREATED_AT) ?: 0L))}")
+                appendLine("### ${dated(note.requiredLong(BackupFields.CREATED_AT) ?: 0L)}")
                 appendLine()
                 appendLine(note.requiredString(BackupFields.CONTENT).orEmpty().trim())
             }
@@ -317,7 +323,7 @@ object ReadableExport {
         if (page.songs.isNotEmpty()) {
             appendLine()
             appendLine("## ${labels.songs}")
-            for (song in page.songs.values.sortedBy { (it.title ?: it.key.trackId).lowercase(Locale.ROOT) }) {
+            for (song in page.songs.values.sortedBy { (it.title ?: it.key.trackId).lowercase() }) {
                 appendLine()
                 val name = song.title ?: "${labels.unknownSong} ${song.key.trackId}"
                 appendLine("### $name" + (song.artist?.let { " — $it" } ?: ""))
@@ -326,9 +332,8 @@ object ReadableExport {
                 if (song.notes.isNotEmpty()) {
                     appendLine("- ${labels.notes}:")
                     for (note in song.notes.sortedBy { it.requiredLong("createdAt") ?: 0L }) {
-                        val at = dated.format(Instant.ofEpochMilli(note.requiredLong("createdAt") ?: 0L))
-                        val position = (note.optionalLong("positionMs") as? com.gpo.yoin.data.sync.adapters.Field.Ok)
-                            ?.value?.let { " · ${clock(it)}" }.orEmpty()
+                        val at = dated(note.requiredLong("createdAt") ?: 0L)
+                        val position = (note.optionalLong("positionMs") as? Field.Ok)?.value?.let { " · ${clock(it)}" }.orEmpty()
                         val lines = note.requiredString("content").orEmpty().trim().lines()
                         appendLine("  - $at$position")
                         lines.forEach { appendLine("    > $it") }
@@ -338,23 +343,26 @@ object ReadableExport {
         }
     }
 
-    private fun playlistMarkdown(records: List<WireRecord>, labels: ReadableLabels, dated: DateTimeFormatter): String? {
+    private fun playlistMarkdown(records: List<WireRecord>, labels: ReadableLabels, dated: (Long) -> String): String? {
         if (records.isEmpty()) return null
         return buildString {
             appendLine("# ${labels.playlistBackups}")
-            for (record in records.sortedBy { it.payload?.requiredString("name")?.lowercase(Locale.ROOT) }) {
+            for (record in records.sortedBy { it.payload?.requiredString("name")?.lowercase() }) {
                 val payload = record.payload ?: continue
-                val content = payload.requiredString("content")
-                    ?.let { runCatching { PlaylistBackupCodec.decodeContent(it) }.getOrNull() }
+                val content = payload.requiredString("content")?.let { PlaylistBackupCodec.decodeContentOrNull(it) }
                 appendLine()
                 appendLine("## ${payload.requiredString("name").orEmpty()}")
                 appendLine()
-                appendLine("- ${labels.from}: ${payload.requiredString("sourceProfileLabel").orEmpty()} (${payload.requiredString("sourceProvider").orEmpty()})")
+                appendLine(
+                    "- ${labels.from}: ${payload.requiredString("sourceProfileLabel").orEmpty()} " +
+                        "(${payload.requiredString("sourceProvider").orEmpty()})",
+                )
                 content?.let { appendLine("- ${it.tracks.size} ${labels.tracksCount}") }
-                payload.requiredLong("lastBackedUpAt")?.let {
-                    appendLine("- ${labels.lastBackedUp}: ${dated.format(Instant.ofEpochMilli(it))}")
+                payload.requiredLong("lastBackedUpAt")?.let { appendLine("- ${labels.lastBackedUp}: ${dated(it)}") }
+                content?.description?.takeIf(String::isNotBlank)?.let {
+                    appendLine()
+                    appendLine(it.trim())
                 }
-                content?.description?.takeIf(String::isNotBlank)?.let { appendLine(); appendLine(it.trim()) }
                 if (content != null && content.tracks.isNotEmpty()) {
                     appendLine()
                     content.tracks.forEachIndexed { index, track ->
@@ -366,16 +374,34 @@ object ReadableExport {
         }
     }
 
-    private fun score(value: Float): String =
-        if (value % 1f == 0f) value.toInt().toString() else String.format(Locale.ROOT, "%.1f", value)
+    /** "8", "7.5": whole scores without a decimal, others to one decimal, rounded half up (Java's %.1f). */
+    internal fun score(value: Float): String = if (value % 1f == 0f) value.toInt().toString() else oneDecimal(value)
 
-    private fun clock(ms: Long): String {
+    /** Java's `String.format(Locale.ROOT, "%.1f", value)`: the shortest decimal of the double, half up. */
+    private fun oneDecimal(value: Float): String {
+        val text = value.toDouble().toString()
+        val negative = text.startsWith('-')
+        val body = text.removePrefix("-")
+        if (body.any { it == 'E' || it == 'e' } || body.any { !it.isDigit() && it != '.' }) {
+            val tenths = kotlin.math.floor(kotlin.math.abs(value.toDouble()) * 10 + 0.5).toLong()
+            return (if (negative && tenths != 0L) "-" else "") + "${tenths / 10}.${tenths % 10}"
+        }
+        val dot = body.indexOf('.')
+        val whole = if (dot < 0) body else body.substring(0, dot)
+        val fraction = if (dot < 0) "" else body.substring(dot + 1)
+        var tenths = whole.toLong() * 10 + (fraction.getOrElse(0) { '0' } - '0')
+        if (fraction.getOrElse(1) { '0' } >= '5') tenths += 1
+        return (if (negative) "-" else "") + "${tenths / 10}.${tenths % 10}"
+    }
+
+    /** "m:ss" of a position in ms (minutes not wrapped into hours). */
+    internal fun clock(ms: Long): String {
         val total = ms / 1000
-        return "%d:%02d".format(Locale.ROOT, total / 60, total % 60)
+        return "${total / 60}:" + (total % 60).toString().padStart(2, '0')
     }
 
     /** A file or folder name that is safe on every file system and zip tool, at most 80 characters. */
-    internal fun sanitize(name: String): String {
+    fun sanitize(name: String): String {
         val cleaned = buildString {
             for (char in name.trim()) {
                 append(if (char < ' ' || char in "/\\:*?\"<>|") '_' else char)
@@ -385,9 +411,9 @@ object ReadableExport {
     }
 
     private fun unique(name: String, used: MutableSet<String>): String {
-        if (used.add(name.lowercase(Locale.ROOT))) return name
+        if (used.add(name.lowercase())) return name
         var n = 2
-        while (!used.add("$name ($n)".lowercase(Locale.ROOT))) n++
+        while (!used.add("$name ($n)".lowercase())) n++
         return "$name ($n)"
     }
 }

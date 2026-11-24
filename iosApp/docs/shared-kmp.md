@@ -15,6 +15,8 @@ Yoin's Android app (Compose) and iOS app (SwiftUI) share their design numbers an
 | Fast scroller maths | `com.gpo.yoin.shared.library.FastScrollMath` | `FastScrollMath` in `YoinFastScroller.kt` | `LibraryFastScroller`, `LibraryView.ScrollMetrics` |
 | Scrapbook tilts | `com.gpo.yoin.shared.detail.ScrapbookTilt` (FNV-1a, tilt sets) | `AlbumScrapbook.kt` | `AlbumScrapbookView` |
 | Note text | `com.gpo.yoin.shared.notes.NoteMarkup`, `MentionMatcher`; `YoinNoteReader` (flat lines / runs / mentions for Swift: no sealed types, no `Char`, nothing throws) | `NoteMarkupText`, the note editor, `MentionResolver` | `NoteMarkupRender` / `NoteMarkupText`, `NoteMentions` (`Notes/`) |
+| Note editor | `NoteEditorText` (trigger, Return-picks-mention, atomic mentions, list continuation, shortcuts, formatting tools); `YoinMentionRanking` + `YoinMentionRomanizer` (the @ popup's order: prefix > initials > substring > artist, pinyin); `YoinNoteEditor` (the flat Swift facade, UTF-16 offsets, composing range as two ints) | `ui/notes/editor/` (`NoteEditorState`, `MentionRanking` wraps the shared ranking with ICU's Han-Latin) | `Notes/Editor/` (`NoteEditorModel`, `NoteMarkupEditor`, `MentionRanking` with `PinyinRomanizer` = CFStringTransform Mandarin → Latin) |
+| Backup, import, Memories transfer | `com.gpo.yoin.shared.portability` (`BackupExport`, `BackupParser`, `ReadableExport`, `SnapshotAssembler`, `ImportPlanner`, `BackupMerger`; `memories/`: `MemoryItems`, `TransferRules`, `MigrationIds`, `MemoryTransferApplier`); `YoinBackup` (the flat Swift facade) | `data/sync/backup/` (`BackupWriter` / `BackupReader` zip the files; `SnapshotBuilder`, `BackupImporter`, `AccountScopes` delegate through `SharedBackupBridge.kt`), `data/transfer/memories/` (`MemoryTransfer.execute` → `MemoryTransferApplier` on `RoomTransferStore`) | not yet (step B): `YoinBackup` over the `SyncDomain` + `CloudSyncKit.store` it already has |
 
 How it is kept honest:
 
@@ -24,6 +26,7 @@ How it is kept honest:
 - `YoinTokensTest` (Android) checks every adopted token against the literal it replaced, and the mirrored type scale and motion schemes against Material's own.
 - `CrossPlatformDigestTest` (`shared/src/commonTest`) folds MCU, Palette, budget, spectrum, scroller and hash results into digests. The JVM and the iOS simulator must produce the same ones (`./gradlew :shared:allTests`).
 - `SharedKotlinTests` (iOS) checks the Swift wrappers: the Balanced glass preset, the tilt hash, the budget filling the column, the spectrum slots.
+- `BackupExportPinTest` (Android) pins every entry of a fixed export as the pre-move app code wrote it; Android's export through `:shared` stays byte-identical. `PortabilityGoldenTest` (`shared/src/androidHostTest`) writes and checks `shared/src/commonTest/resources/golden/backup-export.json` (and verifies it against that pin), `backup-import.json` and `memories-transfer.json`; the portability tests in `commonTest` run on the JVM and the iOS simulator (`BackupDates` uses java.time on Android and NSTimeZone on iOS, same zone rules).
 
 ## iOS parity tokens (2026-11-04)
 
@@ -95,6 +98,16 @@ Kotlin/Native exports to Objective-C, so a few names change in Swift:
 - `IntArray` / `FloatArray` are `KotlinIntArray` / `KotlinFloatArray` (`get(index:)`, `set(index:value:)`). `Int` is `Int32`, and ARGB colours come back signed (`Int(UInt32(bitPattern:))`).
 - Default arguments are not exported, so Swift passes every argument.
 - `DynamicScheme`'s `Int` role getters export as `primary_` and so on, because they clash with `MaterialDynamicColors`. Use `ExpressiveRoles` instead.
+
+## Backup, import and Memories transfer from Swift (`YoinBackup`)
+
+`YoinBackup(domain:replica:links:deviceId:deviceName:appVersionName:appVersionCode:)` takes the same `SyncDomain` CloudSyncKit uses, `CloudSyncKit.store` (or nil before sync ever ran) and a `YoinTrackAlbumLinkStore` (Swift implements it: `links` / `link` / `putLink`). Every async call is `async throws`; `readBackup` is synchronous and never throws. Use it while no sync runs, and call `CloudSyncKit.flush()` after an import or transfer that touched the replica.
+
+- `exportBackup(nowMs:syncLocation:language:zoneId:knownAlbums:knownTracks:)` → `YoinBackupExport` (`fileName`, `manifest`, `manifestJson`, `snapshotJson`, `readable` path/text list, `readFailures`). `syncLocation` is where Cloud sync keeps the data: nil (sync off) → manifest source `this-device`; `SyncLocations.GOOGLE_DRIVE` / `SyncLocations.ICLOUD` (or `BackupFormat.LOCATION_GOOGLE_DRIVE` / `LOCATION_ICLOUD`) → `google-drive` / `icloud`; anything else throws. Swift writes the zip: `manifest.json`, `data/snapshot.json`, then the readable files, UTF-8. `zoneId` is `TimeZone.current.identifier` (an abbreviation NSTimeZone knows also works); `language` "zh…" gives the Chinese labels.
+- `readBackup(manifestJson:snapshotJson:readableFiles:)` → `YoinReadBackupResult(backup:error:)` (pass the two entries' bytes, nil when missing). Exactly one is set; `error` is a flat `YoinBackupError` (`kind`: `notABackup`, `tooNew` with `formatVersion`, `checksumMismatch`, `corrupt`, `other`; `message`).
+- `planImport(backup:nowMs:)` → `YoinImportPlan` (`accounts`: `YoinImportAccount` with the default `target` `YoinImportChoice(scope, kind, profileId)`, `sameAccount`, `options`, `cloudOnlyPossible`, `wasPurged`; `globalCounts`). `applyImport(plan:choices:importGlobal:nowMs:)` → `YoinImportResult`; importing the same file again changes nothing.
+- `transferSources()` (this device's profiles, then cloud-only accounts), `transferSourcesOf(backup:)`, `transferAccountOf(profileId:)`, `memoryItems(source:backup:)`.
+- `planTransfer(source:items:target:)` → `YoinTransferPlan`: `tracksToMatch` / `albumsToMatch` (what the source knows: title, artist, album, duration) for Swift to search with the shared `TrackMatcher`, `reusedTracks` / `reusedAlbums` (earlier matches and picks from the ledger), `previouslyCopied`, `toCopy`. `applyTransfer(plan:tracks:albums:nowMs:)` copies with the picks (`TrackPick` / `AlbumPick`: Matched or Picked with a target are copied, anything else retried next run) and records the run in the replica's meta (the keys Android keeps in `sync_meta`).
 
 ## What is still done twice
 

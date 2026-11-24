@@ -13,6 +13,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import 'auth/google_oauth.dart';
+import 'cloud_data_views.dart';
 import 'cloud_sync_state.dart';
 import 'engine/snapshot_codec.dart';
 import 'engine/sync_engine.dart';
@@ -470,6 +471,100 @@ class CloudSyncManager implements CloudSyncController {
     await _refreshState();
   });
 
+  @override
+  Future<void> removeAccountFromCloud(String syncProfileId) async {
+    await ensureInitialized();
+    Object? failure;
+    try {
+      if (syncProfileId.isEmpty) throw ArgumentError('No account to remove.');
+      await _lock.run(() async {
+        if (!_isEnabled()) throw StateError('Turn on Cloud sync to remove an account from the cloud.');
+        // Never act on whatever account a token happens to come from.
+        final about = await _transport.about();
+        final owner = _db.meta(SyncMetaKeys.googlePermissionId);
+        if (owner == null || owner != about.permissionId) {
+          throw StateError('Reconnect Google before removing an account.');
+        }
+        final files = await _transport.list();
+        final engine = _engine();
+        final epoch = purgeEpoch(
+          now: _clock(),
+          scopeRecordTimes: [
+            for (final r in _db.recordsInScope(syncProfileId)) r.ts,
+            ?_db.getRecord(SyncKinds.account, SyncFormat.globalScope, syncProfileId)?.ts,
+          ],
+          markers: files,
+          scope: syncProfileId,
+          appliedEpoch: engine.purgedScopes()[syncProfileId],
+          resetEpoch: int.tryParse(_db.meta(SyncMetaKeys.epoch) ?? '') ?? 0,
+        );
+        final markerId = (await _transport.generateIds(1)).first;
+        await _transport.create(
+          fileId: markerId,
+          name: SyncFileProps.purgeFileName(epoch, _deviceId!),
+          appProperties: {
+            SyncFileProps.kind: SyncFileProps.kindPurge,
+            SyncFileProps.epoch: '$epoch',
+            SyncFileProps.scope: syncProfileId,
+            SyncFileProps.deviceId: _deviceId!,
+          },
+          mimeType: 'application/json',
+          bytes: SnapshotCodec.encodePurge(
+            ScopePurgeMarker(
+              scope: syncProfileId,
+              epoch: epoch,
+              at: _clock(),
+              deviceId: _deviceId!,
+              deviceName: _deviceName,
+            ),
+          ),
+        );
+        // The marker is out: from here a crash is repaired by the next cycle applying our own marker.
+        await engine.applyScopePurge(syncProfileId, epoch);
+        await _binder.markPurged(syncProfileId);
+        await _refreshBindings();
+        await _db.flush();
+      });
+      // Re-publish this device's files without the account.
+      await _runCycle(force: true);
+    } catch (e) {
+      failure = e;
+    }
+    await _refreshState();
+    if (failure != null) throw failure;
+  }
+
+  /// The epoch of a new purge marker for [scope] (Android CloudSyncManager.removeAccountFromCloud): at or
+  /// after every version of the scope this device knows ([scopeRecordTimes]: its records and its account
+  /// descriptor), after any earlier marker of it in Drive ([markers]) and any purge of it applied here
+  /// ([appliedEpoch]), and not before the current reset epoch.
+  @visibleForTesting
+  static int purgeEpoch({
+    required int now,
+    required Iterable<int> scopeRecordTimes,
+    required Iterable<RemoteFile> markers,
+    required String scope,
+    required int? appliedEpoch,
+    required int resetEpoch,
+  }) {
+    final newestRecord = scopeRecordTimes.fold(0, max);
+    final previousMarker = markers
+        .where(
+          (f) =>
+              f.appProperties[SyncFileProps.kind] == SyncFileProps.kindPurge &&
+              f.appProperties[SyncFileProps.scope] == scope,
+        )
+        .map((f) => int.tryParse(f.appProperties[SyncFileProps.epoch] ?? '') ?? 0)
+        .fold(0, max);
+    return [now, newestRecord, previousMarker + 1, (appliedEpoch ?? 0) + 1, resetEpoch].reduce(max);
+  }
+
+  @override
+  Future<CloudAccountContent> cloudAccountContent(String syncProfileId) async {
+    await ensureInitialized();
+    return CloudDataViews.account(_db.recordsInScope(syncProfileId), syncProfileId);
+  }
+
   void _accountAction(Future<Object?> Function() action) => _launch(() async {
     await ensureInitialized();
     await _lock.run(() async => action());
@@ -887,6 +982,7 @@ class CloudSyncManager implements CloudSyncController {
         cloudOnlyAccounts: bindings?.cloudOnly ?? const [],
         devices: enabled || peers.isNotEmpty ? [thisDevice, ...peers] : const [],
         lastSummaryCount: int.tryParse(_db.meta(SyncMetaKeys.lastSummary) ?? ''),
+        scopeCounts: enabled && _initialized ? CloudDataViews.summary(_db.allRecords()) : const {},
       ),
     );
   }

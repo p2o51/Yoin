@@ -4,8 +4,10 @@ import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.text.TextRange
 import com.gpo.yoin.shared.notes.MentionKind
+import com.gpo.yoin.shared.notes.NoteEditorText
 import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.shared.notes.NoteMention
+import com.gpo.yoin.shared.notes.NoteTool
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.notes.editor
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
+import com.gpo.yoin.shared.notes.MentionTrigger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

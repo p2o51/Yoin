@@ -1828,6 +1828,29 @@ final class LibraryStore {
         }
     }
 
+    /// The note editor's @ search (Android RepositoryMentionCandidateSource → repository.search): the service's
+    /// catalogue where it has one, a server's search3 otherwise. Its own answer, so the Search page's results
+    /// and phase are left alone.
+    func mentionSearch(_ query: String) async throws -> SearchHits? {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isReal, !q.isEmpty else { return nil }
+        if let apple {
+            let r = try await apple.search(q)
+            return SearchHits(query: q, scope: .catalog, artists: r.artists, albums: r.albums, songs: r.songs, playlists: [])
+        }
+        if let spotify {
+            let r = try await spotify.search(q, kinds: [.songs, .albums, .artists])
+            return SearchHits(query: q, scope: .catalog, artists: r.artists, albums: r.albums, songs: r.songs, playlists: [])
+        }
+        if let client, let mapping {
+            let r = try await client.search3(query: q, artistCount: 5, albumCount: 5, songCount: 10)
+            return SearchHits(query: q, scope: .library, artists: r.artists.map(mapping.artistItem),
+                              albums: r.albums.map(mapping.album),
+                              songs: r.songs.enumerated().map { mapping.entry($1, index: $0) }, playlists: [])
+        }
+        return nil
+    }
+
     /// A saved-library search answered from local lists, run again once the reads behind it land
     /// (audit 11-15 #69): only while the same search shows; a failure replaces "No results" only.
     func refreshLibrarySearch(_ term: String, request: SearchRequest) {

@@ -1,8 +1,5 @@
 package com.gpo.yoin.ui.settings.sync
 
-import com.gpo.yoin.ui.component.handPointer
-import com.gpo.yoin.ui.component.seamDissolveViewport
-import com.gpo.yoin.ui.component.SeamTop
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -93,20 +90,24 @@ import com.gpo.yoin.data.sync.CloudAccountRow
 import com.gpo.yoin.data.sync.CloudDataSummary
 import com.gpo.yoin.data.sync.CloudDeviceFiles
 import com.gpo.yoin.data.sync.CloudSyncPhase
-import com.gpo.yoin.data.sync.backup.BackupFormat
 import com.gpo.yoin.data.sync.CloudSyncState
 import com.gpo.yoin.data.sync.SyncAccountRow
 import com.gpo.yoin.data.sync.SyncAccountStatus
 import com.gpo.yoin.data.sync.SyncDeviceRow
 import com.gpo.yoin.data.sync.auth.GoogleAccountPick
 import com.gpo.yoin.data.sync.auth.GoogleAccountPicker
+import com.gpo.yoin.data.sync.backup.fileName
+import com.gpo.yoin.shared.portability.BackupFormat
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.component.handPointer
+import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.LocalSettingsRowShape
 import com.gpo.yoin.ui.settings.SettingsBackButton
@@ -128,8 +129,8 @@ import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.launch
 
 // Settings › Cloud sync. Back surface: full-screen destination without shared
 // chrome → Pattern A (native cross-Activity back); the arrow just finishes.

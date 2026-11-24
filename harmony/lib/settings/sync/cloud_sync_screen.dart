@@ -19,6 +19,7 @@ import '../../data/model/media_id.dart';
 import '../../data/sync/cloud_sync_state.dart';
 import '../../nowplaying/haptics.dart';
 import '../../theme/motion.dart';
+import '../../ui/component/meta_line.dart';
 import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_dialog.dart';
 import '../../ui/component/yoin_dropdown_menu.dart';
@@ -31,6 +32,7 @@ import '../settings_metrics.dart';
 import '../settings_page.dart';
 import '../settings_rows.dart';
 import '../subsonic_setup_screen.dart';
+import 'cloud_account_page.dart';
 import 'cloud_sync_strings.dart';
 import 'cloud_sync_texts.dart';
 import 'cloud_sync_view_model.dart';
@@ -592,6 +594,8 @@ class _ServiceRow extends StatelessWidget {
     required this.lines,
     this.trailing,
     this.actions = const [],
+    this.onTap,
+    this.trailingEnd,
   });
 
   final String provider;
@@ -599,6 +603,22 @@ class _ServiceRow extends StatelessWidget {
   final List<Widget> lines;
   final Widget? trailing;
   final List<Widget> actions;
+
+  /// The row (not its actions) opens the account's cloud data.
+  final VoidCallback? onTap;
+
+  /// The row's end padding when [trailing] is an icon button that sits closer to the edge.
+  final double? trailingEnd;
+
+  Widget _tappable(Widget row) => onTap == null
+      ? row
+      : InkWell(
+          onTap: () {
+            YoinHaptics.click();
+            onTap!();
+          },
+          child: row,
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -608,35 +628,39 @@ class _ServiceRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: SettingsMetrics.rowMinHeight),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: SettingsMetrics.rowPaddingHorizontal,
-              vertical: SettingsMetrics.rowPaddingVertical,
-            ),
-            child: Row(
-              children: [
-                // SettingsRowIcon(tone = …): the service's mark on its own disc.
-                DecoratedBox(
-                  decoration: ShapeDecoration(color: tone.iconContainer, shape: const CircleBorder()),
-                  child: SizedBox.square(
-                    dimension: SettingsMetrics.rowIconBox,
-                    child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
+        _tappable(
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: SettingsMetrics.rowMinHeight),
+            child: Padding(
+              padding: EdgeInsetsDirectional.only(
+                start: SettingsMetrics.rowPaddingHorizontal,
+                top: SettingsMetrics.rowPaddingVertical,
+                end: trailingEnd ?? SettingsMetrics.rowPaddingHorizontal,
+                bottom: SettingsMetrics.rowPaddingVertical,
+              ),
+              child: Row(
+                children: [
+                  // SettingsRowIcon(tone = …): the service's mark on its own disc.
+                  DecoratedBox(
+                    decoration: ShapeDecoration(color: tone.iconContainer, shape: const CircleBorder()),
+                    child: SizedBox.square(
+                      dimension: SettingsMetrics.rowIconBox,
+                      child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.rowIcon, color: tone.iconContent),
+                    ),
                   ),
-                ),
-                const SizedBox(width: SettingsMetrics.rowIconGap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: theme.textTheme.titleMedium!.copyWith(color: theme.colorScheme.onSurface)),
-                      for (final line in lines) ...[const SizedBox(height: SettingsMetrics.rowTextGap), line],
-                    ],
+                  const SizedBox(width: SettingsMetrics.rowIconGap),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: theme.textTheme.titleMedium!.copyWith(color: theme.colorScheme.onSurface)),
+                        for (final line in lines) ...[const SizedBox(height: SettingsMetrics.rowTextGap), line],
+                      ],
+                    ),
                   ),
-                ),
-                if (trailing != null) ...[const SizedBox(width: SettingsMetrics.rowTrailingGap), trailing!],
-              ],
+                  if (trailing != null) ...[const SizedBox(width: SettingsMetrics.rowTrailingGap), trailing!],
+                ],
+              ),
             ),
           ),
         ),
@@ -691,11 +715,16 @@ class _AccountRow extends ConsumerWidget {
     final vm = ref.read(cloudSyncViewModelProvider.notifier);
     final status = account.status;
     final service = _serviceLine(context, account.provider, account.displayName, null);
+    final cloud = CloudAccountRef.local(account);
     return _ServiceRow(
       provider: account.provider,
       title: account.displayName,
+      onTap: cloud == null ? null : () => openCloudAccountPage(context, cloud),
+      trailing: cloud == null ? null : _CloudAccountMenu(account: cloud),
+      trailingEnd: cloud == null ? null : SettingsMetrics.syncAccountTrailingEnd,
       lines: [
         ?service,
+        if (cloud != null) _CloudCounts(scope: cloud.syncProfileId),
         Text(
           accountStatusText(s, status),
           style: theme.textTheme.bodyMedium!.copyWith(
@@ -753,7 +782,7 @@ class _AccountRow extends ConsumerWidget {
     final id = account.localProfileId;
     final confirmed = await showYoinDialog<bool>(
       context: context,
-      builder: (context) => _WhileTrue(
+      builder: (context) => WhileCloudSync(
         // The dialog belongs to the state that offered it.
         holds: (page) => page.sync.accounts.any((a) => a.localProfileId == id && a.status is AccountChanged),
         child: AlertDialog(
@@ -869,9 +898,11 @@ class _CloudAccountItem extends ConsumerWidget {
         child: Text(s.add),
       );
     }
+    final inCloud = CloudAccountRef.cloud(cloud);
     return _ServiceRow(
       provider: cloud.provider,
       title: cloud.displayName,
+      onTap: () => openCloudAccountPage(context, inCloud),
       lines: [
         if (service != null)
           service
@@ -884,8 +915,16 @@ class _CloudAccountItem extends ConsumerWidget {
               color: theme.colorScheme.onSurfaceVariant.withValues(alpha: SettingsMetrics.syncSummaryAlpha),
             ),
           ),
+        _CloudCounts(scope: cloud.syncProfileId),
       ],
-      trailing: trailing,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ?trailing,
+          _CloudAccountMenu(account: inCloud),
+        ],
+      ),
+      trailingEnd: SettingsMetrics.syncAccountTrailingEnd,
     );
   }
 
@@ -901,6 +940,78 @@ class _CloudAccountItem extends ConsumerWidget {
       ),
     );
     if ((await repo.profiles()).length > before) ref.read(cloudSyncViewModelProvider.notifier).onAccountAdded();
+  }
+}
+
+/// What the cloud holds for an account ("128 notes  43 album ratings & reviews"), or "No data yet".
+class _CloudCounts extends ConsumerWidget {
+  const _CloudCounts({required this.scope});
+
+  final String scope;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = CloudSyncStrings.of(context);
+    final theme = Theme.of(context);
+    final counts = ref.watch(cloudSyncViewModelProvider.select((p) => p.sync.scopeCounts[scope]));
+    final stats = counts == null ? const <MetaGroup>[] : scopeStatGroups(s, counts);
+    if (stats.isEmpty) {
+      return Text(
+        s.noData,
+        style: theme.textTheme.bodyMedium!.copyWith(
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: SettingsMetrics.syncSummaryAlpha),
+        ),
+      );
+    }
+    return MetaLine(groups: stats, style: theme.textTheme.bodyMedium);
+  }
+}
+
+/// An account's ⋮ (CloudAccountCard): View cloud data, Remove from cloud…; a loading indicator while it
+/// is being removed.
+class _CloudAccountMenu extends ConsumerWidget {
+  const _CloudAccountMenu({required this.account});
+
+  final CloudAccountRef account;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = CloudSyncStrings.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final removing = ref.watch(cloudSyncViewModelProvider.select((p) => p.removing.contains(account.syncProfileId)));
+    return SpringCrossFade(
+      childKey: removing,
+      fit: StackFit.loose,
+      child: removing
+          ? const SizedBox.square(
+              dimension: SettingsMetrics.backTouch,
+              child: Center(child: YoinLoadingIndicator(size: SettingsMetrics.syncLoading)),
+            )
+          : Builder(
+              builder: (anchor) => IconButton(
+                tooltip: s.cdAccountOptions(account.displayName),
+                icon: Icon(YoinSymbols.moreVertical, color: colors.onSurfaceVariant),
+                onPressed: () async {
+                  YoinHaptics.tick();
+                  final picked = await showYoinDropdownMenu<bool>(
+                    context: anchor,
+                    anchor: globalRectOf(anchor),
+                    items: [
+                      YoinMenuItem(value: false, label: s.menuView, icon: YoinSymbols.visibility),
+                      YoinMenuItem(value: true, label: s.menuRemove, icon: YoinSymbols.delete),
+                    ],
+                  );
+                  if (picked == null || !context.mounted) return;
+                  YoinHaptics.contextClick();
+                  if (picked) {
+                    await confirmRemoveFromCloud(context, ref, account);
+                  } else {
+                    await openCloudAccountPage(context, account);
+                  }
+                },
+              ),
+            ),
+    );
   }
 }
 
@@ -958,7 +1069,7 @@ class _DeviceItem extends ConsumerWidget {
     final id = device.deviceId;
     final confirmed = await showYoinDialog<bool>(
       context: context,
-      builder: (context) => _WhileTrue(
+      builder: (context) => WhileCloudSync(
         holds: (page) => page.sync.devices.any((d) => d.deviceId == id && !d.isThisDevice),
         child: AlertDialog(
           title: Text(s.removeDeviceTitle(device.name)),
@@ -1237,17 +1348,17 @@ class _TextRow extends StatelessWidget {
 /// Closes the dialog around [child] once [holds] stops being true for the
 /// page's state: a dialog belongs to the state that offered it, so it never
 /// confirms something that no longer applies.
-class _WhileTrue extends ConsumerStatefulWidget {
-  const _WhileTrue({required this.holds, required this.child});
+class WhileCloudSync extends ConsumerStatefulWidget {
+  const WhileCloudSync({super.key, required this.holds, required this.child});
 
   final bool Function(CloudSyncPageState page) holds;
   final Widget child;
 
   @override
-  ConsumerState<_WhileTrue> createState() => _WhileTrueState();
+  ConsumerState<WhileCloudSync> createState() => _WhileCloudSyncState();
 }
 
-class _WhileTrueState extends ConsumerState<_WhileTrue> {
+class _WhileCloudSyncState extends ConsumerState<WhileCloudSync> {
   bool _closing = false;
 
   @override
@@ -1270,7 +1381,7 @@ class _WhileEnabled extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => _WhileTrue(holds: (page) => page.sync.enabled, child: child);
+  Widget build(BuildContext context) => WhileCloudSync(holds: (page) => page.sync.enabled, child: child);
 }
 
 /// The held mass-delete review. A sync that runs while it's open keeps it on
@@ -1281,7 +1392,7 @@ Future<void> showReviewDialog(BuildContext context, WidgetRef ref) async {
   if (review is! SyncNeedsReview) return;
   final restore = await showYoinDialog<bool>(
     context: context,
-    builder: (context) => _WhileTrue(
+    builder: (context) => WhileCloudSync(
       holds: (page) => page.sync.phase is SyncNeedsReview || page.sync.phase is SyncSyncing,
       child: AlertDialog(
         icon: const Icon(YoinSymbols.note),

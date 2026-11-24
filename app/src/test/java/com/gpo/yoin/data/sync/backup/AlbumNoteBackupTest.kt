@@ -3,7 +3,8 @@ package com.gpo.yoin.data.sync.backup
 import com.gpo.yoin.data.sync.CloudDataViews
 import com.gpo.yoin.data.sync.SyncKinds
 import com.gpo.yoin.data.sync.engine.SyncEngine
-import com.gpo.yoin.data.transfer.memories.MemoryItems
+import com.gpo.yoin.data.transfer.memories.fromProfile
+import com.gpo.yoin.shared.portability.memories.MemoryItems
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

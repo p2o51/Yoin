@@ -15,11 +15,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/notes/note_markup.dart';
 import '../detail/detail_cache.dart';
 import '../neodb/neodb_lines.dart';
 import '../neodb/neodb_providers.dart';
 import '../neodb/neodb_strings.dart';
 import '../neodb/neodb_voices_screen.dart';
+import '../notes/editor/note_editor_controller.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
@@ -95,8 +98,9 @@ class AlbumRateSheet extends ConsumerStatefulWidget {
 }
 
 class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProviderStateMixin {
-  late final TextEditingController _text = TextEditingController(
-    text: ref.read(albumScoreProvider(widget.albumId)).review ?? '',
+  /// The review's words as stored (light Markdown, mentions as links), edited with @ and chips.
+  late final NoteEditorController _text = NoteEditorController(
+    stored: ref.read(albumScoreProvider(widget.albumId)).review ?? '',
   );
   final FocusNode _focus = FocusNode();
   final GrooveAwardController _award = GrooveAwardController();
@@ -122,7 +126,7 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
   @override
   void initState() {
     super.initState();
-    _initialReview = _text.text;
+    _initialReview = _text.storedText;
     // Read now: ref can't be used once the sheet is disposed.
     _neoDb;
     ref.read(memoryStoreProvider.future).then((store) => _store = store);
@@ -142,8 +146,9 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
   void dispose() {
     // Closing the sheet saves the words, then hands the album to NeoDB (a no-op signed out or unchanged).
     final store = _store;
-    final save = _text.text.trim() != _initialReview.trim() && store != null
-        ? store.setAlbumReview(widget.albumId, _text.text, nowMs: DateTime.now().millisecondsSinceEpoch)
+    final review = _text.storedText;
+    final save = review.trim() != _initialReview.trim() && store != null
+        ? store.setAlbumReview(widget.albumId, review, nowMs: DateTime.now().millisecondsSinceEpoch)
         : Future<void>.value();
     final neoDb = _neoDb;
     final albumId = widget.albumId;
@@ -169,7 +174,7 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
     if (!_edited && stored != _initialReview) {
       _initialReview = stored;
       _seeding = true;
-      _text.text = stored;
+      _text.setStoredText(stored);
       _seeding = false;
     }
     final storedScore = score.albumRating;
@@ -179,8 +184,9 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
         ? GrooveScoreKind.album
         : (score.average != null ? GrooveScoreKind.average : GrooveScoreKind.none);
     final shown = live > 0 ? live : score.average;
-    final words = _text.text;
-    final count = words.runes.length;
+    final words = _text.storedText;
+    // As NeoDB counts it: the plain words (mentions as names, no Markdown marks).
+    final count = NoteMarkup.plainText(words).runes.length;
     final short = count <= _shortCommentMax;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -250,55 +256,58 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
               },
             ),
             const SizedBox(height: 16),
-            AnimatedBuilder(
-              animation: _corner.animation,
-              builder: (context, child) => Container(
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(_corner.value.clamp(0, 28)),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: child,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _text,
-                    focusNode: _focus,
-                    maxLines: null,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.onSurface),
-                    decoration: InputDecoration.collapsed(
-                      hintText: strings.reviewHint,
-                      hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.onSurfaceVariant),
-                    ),
+            // The whole rounded box (with its count line) is the field, for @ mode.
+            TextFieldTapRegion(
+              child: AnimatedBuilder(
+                animation: _corner.animation,
+                builder: (context, child) => Container(
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(_corner.value.clamp(0, 28)),
                   ),
-                  if (words.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          short ? strings.shortComment : strings.review,
-                          style: Theme.of(context).textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                        Text(
-                          short ? strings.count(count, _shortCommentMax) : '$count',
-                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: child,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    NoteMarkupField(
+                      controller: _text,
+                      focusNode: _focus,
+                      maxLines: null,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.onSurface),
+                      decoration: InputDecoration.collapsed(
+                        hintText: strings.reviewHint,
+                        hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.onSurfaceVariant),
+                      ),
                     ),
+                    if (words.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            short ? strings.shortComment : strings.review,
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                          Text(
+                            short ? strings.count(count, _shortCommentMax) : '$count',
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             // The line stays for "What others say" even with no state to say (owner, 2026-11-09).
             AlbumNeoDbLine(
               albumId: widget.albumId,
-              unsaved: _edited && _text.text.trim() != _initialReview.trim(),
+              unsaved: _edited && _text.storedText.trim() != _initialReview.trim(),
               onVoices: () {
                 final album = ref.read(detailCacheProvider).cachedAlbum(widget.albumId);
                 openNeoDbVoices(

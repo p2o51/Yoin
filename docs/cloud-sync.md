@@ -97,7 +97,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 ## 开关语义
 
 - **在本设备关闭**：只停本机，保留本机数据、本机副本和云端数据；其他设备照常。
-- **删除云端数据**（所有设备）：先确认当前 Google 账号就是同步用的那个 → 写重置标记 → 本机关闭 → 删除 Drive 里所有 Yoin 文件（中途断网下次打开 App 会接着删）。其他设备看到标记后自动关闭、不会再传回去。本机数据都还在。
+- **删除云端数据**（所有设备）：先确认当前 Google 账号就是同步用的那个 → 写重置标记 → 本机关闭 → 删除 Drive 里所有 Yoin 文件（中途断网下次打开 App 会接着删）。其他设备看到标记后自动关闭、不会再传回去。本机数据都还在。所有同步类型一样处理，专辑笔记（`album_note`）也在内：Drive 里的记录随文件删掉、各设备的副本清空，本机的专辑笔记留着，重新开启后作为新数据再上传（不是墓碑；HarmonyOS 有测试覆盖）。
   - 不撤销 Google 授权：撤销是按账号生效的，其他设备会因此读不到重置标记。想彻底断开，可在 Google 账号 › 第三方应用与服务里移除 Yoin。
 - **被别的设备「移出同步」**：这台设备下次同步时发现只有自己的文件没了（别的设备还在），会自动重新上传；只有所有设备的文件都没了（比如在 Drive 设置里删了隐藏数据）才停下来问你。
 
@@ -121,16 +121,25 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 
 - 旧版本只认 `state` / `artifacts` / `reset` 三种 `yoinKind`，其余文件直接跳过；信封按 `ignoreUnknownKeys` 解析，新增的 `purges` 字段被忽略；不带 `purges` 的信封照旧可读（字段可空、为空时不写，所以没有清除时文件字节与以前完全一样，golden 测试不变）。
 - 代价：旧版本不懂清除，会继续把这个账号的旧数据留在自己的文件里传回去。新版本不收这些记录，但 Drive 里旧版本的文件要等那台设备更新后才干净。旧版本「删除云端数据」不会删清除标记（只删它认识的三种），留着无害。
-- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎同样移植了「应用标记」（引擎、绑定、信封 `purges`、发布时排在 epoch 之后）和 `resumeAccountSync`，所以也会停止回传；云同步页的账号行显示「已从云端移除」和「恢复同步」，但还不能发起移除（`harmony/docs/cloud-sync.md`）。
+- `:shared`（iOS）同步了契约（`ScopePurgeMarker`、`SyncFileProps.KIND_PURGE`/`SCOPE`、信封 `purges`）、编解码和引擎/绑定/`CloudSyncCore` 的「应用标记」与 `resumeAccountSync`，所以 iOS 也会停止回传；iOS 还不能发起移除，界面也还没显示「已从云端移除」。HarmonyOS 的 Dart 引擎同样移植了「应用标记」（引擎、绑定、信封 `purges`、发布时排在 epoch 之后）和 `resumeAccountSync`，所以也会停止回传；自 parity phase 2（2026-11-24）起也能发起移除（`CloudSyncManager.removeAccountFromCloud`，epoch 规则、标记文件名、`appProperties` 和内容与 Android 相同）：云同步页的账号行和「Drive 里有，本机没有」的行点开是这个账号的云端数据页（条数、笔记 / 专辑评分与乐评 / 单曲评分 / Memories 标题，可搜索），⋮ 里有「查看云端数据」「从云端移除…」，确认框用 Android 的文案（`harmony/docs/cloud-sync.md`）。
+- **跨端金样**：`:shared` 的 `SyncPurgeGoldenTest`（androidHostTest）写出并校验 `shared/src/commonTest/resources/golden/sync-purge.json`：标记的编码与文件名、解码（含 kotlinx 把 `"epoch":"5"` 这样的数字字符串读成 Long）、合并时哪些记录被拒收、`applyScopePurge` 逐次调用的结果、恢复同步后版本时间的抬升和信封里的 `purges`。HarmonyOS 的 Dart 引擎用 `harmony/test/data/sync/sync_purge_golden_test.dart` 对照它；改动只能从 Kotlin 一侧重新生成（`YOIN_WRITE_SYNC_GOLDEN=1 ./gradlew :shared:testAndroidHostTest --tests '*SyncPurgeGoldenTest*'`）。
 
 ## 导出与导入
 
 设置 › 同步与备份将可以把**全部**同步数据导出成一个文件（界面待做，数据层已就绪），放到任何地方（SAF 选位置）；不登录 Google、没有 Play 服务也能用。数据层：`data/sync/backup/`（入口 `MemoriesPortability`）。
 
+**代码放在哪**（2026-11-24 起，parity p2）：规则只有一份，在 `:shared` 的 `com.gpo.yoin.shared.portability`（commonMain），Android 和 iOS 用同一份，HarmonyOS 按 golden 向量移植：
+
+- `:shared`：`BackupFormat` 和 manifest 模型、`BackupExport`（manifest / 快照 / readable 的字节）、`BackupParser`（校验格式、版本、SHA-256、同步 schema）、`ReadableExport`（日期按时区 `BackupDates`）、`SnapshotAssembler`（副本叠加本机数据）、`ImportPlanner` + `BackupMerger`（导入计划与合并规则）、`memories/`（`MemoryItems.fromRecords`、`TransferRules`、`MigrationIds`、`MemoryTransferApplier`）。它们只通过几个小接口读写数据：`BackupReplica`（同步副本）、`BackupDomain`（歌曲 → 专辑关联、笔记归属）、`MemoryTransferStore`（转移写目标账号）。
+- Android 只留平台部分：zip 读写（`BackupWriter` / `BackupReader`）、Room 和同步引擎的桥（`SharedBackupBridge.kt`、`RoomTransferStore`）、`MemoryItems.fromProfile`（读 Room 和播放记录）、按曲库搜索匹配（`MemoryTransfer.plan`，用 app 的 `Track` / `Album` / `TrackMatcher`）、SAF 和界面。
+- iOS 用 Swift 门面 `YoinBackup`（`shared/.../portability/YoinBackup.kt`，只有平铺的 data class 和 enum）：导出得到文件内容（zip 由 Swift 写）、读文件并校验、生成并执行导入计划、列出转移来源、生成转移计划（列出要匹配的歌和专辑、沿用账本里之前的匹配）、按匹配结果复制。iOS 侧的端口实现也在 commonMain（`StoreBackupReplica`、`SyncDomainTransferStore`、`SyncStoreTransferLedger`），Swift 只需实现 `YoinTrackAlbumLinkStore`。
+- 字节不变：`BackupExportPinTest`（Android）用迁移前的代码生成并钉住了固定数据导出的每个 zip 条目，迁移后逐字节相同。
+- Golden 向量（`shared/src/commonTest/resources/golden/`，`PortabilityGoldenTest` 生成并校验）：`backup-export.json`（快照 → manifest / 快照 / readable 文件，三种语言和时区）、`backup-import.json`（备份 + 设备状态 + 选择 → 计划、结果、导入后的数据）、`memories-transfer.json`（id 空间、`mig-` id、提及改写、乐评拼接，以及转移的完整用例）。
+
 文件名 `yoin-backup-YYYY-MM-DD.zip`，里面：
 
 ```
-manifest.json          格式与版本、导出时间、来源（google-drive / this-device）、设备 ID 与名称、
+manifest.json          格式与版本、导出时间、来源（google-drive / icloud / this-device）、设备 ID 与名称、
                        App 版本、每个账号的描述（服务、名称、「用户名 @ 主机」、店面；不含任何凭据）、
                        每个账号每类的条数、data/snapshot.json 的 SHA-256 / 字节数 / 条数 / 墓碑数
 data/snapshot.json     一个 SyncEnvelope（fileClass = "backup"），records 就是 Drive 状态文件里的
@@ -161,7 +170,7 @@ readable/global/歌单备份.md        歌单备份列表（含曲目）
 
 ## 转移 Memories
 
-把一个账号的 Memories **复制**（不是移动）到本机另一个 profile。来源可以是本机 profile、只在云端的账号（直接读本机同步副本，不用重新登录），或者一个备份文件里的账号。数据层：`data/transfer/memories/`（`MemoryTransfer`，入口 `MemoriesPortability.planTransfer / runTransfer`）。
+把一个账号的 Memories **复制**（不是移动）到本机另一个 profile。来源可以是本机 profile、只在云端的账号（直接读本机同步副本，不用重新登录），或者一个备份文件里的账号。数据层：`data/transfer/memories/`（`MemoryTransfer`，入口 `MemoriesPortability.planTransfer / runTransfer`）；复制什么、写到哪、冲突怎么处理在 `:shared`（`MemoryTransferApplier`、`TransferRules`），按曲库搜索匹配留在各平台（Android 的 `MemoryTransfer.plan`；iOS 拿 `YoinBackup.planTransfer` 给出的待匹配列表，用 `:shared` 的 `TrackMatcher` 自己搜）。
 
 复制的内容：歌曲笔记、单曲评分、专辑评分与长评、专辑笔记、你改过的专辑标题（`ALBUM_TITLE`）、AI 拟题（`MEMORY_TITLE`）与 AI 文案（`MEMORY_COPY`）、歌曲 → 专辑关联（`track_album_links`）。
 
@@ -206,5 +215,5 @@ Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这
 - 手打歌词单独同步（缓存规则已改为用户选的行不按天数过期、整体 10 MiB LRU，见 `data/lyrics/LyricsCachePolicy.kt`，前提已具备）
 - 播放历史（按月分块文件）
 - 自动清理长期不活跃设备的文件
-- iOS、HarmonyOS 发起「从云端移除」与对应界面（两边都已应用清除标记，见「从云端移除一个账号」）
+- iOS 发起「从云端移除」与对应界面（已应用清除标记，见「从云端移除一个账号」；HarmonyOS 自 parity phase 2 起已能发起）
 - 转移后在本机删掉旧账号卡片的入口（All Memories / 搜索会合并所有本机账号，不删会看到两份）

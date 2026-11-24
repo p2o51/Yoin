@@ -181,6 +181,35 @@ abstract final class SettingsMetrics {
   static const double syncSummaryAlpha = 0.6; // account status line on a service line
   static const double syncDisabledAlpha = 0.38; // a destructive row while it can't be used (M3 disabled content)
 
+  // Cloud data (CloudDataScreens.kt / SyncCommon.kt): an account's data in the cloud.
+  static const double syncAccountTrailingEnd = 4; // CloudAccountCard: ⋮ sits closer to the edge
+  static const double syncAccountHeaderTop = 16; // CloudAccountPage header
+  static const double syncAccountHeaderGap = 8;
+  static const double syncAccountHeaderBottom = 16;
+  static const double syncAccountGlyph = 88; // AccountGlyph(size = 88.dp) on a 6-sided cookie
+  static const double syncAccountGlyphIcon = 0.5; // the glyph at half the cookie
+  static const double syncPillH = 8; // SyncPill
+  static const double syncPillV = 2;
+  static const double syncNoteIcon = 18; // SyncNote
+  static const double syncNoteGap = 8;
+  static const double syncNoteV = 4;
+  static const double syncSearchMinHeight = 56; // SyncSearchField
+  static const double syncSearchPaddingH = 18;
+  static const double syncSearchPaddingV = 14;
+  static const double syncSearchGap = 12;
+  static const double syncSearchClear = 20;
+  static const double syncContentGap = 12; // search → tabs → list
+  static const double syncTabGap = 8; // SyncTabs
+  static const double syncLoadingRowV = 24; // LoadingRow
+  static const double syncLoadingRowGap = 16;
+  static const double syncLoadingRow = 40;
+  static const double syncEmptyV = 40; // ItemList's empty text
+  static const double syncBrowserMinHeight = 64; // BrowserItem
+  static const double syncBrowserLineGap = 4;
+  static const double syncBrowserGap = 12;
+  static const double syncBrowserStampGap = 8;
+  static const double syncDialogGap = 10; // RemoveFromCloudDialog's paragraphs
+
   // Settings › AI features (AiSettingsPage.kt): blocks 20 apart, the tier cards (TierCard) 84 high,
   // 8 apart, their corner 22 at rest and 32 chosen, the label 18 in.
   static const double aiBlockGap = 20;

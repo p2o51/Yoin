@@ -465,6 +465,7 @@
     <string name="settings_sync_location_label">Sync location</string>
     <string name="settings_sync_location_change">Change</string>
     <string name="settings_sync_google_drive">Google Drive</string>
+    <string name="settings_sync_icloud" translatable="false">iCloud</string>
     <string name="settings_sync_sync_now">Sync now</string>
     <string name="settings_sync_section_cloud_data">Cloud data</string>
     <string name="settings_sync_cloud_data_where">In Google Drive</string>

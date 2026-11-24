@@ -1,7 +1,7 @@
 package com.gpo.yoin.ui.settings.sync
 
-import com.gpo.yoin.data.sync.backup.BackupReadException
-import com.gpo.yoin.data.sync.backup.ImportTarget
+import com.gpo.yoin.shared.portability.BackupReadException
+import com.gpo.yoin.shared.portability.ImportTarget
 import com.gpo.yoin.testutil.MainDispatcherRule
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream

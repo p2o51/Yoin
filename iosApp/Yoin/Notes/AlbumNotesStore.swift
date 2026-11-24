@@ -67,6 +67,12 @@ final class AlbumNotesStore {
         return Self.oldestFirst(stored.filter { $0.provider == provider && $0.albumId == albumId && visible($0) })
     }
 
+    /// The account in use's notes on [provider], every album's, oldest first (Mentioned in reads them).
+    func notes(provider: String) -> [AlbumNote] {
+        _ = revision
+        return Self.oldestFirst(stored.filter { $0.provider == provider && visible($0) })
+    }
+
     /// Every account's notes.
     var everyAccount: [AlbumNote] {
         _ = revision

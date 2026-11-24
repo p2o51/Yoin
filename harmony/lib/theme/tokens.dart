@@ -412,6 +412,9 @@ abstract final class NowPlayingNoteTokens {
   static const double glanceRowPadV = 4;
   static const double pageRowPadV = 6;
   static const double glanceInactiveScale = 0.94;
+
+  /// A line open in the write bar for rewriting: its alpha (Android 0.38).
+  static const double editingAlpha = 0.38;
   static const double pageInactiveScale = 0.97;
   static const double metaGap = 2;
 
@@ -2604,4 +2607,129 @@ abstract final class HomeCarryTokens {
   static const double holePxThreshold = 0.3;
   static const double settlePxThreshold = 0.4;
   static const double neighbourPxThreshold = 0.3;
+}
+
+/// Notes 0.6.4 (Android ui/component/NoteMarkupText.kt, ui/notes/editor/MentionPopup.kt,
+/// NoteFormatToolbar.kt, ui/detail/AlbumScrapbookNotes.kt BacklinksSection): drawn mentions,
+/// the long-press peek, the @ popup, the formatting row and 被提及.
+abstract final class NoteMentionTokens {
+  /// The drawn mention's pill, in ems of its own text: lead, cover, gap, tail, height.
+  static const double pillPadStartEm = 0.22;
+  static const double pillThumbEm = 1;
+  static const double pillGapEm = 0.3;
+  static const double pillPadEndEm = 0.45;
+  static const double pillHeightEm = 1.3;
+
+  /// The pill's fill (the mention colour at this alpha), deeper by [pillPressedAlpha] while pressed.
+  static const double pillAlpha = 0.12;
+  static const double pillPressedAlpha = 0.14;
+
+  /// The cover's corner as a fraction of its side (an artist's picture is round); the
+  /// kind's symbol on [thumbTintAlpha] of the mention colour while there is no picture.
+  static const double thumbCornerFraction = 0.24;
+  static const double thumbTintAlpha = 0.16;
+  static const double thumbSymbolFraction = 0.72;
+
+  /// The peek card: widest, padding, cover, gap, distance from the mention.
+  static const double peekMaxWidth = 280;
+  static const double peekPadding = 12;
+  static const double peekArt = 56;
+  static const double peekGap = 12;
+  static const double peekMargin = 12;
+  static const double peekCorner = 20;
+  static const double peekElevation = 6;
+  static const double peekEnterScale = 0.86;
+  static const double peekExitScale = 0.92;
+
+  /// The peek's album line: onSurfaceVariant at this alpha.
+  static const double peekAlbumAlpha = 0.72;
+}
+
+abstract final class NoteEditorTokens {
+  /// The editor's chip: its inset and corner.
+  static const double chipPadH = 4;
+  static const double chipCorner = 6;
+
+  /// Markdown markers and a done to-do's words: the text colour at this alpha.
+  static const double markerAlpha = 0.38;
+
+  /// A heading's size in the editor (Android 1.1.em).
+  static const double headingScale = 1.1;
+
+  /// The @ popup: width, distance from the field, the rows' tallest / shortest, its chrome (title row + padding).
+  static const double popupWidth = 312;
+  static const double popupMargin = 8;
+  static const double popupMaxListHeight = 300;
+  static const double popupMinListHeight = 96;
+  static const double popupChrome = 64;
+  static const double popupCorner = 20;
+  static const double popupElevation = 6;
+  static const double popupPadV = 6;
+  static const double popupTitlePadStart = 16;
+  static const double popupTitlePadEnd = 4;
+  static const double popupExpandGlyph = 16;
+  static const double popupExpandGap = 6;
+  static const double popupEnterScale = 0.86;
+  static const double popupEmptyPadH = 16;
+  static const double popupEmptyPadV = 12;
+
+  /// "Search all": the sheet's share of the window, its field's inset and corner, the empty label's
+  /// inset, the bottom room, how long typing settles before it searches, rows per kind.
+  static const double sheetHeightFraction = 0.85;
+  static const double sheetFieldPadH = 20;
+  static const double sheetFieldPadV = 8;
+  static const double sheetFieldCorner = 28;
+  static const double sheetEmptyPad = 24;
+  static const double sheetBottomPad = 24;
+  static const int sheetDebounceMs = 220;
+  static const int sheetRowsPerKind = 12;
+
+  /// A popup row: outer inset, its tint's corner, inner padding, cover, cover → words.
+  static const double rowInsetH = 6;
+  static const double rowCorner = 16;
+  static const double rowPadH = 10;
+  static const double rowPadV = 6;
+  static const double rowArt = 40;
+  static const double rowGap = 12;
+  static const double sectionPadStart = 16;
+  static const double sectionPadTop = 8;
+  static const double sectionPadBottom = 2;
+
+  /// The popup's first query waits this long after the last letter (each letter filters what's known at once).
+  static const int queryDebounceMs = 160;
+
+  /// The service search gives up after this long (the recent plays that match stand).
+  static const int searchTimeoutMs = 6000;
+
+  /// Recent plays offered before anything is typed; covers asked at this size.
+  static const int recentLimit = 40;
+  static const int coverSize = 120;
+
+  /// The formatting row: each toggle, its glyph, the gap between them; the letters' sizes.
+  static const double toolSize = 36;
+  static const double toolGlyph = 20;
+  static const double toolGap = 2;
+  static const double toolLetter = 17;
+  static const double toolBulletLetter = 22;
+}
+
+abstract final class NoteBacklinkTokens {
+  /// The section: badge, its glyph, title row gaps, gap between clippings.
+  static const double badge = 30;
+  static const double badgeGlyph = 18;
+  static const double titleGap = 10;
+  static const double clipGap = 14;
+
+  /// A clipping: padding, cover, row gap, the chevron, the tilt's share of a card's.
+  static const double clipPadH = 14;
+  static const double clipPadV = 12;
+  static const double clipArt = 34;
+  static const double clipRowGap = 10;
+  static const double clipLineGap = 8;
+  static const double chevron = 20;
+  static const double tiltShare = 0.6;
+  static const int snippetLines = 3;
+
+  /// The highlighter over a mention that points here: the ask colour at this alpha.
+  static const double markerAlpha = 0.55;
 }
