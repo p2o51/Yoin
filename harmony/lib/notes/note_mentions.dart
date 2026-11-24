@@ -13,6 +13,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/memory/memory_store.dart';
 import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
 import '../data/notes/mention_resolver.dart';
@@ -20,6 +21,7 @@ import '../data/notes/note_markup.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_routes.dart';
 import '../detail/scrapbook_focus.dart';
+import '../theme/tokens.dart';
 
 /// Where a mention takes the reader.
 sealed class NoteDestination {
@@ -62,6 +64,8 @@ class NoteMentions extends Notifier<Map<MentionRef, bool>> {
   static const openCooldown = Duration(seconds: 1);
 
   final Set<MentionRef> _asked = {};
+  final Map<MentionRef, String?> _artworks = {};
+  final Set<MentionRef> _artworkAsked = {};
   int _generation = 0;
   bool _opening = false;
   DateTime? _openedAt;
@@ -71,8 +75,61 @@ class NoteMentions extends Notifier<Map<MentionRef, bool>> {
     // A new account (or its source landing) starts over.
     ref.watch(activeSourceProvider);
     _asked.clear();
+    _artworks.clear();
+    _artworkAsked.clear();
     _generation++;
     return const {};
+  }
+
+  /// The cover (or artist picture) a drawn mention shows before its name.
+  /// Read in build like [isResolved]: null until it is known (asked for once
+  /// in the background, a landing answer redraws), and for one with none.
+  String? artworkUrl(NoteMention mention) {
+    if (_artworks.containsKey(mention.ref)) return _artworks[mention.ref];
+    if (_artworkAsked.add(mention.ref)) {
+      final generation = _generation;
+      unawaited(
+        Future.microtask(() async {
+          String? url;
+          try {
+            url = await _artworkOf(mention);
+          } on Object {
+            url = null;
+          }
+          if (!ref.mounted || generation != _generation) return;
+          _artworks[mention.ref] = url;
+          // A new map: the drawn notes redraw with the cover.
+          if (url != null) state = {...state};
+        }),
+      );
+    }
+    return null;
+  }
+
+  /// A resolved mention's artwork: a song's cover from Yoin's plays, else the
+  /// service; an album's from its plays, else the service; an artist's picture.
+  Future<String?> _artworkOf(NoteMention mention) async {
+    final answer = await (await _resolver()).resolve(mention);
+    if (answer is! MentionResolved) return null;
+    final source = await ref.read(activeSourceProvider.future);
+    if (source == null) return null;
+    final store = await ref.read(memoryStoreProvider.future);
+    final id = answer.id;
+    CoverRef? cover;
+    switch (mention.kind) {
+      case MentionKind.track:
+        for (final t in await store?.trackPlays() ?? const <TrackPlays>[]) {
+          if (t.trackId == id) cover = CoverRef.fromStorageKey(t.coverArtKey);
+        }
+        cover ??= (await source.trackLookup?.getTrack(id))?.coverArt;
+      case MentionKind.album:
+        cover = CoverRef.fromStorageKey((await store?.playsOf(id))?.coverArtKey);
+        cover ??= (await source.library.getAlbum(id))?.coverArt;
+      case MentionKind.artist:
+        cover = (await source.library.getArtist(id))?.coverArt;
+    }
+    if (cover == null) return null;
+    return source.resolveCoverUrl(cover, size: NoteEditorTokens.coverSize);
   }
 
   /// Read in build: never changes state synchronously; a missing answer is asked for in the background.

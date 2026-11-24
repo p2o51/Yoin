@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/about/song_about_store.dart';
 import 'package:yoin/data/ai/ai_service.dart';
@@ -341,7 +342,7 @@ void main() {
       await _settle(tester);
       await tester.tap(find.text('Note · 1'));
       await _settle(tester);
-      await tester.tap(find.textContaining('Bold see Blue', findRichText: true).last);
+      await tester.tap(find.textContaining('Bold see', findRichText: true).last);
       await _settle(tester);
       await tester.tap(find.text('Edit'));
       await _settle(tester);
@@ -349,7 +350,9 @@ void main() {
 
     testWidgets('should_drawMarkupNotRawLinks_when_androidNoteShown', (tester) async {
       await openPage2(tester, noteText: androidNote);
-      expect(find.textContaining('Bold see Blue', findRichText: true), findsWidgets);
+      // The mention is a pill (cover + name) in the words.
+      expect(find.textContaining('Bold see', findRichText: true), findsWidgets);
+      expect(find.widgetWithText(MentionPill, 'Blue'), findsWidgets);
       expect(find.textContaining('yoin:', findRichText: true), findsNothing);
       expect(find.textContaining('**', findRichText: true), findsNothing);
       await tester.longPress(find.text('Song t2'));
