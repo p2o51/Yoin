@@ -86,7 +86,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Records
 
-    private struct Note { var time: String; var text: String; var positionMs: Int64? = nil }
+    private struct Note { var time: String; var text: String; var positionMs: Int64? = nil; var id: String? = nil }
 
     /// The mock library: hand-set records (screenshots); a server album: the listener's own.
     private var isMock: Bool { album.id.provider == "mock" }
@@ -138,7 +138,8 @@ struct AlbumScrapbookView: View {
         }
         let list = NotesStore.shared.notes(provider: provider, trackId: t.id.rawId)
         return list.isEmpty ? nil : list.map {
-            Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content, positionMs: $0.positionMs)
+            Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content, positionMs: $0.positionMs,
+                 id: $0.id)
         }
     }
 
@@ -272,7 +273,7 @@ struct AlbumScrapbookView: View {
         .sheet(item: $trackSheet) { open in
             ScrapTrackSheet(track: open.track, album: album, scheme: s, store: model.store,
                             scoreEditable: !isMock, initialEditing: open.editing, initialTab: open.tab,
-                            onPlayFrom: { ms in play(open.track, at: ms) })
+                            initialNote: open.note, onPlayFrom: { ms in play(open.track, at: ms) })
                 .reportsSheetRise()
                 .ySolidSheet(s.surfaceContainerLow)
         }
@@ -447,7 +448,10 @@ struct AlbumScrapbookView: View {
                         .modifier(layer(sticky.tilt * 0.4, depth: 0.45))
                 } else if stickiesEditable {
                     let words = NoteMarkupRender.words(sticky.text)
-                    Button { openSticky(sticky) } label: { ScrapStickyCard(text: sticky.text, scheme: s) }
+                    Button { openSticky(sticky) } label: {
+                        ScrapStickyCard(text: sticky.text, scheme: s,
+                                        onToggleChecklist: { NoteChecklist.toggleAlbumNote(sticky.noteId, line: $0) })
+                    }
                         .buttonStyle(.plain).pointerHighlight()
                         .accessibilityLabel(Text("Album note: \(words)"))
                         .accessibilityHint(Text("Edit album note: \(words)"))
@@ -790,13 +794,15 @@ struct AlbumScrapbookView: View {
             Capsule().fill(s.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(ns.prefix(ScrapbookRules.notesShown).enumerated()), id: \.offset) { _, n in
-                    // A note plays the song from its moment (Android NoteLine).
-                    Button { play(t, at: n.positionMs) } label: {
+                    // A note opens itself (owner 2026-11-24, no longer plays): the sheet's Notes page, the note
+                    // brought into view and ringed, Edit and Play from a tap away.
+                    Button { trackSheet = ScrapSheetOpen(track: t, tab: .notes, note: n.id) } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary)
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary,
+                                           onToggleChecklist: n.id.map { id in { NoteChecklist.toggleSongNote(id, line: $0) } })
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                                 .foregroundStyle(s.onSurface)
                                 .multilineTextAlignment(.leading)
