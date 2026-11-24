@@ -45,6 +45,19 @@ internal fun tipsReadSummary(): String {
     }
 }
 
+/** "3 of 10 tips read" / "All tips read" — the Help and feedback row's summary on root Settings (v4). */
+@Composable
+internal fun helpTipsSummary(): String {
+    val read by rememberTipReadStore().read.collectAsState()
+    val tips = remember { HomeBubbleTip.available() }
+    val readCount = tips.count { it in read }
+    return if (readCount >= tips.size) {
+        stringResource(R.string.settings_help_tips_all_read)
+    } else {
+        stringResource(R.string.settings_help_tips_read_count, readCount, tips.size)
+    }
+}
+
 /**
  * Settings › About › Tips as a page: every tip, read ones checked; a tap
  * opens it on its own page. Once something is read, one more row marks them

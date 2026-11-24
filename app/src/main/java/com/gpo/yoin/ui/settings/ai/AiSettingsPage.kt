@@ -91,6 +91,7 @@ import com.gpo.yoin.ui.component.keepInViewAboveKeyboard
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.settings.ExperimentalFeaturesSection
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.SettingsFeature
 import com.gpo.yoin.ui.settings.SettingsFeatureActivity
@@ -101,10 +102,9 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
- * Settings › AI features (owner 2026-11-12, prototype v2): a service row, the
- * tradeoff chart with 「换个角度」, two tier cards and the key. Custom swaps the
- * tiers for its endpoint, model, thinking and search. Details live on the tier
- * page (ⓘ), the debug run on 「拿一首歌试试」 (both Pattern A pages).
+ * Settings › AI features (owner 2026-11-12, prototype v2; Settings IA v4): a service row, the
+ * tradeoff chart with 「换个角度」, two tier cards and the key, plus the merged single-group
+ * 「实验功能」(Experimental features) section at the bottom.
  */
 @Composable
 internal fun AiSettingsPageContent() {
@@ -113,14 +113,17 @@ internal fun AiSettingsPageContent() {
     val viewModel: AiSettingsViewModel = viewModel(factory = AiSettingsViewModel.Factory(app.container))
     val state by viewModel.state.collectAsState()
     val uriHandler = LocalUriHandler.current
-    AiSettingsPageBody(
-        state = state,
-        actions = viewModel,
-        onOpenTiers = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTiers)) },
-        onOpenTry = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTry)) },
-        // No app to open a link with (no browser on the device) must not take the page down.
-        onOpenLink = { url -> runCatching { uriHandler.openUri(url) } },
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        AiSettingsPageBody(
+            state = state,
+            actions = viewModel,
+            onOpenTiers = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTiers)) },
+            onOpenTry = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTry)) },
+            // No app to open a link with (no browser on the device) must not take the page down.
+            onOpenLink = { url -> runCatching { uriHandler.openUri(url) } },
+        )
+        ExperimentalFeaturesSection()
+    }
 }
 
 /**

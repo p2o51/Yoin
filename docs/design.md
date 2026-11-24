@@ -535,31 +535,37 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 - **曲目行的笔记标记（2026-10-11，T4）**：有笔记的曲目在行标题后面挂和专辑曲目行一样的笔记小图标（12dp `YoinSymbols.Note`，页面 accent 色、0.8 透明度，TalkBack 读 "Has note"）。独立的歌单 Activity 和同窗分列的详情列都一样；笔记写入后实时出现。有笔记的曲目集合在行出来之后才读到，所以标记落在已经显示的行上时，从标题末尾用空间弹簧展开、用 effects spring 淡入，标题的省略号跟着平滑让位，不硬切；笔记删掉时按同样的方式收起。accent 在绘制阶段读取，封面配色的弹簧只重绘标记，不让曲目列表逐帧重组。Hero 里的流动标题不加标记（刻意的设计）。歌单本身没有 Memory。
 - **从播放列表移除（2026-11-12，和 iOS 对齐）**：歌单页长按曲目行升起的歌曲面板，最后多一组只有一行的「从播放列表移除 / Remove from playlist」（`YoinSymbols.Delete`，排在「前往…」那组后面；专辑页和正在播放的面板没有这一行）。只在这个账号能改的歌单上出现：`Playlist.canWrite`（重命名、删除用的同一个判断）并且服务有 `Capability.PLAYLISTS_WRITE`，所以 Apple Music 和别人的歌单没有。点了不二次确认：面板收起，这一行用 effects spring 淡出，下面的行用空间弹簧补上来（`animateItem`，行按条目而不是按位置编 key），曲目数和总时长一起减。只移除点的这一条：同一首歌在歌单里出现两次，另一条留着。服务拒绝时这一行回到原位，snackbar 和重命名、删除失败时一样（服务给了原因就显示原因，否则「无法移除曲目」）。连着移除几首时一条一条发，后一条按前一条完成后的位置算。Subsonic 的 `updatePlaylist` 只认下标、不做校验，所以发之前先重新读一次服务器上的歌单，按歌曲 id 找离原位置最近的那一条，找不到就不发；Spotify 发 `DELETE /v1/playlists/{id}/items`，body 是 `items: [{uri, positions}]` 加 `snapshot_id`（`items` 是现行参考里的字段，`tracks` 属于已弃用的 `/tracks`；`positions` 现行参考没写，和 iOS 一样照发，Spotify 若不认它，可能按 uri 删掉所有同曲条目，未在真机验证），位置是 Spotify 自己的条目序号（本地文件、播客也占位）。成功后重新读一次歌单。实现：`PlaylistDetailViewModel.removeTrack`、`TrackMenuSheet(onRemoveFromPlaylist)`。
 
-### ⚙️ 设置（从主页或 Library 进入）
+### ⚙️ 设置（从主页或 Library 进入；2026-11-24 Settings IA v4 定稿）
 
-- 服务器配置（Subsonic/Navidrome 地址、认证）
-- 缓存管理（容量限制、清除）
-- 主题偏好
-- 关于 / 版本信息；关于的第一行“重新引导”再跑一遍首次引导（2026-10-09）；当前账号导入过 Spotoolfy 时，关于里多一行“Spotoolfy 回顾”，打开同一个回顾页，最后一页是“完成”（2026-10-15，D15）
-- 动效 / 外观 › **滚动边缘（`ScrollEdge`）**（2026-10-09 起是整页，不再是下拉菜单）：一种样式一张卡，卡上是这种样式真的在滚的小图 + 一段说明，最下面一句说明底栏和状态栏不受影响；`SettingsFeatureActivity` 的 `ScrollEdge`，大屏在右栏打开；小图的封面列数随宽度增加（每列约 112dp，3–8 列），不拉宽封面
-- 外观 › **屏幕圆角（`ScreenCorners`，Android & HarmonyOS）**：允许在 `0–64 dp` 滑块调节或还原「跟随屏幕显示圆角」（Android 通过 `Display.getRoundedCorner()` 读取，无报告兜底 `28 dp`；**按设备本地保存、不上云同步**），让 Now Playing 升降、Memories 收退与预测性返回缩放卡缘严丝合缝贴合屏幕玻璃；调节微步触发 `performFrequentTick()`。iOS/macOS 由系统屏幕容器统一管理，不单独暴露该设置。
-- 账号 › **音量平衡（`Volume leveling` / ReplayGain）**：仅对 **Subsonic / OpenSubsonic** 账号开放（Spotify 与 Apple Music 由官方客户端/SDK 自行处理故隐藏）：支持 `Off`、`By track`、`By album`（音轨或专辑 ReplayGain 标签叠加 Pre-amp 与防削波峰值上限）。iOS/macOS 端受 `AVAudioMix` 音量上限 `1.0` 限制，正增益仅播放至满幅 `0 dB`，超响音轨正常衰减。
-- **在线 AI v2（`设置 › 功能 › 在线 AI`，Android + HarmonyOS；iOS/macOS 目前为 Gemini v1）**：
+- **顶层架构（3 组 × 6 行，取代此前的 4 组 15 行）**：顶部横向账号卡片条之下固定收敛为 3 个分组共 6 个二级入口行，行摘要全部采用空白分隔的 `MetaLine`，不使用 `·` / `•` / `—` 连接符：
+  1. **功能与外观（`Features and appearance`）**：
+     - **AI 功能（`AI features`）**：上方保留在线 AI 完整配置（服务 chips、带「换个角度」的四服务二维散点图、档位卡片、密钥、回答语言与「拿一首歌试试」），底部合并原 `Yoin Labs` 为单组**实验功能（`Experimental features`）**（本机模型状态 + Android `Gemini Nano 诊断` + 实验功能开关）。
+     - **外观（`Appearance`）**：Android / HarmonyOS 页内上半直接平铺**滚动边缘（`ScrollEdge`）**三张实时预览卡，底部挂**屏幕圆角（`ScreenCorners`）**入口；iOS / macOS 提供 `Solid Surfaces`（实色界面）开关。
+  2. **同步与存储（`Sync and storage`）**：
+     - **同步与备份（`Sync and backups`）**：单组 3 行——**云同步**、**NeoDB**、**歌单云备份**（保留 `SettingsFocus.NEODB` 深链直达）。
+     - **存储（`Storage`）**：去掉设置首页行内误触风险高的「清除」按钮；二级页单组承载**播放缓存**（含清除）与当前在用 Subsonic 账号的**离线下载**。
+  3. **帮助与关于（`Help and about`）**：
+     - **帮助与反馈（`Help and feedback`）**：摘要显示小技巧已读进度；二级页上组为**小技巧**、**欢迎引导**、**使用文档**，下组为**发送反馈**、**导出日志**。
+     - **关于 Yoin（`About Yoin`）**：摘要显示当前版本号；二级页单组 4 行——**版本**、**官网**、**隐私政策**、**开源许可**。原设置页里的「Spotoolfy 回顾」入口已移除（首次导入与分享导入流程不受影响）。
+- **外观 › 滚动边缘（`ScrollEdge`）**：一种样式一张卡，卡上是这种样式真的在滚的小图 + 一段说明，最下面一句说明底栏和状态栏不受影响；小图的封面列数随宽度增加（每列约 112dp，3–8 列），不拉宽封面。
+- **外观 › 屏幕圆角（`ScreenCorners`，Android & HarmonyOS）**：允许在 `0–64 dp` 滑块调节或还原「跟随屏幕显示圆角」（Android 通过 `Display.getRoundedCorner()` 读取，无报告兜底 `28 dp`；**按设备本地保存、不上云同步**），让 Now Playing 升降、Memories 收退与预测性返回缩放卡缘严丝合缝贴合屏幕玻璃；调节微步触发 `performFrequentTick()`。iOS/macOS 由系统屏幕容器统一管理，不单独暴露该设置。
+- **账号 › 音量平衡（`Volume leveling` / ReplayGain）**：仅对 **Subsonic / OpenSubsonic** 账号开放（Spotify 与 Apple Music 由官方客户端/SDK 自行处理故隐藏）：支持 `Off`、`By track`、`By album`（音轨或专辑 ReplayGain 标签叠加 Pre-amp 与防削波峰值上限）。iOS/macOS 端受 `AVAudioMix` 音量上限 `1.0` 限制，正增益仅播放至满幅 `0 dB`，超响音轨正常衰减。Apple Music 账号页将原「歌曲名」组标题更新为**歌曲与艺人名（`Song and artist names`）**（保留按 Apple Music 显示 / 按歌曲原地区 / 按指定地区三选一）。
+- **在线 AI v2（`设置 › 功能与外观 › AI 功能`）**：
   - **可选模型服务（`AiProvider`）**：① **Gemini**（`gemini-3.1-flash-lite` Good / `gemini-3.5-flash-lite` Best，自带 Google 搜索）；② **DeepSeek**（`deepseek-flash`，Good 1 次搜索 / Best 2 次搜索，走 `/v1/tools/search`）；③ **千问 Qwen**（`qwen-flash`，仅 Good 单档，`enable_search + forced_search`）；④ **自定义服务**（`AiApiFormat.OpenAi` `/chat/completions` 或 `Anthropic` `/messages`，支持自填 Base URL、手动或拉取 `/models` 列表、思考强度 `Off/Low/Medium/High`）。
   - **外部搜索与评测**：自定义服务可挂接 **DeepSeek Search**、**Exa**（`api.exa.ai/search`）、**Tavily**（`api.tavily.com/search` advanced+chunks）、**Brave**（`res/v1/llm/context`，403/404/422 自动回退 `res/v1/web/search`）、**火山/豆包搜索**（`open.feedcoopapi.com/search_api/web_search`）或关闭搜索；设置页内嵌约 500 首实测参考表（`AiTierBenchmark`），并支持「**拿一首歌试试**」（从最近 `6` 首播放里选曲现场试跑并展示耗时与效果）。
   - **密钥安全**：Android 上 DeepSeek/千问/自定义/搜索密钥存于 `noBackupFilesDir/ai_provider.json`（`FileAiProviderStore`），不进 Android 备份；Gemini Key 当前位于主库 `gemini_config` 表；iOS 存于 Keychain；HarmonyOS 全量存于系统 `SecretStore`。**所有 AI 密钥均不参与 Google Drive 云同步**。
-- **设备端 AI 与歌词卡片（`lyric_highlight`）**：Android 依赖系统 **Gemini Nano** 后台挑句（低电量/压力时让路，`NanoDiagnostics` 提供测试面板）；iOS/macOS 使用 **Apple Intelligence**（`LanguageModelSession`）；HarmonyOS 由用户分享/保存歌词图片卡时自选句子收录（无本地 LLM 依赖）。
+- **设备端 AI 与歌词卡片（`lyric_highlight`）**：Android 依赖系统 **Gemini Nano** 后台挑句（低电量/压力时让路，`NanoDiagnostics` 提供测试面板）；iOS/macOS 使用 **Apple Intelligence**（`LanguageModelSession`）；HarmonyOS 由用户分享/保存歌词图片卡时自选句子收录（无本地 LLM 依赖）。**2026-11-24 起，轻点首页歌词卡片统一从歌曲开头（`0s`）完整播放**，不再跳到句首时间戳。
 - **硬件键盘快捷键与桌面指针交互**：Android `ShellShortcuts` 提供 12 组 `Ctrl`/`Alt` 快捷键（避开 Android 系统占用 `Meta`）；HarmonyOS `desktop_shortcuts.dart` 覆盖全部 12 组并扩展桌面快捷键（`Ctrl+L` 正在播放面板 ⇄ 全窗、`Ctrl+F` 正在播放聚焦、`←/→` 快退/快进 5 秒、`Esc` 返回/退出搜索、`Shift+F10`/`Menu` 上下文菜单，注 `Ctrl+K` 为资料库搜索）及鼠标悬停/右键菜单；iPadOS/macOS 通过 `YoinCommands` 提供 `⌘` 键与 Mac 菜单栏指令，`PointerHover` 在 Mac 端以 `.brightness()` 呈现悬停反馈并开启间接触控板右键（`SecondaryClick`）。
 
-#### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
+#### 账号与服务二级页（2026-09-26，2026-11-24 v4 更新卡片范围提示与「设置 ›」胶囊）
 
-- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，两个 Activity 不合并；这是 app 里唯一还在用 Activity Embedding 的地方）。左栏账号卡改为竖排行、右栏打开的那个高亮（⋮ 里保留 Use / Remove）；Features 里的 AI features / NeoDB 也在右栏打开（`SettingsFeatureActivity`），窄窗仍是行内展开。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
-- Settings 主页只做「列出 / 切换 / 移除」：Accounts 横向卡片，其余设置按 Features / Storage / About 分组，行内折叠展开（空间弹簧 + 效果弹簧），不再平铺说明段落。
+- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，两个 Activity 不合并；这是 app 里唯一还在用 Activity Embedding 的地方）。左栏账号卡改为竖排行（整行点按即在右栏打开对应账号设置页，当前在用账号显示服务色「使用中」胶囊，右栏正在展示的那一行切换为 `surfaceContainer` 高亮，⋮ 里保留 Use / Remove）；下方 6 个二级入口行同样在右栏打开并联动左栏选中态。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
+- Settings 主页顶部为 Accounts 横向卡片，下方按**功能与外观 / 同步与存储 / 帮助与关于** 3 组 × 6 行组织，每行均打开独立二级页，不再行内折叠或平铺说明段落。
 - **Settings 视觉系统（2026-10-03，参照 Pixel Settings 子页面，取代此前的渐变底 + 整块面板 + 分隔线）**：
   - 页面平铺 `surfaceContainer`，行用 `surfaceBright`（深浅同一规则，行永远比页面亮）；每行是 M3 Expressive 分段列表的一段（`ListItemDefaults.segmentedShapes` 位置圆角 + `SegmentedGap` 2dp 间隙，无分隔线），行位置变化时圆角走空间弹簧。行高 ≥ 72dp：16dp 内边距 + 40dp 图标列（24dp 单色线条图标，onSurfaceVariant）+ 12dp + 文字。分类标签 primary、内缩 8dp。
   - 页头：浅色圆底返回键（`DetailBackButton`，surfaceContainerHighest）+ 大号页标题（displaySmall），返回键左缘、页标题、分类标签同在 24dp 线上；标题滚入顶栏时交接为小标题（与服务二级页同一套交接）。Settings 家族（主页、功能子页、服务二级页）**全宽**，不套 640dp 阅读宽度（用户 2026-10-04：居中的内容列配上铺满的卡片行像两套布局）。
   - 大屏 list-detail：左栏底色降为 `surfaceDim`，打开的那一行换成右栏的 `surfaceContainer` 并四角全圆（M3 selectedShape），脱离相邻行；颜色效果弹簧、圆角空间弹簧。
-- **账号卡片（2026-10-03，头像 2026-10-04 改版）**：头像两层——**后面大的是服务**：账号专属 MaterialShapes 形状（8 种轮廓互不相像；按创建顺序 + id 哈希探测分配，同屏不重复，形状变化时 Morph 过去）填服务强调色，上面是 Yoin Symbols 手法重画的服务标志（`ServiceMarks`：Spotify 三道弧、Apple Music 双连音符；Subsonic 用 Cloud）；**右下角小圆是本人**：有服务头像就用（Spotify `/me` 的头像，存在 `ProfileAvatarStore`，只存公开图片地址，登录时写入、打开设置时为当前 Spotify 账号刷新），否则是昵称首字（跳过开头的服务名；dp 定字号）。是否在用由卡片本身表达：在用卡片填服务 container 色、比例 1，其余 `surfaceBright`、0.96。卡片文字 = 账号名（Subsonic 用用户名）+ 服务行（"Subsonic · host" / "Spotify"；标题已含服务名则省略）+ 状态胶囊（问题 > In use；在用账号有问题时写成 "问题 · In use"）。卡片行越过 16dp 页边铺到屏幕两缘，静止时首卡对齐页边，**不加边缘渐隐**（用户 2026-10-03 明确要求去掉，同 Home Recently Added 例外）；卡片高度按字号逐行计算，大字号不截断。打开管理页时把账号的"脸"（名称 / 位置 / 形状序号 / 头像地址，不含凭据）随 Intent 带过去，首帧即正确。
+- **账号卡片（2026-10-03，头像 2026-10-04 改版，2026-11-24 v4 补齐可设范围与「设置 ›」胶囊）**：头像两层——**后面大的是服务**：账号专属 MaterialShapes 形状（8 种轮廓互不相像；按创建顺序 + id 哈希探测分配，同屏不重复，形状变化时 Morph 过去）填服务强调色，上面是 Yoin Symbols 手法重画的服务标志（`ServiceMarks`：Spotify 三道弧、Apple Music 双连音符；Subsonic 用 Cloud）；**右下角小圆是本人**：有服务头像就用（Spotify `/me` 的头像，存在 `ProfileAvatarStore`，只存公开图片地址，登录时写入、打开设置时为当前 Spotify 账号刷新），否则是昵称首字（跳过开头的服务名；dp 定字号）。是否在用由卡片本身表达：在用卡片填服务 container 色、比例 1，其余 `surfaceBright`、0.96。卡片文字 = 账号名（Subsonic 用用户名）+ 可配置范围（`200dp` 窄卡片上 Subsonic 将服务器域名与 `音质与下载` / `Quality and downloads` 分两行展示，避免英文下域名被挤成省略号；双栏宽列表行单行并排、域名优先省略；Lyra 为 `曲库与音源`；Apple Music 为 `歌曲与艺人名`；Spotify 为 `连接与播放设备`，不用 `·` 连接）+ 底部胶囊槽（账号存在异常时显示异常胶囊；无异常时在原胶囊槽位常驻可点击的**「设置 ›」**胶囊，`0` 额外卡片高度，轻点非当前卡片主区域仍切账号，轻点「设置 ›」直接进入该账号设置页）。卡片行越过 16dp 页边铺到屏幕两缘，静止时首卡对齐页边，**不加边缘渐隐**（用户 2026-10-03 明确要求去掉，同 Home Recently Added 例外）；卡片高度按字号逐行计算，大字号不截断。打开管理页时把账号的"脸"（名称 / 位置 / 形状序号 / 头像地址，不含凭据）随 Intent 带过去，首帧即正确。
 - 服务能做什么，只在用户表达兴趣时讲：Add → 选择面板（每项名称 + 一句话）→ 服务二级页 `ServiceSetupActivity`。二级页 = 服务标识 + 一句定位 + What you get（≤4 条亮点）+ You'll need（前置条件）+ 连接表单。不做支持矩阵、不罗列“不能做什么”；做不了的操作照旧隐藏，失败时给简短可处理的错误。
 - 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。Subsonic 的「测试」连上后，状态行下面多一行服务器自报的名称和版本（OpenSubsonic 的 `type` 加 `serverVersion`，如 Navidrome 0.64.2，onSurfaceVariant，和状态文字左对齐）；纯 Subsonic 服务器不报，就只有状态行。
 - 返回：二级页是无共享 chrome 的全屏目的地 → Pattern A 原生跨 Activity 预测性返回，零 back 代码；新账号的切换由 Settings 在自己的 scope 里执行（二级页经 ActivityResult 回传 id）。

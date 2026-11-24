@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/platform/window/display_corners.dart';
+import 'package:yoin/settings/appearance/appearance_group.dart';
 import 'package:yoin/settings/appearance/screen_corner_control.dart';
 import 'package:yoin/settings/appearance/screen_corners.dart';
 import 'package:yoin/settings/appearance/screen_corners_screen.dart';
@@ -80,32 +81,34 @@ void main() {
   setUp(() => store = InMemoryStore());
 
   group('settings list', () {
-    testWidgets('should_showAppearanceBetweenFeaturesAndSync_when_settingsOpen', (tester) async {
-      await pump(tester, const SettingsScreen(), size: const Size(420, 2400));
-      final features = tester.getTopLeft(find.text('Features')).dy;
+    testWidgets('should_showAppearanceUnderFeaturesAndAppearance_when_settingsOpen', (tester) async {
+      await pump(tester, const SettingsScreen(), size: const Size(520, 2400));
+      final features = tester.getTopLeft(find.text('Features and appearance')).dy;
       final appearance = tester.getTopLeft(find.text('Appearance')).dy;
       final sync = tester.getTopLeft(find.text('Sync and storage')).dy;
       expect(appearance, greaterThan(features));
       expect(sync, greaterThan(appearance));
-      expect(find.text('Scroll edge'), findsOneWidget);
-      expect(find.text('Tide line'), findsOneWidget, reason: 'the chosen style is the summary');
-      expect(find.text('Screen corners'), findsOneWidget);
-      // "Match screen", then the value beside it as a MetaLine group: no dot.
-      expect(find.text('Match screen'), findsOneWidget);
-      expect(find.text('28 dp'), findsOneWidget, reason: 'no display report: the stand-in');
-      expect(find.textContaining('·'), findsNothing);
-      expect(find.text('Accounts, Home and scroll edge'), findsOneWidget, reason: "the welcome guide's summary");
+      // Summary shows chosen scroll edge + screen corners as a MetaLine: no dot.
+      expect(find.textContaining('Tide line', findRichText: true), findsOneWidget);
+      expect(find.textContaining('Match screen', findRichText: true), findsOneWidget);
+      expect(find.textContaining('·', findRichText: true), findsNothing);
     });
 
-    testWidgets('should_openScrollEdgePage_when_rowTapped', (tester) async {
+    testWidgets('should_openAppearancePageWithInlineScrollEdge_when_rowTapped', (tester) async {
       await pump(tester, const SettingsScreen(), size: const Size(420, 2400));
-      await tester.tap(find.text('Scroll edge'));
+      await tester.tap(find.text('Appearance'));
       await tester.pumpAndSettle();
-      expect(find.byType(ScrollEdgeScreen), findsOneWidget);
+      expect(find.byType(AppearanceScreen), findsOneWidget);
+      expect(find.byType(ScrollEdgeStyleCard), findsNWidgets(3));
+      expect(find.text('Screen corners'), findsOneWidget);
     });
 
     testWidgets('should_openScreenCornersInPane_when_wideWindow', (tester) async {
       await pump(tester, const SettingsScreen(), size: const Size(1280, 2000));
+      await tester.tap(find.text('Appearance'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AppearanceScreen), findsOneWidget);
+      await tester.ensureVisible(find.text('Screen corners'));
       await tester.tap(find.text('Screen corners'));
       await tester.pumpAndSettle();
       expect(find.byType(ScreenCornersScreen), findsOneWidget);

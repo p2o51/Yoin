@@ -43,7 +43,7 @@
     <string name="home_section_recently_played_supporting">Albums you played lately, on any device</string>
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
-    <string name="home_section_lyric_highlight_supporting">Lyrics picked from your songs, tap to play from that line</string>
+    <string name="home_section_lyric_highlight_supporting">Lyrics picked from your songs, tap to play</string>
     <string name="home_section_memory_grid_supporting">Every note and score, on a grid that grows with you</string>
     <string name="home_section_made_for_you_supporting">Playlists Spotify and Apple Music make for you</string>
 
@@ -169,13 +169,13 @@
     <string name="home_rediscover_cd_your_rating">Your rating %1$s</string>
     <string name="home_rediscover_cd_track_average">Track average %1$s</string>
     <string name="home_rediscover_play">Play</string>
-    <string name="home_lyric_play_from_line">Play from this line</string>
+    <string name="home_lyric_play_from_line">Play song</string>
     <string name="home_lyric_kind_heavy">On repeat</string>
     <string name="home_lyric_kind_rediscover">Been a while</string>
     <string name="home_lyric_kind_user">Your pick</string>
     <string name="home_lyric_intro_badge">Beta</string>
     <string name="home_lyric_intro_title">You found a beta feature</string>
-    <string name="home_lyric_intro_nano">Gemini Nano is an AI model that lives on your phone. It reads lyrics right here, offline, and picks a passage from songs you play a lot, songs you haven\'t played in a while, and songs you haven\'t heard yet. Tap a card to play from that line.</string>
+    <string name="home_lyric_intro_nano">Gemini Nano is an AI model that lives on your phone. It reads lyrics right here, offline, and picks a passage from songs you play a lot, songs you haven\'t played in a while, and songs you haven\'t heard yet. Tap a card to play.</string>
     <string name="home_lyric_intro_ready">Your phone can run it.</string>
     <string name="home_lyric_intro_download">Your phone supports it. Once it\'s on, the model downloads the next time you\'re on Wi‑Fi.</string>
     <string name="home_lyric_intro_unsupported">Your phone can\'t run Gemini Nano yet, so Yoin can\'t pick lines for you here.</string>
@@ -220,10 +220,10 @@
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
     <string name="home_tip_continue_on_title">Continue on tablet</string>
     <string name="home_tip_continue_on">Tap Yoin in your tablet\'s taskbar and choose Continue here to pick up from your phone</string>
-    <string name="home_tip_labs_title">Yoin Labs</string>
-    <string name="home_tip_labs">Experimental features, Gemini Nano model download, and diagnostics are now in Settings &gt; Yoin Labs</string>
+    <string name="home_tip_labs_title">Experimental features</string>
+    <string name="home_tip_labs">Experimental features, Gemini Nano model download, and diagnostics are now in Settings &gt; AI features</string>
     <string name="home_tip_lyric_highlight_title">Lyric Cards</string>
-    <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
+    <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play, or swipe for more; lines shared or saved in Lyrics also show up</string>
     <string name="home_tip_memory_ledger_title">All Memories</string>
     <string name="home_tip_memory_ledger">Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens</string>
     <string name="home_tip_memories_all_accounts_title">Memories across accounts</string>

@@ -396,7 +396,7 @@ struct ServiceSetupView: View {
         let selected = AppleMusicNameRegionStore.shared.region(profileId)
         let chosenStorefront = selected.storefrontOption
         return VStack(alignment: .leading, spacing: 8) {
-            group(String(localized: "Song names")) {
+            group(String(localized: "Song and artist names")) {
                 [
                     AnyView(nameRegionRow(
                         title: Self.title(.off),

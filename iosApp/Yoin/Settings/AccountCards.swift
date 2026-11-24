@@ -208,10 +208,12 @@ struct AccountRow: View {
     var onUse: () -> Void
     var onRemove: () -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
 
     private var isActive: Bool { model.profiles.activeId == profile.id }
 
     var body: some View {
+        let tone = profile.service.tone(dark: colorScheme == .dark)
         HStack(spacing: 12) {
             Button(action: onOpen) {
                 HStack(spacing: 12) {
@@ -224,6 +226,10 @@ struct AccountRow: View {
                         AccountCard.serviceLine(profile, ink: app.onSurfaceVariant)
                         if let status {
                             AccountCard.pill(status, app: app)
+                                .padding(.top, 4)
+                                .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
+                        } else if isActive {
+                            AccountCard.inUsePill(tone: tone)
                                 .padding(.top, 4)
                                 .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
                         }
@@ -292,6 +298,7 @@ struct AccountCard: View {
         // Secondary text at full strength on the tinted card; the usual variant on a plain one.
         let secondary = isActive ? tone.onContainer : app.onSurfaceVariant
         let shapeOfCard = RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+        let hasHost = profile.host.flatMap { profile.title.localizedCaseInsensitiveContains($0) ? nil : $0 } != nil
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 AccountAvatar(profile: profile, shape: shape, ring: container)
@@ -309,17 +316,20 @@ struct AccountCard: View {
                 .offset(y: -8)
                 .accessibilityLabel("Options for \(profile.title)")
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
             Text(profile.title)
                 .yoinRole(Tokens.type.titleMedium)
                 .foregroundStyle(ink)
-                .lineLimit(2)
+                .lineLimit(hasHost ? 1 : 2)
                 .padding(.trailing, 12)
             serviceLine(secondary)
             if let status {
                 pill(status)
                     .padding(.top, 10)
                     .transition(.scale(scale: 0.6, anchor: .topLeading).combined(with: .opacity))
+            } else {
+                managePill(isActive: isActive, tone: tone)
+                    .padding(.top, 10)
             }
         }
         .padding(.leading, 16)
@@ -338,21 +348,72 @@ struct AccountCard: View {
         .accessibilityHint(isActive ? String(localized: "Manage account") : String(localized: "Switch to this account"))
     }
 
-    /// Service, then host (the service drops out when the title already says it).
-    private func serviceLine(_ ink: Color) -> some View { Self.serviceLine(profile, ink: ink) }
+    /// Host (when present) and configurable scope hint: stacked on narrow cards so neither truncates in
+    /// English, single-line with host yielding first on wide two-pane rows.
+    private func serviceLine(_ ink: Color) -> some View { Self.serviceLine(profile, ink: ink, stacked: true) }
 
-    static func serviceLine(_ profile: Profile, ink: Color) -> some View {
-        HStack(spacing: 6) {
-            if !profile.title.localizedCaseInsensitiveContains(profile.service.name) {
-                Text(profile.service.name).foregroundStyle(ink)
-            }
-            if let host = profile.host, !profile.title.localizedCaseInsensitiveContains(host) {
-                Text(host).foregroundStyle(ink.opacity(0.8))
-            }
+    @ViewBuilder
+    static func serviceLine(_ profile: Profile, ink: Color, stacked: Bool = false) -> some View {
+        let host = profile.host.flatMap { h in
+            profile.title.localizedCaseInsensitiveContains(h) ? nil : h
         }
-        .yoinRole(Tokens.type.bodyMedium)
-        .lineLimit(1)
-        .padding(.trailing, 12)
+        if stacked, let host {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(host)
+                    .foregroundStyle(ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(profile.service.scopeHint)
+                    .foregroundStyle(ink.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .yoinRole(Tokens.type.bodyMedium)
+            .padding(.trailing, 12)
+        } else {
+            HStack(spacing: 8) {
+                if let host {
+                    Text(host)
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Text(profile.service.scopeHint)
+                    .foregroundStyle(host == nil ? ink : ink.opacity(0.75))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+            }
+            .yoinRole(Tokens.type.bodyMedium)
+            .lineLimit(1)
+            .padding(.trailing, 12)
+        }
+    }
+
+    static func inUsePill(tone: LandingTone) -> some View {
+        Text(String(localized: "In use"))
+            .yoinRole(Tokens.type.labelMedium)
+            .foregroundStyle(tone.onAccent)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(tone.accent, in: .capsule)
+    }
+
+    /// Persistent `Settings ›` pill occupying the reserved bottom pill slot when the account is healthy (v4).
+    private func managePill(isActive: Bool, tone: LandingTone) -> some View {
+        Button(action: onManage) {
+            Text(String(localized: "Settings ›"))
+                .yoinRole(Tokens.type.labelMedium)
+                .foregroundStyle(isActive ? tone.onContainer : app.onSecondaryContainer)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(isActive ? tone.onContainer.opacity(0.16) : app.secondaryContainer, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .pointerHighlight()
     }
 
     private func pill(_ s: Status) -> some View { Self.pill(s, app: app) }

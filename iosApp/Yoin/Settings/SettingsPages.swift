@@ -115,59 +115,108 @@ struct SettingsRowLabel: View {
     }
 }
 
-/// Settings › Help and about › Yoin (Android AboutYoinPage, #191): the version first, then the website
-/// and the privacy policy.
+/// Settings › Help and about › About Yoin (Settings IA v4): single 4-row segmented group — version, website,
+/// privacy policy, and open source licenses (Spotoolfy recap removed from Settings).
 struct AboutYoinView: View {
-    @Environment(AppModel.self) private var model
-    @State private var recapOpen = false
-
-    /// The Spotify account in use's newest Spotoolfy recap (Android D15), nil without one.
-    private var recap: SpotoolfyRecap? {
-        guard let p = model.profiles.active, p.service == .spotify, let user = p.spotifyUserId else { return nil }
-        return SpotoolfyRecapStore.load(scope: AccountScope.spotifyScope(userId: user))
-    }
-
     var body: some View {
-        SettingsPage(title: "Yoin") { app, row in
+        SettingsPage(title: String(localized: "About Yoin")) { app, row in
             about(app, row)
-            if let recap {
-                Button { recapOpen = true } label: {
-                    SettingsRowLabel(title: String(localized: "Spotoolfy recap"),
-                                     summary: String(localized: "The notes and ratings that came over from Spotoolfy"),
-                                     app: app, trailing: "chevron_right")
-                }
-                .buttonStyle(.plain).pointerHighlight()
-                .background(row, in: CloudSyncView.segment(0, 1))
-                .fullScreenCover(isPresented: $recapOpen) {
-                    SpotoolfyRecapView(recap: recap, scheme: app, fromSettings: true) { recapOpen = false }
-                }
-            }
         }
     }
 
     private func about(_ app: CoverScheme, _ row: Color) -> some View {
-            VStack(spacing: 2) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "Version \(AboutLinks.versionName())"))
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                .background(row, in: CloudSyncView.segment(0, 3))
-                .accessibilityElement(children: .combine)
-                Link(destination: AboutLinks.website(language: AboutLinks.currentLanguage)) {
-                    SettingsRowLabel(title: String(localized: "Website"), app: app, external: true)
-                }
-                .buttonStyle(.plain).pointerHighlight()
-                .background(row, in: CloudSyncView.segment(1, 3))
-                Link(destination: AboutLinks.privacyPolicy) {
-                    SettingsRowLabel(title: String(localized: "Privacy policy"), app: app, external: true)
-                }
-                .buttonStyle(.plain).pointerHighlight()
-                .background(row, in: CloudSyncView.segment(2, 3))
+        VStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "Version \(AboutLinks.versionName())"))
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .background(row, in: CloudSyncView.segment(0, 4))
+            .accessibilityElement(children: .combine)
+            Link(destination: AboutLinks.website(language: AboutLinks.currentLanguage)) {
+                SettingsRowLabel(title: String(localized: "Website"), app: app, external: true)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+            .background(row, in: CloudSyncView.segment(1, 4))
+            Link(destination: AboutLinks.privacyPolicy) {
+                SettingsRowLabel(title: String(localized: "Privacy policy"), app: app, external: true)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+            .background(row, in: CloudSyncView.segment(2, 4))
+            SettingsNavRow(title: String(localized: "Open source licenses"), app: app) {
+                OpenSourceLicensesView()
+            }
+            .background(row, in: CloudSyncView.segment(3, 4))
+        }
+    }
+}
+
+/// Settings › Features and appearance › Appearance (iOS: Solid Surfaces toggle).
+struct AppearanceSettingsPage: View {
+    var body: some View {
+        SettingsPage(title: String(localized: "Appearance")) { app, row in
+            Toggle(isOn: Binding(get: { GlassLab.shared.solidSurfaces },
+                                 set: { on in withAnimation(Yoin.effects) { GlassLab.shared.solidSurfaces = on } })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Solid Surfaces").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text("Replace in-app Liquid Glass with opaque bars, panels, and filled buttons")
+                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                }
+            }
+            .tint(app.primary)
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .background(row, in: CloudSyncView.segment(0, 1))
+        }
+    }
+}
+
+/// Settings › Help and about › Help and feedback (Settings IA v4): Tips, Welcome guide, and Docs above;
+/// Send feedback and Export log below.
+struct HelpAndFeedbackPage: View {
+    @Environment(AppModel.self) private var model
+    private let tipsStore = TipReadStore.shared
+
+    var body: some View {
+        SettingsPage(title: String(localized: "Help and feedback")) { app, row in
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(spacing: 2) {
+                    SettingsNavRow(title: String(localized: "Tips"),
+                                   summary: Tips.readSummary(read: tipsStore.read.count, total: Tips.all.count),
+                                   app: app) {
+                        TipsView(focus: nil)
+                    }
+                    .background(row, in: CloudSyncView.segment(0, 3))
+                    Button { model.openWelcomeGuide() } label: {
+                        SettingsRowLabel(title: String(localized: "Welcome guide"), app: app)
+                    }
+                    .buttonStyle(.plain).pointerHighlight()
+                    .background(row, in: CloudSyncView.segment(1, 3))
+                    Link(destination: AboutLinks.docs(language: AboutLinks.currentLanguage)) {
+                        SettingsRowLabel(title: String(localized: "Docs"), app: app, external: true)
+                    }
+                    .buttonStyle(.plain).pointerHighlight()
+                    .background(row, in: CloudSyncView.segment(2, 3))
+                }
+                VStack(spacing: 2) {
+                    Link(destination: AboutLinks.feedback) {
+                        SettingsRowLabel(title: String(localized: "Send feedback"), app: app, external: true)
+                    }
+                    .buttonStyle(.plain).pointerHighlight()
+                    .background(row, in: CloudSyncView.segment(0, 2))
+                    ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
+                        SettingsRowLabel(title: String(localized: "Export log"),
+                                         summary: String(localized: "Playback diagnostics"),
+                                         app: app, trailing: "share")
+                    }
+                    .buttonStyle(.plain).pointerHighlight()
+                    .background(row, in: CloudSyncView.segment(1, 2))
+                }
+            }
+        }
     }
 }
 

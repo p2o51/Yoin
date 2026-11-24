@@ -51,27 +51,21 @@ internal fun SettingsGroupsDemo(playing: Boolean) {
             SettingsHeadline(title = stringResource(R.string.settings_title))
             SettingsGroup(title = stringResource(R.string.settings_section_features)) {
                 item { SettingsItem(icon = YoinSymbols.Sparkle, title = stringResource(R.string.settings_gemini_title)) }
-            }
-            SettingsGroup(title = stringResource(R.string.settings_section_appearance)) {
-                item { SettingsItem(icon = YoinSymbols.UnfoldLess, title = stringResource(R.string.settings_motion_scroll_edge)) }
-                item { SettingsItem(icon = YoinSymbols.Smartphone, title = stringResource(R.string.settings_motion_screen_corners)) }
+                item { SettingsItem(icon = YoinSymbols.Palette, title = stringResource(R.string.settings_section_appearance)) }
             }
             SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
-                item { SettingsItem(icon = YoinSymbols.Reviews, title = stringResource(R.string.settings_neodb_title)) }
-                item { SettingsItem(icon = YoinSymbols.Playlist, title = stringResource(R.string.settings_playlist_backups_title)) }
+                item { SettingsItem(icon = YoinSymbols.Cloud, title = stringResource(R.string.settings_sync_backups_title)) }
+                item { SettingsItem(icon = YoinSymbols.Storage, title = stringResource(R.string.settings_section_storage)) }
             }
             SettingsGroup(title = stringResource(R.string.settings_section_help_about)) {
-                item { SettingsItem(icon = YoinSymbols.Sparkle, title = stringResource(R.string.settings_about_tips)) }
-                item { SettingsItem(icon = YoinSymbols.Note, title = stringResource(R.string.settings_about_docs)) }
-                item { SettingsItem(icon = YoinSymbols.Send, title = stringResource(R.string.settings_about_feedback)) }
+                item { SettingsItem(icon = YoinSymbols.Comment, title = stringResource(R.string.settings_help_feedback_title)) }
                 item {
                     SettingsItem(
                         icon = YoinSymbols.Info,
-                        title = stringResource(R.string.settings_about_name),
+                        title = stringResource(R.string.settings_about_yoin_title),
                         summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
                     )
                 }
-                item { SettingsItem(icon = YoinSymbols.Code, title = stringResource(R.string.settings_about_licenses)) }
             }
         }
     }

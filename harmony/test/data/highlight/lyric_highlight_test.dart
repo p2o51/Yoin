@@ -163,7 +163,7 @@ void main() {
       expect([for (var n = 2; n <= 4; n++) lyricPresetFor(n)], [HomeRowPreset.s, HomeRowPreset.m, HomeRowPreset.l]);
     });
 
-    test('should_startABreathBeforeTheLine_when_synced', () {
+    test('should_alwaysStartFromTrackBeginning_when_cardPlayed', () {
       HomeLyricHighlight at(int? start, {int duration = 200000}) => HomeLyricHighlight(
         songId: MediaId.subsonic('a'),
         title: 't',
@@ -176,10 +176,10 @@ void main() {
         startMs: start,
         kind: LyricHighlightBucket.user,
       );
-      expect(at(30000).playFromMs, 30000 - lyricHighlightSeekLeadMs);
+      expect(at(30000).playFromMs, 0);
       expect(at(null).playFromMs, 0);
-      expect(at(400).playFromMs, 0, reason: 'a line in the first breath plays from the top');
-      expect(at(250000).playFromMs, 0, reason: 'past the end plays from the top');
+      expect(at(400).playFromMs, 0);
+      expect(at(250000).playFromMs, 0);
       expect(at(30000).asTrack().durationSec, 200);
     });
   });

@@ -140,7 +140,7 @@ void main() {
       expect(h.engine.calls, contains('setQueue'));
       final state = c.read(playbackControllerProvider);
       expect(state.queue.map((t) => t.id), [MediaId.subsonic('1')]);
-      expect(state.positionMs, 30000 - lyricHighlightSeekLeadMs);
+      expect(state.positionMs, 0);
       c.dispose();
     });
   });
@@ -216,13 +216,13 @@ void main() {
       await done(tester, c);
     });
 
-    testWidgets('should_playFromTheLine_when_cardTapped', (tester) async {
+    testWidgets('should_playFromStart_when_cardTapped', (tester) async {
       final c = await pumpHome(tester, picks: 1);
       await tester.tap(find.byType(LyricHighlightCard));
       await _frames(tester, 10);
       final state = c.read(playbackControllerProvider);
       expect(state.current?.id, MediaId.subsonic('0'));
-      expect(state.positionMs, 30000 - lyricHighlightSeekLeadMs);
+      expect(state.positionMs, 0);
       await done(tester, c);
     });
 

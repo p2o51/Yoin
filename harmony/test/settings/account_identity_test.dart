@@ -35,6 +35,38 @@ void main() {
     expect(serviceLine('Subsonic', 'My Subsonic', null), isNull);
   });
 
+  test('should_showScopeHintAndOptionalHost_when_buildingAccountCardLine', () {
+    expect(
+      accountCardLine('Subsonic', 'gpo', 'demo.navidrome.org', 'Quality and downloads'),
+      (host: 'demo.navidrome.org', scope: 'Quality and downloads'),
+    );
+    expect(
+      accountCardLine('Apple Music', 'Apple Music', null, 'Song and artist names'),
+      (host: null, scope: 'Song and artist names'),
+    );
+  });
+
+  testWidgets('should_stackHostAboveScopeWithoutOverflow_when_narrowSubsonicCard', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 168,
+            child: AccountCardScopeLine(
+              host: 'navidrome.gojyuplus.com',
+              scope: 'Quality and downloads',
+              color: Colors.white,
+              stacked: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('navidrome.gojyuplus.com'), findsOneWidget);
+    expect(find.text('Quality and downloads'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   test('should_useAndroidSilhouettes_when_pickingAvatarPolygon', () {
     expect([for (var i = 0; i < avatarShapeCount; i++) avatarPolygon(i)], [
       MaterialShapes.cookie6Sided,

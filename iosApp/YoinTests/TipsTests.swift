@@ -177,7 +177,7 @@ final class TipsTests: XCTestCase {
         XCTAssertTrue(across.titleZhHans.contains("Memories"))
         XCTAssertFalse(across.textZhHans.contains("回忆"))
         let labs = try XCTUnwrap(Tips.tip("Labs"))
-        XCTAssertEqual(labs.updated, "2026-11-12")
+        XCTAssertEqual(labs.updated, "2026-11-24")
         for tip in Tips.catalog {
             for forbidden in ["回忆", "手账", "Nowledge Mem", "国内直连"] {
                 XCTAssertFalse(tip.titleZhHans.contains(forbidden) || tip.textZhHans.contains(forbidden),

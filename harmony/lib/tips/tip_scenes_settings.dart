@@ -11,7 +11,6 @@ import '../data/applemusic/apple_music_name_region.dart';
 import '../landing/landing_bubble.dart';
 import '../landing/landing_mascot.dart';
 import '../landing/landing_strings.dart';
-import '../neodb/neodb_strings.dart';
 import '../playback/replay_gain.dart';
 import '../playback/spatial_audio.dart';
 import '../settings/ai_settings_screen.dart';
@@ -21,7 +20,6 @@ import '../settings/appearance/appearance_strings.dart';
 import '../settings/appearance/screen_corner_control.dart' show ScreenCornerBar;
 import '../settings/appearance/screen_corners_screen.dart';
 import '../settings/appearance/scroll_edge_screen.dart';
-import '../settings/backup/playlist_backup_strings.dart';
 import '../settings/licenses.dart' show yoinVersionName;
 import '../settings/settings_metrics.dart';
 import '../settings/settings_rows.dart';
@@ -493,39 +491,29 @@ class _SettingsRegroupedDemoState extends State<SettingsRegroupedDemo> {
         children: [
           SettingsGroup(
             title: strings.sectionFeatures,
-            children: [SettingsItem(icon: YoinSymbols.sparkle, title: strings.aiTitle)],
-          ),
-          const SizedBox(height: SettingsMetrics.sectionGap),
-          SettingsGroup(
-            title: appearance.sectionAppearance,
             children: [
-              SettingsItem(icon: YoinSymbols.unfoldLess, title: appearance.scrollEdge),
-              SettingsItem(icon: YoinSymbols.smartphone, title: appearance.screenCorners),
+              SettingsItem(icon: YoinSymbols.sparkle, title: strings.aiTitle),
+              SettingsItem(icon: YoinSymbols.palette, title: appearance.sectionAppearance),
             ],
           ),
           const SizedBox(height: SettingsMetrics.sectionGap),
           SettingsGroup(
             title: CloudSyncStrings.of(context).sectionSyncStorage,
             children: [
-              SettingsItem(icon: YoinSymbols.devices, title: CloudSyncStrings.of(context).title),
-              SettingsItem(icon: YoinSymbols.reviews, title: NeoDbStrings.of(context).settingsTitle),
-              SettingsItem(icon: YoinSymbols.playlist, title: PlaylistBackupStrings.of(context).title),
+              SettingsItem(icon: YoinSymbols.cloud, title: strings.syncBackupsTitle),
+              SettingsItem(icon: YoinSymbols.storage, title: strings.storageTitle),
             ],
           ),
           const SizedBox(height: SettingsMetrics.sectionGap),
           SettingsGroup(
             title: strings.sectionHelpAbout,
             children: [
-              SettingsItem(icon: YoinSymbols.sparkle, title: strings.aboutTips),
-              SettingsItem(icon: YoinSymbols.refresh, title: LandingStrings.of(context).welcomeGuide),
-              SettingsItem(icon: YoinSymbols.note, title: strings.aboutDocs),
-              SettingsItem(icon: YoinSymbols.send, title: strings.aboutFeedback),
+              SettingsItem(icon: YoinSymbols.comment, title: strings.helpFeedbackTitle),
               SettingsItem(
                 icon: YoinSymbols.info,
-                title: strings.aboutName,
+                title: strings.aboutYoinTitle,
                 summary: strings.aboutVersion(yoinVersionName),
               ),
-              SettingsItem(icon: YoinSymbols.code, title: strings.aboutLicenses),
             ],
           ),
         ],
