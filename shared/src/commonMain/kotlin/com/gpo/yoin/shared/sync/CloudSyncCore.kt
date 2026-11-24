@@ -175,6 +175,31 @@ class CloudSyncCore(
     @Throws(Throwable::class)
     suspend fun isEnabledNow(): Boolean = run { isEnabled() }
 
+    /**
+     * Takes the sync lock for a backup export / import or a Memories transfer the platform runs over this
+     * store (iOS `YoinBackup`; Android holds the same lock through CloudSyncManager.withReplica): no cycle
+     * starts and every other operation waits until [endExclusive]. Returns this device's sync id (a backup's
+     * deviceId), made now if the device never had one.
+     */
+    @Throws(Throwable::class)
+    suspend fun beginExclusive(): String = withContext(context) {
+        mutex.lock(exclusiveOwner)
+        try {
+            deviceId()
+        } catch (e: Throwable) {
+            mutex.unlock(exclusiveOwner)
+            throw e
+        }
+    }
+
+    /** Ends [beginExclusive] (a no-op without one) and writes the store if it changed. */
+    fun endExclusive() {
+        if (mutex.holdsLock(exclusiveOwner)) mutex.unlock(exclusiveOwner)
+        safePersist()
+    }
+
+    private val exclusiveOwner = Any()
+
     /** The Google account this device syncs with (or last synced with), for re-authorizing it silently. */
     @Throws(Throwable::class)
     suspend fun googleEmail(): String? = run { dao.meta(SyncMetaKeys.GOOGLE_EMAIL) }
