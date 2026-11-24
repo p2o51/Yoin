@@ -14,13 +14,27 @@
 
 
     <string name="settings_title">设置</string>
-    <string name="settings_section_features">功能</string>
+    <string name="settings_section_features">功能与外观</string>
     <string name="settings_section_storage">存储</string>
     <string name="settings_section_appearance">外观</string>
     <string name="settings_section_sync_storage">同步与存储</string>
     <string name="settings_section_help_about">帮助与关于</string>
-    <string name="home_tip_settings_regrouped_title">设置重新分组</string>
-    <string name="home_tip_settings_regrouped">设置按外观、同步与存储、帮助与关于重新归类，NeoDB 移到了同步与存储</string>
+    <string name="settings_sync_backups_title">同步与备份</string>
+    <string name="settings_sync_backups_summary_fallback">云同步、NeoDB 与歌单备份</string>
+    <string name="settings_help_feedback_title">帮助与反馈</string>
+    <string name="settings_help_tips_read_count">小技巧已读 %1$d / %2$d</string>
+    <string name="settings_help_tips_all_read">小技巧全部已读</string>
+    <string name="settings_about_yoin_title">关于 Yoin</string>
+    <string name="settings_storage_downloaded_short">已下载 %1$s</string>
+    <string name="settings_storage_cache_short">缓存 %1$s</string>
+    <string name="settings_storage_playback_cache_summary">播放缓存 %1$s</string>
+    <string name="settings_account_scope_subsonic">音质与下载</string>
+    <string name="settings_account_scope_lyra">曲库与音源</string>
+    <string name="settings_account_scope_apple">歌曲与艺人名</string>
+    <string name="settings_account_scope_spotify">连接与播放设备</string>
+    <string name="settings_account_pill_manage">设置 ›</string>
+    <string name="home_tip_settings_regrouped_title">设置重新整理</string>
+    <string name="home_tip_settings_regrouped">滚动边缘与圆角收进了外观，NeoDB 与歌单备份在同步与备份</string>
     <string name="settings_about_version">版本 %1$s</string>
     <string name="settings_about_website">官网</string>
     <string name="settings_about_website_open_failed">无法打开官网</string>
@@ -195,7 +209,7 @@
     <string name="settings_apple_endpoint_label">开发者令牌服务</string>
     <string name="settings_apple_working">正在处理…</string>
     <string name="settings_apple_reconnect">重新连接 Apple Music</string>
-    <string name="settings_apple_names_title">歌曲名</string>
+    <string name="settings_apple_names_title">歌曲与艺人名</string>
     <string name="settings_apple_names_off">按 Apple Music 显示</string>
     <string name="settings_apple_names_off_summary">用你所在地区商店的名字</string>
     <string name="settings_apple_names_original">按歌曲原地区</string>
@@ -383,11 +397,11 @@
     <string name="labs_nano_check_again">重新检查</string>
     <string name="labs_nano_download_note">模型由 Android 系统（AICore）下载，大约几 GB，建议连 Wi‑Fi 下载。</string>
     <string name="labs_features_section">实验功能</string>
-    <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，点按从那句开始播放</string>
+    <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，轻点播放</string>
     <string name="labs_greetings_title">首页问候</string>
-    <string name="labs_greetings_detail">按早、午、晚三个时段在本机生成简短问候，打开首页直接显示</string>
-    <string name="labs_about_followups_title">关于页推荐追问</string>
-    <string name="labs_about_followups_detail">读完歌曲「关于」后，在本机给出几个顺着聊下去的短问题</string>
+    <string name="labs_greetings_detail">根据最近状态生成问候语</string>
+    <string name="labs_about_followups_title">推荐追问</string>
+    <string name="labs_about_followups_detail">在「关于」里根据正文给出追问</string>
     <string name="nano_diag_title">Gemini Nano 诊断</string>
     <string name="nano_diag_entry_detail">查看本机模型状态与运行测试</string>
     <string name="nano_diag_intro">查看本机各版本 Gemini Nano 的可用状态与系统组件版本。支持的机型若显示不可用，可在此排查原因。</string>

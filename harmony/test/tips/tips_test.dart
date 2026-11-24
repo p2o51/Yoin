@@ -333,8 +333,9 @@ void main() {
     testWidgets('should_showTheNewGroups_when_theSettingsRegroupedDemoIsShown', (tester) async {
       await pumpDemo(tester, HomeBubbleTip.settingsRegrouped);
       await frames(tester, const Duration(milliseconds: 300));
+      expect(find.text('Features and appearance'), findsOneWidget);
       expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('NeoDB', skipOffstage: false), findsOneWidget);
+      expect(find.text('Sync and backups', skipOffstage: false), findsOneWidget);
       expect(find.text('Help and about', skipOffstage: false), findsOneWidget);
       await leave(tester);
     });

@@ -35,6 +35,17 @@ void main() {
     expect(serviceLine('Subsonic', 'My Subsonic', null), isNull);
   });
 
+  test('should_showScopeHintAndOptionalHost_when_buildingAccountCardLine', () {
+    expect(
+      accountCardLine('Subsonic', 'gpo', 'demo.navidrome.org', 'Quality and downloads'),
+      (host: 'demo.navidrome.org', scope: 'Quality and downloads'),
+    );
+    expect(
+      accountCardLine('Apple Music', 'Apple Music', null, 'Song and artist names'),
+      (host: null, scope: 'Song and artist names'),
+    );
+  });
+
   test('should_useAndroidSilhouettes_when_pickingAvatarPolygon', () {
     expect([for (var i = 0; i < avatarShapeCount; i++) avatarPolygon(i)], [
       MaterialShapes.cookie6Sided,

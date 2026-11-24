@@ -24,13 +24,27 @@
 
     <!-- Settings shell -->
     <string name="settings_title">Settings</string>
-    <string name="settings_section_features">Features</string>
+    <string name="settings_section_features">Features and appearance</string>
     <string name="settings_section_storage">Storage</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_sync_storage">Sync and storage</string>
     <string name="settings_section_help_about">Help and about</string>
-    <string name="home_tip_settings_regrouped_title">Settings, regrouped</string>
-    <string name="home_tip_settings_regrouped">Settings is now grouped into Appearance, Sync and storage, and Help and about, with NeoDB under Sync and storage</string>
+    <string name="settings_sync_backups_title">Sync and backups</string>
+    <string name="settings_sync_backups_summary_fallback">Cloud sync, NeoDB and playlist backups</string>
+    <string name="settings_help_feedback_title">Help and feedback</string>
+    <string name="settings_help_tips_read_count">%1$d of %2$d tips read</string>
+    <string name="settings_help_tips_all_read">All tips read</string>
+    <string name="settings_about_yoin_title">About Yoin</string>
+    <string name="settings_storage_downloaded_short">%1$s downloaded</string>
+    <string name="settings_storage_cache_short">%1$s cache</string>
+    <string name="settings_storage_playback_cache_summary">Playback cache %1$s</string>
+    <string name="settings_account_scope_subsonic">Quality and downloads</string>
+    <string name="settings_account_scope_lyra">Library and sources</string>
+    <string name="settings_account_scope_apple">Song and artist names</string>
+    <string name="settings_account_scope_spotify">Connection and devices</string>
+    <string name="settings_account_pill_manage">Settings ›</string>
+    <string name="home_tip_settings_regrouped_title">Settings, reorganized</string>
+    <string name="home_tip_settings_regrouped">Scroll edge and corners are in Appearance; NeoDB and backups are in Sync and backups</string>
     <string name="settings_about_name" translatable="false">Yoin</string>
     <string name="settings_about_version">Version %1$s</string>
     <string name="settings_about_website">Website</string>
@@ -217,7 +231,7 @@
     <string name="settings_apple_endpoint_placeholder" translatable="false">https://…/token</string>
     <string name="settings_apple_working">Working…</string>
     <string name="settings_apple_reconnect">Reconnect Apple Music</string>
-    <string name="settings_apple_names_title">Song names</string>
+    <string name="settings_apple_names_title">Song and artist names</string>
     <string name="settings_apple_names_off">As Apple Music shows them</string>
     <string name="settings_apple_names_off_summary">Names from your own storefront</string>
     <string name="settings_apple_names_original">In their original language</string>
@@ -416,11 +430,11 @@
     <string name="labs_nano_check_again">Check again</string>
     <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
     <string name="labs_features_section">Experimental features</string>
-    <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play from that line</string>
-    <string name="labs_greetings_title">Home greetings</string>
-    <string name="labs_greetings_detail">Write short morning, afternoon, and evening greetings on this phone ahead of time</string>
-    <string name="labs_about_followups_title">Suggested About questions</string>
-    <string name="labs_about_followups_detail">Suggest a few follow-up questions on this phone from a song\'s About notes</string>
+    <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play</string>
+    <string name="labs_greetings_title">Home greeting</string>
+    <string name="labs_greetings_detail">Generate greetings based on recent activity</string>
+    <string name="labs_about_followups_title">Suggested questions</string>
+    <string name="labs_about_followups_detail">Follow-up questions from About</string>
     <string name="nano_diag_title">Gemini Nano diagnostics</string>
     <string name="nano_diag_entry_detail">Check model availability and run a test</string>
     <string name="nano_diag_intro">Check Gemini Nano availability and system components on this device, or troubleshoot why a supported phone shows unavailable.</string>

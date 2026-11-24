@@ -19,7 +19,24 @@ class SettingsStrings {
   // ── Settings ─────────────────────────────────────────────────────────
   String get title => _zh ? '设置' : 'Settings'; // settings_title
   String get sectionAccounts => _zh ? '账号' : 'Accounts'; // settings_section_accounts
-  String get sectionFeatures => _zh ? '功能' : 'Features'; // settings_section_features
+  String get sectionFeatures => _zh ? '功能与外观' : 'Features and appearance'; // settings_section_features
+  String get syncBackupsTitle => _zh ? '同步与备份' : 'Sync and backups'; // settings_sync_backups_title
+  String syncUnitBackups(int count) =>
+      _zh ? '个歌单备份' : (count == 1 ? 'playlist backup' : 'playlist backups'); // settings_sync_unit_backups
+  String get storageTitle => _zh ? '存储' : 'Storage'; // settings_section_storage
+  String storageDownloadedShort(String size) =>
+      _zh ? '已下载 $size' : '$size downloaded'; // settings_storage_downloaded_short
+  String storageCacheShort(String size) => _zh ? '缓存 $size' : '$size cache'; // settings_storage_cache_short
+  String storagePlaybackCacheSummary(String size) =>
+      _zh ? '播放缓存 $size' : 'Playback cache $size'; // settings_storage_playback_cache_summary
+  String get helpFeedbackTitle => _zh ? '帮助与反馈' : 'Help and feedback'; // settings_help_feedback_title
+  String get aboutYoinTitle => _zh ? '关于 Yoin' : 'About Yoin'; // settings_about_yoin_title
+  String helpTipsReadCount(int read, int total) =>
+      _zh ? '小技巧已读 $read / $total' : '$read of $total tips read'; // settings_help_tips_read_count
+  String get helpTipsAllRead => _zh ? '小技巧全部已读' : 'All tips read'; // settings_help_tips_all_read
+  String get accountScopeSubsonic => _zh ? '音质与下载' : 'Quality and downloads'; // settings_account_scope_subsonic
+  String get accountScopeApple => _zh ? '歌曲与艺人名' : 'Song and artist names'; // settings_account_scope_apple
+  String get accountPillManage => _zh ? '设置 ›' : 'Settings ›'; // settings_account_pill_manage
 
   // Settings › AI features (strings_settings settings_gemini_*, strings_ai ai_*).
   String get aiTitle => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title
@@ -198,8 +215,8 @@ class SettingsStrings {
   String get appleReconnect => _zh ? '重新连接 Apple Music' : 'Reconnect Apple Music'; // settings_apple_reconnect
   String get sectionAccount => _zh ? '账号' : 'Account'; // settings_setup_section_account
 
-  // An Apple Music account's song names (AppleMusicNameRegionGroup).
-  String get appleNamesTitle => _zh ? '歌曲名' : 'Song names'; // settings_apple_names_title
+  // An Apple Music account's song and artist names (AppleMusicNameRegionGroup).
+  String get appleNamesTitle => _zh ? '歌曲与艺人名' : 'Song and artist names'; // settings_apple_names_title
   String get appleNamesFoot => _zh
       ? '适用于这个账号里的歌曲和专辑。那个商店没有的歌，会保留现在的名字。'
       : "Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has."; // settings_apple_names_foot

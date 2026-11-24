@@ -107,12 +107,12 @@ enum Tips {
             text: "With Handoff on for the same Apple ID, tap Yoin at the bottom of the App Switcher on iPhone or in the Dock on iPad and Mac to pick up where your other device left off",
             titleZhHans: "在另一台设备上接着听",
             textZhHans: "登录同一 Apple ID 并开启「接力」后，在 iPhone 的 App 切换器底部或 iPad、Mac 的程序坞点 Yoin，从另一台设备放到的位置接着播"),
-        // Lyric Cards with Apple Intelligence (Android #180); Argon's iOS wording.
-        Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-10",
+        // Lyric Cards with Apple Intelligence (Android #180; v4 tap-to-play).
+        Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-24",
             title: "Lyric Cards",
-            text: "On devices with Apple Intelligence, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up",
+            text: "On devices with Apple Intelligence, tap a lyric card on Home to play, or swipe for more; lines shared or saved in Lyrics also show up",
             titleZhHans: "歌词卡片",
-            textZhHans: "支持 Apple 智能的设备上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入"),
+            textZhHans: "支持 Apple 智能的设备上，轻点首页歌词卡片即可播放，左右滑动翻看；歌词里分享或保存的句子也会加入"),
         // The Memories deck deals every account's memories (Android #178); keep English "Memories".
         Tip(id: "MemoriesAllAccounts", icon: "edit_note", updated: "2026-11-13",
             title: "Memories across accounts",
@@ -127,12 +127,12 @@ enum Tips {
             text: "In Now Playing > Devices, switch Spotify to a speaker and keep controlling it in Yoin; tap refresh to update, and recently used speakers stay in the list",
             titleZhHans: "Spotify 音箱",
             textZhHans: "正在播放 > 设备里将 Spotify 切到音箱上，继续在 Yoin 里控制；点刷新可更新，最近用过的音箱会留在列表里"),
-        // Yoin Labs (Android #189): Lyric Cards + Solid Surfaces toggles.
-        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-12",
-            title: "Yoin Labs",
-            text: "Experimental features are now in Settings › Yoin Labs, including Lyric Cards and Solid Surfaces",
-            titleZhHans: "Yoin Labs",
-            textZhHans: "实验功能现在都在 设置 › Yoin Labs，包括歌词卡片和实色界面开关"),
+        // Experimental features (Settings IA v4: merged into Settings › AI features).
+        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-24",
+            title: "Experimental features",
+            text: "Experimental features are now in Settings › AI features, including Apple Intelligence and Lyric Cards",
+            titleZhHans: "实验功能",
+            textZhHans: "实验功能现在收进了 设置 › AI 功能，包括 Apple 智能与歌词卡片"),
         // Volume leveling (Android #139); Argon's iOS wording (the Subsonic account's page).
         Tip(id: "VolumeLeveling", icon: "equalizer", updated: "2026-11-10",
             title: "Volume leveling",
@@ -245,6 +245,11 @@ enum Tips {
     /// Settings' Tips row: Android `settings_tips_read_count` / `settings_tips_all_read`.
     static func readSummary(read: Int, total: Int) -> String {
         read >= total ? String(localized: "All read") : String(localized: "\(read) of \(total) read")
+    }
+
+    /// Root Settings' Help and feedback row: Android `settings_help_tips_read_count` / `settings_help_tips_all_read`.
+    static func helpSummary(read: Int, total: Int) -> String {
+        read >= total ? String(localized: "All tips read") : String(localized: "\(read) of \(total) tips read")
     }
 
     /// The tips still unread, in the bubble's order.

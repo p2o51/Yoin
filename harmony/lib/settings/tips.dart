@@ -120,6 +120,13 @@ String tipsReadSummary(SettingsStrings strings, Set<HomeBubbleTip> read, [List<H
   return count >= all.length ? strings.tipsAllRead : strings.tipsReadCount(count, all.length);
 }
 
+/// "3 of 5 tips read" / "All tips read": root Settings' Help and feedback row summary (v4).
+String helpTipsSummary(SettingsStrings strings, Set<HomeBubbleTip> read, [List<HomeBubbleTip>? tips]) {
+  final all = tips ?? HomeBubbleTip.available();
+  final count = all.where(read.contains).length;
+  return count >= all.length ? strings.helpTipsAllRead : strings.helpTipsReadCount(count, all.length);
+}
+
 /// Opens [tip] on its own page (Android TipActivity): a pushed page with the back button.
 void openTip(BuildContext context, HomeBubbleTip tip) {
   Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => TipScreen(startTip: tip)));
@@ -143,6 +150,7 @@ class TipsScreen extends ConsumerWidget {
     return SettingsSubPage(
       title: strings.aboutTips,
       inPane: inPane,
+      paneBack: inPane,
       children: [
         SettingsSegments(
           children: [

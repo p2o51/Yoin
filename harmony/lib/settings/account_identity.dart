@@ -178,6 +178,104 @@ String monogramOf(String title, [String? serviceName]) {
   return (kind: kind, detail: where);
 }
 
+/// The line under an account's name on Settings' account cards (v4):
+/// shows the server host when present plus what the account's page configures
+/// ([scopeHint]), without repeating the service name the avatar already shows.
+({String? host, String? scope})? accountCardLine(
+  String serviceName,
+  String title,
+  String? detail,
+  String? scopeHint,
+) {
+  final hint = scopeHint?.trim();
+  if (hint == null || hint.isEmpty) {
+    final legacy = serviceLine(serviceName, title, detail);
+    return legacy == null ? null : (host: legacy.detail, scope: legacy.kind);
+  }
+  final lower = title.toLowerCase();
+  final where = (detail == null || detail.trim().isEmpty || lower.contains(detail.toLowerCase())) ? null : detail;
+  return (host: where, scope: hint);
+}
+
+/// Host (optional) + configurable scope hint on a narrow account card (v4):
+/// [host] yields with an ellipsis first so [scope] stays visible on one line,
+/// separated by whitespace only (never `·`).
+class AccountCardScopeLine extends StatelessWidget {
+  const AccountCardScopeLine({
+    super.key,
+    required this.host,
+    required this.scope,
+    required this.color,
+    this.style,
+  });
+
+  final String? host;
+  final String? scope;
+  final Color color;
+  final TextStyle? style;
+
+  static const double _gap = 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = (style ?? Theme.of(context).textTheme.bodyMedium!).copyWith(color: color);
+    if (host != null && scope != null) {
+      final scopeStyle = base.copyWith(color: color.withValues(alpha: color.a * 0.75));
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final scopePainter = TextPainter(
+            text: TextSpan(text: scope, style: scopeStyle),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          // When scope fits with room for at least an ellipsis on host, let host yield first.
+          if (scopePainter.width + _gap + 24 <= constraints.maxWidth) {
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    host!,
+                    style: base,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: _gap),
+                Text(
+                  scope!,
+                  style: scopeStyle,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              ],
+            );
+          }
+          // Extreme font scale or wide monospace test font: single-line rich text, never overflowing.
+          return Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: host, style: base),
+                const WidgetSpan(child: SizedBox(width: _gap)),
+                TextSpan(text: scope, style: scopeStyle),
+              ],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
+        },
+      );
+    }
+    return Text(
+      scope ?? host ?? '',
+      style: base,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 /// Service kind and host (ServiceLine / MetaLine): the kind in Medium
 /// weight, the host after a 12dp gap — never a dot.
 class AccountServiceLine extends StatelessWidget {

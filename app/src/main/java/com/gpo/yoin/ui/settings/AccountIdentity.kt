@@ -55,12 +55,13 @@ import com.gpo.yoin.ui.theme.YoinTheme
 // alike. Each service owns its hue — no other Settings row uses it. Brand
 // logos aren't redrawn.
 
-/** A service's face in Settings: its name, its Yoin Symbol and its hue. */
+/** A service's face in Settings: its name, its Yoin Symbol, its hue, and what its page configures. */
 @Immutable
 internal data class ServiceIdentity(
     @param:StringRes @get:StringRes val nameRes: Int,
     val glyph: ImageVector,
     val hue: SettingsHue,
+    @param:StringRes @get:StringRes val scopeRes: Int? = null,
 )
 
 internal val ProviderKind.serviceIdentity: ServiceIdentity
@@ -69,16 +70,19 @@ internal val ProviderKind.serviceIdentity: ServiceIdentity
             R.string.settings_service_name_subsonic,
             YoinSymbols.Cloud,
             SettingsHue.Blue,
+            R.string.settings_account_scope_subsonic,
         )
         ProviderKind.SPOTIFY -> ServiceIdentity(
             R.string.settings_service_name_spotify,
             ServiceMarks.Spotify,
             SettingsHue.Green,
+            R.string.settings_account_scope_spotify,
         )
         ProviderKind.APPLE_MUSIC -> ServiceIdentity(
             R.string.settings_service_name_apple,
             ServiceMarks.AppleMusic,
             SettingsHue.Rose,
+            R.string.settings_account_scope_apple,
         )
         ProviderKind.LOCAL -> ServiceIdentity(
             R.string.settings_service_name_local,
@@ -163,6 +167,27 @@ internal fun serviceLineGroups(
         }
     }
     return groups.takeIf { it.isNotEmpty() }
+}
+
+/**
+ * The line under an account's name on Settings' account cards and rows (v4):
+ * shows the server host when present (Subsonic) plus what the account's page
+ * configures ([scopeHint]), without repeating the service name the avatar
+ * already carries. Falls back to [serviceLineGroups] when [scopeHint] is null.
+ */
+internal fun accountCardLineGroups(
+    serviceName: String,
+    title: String,
+    detail: String?,
+    scopeHint: String?,
+): List<MetaGroup>? {
+    val hint = scopeHint?.takeIf { it.isNotBlank() } ?: return serviceLineGroups(serviceName, title, detail)
+    val host = detail?.takeIf { it.isNotBlank() && !title.contains(it, ignoreCase = true) }
+    return if (host != null) {
+        listOf(MetaGroup.Plain(host), MetaGroup.Plain(hint, muted = true))
+    } else {
+        listOf(MetaGroup.Plain(hint))
+    }
 }
 
 /** Eight clearly different silhouettes — no two scalloped circles. */
@@ -327,17 +352,48 @@ internal fun AccountMark(
 private val AvatarBadgeMinSize = 18.dp
 
 /**
- * Service kind and host under an account's name. The avatar badge already
- * carries the glyph.
+ * Service kind, host, or configurable scope under an account's name. When two
+ * groups are present (host + scope hint on a narrow card), the leading host
+ * yields with an ellipsis first so the scope hint stays visible on one line.
  */
 @Composable
 internal fun ServiceLine(
     groups: List<MetaGroup>,
     modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
 ) {
+    if (groups.size == 2 && groups[0] is MetaGroup.Plain && groups[1] is MetaGroup.Plain) {
+        val lead = groups[0] as MetaGroup.Plain
+        val tail = groups[1] as MetaGroup.Plain
+        val ink = if (color != Color.Unspecified) color else androidx.compose.material3.LocalContentColor.current
+        Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = lead.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (lead.muted) ink.copy(alpha = ink.alpha * 0.72f) else ink,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                text = tail.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (tail.muted) ink.copy(alpha = ink.alpha * 0.75f) else ink,
+                maxLines = 1,
+                softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        return
+    }
     MetaLine(
         groups = groups,
         style = MaterialTheme.typography.bodyMedium,
+        color = color,
         modifier = modifier,
     )
 }

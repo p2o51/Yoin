@@ -70,6 +70,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Sync and backups'), findsOneWidget);
+    await tester.tap(find.text('Sync and backups'));
+    await tester.pumpAndSettle();
     expect(find.text('Playlist cloud backup'), findsOneWidget);
     await tester.tap(find.text('Playlist cloud backup'));
     await tester.pumpAndSettle();

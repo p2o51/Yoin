@@ -117,14 +117,9 @@ final class HomeLyricHighlight {
     durationSec: durationMs ~/ 1000 > 0 ? durationMs ~/ 1000 : null,
   );
 
-  /// Where playing it starts (LyricHighlightViewModel.play): [lyricHighlightSeekLeadMs]
-  /// before the line; the top without a synced line or one past the song's end.
-  int get playFromMs {
-    final start = startMs;
-    if (start == null || start <= lyricHighlightSeekLeadMs) return 0;
-    if (durationMs > 0 && start >= durationMs) return 0;
-    return start - lyricHighlightSeekLeadMs;
-  }
+  /// Where playing it starts (LyricHighlightViewModel.play, v4): always from
+  /// the beginning of the track (`0`).
+  int get playFromMs => 0;
 
   @override
   bool operator ==(Object other) =>

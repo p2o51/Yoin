@@ -72,7 +72,7 @@ class HomeStrings {
         HomeSection.recentlyPlayed => _zh ? '近期在任意设备上播放过的专辑' : 'Albums you played lately, on any device',
         HomeSection.yourPlaylists => _zh ? '资料库中的播放列表' : 'Playlists in your library',
         HomeSection.otherProfiles => _zh ? '你的其他账号常听的专辑和播放列表' : 'Albums and playlists your other accounts play most',
-        HomeSection.lyricHighlight => _zh ? '从你的歌里挑出的歌词，点按从那句开播' : 'Lyrics picked from your songs, tap to play from that line',
+        HomeSection.lyricHighlight => _zh ? '从你的歌里挑出的歌词，点按播放' : 'Lyrics picked from your songs, tap to play',
         HomeSection.memoryGrid => _zh ? '所有笔记和评分，格子跟着你写的多少变' : 'Every note and score, on a grid that grows with you',
         HomeSection.madeForYou => _zh ? 'Spotify 和 Apple Music 为你做的歌单' : 'Playlists Spotify and Apple Music make for you',
       };
@@ -107,7 +107,7 @@ class HomeStrings {
 
   // ---- Lyric Cards ----
 
-  String get lyricPlayFromLine => _zh ? '从这句开始播放' : 'Play from this line'; // home_lyric_play_from_line
+  String get lyricPlayFromLine => _zh ? '播放这首歌' : 'Play song'; // home_lyric_play_from_line
   String get lyricKindHeavy => _zh ? '常听' : 'On repeat'; // home_lyric_kind_heavy
   String get lyricKindRediscover => _zh ? '久违' : 'Been a while'; // home_lyric_kind_rediscover
   String get lyricKindUser => _zh ? '你选的' : 'Your pick'; // home_lyric_kind_user
@@ -119,8 +119,8 @@ class HomeStrings {
       ? '你在歌词页选中并分享或保存为图片卡片的歌词，我们会记住，显示在这里。'
       : 'Lines you select on the lyrics page and share or save as an image card are remembered and show up here.';
   String get lyricIntroPlay => _zh
-      ? '点卡片就从那句开始播放。挑过的句子按账号留在这台设备上。'
-      : 'Tap a card to play from that line. Picks stay with each account on this device.';
+      ? '轻点卡片即可播放。挑过的句子按账号留在这台设备上。'
+      : 'Tap a card to play. Picks stay with each account on this device.';
   String get lyricIntroGotIt => _zh ? '知道了' : 'Got it'; // home_lyric_intro_got_it
 
   /// home_edit_lyric_cards (plural).

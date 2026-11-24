@@ -320,6 +320,9 @@ struct AccountCard: View {
                 pill(status)
                     .padding(.top, 10)
                     .transition(.scale(scale: 0.6, anchor: .topLeading).combined(with: .opacity))
+            } else {
+                managePill(isActive: isActive, tone: tone)
+                    .padding(.top, 10)
             }
         }
         .padding(.leading, 16)
@@ -338,21 +341,45 @@ struct AccountCard: View {
         .accessibilityHint(isActive ? String(localized: "Manage account") : String(localized: "Switch to this account"))
     }
 
-    /// Service, then host (the service drops out when the title already says it).
+    /// Host (when present) and configurable scope hint; host yields first so the scope hint stays visible.
     private func serviceLine(_ ink: Color) -> some View { Self.serviceLine(profile, ink: ink) }
 
     static func serviceLine(_ profile: Profile, ink: Color) -> some View {
-        HStack(spacing: 6) {
-            if !profile.title.localizedCaseInsensitiveContains(profile.service.name) {
-                Text(profile.service.name).foregroundStyle(ink)
+        let host = profile.host.flatMap { h in
+            profile.title.localizedCaseInsensitiveContains(h) ? nil : h
+        }
+        return HStack(spacing: 8) {
+            if let host {
+                Text(host)
+                    .foregroundStyle(ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            if let host = profile.host, !profile.title.localizedCaseInsensitiveContains(host) {
-                Text(host).foregroundStyle(ink.opacity(0.8))
-            }
+            Text(profile.service.scopeHint)
+                .foregroundStyle(host == nil ? ink : ink.opacity(0.75))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
         }
         .yoinRole(Tokens.type.bodyMedium)
         .lineLimit(1)
         .padding(.trailing, 12)
+    }
+
+    /// Persistent `Settings ›` pill occupying the reserved bottom pill slot when the account is healthy (v4).
+    private func managePill(isActive: Bool, tone: LandingTone) -> some View {
+        Button(action: onManage) {
+            Text(String(localized: "Settings ›"))
+                .yoinRole(Tokens.type.labelMedium)
+                .foregroundStyle(isActive ? tone.onContainer : app.onSecondaryContainer)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(isActive ? tone.onContainer.opacity(0.16) : app.secondaryContainer, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .pointerHighlight()
     }
 
     private func pill(_ s: Status) -> some View { Self.pill(s, app: app) }

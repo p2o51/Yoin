@@ -106,6 +106,22 @@ class AccountIdentityTest {
     }
 
     @Test
+    fun should_showScopeHintAndOptionalHost_when_buildingAccountCardLine() {
+        assertEquals(
+            listOf(MetaGroup.Plain("lyra.home"), MetaGroup.Plain("Quality and downloads", muted = true)),
+            accountCardLineGroups("Subsonic", title = "demo", detail = "lyra.home", scopeHint = "Quality and downloads"),
+        )
+        assertEquals(
+            listOf(MetaGroup.Plain("Song and artist names")),
+            accountCardLineGroups("Apple Music", title = "Apple Music", detail = null, scopeHint = "Song and artist names"),
+        )
+        assertEquals(
+            listOf(MetaGroup.Plain("Connection and devices")),
+            accountCardLineGroups("Spotify", title = "Chen", detail = null, scopeHint = "Connection and devices"),
+        )
+    }
+
+    @Test
     fun should_giveEachServiceItsOwnHue_when_mapped() {
         val hues = ProviderKind.entries.map { it.serviceIdentity.hue }
         assertEquals(hues.size, hues.toSet().size)
