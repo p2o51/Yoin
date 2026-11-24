@@ -170,9 +170,10 @@ abstract final class NoteEditorText {
   }
 
   /// [newText]'s atoms after an edit from [oldText] / [oldAtoms]: the atoms of
-  /// what was removed go, a U+FFFC that came in takes the next of [incoming]
-  /// (a mention the editor itself is inserting) or, with none, is dropped from
-  /// the text (a pasted placeholder means nothing). [caret] (the new caret)
+  /// what was removed go, unless the edit put their U+FFFC back (a tool
+  /// wrapping words around a chip); any other U+FFFC that came in takes the
+  /// next of [incoming] (a mention the editor itself is inserting) or, with
+  /// none, is dropped from the text (a pasted placeholder means nothing). [caret] (the new caret)
   /// settles where the change began when the characters around it repeat.
   static EditorEdit syncAtoms({
     required String oldText,
@@ -197,13 +198,18 @@ abstract final class NoteEditorText {
       final before = _count(oldText, 0, prefix);
       final removed = _count(oldText, prefix, oldText.length - suffix);
       final insertedCount = _count(newText, prefix, newText.length - suffix);
-      if (cap != null && insertedCount > incoming.length) return null;
+      if (cap != null && insertedCount > incoming.length + removed) return null;
+      // A chip the edit moved (a tool wrapping or re-marking words around it) is the same chip; then the
+      // ones the editor itself is inserting.
+      final moved = oldAtoms.skip(before).take(removed).toList();
       final queue = [...incoming];
       final insertedAtoms = <EditorAtom>[];
       final strip = <int>[];
       for (var i = prefix; i < newText.length - suffix; i++) {
         if (newText.codeUnitAt(i) != _objectReplacement) continue;
-        if (queue.isNotEmpty) {
+        if (moved.isNotEmpty) {
+          insertedAtoms.add(moved.removeAt(0));
+        } else if (queue.isNotEmpty) {
           insertedAtoms.add(queue.removeAt(0));
         } else {
           strip.add(i);
@@ -399,7 +405,8 @@ abstract final class NoteEditorText {
       case NoteTool.italic:
         final before = from > 0 ? text.codeUnitAt(from - 1) : null;
         final after = to < text.length ? text.codeUnitAt(to) : null;
-        final marker = (before != null && _isAsciiLetterOrDigit(before)) || (after != null && _isAsciiLetterOrDigit(after))
+        final marker =
+            (before != null && _isAsciiLetterOrDigit(before)) || (after != null && _isAsciiLetterOrDigit(after))
             ? '*'
             : '_';
         return _wrap(text, from, to, marker);
@@ -534,5 +541,4 @@ final class BlockMarker {
 
   final NoteBlockKind kind;
   final int length;
-
 }

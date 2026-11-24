@@ -32,10 +32,7 @@ void main() {
       final golden =
           jsonDecode(File('../shared/src/commonTest/resources/golden/note-markup.json').readAsStringSync())
               as Map<String, dynamic>;
-      final texts = [
-        for (final v in golden['parse'] as List) (v as Map)['text'] as String,
-        '$o literal and $link',
-      ];
+      final texts = [for (final v in golden['parse'] as List) (v as Map)['text'] as String, '$o literal and $link'];
       for (final text in texts) {
         final e = NoteEditorText.encode(text);
         expect(NoteEditorText.decode(e.text, e.atoms), text, reason: jsonEncode(text));
@@ -70,10 +67,7 @@ void main() {
 
     test('should_keepTheTriggerOpen_acrossSpacesTheKeyboardIsStillComposing', () {
       const text = '像 @niu yue';
-      expect(
-        NoteEditorText.trigger(text, text.length, composingStart: 3, composingEnd: text.length)?.query,
-        'niu yue',
-      );
+      expect(NoteEditorText.trigger(text, text.length, composingStart: 3, composingEnd: text.length)?.query, 'niu yue');
       expect(NoteEditorText.trigger(text, text.length), isNull);
       expect(NoteEditorText.trigger('@a b', 4, composingStart: 3, composingEnd: 4), isNull);
     });
@@ -82,7 +76,14 @@ void main() {
       expect(NoteEditorText.trigger('＠灯塔', 3), const MentionTrigger(0, 3, '灯塔'));
       expect(NoteEditorText.trigger('这首像＠灯塔', 6)?.query, '灯塔');
       expect(NoteEditorText.trigger('这首像＠', 4)?.query, '');
-      final fix = NoteEditorText.insertMention('这首像＠灯塔', const [], 6, 6, NoteEditorText.trigger('这首像＠灯塔', 6), andromeda);
+      final fix = NoteEditorText.insertMention(
+        '这首像＠灯塔',
+        const [],
+        6,
+        6,
+        NoteEditorText.trigger('这首像＠灯塔', 6),
+        andromeda,
+      );
       expect(NoteEditorText.decode(fix.edit.text, fix.atoms), '这首像$link ');
     });
   });
@@ -101,7 +102,9 @@ void main() {
 
     test('should_keepOtherChipsInOrder_when_oneIsInsertedBetweenThem', () {
       final other = NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al', title: 'Other');
-      final e = NoteEditorText.encode('${NoteMarkup.serializeMention(other)} @an ${NoteMarkup.serializeMention(other)}');
+      final e = NoteEditorText.encode(
+        '${NoteMarkup.serializeMention(other)} @an ${NoteMarkup.serializeMention(other)}',
+      );
       final trigger = NoteEditorText.trigger(e.text, 5)!;
       final fix = NoteEditorText.insertMention(e.text, e.atoms, 5, 5, trigger, andromeda);
       expect(fix.atoms.map((a) => a.mention?.title), ['Other', 'Andromeda', 'Other']);
@@ -131,11 +134,7 @@ void main() {
   group('atomic chips', () {
     test('should_dropTheMention_when_backspaceTakesItsCharacter', () {
       final e = NoteEditorText.encode('a $link b');
-      final out = NoteEditorText.syncAtoms(
-        oldText: e.text,
-        oldAtoms: e.atoms,
-        edited: const NoteEdit('a  b', 2),
-      );
+      final out = NoteEditorText.syncAtoms(oldText: e.text, oldAtoms: e.atoms, edited: const NoteEdit('a  b', 2));
       expect(NoteEditorText.decode(out.edit.text, out.atoms), 'a  b');
       expect(out.atoms, isEmpty);
     });
@@ -158,6 +157,16 @@ void main() {
         incoming: [EditorAtom.of(andromeda)],
       );
       expect(NoteEditorText.decode(picked.edit.text, picked.atoms), 'a${link}b');
+    });
+
+    test('should_keepTheChip_when_aToolWrapsTheWordsAroundIt', () {
+      final e = NoteEditorText.encode('x $link');
+      final bold = NoteEditorText.apply(NoteTool.bold, e.text, 2, 3);
+      final out = NoteEditorText.syncAtoms(oldText: e.text, oldAtoms: e.atoms, edited: bold);
+      expect(NoteEditorText.decode(out.edit.text, out.atoms), 'x **$link**');
+      final listed = NoteEditorText.apply(NoteTool.checklist, e.text, 3, 3);
+      final out2 = NoteEditorText.syncAtoms(oldText: e.text, oldAtoms: e.atoms, edited: listed);
+      expect(NoteEditorText.decode(out2.edit.text, out2.atoms), '- [ ] x $link');
     });
 
     test('should_moveTheAtomsAlong_when_typingBeforeAChip', () {

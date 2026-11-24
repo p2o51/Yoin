@@ -35,7 +35,11 @@ class _FakeCandidates implements MentionCandidateSource {
   }
 }
 
-Future<(NoteEditorController, FocusNode)> _pump(WidgetTester tester, MentionCandidateSource candidates, {String stored = ''}) async {
+Future<(NoteEditorController, FocusNode)> _pump(
+  WidgetTester tester,
+  MentionCandidateSource candidates, {
+  String stored = '',
+}) async {
   final controller = NoteEditorController(stored: stored);
   final focus = FocusNode();
   await tester.pumpWidget(
@@ -150,6 +154,16 @@ void main() {
     await tester.pump();
     expect(controller.storedText, 'a ');
     expect(controller.atoms, isEmpty);
+  });
+
+  testWidgets('should_keepAChip_when_boldIsAppliedAcrossIt', (tester) async {
+    final link = NoteMarkup.serializeMention(_track('Andromeda'));
+    final (controller, _) = await _pump(tester, _FakeCandidates(), stored: 'x $link y');
+    controller.selection = const TextSelection(baseOffset: 0, extentOffset: 5);
+    await tester.tap(find.bySemanticsLabel('Bold'));
+    await tester.pump();
+    expect(controller.storedText, '**x $link y**');
+    expect(find.byType(NoteEditorChip), findsOneWidget);
   });
 
   testWidgets('should_continueAListOnEnter_andFormatFromTheRow', (tester) async {
