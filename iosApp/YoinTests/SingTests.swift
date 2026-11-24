@@ -398,4 +398,40 @@ final class SingTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - 11. Sing UI Motion Geometry (A + 1)
+
+    func testSingMotionGeometryEndpointsAndMirrorSymmetry() {
+        let atZero = SingMotionGeometry.interpolateMicToHeart(0)
+        XCTAssertEqual(atZero, SingMotionGeometry.micCapsuleClosed)
+
+        let atOne = SingMotionGeometry.interpolateMicToHeart(1)
+        XCTAssertEqual(atOne, SingMotionGeometry.heartClosed)
+
+        for t: CGFloat in [-0.08, 0, 0.25, 0.5, 0.75, 1.0, 1.08] {
+            let c = SingMotionGeometry.interpolateMicToHeart(t)
+            XCTAssertEqual(c.mx, 12, accuracy: 1e-4)
+            XCTAssertEqual(c.segs.count, 6)
+            for i in 0..<3 {
+                let left = c.segs[i]
+                let right = c.segs[5 - i]
+                let leftStartX = i == 0 ? c.mx : c.segs[i - 1].x
+                let leftStartY = i == 0 ? c.my : c.segs[i - 1].y
+                XCTAssertEqual(24 - leftStartX, right.x, accuracy: 1e-3)
+                XCTAssertEqual(leftStartY, right.y, accuracy: 1e-3)
+                XCTAssertEqual(24 - left.c1x, right.c2x, accuracy: 1e-3)
+                XCTAssertEqual(left.c1y, right.c2y, accuracy: 1e-3)
+                XCTAssertEqual(24 - left.c2x, right.c1x, accuracy: 1e-3)
+                XCTAssertEqual(left.c2y, right.c1y, accuracy: 1e-3)
+            }
+        }
+    }
+
+    func testSingMotionPrepBeatsEndAtRestingMicPose() {
+        XCTAssertEqual(SingMotionGeometry.prepBeats.count, 4)
+        XCTAssertEqual(SingMotionGeometry.prepBeats.last?.split ?? -1, 0, accuracy: 1e-4)
+        for beat in SingMotionGeometry.prepBeats {
+            XCTAssertTrue((200...400).contains(beat.holdMs))
+        }
+    }
 }
