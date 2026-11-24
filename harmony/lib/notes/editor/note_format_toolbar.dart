@@ -51,37 +51,40 @@ class NoteFormatToolbar extends StatelessWidget {
       final colors = Theme.of(context).colorScheme;
       final strings = NotesStrings.of(context);
       final active = controller.activeTools;
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (i, tool) in _toolOrder.indexed) ...[
-            if (i > 0) const SizedBox(width: _E.toolGap),
-            ExpressiveSurfaceButton(
-              shapes: _toggleShapes,
-              height: _E.toolSize,
-              minWidth: _E.toolSize,
-              color: Colors.transparent,
-              contentColor: active.contains(tool)
-                  ? (checkedColor ?? colors.primary)
-                  : (contentColor ?? colors.onSurfaceVariant),
-              checked: active.contains(tool),
-              semanticLabel: switch (tool) {
-                NoteTool.bold => strings.toolBold,
-                NoteTool.italic => strings.toolItalic,
-                NoteTool.heading => strings.toolHeading,
-                NoteTool.bullet => strings.toolBullet,
-                NoteTool.checklist => strings.toolChecklist,
-                NoteTool.mention => strings.toolMention,
-              },
-              semanticValue: null,
-              onTap: () {
-                YoinHaptics.tick();
-                controller.apply(tool);
-              },
-              child: _ToolGlyph(tool),
-            ),
+      // Part of the editor: a click here keeps the field's focus and selection.
+      return TextFieldTapRegion(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (i, tool) in _toolOrder.indexed) ...[
+              if (i > 0) const SizedBox(width: _E.toolGap),
+              ExpressiveSurfaceButton(
+                shapes: _toggleShapes,
+                height: _E.toolSize,
+                minWidth: _E.toolSize,
+                color: Colors.transparent,
+                contentColor: active.contains(tool)
+                    ? (checkedColor ?? colors.primary)
+                    : (contentColor ?? colors.onSurfaceVariant),
+                checked: active.contains(tool),
+                semanticLabel: switch (tool) {
+                  NoteTool.bold => strings.toolBold,
+                  NoteTool.italic => strings.toolItalic,
+                  NoteTool.heading => strings.toolHeading,
+                  NoteTool.bullet => strings.toolBullet,
+                  NoteTool.checklist => strings.toolChecklist,
+                  NoteTool.mention => strings.toolMention,
+                },
+                semanticValue: null,
+                onTap: () {
+                  YoinHaptics.tick();
+                  controller.apply(tool);
+                },
+                child: _ToolGlyph(tool),
+              ),
+            ],
           ],
-        ],
+        ),
       );
     },
   );
