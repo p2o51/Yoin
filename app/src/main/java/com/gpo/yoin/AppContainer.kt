@@ -92,6 +92,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
 import okhttp3.Cache
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -439,6 +440,36 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /** "Open in Yoin" and the clipboard prompt (docs/open-in-yoin.md). */
+    val openInSettingsStore: com.gpo.yoin.data.openin.OpenInSettingsStore by lazy {
+        com.gpo.yoin.data.openin.OpenInSettingsStore(context)
+    }
+
+    val musicLinkLookup: com.gpo.yoin.data.openin.MusicLinkLookup by lazy {
+        // Yoin's public token service: a catalog read needs no account, and no Music User Token is sent.
+        val tokens = com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider(
+            com.gpo.yoin.data.remote.applemusic.YoinTokenService.URL.toHttpUrl(),
+        )
+        com.gpo.yoin.data.openin.MusicLinkResolver(
+            transport = OkHttpClient(),
+            appleMusicCatalog = com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient(tokens::token, { null }),
+            activeSpotify = { profileManager.activeSource.value },
+        )
+    }
+
+    val openInCoordinator: com.gpo.yoin.data.openin.OpenInCoordinator by lazy {
+        com.gpo.yoin.data.openin.OpenInCoordinator(
+            scope = applicationScope,
+            lookup = musicLinkLookup,
+            profiles = { profileManager.profiles.first() },
+            activeProfileId = { profileManager.activeProfileId.value },
+        )
+    }
+
+    val clipboardLinkWatcher: com.gpo.yoin.data.openin.ClipboardLinkWatcher by lazy {
+        com.gpo.yoin.data.openin.ClipboardLinkWatcher(context, openInSettingsStore, openInCoordinator, applicationScope)
+    }
+
     /** Account pictures from their services (Spotify profile photos), by profile id. */
     val profileAvatarStore: ProfileAvatarStore by lazy { ProfileAvatarStore(context) }
     val appleMusicNameRegionStore: AppleMusicNameRegionStore by lazy { AppleMusicNameRegionStore(context) }
@@ -556,6 +587,56 @@ class AppContainer(private val context: Context) {
             },
             scope = applicationScope,
         ).also { it.ensureStarted() }
+    }
+
+    /**
+     * Sing (karaoke) on this device: Lyra-Sing-Lite through LiteRT, separating while the song
+     * plays and the mixer takes the vocal out live; finished vocal tracks are cached (player/sing/).
+     * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
+     * here loads LiteRT until a song is actually separated.
+     */
+    val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
+        com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)
+    }
+
+    /** Cached `/api/v1/capabilities` Sing probe per active Subsonic/Lyra server URL. */
+    val lyraSingCapabilities: com.gpo.yoin.player.sing.LyraSingCapabilityCache by lazy {
+        com.gpo.yoin.player.sing.LyraSingCapabilityCache(subsonicBaseHttpClient)
+    }
+
+    /** Lyra server Sing path (`/api/v1/sing/{id}/...`), falling back to [singEngine] when offline. */
+    val lyraSingProvider: com.gpo.yoin.player.sing.LyraSingStreamProvider by lazy {
+        com.gpo.yoin.player.sing.LyraSingStreamProvider(
+            credentialsProvider = {
+                (profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource)?.rawCredentials
+            },
+            httpClient = subsonicBaseHttpClient,
+            fallback = singEngine,
+            capabilityCache = lyraSingCapabilities,
+        )
+    }
+
+    /** The Sing API a UI binds to (none yet): on/off, vocal level, status. */
+    val singController: com.gpo.yoin.player.sing.SingController by lazy {
+        applicationScope.launch {
+            profileManager.activeSource.collect { source ->
+                val subsonic = source as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource ?: return@collect
+                lyraSingCapabilities.refresh(subsonic.rawCredentials)
+            }
+        }
+        com.gpo.yoin.player.sing.SingController(
+            scope = applicationScope,
+            selector = com.gpo.yoin.player.sing.SingProviderSelector(
+                onDevice = singEngine,
+                lyra = lyraSingProvider,
+                isLyraOnline = {
+                    val creds = (profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource)
+                        ?.rawCredentials
+                    lyraSingCapabilities.isSingEnabled(creds)
+                },
+            ),
+            waitForHandover = true,
+        )
     }
 
     val playbackManager: PlaybackManager by lazy {

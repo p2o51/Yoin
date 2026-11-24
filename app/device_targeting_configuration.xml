@@ -1,0 +1,13 @@
+<config:device-targeting-config
+    xmlns:config="http://schemas.android.com/apk/config">
+    <config:device-group name="Google_Tensor_G6">
+        <config:device-selector>
+            <config:system-on-chip manufacturer="Google" model="Tensor G6"/>
+        </config:device-selector>
+    </config:device-group>
+    <config:device-group name="Google_Tensor_G5">
+        <config:device-selector>
+            <config:system-on-chip manufacturer="Google" model="Tensor G5"/>
+        </config:device-selector>
+    </config:device-group>
+</config:device-targeting-config>

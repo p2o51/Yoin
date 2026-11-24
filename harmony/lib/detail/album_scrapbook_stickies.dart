@@ -31,11 +31,14 @@ class _StickyWidth extends StatelessWidget {
 /// The album's stickies and the dashed one (or an editor in place of one). The pile follows its content on
 /// the spatial spring (animateContentSize).
 class _StickyPile extends StatelessWidget {
-  const _StickyPile({required this.stickies, required this.editing, required this.onSave});
+  const _StickyPile({required this.stickies, required this.editing, required this.onSave, required this.onTick});
 
   final List<ScrapSticky> stickies;
   final StickyEditing editing;
   final void Function(String open, String text) onSave;
+
+  /// A to-do's box ticked on a sticky at rest: [text] is the sticky's words with it flipped.
+  final void Function(String noteId, String text) onTick;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -59,7 +62,12 @@ class _StickyPile extends StatelessWidget {
               onCancel: editing.close,
             )
           else
-            _Sticky(key: ValueKey(sticky.noteId), sticky: sticky, onTap: () => editing.startEdit(sticky)),
+            _Sticky(
+              key: ValueKey(sticky.noteId),
+              sticky: sticky,
+              onTap: () => editing.startEdit(sticky),
+              onToggleChecklist: (line) => onTick(sticky.noteId, NoteMarkup.toggleChecklist(sticky.text, line)),
+            ),
         if (open == StickyEditing.newSticky)
           _StickyEditor(
             key: const ValueKey('edit:new'),
@@ -90,10 +98,11 @@ class _StickyPile extends StatelessWidget {
 /// One album note: secondaryContainer paper with a folded corner, its words drawn from the stored markup.
 /// Told apart by paper and fold alone: no label, no rail (the rail is the track notes').
 class _Sticky extends StatelessWidget {
-  const _Sticky({super.key, required this.sticky, required this.onTap});
+  const _Sticky({super.key, required this.sticky, required this.onTap, required this.onToggleChecklist});
 
   final ScrapSticky sticky;
   final VoidCallback onTap;
+  final void Function(int lineIndex) onToggleChecklist;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +136,7 @@ class _Sticky extends StatelessWidget {
                     sticky.text,
                     style: _userText(context)?.copyWith(fontSize: ScrapbookLayout.stickyText, color: colors.onSticky),
                     mentionColor: colors.onSticky,
+                    onToggleChecklist: onToggleChecklist,
                   ),
                 ),
               ),
@@ -177,7 +187,8 @@ class _DashedSticky extends StatelessWidget {
   }
 }
 
-/// A sticky being written: a field on the sticky's paper, then Cancel and Save.
+/// A sticky being written: the note editor on the sticky's paper (it can @), the formatting row, then
+/// Cancel and Save.
 class _StickyEditor extends StatefulWidget {
   const _StickyEditor({
     super.key,
@@ -197,8 +208,7 @@ class _StickyEditor extends StatefulWidget {
 }
 
 class _StickyEditorState extends State<_StickyEditor> {
-  late final TextEditingController _field = TextEditingController(text: widget.text)
-    ..selection = TextSelection.collapsed(offset: widget.text.length);
+  late final NoteEditorController _field = NoteEditorController(stored: widget.text);
   final FocusNode _focus = FocusNode();
 
   @override
@@ -232,14 +242,13 @@ class _StickyEditorState extends State<_StickyEditor> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextField(
+              NoteMarkupField(
                 controller: _field,
                 focusNode: _focus,
                 minLines: ScrapbookLayout.stickyMinLines,
                 maxLines: ScrapbookLayout.stickyMaxLines,
-                keyboardType: TextInputType.multiline,
-                textCapitalization: TextCapitalization.sentences,
                 style: style,
+                colors: NoteEditorColors(text: colors.onSticky, chip: colors.stickyFold, chipText: colors.onSticky),
                 cursorColor: colors.onSticky,
                 decoration: InputDecoration.collapsed(
                   hintText: strings.stickyPlaceholder,
@@ -247,6 +256,11 @@ class _StickyEditorState extends State<_StickyEditor> {
                 ),
               ),
               const SizedBox(height: 6),
+              // The sticky is narrow: the formatting row scrolls on a line of its own, Cancel / Save under it.
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: NoteFormatToolbar(controller: _field),
+              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -257,7 +271,7 @@ class _StickyEditorState extends State<_StickyEditor> {
                   ),
                   FilledButton.tonal(
                     style: FilledButton.styleFrom(backgroundColor: colors.stickyFold, foregroundColor: colors.onSticky),
-                    onPressed: () => widget.onSave(_field.text),
+                    onPressed: () => widget.onSave(_field.storedText),
                     child: Text(strings.scrapSave),
                   ),
                 ],

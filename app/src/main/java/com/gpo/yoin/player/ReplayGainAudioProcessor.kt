@@ -157,11 +157,11 @@ internal class ReplayGainAudioProcessor(
 }
 
 /**
- * Media3's renderers with [processor] in the audio sink's chain; the sink is
- * otherwise built as DefaultRenderersFactory builds it.
+ * Media3's renderers with [processors] in the audio sink's chain, in order; the
+ * sink is otherwise built as DefaultRenderersFactory builds it.
  */
 @OptIn(UnstableApi::class)
-internal fun replayGainRenderersFactory(context: Context, processor: AudioProcessor): DefaultRenderersFactory =
+internal fun replayGainRenderersFactory(context: Context, vararg processors: AudioProcessor): DefaultRenderersFactory =
     object : DefaultRenderersFactory(context) {
         init {
             setMediaCodecSelector(DolbyAtmosCodecSelector)
@@ -174,7 +174,7 @@ internal fun replayGainRenderersFactory(context: Context, processor: AudioProces
         ): AudioSink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
-            .setAudioProcessors(arrayOf(processor))
+            .setAudioProcessors(arrayOf(*processors))
             .build()
     }
 

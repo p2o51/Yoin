@@ -195,6 +195,7 @@ class AccountBinder {
             provider: e.key.provider,
             displayName: e.key.displayName,
             status: e.value ?? AccountNotSynced(appleCandidates),
+            syncProfileId: byProfile[e.key.id]?.syncProfileId,
           ),
       ];
       return BindingSnapshot(active: active, rows: rows, cloudOnly: cloudOnly, newlyBound: newlyBound);

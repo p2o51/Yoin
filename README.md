@@ -73,7 +73,7 @@ We rethought what a music app's Home is made of, and brought the responsive desi
 
 - **Core:** Kotlin 2.4.21, AGP 9.2.1, `minSdk` 26, `targetSdk` 36, `compileSdk` 37
 - **UI & Motion:** Jetpack Compose (BOM 2026.11.01), Material 3 `1.5.0` (Expressive APIs), Material 3 Adaptive `1.3.0`, `androidx.window` `1.5.1`, Navigation 3 `1.1.2`, Glance `1.2.0` (home-screen widgets)
-- **Playback:** Media3 `1.11.1` (`MediaSession` + Cast), Spotify App Remote, Apple MusicKit
+- **Playback:** Media3 `1.11.1` (`MediaSession` + Cast), Spotify App Remote, Apple MusicKit, LiteRT `2.4.0` (on-device Sing vocal separation on the Tensor TPU, GPU or CPU)
 - **Storage, Sync & AI:** Room `2.8.5`, AndroidKeyStore AES-GCM credential encryption, Google Drive `appDataFolder` sync, Retrofit `3.0.0`, OkHttp `5.5.1`, Coil `3.4.0`, ML Kit GenAI Prompt `1.0.0-beta5` (on-device Gemini Nano)
 - **Tests:** JUnit 4, Robolectric `4.17`, Turbine `1.2.1`, MockK `1.14.11`
 

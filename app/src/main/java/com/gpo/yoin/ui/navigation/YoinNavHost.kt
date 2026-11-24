@@ -92,6 +92,11 @@ import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.openin.OpenInHitAction
+import com.gpo.yoin.data.openin.OpenInRequest
+import com.gpo.yoin.data.openin.OpenInRouting
+import com.gpo.yoin.ui.openin.OpenInCard
+import com.gpo.yoin.ui.openin.OpenInResultsActivity
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
@@ -753,16 +758,18 @@ private fun YoinShell(
         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
     }
-    val openLibrarySearch: () -> Unit = {
+    // Library search, empty (the shortcut) or already searching [query] (text shared to "Open in Yoin").
+    val openLibrarySearchFor: (String) -> Unit = { query ->
         val scope = when (app.container.repository.currentProviderId()) {
             MediaId.PROVIDER_SPOTIFY -> LibrarySearchScope.SpotifyGlobal
             MediaId.PROVIDER_APPLE_MUSIC -> LibrarySearchScope.AppleMusicGlobal
             else -> LibrarySearchScope.CurrentLibrary
         }
-        libraryViewModel.openSearchShortcut(scope)
+        libraryViewModel.openSearchShortcut(scope, query)
         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
     }
+    val openLibrarySearch: () -> Unit = { openLibrarySearchFor("") }
     // Flip the bar to detail chrome the moment the tap lands — the nav→split
     // morph IS the tap feedback; the detail window's delayed slide then lands
     // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
@@ -1121,6 +1128,54 @@ private fun YoinShell(
         }
     }
     MemorySwitchNotice(searchSwitchGate)
+    // "Open in Yoin" and the clipboard prompt (docs/open-in-yoin.md): a hit opens in the account on the link's
+    // service (switching to it through Home's switcher), a found link opens Choose a match, other shared text
+    // searches the Library.
+    val openIn = app.container.openInCoordinator
+    val openInPrompt by openIn.prompt.collectAsState()
+    val openInHit: (OpenInRequest.OpenHit) -> Unit = { request ->
+        val action = OpenInRouting.hitAction(request.link)
+        if (action != null) {
+            val open: () -> Unit = {
+                if (action !is OpenInHitAction.PlayTrack && showNowPlaying && !npPanel.panelOpen) {
+                    nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
+                    experienceSessionStore.setNowPlayingExpanded(false)
+                }
+                when (action) {
+                    is OpenInHitAction.PlayTrack -> shellScope.launch { app.container.playOpenInTrack(action.id) }
+                    is OpenInHitAction.OpenAlbum -> navigateToAlbumFromShell(action.id.toString(), null)
+                    is OpenInHitAction.OpenArtist -> navigateToArtistFromShell(action.id.toString(), null)
+                    is OpenInHitAction.OpenPlaylist -> navigateToPlaylistFromShell(action.id.toString(), null)
+                }
+            }
+            if (request.target.profileId == app.container.profileManager.activeProfileId.value) {
+                open()
+            } else {
+                accountSwitcher.switchTo(request.target.profileId, onLanded = open)
+            }
+        }
+    }
+    val currentOpenInHit by rememberUpdatedState(openInHit)
+    val currentOpenLibrarySearchFor by rememberUpdatedState(openLibrarySearchFor)
+    LaunchedEffect(openIn, lifecycleOwner) {
+        // A share can start Yoin cold: the accounts are read first, so the account in use is known.
+        app.container.profileStartupDone.first { it }
+        // Held until the shell is in front: a share brings it forward first.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            openIn.requests.collect { request ->
+                when (request) {
+                    is OpenInRequest.OpenHit -> currentOpenInHit(request)
+                    is OpenInRequest.ShowResults -> shellContext.startActivity(
+                        OpenInResultsActivity.intent(shellContext, request.link.canonicalUrl, request.metadata),
+                    )
+                    is OpenInRequest.SearchLibrary -> {
+                        homeEdit.snapExit()
+                        currentOpenLibrarySearchFor(request.query)
+                    }
+                }
+            }
+        }
+    }
     // Home's On Your Other Accounts shelf: a tap switches here, then plays.
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
     // Home's 「歌词一句」: the Gemini Nano lyric line, on devices that have Nano.
@@ -1882,6 +1937,14 @@ private fun YoinShell(
                 .besideNowPlayingPanel(npPanel),
             contentAlignment = Alignment.BottomCenter,
         ) {
+            // The clipboard prompt; not over a Now Playing that covers the window.
+            OpenInCard(
+                prompt = openInPrompt.takeUnless { showNowPlaying && !npPanel.panelOpen },
+                onAccept = openIn::accept,
+                onDismiss = openIn::dismiss,
+                currentProvider = app.container.profileManager.activeSource.collectAsState().value?.id,
+                modifier = Modifier.padding(bottom = shellChromeInsets.calculateBottomPadding()),
+            )
             YoinSnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier.padding(
@@ -1972,6 +2035,41 @@ internal fun AppContainer.playSearchResults(songs: List<Track>, startIndex: Int)
     val window = startQueueFor(source.id, songs, startIndex)
     playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
 }
+
+/**
+ * A song opened from a music link on its own service ("Open in Yoin", docs/open-in-yoin.md), once its
+ * account is the one in use: read whole where the service can, else started by its id alone (Spotify and
+ * Apple Music start by id; the player fills in the rest).
+ */
+internal suspend fun AppContainer.playOpenInTrack(id: MediaId) {
+    // Just switched (or started cold by a share): the account's source may still be on its way.
+    val source = withTimeoutOrNull(OPEN_IN_SOURCE_WAIT_MS) {
+        profileManager.activeSource.first { it?.id == id.provider }
+    } ?: return
+    val track = try {
+        source.library().getTrack(id)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    } ?: Track(
+        id = id,
+        title = null,
+        artist = null,
+        artistId = null,
+        album = null,
+        albumId = null,
+        coverArt = null,
+        durationSec = null,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null,
+    )
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { playSearchResults(listOf(track), 0) }
+}
+
+private const val OPEN_IN_SOURCE_WAIT_MS = 10_000L
 
 /**
  * [queue] as a start hands it over: whole on Subsonic, whose player takes any

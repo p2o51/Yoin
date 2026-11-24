@@ -103,24 +103,43 @@ internal fun NowPlayingCoverMenu(songId: String, menu: CoverMenuState) {
     val context = LocalContext.current
     val keepScreenOn = rememberNowPlayingKeepScreenOn()
     val glowSignal = LocalNowPlayingTransportSignal.current
+    val sing = LocalNowPlayingSing.current
+    val showSingRow = sing?.isSupported == true
     TrackMenuSheet(
         songId = songId,
         onDismissRequest = { menu.open = false },
         host = host,
         nowPlaying = true,
         playerSection = {
-            TrackMenuGroup(count = 1) { _, shape ->
-                TrackMenuToggleRow(
-                    label = stringResource(R.string.np_keep_screen_on),
-                    icon = YoinSymbols.LightMode,
-                    checked = keepScreenOn,
-                    onCheckedChange = {
-                        // Action light (ActionGlow.kt): the room brightens as the screen stays on.
-                        if (it) glowSignal?.glow(ActionGlowKind.RoomLift, null)
-                        NowPlayingKeepScreenOn.set(context, it)
-                    },
-                    shape = shape,
-                )
+            TrackMenuGroup(count = if (showSingRow) 2 else 1) { index, shape ->
+                if (sing != null && showSingRow && index == 0) {
+                    TrackMenuToggleRow(
+                        label = stringResource(R.string.np_sing),
+                        icon = SingIcons.Mic,
+                        checked = sing.isEnabled,
+                        onCheckedChange = { on ->
+                            if (on) {
+                                sing.onEnter(true)
+                                menu.open = false
+                            } else {
+                                sing.onExit()
+                            }
+                        },
+                        shape = shape,
+                    )
+                } else {
+                    TrackMenuToggleRow(
+                        label = stringResource(R.string.np_keep_screen_on),
+                        icon = YoinSymbols.LightMode,
+                        checked = keepScreenOn,
+                        onCheckedChange = {
+                            // Action light (ActionGlow.kt): the room brightens as the screen stays on.
+                            if (it) glowSignal?.glow(ActionGlowKind.RoomLift, null)
+                            NowPlayingKeepScreenOn.set(context, it)
+                        },
+                        shape = shape,
+                    )
+                }
             }
         },
     )

@@ -21,6 +21,7 @@ Yoin/
 │   ├── continue-on.md             # Android Continue On / Apple Handoff / HarmonyOS 应用接续
 │   ├── haptic-feedback.md         # Multi-platform tactile system & vibration compositions
 │   ├── playlist-transfer.md       # Cross-provider playlist cloud backup & restore
+│   ├── open-in-yoin.md            # Share target + clipboard music links (hit / found routing)
 │   ├── spotoolfy-migration.md     # Spotoolfy archive import design
 │   ├── ci-cd.md                   # Signing, versioning & release automation
 │   ├── privacy-policy-draft.md    # Privacy policy reference (2026-11-13 draft)
@@ -56,6 +57,7 @@ Yoin/
 | [cloud-sync.md](cloud-sync.md) | Google Drive `appDataFolder` sync protocol, per-platform Drive clients (`SyncEngine` / `CloudSyncCore`), identity binding & AI/credential exclusions | Current (0.6.3+) |
 | [continue-on.md](continue-on.md) | Cross-device handoff: Android 17 `ContinueOnPauseServer`, Apple Handoff (`com.gpo.yoin.playing`), HarmonyOS 应用接续 (`ContinueOnPlugin.ets`) | Current (0.6.3+) |
 | [playlist-transfer.md](playlist-transfer.md) | Cross-provider playlist snapshots in Drive, fuzzy `TrackMatcher`, `RestoreReview`, Live Updates / Live Activities, Spotify 2026-02 / Apple limits | Current |
+| [open-in-yoin.md](open-in-yoin.md) | "Open in Yoin" share target and clipboard music-link prompt: `:shared` link parser, no-login metadata, hit vs found routing by the user's accounts, clipboard gating & privacy | Current (Android; iOS/HarmonyOS gap) |
 | [spotoolfy-migration.md](spotoolfy-migration.md) | Spotoolfy export/archive migration path into Yoin | Current |
 | [integrations/spotoolfy-export-format.md](integrations/spotoolfy-export-format.md) | Export schema specification from Spotoolfy | Reference |
 

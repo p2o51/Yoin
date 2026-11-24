@@ -41,7 +41,8 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | Google sign-in | `lib/data/sync/auth/google_oauth.dart` |
 | Manager (cycles, reset and scope purge markers, devices, states) | `lib/data/sync/cloud_sync_manager.dart` |
 | Platform seam | `lib/platform/sync/cloud_sync_host.dart` → ArkTS `ohos/entry/src/main/ets/yoin/sync/CloudSyncPlugin.ets` (`yoin/cloud_sync`); Windows: `DesktopCloudSyncHost` |
-| Settings › Sync and storage › Cloud sync | `lib/settings/sync/` |
+| Per-account cloud data (counts, browser; Android `CloudDataViews`) | `lib/data/sync/cloud_data_views.dart` |
+| Settings › Sync and storage › Cloud sync | `lib/settings/sync/` (one account's cloud data: `cloud_account_page.dart`) |
 
 When it runs: when the app comes to the front (at most once a minute), about 8 s
 after a local change to a synced row (the observed key-value store, a playlist
@@ -105,14 +106,29 @@ Google Cloud project** as Android's (otherwise it sees a different, empty
   Client ID, which HarmonyOS doesn't have); new wording for HarmonyOS should come
   from the owner's copy model.
 - The browser's return page shows only “Yoin ✓” (no copy exists for it).
-- “Remove from the cloud” for one account can't be started here yet (no copy for
-  the dialog). Markers other devices write (`yoin-purge-*`) are applied before peers
-  are merged, as in `CloudSyncCore`: the account's records and descriptor leave the
-  replica, its binding becomes Removed from the cloud (not captured, applied or
+- Remove from the cloud (one account, all devices) works both ways, exactly as
+  `CloudSyncCore` / Android (`docs/cloud-sync.md`「从云端移除一个账号」). Started here
+  (`CloudSyncManager.removeAccountFromCloud`, from an account row's ⋮ or its cloud
+  data page, after Android's confirmation): the same Google account check, a
+  `yoin-purge-<epoch>-<device>.json` marker with Android's `appProperties` and body,
+  the epoch at or after every version of the account here, after any earlier marker
+  of it and any purge applied here, not before the reset epoch; then the purge is
+  applied locally and this device re-publishes at once. Markers other devices write
+  are applied before peers are merged: the account's records and descriptor leave
+  the replica, its binding becomes Removed from the cloud (not captured, applied or
   described; a profile added later binds that way too), this device's files carry
   `"purges"`, and records of the scope are taken only from files that acknowledge
   the purge and only after its epoch. Local data stays. Resume syncing on the
   account row joins the scope again, stamped after the epoch; Delete cloud data
-  deletes the markers and clears the removal (`docs/cloud-sync.md`「从云端移除一个账号」).
+  deletes the markers and clears the removal. The engine is checked against the
+  golden vectors `:shared` writes (`shared/src/commonTest/resources/golden/sync-purge.json`,
+  `test/data/sync/sync_purge_golden_test.dart`); a marker's numbers are read as
+  kotlinx reads a Long (an integral number, or a string like `"5"`).
+- The cloud data page of one account (tap an account row, or ⋮ › View cloud data)
+  is Android's `CloudAccountPage` without its Transfer Memories button (no Memories
+  transfer here yet) and without the crumb (Harmony's sub-pages have none). Names
+  come from the account's own notes and album notes only (Android also asks this
+  device's plays). As on Android, the Notes tab lists song notes while the counts
+  include album notes too. Android's All files and Global data pages aren't ported.
 - The replica is a JSON snapshot rather than SQLite; a crash between a domain write
   and the snapshot save is repaired on the next capture, as on Android.

@@ -9,15 +9,24 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
+import '../data/memory/track_album_links.dart';
+import '../data/notes/note_backlinks.dart';
 import '../data/notes/note_markup.dart';
 import '../home/widgets/spring_height.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../nowplaying/haptics.dart';
+import '../notes/editor/note_editor_controller.dart';
+import '../notes/editor/note_editor_display.dart';
+import '../notes/editor/note_format_toolbar.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../notes/note_markup_text.dart';
-import '../nowplaying/note_logic.dart' show formatNotePosition;
+import '../notes/note_mentions.dart';
+import '../notes/notes_strings.dart';
+import '../nowplaying/note_logic.dart' show formatNoteDate, formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
 import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
@@ -38,6 +47,7 @@ import 'detail_play.dart';
 import 'detail_strings.dart';
 import 'scrapbook_focus.dart';
 
+part 'album_scrapbook_backlinks.dart';
 part 'album_scrapbook_stickies.dart';
 
 /// The scrapbook's layout numbers (AlbumScrapbookPage.kt ScrapbookLayout, D3
@@ -424,6 +434,12 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     _stickies.close();
   }
 
+  /// A to-do ticked on a sticky: saved at once, whatever else is open.
+  void _tickSticky(String noteId, String text) {
+    final edit = stickySave(noteId, text);
+    if (edit != null) ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).edit(edit);
+  }
+
   /// A tap on bare paper starts an album note at the top (prototype scenario 5); pieces take their own taps first.
   void _onPaperTap() {
     if (_stickies.open != null) return;
@@ -563,6 +579,12 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
                                             ),
                                           ),
                                         ),
+                                      // 被提及: the page's last block, across every lane.
+                                      _ScrapSpan(
+                                        key: const ValueKey('backlinks'),
+                                        fullLine: true,
+                                        child: _Backlinks(album: widget.album),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -590,7 +612,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       album: widget.album,
       coverUrl: widget.coverUrl,
       wide: wide,
-      stickyPile: _StickyPile(stickies: piece.stickies, editing: _stickies, onSave: _saveSticky),
+      stickyPile: _StickyPile(stickies: piece.stickies, editing: _stickies, onSave: _saveSticky, onTick: _tickSticky),
     ),
     ScrapTrackCluster() => _scrapFade(_TrackCluster(piece: piece, album: widget.album, wide: wide)),
     ScrapContactSheet() => _scrapFade(_ContactSheet(piece: piece, album: widget.album)),
@@ -1118,8 +1140,14 @@ class _TrackCluster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _ScrapScope.of(context).colors;
-    void manage({ScrapSheetTab tab = ScrapSheetTab.about}) =>
-        showScrapTrackSheet(context, album: album, trackId: piece.track.track.id, colors: colors, tab: tab);
+    void manage({ScrapSheetTab tab = ScrapSheetTab.about, String? note}) => showScrapTrackSheet(
+      context,
+      album: album,
+      trackId: piece.track.track.id,
+      colors: colors,
+      tab: tab,
+      focusNote: note,
+    );
     final ask = piece.ask;
     final aboutLine = piece.aboutLine;
     return Padding(
@@ -1144,8 +1172,8 @@ class _TrackCluster extends StatelessWidget {
               maxWidth: 330,
               child: _NotesClipping(
                 piece: piece,
-                album: album,
                 onMore: () => manage(tab: ScrapSheetTab.notes),
+                onOpen: (note) => manage(tab: ScrapSheetTab.notes, note: note.id),
               ),
             ),
           if (ask != null)
@@ -1753,19 +1781,23 @@ class _TicketBorder extends ShapeBorder {
 }
 
 /// A track's notes on neutral paper with the journal rail (the rail is the
-/// notes' mark alone): time stamp and words on one baseline; a tap plays the
-/// song from the note's moment.
-class _NotesClipping extends ConsumerWidget {
-  const _NotesClipping({required this.piece, required this.album, required this.onMore});
+/// notes' mark alone): time stamp and words on one baseline; a tap opens the
+/// note (owner 2026-11-24: no longer plays): the track sheet on its Note tab,
+/// the note brought into view and ringed in ink, where Edit / Play from here
+/// are a tap away.
+class _NotesClipping extends StatelessWidget {
+  const _NotesClipping({required this.piece, required this.onMore, required this.onOpen});
 
   final ScrapTrackCluster piece;
-  final Album album;
 
   /// "+N notes": the track sheet on its Note tab.
   final VoidCallback onMore;
 
+  /// A note tapped: the track sheet on it.
+  final ValueChanged<SongNote> onOpen;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = _ScrapScope.of(context).colors;
     final strings = DetailStrings.of(context);
     final theme = Theme.of(context);
@@ -1783,11 +1815,7 @@ class _NotesClipping extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final n in piece.notes.take(ScrapbookRules.notesShown))
-                  _NoteLine(
-                    note: n,
-                    onTap: () => _playAlbumFrom(ref, album, piece.track.index, positionMs: n.positionMs ?? 0),
-                  ),
+                for (final n in piece.notes.take(ScrapbookRules.notesShown)) _NoteLine(note: n, onTap: () => onOpen(n)),
                 if (piece.hiddenNotes > 0)
                   InkWell(
                     customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),

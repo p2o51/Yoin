@@ -156,6 +156,8 @@ class _NoteCompactPaneState extends State<NoteCompactPane> with TickerProviderSt
                     active: i == litIndex,
                     emphasis: NoteLineEmphasis.glance,
                     distance: litIndex >= 0 ? (i - litIndex).abs() : null,
+                    // Collapsed: anywhere in the notes a tap only expands Now Playing (owner 2026-11-24).
+                    interactive: false,
                   ),
                 ],
               ],

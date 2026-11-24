@@ -281,6 +281,7 @@ class NowPlayingStrings {
   String noteCount(int n) => _zh ? '$n 条笔记' : (n == 1 ? '$n note' : '$n notes'); // np_note_count
   String notePlayFrom(String at) => _zh ? '从 $at 播放' : 'Play from $at'; // np_cd_note_play_from
   String get noteActions => _zh ? '笔记操作' : 'Note actions'; // np_cd_note_actions
+  String get noteEdit => _zh ? '修改' : 'Edit'; // detail_scrap_edit_note (a note line's long press)
   String get noteRealign => _zh ? '对齐至当前时刻' : 'Align to now'; // np_note_realign
   String get noteDelete => _zh ? '删除' : 'Delete'; // np_note_delete
   String get noteDeleted => _zh ? '已删除' : 'Deleted'; // np_note_deleted

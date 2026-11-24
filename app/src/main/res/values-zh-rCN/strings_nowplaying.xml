@@ -215,6 +215,9 @@
     <string name="np_device_dlna_error_stop">音响未确认停止。请重试后再切换播放设备。</string>
     <string name="np_device_dlna_error_playback">无法控制音响。请检查音响连接，并确认音响可访问 Subsonic 服务器。</string>
     <string name="np_keep_screen_on">屏幕常亮</string>
+    <string name="np_sing">唱歌</string>
+    <string name="np_cd_exit_sing">退出唱歌</string>
+    <string name="np_cd_sing_vocal_volume">人声音量</string>
     <string name="np_cd_cover_menu">歌曲选项</string>
     <string name="np_cd_play_mode_split">分开随机和循环</string>
 </resources>

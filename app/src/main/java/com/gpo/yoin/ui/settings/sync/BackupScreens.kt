@@ -34,9 +34,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.sync.SyncKinds
-import com.gpo.yoin.data.sync.backup.BackupFormat
-import com.gpo.yoin.data.sync.backup.ImportAccountPlan
-import com.gpo.yoin.data.sync.backup.ImportTarget
+import com.gpo.yoin.shared.portability.BackupFormat
+import com.gpo.yoin.shared.portability.ImportAccountPlan
+import com.gpo.yoin.shared.portability.ImportTarget
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaFlow
 import com.gpo.yoin.ui.component.MetaGroup
@@ -453,10 +453,11 @@ private fun ImportReview(state: BackupUiState.Review, onChoose: (String, ImportT
                 SettingsItem(
                     icon = YoinSymbols.Cloud,
                     title = stringResource(
-                        if (manifest.source.location == BackupFormat.LOCATION_GOOGLE_DRIVE) {
-                            R.string.settings_sync_google_drive
-                        } else {
-                            R.string.settings_sync_import_this_device
+                        when (manifest.source.location) {
+                            BackupFormat.LOCATION_GOOGLE_DRIVE -> R.string.settings_sync_google_drive
+                            // An iPhone / iPad backup made while syncing with iCloud.
+                            BackupFormat.LOCATION_ICLOUD -> R.string.settings_sync_icloud
+                            else -> R.string.settings_sync_import_this_device
                         },
                     ),
                     summaryContent = {

@@ -4,6 +4,7 @@ import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/note_compact_pane.dart';
 import 'package:yoin/nowplaying/note_controller.dart';
+import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/nowplaying/note_logic.dart';
 import 'package:yoin/nowplaying/note_page.dart';
 import 'package:yoin/nowplaying/note_write_bar.dart';
@@ -76,7 +77,7 @@ void main() {
     expect(saved.single.positionMs, 83000);
     expect(saved.single.albumId, _track.albumId);
     // The field is clear for the next line.
-    expect(notes.text.text, isEmpty);
+    expect(notes.text.storedText, isEmpty);
     notes.dispose();
     store.dispose();
   });
@@ -112,25 +113,32 @@ void main() {
     store.dispose();
   });
 
-  testWidgets('should_bringNoteBack_when_deletedThenUndone', (tester) async {
+  Future<void> putNote(String id, String content, {int positionMs = 48000}) => store.putSongNote(
+    SongNote(
+      id: id,
+      trackId: _track.trackId,
+      content: content,
+      createdAt: _now - 1000,
+      updatedAt: _now - 1000,
+      positionMs: positionMs,
+    ),
+  );
+
+  testWidgets('should_bringNoteBack_when_anEditIsEmptiedSavedThenUndone', (tester) async {
     setUpNotes();
-    await store.putSongNote(
-      SongNote(
-        id: 'n1',
-        trackId: _track.trackId,
-        content: 'Everyone shouts here',
-        createdAt: _now,
-        updatedAt: _now,
-        positionMs: 48000,
-      ),
-    );
+    await putNote('n1', 'Everyone shouts here');
     await pumpPage(tester);
-    await tester.pumpAndSettle();
     expect(find.text('Everyone shouts here'), findsOneWidget);
 
+    // A long press opens the note in the write bar; emptied and saved, it is deleted.
     await tester.longPress(find.text('Everyone shouts here'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
+    expect(notes.editingId, 'n1');
+    expect(notes.text.storedText, 'Everyone shouts here');
+    expect(notes.focused, isTrue);
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(find.text('Everyone shouts here'), findsNothing);
@@ -149,42 +157,82 @@ void main() {
     store.dispose();
   });
 
-  testWidgets('should_showTheMomentAtTheItemsEnd_when_realignIsOffered', (tester) async {
+  testWidgets('should_rewriteTheSameNote_when_editedFromALongPress', (tester) async {
     setUpNotes();
-    await store.putSongNote(
-      SongNote(id: 'n1', trackId: _track.trackId, content: 'Clap', createdAt: _now, updatedAt: _now, positionMs: 1000),
-    );
+    await putNote('n1', 'Clap', positionMs: 1000);
     await pumpPage(tester);
+
+    await tester.longPress(find.text('Clap'));
+    await tester.pumpAndSettle();
+    // The stamp shows the note's own moment; the line recedes while it is in the bar.
+    expect(find.text('0:01'), findsWidgets);
+    final line = tester.widget<Opacity>(
+      find.ancestor(of: find.text('Clap').first, matching: find.byType(Opacity)).first,
+    );
+    expect(line.opacity, lessThan(0.5));
+    // Untouched, Save does nothing.
+    expect(notes.draft.canSave, isFalse);
+
+    await tester.enterText(find.byType(TextField), 'Clap along');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final saved = (await store.notesForTracks([_track.trackId])).single;
+    expect(saved.id, 'n1');
+    expect(saved.content, 'Clap along');
+    expect(saved.createdAt, _now - 1000);
+    expect(saved.positionMs, 1000);
+    expect(notes.editingId, isNull);
+    expect(notes.text.storedText, isEmpty);
+    notes.dispose();
+    store.dispose();
+  });
+
+  testWidgets('should_closeTheEditUnchanged_when_putAway', (tester) async {
+    setUpNotes();
+    await putNote('n1', 'Clap', positionMs: 1000);
+    await pumpPage(tester);
+    await tester.longPress(find.text('Clap'));
+    await tester.pumpAndSettle();
+    expect(notes.editingId, 'n1');
+
+    notes.focus.unfocus();
+    await tester.pumpAndSettle();
+    expect(notes.editingId, isNull);
+    expect(notes.text.storedText, isEmpty);
+    expect((await store.notesForTracks([_track.trackId])).single.content, 'Clap');
+    notes.dispose();
+    store.dispose();
+  });
+
+  testWidgets('should_keepUnsavedWords_when_anotherNoteIsLongPressed', (tester) async {
+    setUpNotes();
+    await putNote('n1', 'Clap', positionMs: 1000);
+    await pumpPage(tester);
+    await tester.tap(find.byType(NoteWriteBar));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'New words');
     await tester.pumpAndSettle();
 
     await tester.longPress(find.text('Clap'));
     await tester.pumpAndSettle();
-    // "Align to now", then the moment it would move to quieter beside it: no dot.
-    final item = find.ancestor(of: find.text('Align to now'), matching: find.byType(Row)).first;
-    final stamp = find.descendant(of: item, matching: find.text('1:23'));
-    expect(stamp, findsOneWidget);
-    expect(find.textContaining('·'), findsNothing);
-    final colors = Theme.of(tester.element(stamp)).colorScheme;
-    expect(tester.widget<Text>(stamp).style?.color, colors.onSurfaceVariant);
-
-    await tester.tap(find.text('Align to now'));
-    await tester.pumpAndSettle();
-    expect((await store.notesForTracks([_track.trackId])).single.positionMs, 83000);
+    expect(notes.editingId, isNull);
+    expect(notes.text.storedText, 'New words');
     notes.dispose();
     store.dispose();
   });
 
   testWidgets('should_deleteFromStore_when_undoWindowCloses', (tester) async {
     setUpNotes();
-    await store.putSongNote(
-      SongNote(id: 'n1', trackId: _track.trackId, content: 'Clap', createdAt: _now, updatedAt: _now, positionMs: 1000),
-    );
+    await putNote('n1', 'Clap', positionMs: 1000);
     await pumpPage(tester);
-    await tester.pumpAndSettle();
 
     await tester.longPress(find.text('Clap'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(find.text('Undo'), findsOneWidget);
 
@@ -192,6 +240,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Undo'), findsNothing);
     expect(await store.notesForTracks([_track.trackId]), isEmpty);
+    notes.dispose();
+    store.dispose();
+  });
+
+  testWidgets('should_tickATodo_when_itsBoxIsTapped', (tester) async {
+    setUpNotes();
+    await putNote('n1', '- [ ] hum the intro', positionMs: 1000);
+    await pumpPage(tester);
+    final box = find.descendant(of: find.byType(NoteMarkupText), matching: find.byType(RichText)).first;
+    await tester.tapAt(tester.getTopLeft(box) + const Offset(4, 8));
+    await tester.pumpAndSettle();
+    expect((await store.notesForTracks([_track.trackId])).single.content, '- [x] hum the intro');
     notes.dispose();
     store.dispose();
   });

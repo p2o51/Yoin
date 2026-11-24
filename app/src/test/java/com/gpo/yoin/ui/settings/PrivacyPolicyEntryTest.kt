@@ -102,12 +102,14 @@ class PrivacyPolicyEntryTest {
     }
 
     @Test
-    fun should_showThreeGroupsAndSixRows_when_rootSettingsOpened() {
+    fun should_showThreeGroupsAndSevenRows_when_rootSettingsOpened() {
         showSettings(openUri = {})
         listOf(
             "Features and appearance",
             "AI features",
             "Appearance",
+            "Music links",
+            "Clipboard detection on",
             "Sync and storage",
             "Sync and backups",
             "Storage",
