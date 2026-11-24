@@ -1,0 +1,4 @@
+{
+  "title": "Notes editor",
+  "components": ["bar", "np-stage", "lyrics", "notes", "groove", "editor", "detail", "scrapbook", "lib"]
+}

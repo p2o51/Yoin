@@ -164,6 +164,14 @@ The owner's rule (2026-11-18): documentation ships with the feature and before e
   3. `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` is updated for new terms, AI behavior, and privacy/storage facts;
   4. `yoin-site` (`public/docs.html`, `public/zh/docs.html`, `public/privacy.html` if data flows/SDKs/AI changed, `public/changelog.html`, `public/zh/changelog.html`, `public/index.html`, `public/zh/index.html`, `public/licenses.html`, `public/zh/licenses.html`) is updated alongside Argon release notes.
 
+## Prototypes Before Every Release
+
+The owner's rule (2026-11-24): **before each release, update the prototypes of the screens that changed (`design/hifi`), then export the site visuals with `export.mjs`; never hand-draw app UI for the site.** The Hi-Fi prototypes in [`design/hifi/`](design/hifi/README.md) are built from components with the app's real tokens, strings and demo catalogue; every picture of the app's UI on yoin-site (changelog figures and anything else) is exported from them.
+
+- Update the changed screens' components from the release branch's code (the app wins over `docs/design.md`); add the new states, plus a "Before <version>" state from the replaced code when the changelog shows a before/after. Check with `node design/hifi/build.mjs` and `node design/hifi/tools/shoot.mjs <page>`, in light / dark and EN / 中文.
+- Write `design/hifi/site/<version>.json` and export into the yoin-site worktree: `node design/hifi/export.mjs --batch design/hifi/site/<version>.json --out <yoin-site worktree>/public/media/changelog/<version>` (needs `playwright-core` on `NODE_PATH`). One state: `node design/hifi/export.mjs --page album --state "page=scrapbook&at=receipt" --frame phone --theme light --lang zh`.
+- The prototype changes and the export list ship in the release PR; the WebPs and the `public/spot.js` entry ship in the yoin-site PR. Steps in full: `design/hifi/README.md`, "How to update before a release".
+
 ## Testing
 
 - ViewModels: unit test Flow behavior, preferably with `turbine`.

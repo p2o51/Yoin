@@ -1,0 +1,4 @@
+{
+  "title": "Now Playing",
+  "components": ["np-stage", "lyrics", "notes"]
+}

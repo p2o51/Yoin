@@ -1,0 +1,4 @@
+{
+  "title": "Memories",
+  "components": ["notes", "groove", "home-cards", "detail", "scrapbook", "memories"]
+}

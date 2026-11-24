@@ -1,0 +1,4 @@
+{
+  "title": "Home",
+  "components": ["bar", "home-cards", "memory-bubble"]
+}

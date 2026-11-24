@@ -1,0 +1,17 @@
+/* Page: full-screen Lyrics — layout (the NP column / dual pane are shared with now-playing.css values) */
+.ly-page, .dual { position: absolute; inset: 0; }
+.npcol { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; padding: var(--top) 24px calc(var(--bottom) + 2px); }
+.ly-col { left: 50%; transform: translateX(-50%); }
+.npcol.full .np-tgroup { margin: 8px 0 12px; }
+.npcol.full .np-tb { gap: 6px; }
+.np-foot { flex: none; display: flex; flex-direction: column; gap: 14px; padding: 8px 0 6px; }
+.dual-l { position: absolute; left: 24px; top: calc(var(--top) + 16px); bottom: calc(var(--bottom) + 16px); width: 380px; display: flex; flex-direction: column; }
+.dual-l .np-tb { height: 48px; }
+.dual-l .np-cr { margin-top: 8px; }
+.dual-l .np-tr { margin-top: 12px; }
+.dual-r { position: absolute; left: 452px; right: 48px; top: calc(var(--top) + 72px); bottom: calc(var(--bottom) + 16px); display: flex; flex-direction: column; }
+.dual-r .np-ttabs { margin-bottom: 12px; }
+.dual-icons { position: absolute; right: -28px; top: -54px; display: flex; align-items: center; gap: 4px; color: var(--onSurface); }
+.dual-icons > span { width: 44px; height: 44px; display: grid; place-items: center; }
+.np-round.dark { margin-left: 6px; background: var(--surfaceContainerLowest); }
+.dual-foot { flex: none; padding-top: 12px; }
