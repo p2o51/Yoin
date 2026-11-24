@@ -347,9 +347,9 @@ final class SingTests: XCTestCase {
         let lease = try await odrProvider.loadModel { _ in }
         XCTAssertEqual(lease.sourceDescription, "CoreML ANE+ODR (sing_model_v1)")
 
-        // 2. Synthesize a 4.0 s stereo WAV clip (44.1 kHz) and run full `SingCoreMLSeparator` pipeline.
+        // 2. Synthesize a 6.0 s stereo WAV clip (44.1 kHz, >= 3 chunks) and run full `SingCoreMLSeparator` pipeline.
         let sr = 44_100.0
-        let frameCount = Int(sr * 4.0)
+        let frameCount = Int(sr * 6.0)
         let wavURL = FileManager.default.temporaryDirectory.appendingPathComponent("sing-odr-test-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: wavURL) }
 

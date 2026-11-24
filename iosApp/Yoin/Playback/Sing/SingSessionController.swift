@@ -43,7 +43,10 @@ final class SingSessionController {
     @ObservationIgnored var serverAccountProvider: () -> ServerSession.Account? = { nil }
     @ObservationIgnored var localAudioURLProvider: (PlayableTrack) -> URL? = { track in
         if track.streamURL.isFileURL { return track.streamURL }
-        return OfflineDownloads.shared.localFile(for: track.streamURL)
+        if let offline = OfflineDownloads.shared.localFile(for: track.streamURL) {
+            return offline
+        }
+        return track.streamURL
     }
 
     init(

@@ -351,13 +351,38 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             continuation.yield(.ready(source: .localFile(cached)))
             return
         }
-        guard let localAudioURL else {
-            continuation.yield(.failed(.separationFailed("Audio file not cached locally yet")))
+        guard let audioURL = localAudioURL else {
+            continuation.yield(.failed(.separationFailed("Audio source URL unavailable")))
             return
         }
         if ProcessInfo.processInfo.thermalState == .critical {
             continuation.yield(.failed(.thermalThrottled))
             return
+        }
+
+        // If the track is streaming (not offline-downloaded), fetch it to a temporary file with the right extension
+        // so `AVAudioFile` can decode FLAC/MP3/M4A cleanly on-device.
+        let decodeInputURL: URL
+        var tempDownloadedAudio: URL?
+        if audioURL.isFileURL {
+            decodeInputURL = audioURL
+        } else {
+            continuation.yield(.preparing(stage: .warming, etaSeconds: nil))
+            do {
+                let fetched = try await fetchRemoteAudioToTempFile(from: audioURL)
+                decodeInputURL = fetched
+                tempDownloadedAudio = fetched
+            } catch is CancellationError {
+                return
+            } catch {
+                continuation.yield(.failed(.separationFailed("Audio download failed: \(error.localizedDescription)")))
+                return
+            }
+        }
+        defer {
+            if let tempDownloadedAudio {
+                try? FileManager.default.removeItem(at: tempDownloadedAudio)
+            }
         }
 
         let acquireStart = CFAbsoluteTimeGetCurrent()
@@ -385,7 +410,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         continuation.yield(.preparing(stage: .warming, etaSeconds: nil))
         do {
             let (outputURL, _) = try await separateToQuadM4A(
-                inputURL: localAudioURL,
+                inputURL: decodeInputURL,
                 modelLease: lease,
                 modelAcquireMs: acquireMs,
                 cacheKey: cacheKey,
@@ -409,6 +434,38 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
     private struct ModelUnavailableError: Error {
         let needsDownload: Bool
         let message: String
+    }
+
+    private func fetchRemoteAudioToTempFile(from remoteURL: URL) async throws -> URL {
+        let (tmpURL, response) = try await URLSession.shared.download(from: remoteURL)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            try? FileManager.default.removeItem(at: tmpURL)
+            throw NSError(domain: "SingCoreMLSeparator", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
+        }
+        let ext = Self.inferAudioExtension(response: response, url: remoteURL)
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sing-src-\(UUID().uuidString).\(ext)")
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.moveItem(at: tmpURL, to: dest)
+        return dest
+    }
+
+    private static func inferAudioExtension(response: URLResponse, url: URL) -> String {
+        if let mime = response.mimeType?.lowercased() {
+            if mime.contains("flac") { return "flac" }
+            if mime.contains("mpeg") || mime.contains("mp3") { return "mp3" }
+            if mime.contains("mp4") || mime.contains("m4a") || mime.contains("aac") { return "m4a" }
+            if mime.contains("wav") { return "wav" }
+            if mime.contains("aiff") { return "aiff" }
+            if mime.contains("ogg") || mime.contains("opus") { return "ogg" }
+        }
+        if let suggested = response.suggestedFilename {
+            let ext = URL(fileURLWithPath: suggested).pathExtension.lowercased()
+            if !ext.isEmpty && ext != "tmp" && ext != "bin" { return ext }
+        }
+        let urlExt = url.pathExtension.lowercased()
+        if !urlExt.isEmpty && urlExt != "view" { return urlExt }
+        return "flac"
     }
 
     /// Primary acquisition: Apple ODR (`sing_model_v1`, `computeUnits = .all`).
@@ -571,8 +628,10 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
 
         let sortedChunks = chunkTimesMs.sorted()
         let firstChunkMs = chunkTimesMs.first ?? 0
-        let meanChunkMs = chunkTimesMs.isEmpty ? 0 : chunkTimesMs.reduce(0, +) / Double(chunkTimesMs.count)
-        let p50ChunkMs = sortedChunks.isEmpty ? 0 : sortedChunks[sortedChunks.count / 2]
+        let steadyChunks = chunkTimesMs.count > 1 ? Array(chunkTimesMs.dropFirst()) : chunkTimesMs
+        let meanChunkMs = steadyChunks.isEmpty ? 0 : steadyChunks.reduce(0, +) / Double(steadyChunks.count)
+        let sortedSteady = steadyChunks.sorted()
+        let p50ChunkMs = sortedSteady.isEmpty ? (sortedChunks.first ?? 0) : sortedSteady[sortedSteady.count / 2]
 
         let metrics = SeparationMetrics(
             modelSource: modelLease.sourceDescription,
@@ -751,11 +810,15 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         totalChunks: Int,
         onStage: @Sendable (SingStage, Int?) -> Void
     ) throws {
+        // Chunk 0 on a fresh install/cold CoreML load includes one-time ANE/GPU program specialization
+        // (~1-3 s on real iPhones), so only enforce the speed gate on steady-state chunk 1+.
         if chunkIdx == 0 {
+            onStage(.separating, nil)
+        } else if chunkIdx == 1 {
             if elapsed > Self.maxAllowedChunkSeconds {
                 throw SpeedGateError(chunkSeconds: elapsed)
             }
-            let estRemain = max(1, Int((elapsed * Double(max(0, totalChunks - 1)) + 2.0).rounded()))
+            let estRemain = max(1, Int((elapsed * Double(max(0, totalChunks - 2)) + 1.0).rounded()))
             onStage(.separating, estRemain)
         }
     }
