@@ -18,6 +18,13 @@ import java.util.TreeMap
  * every frame under its samples, every core sample under the upsampling filter — it goes to the
  * [VocalSink], once.
  *
+ * Carrying on ([markFinal]): V already final somewhere (a kept partial track) is never redone — only
+ * the chunks some missing frame depends on run ([isChunkNeeded]); chunks at the edge of what's kept
+ * run again (a frame needs every chunk over it), so their outputs are still the whole-song ones.
+ *
+ * Feeding as it decodes: [inputRange] says which source frames a chunk reads, so the caller can run
+ * it as soon as those are decoded.
+ *
  * Memory: the 22.05 kHz signals come from [work] (memory-mapped on the device), which must hand out
  * zeroed buffers (a fresh mapped file and [FloatBuffer.allocate] both are): V is summed into them, and
  * a page of a mapped file is only touched — resident — once a chunk writes there. Per second of audio:
@@ -60,6 +67,9 @@ class LiveVocalSeparator(
     val totalFrames: Int = if (silent) 0 else stft.frameCount(coreLength)
     private val plan: ChunkPlan? = if (silent) null else ChunkPlan(totalFrames, step)
     private val chunkDone = BooleanArray(plan?.size ?: 0)
+
+    /** Chunks some frame not yet final depends on; recomputed after [markFinal]. */
+    private val needed = BooleanArray(plan?.size ?: 0) { true }
     private val remaining: IntArray = plan?.coverage() ?: IntArray(0)
     private val pending = HashMap<Int, FrameSum>()
     private val inverted = BooleanArray(totalFrames)
@@ -103,6 +113,68 @@ class LiveVocalSeparator(
 
     fun isChunkDone(index: Int): Boolean = chunkDone[index]
 
+    /** Whether chunk [index] still has to run: not run yet, and some frame not yet final depends on it. */
+    fun isChunkNeeded(index: Int): Boolean = !chunkDone[index] && needed[index]
+
+    /**
+     * Source frames [from, to) already have their final V (kept from an earlier run): never emitted
+     * again, and chunks only they depend on are skipped. Before any chunk runs.
+     */
+    fun markFinal(from: Int, to: Int) {
+        check(chunksDone == 0) { "markFinal after chunks ran" }
+        val a = from.coerceIn(0, frames)
+        val b = to.coerceIn(0, frames)
+        if (a >= b) return
+        sourceDone.add(a, b)
+        val plan = plan ?: return
+        needed.fill(false)
+        for ((gapFrom, gapTo) in sourceDone.gaps(0, frames)) {
+            // V at source frames [gapFrom, gapTo) reads core samples jLo..jHi (the upsampler's reach),
+            // core sample j lies in hop block j / HOP, final once frames k−1..k+2 are inverted, each
+            // once every chunk over it has run.
+            val jLo = maxOf(0L, ceilDiv(gapFrom.toLong() * up.down - up.reach, up.up.toLong()))
+            val jHi = minOf(coreLength - 1L, Math.floorDiv((gapTo - 1L) * up.down + up.reach, up.up.toLong()))
+            if (jLo > jHi) continue
+            val fLo = maxOf(0L, jLo / HOP - 1).toInt()
+            val fHi = minOf(totalFrames - 1L, jHi / HOP + 2).toInt()
+            for (i in 0 until plan.size) {
+                val s = plan.starts[i]
+                if (s <= fHi && s + plan.validFrames(i) - 1 >= fLo) needed[i] = true
+            }
+        }
+    }
+
+    /**
+     * The source frames [first, last) chunk [index] reads from the mix when it runs: its frames'
+     * windows (reflect padding at the song's ends), rounded out to the blocks the mix is resampled
+     * down in, and the downsampling filter's reach — so it can run once those are decoded.
+     */
+    fun inputRange(index: Int): Pair<Int, Int> {
+        val plan = checkNotNull(plan) { "nothing to separate" }
+        val start = plan.starts[index]
+        val valid = plan.validFrames(index)
+        val lo = start * HOP - N_FFT / 2
+        val hi = (start + valid - 1) * HOP + N_FFT / 2
+        var coreFrom = maxOf(0, lo)
+        var coreTo = minOf(coreLength, hi)
+        if (lo < 0) {
+            coreFrom = 0
+            coreTo = maxOf(coreTo, minOf(coreLength, N_FFT / 2 + 1))
+        }
+        if (hi > coreLength) {
+            coreFrom = minOf(coreFrom, maxOf(0, coreLength - N_FFT / 2 - 1))
+            coreTo = coreLength
+        }
+        // downRange works in whole CORE_BLOCKs.
+        val blockFrom = coreFrom / CORE_BLOCK * CORE_BLOCK
+        val blockTo = minOf(coreLength, ((maxOf(coreFrom + 1, coreTo) - 1) / CORE_BLOCK + 1) * CORE_BLOCK)
+        if (down.isIdentity) return blockFrom.coerceIn(0, frames) to blockTo.coerceIn(0, frames)
+        // Core sample m reads source j from ⌈(m·down − reach)/up⌉ to ⌊(m·down + reach)/up⌋.
+        val first = maxOf(0L, ceilDiv(blockFrom.toLong() * down.down - down.reach, down.up.toLong()))
+        val last = minOf(frames - 1L, Math.floorDiv((blockTo - 1L) * down.down + down.reach, down.up.toLong()))
+        return first.toInt().coerceIn(0, frames) to (last + 1).toInt().coerceIn(0, frames)
+    }
+
     /**
      * The chunk to run next for a listener at STFT frame [priorityFrame]: the first chunk not yet run
      * among those from the earliest one V at that frame depends on (so the play position is final as
@@ -128,8 +200,8 @@ class LiveVocalSeparator(
 
     private fun nextChunkFromChunk(first: Int): Int {
         val plan = checkNotNull(plan)
-        for (i in first until plan.size) if (!chunkDone[i]) return i
-        for (i in first - 1 downTo 0) if (!chunkDone[i]) return i
+        for (i in first until plan.size) if (isChunkNeeded(i)) return i
+        for (i in first - 1 downTo 0) if (isChunkNeeded(i)) return i
         return -1
     }
 
@@ -166,7 +238,7 @@ class LiveVocalSeparator(
         var i = firstChunkFor(sourceFrame)
         var left = chunks
         while (i < plan.size) {
-            if (!chunkDone[i]) {
+            if (isChunkNeeded(i)) {
                 if (left == 0) break
                 left--
             }
@@ -346,6 +418,9 @@ internal class IntervalSet {
         }
         ranges[start] = end
     }
+
+    /** The ranges in the set, in order. */
+    fun ranges(): List<Pair<Int, Int>> = ranges.map { it.key to it.value }
 
     fun covers(from: Int, to: Int): Boolean {
         if (from >= to) return true

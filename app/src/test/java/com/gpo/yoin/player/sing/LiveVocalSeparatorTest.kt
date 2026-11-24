@@ -171,4 +171,113 @@ class LiveVocalSeparatorTest {
             assertEquals(Long.MAX_VALUE, fresh.finalEndAfter(ahead, 100))
         }
     }
+
+    /** Chunk runs a separator needs to finish from priority frame [priority]. */
+    private fun finish(separator: LiveVocalSeparator, sink: LiveVocalSeparator.VocalSink, priority: Int): Int {
+        var runs = 0
+        while (true) {
+            val chunk = separator.nextChunk(priority)
+            if (chunk < 0) break
+            separator.runChunk(chunk, FakeModel, sink)
+            runs++
+        }
+        assertTrue(separator.isFinished)
+        return runs
+    }
+
+    private fun assertCarriesOnFromKeptBlocks(rate: Int, seconds: Double, firstRun: Int) {
+        val frames = (seconds * rate).toInt()
+        val (left, right) = SingFixtures.synth(frames, rate)
+        val (wholeL, wholeR) = wholeSong(left, right, rate)
+
+        // A first go: a few chunks from the middle, into a track and a collector (Sing turned off then).
+        val track = SingVocalTrack.inMemory(rate, frames)
+        val first = Collector(frames)
+        val separator = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+        val both = LiveVocalSeparator.VocalSink { from, to, l, r, offset ->
+            track.writeVocal(from, to, l, r, offset)
+            first.onVocal(from, to, l, r, offset)
+        }
+        separator.start(both)
+        val middle = separator.frameAtSource(frames / 2L)
+        repeat(firstRun) { separator.runChunk(separator.nextChunk(middle), FakeModel, both) }
+        val kept = track.readyRanges()
+        assertTrue("something kept", kept.isNotEmpty() && !track.isComplete)
+
+        // Carried on: only the missing blocks, starting elsewhere.
+        val again = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+        for ((from, to) in kept) again.markFinal(from, to)
+        val second = Collector(frames)
+        again.start(second)
+        val total = again.chunkCount
+        val runs = finish(again, second, again.frameAtSource(rate / 2L))
+        assertTrue("skipped kept chunks: $runs of $total", runs < total)
+        assertTrue("redid no more than the kept stretch's edges", runs <= total - firstRun + 4)
+
+        val outL = FloatArray(frames)
+        val outR = FloatArray(frames)
+        for (i in 0 until frames) {
+            val inKept = track.isReady(i.toLong())
+            assertEquals("frame $i handed out again", if (inKept) 0 else 1, second.times[i])
+            outL[i] = if (inKept) first.left[i] else second.left[i]
+            outR[i] = if (inKept) first.right[i] else second.right[i]
+            if (inKept) assertEquals(1, first.times[i])
+        }
+        val error = maxOf(maxAbsError(wholeL, outL), maxAbsError(wholeR, outR))
+        assertTrue("carried on vs whole song: max error $error", error <= 1e-5)
+    }
+
+    @Test
+    fun should_matchWholeSong_when_carryingOnFromKeptBlocks_44k1() = assertCarriesOnFromKeptBlocks(44_100, 20.0, firstRun = 4)
+
+    @Test
+    fun should_matchWholeSong_when_carryingOnFromKeptBlocks_48k() = assertCarriesOnFromKeptBlocks(48_000, 16.0, firstRun = 3)
+
+    @Test
+    fun should_runNothing_when_everythingKept() {
+        val rate = 44_100
+        val frames = rate * 8
+        val (left, right) = SingFixtures.synth(frames, rate)
+        val separator = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+        separator.markFinal(0, frames)
+        assertTrue(separator.isFinished)
+        assertEquals(-1, separator.nextChunk(0))
+    }
+
+    @Test
+    fun should_readOnlyItsInputRange_when_chunksRun() {
+        for (rate in intArrayOf(44_100, 48_000, 22_050)) {
+            val frames = rate * 20
+            val (left, right) = SingFixtures.synth(frames, rate)
+            val probe = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+            for (middle in intArrayOf(0, probe.chunkCount / 2, probe.chunkCount - 1)) {
+                val chunks = (middle - 2..middle + 2).filter { it in 0 until probe.chunkCount }
+                var from = Int.MAX_VALUE
+                var to = 0
+                for (c in chunks) {
+                    val (a, b) = probe.inputRange(c)
+                    from = minOf(from, a)
+                    to = maxOf(to, b)
+                }
+                // Everything outside the chunks' input is poison: running them must not notice.
+                val poisonL = FloatArray(frames) { if (it in from until to) left[it] else Float.NaN }
+                val poisonR = FloatArray(frames) { if (it in from until to) right[it] else Float.NaN }
+                val clean = Collector(frames)
+                val dirty = Collector(frames)
+                val a = LiveVocalSeparator(left.buffer(), right.buffer(), frames, rate)
+                val b = LiveVocalSeparator(poisonL.buffer(), poisonR.buffer(), frames, rate)
+                for (c in chunks) {
+                    a.runChunk(c, FakeModel, clean)
+                    b.runChunk(c, FakeModel, dirty)
+                }
+                assertTrue("@$rate chunk $middle: something final", clean.times.any { it == 1 })
+                assertArrayEquals(clean.times, dirty.times)
+                for (i in 0 until frames) {
+                    if (clean.times[i] == 0) continue
+                    assertEquals("@$rate chunk $middle frame $i", clean.left[i], dirty.left[i], 0f)
+                    assertEquals("@$rate chunk $middle frame $i", clean.right[i], dirty.right[i], 0f)
+                }
+            }
+        }
+    }
 }

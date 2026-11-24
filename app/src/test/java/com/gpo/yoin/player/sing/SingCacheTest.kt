@@ -86,4 +86,46 @@ class SingCacheTest {
         assertEquals(1L shl 30, SingCache(dir).maxBytes)
         assertFalse(cache.fileFor("k").name.contains("|"))
     }
+
+    @Test
+    fun should_countAndEvictPartialTracks_when_overCap() {
+        put("a", 1_000)
+        cache.partialFile("p").writeBytes(ByteArray(1_000))
+        assertNotNull(cache.getPartial("p"))
+        assertEquals(2_000L, cache.sizeBytes())
+        put("b", 1_000)
+        put("c", 1_000) // over 3 000: the oldest (a) goes
+        assertNull(cache.get("a"))
+        assertTrue(cache.partialFile("p").isFile) // (looked at without marking it used)
+        put("d", 1_000) // then the partial one
+        assertNull(cache.getPartial("p"))
+        assertNotNull(cache.get("b"))
+    }
+
+    @Test
+    fun should_neverEvictPinned_when_beingWritten() {
+        val partial = cache.partialFile("w")
+        partial.writeBytes(ByteArray(2_000))
+        cache.pin(partial)
+        put("a", 1_000)
+        put("b", 1_000)
+        assertTrue(partial.isFile)
+        // Finished: moved in as the song's track.
+        val done = cache.commit("w", partial)
+        assertTrue(done.isFile && !partial.isFile)
+        assertNotNull(cache.get("w"))
+        cache.unpin(partial)
+    }
+
+    @Test
+    fun should_keepPartialTracks_when_clearingScratch() {
+        cache.partialFile("p").writeBytes(ByteArray(10))
+        cache.partFile("x").writeBytes(ByteArray(10))
+        File(cache.partialFile("q").path + SingCache.REMAKE_SUFFIX).writeBytes(ByteArray(10))
+        cache.clearParts()
+        assertNotNull(cache.getPartial("p"))
+        assertEquals(1, dir.listFiles()!!.size)
+        cache.remove("p")
+        assertNull(cache.getPartial("p"))
+    }
 }

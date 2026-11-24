@@ -11,6 +11,7 @@ import java.nio.FloatBuffer
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.atomic.AtomicIntegerArray
+import java.util.zip.CRC32
 import kotlin.math.roundToInt
 
 /**
@@ -32,6 +33,13 @@ import kotlin.math.roundToInt
  * flags are an [AtomicIntegerArray]: the writer stores the samples, then sets the flag (release);
  * the reader checks the flag (acquire), then reads — no locks and no allocation on the audio thread.
  * One writer at a time (the separation worker).
+ *
+ * Persistence (2026-11-24): a track no longer has to be finished to be kept. After the samples comes
+ * a coverage table, 8 bytes a block — a marker and the CRC-32 of the block's vocal samples — written
+ * when the block completes, samples first. A track Sing stopped working on (Sing off, another song,
+ * the app killed) stays in the cache as a partial file; [open] with `partial = true` maps it back,
+ * every marked block checked against its CRC (a block whose samples never reached the disk — power
+ * cut — fails and is simply done again), and the engine separates only what is still missing.
  */
 class SingVocalTrack private constructor(
     val sampleRate: Int,
@@ -46,6 +54,12 @@ class SingVocalTrack private constructor(
 
     /** Frames written per block (writer side only). */
     private val written = IntArray(blocks)
+
+    /** Where the coverage table starts; −1 for a version-1 file (finished tracks only, no table). */
+    private val tableOffset: Int = if (data.capacity() >= tableBytesEnd(frames)) HEADER_BYTES + frames * BYTES_PER_FRAME else -1
+
+    private val crc = CRC32()
+    private var crcBytes = ByteArray(0)
 
     /** The writer's scratch for a block: its frames' samples, and the floats going into them. */
     private var frameShorts = ShortArray(0)
@@ -68,6 +82,32 @@ class SingVocalTrack private constructor(
 
     /** Share of the song whose vocal is in, 0..1. */
     val coverage: Float get() = if (blocks == 0) 1f else readyBlocks.toFloat() / blocks
+
+    /** Blocks an unfinished file had marked whose samples failed their CRC on [open] (done again). */
+    var droppedOnOpen: Int = 0
+        private set
+
+    /** Readiness blocks in the track. */
+    val blockCount: Int get() = blocks
+
+    /** Whether block [block] (frames from block × [BLOCK_FRAMES]) has its vocal in. */
+    fun isBlockReady(block: Int): Boolean = ready.get(block) == 1
+
+    /** The frames whose vocal is in, as merged half-open ranges, in order. */
+    fun readyRanges(): List<Pair<Int, Int>> {
+        val out = ArrayList<Pair<Int, Int>>()
+        var b = 0
+        while (b < blocks) {
+            if (ready.get(b) != 1) {
+                b++
+                continue
+            }
+            val start = b
+            while (b < blocks && ready.get(b) == 1) b++
+            out += start * BLOCK_FRAMES to minOf(frames, b * BLOCK_FRAMES)
+        }
+        return out
+    }
 
     /** Whether V at [frame] is in. Frames outside the song have no vocal and count as ready. */
     fun isReady(frame: Long): Boolean {
@@ -120,10 +160,17 @@ class SingVocalTrack private constructor(
      * Writes the mix reference for the whole song (before any vocal, and before the track is handed
      * to a reader).
      */
-    fun writeReference(left: FloatBuffer, right: FloatBuffer) {
-        var at = 0
-        while (at < frames) {
-            val end = minOf(frames, at + BLOCK_FRAMES)
+    fun writeReference(left: FloatBuffer, right: FloatBuffer) = writeReference(0, frames, left, right)
+
+    /**
+     * Writes the mix reference for frames [from, to), read from [left]/[right] at the frame's own index
+     * (the decoded song, filled in as it decodes). The vocal samples in those frames are left alone.
+     */
+    fun writeReference(from: Int, to: Int, left: FloatBuffer, right: FloatBuffer) {
+        var at = from.coerceAtLeast(0)
+        val end0 = to.coerceAtMost(frames)
+        while (at < end0) {
+            val end = minOf(end0, (at / BLOCK_FRAMES + 1) * BLOCK_FRAMES)
             val count = end - at
             val shorts = readFrames(at, count)
             left.getAt(at, floatsL, 0, count)
@@ -156,12 +203,86 @@ class SingVocalTrack private constructor(
             }
             writeFrames(at, count)
             written[block] += end - at
-            if (written[block] >= blockLength(block) && ready.get(block) == 0) {
-                ready.set(block, 1)
-                readyBlocks++
-            }
+            if (written[block] >= blockLength(block) && ready.get(block) == 0) markReady(block)
             at = end
         }
+    }
+
+    /**
+     * Copies every block whose vocal is in [other] (another track of the same song: the same frames
+     * from 0, perhaps a different length) and is whole in both, mix reference included, and marks it
+     * ready here. For a track remade at the song's true length once decoding found it.
+     */
+    fun copyReadyFrom(other: SingVocalTrack) {
+        require(other.sampleRate == sampleRate) { "tracks at different rates" }
+        val common = minOf(blocks, other.blocks)
+        for (b in 0 until common) {
+            if (ready.get(b) == 1 || other.ready.get(b) != 1) continue
+            val length = blockLength(b)
+            if (other.blockLength(b) != length) continue
+            val shorts = other.readFrames(b * BLOCK_FRAMES, length)
+            if (frameShorts.size < length * SAMPLES_PER_FRAME) readFrames(b * BLOCK_FRAMES, length)
+            System.arraycopy(shorts, 0, frameShorts, 0, length * SAMPLES_PER_FRAME)
+            writeFrames(b * BLOCK_FRAMES, length)
+            written[b] = length
+            markReady(b)
+        }
+    }
+
+    /** Block [block] is whole: its CRC and marker go into the table (samples first), then the flag. */
+    private fun markReady(block: Int) {
+        if (tableOffset >= 0) {
+            val at = tableOffset + block * TABLE_ENTRY_BYTES
+            data.putInt(at + 4, blockCrc(block))
+            data.putInt(at, READY_MARK)
+        }
+        ready.set(block, 1)
+        readyBlocks++
+    }
+
+    /** CRC-32 of block [block]'s vocal samples (V_L, V_R; not the mix reference, written separately). */
+    private fun blockCrc(block: Int): Int {
+        val length = blockLength(block)
+        val shorts = readFrames(block * BLOCK_FRAMES, length)
+        if (crcBytes.size < length * 4) crcBytes = ByteArray(length * 4)
+        for (n in 0 until length) {
+            val l = shorts[3 * n].toInt()
+            val r = shorts[3 * n + 1].toInt()
+            crcBytes[4 * n] = l.toByte()
+            crcBytes[4 * n + 1] = (l shr 8).toByte()
+            crcBytes[4 * n + 2] = r.toByte()
+            crcBytes[4 * n + 3] = (r shr 8).toByte()
+        }
+        crc.reset()
+        crc.update(crcBytes, 0, length * 4)
+        return crc.value.toInt()
+    }
+
+    /**
+     * Restores the ready flags of an unfinished file from its table: a marked block counts only if its
+     * samples still match the CRC written with the mark; the rest are cleared, to be done again.
+     */
+    private fun restoreCoverage(): Int {
+        if (tableOffset < 0) return 0
+        var dropped = 0
+        for (b in 0 until blocks) {
+            val at = tableOffset + b * TABLE_ENTRY_BYTES
+            if (data.getInt(at) != READY_MARK) continue
+            if (blockCrc(b) == data.getInt(at + 4)) {
+                written[b] = blockLength(b)
+                ready.set(b, 1)
+                readyBlocks++
+            } else {
+                data.putInt(at, 0)
+                dropped++
+            }
+        }
+        return dropped
+    }
+
+    /** Pushes what's written to the file (a kept partial track; the system would anyway, in time). */
+    fun flush() {
+        (data as? MappedByteBuffer)?.force()
     }
 
     /** Stamps the file complete and flushes it, so the cache can keep it ([open] reads it back). */
@@ -200,18 +321,30 @@ class SingVocalTrack private constructor(
         const val SUFFIX = ".vtrack"
 
         private const val MAGIC = 0x54565359 // "YSVT", little-endian
-        private const val VERSION = 1
+
+        /** 2: a coverage table after the samples (1: finished tracks only, none). */
+        private const val VERSION = 2
+        private const val VERSION_1 = 1
         private const val OFFSET_COMPLETE = 20
         private const val FROM_16 = 1f / 32767f
+        private const val TABLE_ENTRY_BYTES = 8
+        private const val READY_MARK = 0x31594452 // "RDY1"
 
-        /** The longest song a track can hold (one mapping: 2 GB). */
-        const val MAX_FRAMES = (Int.MAX_VALUE - HEADER_BYTES) / BYTES_PER_FRAME
+        /** The longest song a track can hold (one mapping: 2 GB, samples and table). */
+        const val MAX_FRAMES = ((Int.MAX_VALUE.toLong() - HEADER_BYTES - TABLE_ENTRY_BYTES) * BLOCK_FRAMES /
+            (BYTES_PER_FRAME * BLOCK_FRAMES + TABLE_ENTRY_BYTES)).toInt()
+
+        private fun blocksFor(frames: Int): Int = (frames + BLOCK_FRAMES - 1) / BLOCK_FRAMES
+
+        /** The file's length with its table. */
+        private fun tableBytesEnd(frames: Int): Long =
+            HEADER_BYTES.toLong() + frames.toLong() * BYTES_PER_FRAME + blocksFor(frames).toLong() * TABLE_ENTRY_BYTES
 
         /** A new, empty track backed by [file] (created or truncated), mapped read-write. */
         fun create(file: File, sampleRate: Int, frames: Int): SingVocalTrack {
             require(frames in 0..MAX_FRAMES) { "song too long for a vocal track: $frames frames" }
             file.parentFile?.mkdirs()
-            val bytes = HEADER_BYTES.toLong() + frames.toLong() * BYTES_PER_FRAME
+            val bytes = tableBytesEnd(frames)
             val buffer = RandomAccessFile(file, "rw").use { raf ->
                 raf.setLength(0)
                 raf.setLength(bytes)
@@ -222,20 +355,34 @@ class SingVocalTrack private constructor(
             return SingVocalTrack(sampleRate, frames, buffer, complete = false, file = file)
         }
 
-        /** A finished track from the cache, or null when [file] isn't one (wrong version, cut short). */
-        fun open(file: File): SingVocalTrack? {
+        /**
+         * A track from the cache, or null when [file] isn't one (wrong version, cut short): a finished
+         * one, or with [partial] also an unfinished one (mapped read-write, ready where its table and
+         * CRCs say so, to be carried on).
+         */
+        fun open(file: File, partial: Boolean = false): SingVocalTrack? {
             if (!file.isFile || file.length() < HEADER_BYTES) return null
             return try {
-                val buffer = RandomAccessFile(file, "r").use { raf ->
-                    raf.channel.map(FileChannel.MapMode.READ_ONLY, 0, raf.length())
+                val buffer = RandomAccessFile(file, if (partial) "rw" else "r").use { raf ->
+                    raf.channel.map(if (partial) FileChannel.MapMode.READ_WRITE else FileChannel.MapMode.READ_ONLY, 0, raf.length())
                 }
                 buffer.order(ByteOrder.LITTLE_ENDIAN)
-                if (buffer.getInt(0) != MAGIC || buffer.getInt(4) != VERSION) return null
+                if (buffer.getInt(0) != MAGIC) return null
+                val version = buffer.getInt(4)
                 val rate = buffer.getInt(8)
                 val frames = buffer.getInt(12)
-                if (buffer.getInt(16) != BYTES_PER_FRAME || buffer.getInt(OFFSET_COMPLETE) != 1) return null
-                if (rate <= 0 || frames < 0 || file.length() != HEADER_BYTES.toLong() + frames.toLong() * BYTES_PER_FRAME) return null
-                SingVocalTrack(rate, frames, buffer, complete = true, file = file)
+                if (buffer.getInt(16) != BYTES_PER_FRAME || rate <= 0 || frames < 0 || frames > MAX_FRAMES) return null
+                val complete = buffer.getInt(OFFSET_COMPLETE) == 1
+                val expected = when (version) {
+                    VERSION -> tableBytesEnd(frames)
+                    VERSION_1 -> HEADER_BYTES.toLong() + frames.toLong() * BYTES_PER_FRAME
+                    else -> return null
+                }
+                if (file.length() != expected) return null
+                if (!complete && (!partial || version != VERSION)) return null
+                SingVocalTrack(rate, frames, buffer, complete = complete, file = file).also {
+                    if (!complete) it.droppedOnOpen = it.restoreCoverage()
+                }
             } catch (e: IOException) {
                 null
             }
@@ -243,7 +390,7 @@ class SingVocalTrack private constructor(
 
         /** A heap-backed track, for tests. */
         fun inMemory(sampleRate: Int, frames: Int): SingVocalTrack {
-            val buffer = ByteBuffer.allocate(HEADER_BYTES + frames * BYTES_PER_FRAME).order(ByteOrder.LITTLE_ENDIAN)
+            val buffer = ByteBuffer.allocate(tableBytesEnd(frames).toInt()).order(ByteOrder.LITTLE_ENDIAN)
             writeHeader(buffer, sampleRate, frames)
             return SingVocalTrack(sampleRate, frames, buffer, complete = false, file = null)
         }

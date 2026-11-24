@@ -124,4 +124,104 @@ class SingVocalTrackTest {
         assertNull(failure.get())
         assertTrue(track.isComplete)
     }
+
+    @Test
+    fun should_carryOnPartialTrack_when_reopenedUnfinished() {
+        val file = File(temp.root, "song.vpart")
+        val frames = block * 4 + 300
+        val track = SingVocalTrack.create(file, 48_000, frames)
+        val mixL = FloatBuffer.wrap(FloatArray(frames) { 0.5f })
+        val mixR = FloatBuffer.wrap(FloatArray(frames) { 0.1f })
+        track.writeReference(0, block * 2, mixL, mixR)
+        write(track, 0, block) // block 0
+        write(track, block * 2, block * 3) // block 2
+        write(track, block * 3, block * 3 + 100) // part of block 3: not in
+        assertNull("unfinished is no finished track", SingVocalTrack.open(file))
+
+        // The app went away (the mapping dropped); the file is carried on.
+        val reopened = SingVocalTrack.open(file, partial = true)!!
+        assertFalse(reopened.isComplete)
+        assertEquals(0, reopened.droppedOnOpen)
+        assertTrue(reopened.isBlockReady(0) && !reopened.isBlockReady(1) && reopened.isBlockReady(2) && !reopened.isBlockReady(3))
+        assertEquals(listOf(0 to block, block * 2 to block * 3), reopened.readyRanges())
+        assertEquals(valueL(block * 2 + 7), reopened.vocalLeft(block * 2 + 7), 1e-4f)
+        assertEquals(0.3f, reopened.reference(10), 1e-4f)
+
+        // The rest, then finished: a finished track like any other.
+        write(reopened, block, block * 2)
+        write(reopened, block * 3, frames)
+        assertTrue(reopened.isComplete)
+        reopened.finish()
+        val finished = SingVocalTrack.open(file)!!
+        assertTrue(finished.isComplete)
+        assertEquals(valueR(frames - 1), finished.vocalRight(frames - 1), 1e-4f)
+    }
+
+    @Test
+    fun should_redoBlock_when_itsSamplesFailTheirCrc() {
+        val file = File(temp.root, "torn.vpart")
+        val frames = block * 3
+        val track = SingVocalTrack.create(file, 44_100, frames)
+        write(track, 0, block * 2)
+        // Block 1's mark reached the disk, its samples didn't (a power cut): one vocal sample differs.
+        java.io.RandomAccessFile(file, "rw").use { raf ->
+            val at = SingVocalTrack.HEADER_BYTES + (block + 17L) * SingVocalTrack.BYTES_PER_FRAME
+            raf.seek(at)
+            val b = raf.read()
+            raf.seek(at)
+            raf.write(b xor 0x40)
+        }
+        val reopened = SingVocalTrack.open(file, partial = true)!!
+        assertTrue(reopened.isBlockReady(0))
+        assertFalse(reopened.isBlockReady(1))
+        assertEquals(1, reopened.droppedOnOpen)
+        // Written again, it counts.
+        write(reopened, block, block * 2)
+        assertTrue(reopened.isBlockReady(1))
+        assertEquals(1, SingVocalTrack.open(file, partial = true)!!.readyRanges().size)
+    }
+
+    @Test
+    fun should_notTrustReferenceChanges_when_checkingVocalCrc() {
+        // The mix reference may be written after a block's vocal (it's filled in as the song decodes):
+        // the CRC covers the vocal only, so the block still counts.
+        val file = File(temp.root, "ref.vpart")
+        val frames = block * 2
+        val track = SingVocalTrack.create(file, 44_100, frames)
+        write(track, 0, block)
+        track.writeReference(0, frames, FloatBuffer.wrap(FloatArray(frames) { 0.2f }), FloatBuffer.wrap(FloatArray(frames) { 0.4f }))
+        val reopened = SingVocalTrack.open(file, partial = true)!!
+        assertTrue(reopened.isBlockReady(0))
+        assertEquals(0.3f, reopened.reference(5), 1e-4f)
+    }
+
+    @Test
+    fun should_openVersion1FinishedTrack_when_cachedBeforeTables() {
+        val file = File(temp.root, "old.vtrack")
+        val frames = 1000
+        java.io.RandomAccessFile(file, "rw").use { raf ->
+            raf.setLength(SingVocalTrack.HEADER_BYTES + frames * 6L)
+            val header = java.nio.ByteBuffer.allocate(SingVocalTrack.HEADER_BYTES).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            header.putInt(0x54565359).putInt(1).putInt(44_100).putInt(frames).putInt(6).putInt(1)
+            raf.write(header.array())
+            raf.seek(SingVocalTrack.HEADER_BYTES + 10L * 6)
+            raf.write(byteArrayOf(0x00, 0x40)) // V_L of frame 10 = 16384
+        }
+        val track = SingVocalTrack.open(file)!!
+        assertTrue(track.isComplete)
+        assertEquals(16384f / 32767f, track.vocalLeft(10), 1e-6f)
+        assertNull("a version-1 file is never carried on unfinished", SingVocalTrack.open(File(temp.root, "none"), partial = true))
+    }
+
+    @Test
+    fun should_carryWholeBlocksOver_when_remadeAtAnotherLength() {
+        val estimated = SingVocalTrack.inMemory(44_100, block * 3 + 100)
+        write(estimated, 0, block * 2) // blocks 0, 1
+        write(estimated, block * 3, block * 3 + 100) // the short last block: not the same block at the true length
+        val exact = SingVocalTrack.inMemory(44_100, block * 3 + 500)
+        exact.copyReadyFrom(estimated)
+        assertEquals(listOf(0 to block * 2), exact.readyRanges())
+        assertEquals(valueL(block + 9), exact.vocalLeft(block + 9), 1e-4f)
+        assertFalse(exact.isBlockReady(3))
+    }
 }
