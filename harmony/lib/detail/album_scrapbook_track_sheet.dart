@@ -66,6 +66,11 @@ abstract final class ScrapSheetMetrics {
   static const double newEntryCorner = 24;
   static const double fieldCorner = 16;
   static const double noteCorner = 16;
+
+  /// The note tapped on the page: its ink ring, when it scrolls into view (after the sheet settles), how long the scroll takes.
+  static const double focusRing = 2;
+  static const int focusNoteSettleMs = 450;
+  static const Duration focusNoteScroll = Duration(milliseconds: 360);
   static const double buttonMinHeight = 44;
   static const double bodyMinHeight = 84;
   static const Duration notice = Duration(seconds: 4);
@@ -94,6 +99,7 @@ Future<void> showScrapTrackSheet(
   required ScrapbookColors colors,
   ScrapSheetTab tab = ScrapSheetTab.about,
   AboutRef? editing,
+  String? focusNote,
 }) {
   final pieces = ProviderScope.containerOf(context, listen: false).read(albumScrapbookProvider(album.id));
   if (pieces == null || trackSheetFor(pieces, trackId) == null) return Future.value();
@@ -110,6 +116,7 @@ Future<void> showScrapTrackSheet(
         colors: colors,
         initialTab: editing != null ? ScrapSheetTab.about : tab,
         initialEditing: editing,
+        focusNote: focusNote,
       ),
     ),
   );
@@ -131,6 +138,7 @@ class ScrapTrackSheet extends ConsumerStatefulWidget {
     required this.colors,
     this.initialTab = ScrapSheetTab.about,
     this.initialEditing,
+    this.focusNote,
   });
 
   final Album album;
@@ -138,6 +146,9 @@ class ScrapTrackSheet extends ConsumerStatefulWidget {
   final ScrapbookColors colors;
   final ScrapSheetTab initialTab;
   final AboutRef? initialEditing;
+
+  /// The note tapped on the page: brought into view and ringed in ink on the Note tab.
+  final String? focusNote;
 
   @override
   ConsumerState<ScrapTrackSheet> createState() => _ScrapTrackSheetState();
@@ -295,6 +306,7 @@ class _ScrapTrackSheetState extends ConsumerState<ScrapTrackSheet> {
                           onEdit: _edit,
                           onNotice: _say,
                           onPlayFrom: _playFrom,
+                          focusNote: widget.focusNote,
                         ),
                       ),
                     },
@@ -1710,6 +1722,7 @@ class _NotesTab extends StatefulWidget {
     required this.onEdit,
     required this.onNotice,
     required this.onPlayFrom,
+    this.focusNote,
   });
 
   final ScrapTrackSheetTarget target;
@@ -1718,6 +1731,7 @@ class _NotesTab extends StatefulWidget {
   final ValueChanged<ScrapEdit> onEdit;
   final ValueChanged<_Notice> onNotice;
   final ValueChanged<int?> onPlayFrom;
+  final String? focusNote;
 
   @override
   State<_NotesTab> createState() => _NotesTabState();
@@ -1866,6 +1880,7 @@ class _NotesTabState extends State<_NotesTab> {
                   note: note,
                   colors: widget.colors,
                   highlighted: _picked == row.key,
+                  focused: note.id == widget.focusNote,
                   onTap: () => _noteMenu(rowContext, note),
                 ),
               ),
@@ -1990,25 +2005,88 @@ class _NoteStamp extends StatelessWidget {
   );
 }
 
-class _NoteCard extends StatelessWidget {
-  const _NoteCard({required this.note, required this.colors, required this.highlighted, required this.onTap});
+/// A note on the Note tab; [focused] (the note tapped on the page) is brought
+/// into view once the sheet has settled and ringed in the page's ink.
+class _NoteCard extends StatefulWidget {
+  const _NoteCard({
+    required this.note,
+    required this.colors,
+    required this.highlighted,
+    required this.onTap,
+    this.focused = false,
+  });
 
   final SongNote note;
   final ScrapbookColors colors;
   final bool highlighted;
+  final bool focused;
   final VoidCallback onTap;
 
   @override
+  State<_NoteCard> createState() => _NoteCardState();
+}
+
+class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
+  late final SpringValue _ring = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+  Timer? _settle;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focused) _focus();
+  }
+
+  @override
+  void didUpdateWidget(_NoteCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.focused && !oldWidget.focused) _focus();
+    if (!widget.focused) _ring.animateTo(0);
+  }
+
+  void _focus() {
+    _ring.animateTo(1);
+    _settle?.cancel();
+    _settle = Timer(const Duration(milliseconds: ScrapSheetMetrics.focusNoteSettleMs), () {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.3,
+        duration: MediaQuery.disableAnimationsOf(context) ? Duration.zero : ScrapSheetMetrics.focusNoteScroll,
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _settle?.cancel();
+    _ring.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final note = widget.note;
+    final colors = widget.colors;
     final at = note.positionMs == null ? null : formatNotePosition(note.positionMs!);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Material(
-        color: highlighted ? colors.note.withValues(alpha: 0.8) : colors.note,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner)),
-        clipBehavior: Clip.antiAlias,
+      child: AnimatedBuilder(
+        animation: _ring.animation,
+        builder: (context, child) => Material(
+          color: widget.highlighted ? colors.note.withValues(alpha: 0.8) : colors.note,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner),
+            side: BorderSide(
+              color: colors.ink.withValues(alpha: _ring.value.clamp(0.0, 1.0)),
+              width: ScrapSheetMetrics.focusRing,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: child,
+        ),
         child: InkWell(
-          onTap: onTap,
+          onTap: widget.onTap,
           child: CustomPaint(
             painter: _Rail(colors.ink),
             child: Padding(

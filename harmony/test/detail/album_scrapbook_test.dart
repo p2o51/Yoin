@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/detail/album_scrapbook_track_sheet.dart';
 import 'package:yoin/data/notes/note_markup.dart';
 import 'package:yoin/notes/editor/note_editor_controller.dart';
 import 'package:yoin/notes/note_markup_text.dart';
@@ -501,7 +502,7 @@ void main() {
       }
     });
 
-    testWidgets('should_playFromNoteMoment_when_noteTapped', (tester) async {
+    testWidgets('should_openTheNoteInTheTrackSheet_notPlay_when_noteTapped', (tester) async {
       final (_, engine, store) = await open(tester);
       await store.putSongNote(_note('n1', 3, at: 61000, text: 'the bridge'));
       await store.setAlbumReview(_album.id, 'Late-night record.', nowMs: 1);
@@ -516,7 +517,11 @@ void main() {
 
       await tester.tap(find.text('the bridge'));
       await settle(tester);
-      expect(engine.startIndex, 2);
+      // The track sheet on its Note tab, the note in view; nothing started playing.
+      expect(find.byType(ScrapTrackSheet), findsOneWidget);
+      expect(tester.widget<ScrapTrackSheet>(find.byType(ScrapTrackSheet)).focusNote, 'n1');
+      expect(find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('the bridge')), findsOneWidget);
+      expect(engine.startIndex, -1);
       await close(tester);
     });
   });

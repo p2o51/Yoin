@@ -1128,8 +1128,14 @@ class _TrackCluster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _ScrapScope.of(context).colors;
-    void manage({ScrapSheetTab tab = ScrapSheetTab.about}) =>
-        showScrapTrackSheet(context, album: album, trackId: piece.track.track.id, colors: colors, tab: tab);
+    void manage({ScrapSheetTab tab = ScrapSheetTab.about, String? note}) => showScrapTrackSheet(
+      context,
+      album: album,
+      trackId: piece.track.track.id,
+      colors: colors,
+      tab: tab,
+      focusNote: note,
+    );
     final ask = piece.ask;
     final aboutLine = piece.aboutLine;
     return Padding(
@@ -1154,8 +1160,8 @@ class _TrackCluster extends StatelessWidget {
               maxWidth: 330,
               child: _NotesClipping(
                 piece: piece,
-                album: album,
                 onMore: () => manage(tab: ScrapSheetTab.notes),
+                onOpen: (note) => manage(tab: ScrapSheetTab.notes, note: note.id),
               ),
             ),
           if (ask != null)
@@ -1763,19 +1769,23 @@ class _TicketBorder extends ShapeBorder {
 }
 
 /// A track's notes on neutral paper with the journal rail (the rail is the
-/// notes' mark alone): time stamp and words on one baseline; a tap plays the
-/// song from the note's moment.
-class _NotesClipping extends ConsumerWidget {
-  const _NotesClipping({required this.piece, required this.album, required this.onMore});
+/// notes' mark alone): time stamp and words on one baseline; a tap opens the
+/// note (owner 2026-11-24: no longer plays): the track sheet on its Note tab,
+/// the note brought into view and ringed in ink, where Edit / Play from here
+/// are a tap away.
+class _NotesClipping extends StatelessWidget {
+  const _NotesClipping({required this.piece, required this.onMore, required this.onOpen});
 
   final ScrapTrackCluster piece;
-  final Album album;
 
   /// "+N notes": the track sheet on its Note tab.
   final VoidCallback onMore;
 
+  /// A note tapped: the track sheet on it.
+  final ValueChanged<SongNote> onOpen;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = _ScrapScope.of(context).colors;
     final strings = DetailStrings.of(context);
     final theme = Theme.of(context);
@@ -1794,10 +1804,7 @@ class _NotesClipping extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final n in piece.notes.take(ScrapbookRules.notesShown))
-                  _NoteLine(
-                    note: n,
-                    onTap: () => _playAlbumFrom(ref, album, piece.track.index, positionMs: n.positionMs ?? 0),
-                  ),
+                  _NoteLine(note: n, onTap: () => onOpen(n)),
                 if (piece.hiddenNotes > 0)
                   InkWell(
                     customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
