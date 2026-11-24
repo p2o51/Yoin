@@ -73,6 +73,9 @@ android {
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "NANO_TEST", "false")
+        // Sing on ONNX Runtime instead of LiteRT (-PyoinSingOrt=true): the old CPU path, kept until LiteRT has
+        // proved itself on devices. Off: LiteRT when the APK carries its builds (player/sing/LiteRtSeparationModel.kt).
+        buildConfigField("boolean", "SING_ORT", (project.findProperty("yoinSingOrt") == "true").toString())
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
@@ -197,6 +200,13 @@ android {
             excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
                 listOf("**/$abi/libonnxruntime.so", "**/$abi/libonnxruntime4j_jni.so")
             }
+            // LiteRT likewise (its NPU runtime is arm64-v8a only anyway): 6–12 MB per extra ABI.
+            excludes += listOf("armeabi-v7a", "x86", "x86_64").flatMap { abi ->
+                listOf("libLiteRt.so", "liblitert_jni.so", "libLiteRtClGlAccelerator.so").map { "**/$abi/$it" }
+            }
+            // The Tensor runtime's on-device compiler (1 MB): Sing runs AOT builds only, and Google Tensor has
+            // no JIT compilation anyway. The dispatch library it needs stays.
+            excludes += "**/libLiteRtCompilerPlugin_google_tensor.so"
         }
     }
 
@@ -266,6 +276,10 @@ dependencies {
     implementation(libs.media3.cast)
     // Sing: Lyra-Sing-Lite on the device (player/sing/)
     implementation(libs.onnxruntime.android)
+    // Sing on LiteRT: CompiledModel + GPU accelerator + the Google Tensor NPU dispatch library
+    implementation(libs.litert)
+    implementation(libs.litert.gpu)
+    implementation(libs.litert.npu.google.tensor)
     implementation(libs.cast.framework)
     implementation(libs.genai.prompt)
     ksp(libs.genai.schema.compiler)

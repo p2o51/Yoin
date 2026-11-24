@@ -85,3 +85,8 @@
 # ships no keep rules for them. The telemetry classes it does keep are unused (its provider is removed in the manifest).
 -keep class ai.onnxruntime.** { *; }
 -dontwarn ai.onnxruntime.**
+
+# LiteRT (Sing): its JNI code builds com.google.ai.edge.litert objects (TensorBufferRequirements, TensorType,
+# LiteRtException) by name, and the AARs ship only TF Lite's @UsedByReflection rule.
+-keep class com.google.ai.edge.litert.** { *; }
+-dontwarn com.google.ai.edge.litert.**
