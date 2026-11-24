@@ -80,12 +80,12 @@ import okhttp3.OkHttpClient
 @OptIn(UnstableApi::class)
 class OnDeviceSingStreamProvider(
     private val context: Context,
-    private val modelStore: SingModelStore,
+    /** The model and what runs it: LiteRT (Tensor TPU → GPU → CPU) or ONNX Runtime ([SingSeparationBackend]). */
+    private val backend: SingSeparationBackend,
     val cache: SingCache,
     /** Reads the original song's bytes: the downloads first, then the stream cache, then the network. */
     private val sourceFactory: DataSource.Factory,
     private val scope: CoroutineScope,
-    private val threads: Int = defaultThreads(),
 ) : SingStreamProvider {
     private val states = ConcurrentHashMap<String, MutableStateFlow<SingStatus>>()
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -93,7 +93,7 @@ class OnDeviceSingStreamProvider(
     private val gateMutex = Mutex()
 
     /** The ORT session, opened while a song decodes and kept warm between songs. */
-    private val sessions = SingSessionPool(scope) { model -> openSession(model) }
+    private val sessions = SingSessionPool(scope) { model -> backend.open(model) }
 
     /** The request this engine is singing (null after Sing off). */
     @Volatile private var servingKey: String? = null
@@ -164,7 +164,7 @@ class OnDeviceSingStreamProvider(
         val remainingMs = track.frames * 1000L / track.sampleRate - positionMs
         if (remainingMs > PREWARM_BEFORE_END_MS || remainingMs < 0) return
         if (key != cacheKey(request)) return
-        val model = modelStore.file.takeIf { it.isFile } ?: return
+        val model = backend.readyModel ?: return
         prewarmedKey = request.key
         Log.d(TAG, "song ends in ${remainingMs / 1000} s: opening the session for the next one")
         sessions.prewarm(model)
@@ -287,7 +287,7 @@ class OnDeviceSingStreamProvider(
                 if (!gated) {
                     state.value = SingStatus.Preparing(stage = SingStatus.Preparing.Stage.Model)
                     val model = try {
-                        modelStore.ensure { state.value = SingStatus.Preparing(it * 0.05f, SingStatus.Preparing.Stage.Model) }
+                        backend.ensure { state.value = SingStatus.Preparing(it * 0.05f, SingStatus.Preparing.Stage.Model) }
                     } catch (e: IOException) {
                         Log.w(TAG, "model unavailable", e)
                         return@coroutineScope SingStatus.Failed(SingFailure.ModelDownload, e.message)
@@ -300,7 +300,7 @@ class OnDeviceSingStreamProvider(
                     }
                     onGated()
                 }
-                val model = modelStore.file
+                val model = checkNotNull(backend.readyModel) { "model not ready" }
                 // The session opens while the song is fetched and decoded: neither needs the other.
                 sessions.prewarm(model)
 
@@ -744,19 +744,9 @@ class OnDeviceSingStreamProvider(
         }
     }
 
-    private fun openSession(model: File): SeparationModel {
-        val t0 = System.nanoTime()
-        return OrtSeparationModel.open(model, threads, modelStore.config.execution).also {
-            val t = OrtSeparationModel.threading(threads, it.usesXnnpack)
-            val how = if (it.usesXnnpack) "XNNPACK ${t.xnnpackThreads} threads + ORT ${t.ortThreads}" else "CPU, ${t.ortThreads} threads"
-            Log.d(TAG, "session open ${(System.nanoTime() - t0) / 1_000_000} ms ($how)")
-        }
-    }
-
     private val gatePrefs by lazy { context.getSharedPreferences(GATE_PREFS, Context.MODE_PRIVATE) }
 
-    private fun gateFingerprint() =
-        "${android.os.Build.FINGERPRINT}|${modelStore.config.sha256}|$threads|${modelStore.config.execution}|${OrtSeparationModel.CONFIG_TAG}"
+    private fun gateFingerprint() = "${android.os.Build.FINGERPRINT}|${backend.gateTag}"
 
     private fun restoreGate() {
         gateRestored = true
@@ -773,7 +763,7 @@ class OnDeviceSingStreamProvider(
         }
     }
 
-    private fun cacheKey(request: SingRequest) = SingCache.keyFor(request, modelStore.config.sha256)
+    private fun cacheKey(request: SingRequest) = SingCache.keyFor(request, backend.modelId)
 
     private fun isActiveFor(request: SingRequest): Boolean = jobs[request.key]?.isActive == true
 
@@ -836,7 +826,7 @@ class OnDeviceSingStreamProvider(
             }
             return OnDeviceSingStreamProvider(
                 context = context,
-                modelStore = SingModelStore(File(context.noBackupFilesDir, MODEL_DIR), http),
+                backend = createBackend(context, http),
                 cache = cache,
                 sourceFactory = OfflineFirstDataSource.Factory(
                     downloads = downloads.downloadCache,
@@ -846,6 +836,24 @@ class OnDeviceSingStreamProvider(
                 ),
                 scope = scope,
             )
+        }
+
+        /**
+         * LiteRT when this APK carries its builds for the device, unless the build asks for ONNX Runtime
+         * (`-PyoinSingOrt=true`, BuildConfig.SING_ORT); ONNX Runtime (model downloaded) otherwise.
+         */
+        private fun createBackend(context: Context, http: OkHttpClient): SingSeparationBackend {
+            val threads = defaultThreads()
+            if (!com.gpo.yoin.BuildConfig.SING_ORT) {
+                val litert = LiteRtSingBackend.bundledCatalog(context)?.let { catalog ->
+                    runCatching { LiteRtSingBackend(context, catalog, threads) }
+                        .onFailure { Log.w(TAG, "LiteRT unavailable here: ONNX Runtime", it) }
+                        .getOrNull()
+                }
+                if (litert != null) return litert
+            }
+            Log.d(TAG, "Sing backend: ONNX Runtime")
+            return OrtSingBackend(SingModelStore(File(context.noBackupFilesDir, MODEL_DIR), http), threads)
         }
 
         /**

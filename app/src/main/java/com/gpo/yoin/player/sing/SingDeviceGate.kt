@@ -67,8 +67,16 @@ object SingDeviceGate {
     fun benchmarkChunkMs(model: SeparationModel, nanoTime: () -> Long = System::nanoTime): Long {
         val input = FloatArray(LyraSingSpec.CHUNK_FLOATS)
         val output = FloatArray(LyraSingSpec.CHUNK_FLOATS)
-        val warmStart = nanoTime()
+        val routed = model as? SingRoutedModel<*>
+        val switchesBefore = routed?.switches ?: 0
+        var warmStart = nanoTime()
         model.run(input, output)
+        if (routed != null && routed.switches != switchesBefore) {
+            // The router gave up on a backend during the warm-up (opening the next one counted in it):
+            // warm the one that took over, so the timing below is of the backend Sing will use.
+            warmStart = nanoTime()
+            model.run(input, output)
+        }
         val warmMs = (nanoTime() - warmStart) / 1_000_000L
         if (warmMs > WARM_UP_GIVE_UP_MS) return warmMs
         val start = nanoTime()
