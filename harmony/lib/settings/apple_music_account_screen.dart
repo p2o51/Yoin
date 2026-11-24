@@ -337,12 +337,14 @@ class _AccountGroup extends StatelessWidget {
 
 /// Song names (Android AppleMusicNameRegionGroup): three unified options —
 /// account storefront, original language, or a specific curated storefront
-/// chosen from a modal sheet.
+/// chosen from a modal sheet. [rowWrapper] names a row (`off`, `original`,
+/// `region`) for the tip demo's touch.
 class AppleMusicNameRegionGroup extends StatelessWidget {
-  const AppleMusicNameRegionGroup({super.key, required this.selected, required this.onSelect});
+  const AppleMusicNameRegionGroup({super.key, required this.selected, required this.onSelect, this.rowWrapper});
 
   final AppleMusicNameRegion selected;
   final ValueChanged<AppleMusicNameRegion> onSelect;
+  final Widget Function(String key, Widget row)? rowWrapper;
 
   Future<void> _openRegionPicker(BuildContext context, AppleMusicStorefrontOption? current) async {
     final strings = SettingsStrings.of(context);
@@ -416,6 +418,7 @@ class AppleMusicNameRegionGroup extends StatelessWidget {
       onSelect(region);
     }
 
+    final wrap = rowWrapper ?? (_, row) => row;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -434,44 +437,53 @@ class AppleMusicNameRegionGroup extends StatelessWidget {
           child: SettingsGroup(
             title: strings.appleNamesTitle,
             children: [
-              SettingsItem(
-                key: const ValueKey('off'),
-                title: strings.appleNamesOff,
-                summary: strings.appleNamesOffSummary,
-                semanticsRadio: true,
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                  child: Radio<String>(value: 'off'),
+              wrap(
+                'off',
+                SettingsItem(
+                  key: const ValueKey('off'),
+                  title: strings.appleNamesOff,
+                  summary: strings.appleNamesOffSummary,
+                  semanticsRadio: true,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                    child: Radio<String>(value: 'off'),
+                  ),
+                  onTap: () => pickFixed(AppleMusicNameRegion.off),
                 ),
-                onTap: () => pickFixed(AppleMusicNameRegion.off),
               ),
-              SettingsItem(
-                key: const ValueKey('original'),
-                title: strings.appleNamesOriginal,
-                summary: strings.appleNamesOriginalSummary,
-                semanticsRadio: true,
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                  child: Radio<String>(value: 'original'),
+              wrap(
+                'original',
+                SettingsItem(
+                  key: const ValueKey('original'),
+                  title: strings.appleNamesOriginal,
+                  summary: strings.appleNamesOriginalSummary,
+                  semanticsRadio: true,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                    child: Radio<String>(value: 'original'),
+                  ),
+                  onTap: () => pickFixed(AppleMusicNameRegion.original),
                 ),
-                onTap: () => pickFixed(AppleMusicNameRegion.original),
               ),
-              SettingsItem(
-                key: const ValueKey('region'),
-                title: strings.appleNamesRegion,
-                summary: chosen != null
-                    ? strings.appleNamesRegionSelected(chosen.displayName(zh: strings.isZh))
-                    : strings.appleNamesRegionSummary,
-                semanticsRadio: true,
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                  child: Radio<String>(value: 'region'),
+              wrap(
+                'region',
+                SettingsItem(
+                  key: const ValueKey('region'),
+                  title: strings.appleNamesRegion,
+                  summary: chosen != null
+                      ? strings.appleNamesRegionSelected(chosen.displayName(zh: strings.isZh))
+                      : strings.appleNamesRegionSummary,
+                  semanticsRadio: true,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                    child: Radio<String>(value: 'region'),
+                  ),
+                  trailing: Icon(YoinSymbols.chevronRight, color: theme.colorScheme.onSurfaceVariant),
+                  onTap: () {
+                    YoinHaptics.click();
+                    _openRegionPicker(context, chosen);
+                  },
                 ),
-                trailing: Icon(YoinSymbols.chevronRight, color: theme.colorScheme.onSurfaceVariant),
-                onTap: () {
-                  YoinHaptics.click();
-                  _openRegionPicker(context, chosen);
-                },
               ),
             ],
           ),
