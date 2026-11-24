@@ -1,12 +1,11 @@
-package com.gpo.yoin.data.search
-
-import java.text.Normalizer
-import java.util.Locale
+package com.gpo.yoin.shared.search
 
 /*
  * How a search query meets a piece of text (docs/search.md, "What matches"): case-, width- and
  * accent-insensitive, the same fold on both sides, and a strength saying how well it met. Local only:
  * the remote services rank their own rows; this ranks the sections around them and the ledger's hits.
+ * Shared by Android (data/search) and iOS (YoinMemorySearch); HarmonyOS ports it against
+ * shared/src/commonTest/resources/golden/memory-search.json. Offsets are UTF-16 code units.
  */
 
 /** How well a query met one field, weakest first, so a larger ordinal is a better hit. */
@@ -76,7 +75,7 @@ class FoldedText private constructor(
         if (start >= endExclusive || origins.isEmpty()) return IntRange.EMPTY
         val from = origins[start]
         val last = origins[endExclusive - 1]
-        val to = last + Character.charCount(original.codePointAt(last))
+        val to = last + codePointWidth(original, last)
         return from until to
     }
 
@@ -88,9 +87,8 @@ class FoldedText private constructor(
             var pendingSpace = false
             var i = 0
             while (i < original.length) {
-                val cp = original.codePointAt(i)
-                val width = Character.charCount(cp)
-                for (ch in foldCodePoint(cp)) {
+                val width = codePointWidth(original, i)
+                for (ch in foldCodePoint(original.substring(i, i + width))) {
                     if (ch.isWhitespace()) {
                         pendingSpace = out.isNotEmpty()
                         continue
@@ -112,12 +110,11 @@ class FoldedText private constructor(
 
         // Decomposed, so a code point folds the same alone as inside a word: ｶﾞ and ガ both become カ + ゛.
         // Hangul syllables stay whole, or 가 would match inside 각.
-        private fun foldCodePoint(cp: Int): String {
-            val alone = String(Character.toChars(cp))
-            if (cp in 0xAC00..0xD7A3) return alone
-            val decomposed = Normalizer.normalize(alone, Normalizer.Form.NFKD).lowercase(Locale.ROOT)
+        private fun foldCodePoint(alone: String): String {
+            if (alone.length == 1 && alone[0].code in 0xAC00..0xD7A3) return alone
+            val decomposed = normalizeNfkd(alone).lowercase()
             if (!decomposed.all(::isLatinLike)) return decomposed
-            return decomposed.filterNot { Character.getType(it) == Character.NON_SPACING_MARK.toInt() }
+            return decomposed.filterNot { it.category == CharCategory.NON_SPACING_MARK }
         }
 
         // Latin, Greek, Cyrillic and their combining marks: where dropping an accent is what people expect.
@@ -125,6 +122,10 @@ class FoldedText private constructor(
         private fun isLatinLike(ch: Char): Boolean = ch.code < 0x0530 || ch.code in 0x1E00..0x1FFF
     }
 }
+
+/** UTF-16 units of the code point at [index]: 2 for a surrogate pair, else 1 (a lone surrogate is one). */
+private fun codePointWidth(text: String, index: Int): Int =
+    if (text[index].isHighSurrogate() && index + 1 < text.length && text[index + 1].isLowSurrogate()) 2 else 1
 
 /** Where and how well a query met one field ([source], folded). */
 data class FieldMatch(val strength: MatchStrength, val source: FoldedText?, val start: Int = -1, val length: Int = 0) {
@@ -155,7 +156,7 @@ class SearchQuery(raw: String) {
             from = at + 1
             // A hit that stops inside a decomposed char (か before the ゛ of が) is no hit.
             val end = at + folded.length
-            if (end < haystack.length && Character.getType(haystack[end]) == Character.NON_SPACING_MARK.toInt()) continue
+            if (end < haystack.length && haystack[end].category == CharCategory.NON_SPACING_MARK) continue
             when {
                 at == 0 && end == haystack.length -> return FieldMatch(MatchStrength.Exact, field, 0, folded.length)
                 at == 0 -> return FieldMatch(MatchStrength.Prefix, field, 0, folded.length)
@@ -170,27 +171,37 @@ class SearchQuery(raw: String) {
     fun score(text: String?, tier: MatchTier): SearchScore = SearchScore(tier, match(text).strength)
 }
 
-/** A piece of text to show for a hit: the text and, inside it, the chars to highlight. */
+/** A piece of text to show for a hit: the text and, inside it, the chars to highlight (inclusive UTF-16 indexes). */
 data class SearchFragment(val text: String, val highlight: IntRange)
 
 /**
  * The part of [match]'s field worth showing: the hit with a little before it, up to [maxChars],
  * line breaks as spaces, an ellipsis where text was cut. The whole text when it fits.
+ *
+ * A cut never falls inside a surrogate pair (an emoji is two UTF-16 units): a cut that would is moved
+ * inward to the whole code point, so the text stays within [maxChars] and the highlight, which always
+ * covers whole code points, stays intact. (Android before parity p3 could start a fragment on the
+ * pair's second half; fixed on purpose here, docs/search.md.)
  */
 fun SearchQuery.fragment(match: FieldMatch, maxChars: Int = FRAGMENT_MAX_CHARS): SearchFragment? {
     val original = match.source?.original ?: return null
     val flat = original.map { if (it == '\n' || it == '\r' || it == '\t') ' ' else it }.joinToString("")
     val hit = match.originalRange
     if (flat.length <= maxChars || hit.isEmpty()) {
-        val text = flat.take(maxChars).trimEnd()
+        var keep = minOf(maxChars, flat.length)
+        if (keep in 1 until flat.length && flat[keep - 1].isHighSurrogate() && flat[keep].isLowSurrogate()) keep--
+        val text = flat.take(keep).trimEnd()
         val cut = if (flat.length > maxChars) "$text…" else text
         return SearchFragment(cut, if (hit.last < text.length) hit else IntRange.EMPTY)
     }
     var start = (hit.first - FRAGMENT_LEAD_CHARS).coerceAtLeast(0)
-    if (start > 0 && Character.isLowSurrogate(flat[start])) start--
+    if (start > 0 && flat[start].isLowSurrogate()) start--
     var end = (start + maxChars).coerceAtMost(flat.length)
-    if (end < flat.length && Character.isHighSurrogate(flat[end - 1])) end--
+    if (end < flat.length && flat[end - 1].isHighSurrogate()) end--
     if (end - start < maxChars) start = (end - maxChars).coerceAtLeast(0)
+    // Pulled back from the end, the start can land on a pair's second half: step in past it. The hit
+    // starts on a whole code point after it, so it stays whole.
+    if (start > 0 && flat[start].isLowSurrogate() && flat[start - 1].isHighSurrogate()) start++
     val lead = if (start > 0) "…" else ""
     val tail = if (end < flat.length) "…" else ""
     val body = flat.substring(start, end).trim()

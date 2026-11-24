@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.ledger
 
+import com.gpo.yoin.data.memory.mediaId
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
