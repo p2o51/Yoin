@@ -127,14 +127,13 @@ struct SingPreparingMicGlyph: View {
             .task(id: "\(isPreparing)-\(reduceMotion)") {
                 if isPreparing {
                     if reduceMotion {
+                        // Static calm dim mic under Reduce Motion (1:1 with Android SingPreparingMicIcon).
                         split = 0
-                        var dim = true
-                        while !Task.isCancelled {
-                            withAnimation(Yoin.slowEffects) {
-                                reducedOpacity = dim ? 0.42 : 1.0
-                            }
-                            try? await Task.sleep(for: .milliseconds(550))
-                            dim.toggle()
+                        barL = 3.2
+                        barC = 8.8
+                        barR = 3.2
+                        withAnimation(Yoin.effects) {
+                            reducedOpacity = 0.58
                         }
                     } else {
                         reducedOpacity = 1
@@ -244,13 +243,17 @@ private struct SingPreparingMicCanvas: View, @preconcurrency Animatable {
     }
 }
 
-/// Option 1 (**麦头展成爱心**) 120Hz Animatable 6-cubic Bézier morph between `MicOff` (`morph = 0`)
-/// and `yoin_favorite` Heart (`morph = 1`), with independent `slash` and `fillAlpha`.
+/// Option 1 (**麦头展成爱心**) 120Hz Animatable 6-cubic Bézier morph between `MicOff` (`morph = 0`,
+/// 22pt optical size) and `yoin_favorite` Heart (`morph = 1`, 24pt optical size), with independent
+/// `slash` and `fillAlpha`.
 struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
     var morph: CGFloat
     var slash: CGFloat
     var fillAlpha: CGFloat
-    var size: CGFloat = 22
+    var size: CGFloat = 24
+    /// When `true` (default for the 44pt favorite slot morph), smoothly scales optical size
+    /// from 22pt (MicOff) → 24pt (Heart) inside the 24pt canvas for zero handoff size jump.
+    var interpolateOpticalSize: Bool = true
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
         get { AnimatablePair(AnimatablePair(morph, slash), fillAlpha) }
@@ -263,8 +266,9 @@ struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
 
     var body: some View {
         Canvas { ctx, canvasSize in
-            let s = min(canvasSize.width, canvasSize.height) / SingMotionGeometry.viewBox
             let clamped = max(0, min(1, morph))
+            let opticalScale: CGFloat = interpolateOpticalSize ? SingMotionGeometry.lerp(22.0 / 24.0, 1.0, clamped) : 1.0
+            let s = min(canvasSize.width, canvasSize.height) / SingMotionGeometry.viewBox
             let sl = max(0, min(1, slash))
             let fo = max(0, min(1, fillAlpha))
             let stroke = StrokeStyle(lineWidth: SingMotionGeometry.strokeWidth * s, lineCap: .round, lineJoin: .round)
@@ -272,21 +276,22 @@ struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
             let contour = SingMotionGeometry.interpolateMicToHeart(morph)
             let morphPath = SingMotionGeometry.path(for: contour, scale: s)
 
-            // Optional heart fill blooming from center for favorited tracks
+            var scaledCtx = ctx
+            scaledCtx.translateBy(x: 12 * s, y: 12 * s)
+            scaledCtx.scaleBy(x: opticalScale, y: opticalScale)
+            scaledCtx.translateBy(x: -12 * s, y: -12 * s)
+
+            // Optional heart fill sits flush inside morphPath (scale 1.0) so starred transitions never show a double edge.
             if fo > 0.01 {
-                let fs = SingMotionGeometry.lerp(0.5, 1.0, fo)
-                var fillCtx = ctx
+                var fillCtx = scaledCtx
                 fillCtx.opacity = fo
-                fillCtx.translateBy(x: 12 * s, y: 12 * s)
-                fillCtx.scaleBy(x: fs, y: fs)
-                fillCtx.translateBy(x: -12 * s, y: -12 * s)
                 fillCtx.fill(morphPath, with: .foreground)
             }
 
             // Cradle + stem gently fold toward bottom tip (12, 19.35)
             let auxAlpha = max(0, min(1, 1 - clamped * 1.65))
             if auxAlpha > 0.01 {
-                var auxCtx = ctx
+                var auxCtx = scaledCtx
                 auxCtx.opacity = auxAlpha
                 let auxScale = SingMotionGeometry.lerp(1.0, 0.55, clamped)
                 let auxTy = SingMotionGeometry.lerp(0, 3.2, clamped) * s
@@ -311,17 +316,20 @@ struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
             }
 
             // Main morphing stroke (Mic capsule ↔ Heart contour)
-            ctx.stroke(morphPath, with: .foreground, style: stroke)
+            scaledCtx.stroke(morphPath, with: .foreground, style: stroke)
 
-            // Diagonal slash retracts cleanly toward top-left on S·fast
-            if sl > 0.03 {
+            // Diagonal slash retracts inward toward (7.5, 7.5) with alpha fade so round caps
+            // never leave a stub dot at the top-left corner of the heart.
+            let slashAlpha = max(0, min(1, (sl - 0.14) / 0.86))
+            if slashAlpha > 0.01 {
+                var slashCtx = scaledCtx
+                slashCtx.opacity = slashAlpha
+                let startPos = SingMotionGeometry.lerp(7.5, 4.5, sl) * s
+                let endPos = SingMotionGeometry.lerp(7.5, 19.5, sl) * s
                 var slashPath = Path()
-                slashPath.move(to: CGPoint(x: 4.5 * s, y: 4.5 * s))
-                slashPath.addLine(to: CGPoint(
-                    x: SingMotionGeometry.lerp(4.5, 19.5, sl) * s,
-                    y: SingMotionGeometry.lerp(4.5, 19.5, sl) * s
-                ))
-                ctx.stroke(slashPath, with: .foreground, style: stroke)
+                slashPath.move(to: CGPoint(x: startPos, y: startPos))
+                slashPath.addLine(to: CGPoint(x: endPos, y: endPos))
+                slashCtx.stroke(slashPath, with: .foreground, style: stroke)
             }
         }
         .frame(width: size, height: size)
@@ -334,7 +342,7 @@ struct SingMicOffGlyph: View {
     var size: CGFloat = 22
 
     var body: some View {
-        SingHeartMicMorphGlyph(morph: 0, slash: 1, fillAlpha: 0, size: size)
+        SingHeartMicMorphGlyph(morph: 0, slash: 1, fillAlpha: 0, size: size, interpolateOpticalSize: false)
     }
 }
 
@@ -698,8 +706,9 @@ struct SingAwareFavoriteSlot<HeartContent: View>: View {
         let morphTarget: CGFloat = showSing ? 0 : 1
         let slashTarget: CGFloat = (showSing && !isPreparing) ? 1 : 0
         let fillTarget: CGFloat = (!showSing && isFavorite) ? 1 : 0
-        let morphBg = showSing ? scheme.primaryContainer : (isFavorite ? scheme.tertiary : scheme.tertiaryContainer)
-        let morphFg = showSing ? scheme.onPrimaryContainer : (isFavorite ? scheme.onTertiary : scheme.onTertiaryContainer)
+        let bgMixTarget: CGFloat = showSing ? 0 : 1
+        let heartBg = isFavorite ? scheme.tertiary : scheme.tertiaryContainer
+        let heartFg = isFavorite ? scheme.onTertiary : scheme.onTertiaryContainer
 
         ZStack {
             heart()
@@ -716,24 +725,22 @@ struct SingAwareFavoriteSlot<HeartContent: View>: View {
             .opacity(showSing && !isMorphing ? 1 : 0)
             .allowsHitTesting(showSing)
 
-            // Always mounted so the 6-cubic morph begins on frame 0 with zero flicker.
-            ZStack {
-                Circle()
-                    .fill(morphBg)
-                    .animation(Yoin.effects, value: showSing)
-                    .animation(Yoin.effects, value: isFavorite)
-                SingHeartMicMorphGlyph(
-                    morph: morphTarget,
-                    slash: slashTarget,
-                    fillAlpha: fillTarget,
-                    size: 22
-                )
-                .foregroundStyle(morphFg)
-                .animation(reduceMotion ? Yoin.effects : Yoin.spatial, value: morphTarget)
-                .animation(reduceMotion ? Yoin.effects : Yoin.standardFastSpatial, value: slashTarget)
-                .animation(Yoin.effects, value: fillTarget)
-                .animation(Yoin.effects, value: showSing)
-            }
+            // Always mounted so the 6-cubic morph begins on frame 0 with zero flicker,
+            // with perceptual color blending so green ↔ pink never dips through gray.
+            SingPerceptualMorphCircle(
+                bgMix: bgMixTarget,
+                singBg: scheme.primaryContainer,
+                heartBg: heartBg,
+                singFg: scheme.onPrimaryContainer,
+                heartFg: heartFg,
+                morph: morphTarget,
+                slash: slashTarget,
+                fillAlpha: fillTarget
+            )
+            .animation(Yoin.effects, value: bgMixTarget)
+            .animation(reduceMotion ? Yoin.effects : Yoin.spatial, value: morphTarget)
+            .animation(reduceMotion ? Yoin.effects : Yoin.standardFastSpatial, value: slashTarget)
+            .animation(Yoin.effects, value: fillTarget)
             .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
             .opacity(isMorphing ? 1 : 0)
             .allowsHitTesting(false)
@@ -743,12 +750,56 @@ struct SingAwareFavoriteSlot<HeartContent: View>: View {
             isMorphing = true
             morphToken += 1
         }
+        .onChange(of: isPreparing) { wasPrep, nowPrep in
+            // When preparing finishes while already in the 44pt slot, animate the diagonal slash drawing on.
+            if showSing && wasPrep && !nowPrep {
+                isMorphing = true
+                morphToken += 1
+            }
+        }
         .task(id: morphToken) {
             guard morphToken > 0 else { return }
             let durationMs = reduceMotion ? 200 : 420
             try? await Task.sleep(for: .milliseconds(durationMs))
             guard !Task.isCancelled else { return }
             isMorphing = false
+        }
+    }
+}
+
+private struct SingPerceptualMorphCircle: View, @preconcurrency Animatable {
+    var bgMix: CGFloat
+    var singBg: Color
+    var heartBg: Color
+    var singFg: Color
+    var heartFg: Color
+    var morph: CGFloat
+    var slash: CGFloat
+    var fillAlpha: CGFloat
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(bgMix, morph), AnimatablePair(slash, fillAlpha)) }
+        set {
+            bgMix = newValue.first.first
+            morph = newValue.first.second
+            slash = newValue.second.first
+            fillAlpha = newValue.second.second
+        }
+    }
+
+    var body: some View {
+        let t = max(0, min(1, Double(bgMix)))
+        let blendedBg = singBg.mix(with: heartBg, by: t, in: .perceptual)
+        let blendedFg = singFg.mix(with: heartFg, by: t, in: .perceptual)
+        ZStack {
+            Circle().fill(blendedBg)
+            SingHeartMicMorphGlyph(
+                morph: morph,
+                slash: slash,
+                fillAlpha: fillAlpha,
+                size: 24
+            )
+            .foregroundStyle(blendedFg)
         }
     }
 }
