@@ -22,7 +22,7 @@ const SHOTS = {
   lyrics: [['default', ''], ['translation', 'translate=1'], ['away-sing', 'state=away&sing=1'], ['select', 'state=select'], ['yehang-translation', 'cover=yehang&translate=1'], ['before-sing', 'sing=none']],
   'notes-editor': [['at-ni', ''], ['at-empty', 'query=empty'], ['at-pinyin', 'query=lj'], ['no-popup', 'query=off'], ['sticky', 'surface=sticky&query=off'], ['sticky-at', 'surface=sticky&query=empty']],
   memories: [['card', ''], ['card-unrated', 'card=2'], ['diary', 'view=diary'], ['ledger-timeline', 'view=ledger'], ['ledger-cards', 'view=ledger&ledger=cards'], ['ledger-list', 'view=ledger&ledger=list'], ['rediscover', 'view=rediscover']],
-  settings: [['root', ''], ['music-links', 'page=links'], ['music-links-off', 'page=links&links=off'], ['account', 'page=account'], ['sync', 'page=sync']],
+  settings: [['root', ''], ['labs', 'page=labs'], ['labs-before', 'page=labs&labs=was'], ['tensor', 'page=tensor'], ['music-links', 'page=links'], ['music-links-off', 'page=links&links=off'], ['account', 'page=account'], ['sync', 'page=sync']],
 };
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;
