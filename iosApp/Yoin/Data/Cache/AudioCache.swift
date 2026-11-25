@@ -124,6 +124,20 @@ final class AudioCache: @unchecked Sendable {
     /// main: the whole stream behind [url] is on disk.
     func isComplete(url: URL) -> Bool { SubsonicCacheKey.of(url).map(isComplete) ?? false }
 
+    /// main: if the whole stream behind [url] is on disk, returns its `.bin` path and stored UTI
+    /// so on-device readers (such as Sing separation) can hard-link with a matching extension
+    /// instead of re-downloading the full track over the network.
+    func completeCachedFile(for url: URL) -> (url: URL, contentType: String?)? {
+        guard let key = SubsonicCacheKey.of(url) else { return nil }
+        return queue.sync {
+            loadIfNeeded()
+            guard let e = entries[key], e.complete else { return nil }
+            let file = dataURL(key)
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            return (file, e.contentType)
+        }
+    }
+
     /// Reads the records in the background, so the first song needn't wait.
     func warmUp() { queue.async { self.loadIfNeeded() } }
 
