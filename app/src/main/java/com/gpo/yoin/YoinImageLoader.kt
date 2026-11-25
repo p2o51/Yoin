@@ -10,6 +10,7 @@ import coil3.network.CacheStrategy
 import coil3.network.NetworkRequest
 import coil3.network.NetworkResponse
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.CachePolicy
 import coil3.request.ErrorResult
 import coil3.request.ImageResult
 import coil3.request.Options
@@ -78,6 +79,11 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
  * price: a restart no longer refetches a stored cover (see
  * [SuccessOnlyCacheStrategy] on staleness).
  *
+ * Covers sized since this version ([com.gpo.yoin.data.model.CoverSizes]) have
+ * new keys; when one fails, the cover's pre-sizing entry
+ * ([SubsonicCacheKey.unsizedCoverKey]) is read from disk if it is there, so an
+ * offline listener keeps the covers stored before the upgrade.
+ *
  * Bytes that made no image: Coil stores a body before it decodes it, and
  * serves a stored entry without asking the network, so the next request for
  * that url, this one's retry or a sibling's read, would decode the same bytes
@@ -97,13 +103,28 @@ internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?
             chain
         }
         val result = keyed.proceed()
-        if (result is ErrorResult && ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
+        if (result !is ErrorResult) return result
+        if (ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
             // Even when the request is cancelled as it fails (scrolled off, a widget's
             // timeout, a skip): a cancellable hop would skip the removal, and the bytes
             // would stay under a key that outlives the process.
             withContext(NonCancellable + Dispatchers.IO) { diskCache()?.remove(key) }
+            return result
         }
-        return result
+        // A sized cover that failed (offline, the server away): the original this cover was
+        // stored as before covers were sized, if the disk still has it, from disk only.
+        val unsized = SubsonicCacheKey.unsizedCoverKey(key) ?: return result
+        if (!hasEntry(unsized)) return result
+        return chain.withRequest(
+            request.newBuilder()
+                .diskCacheKey(unsized)
+                .networkCachePolicy(CachePolicy.DISABLED)
+                .build(),
+        ).proceed()
+    }
+
+    private suspend fun hasEntry(key: String): Boolean = withContext(Dispatchers.IO) {
+        diskCache()?.openSnapshot(key)?.use { true } ?: false
     }
 
     /** The key Coil stores a network url under when the request names none: the url itself. */

@@ -513,8 +513,8 @@ class MemoriesDeckCoordinator(
                 ?: candidate.coverArtUrl
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                     ?.rawId?.let { raw -> coverUrl(CoverRef.SourceRelative(raw), 480) },
-            // the playback theme's own URL for this cover (resolveCoverUrl without a size)
-            paletteCoverUrl = album?.coverArt?.let { cover -> coverUrl(cover, null) },
+            // the playback theme's own URL for this cover (resolveCoverUrl at the hero size)
+            paletteCoverUrl = album?.coverArt?.let { cover -> coverUrl(cover, com.gpo.yoin.data.model.CoverSizes.heroPx) },
             timestamp = candidate.lastPlayedAt ?: candidate.firstPlayedAt ?: 0L,
             scoreText = score.formatScore(),
             scoreKind = scoreKind,

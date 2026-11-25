@@ -256,7 +256,7 @@ class AiSettingsViewModel(
             clearGeneratedAbout = { container.database.songAboutEntryDao().deleteGenerated() },
             // The repository scopes the history to the active profile and its provider.
             recentSongs = container.repository.getRecentHistory(RECENT_HISTORY_ROWS).map { rows ->
-                recentTestSongs(rows) { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key)) }
+                recentTestSongs(rows) { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key), com.gpo.yoin.data.model.CoverSizes.rowPx) }
             },
         ) as T
     }

@@ -176,7 +176,7 @@ internal fun TrackMenuSheet(
     val repository = host.container.repository
     // Read once as the sheet opens, so it is the song as it is now.
     val track = remember(songId) { host.trackFor(songId) }
-    val coverUrl = remember(track) { track?.coverArt?.let { repository.resolveCoverUrl(it) } }
+    val coverUrl = remember(track) { track?.coverArt?.let { repository.resolveCoverUrl(it, com.gpo.yoin.data.model.CoverSizes.rowPx) } }
     // Its album and artist: the song's own, or asked of its service (Apple Music's playlist, library and
     // search songs come without them) so "Go to album / artist" are there for them too.
     val links by produceState(track?.let { SongLinks(it.albumId, it.artistId) }, track) {
