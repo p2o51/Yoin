@@ -80,7 +80,9 @@ class SyncEngine(
             val acc = MergeAccumulator()
             val names = DeviceNames(envelope)
             val purges = PurgeFilter(loadPurges(), envelope.purges.orEmpty())
-            for (wire in envelope.records) mergeRecord(wire, names, purges, acc)
+            val batch = MergeBatch(envelope.records)
+            for (wire in envelope.records) mergeRecord(wire, names, purges, acc, batch)
+            batch.flush()
             dao.upsertRemoteFile(
                 SyncRemoteFileEntity(
                     fileId = file.id,
@@ -106,8 +108,75 @@ class SyncEngine(
         val acc = MergeAccumulator()
         val names = DeviceNames(envelope)
         val purges = PurgeFilter(loadPurges(), envelope.purges.orEmpty())
-        for (wire in envelope.records) mergeRecord(wire, names, purges, acc)
+        val batch = MergeBatch(envelope.records)
+        for (wire in envelope.records) mergeRecord(wire, names, purges, acc, batch)
+        batch.flush()
         acc.build("", envelope)
+    }
+
+    /**
+     * Preloads existing records and local states for the exact `(kind, scope, key)` keys present
+     * in [records] (chunked by [MERGE_KEY_CHUNK_SIZE] to stay well within SQLite's parameter limit
+     * without pulling unrelated shard rows into memory) and flushes mutations in batched upserts.
+     */
+    private inner class MergeBatch(records: List<WireRecord>) {
+        private val keysByBucket: Map<Pair<String, String>, List<String>> =
+            buildMap<Pair<String, String>, LinkedHashSet<String>> {
+                for (wire in records) {
+                    if (wire.kind.isNotEmpty() && wire.key.isNotEmpty() && wire.device.isNotEmpty()) {
+                        getOrPut(wire.kind to wire.scope) { LinkedHashSet() }.add(wire.key)
+                    }
+                }
+            }.mapValues { (_, keys) -> keys.toList() }
+
+        private val existingRecords = HashMap<Triple<String, String, String>, SyncRecordEntity>()
+        private val existingStates = HashMap<Triple<String, String, String>, SyncLocalStateEntity>()
+        private val dirtyRecords = LinkedHashMap<Triple<String, String, String>, SyncRecordEntity>()
+        private val dirtyStates = LinkedHashMap<Triple<String, String, String>, SyncLocalStateEntity>()
+        private var preloaded = false
+
+        private suspend fun ensurePreloaded() {
+            if (preloaded) return
+            preloaded = true
+            for ((bucket, keys) in keysByBucket) {
+                val (kind, scope) = bucket
+                for (chunk in keys.chunked(MERGE_KEY_CHUNK_SIZE)) {
+                    for (row in dao.recordsForKeys(kind, scope, chunk)) {
+                        existingRecords[Triple(row.kind, row.scope, row.key)] = row
+                    }
+                    for (row in dao.localStatesForKeys(kind, scope, chunk)) {
+                        existingStates[Triple(row.kind, row.scope, row.key)] = row
+                    }
+                }
+            }
+        }
+
+        suspend fun getRecord(kind: String, scope: String, key: String): SyncRecordEntity? {
+            ensurePreloaded()
+            return existingRecords[Triple(kind, scope, key)]
+        }
+
+        suspend fun getLocalState(kind: String, scope: String, key: String): SyncLocalStateEntity? {
+            ensurePreloaded()
+            return existingStates[Triple(kind, scope, key)]
+        }
+
+        fun upsertRecord(record: SyncRecordEntity) {
+            val k = Triple(record.kind, record.scope, record.key)
+            existingRecords[k] = record
+            dirtyRecords[k] = record
+        }
+
+        fun upsertLocalState(state: SyncLocalStateEntity) {
+            val k = Triple(state.kind, state.scope, state.key)
+            existingStates[k] = state
+            dirtyStates[k] = state
+        }
+
+        suspend fun flush() {
+            if (dirtyRecords.isNotEmpty()) dao.upsertRecords(dirtyRecords.values.toList())
+            if (dirtyStates.isNotEmpty()) dao.upsertLocalStates(dirtyStates.values.toList())
+        }
     }
 
     private suspend fun mergeRecord(
@@ -115,6 +184,7 @@ class SyncEngine(
         names: DeviceNames,
         purges: PurgeFilter,
         acc: MergeAccumulator,
+        batch: MergeBatch,
     ) {
         acc.received++
         val structurallyValid = wire.kind.isNotEmpty() && wire.key.isNotEmpty() && wire.device.isNotEmpty() &&
@@ -132,9 +202,9 @@ class SyncEngine(
         val adapter = supportedAdapter(incoming)
         if (adapter == null) acc.opaque++
 
-        val current = dao.getRecord(incoming.kind, incoming.scope, incoming.key)
+        val current = batch.getRecord(incoming.kind, incoming.scope, incoming.key)
         if (current == null) {
-            dao.upsertRecord(incoming)
+            batch.upsertRecord(incoming)
             acc.inserted++
             acc.changed.add(incoming.scope, incoming.kind)
             return
@@ -143,10 +213,10 @@ class SyncEngine(
             // §3: same version, different payload (or kind version) -> deterministic winner, never an edit.
             val identical = sameContent(incoming, current) && incoming.kindVersion == current.kindVersion
             if (!identical && tieBreakPrefers(incoming, current)) {
-                dao.upsertRecord(incoming)
-                dao.getLocalState(incoming.kind, incoming.scope, incoming.key)?.let { state ->
+                batch.upsertRecord(incoming)
+                batch.getLocalState(incoming.kind, incoming.scope, incoming.key)?.let { state ->
                     // Re-apply the winning payload (expected-hash guarded); the version did not move.
-                    dao.upsertLocalState(state.copy(appliedTs = null, appliedDevice = null).clearPending())
+                    batch.upsertLocalState(state.copy(appliedTs = null, appliedDevice = null).clearPending())
                 }
                 acc.replaced++
                 acc.changed.add(incoming.scope, incoming.kind)
@@ -154,7 +224,7 @@ class SyncEngine(
             return
         }
 
-        val state = dao.getLocalState(incoming.kind, incoming.scope, incoming.key)
+        val state = batch.getLocalState(incoming.kind, incoming.scope, incoming.key)
         // Not concurrent with our pending change: an older version of our own relayed by a peer (our versions
         // form one chain), or a version derived from exactly our current one (the peer already saw it, e.g.
         // after an upload whose markUploaded was lost).
@@ -162,14 +232,14 @@ class SyncEngine(
         if (adapter != null && state != null && state.pending && current.device == deviceId && !historyOrSuccessor) {
             val base = state.pendingPrev
             if ((base == null || incoming.version > base) && !sameContent(incoming, current)) {
-                resolveConcurrent(adapter, current, incoming, state, names, acc)
+                resolveConcurrent(adapter, current, incoming, state, names, acc, batch)
                 return
             }
         }
         if (incoming.version > current.version) {
-            dao.upsertRecord(incoming)
+            batch.upsertRecord(incoming)
             if (state != null && state.pending) {
-                dao.upsertLocalState(state.clearPending())
+                batch.upsertLocalState(state.clearPending())
                 if (!historyOrSuccessor && !sameContent(incoming, current)) acc.localChangesDropped++
             }
             acc.replaced++
@@ -185,6 +255,7 @@ class SyncEngine(
         state: SyncLocalStateEntity,
         names: DeviceNames,
         acc: MergeAccumulator,
+        batch: MergeBatch,
     ) {
         acc.conflicts++
         val lwwWinner = if (local.version > incoming.version) local else incoming
@@ -200,9 +271,9 @@ class SyncEngine(
             )
             if (merged != null) {
                 val version = RecordVersion(maxOf(local.ts, incoming.ts) + 1, deviceId)
-                dao.upsertRecord(localRecord(adapter, local.scope, local.key, version, lwwWinner.version, merged))
+                batch.upsertRecord(localRecord(adapter, local.scope, local.key, version, lwwWinner.version, merged))
                 // applied stays at the old version, so apply writes the merged text into the domain.
-                dao.upsertLocalState(state.withPending(lwwWinner.version))
+                batch.upsertLocalState(state.withPending(lwwWinner.version))
                 acc.keptBoth++
                 acc.changed.add(local.scope, local.kind)
                 return
@@ -217,8 +288,8 @@ class SyncEngine(
         }
         if (winner === lwwWinner) {
             if (winner === incoming) {
-                dao.upsertRecord(incoming)
-                dao.upsertLocalState(state.clearPending())
+                batch.upsertRecord(incoming)
+                batch.upsertLocalState(state.clearPending())
                 acc.localChangesDropped++
                 acc.replaced++
                 acc.changed.add(incoming.scope, incoming.kind)
@@ -237,10 +308,10 @@ class SyncEngine(
         } else {
             winner.copy(ts = version.ts, device = version.device, prevTs = newer.ts, prevDevice = newer.device)
         }
-        dao.upsertRecord(reissued)
+        batch.upsertRecord(reissued)
         // Domain already holds our live row -> nothing to apply; a remote live winner still has to be applied.
         val applied = if (winner === local && state.applied == local.version) version else state.applied
-        dao.upsertLocalState(
+        batch.upsertLocalState(
             state.withPending(newer.version).copy(appliedTs = applied?.ts, appliedDevice = applied?.device),
         )
         if (winner === incoming) acc.localChangesDropped++
@@ -1200,6 +1271,9 @@ class SyncEngine(
     companion object {
         /** Missing rows of one never-deleted kind in one scope that mean "the domain DB was recreated". */
         const val DOMAIN_RESET_MIN_MISSING = 2
+
+        /** Max `key IN (...)` bind parameters per preload query (well below SQLite's 999 variable cap). */
+        internal const val MERGE_KEY_CHUNK_SIZE = 500
 
         /** Kinds published in artifact shards even when this build has no adapter for them. */
         val KNOWN_ARTIFACT_KINDS: Set<String> =

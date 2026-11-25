@@ -43,6 +43,108 @@ class YoinHaptics internal constructor(private val view: View) {
         performLightTick()
     }
 
+    /** Crisp impulse when tapping the Tensor silicon die to add spin momentum. */
+    fun performTensorTap() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorTap()) return
+        performClick()
+    }
+
+    /** Weighty magnetic settle when the Tensor silicon die lands after spinning. */
+    fun performTensorLand() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorLand()) return
+        performConfirm()
+    }
+
+    /** Flowing dot-matrix ripple cascade after the Tensor die settles: five soft travelling micro-ticks. */
+    fun performTensorWave() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorWave()) return
+        performLightTick()
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorTap(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val click = VibrationEffect.Composition.PRIMITIVE_CLICK
+            if (!v.areAllPrimitivesSupported(click)) return false
+            if (!isLegacyHapticsEnabled()) return true
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(click, 0.72f)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorLand(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val click = VibrationEffect.Composition.PRIMITIVE_CLICK
+            val thud = VibrationEffect.Composition.PRIMITIVE_THUD
+            val land = when {
+                v.areAllPrimitivesSupported(thud) -> thud
+                v.areAllPrimitivesSupported(click) -> click
+                else -> return false
+            }
+            if (!isLegacyHapticsEnabled()) return true
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(land, 0.56f)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorWave(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val lowTick = VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+            if (!v.areAllPrimitivesSupported(lowTick)) return false
+            if (!isLegacyHapticsEnabled()) return true
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(lowTick, 0.22f)
+                .addPrimitive(lowTick, 0.34f, 68)
+                .addPrimitive(lowTick, 0.44f, 68)
+                .addPrimitive(lowTick, 0.32f, 68)
+                .addPrimitive(lowTick, 0.18f, 76)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    private fun isLegacyHapticsEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return true
+        return Settings.System.getInt(
+            view.context.contentResolver,
+            Settings.System.HAPTIC_FEEDBACK_ENABLED,
+            1,
+        ) != 0
+    }
+
+    private fun playComposed(v: Vibrator, effect: VibrationEffect) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(effect)
+        }
+    }
+
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
     private fun composePluck(opening: Boolean): Boolean {
         if (!view.isHapticFeedbackEnabled) return true

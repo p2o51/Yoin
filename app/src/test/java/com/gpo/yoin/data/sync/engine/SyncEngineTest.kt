@@ -1244,6 +1244,29 @@ class SyncEngineTest {
         assertEquals(a.replica(), b.replica())
     }
 
+    @Test
+    fun should_mergeAllRecordsAcrossKeyChunks_when_envelopeExceeds500Keys() = runTest {
+        val a = device("dev-a", "Phone", 10_000)
+        val b = device("dev-b", "Tablet", 20_000)
+        // Seed > MERGE_KEY_CHUNK_SIZE (500) existing records on A, plus unrelated global translations.
+        (1..620).forEach { i -> a.rate("t-$i", i % 5 + 1, 100L + i) }
+        (1..300).forEach { i -> a.translations.put(null, "unrelated-$i", 100L + i, "lines" to "[\"$i\"]") }
+        a.cycle(drive)
+        b.cycle(drive)
+
+        // B updates 620 existing keys and inserts 40 new ones (> 500 keys in a single state envelope).
+        b.now = 30_000
+        (1..660).forEach { i -> b.rate("t-$i", (i + 2) % 5 + 1, 30_000L + i) }
+        b.cycle(drive)
+        val report = a.cycle(drive)
+
+        assertEquals(620, report.merges.sumOf { it.replaced })
+        assertEquals(40, report.merges.sumOf { it.inserted })
+        assertEquals(a.replica(), b.replica())
+        assertEquals("4", a.rating("t-1"))
+        assertEquals("3", a.rating("t-660"))
+    }
+
     private fun foreignRecord(
         kind: String,
         kindVersion: Int,

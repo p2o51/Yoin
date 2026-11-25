@@ -23,6 +23,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import java.util.TimeZone
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -72,7 +74,22 @@ class LyricHighlightProcessor(
         },
     )
     private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    private val visitLock = Any()
     private var visit: Job? = null
+
+    private fun startVisitIfIdle() {
+        synchronized(visitLock) {
+            if (visit?.isActive == true) return
+            visit = scope.launch { runVisit() }
+        }
+    }
+
+    private fun cancelVisit() {
+        val active = synchronized(visitLock) {
+            visit.also { visit = null }
+        }
+        active?.cancel()
+    }
 
     private val _status = MutableStateFlow(cachedStatus())
 
@@ -148,7 +165,7 @@ class LyricHighlightProcessor(
         if (!prefs.contains(KEY_ABOUT_FOLLOWUPS_ENABLED) || prefs.getBoolean(KEY_ABOUT_FOLLOWUPS_ENABLED, true)) {
             _aboutFollowUpsEnabled.value = true
         }
-        if (visit?.isActive != true) visit = scope.launch { runVisit() }
+        startVisitIfIdle()
     }
 
     /** Yoin Labs' switch: on starts a visit now (as [optIn]); off stops Nano at once. Kept lines stay. */
@@ -160,7 +177,7 @@ class LyricHighlightProcessor(
             }
             _optedIn.value = true
             _introSeen.value = true
-            if (visit?.isActive != true && inForeground()) visit = scope.launch { runVisit() }
+            if (inForeground()) startVisitIfIdle()
             return
         }
         prefs.edit {
@@ -170,8 +187,7 @@ class LyricHighlightProcessor(
         _optedIn.value = false
         _introSeen.value = true
         if (!_greetingsEnabled.value) {
-            visit?.cancel()
-            visit = null
+            cancelVisit()
         }
     }
 
@@ -179,11 +195,10 @@ class LyricHighlightProcessor(
     fun setGreetingsEnabled(on: Boolean) {
         prefs.edit { putBoolean(KEY_GREETINGS_ENABLED, on) }
         _greetingsEnabled.value = on
-        if (on && visit?.isActive != true && inForeground()) {
-            visit = scope.launch { runVisit() }
+        if (on && inForeground()) {
+            startVisitIfIdle()
         } else if (!on && !_optedIn.value) {
-            visit?.cancel()
-            visit = null
+            cancelVisit()
         }
     }
 
@@ -238,10 +253,8 @@ class LyricHighlightProcessor(
             val nano = checkStatus()
             note("Nano after download: $nano")
             // Only while Yoin is still in front; otherwise the next onStart picks it up.
-            if (nano == NanoStatus.AVAILABLE && (_optedIn.value || _greetingsEnabled.value) &&
-                visit?.isActive != true && inForeground()
-            ) {
-                visit = scope.launch { runVisit() }
+            if (nano == NanoStatus.AVAILABLE && (_optedIn.value || _greetingsEnabled.value) && inForeground()) {
+                startVisitIfIdle()
             }
         }
     }
@@ -278,19 +291,21 @@ class LyricHighlightProcessor(
     fun start() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
-                override fun onStart(owner: LifecycleOwner) {
-                    if (visit?.isActive == true) return
-                    visit = scope.launch { runVisit() }
-                }
+                override fun onStart(owner: LifecycleOwner) = onForeground()
 
-                override fun onStop(owner: LifecycleOwner) {
-                    // Leaving the foreground: AICore would refuse the next call anyway. A pick in flight is
-                    // dropped, never half-written.
-                    visit?.cancel()
-                    visit = null
-                }
+                override fun onStop(owner: LifecycleOwner) = onBackground()
             },
         )
+    }
+
+    internal fun onForeground() {
+        startVisitIfIdle()
+    }
+
+    internal fun onBackground() {
+        // Leaving the foreground: AICore would refuse the next call anyway. A pick in flight is
+        // dropped, never half-written.
+        cancelVisit()
     }
 
     private suspend fun runVisit() {
@@ -788,5 +803,46 @@ class LyricHighlightProcessor(
         const val SEED_TRACKS_PER_ALBUM = 2
         const val SEED_MIN = 10
         const val LYRICS_TIMEOUT_MS = 10_000L
+    }
+}
+
+/**
+ * Observes foreground/background transitions on [mainDispatcher] while constructing [T] on
+ * [buildDispatcher] upon the first [onStart]. Keeping lifecycle state and [onForeground] /
+ * [onBackground] calls strictly ordered on Main ensures a quick [onStart] -> [onStop] before
+ * lazy construction finishes never starts background work.
+ */
+internal class LazyForegroundLifecycleObserver<T : Any>(
+    private val scope: CoroutineScope,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    private val buildDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val factory: () -> T,
+    private val onForeground: (T) -> Unit,
+    private val onBackground: (T) -> Unit,
+) : DefaultLifecycleObserver {
+    private var foreground = false
+    private var instance: T? = null
+    private var initJob: Job? = null
+
+    override fun onStart(owner: LifecycleOwner) {
+        foreground = true
+        val ready = instance
+        if (ready != null) {
+            onForeground(ready)
+            return
+        }
+        if (initJob?.isActive == true) return
+        initJob = scope.launch(mainDispatcher) {
+            val built = withContext(buildDispatcher) { factory() }
+            instance = built
+            if (foreground) {
+                onForeground(built)
+            }
+        }
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        foreground = false
+        instance?.let(onBackground)
     }
 }

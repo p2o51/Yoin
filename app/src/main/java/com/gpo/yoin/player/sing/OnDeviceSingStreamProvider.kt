@@ -748,6 +748,11 @@ class OnDeviceSingStreamProvider(
 
     private suspend fun currentCoroutineContextCheck() = kotlinx.coroutines.currentCoroutineContext().ensureActive()
 
+    /** Clears cached local model lookup after Labs downloads or deletes the model pack. */
+    fun invalidateModelCache() {
+        (backend as? LiteRtSingBackend)?.invalidateLocalCache()
+    }
+
     companion object {
         private const val TAG = "YoinSing"
         const val WORK_DIR = "sing-work"

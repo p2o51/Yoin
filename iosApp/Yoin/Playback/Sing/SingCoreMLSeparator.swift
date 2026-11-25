@@ -98,6 +98,34 @@ actor SingModelStore {
         FileManager.default.fileExists(atPath: compiledModelURL.path)
     }
 
+    /// Total bytes occupied by the compiled `.mlmodelc` directory on disk, or `nil` when not installed.
+    func installedSizeBytes() -> Int64? {
+        guard isInstalled else { return nil }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: compiledModelURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+        ) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  vals.isRegularFile == true,
+                  let size = vals.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
+    }
+
+    /// Deletes the compiled `.mlmodelc` directory from `Application Support` (used by Yoin Labs).
+    func removeInstalledModel() throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: compiledModelURL.path) {
+            try fm.removeItem(at: compiledModelURL)
+        }
+    }
+
     /// Installs directly from a local `.mlpackage` (used in unit tests and local dev verification).
     func installFromLocalPackage(_ mlpackageURL: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
