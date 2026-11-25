@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.aiProviderNameText
 import com.gpo.yoin.ui.component.transcodedFrom
 import com.gpo.yoin.ui.component.playingFormatTags
 import com.gpo.yoin.player.SpatialAudioState
@@ -180,6 +181,15 @@ class NowPlayingViewModel(
     // what each said before once it is done (the snackbar's Undo).
     private val _aboutRegenerating = MutableStateFlow<Set<AlbumScrapbookAboutRef>>(emptySet())
     val aboutRegenerating: StateFlow<Set<AlbumScrapbookAboutRef>> = _aboutRegenerating.asStateFlow()
+
+    /** Share as image's state that must outlive a rotation (the lyrics pick, the open sheets). */
+    internal val shareRetained = ShareRetained()
+
+    /**
+     * The stage was Expanded when the two-column player took over (it has no Expanded substate): a return
+     * to one column reopens it. Held here, so an Activity recreated by the rotation still knows.
+     */
+    internal var expandedBeforeDualPane: Boolean = false
     private val _aboutRegenerated = MutableSharedFlow<AboutRegenerated>(extraBufferCapacity = 4)
     val aboutRegenerated: SharedFlow<AboutRegenerated> = _aboutRegenerated.asSharedFlow()
 
@@ -1026,7 +1036,7 @@ class NowPlayingViewModel(
                         UiText.Res(R.string.np_msg_already_language, listOf(result.targetLanguage)),
                     )
                 YoinRepository.LyricsTranslationResult.ApiKeyMissing ->
-                    _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_ask_api_key_missing))
+                    _addToPlaylistMessages.tryEmit(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                 is YoinRepository.LyricsTranslationResult.Error ->
                     _addToPlaylistMessages.tryEmit(UiText.Raw(result.message))
                 is YoinRepository.LyricsTranslationResult.Success -> {
@@ -1693,7 +1703,7 @@ class NowPlayingViewModel(
             _askState.value = when (result) {
                 is YoinRepository.AskAboutResult.Success -> AskBarState.Idle
                 YoinRepository.AskAboutResult.ApiKeyMissing ->
-                    AskBarState.Error(UiText.Res(R.string.np_ask_api_key_missing))
+                    AskBarState.Error(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                 is YoinRepository.AskAboutResult.Error ->
                     AskBarState.Error(UiText.Raw(result.message))
             }
@@ -1718,11 +1728,11 @@ class NowPlayingViewModel(
                         AboutRegenerated(ref, result.beforeTitle, result.beforeAnswer),
                     )
                     YoinRepository.AboutRegenerateResult.NothingNew ->
-                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_about_regenerate_nothing))
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.ai_nothing_new, listOf(aiName())))
                     YoinRepository.AboutRegenerateResult.ApiKeyMissing ->
-                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_ask_api_key_missing))
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                     is YoinRepository.AboutRegenerateResult.Error ->
-                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_about_regenerate_failed))
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.ai_failed, listOf(aiName())))
                 }
             } finally {
                 _aboutRegenerating.update { it - ref }
@@ -1807,6 +1817,9 @@ class NowPlayingViewModel(
         _currentLyricsProviderSongId.value = providerSongId
         pendingLyricsTranslationSwitchOffer = null
     }
+
+    /** The AI service's name for messages ("DeepSeek couldn't answer"). */
+    private fun aiName(): UiText = aiProviderNameText(repository.activeAiProvider())
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

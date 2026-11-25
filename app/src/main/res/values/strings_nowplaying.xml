@@ -64,7 +64,6 @@
     <string name="np_cd_full_screen">Full screen</string>
 
     <string name="np_about_searching">Searching for song info…</string>
-    <string name="np_about_api_key">No Gemini API key</string>
     <string name="np_about_open_settings">Settings</string>
     <string name="np_about_retry">Retry</string>
     <string name="np_about_creation_time">Creation Time</string>
@@ -98,15 +97,9 @@
     <string name="np_about_review">About</string>
     <string name="np_about_cd_entry_menu">Options for this entry</string>
     <string name="np_about_manage">Manage in Scrapbook</string>
-    <string name="np_about_regenerate">Regenerate with Gemini</string>
     <string name="np_about_regenerated">Regenerated</string>
     <string name="np_about_undo">Undo</string>
-    <string name="np_about_regenerate_nothing">Gemini had nothing new</string>
-    <string name="np_about_regenerate_failed">Gemini couldn\'t answer. Try again.</string>
 
-    <string name="np_ask_placeholder">Ask Gemini</string>
-    <string name="np_ask_gemini">Ask Gemini</string>
-    <string name="np_ask_api_key_missing">Gemini API key missing</string>
 
     <string name="np_lyrics_search_placeholder">Song or artist</string>
     <string name="np_cd_close_lyrics_search">Close lyrics search</string>
@@ -142,8 +135,6 @@
     </plurals>
     <string name="np_lyrics_credit">%1$s\n%2$s</string>
     <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
-
-    <string name="np_share_title">Share lyrics</string>
     <string name="np_share_save">Save</string>
     <string name="np_share_saving">Saving…</string>
     <string name="np_share_saved">Saved</string>
@@ -157,8 +148,27 @@
     <string name="np_cd_tone_vivid">Vivid colours</string>
     <string name="np_cd_tone_mist">Mist colours</string>
     <string name="np_share_brand" translatable="false">Yoin</string>
-    <string name="np_share_file_untitled">Yoin lyrics %1$s.png</string>
-    <string name="np_share_file_named">Yoin lyrics - %1$s - %2$s.png</string>
+    <!-- PROPOSED: needs Rebecca/Argon (generic now: lyrics, About and Note images share it) -->
+    <string name="np_share_file_untitled">Yoin %1$s.png</string>
+    <string name="np_share_file_named">Yoin - %1$s - %2$s.png</string>
+    <!-- PROPOSED: needs Rebecca/Argon — share sheet round 2 (About & Note share images, layout picker, 2026-11-25) -->
+    <string name="np_share_sheet_title">Share as image</string>
+    <string name="np_share_layout">Layout</string>
+    <string name="np_share_layout_classic">Classic</string>
+    <string name="np_share_layout_poster">Poster</string>
+    <string name="np_share_layout_player">Player</string>
+    <string name="np_share_layout_vertical">Vertical</string>
+    <string name="np_share_layout_receipt">Receipt</string>
+    <string name="np_share_layout_quote">Quote</string>
+    <string name="np_share_layout_liner">Liner notes</string>
+    <string name="np_share_layout_big">Big type</string>
+    <string name="np_share_layout_clipping">Clipping</string>
+    <string name="np_share_layout_timeline">Timeline</string>
+    <string name="np_share_lyrics_gist">Gist: %1$s</string>
+    <string name="np_share_ai_sign">By %1$s</string>
+    <string name="np_share_ai_generic">AI</string>
+    <string name="np_share_note_written">Written %1$s</string>
+    <string name="np_cd_tone_paper">Paper colours</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <plurals name="np_note_count">
         <item quantity="one">%1$d note</item>

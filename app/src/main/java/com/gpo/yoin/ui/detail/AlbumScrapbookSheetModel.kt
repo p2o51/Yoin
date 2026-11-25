@@ -47,6 +47,10 @@ data class ScrapGemini(
     val asking: List<ScrapAsking> = emptyList(),
     /** Tracks whose About Gemini is writing from nothing ([ScrapEdit.Generate]), by song id. */
     val generating: Set<String> = emptySet(),
+    /** The album's own About is being written (first time or [ScrapEdit.RegenerateAlbumAbout]). */
+    val albumAbout: Boolean = false,
+    /** Questions about the album not answered yet ([ScrapEdit.AskAlbum]). */
+    val albumAsking: List<String> = emptyList(),
 )
 
 @Immutable
@@ -54,10 +58,16 @@ data class ScrapAsking(val songId: String, val question: String)
 
 /** What the sheet says once page 2's Gemini work is done. */
 sealed interface ScrapEvent {
-    /** A row came back new; [restore] puts the old text back (Undo). */
-    data class Regenerated(val restore: ScrapEdit.About) : ScrapEvent
+    /** A row (or the album's About) came back new; [restore] puts the old text back (Undo). */
+    data class Regenerated(val restore: ScrapEdit) : ScrapEvent
 
     data class Failed(val message: UiText) : ScrapEvent
+
+    /**
+     * Writing the album's About again came back with nothing or failed. The About sheet, when open, says so
+     * under the paragraph (or its Generate button); with it closed the page's snackbar does.
+     */
+    data class AlbumAboutFailed(val message: UiText) : ScrapEvent
 }
 
 /** What the track sheet reads from its host beyond the page: lyrics per song, Gemini's state and outcomes. */

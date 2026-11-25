@@ -66,7 +66,6 @@
     <string name="cmp_song_info_tap_load">加载歌曲信息</string>
     <string name="cmp_song_info_settings">设置</string>
     <string name="cmp_song_info_searching">正在查找歌曲信息…</string>
-    <string name="cmp_song_info_no_key">未设置 Gemini API 密钥</string>
     <string name="cmp_song_info_retry">重试</string>
 
     <string name="cmp_detail_retry">重试</string>
@@ -132,7 +131,6 @@
     <string name="cmp_error_details_copied">已复制</string>
     <string name="cmp_error_details_clip_label">Yoin 诊断信息</string>
     <string name="cmp_snackbar_dismiss">关闭</string>
-    <string name="cmp_cd_gemini_thinking">Gemini 正在写</string>
     <string name="cmp_quick_prompts_label">快捷提问</string>
     <string-array name="cmp_quick_prompts">
         <item>这首歌采样了谁？</item>

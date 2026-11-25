@@ -46,6 +46,7 @@
 | Memories 的 AI 文案（`memory_copy`）和 AI 拟题（`memory_title`） | 按音乐账号 | 文案、标题分两类各自「最后修改为准」，新文案不会冲掉别处写的标题；不删 |
 | 你改过的专辑标题 | 按音乐账号 | 最后修改为准，始终优先于 AI 标题；「恢复 AI 标题」会同步 |
 | 歌曲「关于」/ 问一问回答（`song_about`，含你自己问的问题） | 全局 | 每条带生成时的语言，只写进同语言的设备；切换语言清表不会同步成删除，换到那个语言后自动补回 |
+| 专辑「关于」（`album_about`：制作信息、背景段落、问这张专辑的回答；2026-11-25，目前只有 Android） | 全局，按 provider + 专辑 id | 同歌曲「关于」：每条带生成时的语言，只写进同语言的设备；切换语言清表不会同步成删除 |
 | 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」、Apple Music 店面） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
 | 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md`） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
 
@@ -58,7 +59,7 @@
 ```
 Drive appDataFolder / CloudKit Private Database (iCloud.com.gpo.yoin / YoinSyncZone)
   yoin-state-<设备ID>.json.gz            每台设备一份：笔记/评分/布局/设置/账号描述 + 墓碑
-  yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask、歌单备份
+  yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask（歌曲和专辑）、歌单备份
   yoin-reset-<时间>-<设备ID>.json         「删除云端数据」留下的标记
   yoin-purge-<时间>-<设备ID>.json         「从云端移除这个账号」留下的标记（见下文）
   yoin-migrated-<时间>-<设备ID>.json      「切换同步位置」留在旧位置的迁移提示标记（含 targetLocation）

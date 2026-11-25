@@ -142,6 +142,11 @@ internal data class AlbumDto(
      * dateless for the cache's week.
      */
     val dated: Boolean = false,
+    val recordLabels: List<String> = emptyList(),
+    val originalReleaseDate: ReleaseDateDto? = null,
+    val editorialNotes: String? = null,
+    /** True on every row written since albums keep [recordLabels] / [editorialNotes]; older rows are read again. */
+    val credited: Boolean = false,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -159,6 +164,9 @@ internal data class AlbumDto(
         releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
         version = version,
         releaseDate = releaseDate?.toDomain(),
+        recordLabels = recordLabels,
+        originalReleaseDate = originalReleaseDate?.toDomain(),
+        editorialNotes = editorialNotes,
     )
 
     companion object {
@@ -179,6 +187,10 @@ internal data class AlbumDto(
             version = a.version,
             releaseDate = a.releaseDate?.let(ReleaseDateDto::from),
             dated = true,
+            recordLabels = a.recordLabels,
+            originalReleaseDate = a.originalReleaseDate?.let(ReleaseDateDto::from),
+            editorialNotes = a.editorialNotes,
+            credited = true,
         )
     }
 }

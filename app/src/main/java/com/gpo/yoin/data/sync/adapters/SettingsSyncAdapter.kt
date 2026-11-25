@@ -69,7 +69,7 @@ class SharedPrefsSeamStyleGateway(context: Context) : SeamStyleGateway {
  * Apply policies, when declined, return [SkipReason.POLICY] with the current
  * local hash so the engine marks the version applied without mistaking the
  * local value for an edit:
- *  - translation_language: only while song_about_entries is empty (those rows
+ *  - translation_language: only while song_about_entries and album_about_entries are empty (those rows
  *    are language-specific and a switch in Settings wipes them; sync never
  *    does), written field-level so the Gemini API key is untouched.
  *  - spotify_client_id: bootstrap-only, i.e. no local override and no Spotify
@@ -144,7 +144,7 @@ class SettingsSyncAdapter(
         val value = payloadValue ?: return unsupported(currentHash)
         if (currentHash != expectedLocalHash) return changedLocally(currentHash)
         if (value !in GeminiConfig.SUPPORTED_TARGET_LANGUAGES) return policy(currentHash)
-        if (dao.songAboutEntryCount() > 0) return policy(currentHash)
+        if (dao.songAboutEntryCount() > 0 || dao.albumAboutEntryCount() > 0) return policy(currentHash)
         if (dao.geminiConfig() != null) {
             dao.updateGeminiTargetLanguage(value)
         } else if (value != GeminiConfig.DEFAULT_TARGET_LANGUAGE) {

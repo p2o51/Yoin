@@ -14,7 +14,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -193,6 +195,44 @@ class NoteWriteBarTest {
         // The words scroll inside the line instead of pushing them out.
         val words = field().getUnclippedBoundsInRoot()
         assertTrue(words.bottom <= 60.dp)
+    }
+
+    @Test
+    fun should_keepEveryFormattingToolWhole_when_aNoteOpenForEditingOffersShare() {
+        val editing = NoteDraft().beginEdit("n1", "the outro hits", anchorMs = 91_000L, song = songA)
+        val bar = NoteWriteBarState(NoteDraftState(editing))
+        var shared: String? = null
+        rule.setContent {
+            Box(Modifier.width(360.dp)) {
+                NoteWriteBar(
+                    state = bar,
+                    current = songA,
+                    positionMs = { 91_000L },
+                    onSave = {},
+                    onShareEditing = { shared = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        rule.waitForIdle()
+
+        // Share sits in the card's top-right corner, not in the formatting row: every tool keeps its 36dp.
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val tools = listOf(
+            com.gpo.yoin.R.string.notes_tool_mention,
+            com.gpo.yoin.R.string.notes_tool_bold,
+            com.gpo.yoin.R.string.notes_tool_italic,
+            com.gpo.yoin.R.string.notes_tool_heading,
+            com.gpo.yoin.R.string.notes_tool_bullet,
+            com.gpo.yoin.R.string.notes_tool_checklist,
+        )
+        for (tool in tools) {
+            val label = context.getString(tool)
+            val bounds = rule.onNode(androidx.compose.ui.test.hasContentDescription(label)).getBoundsInRoot()
+            assertEquals(label, 36f, (bounds.right - bounds.left).value, 0.5f)
+        }
+        rule.onNodeWithTag(NoteShareButtonTag).performClick()
+        assertEquals("n1", shared)
     }
 
     @Composable

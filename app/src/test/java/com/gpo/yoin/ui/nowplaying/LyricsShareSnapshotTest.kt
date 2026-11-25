@@ -166,4 +166,64 @@ class LyricsShareSnapshotTest {
 
         rule.onNodeWithText(sheetText).assertDoesNotExist()
     }
+
+    @Test
+    fun should_keepSelectMode_when_aLayoutArrivesWithTheLyricsPageOffScreen() {
+        // A rotation: the new layout's host first composes with the lyrics page not yet on screen.
+        val pick = LyricsSelectionState().apply {
+            enter()
+            toggle(2)
+        }
+        var onScreen by mutableStateOf(false)
+        rule.setContent {
+            LyricsSelectionHost(
+                state = harbour,
+                selection = pick,
+                lyricsPageOnScreen = onScreen,
+                onMessage = {},
+                sheet = { _, _, _ -> },
+            )
+        }
+        rule.waitForIdle()
+        assertTrue("kept through a layout that starts off screen", pick.active)
+        assertEquals(setOf(2), pick.selected)
+
+        // Then the page comes on screen and the listener leaves it: select mode ends as before.
+        rule.runOnIdle { onScreen = true }
+        rule.waitForIdle()
+        rule.runOnIdle { onScreen = false }
+        rule.waitForIdle()
+        assertFalse(pick.active)
+    }
+
+    @Test
+    fun should_keepSelectMode_when_theSheetClosesOverAPageThatWentAway() {
+        val pick = LyricsSelectionState().apply {
+            enter()
+            toggle(1)
+        }
+        val sheetState = LyricsShareSheetState()
+        var onScreen by mutableStateOf(true)
+        var dismiss: () -> Unit = {}
+        rule.setContent {
+            LyricsSelectionHost(
+                state = harbour,
+                selection = pick,
+                lyricsPageOnScreen = onScreen,
+                onMessage = {},
+                shareSheet = sheetState,
+                sheet = { _, _, onDismiss -> dismiss = onDismiss },
+            )
+        }
+        rule.runOnIdle { pick.openShare() }
+        rule.waitForIdle()
+        // Under the open sheet the page goes off screen (a rotation, the sheet's tabs), then the sheet closes.
+        rule.runOnIdle { onScreen = false }
+        rule.waitForIdle()
+        rule.runOnIdle { dismiss() }
+        rule.waitForIdle()
+
+        assertTrue(pick.active)
+        assertEquals(setOf(1), pick.selected)
+    }
 }

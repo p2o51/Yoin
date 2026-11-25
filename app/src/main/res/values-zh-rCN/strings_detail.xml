@@ -198,20 +198,14 @@
     <string name="detail_scrap_score_cleared">已清除评分</string>
     <string name="detail_scrap_asked">问：%1$s</string>
     <string name="detail_scrap_by_you">我写的</string>
-    <string name="detail_scrap_by_gemini">Gemini</string>
     <string name="detail_scrap_about_empty">这首歌还没有资料。</string>
-    <string name="detail_scrap_about_generate">让 Gemini 生成</string>
-    <string name="detail_scrap_about_generating">Gemini 正在写…</string>
     <string name="detail_scrap_regenerate">重新生成</string>
     <string name="detail_scrap_done">完成</string>
     <string name="detail_scrap_regenerated">已重新生成</string>
     <string name="detail_scrap_deleted_named">已删除「%1$s」</string>
     <string name="detail_scrap_new_title_hint">写个标题，比如：这首歌在讲什么</string>
     <string name="detail_scrap_new_text_hint">写下你知道的…</string>
-    <string name="detail_scrap_ask_gemini">问 Gemini</string>
     <string name="detail_scrap_write">输入</string>
-    <string name="detail_scrap_gemini_failed">Gemini 没能回答，再试一次</string>
-    <string name="detail_scrap_gemini_nothing">Gemini 没有新的内容</string>
     <string name="detail_scrap_expand_lyrics">展开全部歌词</string>
     <string name="detail_scrap_collapse_lyrics">只看笔记</string>
     <string name="detail_scrap_notes_empty">还没有笔记。</string>
@@ -258,4 +252,16 @@
     <string name="neodb_voices_failed">连不上 NeoDB。</string>
     <string name="neodb_voices_open_neodb">在 NeoDB 里看全部</string>
     <string name="neodb_voices_douban">豆瓣</string>
+
+    <!-- PROPOSED: needs Rebecca/Argon -->
+    <!-- 专辑「关于」：剪贴簿专辑名下的一行制作信息（owner + Carbon 2026-11-25）。 -->
+    <string name="detail_album_credit_label">厂牌</string>
+    <string name="detail_album_credit_producer">制作</string>
+    <string name="detail_album_credit_mastering">母带</string>
+    <string name="detail_album_credit_mixing">混音</string>
+    <string name="detail_album_credit_recorded">录制</string>
+    <string name="detail_album_credit_source">原作</string>
+    <string name="detail_album_credit_first_released">首版</string>
+    <string name="detail_album_credit_name_separator">、</string>
+    <string name="detail_album_credit_time_place">%1$s，%2$s</string>
 </resources>

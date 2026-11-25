@@ -31,6 +31,12 @@ object SyncKinds {
      * carry the records opaquely and republish them. Same name as the Memories backup's `album_note` kind.
      */
     const val ALBUM_NOTE = "album_note"
+
+    /**
+     * `album_about_entries` (album About, 2026-11-25): the AI's credits and paragraph for an album and the
+     * questions asked about it. Android only so far; other engines carry the records opaquely.
+     */
+    const val ALBUM_ABOUT = "album_about"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */

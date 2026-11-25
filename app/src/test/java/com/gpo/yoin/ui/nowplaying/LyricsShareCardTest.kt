@@ -64,16 +64,16 @@ class LyricsShareCardTest {
     @Test
     fun should_keepTheTitleButDropForbiddenCharacters_when_namingTheFile() {
         assertEquals(
-            "Yoin lyrics - AC DC Back in Black - 42.png",
-            lyricsShareFileName("AC/DC: Back in Black?", 42L),
+            "Yoin - AC DC Back in Black - 42.png",
+            shareFileName("AC/DC: Back in Black?", 42L),
         )
-        assertEquals("Yoin lyrics - 晴天 - 7.png", lyricsShareFileName("  晴天 ", 7L))
+        assertEquals("Yoin - 晴天 - 7.png", shareFileName("  晴天 ", 7L))
     }
 
     @Test
     fun should_nameByTimeAlone_when_theTitleIsBlank() {
-        assertEquals("Yoin lyrics 9.png", lyricsShareFileName(" / ", 9L))
-        assertEquals("Yoin lyrics 9.png", lyricsShareFileName(null, 9L))
+        assertEquals("Yoin 9.png", shareFileName(" / ", 9L))
+        assertEquals("Yoin 9.png", shareFileName(null, 9L))
     }
 
     @Test
@@ -88,17 +88,17 @@ class LyricsShareCardTest {
             onTertiaryContainer = Color(0xFF000007),
         )
 
-        val soft = LyricsCardTone.Soft.colors(scheme)
+        val soft = ShareTone.Soft.colors(scheme)
         assertEquals(scheme.primaryContainer, soft.card)
         assertEquals(scheme.onPrimaryContainer, soft.content)
         assertEquals(scheme.primary, soft.backdrop)
-        val deep = LyricsCardTone.Deep.colors(scheme)
+        val deep = ShareTone.Deep.colors(scheme)
         assertEquals(scheme.onPrimaryContainer, deep.card)
         assertEquals(scheme.primaryContainer, deep.content)
-        assertEquals(scheme.tertiary, LyricsCardTone.Vivid.colors(scheme).card)
-        assertEquals(scheme.onTertiary, LyricsCardTone.Vivid.colors(scheme).content)
-        assertEquals(scheme.tertiaryContainer, LyricsCardTone.Mist.colors(scheme).card)
-        assertEquals(scheme.onTertiaryContainer, LyricsCardTone.Mist.colors(scheme).content)
+        assertEquals(scheme.tertiary, ShareTone.Vivid.colors(scheme).card)
+        assertEquals(scheme.onTertiary, ShareTone.Vivid.colors(scheme).content)
+        assertEquals(scheme.tertiaryContainer, ShareTone.Mist.colors(scheme).card)
+        assertEquals(scheme.onTertiaryContainer, ShareTone.Mist.colors(scheme).content)
     }
 
     @Test
@@ -122,7 +122,7 @@ class LyricsShareCardTest {
             YoinTheme {
                 LyricsShareImage(
                     format = LyricsShareFormat.Story,
-                    tone = LyricsCardTone.Soft,
+                    tone = ShareTone.Soft,
                     lines = longPick,
                     showTranslation = true,
                     songTitle = "Song",
@@ -151,7 +151,7 @@ class LyricsShareCardTest {
             YoinTheme {
                 LyricsShareImage(
                     format = LyricsShareFormat.Story,
-                    tone = LyricsCardTone.Soft,
+                    tone = ShareTone.Soft,
                     lines = typical,
                     showTranslation = true,
                     songTitle = "Song",
@@ -178,7 +178,7 @@ class LyricsShareCardTest {
                 Box(Modifier.width(300.dp)) {
                     LyricsShareImage(
                         format = LyricsShareFormat.Card,
-                        tone = LyricsCardTone.Soft,
+                        tone = ShareTone.Soft,
                         lines = longPick.take(2),
                         showTranslation = false,
                         songTitle = "Song",
