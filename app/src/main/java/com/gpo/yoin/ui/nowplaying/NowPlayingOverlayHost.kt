@@ -478,9 +478,14 @@ fun NowPlayingOverlayHost(
 
     // ── Now Playing overlay ──────────────────────────────────────────────
     val playerTravel = remember { PlayerTravel() }
+    // The enlarged phone / two columns are dragged DOWN to close: a release
+    // carries on down, like the phone's, instead of turning to leave by the
+    // end edge from a pose half off the bottom. Read as a flag, so a drag
+    // doesn't recompose the host per frame.
+    val draggedDown by remember { derivedStateOf { dismissDragPx > 0f } }
     OverlayPlayerVisibility(
         expanded = expanded,
-        fromEnd = panelFamily,
+        fromEnd = panelFamily && (panelMode || !draggedDown),
         // The panel travels exactly its own width (the content beside it moves
         // that far on the same spring); the full-window states the window.
         endTravel = { full -> if (panelMode) panelTravelPx else full },
