@@ -296,7 +296,7 @@ class AppContainer(private val context: Context) {
     }
 
     private val spotifyHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .cache(
                 Cache(
                     directory = File(context.cacheDir, "http/spotify"),
@@ -311,7 +311,7 @@ class AppContainer(private val context: Context) {
     }
 
     private val subsonicBaseHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .cache(
                 Cache(
                     directory = File(context.cacheDir, "http/subsonic"),
@@ -794,7 +794,7 @@ class AppContainer(private val context: Context) {
 
     val geminiService: GeminiService by lazy {
         GeminiService(
-            client = OkHttpClient.Builder()
+            client = com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(45, TimeUnit.SECONDS)
                 .build(),
@@ -805,7 +805,7 @@ class AppContainer(private val context: Context) {
     private val neoDbJson: Json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val neoDbHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()

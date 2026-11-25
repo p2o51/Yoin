@@ -14,6 +14,7 @@ import coil3.request.ErrorResult
 import coil3.request.ImageResult
 import coil3.request.Options
 import com.gpo.yoin.data.remote.SubsonicCacheKey
+import com.gpo.yoin.data.remote.YoinNetworkCore
 import com.gpo.yoin.perf.YoinPerfImages
 import com.gpo.yoin.ui.component.ArtworkFailureKind
 import com.gpo.yoin.ui.component.ArtworkRetryPolicy
@@ -23,7 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 
 /**
@@ -55,10 +55,10 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
             add(ImageDiskCacheInterceptor { diskCache.value })
             add(
                 OkHttpNetworkFetcherFactory(
-                    // Its own client with OkHttp's default timeouts. Not the Spotify or
-                    // Subsonic client: both carry an OkHttp HTTP cache, which would store
-                    // every image a second time beside Coil's disk cache.
-                    callFactory = { OkHttpClient() },
+                    // The image queue, OkHttp's default timeouts, the shared connection pool.
+                    // Not the Spotify or Subsonic client: both carry an OkHttp HTTP cache,
+                    // which would store every image a second time beside Coil's disk cache.
+                    callFactory = { YoinNetworkCore.imageClient },
                     cacheStrategy = { SuccessOnlyCacheStrategy }
                 )
             )
