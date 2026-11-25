@@ -20,11 +20,11 @@ struct ShareConfirmation: View {
                     .foregroundStyle(.tint)
                     .accessibilityHidden(true)
                 VStack(spacing: 6) {
-                    Text("Saved for Yoin", tableName: "Share",
-                         comment: "Share extension confirmation title. PLACEHOLDER awaiting approval.")
+                    Text("Saved to Yoin", tableName: "Share",
+                         comment: "Share extension confirmation title. Copy: Rebecca, 2026-11-25.")
                         .font(.title3.weight(.semibold))
-                    Text("Open Yoin to continue.", tableName: "Share",
-                         comment: "Share extension confirmation body. PLACEHOLDER awaiting approval.")
+                    Text("Open Yoin to continue", tableName: "Share",
+                         comment: "Share extension confirmation line. Copy: Rebecca, 2026-11-25.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                 }

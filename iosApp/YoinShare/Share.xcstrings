@@ -12,24 +12,24 @@
         }
       }
     },
-    "Open Yoin to continue." : {
-      "comment" : "Share extension confirmation body. PLACEHOLDER: proposed copy awaiting approval (owner/Rebecca).",
+    "Open Yoin to continue" : {
+      "comment" : "Share extension confirmation line. Copy: Rebecca, 2026-11-25.",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "打开 Yoin 即可继续。"
+            "state" : "translated",
+            "value" : "打开 Yoin 即可继续"
           }
         }
       }
     },
-    "Saved for Yoin" : {
-      "comment" : "Share extension confirmation title. PLACEHOLDER: proposed copy awaiting approval (owner/Rebecca).",
+    "Saved to Yoin" : {
+      "comment" : "Share extension confirmation title. Copy: Rebecca, 2026-11-25.",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "已转交给 Yoin"
+            "state" : "translated",
+            "value" : "已存到 Yoin"
           }
         }
       }

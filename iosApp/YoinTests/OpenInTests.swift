@@ -390,6 +390,11 @@ final class OpenInTests: XCTestCase {
         XCTAssertEqual(loc("Listen"), zh ? "收听" : "Listen")
         XCTAssertEqual(loc("Link in clipboard"), zh ? "剪贴板里有链接" : "Link in clipboard")
         XCTAssertEqual(loc("No music link found"), zh ? "未识别到音乐链接" : "No music link found")
+        // The share extension's confirmation (YoinShare/Share.xcstrings, bundled in the app for its QA shot).
+        XCTAssertEqual(String(localized: "Saved to Yoin", table: "Share", bundle: .main), zh ? "已存到 Yoin" : "Saved to Yoin")
+        XCTAssertEqual(String(localized: "Open Yoin to continue", table: "Share", bundle: .main),
+                       zh ? "打开 Yoin 即可继续" : "Open Yoin to continue")
+        XCTAssertEqual(String(localized: "Done", table: "Share", bundle: .main), zh ? "完成" : "Done")
         XCTAssertEqual(String(localized: "\("Spotify") link in clipboard", bundle: .main),
                        zh ? "剪贴板里有 Spotify 链接" : "Spotify link in clipboard")
     }
