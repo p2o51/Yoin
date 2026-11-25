@@ -336,7 +336,7 @@ void main() {
     Future<ProviderContainer> open(
       WidgetTester tester, {
       List<AlbumAboutEntry> rows = const [],
-      Locale locale = const Locale('en'),
+      Brightness brightness = Brightness.light,
     }) async {
       final kv = InMemoryStore();
       await AlbumAboutStore(kv).upsertAll(rows);
@@ -357,7 +357,7 @@ void main() {
         UncontrolledProviderScope(
           container: c,
           child: MaterialApp(
-            theme: yoinTheme(Brightness.light),
+            theme: yoinTheme(brightness),
             home: Builder(
               builder: (context) => Scaffold(
                 body: Center(
@@ -433,6 +433,46 @@ void main() {
       expect(inSheet(find.text('Regenerate')), findsOneWidget);
       expect(inSheet(find.text('Why is it called Blue?')), findsOneWidget);
       expect(inSheet(find.text('Because.')), findsOneWidget);
+      await close(tester);
+    });
+
+    testWidgets('should_paintTheDarkSchemesRoles_when_darkTheme', (tester) async {
+      // No cover seed here, so the page reads the app's own dark scheme. SPEC_2025 Expressive's dark
+      // tertiaryContainer is a light tone (as on Android, bit for bit): the card is light on a dark page.
+      final dark = yoinTheme(Brightness.dark).colorScheme;
+      final light = yoinTheme(Brightness.light).colorScheme;
+      await open(tester, rows: _generated(), brightness: Brightness.dark);
+      Color materialOf(Finder text) =>
+          tester.widget<Material>(find.ancestor(of: text, matching: find.byType(Material)).first).color!;
+      expect(materialOf(find.text(_blurb)), dark.tertiaryContainer);
+      expect(tester.widget<Text>(find.text(_blurb)).style!.color, dark.onTertiaryContainer);
+      await tester.tap(find.text(_blurb));
+      await settle(tester);
+      final sheet = find.byType(AlbumAboutSheet);
+      // The sheet's paragraph card: the dark scheme's tertiaryContainer and its ink.
+      final card = tester.widget<DecoratedBox>(
+        find
+            .ancestor(
+              of: find.descendant(of: sheet, matching: find.text(_blurb)),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      expect((card.decoration as ShapeDecoration).color, dark.tertiaryContainer);
+      expect(
+        tester.widget<Text>(find.descendant(of: sheet, matching: find.text(_blurb))).style!.color,
+        dark.onTertiaryContainer,
+      );
+      // Regenerate sits on the dark surface in the dark tertiary (Android RegenerateButton), not the light one.
+      final button = tester.widget<FilledButton>(
+        find.ancestor(of: find.text('Regenerate'), matching: find.byWidgetPredicate((w) => w is FilledButton)),
+      );
+      expect(button.style!.backgroundColor!.resolve({}), dark.surface);
+      expect(button.style!.foregroundColor!.resolve({}), dark.tertiary);
+      expect(dark.surface, isNot(light.surface));
+      expect(dark.tertiary, isNot(light.tertiary));
+      // The sheet itself is the dark surface.
+      expect(tester.widget<BottomSheet>(find.byType(BottomSheet)).backgroundColor, dark.surfaceContainerLow);
       await close(tester);
     });
 
