@@ -329,7 +329,21 @@ fun NowPlayingOverlayHost(
     // reconcile effect above stays the sole driver of the stage Animatable.
     LaunchedEffect(dualPaneNowPlaying, stageMode) {
         if (dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
+            // Remembered for the way back: a rotation to one column reopens it (below).
+            viewModel.expandedBeforeDualPane = true
             viewModel.setStageMode(NowPlayingStageMode.Compact)
+        }
+    }
+    // Back to one column (a tablet turned to portrait): the stage the lyrics were expanded in before the two
+    // columns comes back, and so does the lyrics page when select mode or a pick's share sheet is on — the pick
+    // must survive the turn either way (owner device check 2026-11-25).
+    LaunchedEffect(dualPaneNowPlaying) {
+        if (dualPaneNowPlaying || !expanded) return@LaunchedEffect
+        val keepPick = shareRetained.pickInProgress
+        if (viewModel.expandedBeforeDualPane || keepPick) {
+            viewModel.expandedBeforeDualPane = false
+            if (keepPick) viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)
+            viewModel.setStageMode(NowPlayingStageMode.Expanded)
         }
     }
 

@@ -85,4 +85,16 @@ class ShareImageTest {
         draw(PreviewShareContent, ShareLayout.AboutReceipt, LyricsShareFormat.Card)
         rule.onNode(hasText("By Gemini")).assertExists()
     }
+
+    @Test
+    fun should_drawEveryStory_when_theNoteHasAMentionChip() {
+        // A mention's pill holds a SubcomposeLayout: the story's fit must not ask it for intrinsics.
+        for (layout in ShareLayout.entries) {
+            draw(RichShareContent, layout, LyricsShareFormat.Story)
+            val image = rule.onNodeWithTag(ShareImageTag).getBoundsInRoot()
+            assertTrue("$layout story is 640 tall", ((image.bottom - image.top) - 640.dp).value in -0.5f..0.5f)
+        }
+        draw(RichShareContent, ShareLayout.NoteBig, LyricsShareFormat.Story)
+        rule.onNode(hasText("南北寻光", substring = true)).assertExists()
+    }
 }

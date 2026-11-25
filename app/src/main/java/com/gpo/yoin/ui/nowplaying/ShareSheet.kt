@@ -218,18 +218,25 @@ internal class ShareSheetUi {
 internal class ShareRetained {
     val host = ShareSheetHost()
     val lyricsSheet = LyricsShareSheetState()
-    private var selectionKey: Pair<String, List<LyricLine>>? = null
+    private var selectionKey: Pair<String, List<String>>? = null
     private var selection: LyricsSelectionState? = null
 
-    /** The pick for [songId]'s [lyrics]: the same one while they stay, a fresh one when they change. */
+    /**
+     * The pick for [songId]'s [lyrics]: the same one while their lines stay (a translation arriving keeps
+     * it — the lines, and so the picked indices, are the same), a fresh one for another song or new lines.
+     */
     fun selectionFor(songId: String, lyrics: List<LyricLine>): LyricsSelectionState {
-        val key = songId to lyrics
+        val key = songId to lyrics.map { it.text }
         selection?.takeIf { selectionKey == key }?.let { return it }
         return LyricsSelectionState().also {
             selection = it
             selectionKey = key
         }
     }
+
+    /** Select mode is on, or a pick's share sheet is up: a rotation must bring the lyrics back to it. */
+    val pickInProgress: Boolean
+        get() = selection?.active == true || lyricsSheet.snapshot != null
 }
 
 /** Now Playing's retained sharing state; null in previews and harnesses (state is then per composition). */

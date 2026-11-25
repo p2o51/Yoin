@@ -158,7 +158,9 @@ private fun ShareStory(content: ShareContent, layout: ShareLayout, colors: Share
             contentAlignment = Alignment.Center,
         ) {
             // A long note or pick zooms out rather than ever losing a line; the poster's foot sits at the bottom.
-            ShareBody(content, layout, colors, ShareFrame.Poster, Modifier.zoomToFit(maxZoom = 1f, fillHeight = true))
+            ZoomToFit(maxZoom = 1f, fillHeight = true) {
+                ShareBody(content, layout, colors, ShareFrame.Poster, Modifier)
+            }
         }
     } else {
         Box(
@@ -168,7 +170,9 @@ private fun ShareStory(content: ShareContent, layout: ShareLayout, colors: Share
                 .padding(horizontal = StoryHorizontalMargin, vertical = StoryVerticalMargin),
             contentAlignment = Alignment.Center,
         ) {
-            ShareBody(content, layout, colors, ShareFrame.StoryCard, Modifier.zoomToFit(maxZoom = StoryMaxZoom))
+            ZoomToFit(maxZoom = StoryMaxZoom) {
+                ShareBody(content, layout, colors, ShareFrame.StoryCard, Modifier)
+            }
         }
     }
 }

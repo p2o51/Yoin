@@ -88,7 +88,11 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
@@ -706,66 +710,158 @@ internal fun Modifier.scaleDownToFit(
 }
 
 /**
- * Fills the incoming width and fits the incoming height by ZOOMING: the content is laid out at width / zoom
+ * Fills the incoming width and fits the incoming height by ZOOMING: [content] is laid out at width / zoom
  * (wider when zooming out, so lines wrap less; narrower when zooming in) and drawn back at `zoom`, the
- * largest zoom up to [maxZoom] whose height fits ([lyricsStoryZoom], probed through intrinsic heights). A
- * plain shrink would narrow the card to a sliver for a long pick; this keeps it the frame's width. A story
- * lets short content grow up to [StoryMaxZoom] (owner 2026-11-25). [fillHeight] stretches the content to the
- * frame's height at that zoom (a poster's foot sits at the bottom).
+ * largest zoom up to [maxZoom] whose height fits. A plain shrink would narrow the card to a sliver for a
+ * long pick; this keeps it the frame's width. A story lets short content grow up to [StoryMaxZoom] (owner
+ * 2026-11-25). [fillHeight] stretches the content to the frame's height at that zoom (a poster's foot sits
+ * at the bottom).
+ *
+ * No intrinsic measurements (owner device check 2026-11-25: a note's mention chip holds a SubcomposeLayout,
+ * which can't answer them, and the story crashed): each layout pass measures the content once, at the zoom
+ * being tried, with an unbounded height, and reports whether it fit to a [ZoomSearch]; the search moves to
+ * the next zoom (another pass, a frame later) until it settles. Until then the content is drawn invisibly
+ * — never at a zoom about to change — and always scaled to fit, so no line is ever cut.
  */
-internal fun Modifier.zoomToFit(maxZoom: Float = 1f, fillHeight: Boolean = false): Modifier = layout { measurable, constraints ->
-    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
-        val placeable = measurable.measure(constraints)
-        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
-    }
-    val frameWidth = constraints.maxWidth
-    val frameHeight = constraints.maxHeight
-    val zoom = lyricsStoryZoom(maxZoom) { candidate ->
-        val logicalWidth = (frameWidth / candidate).roundToInt()
-        measurable.minIntrinsicHeight(logicalWidth) * candidate <= frameHeight
-    }
-    val logicalWidth = (frameWidth / zoom).roundToInt()
-    val minHeight = if (fillHeight) (frameHeight / zoom).toInt() else 0
-    val placeable = measurable.measure(
-        Constraints(minWidth = logicalWidth, maxWidth = logicalWidth, minHeight = minHeight),
-    )
-    // Even the furthest zoom can fall short (a pathological pick): shrink the rest.
-    val scale = min(zoom, frameHeight.toFloat() / placeable.height)
-    layout(
-        constraints.constrainWidth((placeable.width * scale).roundToInt()),
-        constraints.constrainHeight((placeable.height * scale).roundToInt()),
-    ) {
-        placeable.placeWithLayer(0, 0) {
-            scaleX = scale
-            scaleY = scale
-            transformOrigin = TransformOrigin(0f, 0f)
+@Composable
+internal fun ZoomToFit(
+    maxZoom: Float,
+    modifier: Modifier = Modifier,
+    fillHeight: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val search = remember(maxZoom) { ZoomSearch(maxZoom) }
+    // A static preview renders one frame: show the zoom being tried (scaled to fit) rather than nothing.
+    val gate = !LocalInspectionMode.current
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val measurable = measurables.firstOrNull() ?: return@Layout layout(0, 0) {}
+        if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+            val placeable = measurable.measure(constraints)
+            return@Layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        }
+        val frameWidth = constraints.maxWidth
+        val frameHeight = constraints.maxHeight
+        search.frame(frameWidth, frameHeight)
+        val zoom = search.zoom
+        val logicalWidth = (frameWidth / zoom).roundToInt()
+        val minHeight = if (fillHeight) (frameHeight / zoom).toInt() else 0
+        val placeable = measurable.measure(
+            Constraints(minWidth = logicalWidth, maxWidth = logicalWidth, minHeight = minHeight),
+        )
+        search.measured(placeable.height * zoom <= frameHeight + ZoomFitSlackPx, placeable.height)
+        // Even the furthest zoom can fall short (a pathological pick): shrink the rest.
+        val scale = min(zoom, frameHeight.toFloat() / placeable.height)
+        layout(
+            constraints.constrainWidth((placeable.width * scale).roundToInt()),
+            constraints.constrainHeight((placeable.height * scale).roundToInt()),
+        ) {
+            placeable.placeWithLayer(0, 0) {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0f)
+                alpha = if (search.settled || !gate) 1f else 0f
+            }
         }
     }
 }
 
 /**
- * The largest zoom in [[LyricsStoryMinZoom], [maxZoom]] for which [fits] holds (fits is monotonic: a
- * smaller zoom is a wider, shorter layout drawn smaller). [maxZoom] when even that fits;
- * [LyricsStoryMinZoom] when nothing does.
+ * The zoom search, one measurement at a time: [maxZoom] first; when that doesn't fit, 1 (a story that
+ * would grow); then [StoryZoomSearchSteps] halvings of the bracket that fits. Settles on the largest zoom
+ * known to fit ([LyricsStoryMinZoom] when nothing does). A new frame size, or content whose height at the
+ * settled zoom changes, starts it over. Its zoom and settled flag are snapshot state, so a step is a relayout.
+ */
+@Stable
+internal class ZoomSearch(private val maxZoom: Float) {
+    var zoom: Float by mutableFloatStateOf(maxZoom)
+        private set
+    var settled: Boolean by mutableStateOf(false)
+        private set
+    private var phase = Phase.Max
+    private var low = 0f
+    private var high = 0f
+    private var steps = 0
+    private var frameW = -1
+    private var frameH = -1
+    private var settledHeight = -1
+
+    private enum class Phase { Max, One, Bisect }
+
+    /** The frame being fitted; a new size starts over. */
+    fun frame(width: Int, height: Int) {
+        if (width != frameW || height != frameH) {
+            frameW = width
+            frameH = height
+            restart()
+        }
+    }
+
+    /** The content measured [height] tall at [zoom] and [fits] (or not); moves to the next zoom or settles. */
+    fun measured(fits: Boolean, height: Int) {
+        if (settled) {
+            // Content that grew or shrank under a settled zoom is fitted again.
+            if (settledHeight >= 0 && height != settledHeight) restart() else settledHeight = height
+            return
+        }
+        report(fits)
+    }
+
+    /** One step of the search for the zoom just tried. */
+    fun report(fits: Boolean) {
+        if (settled) return
+        when (phase) {
+            Phase.Max -> when {
+                fits -> settle(maxZoom)
+                maxZoom > 1f -> {
+                    phase = Phase.One
+                    zoom = 1f
+                }
+                else -> bisect(LyricsStoryMinZoom, maxZoom)
+            }
+            Phase.One -> if (fits) bisect(1f, maxZoom) else bisect(LyricsStoryMinZoom, 1f)
+            Phase.Bisect -> {
+                if (fits) low = zoom else high = zoom
+                steps++
+                if (steps >= StoryZoomSearchSteps) settle(low) else zoom = (low + high) / 2f
+            }
+        }
+    }
+
+    private fun bisect(from: Float, to: Float) {
+        phase = Phase.Bisect
+        low = from
+        high = to
+        steps = 0
+        zoom = (low + high) / 2f
+    }
+
+    private fun settle(value: Float) {
+        zoom = value
+        settled = true
+        settledHeight = -1
+    }
+
+    private fun restart() {
+        phase = Phase.Max
+        steps = 0
+        settledHeight = -1
+        settled = false
+        zoom = maxZoom
+    }
+}
+
+/**
+ * The zoom [ZoomSearch] settles on when [fits] answers at once (fits is monotonic: a smaller zoom is a
+ * wider, shorter layout drawn smaller): [maxZoom] when even that fits; [LyricsStoryMinZoom] when nothing does.
  */
 internal fun lyricsStoryZoom(maxZoom: Float = 1f, fits: (zoom: Float) -> Boolean): Float {
-    if (fits(maxZoom)) return maxZoom
-    var low: Float
-    var high: Float
-    if (maxZoom > 1f && fits(1f)) {
-        low = 1f
-        high = maxZoom
-    } else {
-        low = LyricsStoryMinZoom
-        high = minOf(1f, maxZoom)
-        if (fits(high)) return high
-    }
-    repeat(StoryZoomSearchSteps) {
-        val mid = (low + high) / 2f
-        if (fits(mid)) low = mid else high = mid
-    }
-    return low
+    val search = ZoomSearch(maxZoom)
+    while (!search.settled) search.report(fits(search.zoom))
+    return search.zoom
 }
+
+/** Rounding: a height a fraction of a pixel over the frame still fits. */
+private const val ZoomFitSlackPx = 0.5f
 
 /** Furthest a story zooms out: below this the type is too small to read on a phone. */
 internal const val LyricsStoryMinZoom = 0.4f

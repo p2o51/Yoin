@@ -476,11 +476,15 @@ internal fun LyricsSelectionHost(
             )
         },
 ) {
-    // Leaving the lyrics page leaves select mode — but not while the share sheet is up: a rotation can
-    // report the page off screen for a frame as the new layout settles, and the pick must survive it.
-    val sheetOpen = shareSheet.snapshot != null
-    LaunchedEffect(lyricsPageOnScreen, sheetOpen) {
-        if (!lyricsPageOnScreen && !sheetOpen) selection.exit()
+    // Leaving the lyrics page leaves select mode: only a page that WAS on screen going off it, and not while
+    // the share sheet is up (owner device check 2026-11-25). A layout that arrives with the page still off
+    // screen — a rotation, before its stage expands to the lyrics — keeps the pick, as does a sheet that
+    // closes over a page that went away under it.
+    val latestSheetOpen by rememberUpdatedState(shareSheet.snapshot != null)
+    var pageWasOnScreen by remember { mutableStateOf(false) }
+    LaunchedEffect(lyricsPageOnScreen) {
+        if (!lyricsPageOnScreen && pageWasOnScreen && !latestSheetOpen) selection.exit()
+        pageWasOnScreen = lyricsPageOnScreen
     }
     BackHandler(enabled = selection.active && !selection.sharing && shareSheet.snapshot == null) {
         selection.exit()

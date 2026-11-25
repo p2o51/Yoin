@@ -22,7 +22,9 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * Every share image — all ten layouts, Card and Story, every tone's fourth slot included — is a plain,
  * fully opaque rectangle (owner 2026-11-25: rounded / see-through corners show black once posted): every
- * edge pixel of the export is opaque, at more than one density and font scale.
+ * edge pixel of the export is opaque, at more than one density and font scale. The content is the hard
+ * kind: a long CJK note with an @mention chip (its pill holds a SubcomposeLayout, which once crashed the
+ * story's fit — device check 2026-11-25), four CJK lines with translations, a long About paragraph.
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -50,9 +52,7 @@ class ShareExportEdgesTest(
                 val recording = rememberGraphicsLayer()
                 layer = recording
                 ShareImage(
-                    content = PreviewShareContent.copy(
-                        lyrics = PreviewShareContent.lyrics!!.copy(showTranslation = true),
-                    ),
+                    content = RichShareContent,
                     layout = layout,
                     format = format,
                     // The fourth slot: Mist for the lyrics, Paper for About and Note.
@@ -99,3 +99,21 @@ class ShareExportEdgesTest(
         }
     }
 }
+
+/** Long, CJK, a mention chip: what the story's fit must handle without intrinsics. */
+internal val RichShareContent = PreviewShareContent.copy(
+    lyrics = LyricsSharePick(
+        lines = listOf(
+            LyricLine(226_800L, "帶著笑容的睡意化成了彩虹", translation = "Sleep with a smile turns into a rainbow"),
+            LyricLine(230_700L, "在他夢中一口氣走上了星空", translation = "In his dream he walks up into the stars"),
+            LyricLine(234_400L, "喧囂地亮起整個夏天渴望的揮霍", translation = "Loudly lighting the summer it longed to spend"),
+            LyricLine(242_300L, "清淡與濃烈 好與壞他都嚐過", translation = "Mild and strong, good and bad, he has tasted"),
+        ),
+        showTranslation = true,
+    ),
+    about = PreviewShareContent.about!!.copy(paragraph = "一段很长的背景介绍。".repeat(30)),
+    note = PreviewShareContent.note!!.copy(
+        content = "最后一段鼓整个打开，**一口气走上了星空**。".repeat(12) +
+            "\n\n夏天的歌单，接在 [@南北寻光](yoin:album/subsonic:al-1?a=Tuno%E6%A1%90%E9%9F%B3) 后面放。",
+    ),
+)
