@@ -34,9 +34,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,8 +48,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -86,6 +92,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -468,13 +476,16 @@ fun NowPlayingOverlayHost(
     val panelTravelPx = with(LocalDensity.current) { frame.panelWidth.roundToPx() }
 
     // ── Now Playing overlay ──────────────────────────────────────────────
+    val playerTravel = remember { PlayerTravel() }
     OverlayPlayerVisibility(
         expanded = expanded,
         fromEnd = panelFamily,
         // The panel travels exactly its own width (the content beside it moves
         // that far on the same spring); the full-window states the window.
         endTravel = { full -> if (panelMode) panelTravelPx else full },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .onPlaced { playerTravel.host = it },
     ) {
         val npAvScope = this
         // The cover's end of the pill morph. At rest it follows the shown
@@ -544,7 +555,11 @@ fun NowPlayingOverlayHost(
         // bound to the same devicesState / refresh / select flow.
         var showCastDevicesSheet by remember { mutableStateOf(false) }
 
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned(playerTravel::update),
+        ) {
             val density = LocalDensity.current
             val containerWidth = if (panelFamily) {
                 frame.panelWidth + (maxWidth - frame.panelWidth) * fullFraction
@@ -772,12 +787,19 @@ fun NowPlayingOverlayHost(
                             // dragged or back-previewed down — it is the screen
                             // sliding, so it carries the screen's corners
                             // (ScreenCorners). At rest it clips nothing: its corners
-                            // are the glass's own there. The side panel family
+                            // are the glass's own there, and a screenshot is a full
+                            // rectangle. "Moving" is where the player IS, not the
+                            // enter/exit transition: that stays running well after
+                            // the slide has landed (its fade, the cover morph), and
+                            // kept a resting player clipped over the scrim — black
+                            // screen corners in a screenshot (owner, 2026-11-25).
+                            // The spring's last pixel of settle doesn't count:
+                            // under the glass it can't be seen, in a screenshot
+                            // it flickered the corners. The side panel family
                             // shapes its container instead (above).
                             .graphicsLayer {
                                 if (panelFamily) return@graphicsLayer
-                                val transition = npAvScope.transition
-                                val moving = transition.currentState != transition.targetState ||
+                                val moving = playerTravel.px > PlayerSettleTravel.toPx() ||
                                     overlayOffsetPx + dismissDragPx > 0.5f
                                 if (moving) {
                                     shape = RoundedCornerShape(ScreenCorners.radius)
@@ -842,6 +864,30 @@ private fun PanelToggleButton(
 }
 
 private val PanelShadowElevation = 16.dp
+
+/** Travel under this is the slide's settle, not motion: the player keeps square corners. */
+private val PlayerSettleTravel = 1.dp
+
+/**
+ * How far the player sits from where it rests, as laid out (px, the larger
+ * axis): the entrance / exit slide of [OverlayPlayerVisibility], measured
+ * against the host it rests in. A snapshot read for layer blocks.
+ */
+@Stable
+private class PlayerTravel {
+    /** The visibility's own box, which the slide does not move. */
+    var host: LayoutCoordinates? = null
+
+    var px: Float by mutableFloatStateOf(0f)
+        private set
+
+    fun update(player: LayoutCoordinates) {
+        val host = host?.takeIf { it.isAttached } ?: return
+        if (!player.isAttached) return
+        val at = host.localPositionOf(player, Offset.Zero)
+        px = max(abs(at.x), abs(at.y))
+    }
+}
 
 /** The panel's back preview travels a third of the phone's 1200px chase. */
 private const val PanelBackTravelFraction = 0.35f
