@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../data/about/album_about_store.dart';
 import '../data/about/song_about_store.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
@@ -296,6 +297,29 @@ final class ScrapRestoreAlbumNoteEdit extends ScrapEdit {
   final String noteId;
 }
 
+/// The page came to rest: write the album's About if it was never written (one AI call per album, then
+/// cached). Quiet: no key, or a failure, simply leaves the card off.
+final class ScrapEnsureAlbumAboutEdit extends ScrapEdit {
+  const ScrapEnsureAlbumAboutEdit();
+}
+
+/// "Regenerate" (or "Generate with …") in the album's About sheet (undoable).
+final class ScrapRegenerateAlbumAboutEdit extends ScrapEdit {
+  const ScrapRegenerateAlbumAboutEdit();
+}
+
+/// Undo of [ScrapRegenerateAlbumAboutEdit]: the album's About rows as they were.
+final class ScrapRestoreAlbumAboutEdit extends ScrapEdit {
+  const ScrapRestoreAlbumAboutEdit(this.rows);
+  final List<AlbumAboutEntry> rows;
+}
+
+/// Ask the AI about the album from its About sheet.
+final class ScrapAskAlbumEdit extends ScrapEdit {
+  const ScrapAskAlbumEdit(this.question);
+  final String question;
+}
+
 /// What the album's stickies are doing (Android StickyEditing): shown, or
 /// one being written in place. [open] is null with nothing open, [newSticky]
 /// while the dashed sticky (or bare paper) became an editor, else the id of
@@ -349,7 +373,13 @@ final class ScrapAsking {
 /// The AI's work in flight from page 2.
 @immutable
 final class ScrapGemini {
-  const ScrapGemini({this.regenerating = const {}, this.asking = const [], this.generating = const {}});
+  const ScrapGemini({
+    this.regenerating = const {},
+    this.asking = const [],
+    this.generating = const {},
+    this.albumAbout = false,
+    this.albumAsking = const [],
+  });
 
   final Set<AboutRef> regenerating;
   final List<ScrapAsking> asking;
@@ -357,22 +387,43 @@ final class ScrapGemini {
   /// Tracks whose About the AI is writing from nothing.
   final Set<MediaId> generating;
 
-  ScrapGemini copyWith({Set<AboutRef>? regenerating, List<ScrapAsking>? asking, Set<MediaId>? generating}) =>
-      ScrapGemini(
-        regenerating: regenerating ?? this.regenerating,
-        asking: asking ?? this.asking,
-        generating: generating ?? this.generating,
-      );
+  /// The album's own About is being written (the first time, or Regenerate).
+  final bool albumAbout;
+
+  /// Questions asked about the album that the AI has not answered yet.
+  final List<String> albumAsking;
+
+  ScrapGemini copyWith({
+    Set<AboutRef>? regenerating,
+    List<ScrapAsking>? asking,
+    Set<MediaId>? generating,
+    bool? albumAbout,
+    List<String>? albumAsking,
+  }) => ScrapGemini(
+    regenerating: regenerating ?? this.regenerating,
+    asking: asking ?? this.asking,
+    generating: generating ?? this.generating,
+    albumAbout: albumAbout ?? this.albumAbout,
+    albumAsking: albumAsking ?? this.albumAsking,
+  );
 
   @override
   bool operator ==(Object other) =>
       other is ScrapGemini &&
       setEquals(other.regenerating, regenerating) &&
       listEquals(other.asking, asking) &&
-      setEquals(other.generating, generating);
+      setEquals(other.generating, generating) &&
+      other.albumAbout == albumAbout &&
+      listEquals(other.albumAsking, albumAsking);
 
   @override
-  int get hashCode => Object.hash(Object.hashAll(regenerating), Object.hashAll(asking), Object.hashAll(generating));
+  int get hashCode => Object.hash(
+    Object.hashAll(regenerating),
+    Object.hashAll(asking),
+    Object.hashAll(generating),
+    albumAbout,
+    Object.hashAll(albumAsking),
+  );
 }
 
 /// What the AI's work from page 2 came to (ScrapEvent).
@@ -380,16 +431,23 @@ sealed class ScrapEvent {
   const ScrapEvent();
 }
 
-/// A row came back new; [restore] puts the old text back (Undo).
+/// A row (or the album's About) came back new; [restore] puts the old text back (Undo).
 final class ScrapRegenerated extends ScrapEvent {
   const ScrapRegenerated(this.restore);
-  final ScrapAboutEdit restore;
+  final ScrapEdit restore;
 }
 
 enum ScrapFailure { keyMissing, failed, nothingNew }
 
 final class ScrapFailed extends ScrapEvent {
   const ScrapFailed(this.failure);
+  final ScrapFailure failure;
+}
+
+/// Writing the album's About again came back with nothing, or failed: said in the About sheet when it is
+/// open (under the paragraph), on the page otherwise.
+final class ScrapAlbumAboutFailed extends ScrapEvent {
+  const ScrapAlbumAboutFailed(this.failure);
   final ScrapFailure failure;
 }
 

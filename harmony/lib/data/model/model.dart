@@ -290,6 +290,9 @@ final class Album {
     this.addedAt,
     this.releaseType,
     this.version,
+    this.releaseDate,
+    this.recordLabels = const [],
+    this.originalReleaseDate,
   });
 
   final MediaId id;
@@ -313,6 +316,18 @@ final class Album {
   final String? addedAt;
   final ReleaseType? releaseType;
   final String? version;
+
+  /// This release's date, ISO at the precision the service gives ("2023-10-27", "2023-10", "2023";
+  /// OpenSubsonic `releaseDate`, Apple Music `releaseDate`). Null when the service gives no date.
+  final String? releaseDate;
+
+  /// The record label(s) as the service names them (OpenSubsonic `recordLabels`, Apple Music
+  /// `recordLabel`): the scrapbook's credits line shows them before asking any AI. Empty when unknown.
+  final List<String> recordLabels;
+
+  /// The first release's date when the service gives it apart from this release's (OpenSubsonic
+  /// `originalReleaseDate`), ISO like [releaseDate]: a reissue's 首版 on the credits line.
+  final String? originalReleaseDate;
 }
 
 final class Artist {

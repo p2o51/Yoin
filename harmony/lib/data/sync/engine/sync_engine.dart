@@ -47,7 +47,12 @@ class SyncEngine {
   /// for them. HarmonyOS carries Android's AI translations and playlist
   /// backups without applying them; About/Ask has its adapter now and stays
   /// listed so a replica without it (an adapter list in a test) shards alike.
-  static const knownArtifactKinds = {SyncKinds.lyricsTranslation, SyncKinds.songAbout, SyncKinds.playlistBackup};
+  static const knownArtifactKinds = {
+    SyncKinds.lyricsTranslation,
+    SyncKinds.songAbout,
+    SyncKinds.albumAbout,
+    SyncKinds.playlistBackup,
+  };
 
   static const _unknownDeviceName = 'Another device';
 
