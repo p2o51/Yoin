@@ -1001,7 +1001,10 @@ private const val StoryZoomSearchSteps = 8
 /**
  * Records the content into [layer] at the format's export size (content
  * scaled up to it), then draws that same recording scaled back down — so the
- * preview and the PNG can't differ.
+ * preview and the PNG can't differ. Each axis is scaled to fill the export
+ * exactly: the Card's height is rounded to whole pixels, and one uniform
+ * scale left up to half a pixel of it undrawn — a see-through last row in
+ * the PNG. The two scales differ by under a pixel over the image.
  */
 private fun Modifier.recordForExport(layer: GraphicsLayer, format: LyricsShareFormat): Modifier =
     drawWithContent {
@@ -1010,11 +1013,12 @@ private fun Modifier.recordForExport(layer: GraphicsLayer, format: LyricsShareFo
             return@drawWithContent
         }
         val export = lyricsShareExportSize(format, size.width, size.height)
-        val exportScale = export.width / size.width
+        val scaleX = export.width / size.width
+        val scaleY = export.height / size.height
         layer.record(size = export) {
-            scale(exportScale, pivot = Offset.Zero) { this@drawWithContent.drawContent() }
+            scale(scaleX, scaleY, pivot = Offset.Zero) { this@drawWithContent.drawContent() }
         }
-        scale(1f / exportScale, pivot = Offset.Zero) { drawLayer(layer) }
+        scale(1f / scaleX, 1f / scaleY, pivot = Offset.Zero) { drawLayer(layer) }
     }
 
 /** The layer's current recording as a bitmap; null before it has drawn once. */

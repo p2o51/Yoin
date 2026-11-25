@@ -7,6 +7,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -788,21 +789,30 @@ fun NowPlayingOverlayHost(
                             // sliding, so it carries the screen's corners
                             // (ScreenCorners). At rest it clips nothing: its corners
                             // are the glass's own there, and a screenshot is a full
-                            // rectangle. "Moving" is where the player IS, not the
-                            // enter/exit transition: that stays running well after
-                            // the slide has landed (its fade, the cover morph), and
-                            // kept a resting player clipped over the scrim — black
-                            // screen corners in a screenshot (owner, 2026-11-25).
-                            // The spring's last pixel of settle doesn't count:
-                            // under the glass it can't be seen, in a screenshot
-                            // it flickered the corners. The side panel family
-                            // shapes its container instead (above).
+                            // rectangle (owner, 2026-11-25). The corners follow
+                            // where the player IS — its laid-out travel plus the
+                            // drag / back offset — not the enter/exit transition,
+                            // which runs on well after the slide has landed. They
+                            // grow with that travel ([playerCornerRadiusPx]): a
+                            // drag's first pixels, a cancelled drag's spring home
+                            // and the last of a landing never jump between square
+                            // and the full radius (owner: 往下拉的时候不要漏破绽).
+                            // The enlarged phone / two columns drag inside their
+                            // square full-window container, so they take the same
+                            // corners; the side panel shapes its container (above).
                             .graphicsLayer {
-                                if (panelFamily) return@graphicsLayer
-                                val moving = playerTravel.px > PlayerSettleTravel.toPx() ||
-                                    overlayOffsetPx + dismissDragPx > 0.5f
-                                if (moving) {
-                                    shape = RoundedCornerShape(ScreenCorners.radius)
+                                if (panelMode) return@graphicsLayer
+                                // The panel family's own entrance / exit slides the
+                                // container sideways; Full is square there (its
+                                // container corner is 0), so it rounds with it too.
+                                val travel = playerTravel.px + abs(overlayOffsetPx + dismissDragPx)
+                                val radiusPx = playerCornerRadiusPx(
+                                    travelPx = travel,
+                                    rampPx = PlayerCornerRamp.toPx(),
+                                    fullRadiusPx = ScreenCorners.radius.toPx(),
+                                )
+                                if (radiusPx > 0f) {
+                                    shape = RoundedCornerShape(radiusPx)
                                     clip = true
                                 }
                             },
@@ -865,8 +875,21 @@ private fun PanelToggleButton(
 
 private val PanelShadowElevation = 16.dp
 
-/** Travel under this is the slide's settle, not motion: the player keeps square corners. */
-private val PlayerSettleTravel = 1.dp
+/** How far the player travels while its corners grow from square to the screen's. */
+private val PlayerCornerRamp = 28.dp
+
+/**
+ * The full-window player's corner radius for [travelPx] of travel from its
+ * rest: square at rest, the screen's [fullRadiusPx] from [rampPx] on, eased
+ * in between so it starts and lands without a step. Under half a pixel it is
+ * 0 — the player is unclipped, and a screenshot of it a full rectangle.
+ */
+internal fun playerCornerRadiusPx(travelPx: Float, rampPx: Float, fullRadiusPx: Float): Float {
+    if (travelPx <= 0f || fullRadiusPx <= 0f) return 0f
+    val fraction = if (rampPx <= 0f) 1f else (travelPx / rampPx).coerceIn(0f, 1f)
+    val radius = fullRadiusPx * FastOutSlowInEasing.transform(fraction)
+    return if (radius < 0.5f) 0f else radius
+}
 
 /**
  * How far the player sits from where it rests, as laid out (px, the larger
