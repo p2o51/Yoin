@@ -297,6 +297,9 @@ class NowPlayingPanelMotion {
 
 private val NoTravel: () -> Float = { 0f }
 
+/** What is left of a closing panel's inset when it counts as landed: under a pixel or two. */
+internal val PanelLandedSlop = 1.dp
+
 @Composable
 fun rememberNowPlayingPanelMotion(): NowPlayingPanelMotion = remember { NowPlayingPanelMotion() }
 
@@ -322,6 +325,17 @@ class NowPlayingPanelInset internal constructor(
 ) {
     /** The open/close spring is running (for a High frame-rate vote; snapshot read). */
     val isMoving: Boolean get() = base.value != baseTarget
+
+    /**
+     * The panel still takes width from the content beside it: open, or
+     * closing with more than [PanelLandedSlop] of its inset left. The columns
+     * beside it re-tier back to their full width when this turns false — as
+     * the panel lands, not after the spring's sub-pixel tail, which held
+     * Home's narrow layout ~250ms past the panel's exit before it snapped.
+     * Snapshot read.
+     */
+    val holdsWidth: Boolean
+        get() = panelOpen || base.value * (1f - frozenTravelFraction[0]) > PanelLandedSlop
 
     /**
      * A gesture is carrying the open panel (back preview, swipe-to-close), so
@@ -475,8 +489,8 @@ val LocalNowPlayingPanelBeside = compositionLocalOf { false }
 fun ProvideBesidePanelWindowInfo(panel: NowPlayingPanelInset, content: @Composable () -> Unit) {
     val windowInfo = LocalYoinWindowInfo.current
     val windowWidth = rememberWindowWidthDp()
-    // Remembered so an unchanged column keeps the SAME instance: a static
-    // local re-provided with a fresh copy would recompose every reader.
+    // Remembered so an unchanged column keeps the SAME instance (no copy to
+    // compare on every recomposition).
     val besideInfo = remember(windowInfo, windowWidth, panel.panelOpen, panel.panelWidth) {
         if (panel.panelOpen) windowInfo.forPaneWidth(windowWidth - panel.panelWidth) else windowInfo
     }

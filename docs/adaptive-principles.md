@@ -103,7 +103,8 @@
   并在 prewarm 期间（列还在区域右缘外、被裁掉）完成首次布局，弹簧起步时页面已经建好，随列一起滑进来
   （`DetailPaneState.pageReady` 随 `requestColumn` 置位，`DetailColumnsLayout` 在 `holdsColumn` 时就测量列）。
   推入页的底栏 morph 仍跟页面 96dp 滑入同一拍起步（`slideReleased`）。
-- 侧栏关上时，旁边的栏（详情列、Memories）要等侧栏弹簧落定后才换回宽档（`holdsNpPanel`）；开侧栏仍在开始时换档。
+- 侧栏关上时，旁边的栏（详情列、Memories）要等侧栏落地后才换回宽档（`holdsNpPanel` = `NowPlayingPanelInset.holdsWidth`：剩下的让位不到 1dp 就算落地，不等弹簧最后那段亚像素尾巴——那段尾巴让首页在侧栏走后还窄着停了约 250ms 才跳宽，2026-11-25）；开侧栏仍在开始时换档。
+  `LocalYoinWindowInfo` 是跟踪读取的 `compositionLocalOf`（结构相等），不是 static：换档时只有读档位的地方重组；static 会让整列（首页每张卡、封面、文字）一个不跳地全部重组，是侧栏关上落地那一帧（~90ms）的重活之一。
   关列时 Home 的 `homeCovered` 和 Memories 的底部留白跟随 `paneHasEntries`（列真正离开后才变），不在关列弹簧的首帧重排。
 - 宽度换档时首页的版块（「接着听」、Activities）原地一次换好，不再交叉淡化（淡化在点击那一帧把整页叠成重影）；
   同宽度下的模板 / 种子变化仍然淡化。

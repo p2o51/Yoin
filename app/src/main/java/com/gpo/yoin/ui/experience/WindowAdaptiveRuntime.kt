@@ -11,10 +11,12 @@ import androidx.compose.material3.adaptive.collectFoldingFeaturesAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toComposeRect
 import androidx.compose.ui.platform.LocalConfiguration
@@ -136,8 +138,16 @@ data class YoinWindowInfo(
  * Injected once per Activity in `YoinActivityRoot` (next to [LocalMotionProfile]).
  * Default is [LayoutMode.Compact] so any composable read outside a provider — and
  * previews/tests — behaves like a handset.
+ *
+ * Tracked (compositionLocalOf), not static: a column re-provides it whenever
+ * something gives width away — the Now Playing side panel opening or closing,
+ * the detail column — and a static local recomposed the WHOLE column with
+ * nothing skipped (every Home card, image and text) in that one frame — part
+ * of the ~90ms frame where the side panel's close landed. Tracked, only what
+ * reads the info recomposes. Structural equality: an equal copy invalidates
+ * nothing.
  */
-val LocalYoinWindowInfo = staticCompositionLocalOf {
+val LocalYoinWindowInfo = compositionLocalOf(structuralEqualityPolicy()) {
     YoinWindowInfo(
         layoutMode = LayoutMode.Compact,
         isWidthAtLeastMedium = false,

@@ -1313,9 +1313,10 @@ private fun YoinShell(
         // The columns re-tier when the panel starts opening, but only after it
         // has finished closing (the columns are then at rest at their new
         // width): a page swapping to its wide layout mid-slide doubled the
-        // album cover and jumped (2026-11-12). Derived: flips twice, not per frame.
+        // album cover and jumped (2026-11-12). Finished = landed (holdsWidth),
+        // not the spring's sub-pixel tail. Derived: flips twice, not per frame.
         val holdsNpPanel by remember(npPanel) {
-            derivedStateOf { npPanel.panelOpen || npPanel.isMoving }
+            derivedStateOf { npPanel.holdsWidth }
         }
         val restingRegionWidth = (windowWidth - if (holdsNpPanel) npPanel.panelWidth else 0.dp)
             .coerceAtLeast(0.dp)
