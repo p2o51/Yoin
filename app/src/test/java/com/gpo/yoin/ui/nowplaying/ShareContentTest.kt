@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import org.junit.Assert.assertEquals
@@ -109,16 +110,32 @@ class ShareContentTest {
         assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper), ShareRole.Own.tones())
 
         val aboutPaper = ShareTone.Paper.colors(scheme, ShareRole.Ai)
-        assertEquals(scheme.surfaceContainerLowest, aboutPaper.card)
-        assertEquals(scheme.tertiary, aboutPaper.content)
+        assertEquals(PaperCard, aboutPaper.card)
+        assertEquals(paperInk(scheme.tertiary), aboutPaper.content)
         val notePaper = ShareTone.Paper.colors(scheme, ShareRole.Own)
-        assertEquals(scheme.surfaceContainerLowest, notePaper.card)
-        assertEquals(scheme.primary, notePaper.content)
+        assertEquals(PaperCard, notePaper.card)
+        assertEquals(paperInk(scheme.primary), notePaper.content)
         // About is tertiary all through, a note primary.
         assertEquals(scheme.tertiaryContainer, ShareTone.Soft.colors(scheme, ShareRole.Ai).card)
         assertEquals(scheme.primaryContainer, ShareTone.Soft.colors(scheme, ShareRole.Own).card)
         // The lyrics keep Mist in the fourth slot, whichever it is asked by.
         assertEquals(scheme.tertiaryContainer, ShareTone.Paper.colors(scheme, ShareRole.Lyrics).card)
+    }
+
+    @Test
+    fun should_keepPaperWhiteWithLightInk_when_theThemeIsDark() {
+        // A dark scheme: light roles, dark surfaces (SPEC_2025-like tones).
+        val dark = androidx.compose.material3.darkColorScheme(
+            primary = Color(0xFFB8C4FF),
+            tertiary = Color(0xFF8BD8B5),
+            surfaceContainerLowest = Color(0xFF0B0C10),
+        )
+        for (role in listOf(ShareRole.Ai, ShareRole.Own)) {
+            val paper = ShareTone.Paper.colors(dark, role)
+            assertEquals("$role card", Color.White, paper.card)
+            // The ink is the role at its light-theme tone: dark enough to read on white.
+            assertTrue("$role ink luminance ${paper.content.luminance()}", paper.content.luminance() < 0.25f)
+        }
     }
 
     private val labels = object : AboutLabels {
@@ -181,6 +198,11 @@ class ShareContentTest {
         val pick = aboutSharePick(entries, credits = null, facts = facts, labels = labels, reviewLabel = "About")!!
         val shown = pick.credits.map { it.label to it.value }
         assertTrue(SongAboutEntry.CANON_LYRICIST to "Wu Qingfeng" in shown)
+        // The AI's lyricist is marked as the AI's; the server's composer and the year are not.
+        assertTrue(pick.credits.first { it.label == SongAboutEntry.CANON_LYRICIST }.ai)
+        assertFalse(pick.credits.first { it.label == SongAboutEntry.CANON_COMPOSER }.ai)
+        assertTrue(pick.credits.first { it.label == "Year" }.fact)
+        assertTrue(pick.aiContent)
         assertTrue(SongAboutEntry.CANON_COMPOSER to "Wu Qingfeng" in shown)
         assertTrue("Year" to "2009" in shown)
         // None of the server's file facts.
@@ -201,6 +223,23 @@ class ShareContentTest {
     fun should_shareNothing_when_aboutHasNeitherCreditsNorParagraph() {
         val ownOnly = listOf(entry(SongAboutEntry.KIND_OWN, "own-1", "My own words.", title = "Mine"))
         assertNull(aboutSharePick(ownOnly, null, null, labels, "About"))
+        // The year alone is not an About either.
+        assertNull(aboutSharePick(ownOnly, null, SpineSourceFacts(year = 2009, path = "/a.flac"), labels, "About"))
+    }
+
+    @Test
+    fun should_signNothing_when_noneOfTheImageCameFromTheAi() {
+        // No About entries (no AI key): only the server's composer and the year.
+        val pick = aboutSharePick(
+            entries = emptyList(),
+            credits = null,
+            facts = SpineSourceFacts(composer = "Wu Qingfeng", year = 2009),
+            labels = labels,
+            reviewLabel = "About",
+        )!!
+        assertFalse(pick.aiContent)
+        assertNull(pick.paragraph)
+        assertTrue(ShareContent(song, about = pick).has(ShareTab.About))
     }
 
     private fun note(id: String, at: Long?, created: Long) = SongNote(

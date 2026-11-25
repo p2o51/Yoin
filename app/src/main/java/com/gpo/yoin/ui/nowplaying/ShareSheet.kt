@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -50,6 +51,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -176,14 +178,62 @@ internal class ShareSheetHost {
     var request: ShareRequest? by mutableStateOf(null)
         private set
 
+    /** The open sheet's tab, format and tone, kept with it across a rotation. */
+    val ui = ShareSheetUi()
+
+    /** What the open sheet shares, frozen when it first drew (a rotation must not re-read the playhead). */
+    internal var frozen: ShareContent? = null
+
     fun open(request: ShareRequest) {
+        ui.reset()
+        frozen = null
         this.request = request
     }
 
     fun close() {
         request = null
+        frozen = null
     }
 }
+
+/** An open sheet's own choices: the tab (null = the one it opened on), Card / Story, the tone slot. */
+@Stable
+internal class ShareSheetUi {
+    var tab: ShareTab? by mutableStateOf(null)
+    var format: LyricsShareFormat by mutableStateOf(LyricsShareFormat.Card)
+    var toneSlot: Int by mutableIntStateOf(0)
+
+    fun reset() {
+        tab = null
+        format = LyricsShareFormat.Card
+        toneSlot = 0
+    }
+}
+
+/**
+ * What must outlive a rotation in Now Playing's sharing, held by the ViewModel: the lyrics pick (per song
+ * and lyrics), the pick's open share sheet, and the About / Note sheet.
+ */
+@Stable
+internal class ShareRetained {
+    val host = ShareSheetHost()
+    val lyricsSheet = LyricsShareSheetState()
+    private var selectionKey: Pair<String, List<LyricLine>>? = null
+    private var selection: LyricsSelectionState? = null
+
+    /** The pick for [songId]'s [lyrics]: the same one while they stay, a fresh one when they change. */
+    fun selectionFor(songId: String, lyrics: List<LyricLine>): LyricsSelectionState {
+        val key = songId to lyrics
+        selection?.takeIf { selectionKey == key }?.let { return it }
+        return LyricsSelectionState().also {
+            selection = it
+            selectionKey = key
+        }
+    }
+}
+
+/** Now Playing's retained sharing state; null in previews and harnesses (state is then per composition). */
+internal val LocalShareRetained = staticCompositionLocalOf<ShareRetained?> { null }
 
 /** Null in previews and harnesses: the About row and note card then offer no Share. */
 internal val LocalShareSheetHost = staticCompositionLocalOf<ShareSheetHost?> { null }
@@ -259,6 +309,7 @@ internal fun ShareSheet(
     onDismiss: () -> Unit,
     onMessage: (String) -> Unit,
     onKept: () -> Unit = {},
+    ui: ShareSheetUi = remember { ShareSheetUi() },
 ) {
     val tabs = content.tabs
     if (tabs.isEmpty()) {
@@ -270,7 +321,7 @@ internal fun ShareSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptics = rememberYoinHaptics()
-    var tab by rememberSaveable { mutableStateOf(if (initialTab in tabs) initialTab else tabs.first()) }
+    val tab = ui.tab?.takeIf { it in tabs } ?: initialTab.takeIf { it in tabs } ?: tabs.first()
     // Each tab's layout: what it last used (when this song offers it), else its first.
     val layouts = remember(content) {
         mutableStateMapOf<ShareTab, ShareLayout>().apply {
@@ -278,10 +329,9 @@ internal fun ShareSheet(
         }
     }
     val layout = layouts[tab] ?: return
-    var format by rememberSaveable { mutableStateOf(LyricsShareFormat.Card) }
+    val format = ui.format
     // The tone is a slot (0–3), kept across tabs: the lyrics' fourth is Mist, About and Note's Paper.
-    var toneSlot by rememberSaveable { mutableStateOf(0) }
-    val tone = tab.role.tones()[toneSlot]
+    val tone = tab.role.tones()[ui.toneSlot]
     var sharing by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf(SaveStatus.Idle) }
     // One layer per shown image: during a cross-fade both draw, and neither may overwrite the other's recording.
@@ -298,7 +348,7 @@ internal fun ShareSheet(
     val pickTab: (ShareTab) -> Unit = { picked ->
         if (picked != tab) {
             haptics.performSegmentTick()
-            tab = picked
+            ui.tab = picked
             saveStatus = SaveStatus.Idle
         }
     }
@@ -313,15 +363,15 @@ internal fun ShareSheet(
     val pickFormat: (LyricsShareFormat) -> Unit = { picked ->
         if (picked != format) {
             haptics.performSegmentTick()
-            format = picked
+            ui.format = picked
             saveStatus = SaveStatus.Idle
         }
     }
     val pickTone: (ShareTone) -> Unit = { picked ->
         val slot = tab.role.tones().indexOf(picked)
-        if (slot >= 0 && slot != toneSlot) {
+        if (slot >= 0 && slot != ui.toneSlot) {
             haptics.performSegmentTick()
-            toneSlot = slot
+            ui.toneSlot = slot
             saveStatus = SaveStatus.Idle
         }
     }
@@ -539,7 +589,12 @@ private fun SharePreview(
         },
         contentAlignment = Alignment.Center,
         label = "sharePreview",
-        modifier = Modifier.fillMaxWidth(),
+        // A fixed box for every tab, layout and format (owner device check 2026-11-25: the sheet's height
+        // jumped on each switch): the image scales to fit inside it, the sheet never resizes.
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(maxHeight)
+            .testTag(SharePreviewBoxTag),
     ) { (shownLayout, shownFormat) ->
         val key = shownLayout to shownFormat
         val layer = rememberGraphicsLayer()
@@ -547,7 +602,7 @@ private fun SharePreview(
             layers[key] = layer
             onDispose { if (layers[key] === layer) layers.remove(key) }
         }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             ShareImage(
                 content = content,
                 layout = shownLayout,
@@ -811,6 +866,7 @@ private fun ShareActions(
 }
 
 internal const val SharePreviewTag = "sharePreview"
+internal const val SharePreviewBoxTag = "sharePreviewBox"
 internal const val ShareTabTagPrefix = "shareTab:"
 internal const val ShareThumbTagPrefix = "shareThumb:"
 

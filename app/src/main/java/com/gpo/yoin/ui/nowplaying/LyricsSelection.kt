@@ -95,11 +95,19 @@ internal class LyricsSelectionState(private val maxLines: Int = MaxSelectedLyric
     }
 }
 
+/**
+ * The pick for [songId]'s [lyrics]. Inside Now Playing it lives in the ViewModel ([LocalShareRetained]), so a
+ * rotation — a new Activity, or another layout composable for the new size — keeps select mode, the pick
+ * and an open share sheet (owner device check 2026-11-25); a new song or new lyrics start a fresh pick.
+ */
 @Composable
 internal fun rememberLyricsSelectionState(
     songId: String,
     lyrics: List<LyricLine>,
-): LyricsSelectionState = remember(songId, lyrics) { LyricsSelectionState() }
+): LyricsSelectionState {
+    val retained = LocalShareRetained.current
+    return remember(songId, lyrics, retained) { retained?.selectionFor(songId, lyrics) ?: LyricsSelectionState() }
+}
 
 /**
  * Most lines one pick holds — spotoolfy's poster cap (`_selectedCount/15`);
@@ -413,7 +421,11 @@ internal class LyricsShareSheetState {
     var snapshot: LyricsShareSnapshot? by mutableStateOf(null)
         private set
 
+    /** The open sheet's tab, format and tone, kept with it across a rotation. */
+    val ui = ShareSheetUi()
+
     fun open(snapshot: LyricsShareSnapshot) {
+        ui.reset()
         this.snapshot = snapshot
     }
 
@@ -439,7 +451,7 @@ internal fun LyricsSelectionHost(
     selection: LyricsSelectionState,
     lyricsPageOnScreen: Boolean,
     onMessage: (String) -> Unit,
-    shareSheet: LyricsShareSheetState = remember { LyricsShareSheetState() },
+    shareSheet: LyricsShareSheetState = LocalShareRetained.current?.lyricsSheet ?: remember { LyricsShareSheetState() },
     sheet: @Composable (snapshot: LyricsShareSnapshot, onShared: () -> Unit, onDismiss: () -> Unit) -> Unit =
         { snapshot, onShared, onDismiss ->
             val context = LocalContext.current
@@ -449,6 +461,7 @@ internal fun LyricsSelectionHost(
             ShareSheet(
                 content = content,
                 initialTab = ShareTab.Lyrics,
+                ui = LocalShareRetained.current?.lyricsSheet?.ui ?: remember { ShareSheetUi() },
                 onShared = onShared,
                 onDismiss = onDismiss,
                 onMessage = onMessage,
@@ -463,8 +476,11 @@ internal fun LyricsSelectionHost(
             )
         },
 ) {
-    LaunchedEffect(lyricsPageOnScreen) {
-        if (!lyricsPageOnScreen) selection.exit()
+    // Leaving the lyrics page leaves select mode — but not while the share sheet is up: a rotation can
+    // report the page off screen for a frame as the new layout settles, and the pick must survive it.
+    val sheetOpen = shareSheet.snapshot != null
+    LaunchedEffect(lyricsPageOnScreen, sheetOpen) {
+        if (!lyricsPageOnScreen && !sheetOpen) selection.exit()
     }
     BackHandler(enabled = selection.active && !selection.sharing && shareSheet.snapshot == null) {
         selection.exit()

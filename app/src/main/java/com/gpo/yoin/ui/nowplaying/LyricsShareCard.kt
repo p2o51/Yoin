@@ -74,6 +74,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import hct.Hct
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -172,7 +174,11 @@ internal enum class ShareTone {
     /** Tertiary container + its on-colour (spotoolfy style 4) — the lyrics' fourth slot. */
     Mist,
 
-    /** The lowest surface (white in the light theme) with the role colour as ink — About and Note's fourth slot. */
+    /**
+     * A white paper card with the role's colour as ink — About and Note's fourth slot. Theme-independent
+     * (owner 2026-11-25: 纸 is a white card with coloured text, in dark mode too): the ink is the role's
+     * light-theme tone ([paperInk]).
+     */
     Paper,
 }
 
@@ -214,9 +220,25 @@ internal fun ShareTone.colors(scheme: ColorScheme, role: ShareRole = ShareRole.L
         ShareTone.Soft -> pair(container, onContainer, main)
         ShareTone.Deep -> pair(onContainer, container, container)
         ShareTone.Vivid -> pair(main, onMain, container)
-        ShareTone.Mist, ShareTone.Paper -> pair(scheme.surfaceContainerLowest, main, container)
+        ShareTone.Mist, ShareTone.Paper -> pair(PaperCard, paperInk(main), paperTone(main, PaperBackdropTone))
     }
 }
+
+/** Paper's card: white, whatever the theme. */
+internal val PaperCard = Color.White
+
+/** The role colour at its light-theme tone (T40), the same hue and chroma: Paper's ink in both themes. */
+internal fun paperInk(role: Color): Color = paperTone(role, PaperInkTone)
+
+private fun paperTone(role: Color, tone: Double): Color {
+    val hct = Hct.fromInt(role.toArgb())
+    return Color(Hct.from(hct.hue, hct.chroma, tone).toInt())
+}
+
+private const val PaperInkTone = 40.0
+
+/** Paper's Story backdrop: the role at its light container tone. */
+private const val PaperBackdropTone = 90.0
 
 /** The card's logical width; exported at [LyricsCardExportWidthPx]. */
 internal val LyricsCardDesignWidth = 360.dp

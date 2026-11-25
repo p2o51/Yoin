@@ -290,10 +290,20 @@ private fun ShareFoot(colors: ShareCardColors, sign: (@Composable () -> Unit)? =
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             color = ink,
         )
-        Spacer(Modifier.weight(1f))
-        sign?.invoke()
+        if (sign == null) {
+            Spacer(Modifier.weight(1f))
+        } else {
+            // The sign keeps its distance from the mark and wraps (right-aligned) rather than ever being cut:
+            // a story zoomed in lays the card out narrower.
+            Spacer(Modifier.width(SignGap))
+            Box(Modifier.weight(1f).testTag(ShareSignTag), contentAlignment = Alignment.CenterEnd) { sign() }
+        }
     }
 }
+
+/** About's sign when the image carries AI words; none when it is the service's credits alone. */
+private fun aiSignOrNull(content: ShareContent, colors: ShareCardColors): (@Composable () -> Unit)? =
+    if (content.about?.aiContent == true) ({ AiSign(content, colors) }) else null
 
 /** "✦ 由 Gemini 整理": the active AI service signs About's words. */
 @Composable
@@ -306,7 +316,7 @@ private fun AiSign(content: ShareContent, colors: ShareCardColors) {
             text = stringResource(R.string.np_share_ai_sign, name),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
             color = colors.secondary,
-            maxLines = 1,
+            textAlign = TextAlign.End,
         )
     }
 }
@@ -319,7 +329,7 @@ private fun NoteSign(note: NoteSharePick, color: Color) {
         text = stringResource(R.string.np_share_note_written, shareNoteDate(note.createdAt, locale)),
         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
         color = color,
-        maxLines = 1,
+        textAlign = TextAlign.End,
     )
 }
 
@@ -694,7 +704,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
             )
         }
         Spacer(Modifier.height(24.dp))
-        ShareFoot(colors, sign = { AiSign(content, colors) })
+        ShareFoot(colors, sign = aiSignOrNull(content, colors))
     }
 }
 
@@ -743,7 +753,7 @@ private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame
         )
         ShareHead(content.song, colors, coverSize = 32.dp)
         Spacer(Modifier.height(24.dp))
-        ShareFoot(colors, sign = { AiSign(content, colors) })
+        ShareFoot(colors, sign = aiSignOrNull(content, colors))
     }
 }
 
@@ -819,7 +829,7 @@ private fun AboutLinerBody(content: ShareContent, colors: ShareCardColors, frame
                 )
             }
         }
-        Box(Modifier.padding(top = 24.dp)) { ShareFoot(colors, sign = { AiSign(content, colors) }) }
+        Box(Modifier.padding(top = 24.dp)) { ShareFoot(colors, sign = aiSignOrNull(content, colors)) }
     }
 }
 
@@ -1091,6 +1101,10 @@ private fun Modifier.dotPaper(dot: Color): Modifier = drawBehind {
 }
 
 internal const val ShareImageTag = "shareImage"
+internal const val ShareSignTag = "shareSign"
+
+/** At least this between the mark's "Yoin" and the sign. */
+private val SignGap = 16.dp
 
 private val CardPadding = 24.dp
 private val PaddingValuesPoster = 28.dp
@@ -1154,9 +1168,9 @@ internal val PreviewShareContent = ShareContent(
 private annotation class ShareImagePreviews
 
 @Composable
-private fun SharePreview(layout: ShareLayout, format: LyricsShareFormat) {
+private fun SharePreview(layout: ShareLayout, format: LyricsShareFormat, tone: ShareTone = ShareTone.Soft) {
     YoinTheme {
-        ShareImage(content = PreviewShareContent, layout = layout, format = format, tone = ShareTone.Soft)
+        ShareImage(content = PreviewShareContent, layout = layout, format = format, tone = tone)
     }
 }
 
@@ -1203,3 +1217,12 @@ private fun ShareNoteTimelinePreview() = SharePreview(ShareLayout.NoteTimeline, 
 @Preview(name = "Note Timeline Story", widthDp = 360, heightDp = 640)
 @Composable
 private fun ShareNoteTimelineStoryPreview() = SharePreview(ShareLayout.NoteTimeline, LyricsShareFormat.Story)
+
+@Preview(name = "Note Big Story", widthDp = 360, heightDp = 640)
+@Composable
+private fun ShareNoteBigStoryPreview() = SharePreview(ShareLayout.NoteBig, LyricsShareFormat.Story)
+
+/** 纸 stays a white card with the role's ink in both themes. */
+@ShareImagePreviews
+@Composable
+private fun ShareAboutPaperPreview() = SharePreview(ShareLayout.AboutReceipt, LyricsShareFormat.Card, ShareTone.Paper)

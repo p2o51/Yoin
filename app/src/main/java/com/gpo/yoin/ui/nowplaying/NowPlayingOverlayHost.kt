@@ -164,7 +164,9 @@ fun NowPlayingOverlayHost(
     }
     // Share as image from About and Note (LocalShareSheetHost); what it can
     // share is read from here when a sheet opens (LocalShareSources).
-    val shareHost = remember { ShareSheetHost() }
+    // Held by the ViewModel: a rotation keeps an open sheet, its choices and the lyrics pick.
+    val shareRetained = viewModel.shareRetained
+    val shareHost = shareRetained.host
     val latestShareState by rememberUpdatedState(nowPlayingUiState)
     val latestShareAbout by rememberUpdatedState(aboutUiState)
     val latestShareNotes by rememberUpdatedState(notesState)
@@ -678,6 +680,7 @@ fun NowPlayingOverlayHost(
                     LocalNowPlayingCoverMenu provides coverMenuHost,
                     LocalAboutEntryActions provides aboutActions,
                     LocalShareSheetHost provides shareHost,
+                    LocalShareRetained provides shareRetained,
                     LocalShareSources provides shareSources,
                     LocalNowPlayingSing provides singUi,
                 ) {
@@ -1092,8 +1095,10 @@ private fun ShareSheetRequestHost(
 ) {
     val request = host.request ?: return
     val resources = LocalContext.current.resources
+    // Frozen on the host when first read: a rotation redraws the same image, not the playhead's new line.
     val content = remember(request) {
-        sources.content(resources, aboutFocus = request.aboutFocus, noteId = request.noteId)
+        host.frozen ?: sources.content(resources, aboutFocus = request.aboutFocus, noteId = request.noteId)
+            .also { host.frozen = it }
     }
     if (content == null || !content.has(request.tab)) {
         LaunchedEffect(request) { host.close() }
@@ -1105,6 +1110,7 @@ private fun ShareSheetRequestHost(
         onShared = host::close,
         onDismiss = host::close,
         onMessage = onMessage,
+        ui = host.ui,
         onKept = {
             content.lyrics?.let { pick ->
                 container.lyricHighlightProcessor.keepUserPick(

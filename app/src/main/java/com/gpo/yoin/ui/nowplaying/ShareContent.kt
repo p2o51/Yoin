@@ -94,9 +94,13 @@ internal data class LyricsSharePick(
     val showTranslation: Boolean = false,
 )
 
-/** One credit on an About image ("作词" / "吴青峰"). */
+/**
+ * One line on an About image ("作词" / "吴青峰"). [ai]: the AI wrote it (a Gemini row), not the lyrics'
+ * credits or the server. [fact]: a plain fact about the release (the year), not a credit — on its own it
+ * isn't worth an About image.
+ */
 @Immutable
-internal data class ShareCredit(val label: String, val value: String)
+internal data class ShareCredit(val label: String, val value: String, val ai: Boolean = false, val fact: Boolean = false)
 
 /**
  * About as shared (owner 2026-11-25): the credits and ONE paragraph, nothing else — none of the server's
@@ -109,7 +113,13 @@ internal data class AboutSharePick(
     /** The paragraph's heading: "关于" for the review, the question's title for an answer. */
     val heading: String,
     val paragraph: String?,
-)
+) {
+    /**
+     * Whether anything on the image came from the AI (the paragraph, or a credit it wrote): only then does
+     * the image say "由 X 整理" (owner 2026-11-25 — an image of the service's credits alone is nobody's work).
+     */
+    val aiContent: Boolean get() = paragraph != null || credits.any { it.ai }
+}
 
 /** One of the listener's notes (one note per image). */
 @Immutable
@@ -133,7 +143,8 @@ internal data class ShareContent(
 ) {
     fun has(tab: ShareTab): Boolean = when (tab) {
         ShareTab.Lyrics -> lyrics != null && lyrics.lines.isNotEmpty()
-        ShareTab.About -> about != null && (about.credits.isNotEmpty() || about.paragraph != null)
+        // Credits or AI words; the year alone is not an About.
+        ShareTab.About -> about != null && (about.paragraph != null || about.credits.any { !it.fact })
         ShareTab.Note -> note != null && note.content.isNotBlank()
     }
 
@@ -340,13 +351,15 @@ internal fun aboutSharePick(
     focus: SongAboutEntry? = null,
 ): AboutSharePick? {
     // Only the composer (a credit) and the year cross over from the server; every other fact stays home.
-    val creditFacts = facts?.let { SpineSourceFacts(composer = it.composer, year = it.year) }
-    val rows = aboutReceiptRows(entries, credits, creditFacts, labels).map { ShareCredit(it.label, it.value) }
+    val creditFacts = facts?.composer?.let { SpineSourceFacts(composer = it) }
+    val rows = aboutReceiptRows(entries, credits, creditFacts, labels).map { row ->
+        ShareCredit(row.label, row.value, ai = row.entry != null)
+    } + listOfNotNull(facts?.year?.let { ShareCredit(labels.year, it.toString(), fact = true) })
     val aiParagraphs = aboutParagraphs(entries, reviewLabel).filter { it.entry.kind != SongAboutEntry.KIND_OWN }
     val chosen = focus?.let { f -> aiParagraphs.firstOrNull { it.entry.kind == f.kind && it.entry.entryKey == f.entryKey } } ?: aiParagraphs.firstOrNull {
         it.entry.kind == SongAboutEntry.KIND_CANONICAL
     }
-    if (rows.isEmpty() && chosen == null) return null
+    if (rows.none { !it.fact } && chosen == null) return null
     return AboutSharePick(
         credits = rows,
         heading = chosen?.label ?: reviewLabel,
