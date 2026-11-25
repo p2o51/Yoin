@@ -941,6 +941,9 @@ Album renamedAlbum(Album a, {required String name, String? artist, List<Track>? 
   addedAt: a.addedAt,
   releaseType: a.releaseType,
   version: a.version,
+  releaseDate: a.releaseDate,
+  recordLabels: a.recordLabels,
+  originalReleaseDate: a.originalReleaseDate,
 );
 
 /// [a] under another name; everything else kept.

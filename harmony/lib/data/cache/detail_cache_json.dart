@@ -24,6 +24,9 @@ abstract final class DetailCacheJson {
     'aa': ?a.addedAt,
     'rt': ?a.releaseType?.name,
     'v': ?a.version,
+    'rd': ?a.releaseDate,
+    if (a.recordLabels.isNotEmpty) 'lb': a.recordLabels,
+    'ord': ?a.originalReleaseDate,
   };
 
   static Album? albumFrom(Object? json) {
@@ -47,6 +50,13 @@ abstract final class DetailCacheJson {
       addedAt: json['aa'] as String?,
       releaseType: ReleaseType.values.where((r) => r.name == json['rt']).firstOrNull,
       version: json['v'] as String?,
+      releaseDate: json['rd'] as String?,
+      recordLabels: [
+        if (json['lb'] case final List<Object?> labels)
+          for (final l in labels)
+            if (l is String) l,
+      ],
+      originalReleaseDate: json['ord'] as String?,
     );
   }
 
