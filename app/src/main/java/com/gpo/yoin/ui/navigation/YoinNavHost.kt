@@ -112,6 +112,7 @@ import com.gpo.yoin.player.PlayableQueue
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.player.startWindowQueue
+import com.gpo.yoin.ui.common.rememberLatestCallback
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
@@ -919,7 +920,12 @@ private fun YoinShell(
         }
     }
     // Each entry starts the page's load before any gate (ui/detail/DetailPrefetch.kt).
-    val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+    // One identity each for the shell's life (rememberLatestCallback): they close
+    // over openPane, which closes over whether Now Playing is open, so every
+    // open and close handed Home, Library and Now Playing new callbacks and
+    // recomposed all three, deep, in the frame the player started to leave —
+    // the stall before a released drag or a committed back moved it.
+    val navigateToAlbumFromShell: (String, String?) -> Unit = rememberLatestCallback { albumId, sharedTransitionKey ->
         app.container.repository.prefetchAlbumDetail(albumId)
         if (hasDetailPane) {
             YoinPerf.detailClick("album", albumId, via = "pane")
@@ -938,7 +944,7 @@ private fun YoinShell(
             }
         }
     }
-    val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+    val navigateToArtistFromShell: (String, String?) -> Unit = rememberLatestCallback { artistId, sharedTransitionKey ->
         app.container.repository.prefetchArtistDetail(artistId)
         if (hasDetailPane) {
             YoinPerf.detailClick("artist", artistId, via = "pane")
@@ -957,7 +963,7 @@ private fun YoinShell(
             }
         }
     }
-    val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+    val navigateToPlaylistFromShell: (String, String?) -> Unit = rememberLatestCallback { playlistId, sharedTransitionKey ->
         app.container.repository.prefetchPlaylistDetail(playlistId)
         if (hasDetailPane) {
             YoinPerf.detailClick("playlist", playlistId, via = "pane")

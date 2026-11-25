@@ -10,7 +10,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -49,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -71,6 +71,7 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.common.rememberLatestCallback
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
@@ -146,10 +147,16 @@ fun NowPlayingOverlayHost(
     val singVocalLevel by container.singController.vocalLevel.collectAsState()
     val singAvailability by container.singController.availability.collectAsState()
     val singFailureTick by container.singController.failureTick.collectAsState()
-    // The cover's long-press song menu (LocalNowPlayingCoverMenu): this
-    // window's navigation, playlist sheet and snackbar.
-    val currentOnAlbumClick by rememberUpdatedState(onAlbumClick)
-    val currentOnArtistClick by rememberUpdatedState(onArtistClick)
+    // This window's navigation, one identity each for the overlay's life
+    // (rememberLatestCallback). A host's callbacks may be new at every open
+    // and close (the shell's close over whether the player is open); handed
+    // to the player as they are, they recomposed all of it in the frame it
+    // started to leave. The cover's long-press song menu
+    // (LocalNowPlayingCoverMenu) takes them too, with this window's playlist
+    // sheet and snackbar.
+    val currentOnAlbumClick = rememberLatestCallback(onAlbumClick)
+    val currentOnArtistClick = rememberLatestCallback(onArtistClick)
+    val currentOnPlaylistClick = rememberLatestCallback(onPlaylistClick)
     val coverMenuHost = remember(container, viewModel) {
         TrackMenuHost(
             container = container,
@@ -437,16 +444,20 @@ fun NowPlayingOverlayHost(
 
     // ── Background scrim ─────────────────────────────────────────────────
     // None beside the side panel: the host content stays usable next to it.
-    val scrimAlpha by animateFloatAsState(
+    // The fade is read in draw only: read here, every frame of it re-ran this
+    // whole host, through the player's exit and entrance. Composition hears
+    // only whether the scrim is there at all.
+    val scrimAlpha = animateFloatAsState(
         targetValue = if (expanded && !panelMode) 0.5f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "scrimAlpha",
     )
-    if (scrimAlpha > 0f) {
+    val scrimShown by remember { derivedStateOf { scrimAlpha.value > 0f } }
+    if (scrimShown) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = scrimAlpha)),
+                .drawBehind { drawRect(Color.Black, alpha = scrimAlpha.value) },
         )
     }
 
@@ -529,9 +540,12 @@ fun NowPlayingOverlayHost(
         val nowPlayingBufferedMs = viewModel.bufferedMs.collectAsState()
         val nowPlayingIsPlaying by viewModel.isPlayingLive.collectAsState()
         // Keep screen on (the cover menu's player setting): only while Now
-        // Playing is open and music plays.
+        // Playing is up and music plays. Let go when the player is gone (this
+        // content leaves with its exit), not in the close's first frame: the
+        // window flag change relays the whole window, and that frame belongs
+        // to the exit.
         val keepScreenOn = rememberNowPlayingKeepScreenOn()
-        KeepScreenOnWhile(active = expanded && keepScreenOn && nowPlayingIsPlaying)
+        KeepScreenOnWhile(active = keepScreenOn && nowPlayingIsPlaying)
         // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
         // "is a spectrum present", so subscribe to that distinct Boolean
         // and keep the frames out of composition entirely.
@@ -709,9 +723,9 @@ fun NowPlayingOverlayHost(
                             )
                         },
                         onSetPlayMode = viewModel::setPlayMode,
-                        onAlbumClick = onAlbumClick,
-                        onArtistClick = onArtistClick,
-                        onPlaylistClick = onPlaylistClick,
+                        onAlbumClick = currentOnAlbumClick,
+                        onArtistClick = currentOnArtistClick,
+                        onPlaylistClick = currentOnPlaylistClick,
                         onDismiss = closeNowPlaying,
                         dismissFraction = {
                             val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
