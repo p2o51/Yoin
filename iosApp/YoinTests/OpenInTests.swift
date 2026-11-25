@@ -378,8 +378,9 @@ final class OpenInTests: XCTestCase {
         XCTAssertNil(OpenInInbox.take(now: now, from: defaults), "taken once")
         OpenInInbox.put("old", now: now, into: defaults)
         XCTAssertNil(OpenInInbox.take(now: now.addingTimeInterval(OpenInInbox.maxAge + 1), from: defaults))
-        XCTAssertTrue(OpenInInbox.isOpenIn(OpenInInbox.url))
-        XCTAssertFalse(OpenInInbox.isOpenIn(URL(string: "yoin://auth/spotify")!))
+        OpenInInbox.put("fresh", now: now, into: defaults)
+        XCTAssertEqual(OpenInInbox.take(now: now.addingTimeInterval(OpenInInbox.maxAge), from: defaults), "fresh",
+                       "ten minutes is still in time")
     }
 
     func testCopyIsAndroidsApprovedStrings() {

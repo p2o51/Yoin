@@ -33,6 +33,9 @@ targets:
     platform: iOS
     sources:
       - path: Yoin
+      # The share extension's confirmation and its words, for the QA screenshot (-openInDemo share-confirm).
+      - path: YoinShare/ShareConfirmation.swift
+      - path: YoinShare/Share.xcstrings
       # Sing on-device CoreML model (8.3 MB FP32, do NOT convert to FP16): delivered via Apple ODR
       # tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
       - path: OnDemandResources/LyraSingLite.mlpackage
@@ -235,8 +238,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         SKIP_INSTALL: YES
-  # "Open in Yoin" in the share sheet: hands the shared link or text to the app through the App Group and
-  # opens yoin://open-in (OpenIn/OpenInInbox.swift). No UI, no network.
+  # "Open in Yoin" in the share sheet: keeps the shared link or text in the App Group for Yoin's next return
+  # to the front and says so (YoinShare/ShareConfirmation.swift). Public API only, no network.
   YoinShare:
     type: app-extension
     platform: iOS

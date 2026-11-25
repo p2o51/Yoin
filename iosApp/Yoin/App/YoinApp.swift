@@ -59,11 +59,6 @@ struct RootView: View {
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
         // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
         .onOpenURL { url in
-            // The share extension ("Open in Yoin") left its text in the App Group (OpenIn/OpenInInbox.swift).
-            if OpenInInbox.isOpenIn(url) {
-                if let text = OpenInInbox.take() { model.openIn.offerShared(text) }
-                return
-            }
             // A home screen widget's tap (Widgets/WidgetSnapshot.swift: WidgetLink).
             if let link = WidgetLink(url: url) { return model.handleWidget(link) }
             // The Spotify app hands back here after waking (App Remote's token).

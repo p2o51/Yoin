@@ -1,0 +1,39 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Done" : {
+      "comment" : "Closes the share confirmation.",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "Open Yoin to continue." : {
+      "comment" : "Share extension confirmation body. PLACEHOLDER: proposed copy awaiting approval (owner/Rebecca).",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开 Yoin 即可继续。"
+          }
+        }
+      }
+    },
+    "Saved for Yoin" : {
+      "comment" : "Share extension confirmation title. PLACEHOLDER: proposed copy awaiting approval (owner/Rebecca).",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已转交给 Yoin"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

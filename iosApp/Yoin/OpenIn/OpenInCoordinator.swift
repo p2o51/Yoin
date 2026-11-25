@@ -38,6 +38,8 @@ enum OpenInRequest: Equatable, Sendable {
 @Observable
 final class OpenInCoordinator {
     private(set) var prompt: OpenInPrompt?
+    /// QA screenshots only (`-openInDemo share-confirm`): the share extension's confirmation over the app.
+    var demoShareConfirm = false
 
     @ObservationIgnored var lookup: MusicLinkLookup = MusicLinkResolver()
     @ObservationIgnored var profiles: @MainActor () -> [Profile] = { [] }

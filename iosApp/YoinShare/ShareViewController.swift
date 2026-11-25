@@ -1,11 +1,13 @@
+import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// "Open in Yoin" in the share sheet (docs/open-in-yoin.md; Android OpenInShareActivity). Tiny on purpose:
-/// no window of its own. It takes the shared link or text, leaves it in the App Group for a moment
-/// (OpenInInbox) and opens Yoin with `yoin://open-in`, which opens a music link in the account on its
-/// service (or searches the account in use) and puts any other text into Search. Nothing is sent anywhere
-/// from here. Yoin never registers for Spotify or Apple Music web links: it only gets what the user sends.
+/// "Open in Yoin" in the share sheet (docs/open-in-yoin.md; Android OpenInShareActivity). Tiny on purpose and
+/// public API only (owner 2026-11-25: it must pass App Review). It takes the shared link or text, keeps it in
+/// the App Group (OpenInInbox) and says so with a small confirmation and Done (ShareConfirmation). Yoin opens
+/// a music link in the account on its service (or searches the account in use), or puts other text into
+/// Search, the next time it comes to the front (within ten minutes). A share extension can't open its app: Apple documents
+/// `NSExtensionContext.open` for Today and iMessage extensions only. Nothing is sent anywhere from here.
 final class ShareViewController: UIViewController {
     private var handled = false
 
@@ -20,12 +22,27 @@ final class ShareViewController: UIViewController {
         handled = true
         let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
         Task { @MainActor in
-            if let text = await Self.sharedText(items) {
-                OpenInInbox.put(text)
-                openYoin()
+            guard let text = await Self.sharedText(items) else {
+                // Nothing Yoin can take (no link, no text): the share ends without a word.
+                extensionContext?.completeRequest(returningItems: nil)
+                return
             }
-            extensionContext?.completeRequest(returningItems: nil)
+            OpenInInbox.put(text)
+            OpenInInbox.postShared()
+            showConfirmation()
         }
+    }
+
+    private func showConfirmation() {
+        let host = UIHostingController(rootView: ShareConfirmation { [weak self] in
+            self?.extensionContext?.completeRequest(returningItems: nil)
+        })
+        host.view.backgroundColor = .clear
+        addChild(host)
+        host.view.frame = view.bounds
+        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(host.view)
+        host.didMove(toParent: self)
     }
 
     /// The shared URL, else the shared text, else the item's own text (some apps put the title there and
@@ -45,22 +62,5 @@ final class ShareViewController: UIViewController {
         }
         return items.compactMap { $0.attributedContentText?.string }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    /// A share extension can't call `UIApplication.open`; the app object up the responder chain still takes
-    /// `openURL:options:completionHandler:`. Where it doesn't, the text waits in the App Group and Yoin takes
-    /// it the next time it comes to the front (within ten minutes).
-    private func openYoin() {
-        let selector = NSSelectorFromString("openURL:options:completionHandler:")
-        var responder: UIResponder? = self
-        while let r = responder {
-            if r is UIApplication, r.responds(to: selector) {
-                typealias Open = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, AnyObject?) -> Void
-                let open = unsafeBitCast(r.method(for: selector), to: Open.self)
-                open(r, selector, OpenInInbox.url as NSURL, NSDictionary(), nil)
-                return
-            }
-            responder = r.next
-        }
     }
 }

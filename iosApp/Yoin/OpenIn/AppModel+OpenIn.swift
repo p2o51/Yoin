@@ -91,13 +91,18 @@ extension AppModel {
         }
     }
 
-    /// Yoin came to the front (or was opened by the share extension): a share waiting in the App Group is
-    /// taken; otherwise the clipboard is looked at once.
+    /// A share the extension left in the App Group, taken once (OpenInInbox). True when there was one.
+    @discardableResult
+    func takeOpenInShare() -> Bool {
+        guard let shared = OpenInInbox.take() else { return false }
+        openIn.offerShared(shared)
+        return true
+    }
+
+    /// Yoin came to the front: a share waiting in the App Group is taken; otherwise the clipboard is looked
+    /// at once.
     func openInReturned() async {
-        if let shared = OpenInInbox.take() {
-            openIn.offerShared(shared)
-            return
-        }
+        if takeOpenInShare() { return }
         if await clipboardWatcher.check(hasAccounts: !profiles.profiles.isEmpty, landingOpen: landing != nil) {
             withAnimation(Yoin.spatial) { openIn.offerPaste() }
         }
@@ -120,6 +125,11 @@ struct OpenInHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay { OpenInCardLayer() }
+            #if DEBUG
+            .overlay {
+                if model.openIn.demoShareConfirm { ShareConfirmation { model.openIn.demoShareConfirm = false } }
+            }
+            #endif
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 armed = true
             }
@@ -128,7 +138,27 @@ struct OpenInHost: ViewModifier {
                 armed = false
                 Task { await model.openInReturned() }
             }
+            // A share saved while Yoin is already in front (iPad beside another app, a Mac): taken now.
+            .onReceive(NotificationCenter.default.publisher(for: OpenInShareSignal.name)) { _ in
+                if scenePhase == .active { model.takeOpenInShare() }
+            }
+            .onAppear { OpenInShareSignal.listen() }
             // Requests wait while the first-run landing covers the shell.
             .onChange(of: model.landing == nil, initial: true) { _, shellUp in model.openInShellUp(shellUp) }
+    }
+}
+
+/// The extension's Darwin notification (OpenInInbox.darwinNotification), passed on as a NotificationCenter
+/// one on the main queue.
+enum OpenInShareSignal {
+    static let name = Notification.Name("yoinOpenInShared")
+    @MainActor private static var listening = false
+
+    @MainActor static func listen() {
+        guard !listening else { return }
+        listening = true
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            DispatchQueue.main.async { NotificationCenter.default.post(name: OpenInShareSignal.name, object: nil) }
+        }, OpenInInbox.darwinNotification as CFString, nil, .deliverImmediately)
     }
 }

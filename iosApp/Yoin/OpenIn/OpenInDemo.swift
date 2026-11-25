@@ -7,6 +7,7 @@ import SwiftUI
 ///   Its title, artist and cover are read live from the open.spotify.com page, as the app reads them without
 ///   a login; offline it falls back to the same words without a cover.
 /// - `paste`: the card before the clipboard is read ("Link in clipboard", the system Paste button).
+/// - `share-confirm`: the share extension's confirmation (YoinShare/ShareConfirmation.swift) over Home.
 /// - `nolink`: after a paste with no music link in it ("No music link found").
 /// - `results`: Choose a match for that link, rows from the mock library.
 /// - `settings`: Settings › Features and appearance › Music links.
@@ -31,6 +32,9 @@ enum OpenInDemo {
                 try? await Task.sleep(for: .milliseconds(1200))
                 withAnimation(Yoin.spatial) { model.openIn.offerPaste() }
             }
+        case "share-confirm":
+            // The share extension's confirmation as it shows over the app it was shared from.
+            model.openIn.demoShareConfirm = true
         case "nolink":
             // What Paste shows when the clipboard held no music link, held long enough for a screenshot.
             model.openIn.noLinkHold = .seconds(60)
