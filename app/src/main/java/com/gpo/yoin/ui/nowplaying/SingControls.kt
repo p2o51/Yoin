@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -302,6 +303,8 @@ internal fun SingLyricsCapsuleKey(
     sing: NowPlayingSingUi,
     iconSize: Dp = 52.dp,
     modifier: Modifier = Modifier,
+    maxExpandedWidth: Dp = Dp.Unspecified,
+    onCapsuleExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val density = LocalDensity.current
@@ -310,11 +313,19 @@ internal fun SingLyricsCapsuleKey(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     var wasPreparing by remember { mutableStateOf(isPreparing) }
     var capsuleExpanded by remember { mutableStateOf(isActive) }
+    val latestOnExpandedChange by rememberUpdatedState(onCapsuleExpandedChange)
+
+    fun updateCapsuleExpanded(expanded: Boolean) {
+        if (capsuleExpanded != expanded) {
+            capsuleExpanded = expanded
+            latestOnExpandedChange?.invoke(expanded)
+        }
+    }
 
     LaunchedEffect(isPreparing, isActive, reduced) {
         if (isPreparing) {
             wasPreparing = true
-            capsuleExpanded = false
+            updateCapsuleExpanded(false)
         } else if (isActive) {
             if (wasPreparing && !reduced) {
                 // Hold expansion briefly while SingPreparingMicIcon fast-settles back to the resting mic pose
@@ -322,14 +333,19 @@ internal fun SingLyricsCapsuleKey(
                 delay(160L)
             }
             wasPreparing = false
-            capsuleExpanded = true
+            updateCapsuleExpanded(true)
         } else {
             wasPreparing = false
-            capsuleExpanded = false
+            updateCapsuleExpanded(false)
         }
     }
 
-    val expandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
+    val defaultExpandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
+    val expandedWidth = if (maxExpandedWidth != Dp.Unspecified) {
+        maxExpandedWidth.coerceIn(iconSize, defaultExpandedWidth)
+    } else {
+        defaultExpandedWidth
+    }
     val targetWidth = if (capsuleExpanded) expandedWidth else iconSize
     val targetCorner = if (capsuleExpanded) iconSize / 2 else iconSize * 0.31f
 
@@ -598,7 +614,7 @@ internal fun SingLyricsCapsuleKey(
                     onSettledHome = {
                         if (latestSing.isActive && !capsuleExpanded) {
                             wasPreparing = false
-                            capsuleExpanded = true
+                            updateCapsuleExpanded(true)
                         }
                     },
                 )
@@ -993,8 +1009,10 @@ internal fun SingAwareFavoriteSlot(
         MaterialTheme.colorScheme.onTertiaryContainer
     }
     val clampedBg = bgMix.coerceIn(0f, 1f)
-    val blendedBg = lerp(MaterialTheme.colorScheme.primaryContainer, heartBg, clampedBg)
-    val blendedFg = lerp(MaterialTheme.colorScheme.onPrimaryContainer, heartFg, clampedBg)
+    // Perceptual Oklab color interpolation avoids muddy gray midpoints between complementary
+    // primaryContainer (e.g. mint/green) and tertiaryContainer (pink/rose).
+    val blendedBg = lerpOklab(MaterialTheme.colorScheme.primaryContainer, heartBg, clampedBg)
+    val blendedFg = lerpOklab(MaterialTheme.colorScheme.onPrimaryContainer, heartFg, clampedBg)
 
     val atHeartRest = !active && morph >= 0.995f && slash <= 0.005f
     val atSingRest = active && morph <= 0.005f && (preparing || slash >= 0.995f)
@@ -1011,7 +1029,8 @@ internal fun SingAwareFavoriteSlot(
                 isPreparing = sing.isPreparing,
             )
         } else {
-            // Mid-morph: single steady 44dp circle with true 6-cubic mic ↔ heart path interpolation.
+            // Mid-morph: single steady 44dp circle with true 6-cubic mic ↔ heart path interpolation
+            // (optical size scales smoothly 22dp ↔ 24dp inside the 24dp canvas).
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -1024,9 +1043,13 @@ internal fun SingAwareFavoriteSlot(
                     slashProgress = slash,
                     heartFillAlpha = heartFillAlpha,
                     tint = blendedFg,
-                    size = 22.dp,
+                    size = 24.dp,
                 )
             }
         }
     }
 }
+
+private fun lerpOklab(start: Color, stop: Color, fraction: Float): Color =
+    lerp(start.convert(ColorSpaces.Oklab), stop.convert(ColorSpaces.Oklab), fraction)
+        .convert(ColorSpaces.Srgb)

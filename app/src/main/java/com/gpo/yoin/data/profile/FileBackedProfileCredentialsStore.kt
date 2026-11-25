@@ -5,6 +5,8 @@ import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * [ProfileCredentialsStore] that writes one envelope-per-profile file
@@ -22,66 +24,110 @@ import java.nio.file.StandardCopyOption
  * missing". We deliberately keep this plain-JDK rather than pull
  * `android.util.AtomicFile` so the same code runs in JVM unit tests
  * without Android shims.
+ *
+ * Decrypted [ProfileCredentials] are cached in memory per profile for the
+ * lifetime of the process (the active `MusicSource` instances already hold
+ * the same credentials on the heap) to avoid repeated Keystore IPC on source
+ * rebuilds and sync identity checks. Per-profile locks and monotonic version
+ * stamps ensure concurrent writes or deletes atomically replace/evict cached
+ * entries without blocking on Keystore decryption.
  */
 class FileBackedProfileCredentialsStore(
     private val storageDir: File,
     private val codec: ProfileCredentialsCodec,
 ) : ProfileCredentialsStore {
 
+    private val cache = ConcurrentHashMap<String, ProfileCredentials>()
+    private val locks = ConcurrentHashMap<String, Any>()
+    private val versions = ConcurrentHashMap<String, AtomicLong>()
+
+    private fun lockFor(profileId: String): Any = locks.computeIfAbsent(profileId) { Any() }
+
+    private fun versionFor(profileId: String): AtomicLong =
+        versions.computeIfAbsent(profileId) { AtomicLong(0L) }
+
     override fun write(profileId: String, credentials: ProfileCredentials) {
-        ensureStorageDir()
-        val target = fileFor(profileId)
-        val tmp = File(storageDir, "${profileId}$TMP_SUFFIX")
-        val backup = File(storageDir, "${profileId}$BACKUP_SUFFIX")
         val envelope = codec.encode(credentials).toByteArray(Charsets.UTF_8)
+        synchronized(lockFor(profileId)) {
+            versionFor(profileId).incrementAndGet()
+            ensureStorageDir()
+            val target = fileFor(profileId)
+            val tmp = File(storageDir, "${profileId}$TMP_SUFFIX")
+            val backup = File(storageDir, "${profileId}$BACKUP_SUFFIX")
 
-        try {
-            tmp.writeBytes(envelope)
-        } catch (e: IOException) {
-            tmp.delete()
-            throw e
-        }
-
-        try {
-            if (target.exists()) {
-                moveIntoPlace(source = target, target = backup, replaceExisting = true)
+            try {
+                tmp.writeBytes(envelope)
+            } catch (e: IOException) {
+                tmp.delete()
+                throw e
             }
-            moveIntoPlace(source = tmp, target = target, replaceExisting = true)
-            backup.takeIf(File::exists)?.delete()
-        } catch (e: IOException) {
-            tmp.delete()
-            // Best effort: restore the last known-good payload so callers
-            // don't observe a fake "missing credentials" state after a
-            // failed refresh write.
-            if (!target.exists() && backup.exists()) {
-                runCatching {
-                    moveIntoPlace(source = backup, target = target, replaceExisting = true)
+
+            try {
+                if (target.exists()) {
+                    moveIntoPlace(source = target, target = backup, replaceExisting = true)
                 }
+                moveIntoPlace(source = tmp, target = target, replaceExisting = true)
+                backup.takeIf(File::exists)?.delete()
+            } catch (e: IOException) {
+                tmp.delete()
+                cache.remove(profileId)
+                // Best effort: restore the last known-good payload so callers
+                // don't observe a fake "missing credentials" state after a
+                // failed refresh write.
+                if (!target.exists() && backup.exists()) {
+                    runCatching {
+                        moveIntoPlace(source = backup, target = target, replaceExisting = true)
+                    }
+                }
+                throw e
             }
-            throw e
+            versionFor(profileId).incrementAndGet()
+            cache[profileId] = credentials
         }
     }
 
     override fun read(profileId: String): ProfileCredentials? {
+        cache[profileId]?.let { return it }
         val file = fileFor(profileId)
         val backup = File(storageDir, "${profileId}$BACKUP_SUFFIX")
-        val readable = when {
-            file.exists() -> file
-            backup.exists() -> backup
-            else -> return null
+        val stampBefore: Long
+        val envelope: String
+        synchronized(lockFor(profileId)) {
+            cache[profileId]?.let { return it }
+            stampBefore = versionFor(profileId).get()
+            val readable = when {
+                file.exists() -> file
+                backup.exists() -> backup
+                else -> return null
+            }
+            envelope = readable.readText(Charsets.UTF_8)
         }
-        val envelope = readable.readText(Charsets.UTF_8)
-        // codec.decode throws on malformed envelope or cipher failure —
-        // bubble up so callers can tell "missing" (null) from "broken".
-        return codec.decode(envelope)
+        // codec.decode runs outside the lock so Keystore decryption never stalls a concurrent
+        // token-refresh write, and throws on malformed envelope or cipher failure so callers can
+        // tell "missing" (null) from "broken".
+        val decoded = codec.decode(envelope)
+        synchronized(lockFor(profileId)) {
+            if (versionFor(profileId).get() == stampBefore) {
+                cache[profileId] = decoded
+                return decoded
+            }
+            // A write or delete landed while we were decrypting: never overwrite the newer state.
+            cache[profileId]?.let { return it }
+            if (!file.exists() && !backup.exists()) return null
+            return decoded
+        }
     }
 
     override fun delete(profileId: String) {
-        val file = fileFor(profileId)
-        if (file.exists()) file.delete()
-        File(storageDir, "${profileId}$BACKUP_SUFFIX").takeIf(File::exists)?.delete()
-        // Belt-and-braces: also clean up any stray tmp from a crashed write.
-        File(storageDir, "${profileId}$TMP_SUFFIX").takeIf(File::exists)?.delete()
+        synchronized(lockFor(profileId)) {
+            versionFor(profileId).incrementAndGet()
+            cache.remove(profileId)
+            val file = fileFor(profileId)
+            if (file.exists()) file.delete()
+            File(storageDir, "${profileId}$BACKUP_SUFFIX").takeIf(File::exists)?.delete()
+            // Belt-and-braces: also clean up any stray tmp from a crashed write.
+            File(storageDir, "${profileId}$TMP_SUFFIX").takeIf(File::exists)?.delete()
+        }
     }
 
     /**

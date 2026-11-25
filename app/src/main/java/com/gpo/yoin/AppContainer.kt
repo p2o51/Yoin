@@ -341,17 +341,29 @@ class AppContainer(private val context: Context) {
     }
 
     init {
-        // Force the lazy `spotifyClientIdFlow` to resolve at container
-        // construction time so `SharingStarted.Eagerly` begins collecting
-        // from Room immediately. Without this, the first reader (usually
-        // PlaybackManager's warmConnection on cold start) triggers the
-        // lazy init itself and has to race against the same IO threads
-        // the Batch 3D migration is using — resulting in "Client ID not
-        // configured" banners on upgrade launches even though the row
-        // is populated. Touching the field here ensures Room starts
-        // emitting before any other code path needs `.value`.
-        @Suppress("UNUSED_EXPRESSION")
-        spotifyClientIdFlow
+        // Warm `spotifyClientIdFlow` on `applicationScope` so Room starts emitting immediately
+        // without constructing `YoinDatabase` synchronously on the Application.onCreate() main thread.
+        applicationScope.launch {
+            @Suppress("UNUSED_EXPRESSION")
+            spotifyClientIdFlow
+        }
+    }
+
+    /**
+     * Registers background startup observers without constructing [lyricHighlightProcessor] (and its
+     * [repository] / [database] / [playbackManager] graph) synchronously during Application.onCreate().
+     * Lifecycle callbacks and [LyricHighlightProcessor] calls stay strictly ordered on Main.
+     */
+    internal fun startBackgroundServices() {
+        startPendingRatingRetries()
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
+            com.gpo.yoin.data.highlight.LazyForegroundLifecycleObserver(
+                scope = applicationScope,
+                factory = { lyricHighlightProcessor },
+                onForeground = { it.onForeground() },
+                onBackground = { it.onBackground() },
+            ),
+        )
     }
 
     /**
@@ -595,8 +607,18 @@ class AppContainer(private val context: Context) {
      * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
      * here loads LiteRT until a song is actually separated.
      */
+    private var singEngineInitialized = false
+
     val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
+        singEngineInitialized = true
         com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)
+    }
+
+    /** Yoin Labs model inspection, proactive download, and removal for on-device Lyra-Sing-Lite. */
+    val singModelManager: com.gpo.yoin.player.sing.SingModelManager by lazy {
+        com.gpo.yoin.player.sing.SingModelManager.create(context, applicationScope) {
+            if (singEngineInitialized) singEngine.invalidateModelCache()
+        }
     }
 
     /** Cached `/api/v1/capabilities` Sing probe per active Subsonic/Lyra server URL. */

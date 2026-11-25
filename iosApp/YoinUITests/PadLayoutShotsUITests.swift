@@ -3,7 +3,7 @@ import XCTest
 /// iPad layout QA (not an assertion test): launches with the arguments in `YOIN_SHOT_ARGS`, turns the
 /// device to `YOIN_SHOT_ORIENTATION` (landscape / portrait) and saves a screenshot to `YOIN_SHOT_PATH`.
 /// `YOIN_SHOT_STEPS` (optional) drives the app first, for screenshots after a tap or a pointer click and for screen
-/// recordings: `;`-separated `tap:x,y`, `drag:x,y,x2,y2` (`slowdrag:` for a slow pull, `lift:` for a drag and drop by touch, `clickdrag:` by pointer), `wait:s` and `shot:path`, with x / y as
+/// recordings: `;`-separated `tap:x,y`, `drag:x,y,x2,y2` (`slowdrag:` for a slow pull, `lift:` for a drag and drop by touch, `clickdrag:` by pointer), `type:words` (into the focused field, a key at a time), `return:` (the keyboard's Return), `wait:s` and `shot:path`, with x / y as
 /// fractions of the window. Skipped unless `YOIN_SHOT_PATH` is set, so the normal run never pays for it.
 final class PadLayoutShotsUITests: XCTestCase {
     func testShot() throws {
@@ -45,6 +45,12 @@ final class PadLayoutShotsUITests: XCTestCase {
             case "clickdrag" where n.count == 4:
                 point(n[0], n[1]).click(forDuration: 0.3, thenDragTo: point(n[2], n[3]),
                                         withVelocity: .slow, thenHoldForDuration: 1.0)
+            case "type":
+                for character in parts[1] {
+                    app.typeText(String(character))
+                    Thread.sleep(forTimeInterval: 0.22)
+                }
+            case "return": app.typeText("\n")
             case "wait": Thread.sleep(forTimeInterval: Double(parts[1]) ?? 1)
             case "shot":
                 try XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: parts[1]))

@@ -222,6 +222,9 @@ interface SyncDao {
     @Query("SELECT * FROM sync_records WHERE kind = :kind AND scope = :scope")
     suspend fun recordsFor(kind: String, scope: String): List<SyncRecordEntity>
 
+    @Query("SELECT * FROM sync_records WHERE kind = :kind AND scope = :scope AND `key` IN (:keys)")
+    suspend fun recordsForKeys(kind: String, scope: String, keys: List<String>): List<SyncRecordEntity>
+
     @Query("SELECT * FROM sync_records WHERE scope = :scope")
     suspend fun recordsInScope(scope: String): List<SyncRecordEntity>
 
@@ -252,6 +255,9 @@ interface SyncDao {
 
     @Query("SELECT * FROM sync_local_state WHERE kind = :kind AND scope = :scope")
     suspend fun localStatesFor(kind: String, scope: String): List<SyncLocalStateEntity>
+
+    @Query("SELECT * FROM sync_local_state WHERE kind = :kind AND scope = :scope AND `key` IN (:keys)")
+    suspend fun localStatesForKeys(kind: String, scope: String, keys: List<String>): List<SyncLocalStateEntity>
 
     @Query("SELECT * FROM sync_local_state WHERE scope = :scope")
     suspend fun localStatesInScope(scope: String): List<SyncLocalStateEntity>

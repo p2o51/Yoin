@@ -29,6 +29,9 @@ interface AiPackClient {
 
     /** Downloads [pack] ([AiPackManager.fetch]); returns once it is COMPLETED. Throws IOException when Play can't deliver it. */
     suspend fun fetch(pack: String, onProgress: (Float) -> Unit)
+
+    /** Removes [pack] from local Play AI Pack storage ([AiPackManager.removePack]). */
+    suspend fun remove(pack: String) {}
 }
 
 /**
@@ -59,6 +62,12 @@ class AiPackSingModelSource(
         SingModelFiles.verifyAll(set)
         onProgress(1f)
         return set
+    }
+
+    override suspend fun clear(): Boolean {
+        val hadLocal = client.assetsPath(pack) != null
+        client.remove(pack)
+        return hadLocal
     }
 
     /** The meta Play delivered with the builds: which group, which builds. */
@@ -154,6 +163,11 @@ class BundledSingModelSource(
         return set
     }
 
+    override suspend fun clear(): Boolean {
+        if (!dir.exists()) return false
+        return dir.deleteRecursively()
+    }
+
     private fun copy(meta: LiteRtModelMeta, target: File) {
         target.parentFile?.mkdirs()
         val part = File(target.path + ".part")
@@ -228,6 +242,15 @@ class PlayAiPackClient(context: Context) : AiPackClient {
             done.await()
         } finally {
             manager.unregisterListener(listener)
+        }
+    }
+
+    override suspend fun remove(pack: String) {
+        try {
+            Log.i(TAG, "AI pack $pack: remove")
+            manager.removePack(pack).await()
+        } catch (e: Exception) {
+            throw IOException("$pack: remove failed (${e.message ?: e.javaClass.simpleName})", e)
         }
     }
 

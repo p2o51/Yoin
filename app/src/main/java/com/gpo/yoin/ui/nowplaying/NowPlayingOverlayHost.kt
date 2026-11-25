@@ -7,6 +7,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -34,9 +35,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,8 +49,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -86,6 +93,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -468,13 +477,21 @@ fun NowPlayingOverlayHost(
     val panelTravelPx = with(LocalDensity.current) { frame.panelWidth.roundToPx() }
 
     // ── Now Playing overlay ──────────────────────────────────────────────
+    val playerTravel = remember { PlayerTravel() }
+    // The enlarged phone / two columns are dragged DOWN to close: a release
+    // carries on down, like the phone's, instead of turning to leave by the
+    // end edge from a pose half off the bottom. Read as a flag, so a drag
+    // doesn't recompose the host per frame.
+    val draggedDown by remember { derivedStateOf { dismissDragPx > 0f } }
     OverlayPlayerVisibility(
         expanded = expanded,
-        fromEnd = panelFamily,
+        fromEnd = panelFamily && (panelMode || !draggedDown),
         // The panel travels exactly its own width (the content beside it moves
         // that far on the same spring); the full-window states the window.
         endTravel = { full -> if (panelMode) panelTravelPx else full },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .onPlaced { playerTravel.host = it },
     ) {
         val npAvScope = this
         // The cover's end of the pill morph. At rest it follows the shown
@@ -544,7 +561,11 @@ fun NowPlayingOverlayHost(
         // bound to the same devicesState / refresh / select flow.
         var showCastDevicesSheet by remember { mutableStateOf(false) }
 
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned(playerTravel::update),
+        ) {
             val density = LocalDensity.current
             val containerWidth = if (panelFamily) {
                 frame.panelWidth + (maxWidth - frame.panelWidth) * fullFraction
@@ -772,15 +793,31 @@ fun NowPlayingOverlayHost(
                             // dragged or back-previewed down — it is the screen
                             // sliding, so it carries the screen's corners
                             // (ScreenCorners). At rest it clips nothing: its corners
-                            // are the glass's own there. The side panel family
-                            // shapes its container instead (above).
+                            // are the glass's own there, and a screenshot is a full
+                            // rectangle (owner, 2026-11-25). The corners follow
+                            // where the player IS — its laid-out travel plus the
+                            // drag / back offset — not the enter/exit transition,
+                            // which runs on well after the slide has landed. They
+                            // grow with that travel ([playerCornerRadiusPx]): a
+                            // drag's first pixels, a cancelled drag's spring home
+                            // and the last of a landing never jump between square
+                            // and the full radius (owner: 往下拉的时候不要漏破绽).
+                            // The enlarged phone / two columns drag inside their
+                            // square full-window container, so they take the same
+                            // corners; the side panel shapes its container (above).
                             .graphicsLayer {
-                                if (panelFamily) return@graphicsLayer
-                                val transition = npAvScope.transition
-                                val moving = transition.currentState != transition.targetState ||
-                                    overlayOffsetPx + dismissDragPx > 0.5f
-                                if (moving) {
-                                    shape = RoundedCornerShape(ScreenCorners.radius)
+                                if (panelMode) return@graphicsLayer
+                                // The panel family's own entrance / exit slides the
+                                // container sideways; Full is square there (its
+                                // container corner is 0), so it rounds with it too.
+                                val travel = playerTravel.px + abs(overlayOffsetPx + dismissDragPx)
+                                val radiusPx = playerCornerRadiusPx(
+                                    travelPx = travel,
+                                    rampPx = PlayerCornerRamp.toPx(),
+                                    fullRadiusPx = ScreenCorners.radius.toPx(),
+                                )
+                                if (radiusPx > 0f) {
+                                    shape = RoundedCornerShape(radiusPx)
                                     clip = true
                                 }
                             },
@@ -842,6 +879,43 @@ private fun PanelToggleButton(
 }
 
 private val PanelShadowElevation = 16.dp
+
+/** How far the player travels while its corners grow from square to the screen's. */
+private val PlayerCornerRamp = 28.dp
+
+/**
+ * The full-window player's corner radius for [travelPx] of travel from its
+ * rest: square at rest, the screen's [fullRadiusPx] from [rampPx] on, eased
+ * in between so it starts and lands without a step. Under half a pixel it is
+ * 0 — the player is unclipped, and a screenshot of it a full rectangle.
+ */
+internal fun playerCornerRadiusPx(travelPx: Float, rampPx: Float, fullRadiusPx: Float): Float {
+    if (travelPx <= 0f || fullRadiusPx <= 0f) return 0f
+    val fraction = if (rampPx <= 0f) 1f else (travelPx / rampPx).coerceIn(0f, 1f)
+    val radius = fullRadiusPx * FastOutSlowInEasing.transform(fraction)
+    return if (radius < 0.5f) 0f else radius
+}
+
+/**
+ * How far the player sits from where it rests, as laid out (px, the larger
+ * axis): the entrance / exit slide of [OverlayPlayerVisibility], measured
+ * against the host it rests in. A snapshot read for layer blocks.
+ */
+@Stable
+private class PlayerTravel {
+    /** The visibility's own box, which the slide does not move. */
+    var host: LayoutCoordinates? = null
+
+    var px: Float by mutableFloatStateOf(0f)
+        private set
+
+    fun update(player: LayoutCoordinates) {
+        val host = host?.takeIf { it.isAttached } ?: return
+        if (!player.isAttached) return
+        val at = host.localPositionOf(player, Offset.Zero)
+        px = max(abs(at.x), abs(at.y))
+    }
+}
 
 /** The panel's back preview travels a third of the phone's 1200px chase. */
 private const val PanelBackTravelFraction = 0.35f

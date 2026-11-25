@@ -2,11 +2,13 @@ package com.gpo.yoin.ui.nowplaying
 
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.component.handPointer
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -21,7 +23,9 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
@@ -69,17 +73,53 @@ internal fun LyricsActionBar(
     val recenterInteraction = remember { MutableInteractionSource() }
     val interactions = listOf(searchInteraction, translateInteraction, selectInteraction, recenterInteraction)
     val sing = LocalNowPlayingSing.current
+    // Synchronized directly with SingLyricsCapsuleKey's actual expanded state so the 4 left keys
+    // compress on the exact same frame the capsule expands (zero pre-expansion jitter).
+    var singCapsuleExpanded by remember { mutableStateOf(sing?.isSupported == true && sing.isActive) }
+    val singExpanded = sing?.isSupported == true && singCapsuleExpanded
 
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(LyricsKeyGap),
-            modifier = modifier,
-        ) {
-            LyricsKeyRow(
-                interactions = interactions,
-                iconSize = iconSize,
+        BoxWithConstraints(modifier = modifier) {
+            val desiredCapsule = if (iconSize >= 50.dp) 124.dp else 108.dp
+            val bounded = maxWidth.value.isFinite()
+            val tightSpace = singExpanded && bounded && (maxWidth < iconSize * 4 + LyricsKeyGap * 4 + desiredCapsule)
+            val targetGap = if (tightSpace) {
+                val extraNeeded = (iconSize * 4 + LyricsKeyGap * 4 + desiredCapsule) - maxWidth
+                (LyricsKeyGap - extraNeeded / 8f).coerceIn(LyricsKeyMinGap, LyricsKeyGap)
+            } else {
+                LyricsKeyGap
+            }
+            val targetKeyWidth = if (singExpanded && bounded) {
+                val roomForKeys = maxWidth - targetGap * 4 - desiredCapsule
+                (roomForKeys / 4f).coerceIn(LyricsKeyMinWidth, iconSize)
+            } else {
+                iconSize
+            }
+            val keyGap by animateDpAsState(
+                targetValue = targetGap,
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+                label = "lyricsKeyAdaptiveGap",
+            )
+            val keyWidth by animateDpAsState(
+                targetValue = targetKeyWidth,
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+                label = "lyricsKeyAdaptiveWidth",
+            )
+            val maxCapsuleWidth = if (bounded) {
+                (maxWidth - targetKeyWidth * 4 - targetGap * 4).coerceAtLeast(iconSize)
+            } else {
+                Dp.Unspecified
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(keyGap),
             ) {
+                LyricsKeyRow(
+                    interactions = interactions,
+                    iconSize = iconSize,
+                    keyWidth = keyWidth,
+                    keyGap = keyGap,
+                ) {
                 val searchKey: @Composable () -> Unit = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Search),
@@ -143,11 +183,14 @@ internal fun LyricsActionBar(
                     size = iconSize,
                 )
             }
-            if (sing?.isSupported == true) {
-                SingLyricsCapsuleKey(
-                    sing = sing,
-                    iconSize = iconSize,
-                )
+                if (sing?.isSupported == true) {
+                    SingLyricsCapsuleKey(
+                        sing = sing,
+                        iconSize = iconSize,
+                        maxExpandedWidth = maxCapsuleWidth,
+                        onCapsuleExpandedChange = { singCapsuleExpanded = it },
+                    )
+                }
             }
         }
     }
@@ -235,6 +278,8 @@ private fun LyricsKeyRow(
     interactions: List<InteractionSource>,
     iconSize: Dp,
     modifier: Modifier = Modifier,
+    keyWidth: Dp = iconSize,
+    keyGap: Dp = LyricsKeyGap,
     content: @Composable () -> Unit,
 ) {
     val pressSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
@@ -247,14 +292,15 @@ private fun LyricsKeyRow(
         )
     }
     Layout(content = content, modifier = modifier.height(iconSize)) { measurables, constraints ->
-        val keyPx = iconSize.roundToPx()
-        val gapPx = LyricsKeyGap.roundToPx()
+        val keyPx = keyWidth.roundToPx()
+        val heightPx = iconSize.roundToPx()
+        val gapPx = keyGap.roundToPx()
         val widths = lyricsKeyWidths(
             count = measurables.size,
             keyPx = keyPx,
             press = { index -> press.getOrNull(index)?.value ?: 0f },
         )
-        val height = constraints.constrainHeight(keyPx)
+        val height = constraints.constrainHeight(heightPx)
         val placeables = measurables.mapIndexed { index, measurable ->
             measurable.measure(Constraints.fixed(widths[index], height))
         }
@@ -297,6 +343,8 @@ internal fun lyricsKeyWidths(count: Int, keyPx: Int, press: (Int) -> Float): Int
 }
 
 private val LyricsKeyGap = 8.dp
+private val LyricsKeyMinGap = 4.dp
+private val LyricsKeyMinWidth = 30.dp
 
 /** M3 `ButtonGroupDefaults.ExpandedRatio`: how much of its width a pressed key gains. */
 private const val LyricsKeyExpandedRatio = 0.15f

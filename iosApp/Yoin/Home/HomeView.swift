@@ -1335,9 +1335,9 @@ private struct JBICell: View {
     }
 }
 
-/// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner.
-private struct MemoryMarkView: View {
-    var mark: MemoryMark
+/// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner (also Search's tiles).
+struct MemoryMarkView: View {
+    var mark: AlbumMemoryMark
     var ink: Color
     var bg: Color
 
