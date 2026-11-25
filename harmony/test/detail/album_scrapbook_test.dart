@@ -272,8 +272,9 @@ void main() {
 
       expect(find.byType(AlbumScrapbookPage), findsOneWidget);
       expect(find.text('Nothing yet'), findsOneWidget);
-      // No Memory title (HarmonyOS has no AI title): Last Play follows the blank pen instead.
-      expect(find.text('Never'), findsOneWidget);
+      // Last Play stays on page 1 and the receipt (album About, 2026-11-25): beside the cover sits the
+      // credits line, and with no label and no AI it is left out.
+      expect(find.text('Never'), findsNothing);
       semantics.dispose();
       await close(tester);
     });

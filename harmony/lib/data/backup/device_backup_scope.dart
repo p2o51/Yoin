@@ -33,6 +33,7 @@ abstract final class DeviceBackupScope {
     'profiles.v1', // ProfileRepository.profilesKey (Android profiles)
     'profiles.active.v1', // ProfileRepository.activeKey (Android yoin_profiles.xml)
     'song_about.v1', // SongAboutStore.key (song_about)
+    'album_about.v1', // AlbumAboutStore.key (album_about_entries)
     'yoin.ai.prefs', // AiSettingsStore.prefsKey (gemini_config without the key)
     'neodb.instance', // NeoDbConfigStore.instanceKey (neodb_config without the token)
     'neodb.external_mappings.v1', // NeoDbMappings.storeKey (external_mappings)
