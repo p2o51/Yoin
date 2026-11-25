@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.component
 
+import coil3.request.allowHardware
+import coil3.request.ImageRequest
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
@@ -506,8 +509,15 @@ private fun MentionThumb(mention: NoteMention, url: String?, tint: Color, modifi
                 modifier = Modifier.fillMaxSize(0.72f),
             )
         } else {
+            val software = LocalSoftwareBitmaps.current
+            val context = LocalContext.current
             AsyncImage(
-                model = url,
+                // A share image is read back from a graphics layer: its covers must be software bitmaps.
+                model = if (software) {
+                    remember(url) { ImageRequest.Builder(context).data(url).allowHardware(false).build() }
+                } else {
+                    url
+                },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -517,6 +527,12 @@ private fun MentionThumb(mention: NoteMention, url: String?, tint: Color, modifi
 }
 
 private val MentionThumbShape = RoundedCornerShape(percent = 24)
+
+/**
+ * True where the text is drawn into an exported image (Now Playing's share images): images load as software
+ * bitmaps, which a graphics layer can read back.
+ */
+val LocalSoftwareBitmaps = staticCompositionLocalOf { false }
 
 internal fun MentionKind.symbol(): ImageVector = when (this) {
     MentionKind.Track -> YoinSymbols.MusicNote
