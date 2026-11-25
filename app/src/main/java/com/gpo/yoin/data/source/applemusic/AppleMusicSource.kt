@@ -13,6 +13,8 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.ReleaseDate
+import com.gpo.yoin.data.model.plainTextFromHtml
+import com.gpo.yoin.data.model.plainTextFromHtml
 import com.gpo.yoin.data.model.orMorePrecise
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -997,7 +999,23 @@ class AppleMusicSource(
                     ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
                 libraryAddedAt = a.text("dateAdded"),
                 releaseDate = releaseDate,
+                // A catalog album names its label; a library album only through its catalog relationship.
+                recordLabels = listOfNotNull(
+                    (a.text("recordLabel") ?: catalog?.attributes()?.text("recordLabel"))?.trim()?.takeIf(String::isNotEmpty),
+                ),
+                // A catalog album's default attributes carry Apple's notes; a library album has them only
+                // through its catalog relationship.
+                editorialNotes = appleEditorialNotes(a["editorialNotes"] as? JsonObject)
+                    ?: appleEditorialNotes(catalog?.attributes()?.get("editorialNotes") as? JsonObject),
             )
+        }
+
+        /** Apple's `editorialNotes` as plain text: `standard`, else `short`; null when neither has words. */
+        internal fun appleEditorialNotes(notes: JsonObject?): String? {
+            notes ?: return null
+            return listOf("standard", "short").firstNotNullOfOrNull { key ->
+                notes.text(key)?.let(::plainTextFromHtml)
+            }
         }
 
         /**

@@ -65,4 +65,14 @@
     <string name="ai_try_builtin">模型自己搜索</string>
     <string name="ai_try_no_key">先贴上密钥</string>
     <string name="ai_try_error">失败：%1$s</string>
+
+    <!-- 随当前 AI 服务改名（51, 2026-11-25）：%1$s 是 Gemini / DeepSeek / 千问，自定义服务是「AI」。字和原来的 Gemini 文案一样。 -->
+    <string name="ai_ask_provider">问 %1$s</string>
+    <string name="ai_writing">%1$s 正在写…</string>
+    <string name="ai_generate_with">让 %1$s 生成</string>
+    <string name="ai_regenerate_with">用 %1$s 重新生成</string>
+    <string name="ai_failed">%1$s 没能回答，再试一次</string>
+    <string name="ai_nothing_new">%1$s 没有新的内容</string>
+    <string name="ai_key_missing">缺少 %1$s API 密钥</string>
+    <string name="ai_no_key">未设置 %1$s API 密钥</string>
 </resources>

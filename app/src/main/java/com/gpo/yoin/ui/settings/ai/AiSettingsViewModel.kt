@@ -253,7 +253,11 @@ class AiSettingsViewModel(
             store = container.aiProviderStore,
             geminiDao = container.database.geminiConfigDao(),
             geminiService = container.geminiService,
-            clearGeneratedAbout = { container.database.songAboutEntryDao().deleteGenerated() },
+            clearGeneratedAbout = {
+                container.database.songAboutEntryDao().deleteGenerated()
+                // Every album About row is the AI's: a language switch clears them all.
+                container.database.albumAboutEntryDao().deleteAll()
+            },
             // The repository scopes the history to the active profile and its provider.
             recentSongs = container.repository.getRecentHistory(RECENT_HISTORY_ROWS).map { rows ->
                 recentTestSongs(rows) { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key), com.gpo.yoin.data.model.CoverSizes.rowPx) }

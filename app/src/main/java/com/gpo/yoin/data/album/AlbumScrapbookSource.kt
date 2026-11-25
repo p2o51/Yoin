@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.album
 
+import com.gpo.yoin.data.local.AlbumAboutEntryDao
 import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumMemoryTitleDao
 import com.gpo.yoin.data.local.AlbumNoteDao
@@ -69,6 +70,8 @@ data class AlbumScrapbookData(
     val albumNote: AlbumScrapbookAlbumNote? = null,
     /** Every non-blank album note, oldest first (by createdAt). */
     val albumNotes: List<AlbumScrapbookAlbumNote> = emptyList(),
+    /** The album's own About (credits line + editorial card), per album identity. */
+    val albumAbout: AlbumAboutContent = AlbumAboutContent.None,
 ) {
     companion object {
         val Empty = AlbumScrapbookData()
@@ -154,6 +157,7 @@ fun interface AlbumScrapbookSource {
                 memoryCopyCacheDao = database.memoryCopyCacheDao(),
                 albumNoteDao = database.albumNoteDao(),
                 memoryTitleDao = database.albumMemoryTitleDao(),
+                albumAboutDao = database.albumAboutEntryDao(),
             )
     }
 }
@@ -168,6 +172,7 @@ class RoomAlbumScrapbookSource(
     private val memoryCopyCacheDao: MemoryCopyCacheDao,
     private val albumNoteDao: AlbumNoteDao,
     private val memoryTitleDao: AlbumMemoryTitleDao? = null,
+    private val albumAboutDao: AlbumAboutEntryDao? = null,
 ) : AlbumScrapbookSource {
 
     override fun observe(query: AlbumScrapbookQuery): Flow<AlbumScrapbookData> =
@@ -221,13 +226,19 @@ class RoomAlbumScrapbookSource(
             ?: flowOf(null)
         val titles = combine(memoryTitle, userTitle) { ai, user -> ai to user }
         val perTrack = combine(ratings, notes, counts) { r, n, c -> Triple(r, n, c) }
+        // The album's own About is keyed by its identity, not the track metadata the song rows use.
+        val albumAbout = albumAboutDao
+            ?.observe(query.albumId.provider, query.albumId.rawId)
+            ?.map(AlbumAboutContent::from)
+            ?: flowOf(AlbumAboutContent.None)
+        val aboutBoth = combine(about, albumAbout) { byTrack, album -> byTrack to album }
         return combine(
             perTrack,
-            about,
+            aboutBoth,
             plays,
             titles,
             albumNotes,
-        ) { (r, n, c), byTrack, albumPlays, (title, user), (note, notes) ->
+        ) { (r, n, c), (byTrack, album), albumPlays, (title, user), (note, notes) ->
             AlbumScrapbookData(
                 ratings = r.toMap(),
                 notes = n.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.timelineOrder() },
@@ -238,6 +249,7 @@ class RoomAlbumScrapbookSource(
                 memoryTitleUser = user,
                 albumNote = note,
                 albumNotes = notes,
+                albumAbout = album,
             )
         }
     }

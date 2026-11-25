@@ -2,8 +2,6 @@ package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,13 +18,10 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.withTabularFigures
 import androidx.compose.ui.util.lerp
 import kotlin.math.roundToInt
@@ -148,26 +143,4 @@ internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier
             modifier.handPointer(enabled = interactive).clickable(enabled = interactive, role = Role.Button, onClick = flight.openScrapbook)
         },
     )
-}
-
-/** Last Play in full on the scrapbook page, under the Memory title. */
-@Composable
-internal fun AlbumScrapLastPlay(epochMillis: Long?, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        AlbumSectionLabel(
-            text = stringResource(R.string.detail_album_last_play),
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        val text = epochMillis?.let { at ->
-            val (day, time) = albumLastPlayLabels(at, LocalContext.current.resources)
-            "$day $time"
-        } ?: stringResource(R.string.detail_album_never)
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
 }

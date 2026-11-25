@@ -127,6 +127,8 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     // When the album came onto the server: Library's Recently added.
     libraryAddedAt = created,
     version = version?.trim()?.takeIf(String::isNotEmpty),
+    recordLabels = recordLabels.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct(),
+    originalReleaseDate = originalReleaseDate?.toReleaseDate(),
 )
 
 /**

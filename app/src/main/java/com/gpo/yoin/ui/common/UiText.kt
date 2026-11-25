@@ -41,6 +41,16 @@ fun UiText.asString(): String {
 
 fun UiText.asString(context: Context): String = when (this) {
     is UiText.Raw -> value
-    is UiText.Res -> context.getString(id, *args.toTypedArray())
-    is UiText.Plural -> context.resources.getQuantityString(id, count, *args.toTypedArray())
+    // A name filled in from copy (the AI service's) sits flush against Chinese: "问 %1$s" → "问千问", "问 Gemini".
+    is UiText.Res -> context.getString(id, *args.resolved(context)).let { if (args.any { it is UiText }) tightenCjkSpaces(it) else it }
+    is UiText.Plural -> context.resources.getQuantityString(id, count, *args.resolved(context))
 }
+
+/** Arguments that are copy themselves ([UiText], like the AI service's name) resolve first. */
+private fun List<Any>.resolved(context: Context): Array<Any> =
+    map { arg -> if (arg is UiText) arg.asString(context) else arg }.toTypedArray()
+
+/** A single space between two CJK characters dropped: where a filled-in name is itself Chinese (千问). */
+fun tightenCjkSpaces(text: String): String = CjkSpace.replace(text, "$1$2")
+
+private val CjkSpace = Regex("([\\u3000-\\u9FFF\\uFF00-\\uFFEF]) ([\\u3000-\\u9FFF\\uFF00-\\uFFEF])")
