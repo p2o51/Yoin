@@ -78,6 +78,8 @@ class SnapshotCodecTest {
             """[1,2,3]""",
             "not json at all",
             """{"format":"yoin-sync","schema":1,"deviceId":"d"}""",
+            """{"format":"yoin-sync","deviceId":"dev-a","deviceName":"A","fileClass":"state","writtenAt":1,"appVersionCode":1,"records":[]}""",
+            """{"schema":1,"deviceId":"dev-a","deviceName":"A","fileClass":"state","writtenAt":1,"appVersionCode":1,"records":[]}""",
         )
         for (input in inputs) {
             try {

@@ -33,6 +33,9 @@ interface SingModelSource {
      * IOException when this source can't provide them.
      */
     suspend fun obtain(onProgress: (Float) -> Unit): SingModelSet
+
+    /** Removes any locally downloaded/copied models managed by this source; returns true if anything was cleared. */
+    suspend fun clear(): Boolean = false
 }
 
 /**
@@ -79,6 +82,21 @@ class SingModelResolver(
             }
         }
         throw SingModelUnavailable(failures.joinToString("; "))
+    }
+
+    /** Clears locally stored models across all sources (used by Yoin Labs model management). */
+    suspend fun clear(): Boolean {
+        var cleared = false
+        for (source in sources) {
+            try {
+                if (source.clear()) cleared = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("${source.name}: clear failed (${e.message ?: e.javaClass.simpleName})")
+            }
+        }
+        return cleared
     }
 
     private fun describe(set: SingModelSet): String =

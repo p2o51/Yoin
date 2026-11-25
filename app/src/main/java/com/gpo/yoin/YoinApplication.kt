@@ -82,8 +82,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
             container.clearNeoDbPendingAfterRestore()
             WidgetRefresher.start(this, container)
             PlaylistBackupFollower.start(container)
-            container.lyricHighlightProcessor.start()
-            container.startPendingRatingRetries()
+            container.startBackgroundServices()
         }
     }
 

@@ -54,6 +54,13 @@ interface MusicSource {
      */
     suspend fun prime() = Unit
 
+    /**
+     * Forget any short-lived read cache, so the next reads ask the server.
+     * Called on an explicit user refresh (pull-to-refresh, Retry), never on
+     * navigation. Default no-op for sources without one.
+     */
+    fun invalidateReadCache() = Unit
+
     /** Release any long-lived resources (connection pools, open sockets). */
     fun dispose() = Unit
 }

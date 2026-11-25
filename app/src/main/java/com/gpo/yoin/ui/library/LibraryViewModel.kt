@@ -938,6 +938,8 @@ class LibraryViewModel(
                         .exceptionOrNull()
                         ?.let { LibraryTab.All to it }
                 } else {
+                    // A pull asks the server: not the coalesced reads of the last 20 s (SubsonicReadCache).
+                    repository.invalidateReadCache()
                     rereadView(view, ::isCurrent)
                 }
                 if (failure != null && isCurrent()) {

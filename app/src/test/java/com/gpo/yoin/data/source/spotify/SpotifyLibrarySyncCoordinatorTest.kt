@@ -619,6 +619,38 @@ class SpotifyLibrarySyncCoordinatorTest {
         assertEquals(listOf("Album"), coordinator.readAlbums("profile-a").map { it.name })
     }
 
+    @Test
+    fun should_readAllFourTablesAndFilterUnsavedTracks_when_buildingLocalSearchSnapshot() = runTest {
+        seedRemoteLibrary()
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+        database.spotifyLibraryCacheDao().upsertTrack(
+            SpotifyLibraryTrackCache(
+                profileId = "profile-a",
+                trackId = "unsaved-track",
+                title = "Unsaved",
+                artist = "Taylor",
+                artistId = "artist-1",
+                album = "Album",
+                albumId = "album-1",
+                coverArtKey = null,
+                durationSec = 180,
+                addedAt = null,
+                isSaved = false,
+                cachedAt = now,
+            ),
+        )
+
+        val snapshot = coordinator.readLocalSearchSnapshot("profile-a")
+
+        assertEquals(listOf("Taylor"), snapshot.artists.map { it.name })
+        assertEquals(listOf("Album"), snapshot.albums.map { it.name })
+        assertEquals(listOf("Song"), snapshot.tracks.mapNotNull { it.title })
+        assertEquals(listOf("Favorites"), snapshot.playlists.map { it.name })
+        assertEquals(listOf("Song"), snapshot.starred.tracks.mapNotNull { it.title })
+        assertEquals(listOf("Album"), snapshot.starred.albums.map { it.name })
+        assertEquals(listOf("Taylor"), snapshot.starred.artists.map { it.name })
+    }
+
     /** Runs [write] as the sync reads its last list (the starred one), after the albums and artists. */
     private fun duringSyncRead(write: suspend () -> Unit) {
         val starred = Starred()
