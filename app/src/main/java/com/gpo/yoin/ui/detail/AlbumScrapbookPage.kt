@@ -199,8 +199,9 @@ import kotlin.math.sign
  *
  * Flat, no shadows; pieces are told apart by paper colour, type face and corner mark:
  *  - the listener's review: the album's primaryContainer, system face, no label, no rail (owner: colour only);
- *  - the album's one album note: a secondaryContainer sticky with a folded corner, system face, no label, no rail;
- *  - track notes: neutral paper with the journal rail (the rail is reserved for them) and time stamps;
+ *  - album notes: primaryContainer stickies (the listener's words, like the review; 51, 2026-11-25) told apart
+ *    by their folded corner and lean, no label, no rail;
+ *  - track notes: primaryContainer paper with the journal rail (the rail is reserved for them) and time stamps;
  *  - Ask / About: tertiary index cards in GSF with a "Q" clover;
  *  - scores: the album's groove emblem on the cover's corner, and each ticket's own number in the album ink.
  * Tilts live in graphicsLayer only (layout and hit areas stay square). While the pager drags, each piece
@@ -298,18 +299,23 @@ internal fun rememberScrapbookColors(scheme: androidx.compose.material3.ColorSch
         onTicketNow = animated(scheme.onSecondaryContainer, "scrapOnTicketNow"),
         review = animated(scheme.primaryContainer, "scrapReview"),
         onReview = animated(scheme.onPrimaryContainer, "scrapOnReview"),
-        sticky = animated(scheme.secondaryContainer, "scrapSticky"),
-        onSticky = animated(scheme.onSecondaryContainer, "scrapOnSticky"),
-        // the folded corner: the sticky's paper with a third of the secondary ink (D3)
-        stickyFold = animated(lerp(scheme.secondaryContainer, scheme.secondary, StickyFoldInk), "scrapStickyFold"),
-        note = animated(scheme.surfaceContainerHighest, "scrapNote"),
-        onNote = animated(scheme.onSurface, "scrapOnNote"),
+        // Everything the listener wrote is one colour family, primary (51, 2026-11-25: "上面是专辑 review、下面是
+        // 便利贴，为啥不是同一个颜色"): the review, the album stickies and the track notes. A sticky still reads
+        // as a sticky by its shape, fold and lean; a note by its rail and moments. AI and objective text is
+        // tertiary (Ask, About, the fact tags); secondary is left to the playing ticket.
+        sticky = animated(scheme.primaryContainer, "scrapSticky"),
+        onSticky = animated(scheme.onPrimaryContainer, "scrapOnSticky"),
+        // the folded corner: the sticky's paper with a third of the primary ink (D3)
+        stickyFold = animated(lerp(scheme.primaryContainer, scheme.primary, StickyFoldInk), "scrapStickyFold"),
+        note = animated(scheme.primaryContainer, "scrapNote"),
+        onNote = animated(scheme.onPrimaryContainer, "scrapOnNote"),
         ask = animated(scheme.tertiaryContainer, "scrapAsk"),
         onAsk = animated(scheme.onTertiaryContainer, "scrapOnAsk"),
         askMark = animated(scheme.tertiary, "scrapAskMark"),
         onAskMark = animated(scheme.onTertiary, "scrapOnAskMark"),
-        tag = animated(scheme.secondaryContainer, "scrapTag"),
-        onTag = animated(scheme.onSecondaryContainer, "scrapOnTag"),
+        // A track's About facts are generated: tertiary, with the Ask card they sit under.
+        tag = animated(scheme.tertiaryContainer, "scrapTag"),
+        onTag = animated(scheme.onTertiaryContainer, "scrapOnTag"),
         receipt = animated(scheme.surfaceContainer, "scrapReceipt"),
         onReceipt = animated(scheme.onSurface, "scrapOnReceipt"),
         about = animated(albumAboutRoles(scheme).container, "scrapAbout"),
@@ -1071,7 +1077,7 @@ private fun Opening(
 }
 
 /**
- * The album's one album note (D3's sticky): secondaryContainer paper with a folded bottom-right corner, in
+ * The album's one album note (D3's sticky): primaryContainer paper (the listener's words) with a folded bottom-right corner, in
  * the listener's own face. Told apart by paper and fold alone — no label, and no rail (the rail is the
  * track notes'). Drawn from the stored Markdown ([NoteMarkupText]). Writing it from the page (one sticky
  * per note) is the notes revamp's phase B; the data side already takes any number (ScrapEdit.NewAlbumNote).
