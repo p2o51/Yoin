@@ -141,6 +141,9 @@ class AlbumCreditsTest {
         assertEquals("1997", undated.single().text)
     }
 
+    /** The line as read: no-break spaces as spaces, word joiners gone. */
+    private fun plain(line: String?) = line?.replace("\u2060", "")?.replace('\u00A0', ' ')
+
     @Test
     fun should_joinNamesWithTheChineseComma_andItemsWithDots_inChinese() {
         val items = albumCreditItems(
@@ -155,8 +158,8 @@ class AlbumCreditsTest {
         )
 
         assertEquals(
-            "厂⁠牌 ECM · 制⁠作 Manfred Eicher、Steve Lake · 录⁠制 1975年1月，Rainbow Studio",
-            albumCreditsLine(items, zh),
+            "厂牌 ECM · 制作 Manfred Eicher、Steve Lake · 录制 1975年1月，Rainbow Studio",
+            plain(albumCreditsLine(items, zh)),
         )
     }
 
@@ -164,23 +167,47 @@ class AlbumCreditsTest {
     fun should_joinNamesWithCommas_inEnglish() {
         val items = albumCreditItems(emptyList(), null, null, AlbumAiCredits(producers = listOf("A", "B"), source = "Akira"))
 
-        assertEquals("Producer A, B · Source Akira", albumCreditsLine(items, en))
+        assertEquals("Producer A, B · Source Akira", plain(albumCreditsLine(items, en)))
     }
 
     @Test
-    fun should_wrapOnlyAfterASeparator_neverBetweenALabelAndItsValue() {
-        val line = checkNotNull(albumCreditsLine(albumCreditItems(listOf("ECM"), null, null, full), en))
+    fun should_breakBetweenItemsAndWords_neverInsideALabelOrAChineseName() {
+        val items = albumCreditItems(
+            listOf("林间工作室"),
+            null,
+            null,
+            full.copy(recordedTime = "Sep–Dec 1975", recordedStudios = listOf("大溪地录音室，台北"), source = "电影《夜航》"),
+        )
+        val line = checkNotNull(albumCreditsLine(items, zh))
+        val cjk = { c: Char -> c.code in 0x2E80..0x9FFF || c.code in 0xFF00..0xFFEF }
 
-        // Every item boundary is "no-break space, dot, space": a line can only break after the dot.
-        assertEquals(5, Regex(" · ").findAll(line).count())
-        assertFalse(line.contains(" · "))
-        // Each label is glued to its value.
-        listOf("Label", "Producer", "Mastering", "Recorded", "Source", "First released").forEach { label ->
-            assertTrue(label, line.contains("$label "))
+        // The dot never starts a line: a no-break space before it, a breakable space after.
+        assertEquals(items.size - 1, Regex("\u00A0· ").findAll(line).count())
+        line.split(CreditItemSeparator).forEach { item ->
+            // The label is glued to its value.
+            assertTrue(item, item.substringBefore('\u00A0').none { it == ' ' } && '\u00A0' in item)
+            for (i in 1 until item.length) {
+                val (before, at) = item[i - 1] to item[i]
+                // Word joiners and no-break spaces are themselves no-break points.
+                if (at == '\u2060' || before == '\u2060' || at == '\u00A0' || before == '\u00A0') continue
+                // A Chinese run only breaks after its comma; a dash holds its neighbours.
+                val breakable = (cjk(before) || cjk(at) || before == '–') && before !in "，、；"
+                assertFalse("break opportunity in \"$item\" at $i", breakable)
+            }
         }
-        // Latin labels keep their letters as they are; CJK labels are joined so 录制 never splits.
-        assertEquals("First released", unbreakable("First released"))
-        assertEquals("录⁠制", unbreakable("录制"))
+        // 原作 电影《夜航》 holds together; the recording place may break after its comma.
+        assertTrue(line.contains("原\u2060作\u00A0电\u2060影\u2060《\u2060夜\u2060航\u2060》"))
+        assertTrue(line.contains("大\u2060溪\u2060地\u2060录\u2060音\u2060室\u2060，台\u2060北"))
+        assertTrue(line.contains("Sep–\u2060Dec 1975"))
+        assertEquals("First\u00A0released", unbreakable("First released"))
+        assertEquals("录\u2060制", unbreakable("录制"))
+    }
+
+    @Test
+    fun should_letLatinValuesBreakBetweenWords_soANarrowColumnNeverSplitsAWord() {
+        val items = albumCreditItems(emptyList(), null, null, AlbumAiCredits(recordedStudios = listOf("Sunset Sound, Los Angeles")))
+
+        assertEquals("Recorded\u00A0Sunset Sound, Los Angeles", albumCreditsLine(items, en))
     }
 
     @Test
@@ -188,8 +215,8 @@ class AlbumCreditsTest {
         val timeOnly = albumCreditItems(emptyList(), null, null, AlbumAiCredits(recordedTime = "1975"))
         val placeOnly = albumCreditItems(emptyList(), null, null, AlbumAiCredits(recordedStudios = listOf("A", "B")))
 
-        assertEquals("Recorded 1975", albumCreditsLine(timeOnly, en))
-        assertEquals("Recorded A, B", albumCreditsLine(placeOnly, en))
+        assertEquals("Recorded 1975", plain(albumCreditsLine(timeOnly, en)))
+        assertEquals("Recorded A, B", plain(albumCreditsLine(placeOnly, en)))
     }
 
     @Test

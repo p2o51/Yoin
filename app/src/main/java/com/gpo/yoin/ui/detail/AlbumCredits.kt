@@ -94,15 +94,34 @@ internal const val CreditItemSeparator = " · "
 /** Between an item's label and its value: never split, so a label is never left alone at a line's end. */
 internal const val CreditLabelGap = ' '
 
-/** [label] with word joiners between its CJK characters: 录制 never splits across two lines (Latin can't). */
-internal fun unbreakable(label: String): String = buildString {
-    label.forEachIndexed { i, c ->
-        if (i > 0 && (c.isCjk() || label[i - 1].isCjk())) append(CreditWordJoiner)
+/**
+ * One item as the line shows it, with line breaks where they read well (device check 2026-11-25: 原作 电影 /
+ * 《夜航》 split mid-name on the tablet, and keeping whole items together forced mid-word breaks such as
+ * "Kamaku / ra" in a phone's narrow column). The label never leaves its value and never splits; inside the
+ * value, Chinese / Japanese runs hold together except after a comma (，、；), dashes hold their neighbours
+ * ("Sep–Dec"), and Latin text breaks between words as usual.
+ */
+internal fun creditItemText(label: String, value: String): String =
+    joinCjk(label.replace(' ', '\u00A0'), breakAfterComma = false) + CreditLabelGap +
+        joinCjk(value, breakAfterComma = true)
+
+/** [label] glued together: no-break spaces, word joiners between CJK characters. */
+internal fun unbreakable(label: String): String = joinCjk(label.replace(' ', '\u00A0'), breakAfterComma = false)
+
+private fun joinCjk(text: String, breakAfterComma: Boolean): String = buildString {
+    text.forEachIndexed { i, c ->
+        val previous = text.getOrNull(i - 1)
+        val joined = previous != null && (c.isCjk() || previous.isCjk() || previous in BreakAfter) &&
+            !(breakAfterComma && previous in CjkCommas)
+        if (joined) append(CreditWordJoiner)
         append(c)
     }
 }
 
-private fun Char.isCjk(): Boolean = code in 0x3000..0x9FFF || code in 0xFF00..0xFFEF
+private const val BreakAfter = "-‐–—/"
+private const val CjkCommas = "，、；"
+
+private fun Char.isCjk(): Boolean = code in 0x2E80..0x9FFF || code in 0xF900..0xFAFF || code in 0xFF00..0xFFEF
 
 private const val CreditWordJoiner = '\u2060'
 
@@ -123,7 +142,7 @@ internal fun albumCreditValue(item: AlbumCreditItem, labels: AlbumCreditLabels):
 /** The line as shown; null when no item is known (the line is left out, never a placeholder). */
 internal fun albumCreditsLine(items: List<AlbumCreditItem>, labels: AlbumCreditLabels): String? =
     items.mapNotNull { item ->
-        albumCreditValue(item, labels)?.let { value -> "${unbreakable(labels.label(item.kind))}$CreditLabelGap$value" }
+        albumCreditValue(item, labels)?.let { value -> creditItemText(labels.label(item.kind), value) }
     }.takeIf { it.isNotEmpty() }?.joinToString(CreditItemSeparator)
 
 internal fun resourceAlbumCreditLabels(resources: Resources): AlbumCreditLabels {

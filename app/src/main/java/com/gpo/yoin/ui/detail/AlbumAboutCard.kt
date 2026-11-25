@@ -58,6 +58,12 @@ internal data class AlbumAboutRoles(val container: Color, val content: Color, va
 internal fun albumAboutRoles(scheme: ColorScheme): AlbumAboutRoles =
     AlbumAboutRoles(container = scheme.tertiaryContainer, content = scheme.onTertiaryContainer, mark = scheme.tertiary)
 
+/*
+ * On the card itself every mark (sparkle, label, Read all, dots) is in the card's own ink, onTertiaryContainer:
+ * the tertiary mark is too faint on a cover's tertiaryContainer (device check 2026-11-25, dark theme), the
+ * same reason the track sheet's Ask cards ink their pen and byline in their own content colour.
+ */
+
 /** Lines of the paragraph the paper shows; the rest is a tap away (owner: 3–4, so the page doesn't grow). */
 internal const val AlbumAboutCardLines = 4
 
@@ -112,7 +118,7 @@ internal fun AlbumAboutCard(
                 Icon(
                     imageVector = YoinSymbols.Sparkle,
                     contentDescription = null,
-                    tint = colors.aboutMark,
+                    tint = colors.onAbout,
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -120,7 +126,7 @@ internal fun AlbumAboutCard(
             Text(
                 text = stringResource(R.string.detail_scrap_about),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
-                color = colors.aboutMark,
+                color = colors.onAbout,
             )
             if (piece.fromService) {
                 // Apple Music's own notes say whose they are, on the paper too.
@@ -128,12 +134,12 @@ internal fun AlbumAboutCard(
                 Text(
                     text = stringResource(R.string.settings_service_name_apple),
                     style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.2.sp),
-                    color = colors.aboutMark.copy(alpha = 0.8f),
+                    color = colors.onAbout.copy(alpha = 0.8f),
                 )
             }
         }
         if (text == null) {
-            ThinkingDots(color = colors.aboutMark, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            ThinkingDots(color = colors.onAbout, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
         } else {
             Text(
                 text = text,
@@ -148,7 +154,7 @@ internal fun AlbumAboutCard(
                 Text(
                     text = stringResource(R.string.detail_scrap_read_all),
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                    color = colors.aboutMark,
+                    color = colors.onAbout,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }

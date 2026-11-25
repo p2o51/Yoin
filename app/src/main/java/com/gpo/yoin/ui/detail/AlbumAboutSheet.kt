@@ -46,6 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalConfiguration
@@ -258,7 +264,7 @@ private fun AboutParagraph(
             label = "albumAboutParagraph",
         ) { busy ->
             if (busy) {
-                ThinkingDots(color = colors.aboutMark, modifier = Modifier.padding(vertical = 8.dp))
+                ThinkingDots(color = colors.onAbout, modifier = Modifier.padding(vertical = 8.dp))
             } else {
                 Text(
                     text = text.orEmpty(),
@@ -276,11 +282,11 @@ private fun AboutParagraph(
                 Text(
                     text = stringResource(R.string.settings_service_name_apple),
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
-                    color = colors.aboutMark,
+                    color = colors.onAbout,
                     modifier = Modifier.padding(vertical = 10.dp),
                 )
             } else {
-                Byline(own = false, color = colors.aboutMark)
+                Byline(own = false, color = colors.onAbout)
             }
             Spacer(Modifier.weight(1f))
             if (onRegenerate != null) RegenerateButton(colors = colors, enabled = !regenerating, onClick = onRegenerate)
@@ -334,7 +340,7 @@ private fun AlbumAskCard(ask: AlbumAboutAsk, colors: ScrapbookColors) {
             color = colors.onAbout,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Byline(own = false, color = colors.aboutMark, modifier = Modifier.padding(top = 8.dp))
+        Byline(own = false, color = colors.onAbout, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
@@ -353,8 +359,8 @@ private fun PendingAlbumAsk(question: String, colors: ScrapbookColors) {
             style = userTextStyle().copy(fontSize = 13.5.sp),
             color = colors.onAbout.copy(alpha = 0.75f),
         )
-        ThinkingDots(color = colors.aboutMark, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-        Byline(own = false, color = colors.aboutMark, modifier = Modifier.padding(top = 8.dp))
+        ThinkingDots(color = colors.onAbout, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+        Byline(own = false, color = colors.onAbout, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
@@ -393,7 +399,19 @@ private fun AskAlbum(colors: ScrapbookColors, onAsk: (String) -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.surface,
             imeSend = send,
-            modifier = Modifier.weight(1f).onFocusChanged { focused = it.isFocused },
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { focused = it.isFocused }
+                // A hardware Enter asks too (desktop windows, a keyboard on the tablet); Shift+Enter breaks the line.
+                .onPreviewKeyEvent { event ->
+                    val enter = event.key == Key.Enter || event.key == Key.NumPadEnter
+                    if (enter && event.type == KeyEventType.KeyDown && !event.isShiftPressed) {
+                        send()
+                        true
+                    } else {
+                        false
+                    }
+                },
         )
         FilledIconButton(
             onClick = send,
