@@ -373,6 +373,24 @@ class AlbumDetailViewModelScrapbookTest {
     }
 
     @Test
+    fun should_sayNothingCameBack_when_writingTheAlbumAboutAgainFindsNothing() = runTest {
+        coEvery { repository.regenerateAlbumAbout(any()) } returns YoinRepository.AlbumAboutRegenerateResult.NothingNew
+        every { repository.activeAiProvider() } returns AiProvider.Gemini
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.scrapFeeds.events.test {
+            viewModel.editScrapbook(ScrapEdit.RegenerateAlbumAbout)
+            assertEquals(
+                ScrapEvent.AlbumAboutFailed(UiText.Res(R.string.ai_nothing_new, listOf(UiText.Res(R.string.ai_provider_gemini)))),
+                awaitItem(),
+            )
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertFalse(viewModel.scrapFeeds.gemini.value.albumAbout)
+    }
+
+    @Test
     fun should_askAboutTheAlbum_andShowItAsking_when_askedFromTheAboutSheet() = runTest {
         val answer = CompletableDeferred<YoinRepository.AskAboutResult>()
         coEvery { repository.askAboutAlbum(any(), any()) } coAnswers { answer.await() }

@@ -62,6 +62,12 @@ sealed interface ScrapEvent {
     data class Regenerated(val restore: ScrapEdit) : ScrapEvent
 
     data class Failed(val message: UiText) : ScrapEvent
+
+    /**
+     * Writing the album's About again came back with nothing or failed. The About sheet, when open, says so
+     * under the paragraph (or its Generate button); with it closed the page's snackbar does.
+     */
+    data class AlbumAboutFailed(val message: UiText) : ScrapEvent
 }
 
 /** What the track sheet reads from its host beyond the page: lyrics per song, Gemini's state and outcomes. */

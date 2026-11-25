@@ -381,7 +381,8 @@ internal fun buildAlbumScrapbook(
     val blurb = serviceNotes ?: data.albumAbout.blurb
     // Asked before and nothing came back (the AI knew nothing): the piece stays as a quiet way back in (a
     // dashed circle, like the blank review), to generate again or ask.
-    if (blurb != null || aboutPending || data.albumAbout.generated) {
+    // Questions about the album keep the piece too: with no paragraph, the newest is its Ask card.
+    if (blurb != null || aboutPending || data.albumAbout.generated || data.albumAbout.asks.isNotEmpty()) {
         pieces += ScrapPiece.AlbumAbout(
             text = blurb,
             pending = aboutPending && blurb == null,

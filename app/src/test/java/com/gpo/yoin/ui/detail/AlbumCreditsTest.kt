@@ -300,6 +300,18 @@ class AlbumCreditsTest {
     }
 
     @Test
+    fun should_keepThePiece_forAQuestionAboutTheAlbum_withoutAParagraph() {
+        // Asked a question though the About itself was never written (or failed): the question still shows.
+        val data = withNotes.copy(albumAbout = AlbumAboutContent(asks = listOf(AlbumAboutAsk("Q?", "T", "A"))))
+
+        val about = buildAlbumScrapbook(album(), data, nowMillis = 0L).pieces[1] as ScrapPiece.AlbumAbout
+
+        assertNull(about.text)
+        assertFalse(about.pending)
+        assertEquals(listOf("Q?"), about.asks.map { it.question })
+    }
+
+    @Test
     fun should_countQuestionsAboutTheAlbum_onTheReceipt() {
         val data = withNotes.copy(
             plays = com.gpo.yoin.data.album.AlbumScrapbookPlays(count = 1, firstPlayedAt = 0L, lastPlayedAt = 0L),

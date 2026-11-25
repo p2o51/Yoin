@@ -2,6 +2,9 @@ package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.ui.component.aiString
 import androidx.compose.animation.AnimatedContent
+import com.gpo.yoin.ui.common.asString
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
@@ -92,8 +95,28 @@ internal fun AlbumAboutSheet(
     snackbar: SnackbarHostState? = null,
 ) {
     val gemini by feeds.gemini.collectAsState()
+    // What came of writing the About again, said in place (the page's snackbar stays out of the sheet's way).
+    var notice by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    LaunchedEffect(feeds) {
+        feeds.events.collect { event ->
+            if (event is ScrapEvent.AlbumAboutFailed) notice = event.message.asString(context)
+        }
+    }
     ScrapSheet(onDismiss = onDismiss, padBottomInset = false) {
-        AlbumAboutSheetBody(albumName, about, credits, colors, gemini, onEdit, snackbar)
+        AlbumAboutSheetBody(
+            albumName = albumName,
+            about = about,
+            credits = credits,
+            colors = colors,
+            gemini = gemini,
+            onEdit = { edit ->
+                if (edit == ScrapEdit.RegenerateAlbumAbout) notice = null
+                onEdit(edit)
+            },
+            snackbar = snackbar,
+            notice = notice,
+        )
     }
 }
 
@@ -107,6 +130,8 @@ internal fun AlbumAboutSheetBody(
     gemini: ScrapGemini,
     onEdit: (ScrapEdit) -> Unit,
     snackbar: SnackbarHostState? = null,
+    // The last try at writing the About again came back with nothing or failed ("Gemini had nothing new").
+    notice: String? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth().imePadding()) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AboutSheetGutter)) {
@@ -151,9 +176,11 @@ internal fun AlbumAboutSheetBody(
                 regenerating = gemini.albumAbout,
                 onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { serviceText },
             )
+            if (serviceText) AboutNotice(notice.takeUnless { gemini.albumAbout })
             if (about.text == null && !gemini.albumAbout && !about.pending) {
                 // Asked before and the AI knew nothing: no empty card, just the way to ask it again.
                 GenerateAbout(colors = colors, onGenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) })
+                AboutNotice(notice.takeUnless { gemini.albumAbout })
             } else {
                 AboutParagraph(
                     text = about.text,
@@ -162,6 +189,7 @@ internal fun AlbumAboutSheetBody(
                     byService = serviceText,
                     onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { !serviceText },
                 )
+                if (!serviceText) AboutNotice(notice.takeUnless { gemini.albumAbout })
             }
             gemini.albumAsking.forEach { question -> PendingAlbumAsk(question, colors) }
             about.asks.forEach { ask -> AlbumAskCard(ask, colors) }
@@ -296,6 +324,23 @@ private fun AboutParagraph(
             Spacer(Modifier.weight(1f))
             if (onRegenerate != null) RegenerateButton(colors = colors, enabled = !regenerating, onClick = onRegenerate)
         }
+    }
+}
+
+/** A quiet line under what was just tried: the existing "<service> had nothing new" / "couldn't answer". */
+@Composable
+private fun AboutNotice(text: String?) {
+    AnimatedVisibility(
+        visible = text != null,
+        enter = YoinMotion.expandVertically(YoinMotionRole.Standard) + YoinMotion.fadeIn(YoinMotionRole.Standard),
+        exit = YoinMotion.shrinkVertically(YoinMotionRole.Standard) + YoinMotion.fadeOut(YoinMotionRole.Standard),
+    ) {
+        Text(
+            text = text.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 4.dp, end = 4.dp),
+        )
     }
 }
 

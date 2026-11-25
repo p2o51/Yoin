@@ -499,12 +499,17 @@ private fun ScrapbookPaper(
         }
     }
     val latestOnNotice by rememberUpdatedState(onNotice)
+    val latestAboutSheetOpen by rememberUpdatedState(aboutSheetOpen)
     LaunchedEffect(feeds) {
         feeds.events.collect { event ->
             when (event) {
                 is ScrapEvent.Regenerated ->
                     latestOnNotice(ScrapNotice(regeneratedLabel, YoinSymbols.Sparkle, event.restore))
                 is ScrapEvent.Failed -> latestOnNotice(ScrapNotice(event.message.asString(context), YoinSymbols.Error))
+                // The About sheet says it in place when it is open (AlbumAboutSheet); otherwise the page does.
+                is ScrapEvent.AlbumAboutFailed -> if (!latestAboutSheetOpen) {
+                    latestOnNotice(ScrapNotice(event.message.asString(context), YoinSymbols.Error))
+                }
             }
         }
     }
@@ -1848,7 +1853,7 @@ internal fun userTextStyle() = MaterialTheme.typography.bodyLarge.copy(
 
 /** A question asked in Now Playing: the listener's words, Gemini's title and whole sentences of its answer. */
 @Composable
-private fun AskCard(
+internal fun AskCard(
     ask: AlbumScrapbookAsk,
     moreAsks: Int,
     budget: Int,

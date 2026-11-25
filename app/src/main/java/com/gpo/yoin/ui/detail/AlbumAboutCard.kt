@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
+import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ThinkingDots
 import com.gpo.yoin.ui.component.dashedOutline
@@ -106,7 +107,22 @@ internal fun AlbumAboutCard(
 ) {
     val text = piece.text
     if (text == null && !piece.pending) {
-        EmptyAboutMark(colors = colors, onClick = onClick, modifier = modifier)
+        val ask = piece.asks.firstOrNull()
+        if (ask != null) {
+            // No paragraph, but questions about the album: the newest as the Ask index card songs get.
+            AskCard(
+                ask = AlbumScrapbookAsk(question = ask.question, title = ask.title, answer = ask.answer),
+                moreAsks = piece.asks.size - 1,
+                budget = ScrapbookRules.AnswerBudget,
+                tilt = piece.tilt,
+                colors = colors,
+                trackTitle = albumName,
+                onClick = onClick,
+                modifier = modifier.wrapContentWidth(Alignment.Start).widthIn(max = AlbumAboutCardMaxWidth),
+            )
+        } else {
+            EmptyAboutMark(colors = colors, onClick = onClick, modifier = modifier)
+        }
         return
     }
     val description = stringResource(R.string.detail_scrap_cd_about, albumName, text.orEmpty())

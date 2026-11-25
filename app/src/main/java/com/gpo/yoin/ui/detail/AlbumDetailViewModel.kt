@@ -890,12 +890,12 @@ class AlbumDetailViewModel(
                     is YoinRepository.AlbumAboutRegenerateResult.Success ->
                         ScrapEvent.Regenerated(ScrapEdit.RestoreAlbumAbout(result.before))
                     YoinRepository.AlbumAboutRegenerateResult.NothingNew ->
-                        ScrapEvent.Failed(UiText.Res(R.string.ai_nothing_new, listOf(aiName())))
+                        ScrapEvent.AlbumAboutFailed(UiText.Res(R.string.ai_nothing_new, listOf(aiName())))
                     YoinRepository.AlbumAboutRegenerateResult.ApiKeyMissing ->
-                        ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
+                        ScrapEvent.AlbumAboutFailed(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                     is YoinRepository.AlbumAboutRegenerateResult.Error -> {
                         Log.w(TAG, "Album About regenerate failed: ${result.message}")
-                        ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName())))
+                        ScrapEvent.AlbumAboutFailed(UiText.Res(R.string.ai_failed, listOf(aiName())))
                     }
                 }
                 scrapEvents.tryEmit(event)

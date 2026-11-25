@@ -106,7 +106,7 @@ private fun aboutPreviewData(zh: Boolean): AlbumScrapbookData = AlbumScrapbookDa
 )
 
 @Composable
-private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, apple: Boolean = false, empty: Boolean = false) {
+private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, apple: Boolean = false, empty: Boolean = false, askOnly: Boolean = false) {
     YoinTheme {
         ProvidePreviewWindow(widthDp = widthDp, heightDp = heightDp) {
             val content = aboutPreviewAlbum(zh, apple)
@@ -117,7 +117,12 @@ private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, appl
                             content,
                             aboutPreviewData(zh).let { data ->
                                 // Asked, and the AI knew nothing: only the dashed ✦ circle stays on the paper.
-                                if (empty) data.copy(albumAbout = AlbumAboutContent(generated = true)) else data
+                                when {
+                                    empty -> data.copy(albumAbout = AlbumAboutContent(generated = true))
+                                    // No paragraph, one question asked: the question's Ask card instead.
+                                    askOnly -> data.copy(albumAbout = data.albumAbout.copy(blurb = null))
+                                    else -> data
+                                }
                             },
                             nowMillis = AboutPreviewNow,
                             // zh with a Memory title (the line under it), en without (the line beside the cover).
@@ -255,3 +260,7 @@ private fun AlbumAboutSheetDeepSeekPreview() = AboutSheetPreview(zh = false, pro
 )
 @Composable
 private fun AlbumAboutEmptyPreview() = AboutScrapbookPreview(zh = true, widthDp = 390, heightDp = 700, empty = true)
+
+@Preview(name = "Album About · question only · zh · light", widthDp = 390, heightDp = 800, locale = "zh-rCN")
+@Composable
+private fun AlbumAboutAskOnlyPreview() = AboutScrapbookPreview(zh = true, widthDp = 390, heightDp = 800, askOnly = true)
