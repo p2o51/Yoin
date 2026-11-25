@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -15,6 +16,7 @@ import com.gpo.yoin.player.sing.SingBackendRun
 import com.gpo.yoin.player.sing.SingInstalledBuild
 import com.gpo.yoin.player.sing.SingModelDownloadStatus
 import com.gpo.yoin.player.sing.SingModelOverview
+import com.gpo.yoin.player.sing.TensorGeneration
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -34,7 +36,7 @@ class SingLabsRowTest {
 
     @Config(qualifiers = "w360dp-h800dp")
     @Test
-    fun should_showTensorTpuEasterEgg_onlyOnTensorAndCycleQuotesOnTap() {
+    fun should_showCleanOptimizationLine_and_openTensorPageAfterTenTaps() {
         val tensorOverview = SingModelOverview(
             status = SingModelDownloadStatus.Ready,
             expectedBuildName = "Tensor G6 AOT",
@@ -53,6 +55,7 @@ class SingLabsRowTest {
         )
 
         var removed = 0
+        var openedEasterEgg = 0
         rule.setContent {
             YoinTheme {
                 SettingsPageBackground(modifier = Modifier.fillMaxSize()) {
@@ -63,6 +66,7 @@ class SingLabsRowTest {
                                     overview = tensorOverview,
                                     onDownload = {},
                                     onRemove = { removed++ },
+                                    onOpenTensorEasterEgg = { openedEasterEgg++ },
                                 )
                             }
                         }
@@ -72,29 +76,26 @@ class SingLabsRowTest {
         }
         rule.waitForIdle()
 
-        // Badge is visible on Tensor TPU target; Easter egg card starts collapsed.
-        rule.onNodeWithText("Tensor TPU", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText(context.getString(R.string.labs_sing_tpu_egg_1), useUnmergedTree = true).assertDoesNotExist()
+        val optimizedText = context.getString(R.string.labs_sing_optimized_for, "Google Tensor G6")
+        rule.onNodeWithText(optimizedText, useUnmergedTree = true).assertExists()
 
-        // Tap 1 opens the Easter egg card with quote 1.
-        rule.onNodeWithText("Tensor TPU", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText(context.getString(R.string.labs_sing_tpu_egg_1), useUnmergedTree = true).assertExists()
+        // 9 taps should not open yet; 10th tap opens the Tensor page.
+        repeat(9) {
+            rule.onNodeWithText("Lyra Sing", useUnmergedTree = true).performClick()
+        }
+        rule.runOnIdle { assertEquals(0, openedEasterEgg) }
 
-        // Tap 2 cycles to quote 2 and displays tap counter ×2.
-        rule.onNodeWithText("Tensor TPU", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText(context.getString(R.string.labs_sing_tpu_egg_2), useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("×2", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Lyra Sing", useUnmergedTree = true).performClick()
+        rule.runOnIdle { assertEquals(1, openedEasterEgg) }
 
-        // Remove button triggers removal callback.
+        // Remove button still works cleanly without interfering.
         rule.onNodeWithText(context.getString(R.string.labs_sing_remove), useUnmergedTree = true).performClick()
         rule.runOnIdle { assertEquals(1, removed) }
     }
 
     @Config(qualifiers = "w360dp-h800dp")
     @Test
-    fun should_hideTensorBadge_and_triggerDownload_onNonTensorDevice() {
+    fun should_showGpuAcceleration_and_notOpenTensorPage_onNonTensorDevice() {
         val genericOverview = SingModelOverview(
             status = SingModelDownloadStatus.NotDownloaded,
             expectedBuildName = "fp16",
@@ -103,6 +104,7 @@ class SingLabsRowTest {
             soc = "Qualcomm SM8750",
         )
         var downloads = 0
+        var openedEasterEgg = 0
         rule.setContent {
             YoinTheme {
                 SettingsPageBackground(modifier = Modifier.fillMaxSize()) {
@@ -113,6 +115,7 @@ class SingLabsRowTest {
                                     overview = genericOverview,
                                     onDownload = { downloads++ },
                                     onRemove = {},
+                                    onOpenTensorEasterEgg = { openedEasterEgg++ },
                                 )
                             }
                         }
@@ -122,8 +125,36 @@ class SingLabsRowTest {
         }
         rule.waitForIdle()
 
-        rule.onNodeWithText("Tensor TPU", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText(context.getString(R.string.labs_sing_accelerated_gpu), useUnmergedTree = true)
+            .assertExists()
+
+        repeat(10) {
+            rule.onNodeWithText("Lyra Sing", useUnmergedTree = true).performClick()
+        }
+        rule.runOnIdle { assertEquals(0, openedEasterEgg) }
+
         rule.onNodeWithText(context.getString(R.string.labs_sing_download), useUnmergedTree = true).performClick()
         rule.runOnIdle { assertEquals(1, downloads) }
+    }
+
+    @Config(qualifiers = "w360dp-h800dp")
+    @Test
+    fun should_renderTensorEasterEggPage_and_acceptChipTap() {
+        var backed = 0
+        rule.setContent {
+            YoinTheme {
+                TensorEasterEggContent(
+                    generation = TensorGeneration.G5,
+                    onBackClick = { backed++ },
+                )
+            }
+        }
+        rule.waitForIdle()
+
+        rule.onNodeWithText("Google Tensor G5").assertExists()
+        val chipCd = context.getString(R.string.labs_sing_tensor_chip_cd, "Google Tensor G5")
+        rule.onNodeWithContentDescription(chipCd).performClick()
+        rule.waitForIdle()
+        assertEquals(0, backed)
     }
 }

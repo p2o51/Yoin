@@ -81,6 +81,9 @@ internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
         onAboutFollowUpsChange = processor::setAboutFollowUpsEnabled,
         onDownloadSingModel = singManager::downloadNow,
         onRemoveSingModel = singManager::removeModel,
+        onOpenTensorEasterEgg = {
+            context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.TensorEasterEgg))
+        },
         onOpenDiagnostics = {
             context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
         },
@@ -125,6 +128,9 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
         onAboutFollowUpsChange = processor::setAboutFollowUpsEnabled,
         onDownloadSingModel = singManager::downloadNow,
         onRemoveSingModel = singManager::removeModel,
+        onOpenTensorEasterEgg = {
+            context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.TensorEasterEgg))
+        },
         onOpenDiagnostics = {
             context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
         },
@@ -160,6 +166,7 @@ internal fun LabsPageBody(
     onAboutFollowUpsChange: ((Boolean) -> Unit)? = null,
     onDownloadSingModel: (() -> Unit)? = null,
     onRemoveSingModel: (() -> Unit)? = null,
+    onOpenTensorEasterEgg: (() -> Unit)? = null,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text(
@@ -179,6 +186,7 @@ internal fun LabsPageBody(
             onAboutFollowUpsChange = onAboutFollowUpsChange,
             onDownloadSingModel = onDownloadSingModel,
             onRemoveSingModel = onRemoveSingModel,
+            onOpenTensorEasterEgg = onOpenTensorEasterEgg,
         )
     }
 }
@@ -200,6 +208,7 @@ internal fun ExperimentalFeaturesGroup(
     onAboutFollowUpsChange: ((Boolean) -> Unit)? = null,
     onDownloadSingModel: (() -> Unit)? = null,
     onRemoveSingModel: (() -> Unit)? = null,
+    onOpenTensorEasterEgg: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val nanoHere = state.nano != null && state.nano != NanoStatus.UNAVAILABLE
@@ -245,6 +254,7 @@ internal fun ExperimentalFeaturesGroup(
                         overview = state.singModel,
                         onDownload = { onDownloadSingModel?.invoke() },
                         onRemove = { onRemoveSingModel?.invoke() },
+                        onOpenTensorEasterEgg = onOpenTensorEasterEgg,
                     )
                 }
             } else {

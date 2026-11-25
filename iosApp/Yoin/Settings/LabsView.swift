@@ -28,8 +28,8 @@ final class SingModelLabsController {
         self.odrProvider = odrProvider ?? SingModelODRProvider(modelStore: modelStore)
     }
 
-    var distributionLine: String {
-        "Apple ODR · \(SingModelAsset.odrTag) · CoreML (ANE)"
+    var optimizationLine: String {
+        String(localized: "Optimized for Apple Neural Engine")
     }
 
     static func formatBytes(_ bytes: Int64) -> String {
@@ -238,7 +238,7 @@ struct LabsBody: View {
                     ProgressView()
                 }
             }
-            Text(singController.distributionLine)
+            Text(singController.optimizationLine)
                 .yoinRole(Tokens.type.bodySmall)
                 .foregroundStyle(app.onSurfaceVariant)
         }
@@ -254,16 +254,16 @@ struct LabsBody: View {
     private var singStatusText: String {
         switch singController.status {
         case .checking:
-            return String(localized: "Checking local model…")
+            return String(localized: "Checking…")
         case .notDownloaded:
             let est = SingModelLabsController.formatBytes(SingModelAsset.expectedZipBytes)
-            return String(localized: "Not downloaded yet (~\(est))")
+            return String(localized: "Not downloaded (\(est))")
         case .downloading(let p):
             let pct = Int((p * 100).rounded())
-            return String(localized: "Downloading model… \(pct)%")
+            return String(localized: "Downloading… \(pct)%")
         case .ready(let bytes):
             let size = SingModelLabsController.formatBytes(bytes)
-            return String(localized: "Ready on this device · \(size)")
+            return String(localized: "Ready on this device (\(size))")
         case .failed(let msg):
             return String(localized: "Download failed: \(msg)")
         }

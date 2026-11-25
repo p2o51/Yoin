@@ -35,6 +35,13 @@ data class SingInstalledBuild(
     val accelerators: List<SingAccelerator>,
 )
 
+/** Recognized Google Tensor generation optimized for on-device Lyra Sing TPU execution. */
+enum class TensorGeneration(val chipCode: String, val displayName: String) {
+    G5("G5", "Google Tensor G5"),
+    G6("G6", "Google Tensor G6"),
+    Generic("G", "Google Tensor"),
+}
+
 /** Snapshot of Lyra-Sing-Lite distribution, local installation, and hardware acceleration for Yoin Labs. */
 data class SingModelOverview(
     val status: SingModelDownloadStatus = SingModelDownloadStatus.Checking,
@@ -59,6 +66,25 @@ data class SingModelOverview(
         get() = lastRun?.accelerator == SingAccelerator.NPU ||
             expectedBuildName.startsWith("Tensor ", ignoreCase = true) ||
             installedBuilds.any { SingAccelerator.NPU in it.accelerators }
+
+    /** Which Google Tensor generation this device is optimized for, or null on non-Tensor devices. */
+    val tensorGeneration: TensorGeneration?
+        get() {
+            if (!isTensorTpu) return null
+            val haystack = listOfNotNull(
+                lastRun?.model,
+                installedBuilds.firstOrNull { SingAccelerator.NPU in it.accelerators }?.name,
+                expectedBuildName,
+                installedGroup,
+                expectedPackGroup,
+                soc,
+            ).joinToString(" ")
+            return when {
+                haystack.contains("G6", ignoreCase = true) -> TensorGeneration.G6
+                haystack.contains("G5", ignoreCase = true) -> TensorGeneration.G5
+                else -> TensorGeneration.Generic
+            }
+        }
 
     val activeBuildName: String
         get() = lastRun?.model ?: installedBuilds.firstOrNull()?.name ?: expectedBuildName

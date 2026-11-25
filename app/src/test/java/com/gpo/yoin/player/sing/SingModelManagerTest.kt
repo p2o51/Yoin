@@ -22,17 +22,20 @@ class SingModelManagerTest {
     fun `baseline identifies Tensor G6 and G5 TPU targets before download`() {
         val g6 = SingModelOverview.baseline("Google", "Tensor G6", npuAllowed = true, bundledInApk = false)
         assertTrue(g6.isTensorTpu)
+        assertEquals(TensorGeneration.G6, g6.tensorGeneration)
         assertEquals("Tensor G6 AOT", g6.expectedBuildName)
         assertEquals(SingModelOverview.GROUP_TENSOR_G6, g6.expectedPackGroup)
         assertTrue(g6.distributionLine().contains("Google_Tensor_G6"))
 
         val g5 = SingModelOverview.baseline("Google", "Tensor G5", npuAllowed = true, bundledInApk = false)
         assertTrue(g5.isTensorTpu)
+        assertEquals(TensorGeneration.G5, g5.tensorGeneration)
         assertEquals("Tensor G5 AOT", g5.expectedBuildName)
         assertEquals(SingModelOverview.GROUP_TENSOR_G5, g5.expectedPackGroup)
 
         val generic = SingModelOverview.baseline("Qualcomm", "SM8750", npuAllowed = true, bundledInApk = false)
         assertFalse(generic.isTensorTpu)
+        assertEquals(null, generic.tensorGeneration)
         assertEquals("fp16", generic.expectedBuildName)
         assertEquals(SingModelOverview.GROUP_OTHER, generic.expectedPackGroup)
     }

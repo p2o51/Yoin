@@ -43,6 +43,83 @@ class YoinHaptics internal constructor(private val view: View) {
         performLightTick()
     }
 
+    /** Crisp mechanical 3D flip impulse for the Tensor silicon easter egg: launch click, mid-turn tick, landing settle. */
+    fun performTensorFlip() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorFlip()) return
+        performConfirm()
+    }
+
+    /** Flowing dot-matrix ripple cascade after the Tensor die settles: five soft travelling micro-ticks. */
+    fun performTensorWave() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorWave()) return
+        performLightTick()
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorFlip(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val click = VibrationEffect.Composition.PRIMITIVE_CLICK
+            val tick = VibrationEffect.Composition.PRIMITIVE_TICK
+            if (!v.areAllPrimitivesSupported(click, tick)) return false
+            if (!isLegacyHapticsEnabled()) return true
+            val hasThud = v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_THUD)
+            val land = if (hasThud) VibrationEffect.Composition.PRIMITIVE_THUD else click
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(click, 0.70f)
+                .addPrimitive(tick, 0.36f, 150)
+                .addPrimitive(land, 0.58f, 260)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorWave(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val lowTick = VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+            if (!v.areAllPrimitivesSupported(lowTick)) return false
+            if (!isLegacyHapticsEnabled()) return true
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(lowTick, 0.22f)
+                .addPrimitive(lowTick, 0.34f, 68)
+                .addPrimitive(lowTick, 0.44f, 68)
+                .addPrimitive(lowTick, 0.32f, 68)
+                .addPrimitive(lowTick, 0.18f, 76)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    private fun isLegacyHapticsEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return true
+        return Settings.System.getInt(
+            view.context.contentResolver,
+            Settings.System.HAPTIC_FEEDBACK_ENABLED,
+            1,
+        ) != 0
+    }
+
+    private fun playComposed(v: Vibrator, effect: VibrationEffect) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(effect)
+        }
+    }
+
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
     private fun composePluck(opening: Boolean): Boolean {
         if (!view.isHapticFeedbackEnabled) return true
