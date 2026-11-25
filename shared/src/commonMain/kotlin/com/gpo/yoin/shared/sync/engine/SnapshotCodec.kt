@@ -11,6 +11,8 @@ import com.gpo.yoin.shared.sync.SyncGzipException
 import com.gpo.yoin.shared.sync.WireRecord
 import com.gpo.yoin.shared.sync.gunzipBytes
 import com.gpo.yoin.shared.sync.gzipBytes
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.StringFormat
 import kotlinx.serialization.json.Json
@@ -63,7 +65,22 @@ object SnapshotCodec {
      * @throws MalformedSyncFileException when it is not a Yoin sync file at all.
      */
     fun decode(bytes: ByteArray): SyncEnvelope {
-        val root = parseRoot(bytes)
+        val text = try {
+            (if (isGzip(bytes)) gunzipBytes(bytes) else bytes).decodeToString()
+        } catch (e: SyncGzipException) {
+            throw MalformedSyncFileException("Corrupt gzip sync file", e)
+        }
+        val fast = try {
+            SyncJson.json.decodeFromString(StrictWireEnvelope.serializer(), text)
+        } catch (_: SerializationException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+        if (fast != null && fast.format == SyncFormat.FORMAT && fast.schema == SyncFormat.SCHEMA) {
+            return fast.toEnvelope()
+        }
+        val root = parseRootText(text)
         val format = root.stringOrNull("format")
         if (format != SyncFormat.FORMAT) throw MalformedSyncFileException("Not a Yoin sync file (format=$format)")
         val schema = (root["schema"] as? JsonPrimitive)?.intOrNull
@@ -150,6 +167,10 @@ object SnapshotCodec {
         } catch (e: SyncGzipException) {
             throw MalformedSyncFileException("Corrupt gzip sync file", e)
         }
+        return parseRootText(text)
+    }
+
+    private fun parseRootText(text: String): JsonObject {
         val element = try {
             SyncJson.json.parseToJsonElement(text)
         } catch (e: SerializationException) {
@@ -161,6 +182,36 @@ object SnapshotCodec {
     private fun JsonObject.stringOrNull(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 
     private fun gzip(bytes: ByteArray): ByteArray = gzipBytes(bytes)
+}
+
+/** Fast-decode wire shape without defaults on [format] or [schema], so missing header keys still fail. */
+@Serializable
+private data class StrictWireEnvelope(
+    @SerialName("format") val format: String,
+    @SerialName("schema") val schema: Int,
+    @SerialName("epoch") val epoch: Long = 0L,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("deviceName") val deviceName: String,
+    @SerialName("fileClass") val fileClass: String,
+    @SerialName("shard") val shard: Int = 0,
+    @SerialName("writtenAt") val writtenAt: Long,
+    @SerialName("appVersionCode") val appVersionCode: Int,
+    @SerialName("records") val records: List<WireRecord>,
+    @SerialName("purges") val purges: Map<String, Long>? = null,
+) {
+    fun toEnvelope() = SyncEnvelope(
+        format = format,
+        schema = schema,
+        epoch = epoch,
+        deviceId = deviceId,
+        deviceName = deviceName,
+        fileClass = fileClass,
+        shard = shard,
+        writtenAt = writtenAt,
+        appVersionCode = appVersionCode,
+        records = records,
+        purges = purges,
+    )
 }
 
 // ---- Payload text <-> JsonObject

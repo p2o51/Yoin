@@ -25,6 +25,10 @@ internal class FakeDetailCacheDao : DetailCacheDao {
     var evictionScans = 0
         private set
 
+    /** How many batched SQL delete statements ran ([deleteBatch]). */
+    var deleteBatchCalls = 0
+        private set
+
     val entityIds: Set<String> get() = synchronized(rows) { rows.values.mapTo(linkedSetOf()) { it.entityId } }
 
     override suspend fun upsert(entry: DetailCacheEntry) {
@@ -50,6 +54,15 @@ internal class FakeDetailCacheDao : DetailCacheDao {
 
     override suspend fun delete(profileId: String, kind: String, entityId: String) {
         synchronized(rows) { rows.remove(key(profileId, kind, entityId)) }
+    }
+
+    override suspend fun deleteBatch(profileId: String, kind: String, entityIds: List<String>) {
+        if (entityIds.isEmpty()) return
+        val ids = entityIds.toHashSet()
+        synchronized(rows) {
+            deleteBatchCalls++
+            rows.keys.removeAll { (p, k, id) -> p == profileId && k == kind && id in ids }
+        }
     }
 
     override suspend fun totalBytes(): Long = synchronized(rows) { rows.values.sumOf { it.json.codePointLength() } }

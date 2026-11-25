@@ -1,5 +1,10 @@
 package com.gpo.yoin.data.profile
 
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -149,5 +154,102 @@ class FileBackedProfileCredentialsStoreTest {
         )
 
         assertEquals(emptySet<String>(), store.storedProfileIds())
+    }
+
+    @Test
+    fun should_serveCachedCredentialsWithoutRepeatedDecryption_when_readRepeatedly() {
+        val dir = tempFolder.newFolder("cached_creds")
+        val decrypts = AtomicInteger(0)
+        val delegate = InMemoryCredentialsCipher()
+        val cipher = object : CredentialsCipher {
+            override fun encrypt(plaintext: ByteArray) = delegate.encrypt(plaintext)
+            override fun decrypt(blob: EncryptedBlob): ByteArray {
+                decrypts.incrementAndGet()
+                return delegate.decrypt(blob)
+            }
+        }
+        val creds = ProfileCredentials.Spotify("at-1", "rt-1", 100L, listOf("s"))
+        FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher)).write("p1", creds)
+
+        val coldStore = FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher))
+        repeat(10) {
+            assertEquals(creds, coldStore.read("p1"))
+        }
+
+        assertEquals(1, decrypts.get())
+    }
+
+    @Test
+    fun should_serveNewCredentials_when_aColdReadRacesAWrite() {
+        val dir = File(tempFolder.root, "race-write")
+        val inDecrypt = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val blockNextDecrypt = AtomicBoolean(false)
+        val cipher = object : CredentialsCipher {
+            override fun encrypt(plaintext: ByteArray) = EncryptedBlob(ByteArray(12) { 1 }, plaintext)
+            override fun decrypt(blob: EncryptedBlob): ByteArray {
+                if (blockNextDecrypt.getAndSet(false)) {
+                    inDecrypt.countDown()
+                    release.await(5, TimeUnit.SECONDS)
+                }
+                return blob.ciphertext
+            }
+        }
+        val old = ProfileCredentials.Spotify(
+            accessToken = "access-OLD",
+            refreshToken = "refresh-OLD",
+            expiresAtEpochMs = 1L,
+            scopes = emptyList(),
+            clientId = "cid",
+        )
+        val fresh = old.copy(accessToken = "access-NEW", refreshToken = "refresh-NEW", expiresAtEpochMs = 2L)
+
+        FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher)).write("p1", old)
+        val store = FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher))
+
+        blockNextDecrypt.set(true)
+        var readerResult: ProfileCredentials? = null
+        val reader = Thread { readerResult = store.read("p1") }
+        reader.start()
+        assertTrue(inDecrypt.await(5, TimeUnit.SECONDS))
+        store.write("p1", fresh)
+        release.countDown()
+        reader.join(5_000)
+
+        assertEquals("refresh-NEW", (readerResult as ProfileCredentials.Spotify).refreshToken)
+        assertEquals("refresh-NEW", (store.read("p1") as ProfileCredentials.Spotify).refreshToken)
+    }
+
+    @Test
+    fun should_returnNull_when_aColdReadRacesADelete() {
+        val dir = File(tempFolder.root, "race-delete")
+        val inDecrypt = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val blockNextDecrypt = AtomicBoolean(false)
+        val cipher = object : CredentialsCipher {
+            override fun encrypt(plaintext: ByteArray) = EncryptedBlob(ByteArray(12) { 1 }, plaintext)
+            override fun decrypt(blob: EncryptedBlob): ByteArray {
+                if (blockNextDecrypt.getAndSet(false)) {
+                    inDecrypt.countDown()
+                    release.await(5, TimeUnit.SECONDS)
+                }
+                return blob.ciphertext
+            }
+        }
+        val old = ProfileCredentials.Subsonic("https://music.example", "alice", "pw")
+        FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher)).write("p1", old)
+        val store = FileBackedProfileCredentialsStore(dir, EncryptedProfileCredentialsCodec(cipher))
+
+        blockNextDecrypt.set(true)
+        var readerResult: ProfileCredentials? = old
+        val reader = Thread { readerResult = store.read("p1") }
+        reader.start()
+        assertTrue(inDecrypt.await(5, TimeUnit.SECONDS))
+        store.delete("p1")
+        release.countDown()
+        reader.join(5_000)
+
+        assertNull(readerResult)
+        assertNull(store.read("p1"))
     }
 }

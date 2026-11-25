@@ -38,6 +38,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,8 +49,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
@@ -134,20 +139,27 @@ class CloudSyncManager(
      */
     private inner class IdentityCheckedTokens(private val inner: SyncTokenProvider) : SyncTokenProvider {
         @Volatile private var verified: String? = null
+        private val verifyMutex = Mutex()
 
         override suspend fun token(): String {
-            val token = inner.token()
-            if (token == verified) return token
-            val expected = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-            if (expected != null && clientFor(token).about().permissionId != expected) {
-                throw SyncTransportException.Unauthorized("Token belongs to a different Google account")
+            val fast = inner.token()
+            if (fast == verified) return fast
+            return verifyMutex.withLock {
+                val token = inner.token()
+                if (token == verified) return@withLock token
+                val expected = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
+                if (expected != null && clientFor(token).about().permissionId != expected) {
+                    throw SyncTransportException.Unauthorized("Token belongs to a different Google account")
+                }
+                verified = token
+                token
             }
-            verified = token
-            return token
         }
 
         override suspend fun invalidate(token: String) {
-            if (verified == token) verified = null
+            verifyMutex.withLock {
+                if (verified == token) verified = null
+            }
             inner.invalidate(token)
         }
     }
@@ -518,11 +530,23 @@ class CloudSyncManager(
         val engine = engine()
         val me = deviceId()
 
-        val about = transport.about()
         val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-        if (owner != null && owner != about.permissionId) return CODE_ACCOUNT_MISMATCH
-
-        val files = transport.list()
+        val (about, files) = supervisorScope {
+            val aboutDeferred = async { transport.about() }
+            val filesDeferred = async { transport.list() }
+            val aboutResult = try {
+                aboutDeferred.await()
+            } catch (error: Throwable) {
+                filesDeferred.cancel()
+                throw error
+            }
+            if (owner != null && owner != aboutResult.permissionId) {
+                filesDeferred.cancel()
+                return@supervisorScope aboutResult to null
+            }
+            aboutResult to filesDeferred.await()
+        }
+        if (files == null) return CODE_ACCOUNT_MISMATCH
 
         // A newer "delete cloud data" from any device wins over everything.
         val resets = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_RESET }
@@ -618,13 +642,37 @@ class CloudSyncManager(
             keptOwn = emptyMap()
         }
 
-        // Merge peers that changed since we last merged them.
+        // Merge peers that changed since we last merged them. Changed peer files download up to
+        // SYNC_NETWORK_CONCURRENCY in flight in a supervisorScope, then merge in deterministic order
+        // so peers ahead of a failing download still commit their progress.
         updateRequiredFrom = null
         val listedIds = files.map { it.id }.toSet()
-        for (file in peerFiles) {
+        val changedPeers = peerFiles.filter { file ->
             val seen = dao.remoteFile(file.id)
-            if (seen != null && seen.version == file.version) continue
-            val bytes = transport.download(file.id) ?: continue
+            seen == null || seen.version != file.version
+        }
+        val downloadedPeers: List<Pair<RemoteFile, Result<ByteArray?>>> = if (changedPeers.size <= 1) {
+            changedPeers.map { file -> file to Result.success(transport.download(file.id)) }
+        } else {
+            supervisorScope {
+                val permits = Semaphore(SYNC_NETWORK_CONCURRENCY)
+                changedPeers.map { file ->
+                    async {
+                        permits.withPermit {
+                            try {
+                                file to Result.success(transport.download(file.id))
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (error: Throwable) {
+                                file to Result.failure(error)
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+        for ((file, downloadResult) in downloadedPeers) {
+            val bytes = downloadResult.getOrElse { throw it } ?: continue
             val envelope = try {
                 SnapshotCodec.decode(bytes)
             } catch (error: SyncSchemaTooNewException) {
@@ -669,16 +717,24 @@ class CloudSyncManager(
         val applied = engine.apply(bindings.active)
         summarize(applied, bindings)
 
-        // Publish what changed.
+        // Publish what changed: upload the state file alone first (so a failing initial state create
+        // never leaves orphan artifact shards in Drive), then upload dirty artifact shards concurrently
+        // in a supervisorScope, recording each shard's bookkeeping as soon as it lands.
         val now = clock()
         val outgoing = engine.outgoingFiles(epoch = myEpoch, writtenAt = now, appVersionCode = versionCode)
-        for (file in outgoing) {
+        val toUpload = outgoing.mapNotNull { file ->
             val key = "${file.fileKind}:${file.shard}"
             val existing = keptOwn[key]
-            if (existing != null && engine.lastUploadedHash(file.fileKind, file.shard) == file.contentHash) continue
+            if (existing != null && engine.lastUploadedHash(file.fileKind, file.shard) == file.contentHash) {
+                return@mapNotNull null
+            }
             // Don't create empty artifact shards; the state file always exists once we publish.
-            if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) continue
-            val uploaded = upload(existing, file, me) ?: continue
+            if (existing == null && file.recordCount == 0 && file.fileKind != SyncFileProps.KIND_STATE) {
+                return@mapNotNull null
+            }
+            existing to file
+        }
+        suspend fun recordUploaded(file: OutgoingFile, uploaded: RemoteFile) {
             putMeta(SyncMetaKeys.PARTICIPATED, "true")
             if (file.fileKind == SyncFileProps.KIND_STATE) putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
             engine.markUploaded(file)
@@ -695,6 +751,40 @@ class CloudSyncManager(
                     own = true,
                 ),
             )
+        }
+        val (stateUploads, artifactUploads) = toUpload.partition { (_, file) ->
+            file.fileKind == SyncFileProps.KIND_STATE
+        }
+        for ((existing, file) in stateUploads) {
+            val uploaded = upload(existing, file, me) ?: continue
+            recordUploaded(file, uploaded)
+        }
+        if (artifactUploads.size == 1) {
+            val (existing, file) = artifactUploads.single()
+            upload(existing, file, me)?.let { uploaded -> recordUploaded(file, uploaded) }
+        } else if (artifactUploads.size > 1) {
+            val bookkeepingMutex = Mutex()
+            val outcomes = supervisorScope {
+                val permits = Semaphore(SYNC_NETWORK_CONCURRENCY)
+                artifactUploads.map { (existing, file) ->
+                    async {
+                        permits.withPermit {
+                            try {
+                                val uploaded = upload(existing, file, me)
+                                if (uploaded != null) {
+                                    bookkeepingMutex.withLock { recordUploaded(file, uploaded) }
+                                }
+                                Result.success(Unit)
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (error: Throwable) {
+                                Result.failure(error)
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            outcomes.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
         }
         putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
         putMeta(SyncMetaKeys.LAST_SYNC_AT, now.toString())
@@ -1202,6 +1292,7 @@ class CloudSyncManager(
 
     companion object {
         private const val TAG = "CloudSync"
+        private const val SYNC_NETWORK_CONCURRENCY = 4
         private const val FOREGROUND_THROTTLE_MS = 60_000L
         private const val LOCAL_DEBOUNCE_MS = 8_000L
         private const val SEAM_PREFS = "yoin_ui_preferences"

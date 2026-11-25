@@ -182,6 +182,30 @@ class DetailCacheStoreTest {
         assertNull(store.readAlbum(OTHER_PROFILE, id(1)))
     }
 
+    @Test
+    fun should_chunkDeletesBy200PerProfileAndKind_when_trimmingManyRows() = runTest {
+        val dao = FakeDetailCacheDao()
+        write(store(dao), 100)
+        val threeDigitRow = dao.jsonLength(PROFILE, "ALBUM", id(100))!!
+        dao.deleteProfile(PROFILE)
+
+        val trimStore = store(
+            dao = dao,
+            maxBytes = 460 * threeDigitRow + threeDigitRow / 2,
+            trimTargetBytes = 5 * threeDigitRow,
+        )
+        (100..549).forEach { n -> trimStore.writeAlbum(PROFILE, id(n), album(n)).also { now += 10L } }
+        (900..909).forEach { n -> trimStore.writeAlbum(OTHER_PROFILE, id(n), album(n)).also { now += 10L } }
+        assertEquals(0, dao.evictionScans)
+
+        // Cross maxBytes: evicts 450 rows from PROFILE (3 chunks of <=200) and 6 from OTHER_PROFILE (1 chunk).
+        write(trimStore, 550)
+
+        assertEquals(1, dao.evictionScans)
+        assertEquals(4, dao.deleteBatchCalls)
+        assertEquals(setOf(id(906), id(907), id(908), id(909), id(550)), dao.entityIds)
+    }
+
     /** One album row's stored JSON length (every test album encodes to the same length). */
     private suspend fun TestScope.rowLength(): Long {
         val dao = FakeDetailCacheDao()
