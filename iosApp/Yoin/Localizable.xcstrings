@@ -15871,6 +15871,240 @@
           }
         }
       }
+    },
+    "ai.provider.qwen": {
+      "comment": "The Qwen AI service's name in copy (Android ai_provider_qwen): 问千问 in Chinese",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qwen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "千问"
+          }
+        }
+      }
+    },
+    "Ask %@": {
+      "comment": "The ask field's hint, %@ = the AI service in use (Android ai_ask_provider)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问 %@"
+          }
+        }
+      }
+    },
+    "%@ had nothing new": {
+      "comment": "Regenerate came back empty, %@ = the AI service (Android ai_nothing_new)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有新的内容"
+          }
+        }
+      }
+    },
+    "%@ API key missing": {
+      "comment": "%@ = the AI service (Android ai_key_missing)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 %@ API 密钥"
+          }
+        }
+      }
+    },
+    "%@ couldn't answer. Try again.": {
+      "comment": "%@ = the AI service (Android ai_failed)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没能回答，再试一次"
+          }
+        }
+      }
+    },
+    "Generate with %@": {
+      "comment": "%@ = the AI service (Android ai_generate_with)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 %@ 生成"
+          }
+        }
+      }
+    },
+    "albumCredit.label": {
+      "comment": "Album credits line: the record label (Android detail_album_credit_label)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "厂牌"
+          }
+        }
+      }
+    },
+    "albumCredit.producer": {
+      "comment": "Album credits line: producer (Android detail_album_credit_producer)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Producer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制作"
+          }
+        }
+      }
+    },
+    "albumCredit.mastering": {
+      "comment": "Album credits line: mastering (Android detail_album_credit_mastering)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mastering"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "母带"
+          }
+        }
+      }
+    },
+    "albumCredit.mixing": {
+      "comment": "Album credits line: mixing, shown when mastering is unknown (Android detail_album_credit_mixing)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混音"
+          }
+        }
+      }
+    },
+    "albumCredit.recorded": {
+      "comment": "Album credits line: when and where it was recorded (Android detail_album_credit_recorded)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制"
+          }
+        }
+      }
+    },
+    "albumCredit.source": {
+      "comment": "Album credits line: the film/game/artist a soundtrack or tribute belongs to (Android detail_album_credit_source)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原作"
+          }
+        }
+      }
+    },
+    "albumCredit.firstReleased": {
+      "comment": "Album credits line: a reissue's first release (Android detail_album_credit_first_released)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First released"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首版"
+          }
+        }
+      }
+    },
+    "albumCredit.nameSeparator": {
+      "comment": "Between names in one credit (Android detail_album_credit_name_separator)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、"
+          }
+        }
+      }
+    },
+    "%1$@, %2$@": {
+      "comment": "Album credits line: recorded time (%1$@) and place (%2$@) (Android detail_album_credit_time_place); handed to the shared code as %1$s / %2$s",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

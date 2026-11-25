@@ -551,12 +551,12 @@ struct GeminiClient: Sendable {
 
     // MARK: - External Web Search
 
-    private struct Searched {
+    struct Searched {
         let appendix: String
         let pages: Int
     }
 
-    private func searchFor(ai settings: AiSettings, queries: [String]) async throws -> Searched {
+    func searchFor(ai settings: AiSettings, queries: [String]) async throws -> Searched {
         guard settings.searchKind == .external, !queries.isEmpty else {
             return Searched(appendix: "", pages: 0)
         }

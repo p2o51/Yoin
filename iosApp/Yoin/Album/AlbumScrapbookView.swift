@@ -4,7 +4,8 @@ import YoinShared
 /// Album page 2, the scrapbook (Android detail/AlbumScrapbookPage.kt,
 /// AlbumScrapbook.kt), phone width = one lane, every piece a full-width row
 /// 28 pt apart on dot paper. Order: opening cluster (cover + emblem, title,
-/// Last Play, review, the album's notes as stickies) → per track in order: a cluster for tracks
+/// the credits line, review, the album's notes as stickies) → the album's About
+/// (AlbumAboutCard.swift) → per track in order: a cluster for tracks
 /// with notes or the best score, contact sheets of two for score-only runs →
 /// receipt. Tilts come from an FNV-1a hash of "albumId/key" (shared Kotlin; graphics only;
 /// layout stays square). A server album shows the listener's own records
@@ -20,10 +21,6 @@ struct AlbumScrapbookView: View {
     var plays: LibraryStore.AlbumHistory? = nil
     var settled: Bool
 
-    /// Last Play: the mock's hand-set one, else the newest play here (nil = never).
-    private var lastPlay: (day: String, time: String)? {
-        plays == nil ? (day: "Yesterday", time: "16:04") : plays?.lastPlay
-    }
     /// The album header's height: the page scrolls under it.
     var topInset: CGFloat = 0
     /// The pager as the pieces read it: 0 settled here, 1 a page away.
@@ -73,6 +70,12 @@ struct AlbumScrapbookView: View {
     @State private var stickyDraft = ""
     /// The scroll view's visible height: the paper reaches the bottom, so bare paper takes a tap anywhere.
     @State private var paperMinHeight: CGFloat = 0
+    /// The album's About sheet (the About card's tap, or the ✦ circle's).
+    @State private var aboutSheetOpen = false
+    /// This page already asked for the album's About (once per visit; the cache answers after).
+    @State private var aboutEnsured = false
+    /// What came of writing the About again, said in the open sheet ("<service> had nothing new").
+    @State private var aboutNotice: String?
     /// The opening cluster's scroll id (a tap on bare paper brings the new sticky into view).
     private static let openingID = "scrap-opening"
 
@@ -157,6 +160,120 @@ struct AlbumScrapbookView: View {
         return ScrapAboutPieces.of(store.entries(SongAboutStore.key(title: k.title, artist: k.artist, album: k.album)))
     }
 
+    /// The listener's own papers (review, stickies, track notes; 51 2026-11-25): primaryContainer with its words
+    /// and every mark on it in onPrimaryContainer at full strength (≥ 4.5:1 on every cover, AlbumAboutTests).
+    static func paperInk(_ s: CoverScheme) -> (paper: Color, text: Color) { (s.primaryContainer, s.onPrimaryContainer) }
+
+    // MARK: Album About (Android AlbumAbout.kt, AlbumAboutCard.kt)
+
+    /// The album as About reads it (DEBUG `-albumAboutDemo`: the mock album with a label and dates).
+    private var aboutAlbum: Album {
+        #if DEBUG
+        return AlbumAboutDemo.decorate(album)
+        #else
+        return album
+        #endif
+    }
+    /// The mock album has no About of its own (only `-albumAboutDemo` files one).
+    private var aboutShown: Bool {
+        #if DEBUG
+        if AlbumAboutDemo.mode != nil { return true }
+        #endif
+        return !isMock
+    }
+    private var aboutContent: AlbumAboutContent {
+        aboutShown ? AlbumAboutStore.shared.content(AlbumAboutStore.key(album)) : YoinAlbumAbout.shared.content(rows: [])
+    }
+    /// The credits line's items: the service's label and dates first, then the AI's credits.
+    private func creditItems(_ content: AlbumAboutContent) -> [AlbumCreditItem] {
+        aboutShown ? AlbumCredits.items(aboutAlbum, ai: content.credits) : []
+    }
+    private func aboutPiece(_ content: AlbumAboutContent) -> AlbumAboutPiece? {
+        guard aboutShown else { return nil }
+        return AlbumAboutPiece.of(content, serviceNotes: aboutAlbum.editorialNotes,
+                                  writing: AlbumAboutLoader.shared.isWriting(album))
+    }
+
+    /// Android `ensureAlbumAbout`: once the pager rests here, the album's About is written if it never was (once per
+    /// visit; cached after that). Not without a key: no card flashing the AI's dots on the way to nothing.
+    private func ensureAbout() {
+        guard settled, !aboutEnsured, !isMock else { return }
+        aboutEnsured = true
+        let loader = AlbumAboutLoader.shared
+        guard loader.isAiReady, !AlbumAboutStore.shared.content(AlbumAboutStore.key(album)).generated else { return }
+        let target = album
+        Task { await loader.ensure(target) }
+    }
+
+    /// The sheet's Regenerate: "Regenerated · Undo" in the toast; "<service> had nothing new" or why it failed in
+    /// the sheet when it is open, else in the toast.
+    private func regenerateAbout() {
+        aboutNotice = nil
+        let target = aboutAlbum
+        let name = AiProviderName.current
+        Task {
+            guard let result = await AlbumAboutLoader.shared.regenerate(target) else { return }
+            let notice: String
+            switch result {
+            case .success(let before):
+                PlaylistActions.shared.show(String(localized: "Regenerated"),
+                                            action: .init(label: String(localized: "Undo")) {
+                                                AlbumAboutLoader.shared.restore(before)
+                                            })
+                return
+            case .nothingNew: notice = AiProviderName.copy(String(localized: "%@ had nothing new"), name)
+            case .apiKeyMissing: notice = AiProviderName.copy(String(localized: "%@ API key missing"), name)
+            case .error: notice = AiProviderName.copy(String(localized: "%@ couldn't answer. Try again."), name)
+            }
+            if aboutSheetOpen {
+                withAnimation(Yoin.spatial) { aboutNotice = notice }
+            } else {
+                PlaylistActions.shared.show(notice)
+            }
+        }
+    }
+
+    /// The sheet's ask field: the answer joins the album's About; a failure is told in the toast.
+    private func askAbout(_ question: String) {
+        let name = AiProviderName.current
+        AlbumAboutLoader.shared.ask(aboutAlbum, question: question) { keyMissing in
+            PlaylistActions.shared.show(keyMissing
+                ? AiProviderName.copy(String(localized: "%@ API key missing"), name)
+                : AiProviderName.copy(String(localized: "%@ couldn't answer. Try again."), name))
+        }
+    }
+
+    /// The About piece after the opening cluster (Android ScrapPiece.AlbumAbout): the paragraph card, the dots, the
+    /// newest question, or the ✦ circle.
+    @ViewBuilder
+    private func aboutPieceView(_ piece: AlbumAboutPiece) -> some View {
+        let tiltValue = tilt("albumabout", Tilt.card)
+        switch piece {
+        case .paragraph(let text, let fromService, let asks):
+            AlbumAboutParagraphCard(text: text, fromService: fromService, hasQuestions: !asks.isEmpty,
+                                    albumName: album.title, scheme: s) { aboutSheetOpen = true }
+                .frame(maxWidth: AlbumAboutLayout.cardMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(layer(tiltValue, depth: 0.35))
+        case .pending:
+            AlbumAboutParagraphCard(text: nil, fromService: false, hasQuestions: false, albumName: album.title,
+                                    scheme: s) {}
+                .frame(maxWidth: AlbumAboutLayout.cardMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(layer(tiltValue, depth: 0.35))
+        case .questions(let asks):
+            // No paragraph, but questions about the album: the newest as the Ask index card songs get.
+            if let ask = asks.first {
+                askIndexCard(question: ask.question, title: ask.title, answer: ask.answer, more: asks.count - 1,
+                             tiltValue: tiltValue, subject: album.title) { aboutSheetOpen = true }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .empty:
+            AlbumAboutEmptyMark(scheme: s) { aboutSheetOpen = true }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     /// A ticket's tap (Android onSongClick): the album from this song; a note's from its moment. The
     /// song already current isn't restarted: it seeks there and plays on.
     private func play(_ t: Track, at ms: Int64? = nil) {
@@ -187,18 +304,26 @@ struct AlbumScrapbookView: View {
         let bestTrackId = bestTrack(in: trackScores)?.id
         let builtBlocks = blocks(trackScores: trackScores, bestTrackId: bestTrackId)
         let emblemKey = "\(currentBun.score)|\(currentBun.kind)|\(currentBun.rated)"
+        let about = aboutContent
+        let credits = creditItems(about)
+        let piece = aboutPiece(about)
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.detail.SCRAPBOOK_PIECE_GAP.cg) {
-                opening(bun: currentBun)
+                opening(bun: currentBun, credits: credits)
                     .id(Self.openingID)
+                // The album's About: after the opening, before the tracks (owner + Carbon 2026-11-25).
+                if let piece {
+                    aboutPieceView(piece)
+                        .transition(.opacity)
+                }
                 ForEach(Array(builtBlocks.enumerated()), id: \.offset) { i, b in
                     block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2),
                           trackScores: trackScores, bestTrackId: bestTrackId)
                 }
                 // Android: the receipt only once the album has played here.
                 if plays.map({ $0.playCount > 0 }) ?? true {
-                    receipt(trackScores: trackScores)
+                    receipt(trackScores: trackScores, albumAsks: about.asks.count)
                         .frame(maxWidth: .infinity)
                 }
                 // Android: the page's last block, the writings elsewhere that mention this album or its songs.
@@ -207,6 +332,7 @@ struct AlbumScrapbookView: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
             .padding(.bottom, 112)
+            .animation(Yoin.spatial, value: piece)
             .frame(minHeight: paperMinHeight, alignment: .top)
             .background {
                 DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45))
@@ -243,10 +369,19 @@ struct AlbumScrapbookView: View {
         .onChange(of: settled) { _, _ in
             stampIfSettled()
             openFocus()
+            ensureAbout()
+            #if DEBUG
+            openAboutDemoSheet()
+            #endif
         }
         .onAppear {
             onScreen = true
             openFocus()
+            ensureAbout()
+            #if DEBUG
+            AlbumAboutDemo.seed(aboutAlbum)
+            openAboutDemoSheet()
+            #endif
             #if DEBUG
             openNotesDemo()
             #endif
@@ -279,6 +414,15 @@ struct AlbumScrapbookView: View {
                 .reportsSheetRise()
                 .ySolidSheet(s.surfaceContainerLow)
         }
+        .sheet(isPresented: $aboutSheetOpen, onDismiss: { aboutNotice = nil }) {
+            AlbumAboutSheet(album: aboutAlbum, content: aboutContent, piece: aboutPiece(aboutContent),
+                            credits: creditItems(aboutContent), scheme: s, notice: aboutNotice,
+                            onRegenerate: regenerateAbout, onAsk: askAbout)
+                .reportsSheetRise()
+                // Always opaque (not the system glass `ySolidSheet` leaves on): the receipt and the paragraph are
+                // reading text, and the page's tertiary About card right under the sheet bled through them.
+                .presentationBackground(s.surfaceContainerLow)
+        }
         }
     }
 
@@ -289,6 +433,15 @@ struct AlbumScrapbookView: View {
         Task {
             try? await Task.sleep(for: .milliseconds(900))
             trackSheet = ScrapSheetOpen(track: t, tab: .notes)
+        }
+    }
+
+    /// `-albumAboutSheet YES`: the About sheet opens once the page has settled here.
+    private func openAboutDemoSheet() {
+        guard settled, AlbumAboutDemo.opensSheet, AlbumAboutDemo.mode != nil, !aboutSheetOpen else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            aboutSheetOpen = true
         }
     }
     #endif
@@ -325,7 +478,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Opening cluster
 
-    private func opening(bun currentBun: AlbumBun) -> some View {
+    private func opening(bun currentBun: AlbumBun, credits: [AlbumCreditItem]) -> some View {
         let kind = currentBun.kind
         let emblemScore = currentBun.score
         let emblemRated = currentBun.rated
@@ -370,44 +523,38 @@ struct AlbumScrapbookView: View {
                     if let memoryTitle {
                         openingTitle(memoryTitle)
                     }
-                    // AlbumScrapLastPlay: AlbumSectionLabel (labelLarge
-                    // underlined), 4, then titleMedium tabular.
-                    if let lastPlay {
-                        Text("Last Play")
-                            .underline()
-                            .yoinRole(Tokens.type.labelLarge)
-                            .foregroundStyle(s.onSurface)
-                            .padding(.top, 16).padding(.bottom, 4)
-                        Text("\(lastPlay.day) \(lastPlay.time)")
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .yoinRole(Tokens.type.titleMedium)
-                            .foregroundStyle(s.onSurface)
-                    }
+                    // The credits line, where Last Play was (owner + Carbon 2026-11-25: Last Play stays on page 1
+                    // and on the receipt); with no title yet it still sits beside the cover.
+                    AlbumCreditsLineView(items: credits, scheme: s)
+                        .padding(.top, memoryTitle != nil ? 12 : 0)
                 }
                 .padding(.top, 4)
             }
+            // Air above the cover and the title beside it (51, 2026-11-25: the header breathes).
+            .padding(.top, AlbumAboutLayout.openingTopGap)
             // Title present → the review goes below, full width.
             if let review {
             Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
-                NoteMarkupText(text: review, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.primary)
+                let ink = Self.paperInk(s)
+                NoteMarkupText(text: review, size: 15, mentionColor: ink.text, glyphColor: ink.text)
                     .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
-                    .foregroundStyle(s.onPrimaryContainer)
+                    .foregroundStyle(ink.text)
                 if let reviewAt {
                     Text(reviewAt)
                         .yoinRole(Tokens.type.labelMedium)
-                        .foregroundStyle(s.onPrimaryContainer.opacity(0.6))
+                        .foregroundStyle(ink.text)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .background(Self.paperInk(s).paper, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             }
             .buttonStyle(.plain).pointerHighlight()
-            .disabled(isMock || onEditReview == nil)
+            // Not `.disabled`: a disabled button fades its label, and the listener's words stay at full ink.
+            .allowsHitTesting(!isMock && onEditReview != nil)
             .accessibilityLabel("Edit comment")
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
             } else if !isMock, let onEditReview {
@@ -793,20 +940,20 @@ struct AlbumScrapbookView: View {
 
     private func notesClipping(_ t: Track, _ ns: [Note]) -> some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(s.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
+            Capsule().fill(s.onPrimaryContainer).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(ns.prefix(ScrapbookRules.notesShown).enumerated()), id: \.offset) { _, n in
                     // A note opens itself (owner 2026-11-24, no longer plays): the sheet's Notes page, the note
                     // brought into view and ringed, Edit and Play from a tap away.
                     Button { trackSheet = ScrapSheetOpen(track: t, tab: .notes, note: n.id) } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
-                            Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
+                            Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.onPrimaryContainer)
                                 .frame(width: 42, alignment: .leading)
                             // userTextStyle: GSF 15, line 1.5 em.
-                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.primary, glyphColor: s.primary,
+                            NoteMarkupText(text: n.text, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.onPrimaryContainer,
                                            onToggleChecklist: n.id.map { id in { NoteChecklist.toggleSongNote(id, line: $0) } })
                                 .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
-                                .foregroundStyle(s.onSurface)
+                                .foregroundStyle(s.onPrimaryContainer)
                                 .multilineTextAlignment(.leading)
                         }
                         .padding(.vertical, 4)
@@ -814,7 +961,7 @@ struct AlbumScrapbookView: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .disabled(isMock)
+                    .allowsHitTesting(!isMock)
                     .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(NoteMarkupRender.words(n.text))")
                         : String(localized: "Note at \(n.time): \(NoteMarkupRender.words(n.text))"))
                 }
@@ -823,18 +970,20 @@ struct AlbumScrapbookView: View {
                     Button { trackSheet = ScrapSheetOpen(track: t, tab: .notes) } label: {
                         Text(ScrapbookText.hiddenNotes(ns.count - ScrapbookRules.notesShown))
                             .yoinRole(Tokens.type.labelLarge, weight: .semibold)
-                            .foregroundStyle(s.primary)
+                            .foregroundStyle(s.onPrimaryContainer)
                             .padding(.leading, 42).padding(.top, 6).padding(.bottom, 4).padding(.trailing, 8)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .disabled(isMock)
+                    .allowsHitTesting(!isMock)
                 }
             }
             .padding(.leading, 24).padding(.trailing, 12).padding(.vertical, 8)
         }
         .frame(width: min(330, 0.78 * 368), alignment: .leading)
-        .background(s.surfaceContainerHighest, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        // The listener's words: primaryContainer paper, its marks in the paper's own ink (51, 2026-11-25: what the
+        // listener writes is one colour family; the album's primary on primaryContainer read as nothing on device).
+        .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .modifier(layer(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper)), depth: 0.4))
     }
 
@@ -843,14 +992,22 @@ struct AlbumScrapbookView: View {
     /// A question asked in Now Playing: the listener's words, Gemini's title and whole sentences of
     /// its answer; "Read all" (and +N more questions) when the sheet holds more. Opens the sheet.
     private func askCard(_ t: Track, _ ask: ScrapAboutPieces.Ask, more: Int) -> some View {
-        let excerpt = ScrapbookText.answerExcerpt(ask.answer, budget: ScrapbookRules.answerBudget)
-        let tiltValue = tilt("\(t.number)/qa", Tilt.card)
-        return Button { trackSheet = ScrapSheetOpen(track: t) } label: {
+        askIndexCard(question: ask.question, title: ask.title, answer: ask.answer, more: more,
+                     tiltValue: tilt("\(t.number)/qa", Tilt.card), subject: t.title) {
+            trackSheet = ScrapSheetOpen(track: t)
+        }
+    }
+
+    /// The Ask index card (Android AskCard), for a song's question or, with no About paragraph, the album's.
+    private func askIndexCard(question: String, title: String?, answer: String, more: Int, tiltValue: Double,
+                              subject: String, action: @escaping () -> Void) -> some View {
+        let excerpt = ScrapbookText.answerExcerpt(answer, budget: ScrapbookRules.answerBudget)
+        return Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(ask.question)
+                Text(question)
                     .font(.gsf(14)).lineSpacing(YoinType.lineSpacing(size: 14, lineHeight: 14 * 1.45))
                     .foregroundStyle(s.onTertiaryContainer.opacity(0.8))
-                if let title = ask.title {
+                if let title {
                     Text(title).font(.gsf(16, .semibold))
                         .foregroundStyle(s.onTertiaryContainer)
                         .padding(.top, 8)
@@ -887,7 +1044,7 @@ struct AlbumScrapbookView: View {
             }
         }
         .buttonStyle(.plain).pointerHighlight()
-        .accessibilityLabel("Asked about \(t.title): \(ask.title ?? ask.question)")
+        .accessibilityLabel("Asked about \(subject): \(title ?? question)")
         .accessibilityHint("Read all")
         .frame(maxWidth: 380)
         .containerRelativeFrame(.horizontal) { w, _ in min(w * 0.92, 380) }
@@ -920,16 +1077,17 @@ struct AlbumScrapbookView: View {
     private func factTag(_ t: Track, _ tag: ScrapAboutPieces.Tag, index: Int, extra: Int) -> some View {
         Button { trackSheet = ScrapSheetOpen(track: t) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(tag.label).font(.gsf(11.5, .medium)).foregroundStyle(s.onSecondaryContainer.opacity(0.75))
+                Text(tag.label).font(.gsf(11.5, .medium)).foregroundStyle(s.onTertiaryContainer.opacity(0.75))
                 Text(extra > 0 ? String(localized: "\(tag.value)  +\(extra)") : tag.value)
                     .yoinRole(Tokens.type.labelLarge)
-                    .foregroundStyle(s.onSecondaryContainer)
+                    .foregroundStyle(s.onTertiaryContainer)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
             .padding(.horizontal, 14).padding(.vertical, 7)
-            // A capped radius, not a capsule: a long value wraps (Android FactTagShape).
-            .background(s.secondaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
+            // A capped radius, not a capsule: a long value wraps (Android FactTagShape). Generated: tertiary, with
+            // the Ask card it sits under (51, 2026-11-25; was secondaryContainer).
+            .background(s.tertiaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain).pointerHighlight()
         .frame(maxWidth: 340, alignment: .leading)
@@ -964,7 +1122,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Receipt
 
-    private func receipt(trackScores: [Double?]) -> some View {
+    private func receipt(trackScores: [Double?], albumAsks: Int) -> some View {
         var rows: [(String, String)] = [("Plays in Yoin", "42"), ("Days since first play", "18"),
                                         ("Last played", "Yesterday")]
         if let plays {
@@ -979,13 +1137,14 @@ struct AlbumScrapbookView: View {
         if isMock {
             rows += [("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4")]
         } else {
-            // Android receiptLines: rated tracks on this page, track notes (+ the album notes), questions asked.
+            // Android receiptLines: rated tracks on this page, track notes (+ the album notes), questions asked
+            // about the songs and about the album itself (its About sheet's Ask) alike.
             let noteCount = album.tracks.reduce(0) { $0 + (notes($1)?.count ?? 0) } + stickies.count
             let asked = album.tracks.reduce(0) { n, t in
                 n + SongAboutStore.shared.entries(SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist,
                                                                      album: album.title))
                     .filter { $0.kind == SongAboutStore.Kind.ask }.count
-            }
+            } + albumAsks
             let ratedTracksCount = trackScores.reduce(0) { $0 + ($1 != nil ? 1 : 0) }
             rows += [("Rated", "\(ratedTracksCount) / \(album.tracks.count)"),
                      ("Notes", "\(noteCount)"), ("Asked", "\(asked)")]
