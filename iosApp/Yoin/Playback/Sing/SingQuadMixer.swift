@@ -258,15 +258,25 @@ final class SingQuadDownmixer: @unchecked Sendable {
 /// Attaches a real-time 4ch→2ch `MTAudioProcessingTap` onto an `AVAssetTrack` for local `quad.m4a` files
 /// or direct HTTPS `quad.m4a` URLs (never custom `AVAssetResourceLoaderDelegate` schemes).
 enum SingQuadAudioTap {
+    private static let logger = Logger(subsystem: "com.gpo.yoin", category: "SingTap")
+
     private final class TapContext {
         let mixer: SingQuadDownmixer
+        let onPrepare: (@Sendable (Int, Double, Bool) -> Void)?
         var channelCount: Int = 4
         var isNonInterleaved: Bool = true
-        init(mixer: SingQuadDownmixer) { self.mixer = mixer }
+        init(mixer: SingQuadDownmixer, onPrepare: (@Sendable (Int, Double, Bool) -> Void)?) {
+            self.mixer = mixer
+            self.onPrepare = onPrepare
+        }
     }
 
-    static func makeAudioMix(for track: AVAssetTrack, mixer: SingQuadDownmixer) -> AVMutableAudioMix? {
-        let context = TapContext(mixer: mixer)
+    static func makeAudioMix(
+        for track: AVAssetTrack,
+        mixer: SingQuadDownmixer,
+        onPrepare: (@Sendable (Int, Double, Bool) -> Void)? = nil
+    ) -> AVMutableAudioMix? {
+        let context = TapContext(mixer: mixer, onPrepare: onPrepare)
         let unmanaged = Unmanaged.passRetained(context)
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
@@ -284,6 +294,8 @@ enum SingQuadAudioTap {
                 ctx.mixer.setSampleRate(asbd.mSampleRate)
                 ctx.channelCount = Int(asbd.mChannelsPerFrame)
                 ctx.isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+                Self.logger.info("SingTap prepare: ch=\(ctx.channelCount) sr=\(asbd.mSampleRate, privacy: .public) nonInterleaved=\(ctx.isNonInterleaved)")
+                ctx.onPrepare?(ctx.channelCount, asbd.mSampleRate, ctx.isNonInterleaved)
             },
             unprepare: nil,
             process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in

@@ -63,7 +63,8 @@ final class AVAudioOutput: AudioOutput {
                                                                    queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                for item in [self.current, self.next].compactMap({ $0 }) { self.applyGain(item) }
+                let activeItems = [self.singActive ? nil : self.current, self.next].compactMap { $0 }
+                for item in activeItems { self.applyGain(item) }
             }
         })
     }
@@ -199,77 +200,83 @@ final class AVAudioOutput: AudioOutput {
         }
 
         let asset = AVURLAsset(url: source.url)
-        let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 30
-        // Quad Sing channels are [I_L, I_R, V_L, V_R], never spatialized surround.
-        item.allowedAudioSpatializationFormats = []
+        let isLocal = source.url.isFileURL
 
-        singPrebufferTask = Task { @MainActor [weak self, weak item] in
-            guard let self, let item else { return }
+        singPrebufferTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             defer {
-                if self.singStandbyPlayer?.currentItem === item {
-                    self.singStandbyPlayer?.replaceCurrentItem(with: nil)
-                }
                 self.singStandbyPlayer?.pause()
+                self.singStandbyPlayer?.replaceCurrentItem(with: nil)
                 self.singStandbyPlayer = nil
             }
 
             guard let tracks = try? await asset.loadTracks(withMediaType: .audio),
-                  let track = tracks.first,
-                  let mix = SingQuadAudioTap.makeAudioMix(for: track, mixer: self.singMixer) else {
-                PlayTrace.log("AV Sing tap attach failed")
+                  let track = tracks.first else {
+                PlayTrace.log("AV Sing track load failed")
                 onFailure?()
                 return
             }
             guard !Task.isCancelled else { return }
-            item.audioMix = mix
 
-            // Pre-buffer on a muted standby player so the original stereo track plays uninterrupted
-            // until the quad stream has decoded & buffered ahead of the live playhead.
-            let standby = AVPlayer(playerItem: item)
-            standby.isMuted = true
-            standby.automaticallyWaitsToMinimizeStalling = false
-            self.singStandbyPlayer = standby
+            // For remote HTTP streams, warm the shared AVURLAsset on a muted standby player first,
+            // then discard the standby item and construct a FRESH AVPlayerItem for self.player
+            // (reusing an AVPlayerItem across two AVPlayer instances throws or drops its audioMix).
+            if !isLocal {
+                let standbyItem = AVPlayerItem(asset: asset)
+                standbyItem.preferredForwardBufferDuration = 30
+                standbyItem.allowedAudioSpatializationFormats = []
+                let standby = AVPlayer(playerItem: standbyItem)
+                standby.isMuted = true
+                standby.automaticallyWaitsToMinimizeStalling = false
+                self.singStandbyPlayer = standby
 
-            let initialPos = self.currentTimeSec
-            if initialPos > 0 {
-                await item.seek(
-                    to: CMTime(seconds: initialPos, preferredTimescale: 600),
-                    toleranceBefore: .zero,
-                    toleranceAfter: .zero
-                )
-            }
-
-            let isLocal = source.url.isFileURL
-            let targetBufferAhead: Double = isLocal ? 0.25 : 2.0
-            let deadline = ProcessInfo.processInfo.systemUptime + (isLocal ? 3.0 : 8.0)
-
-            while !Task.isCancelled {
-                if item.status == .failed {
-                    PlayTrace.log("AV Sing prebuffer failed: \(item.error?.localizedDescription ?? "unknown")")
-                    onFailure?()
-                    return
+                let initialPos = self.currentTimeSec
+                if initialPos > 0 {
+                    await standbyItem.seek(
+                        to: CMTime(seconds: initialPos, preferredTimescale: 600),
+                        toleranceBefore: .zero,
+                        toleranceAfter: .zero
+                    )
                 }
-                if item.status == .readyToPlay {
-                    let ahead = Self.bufferedAheadSeconds(for: item, at: self.currentTimeSec)
-                    if isLocal || item.isPlaybackLikelyToKeepUp || ahead >= targetBufferAhead {
-                        break
+
+                let deadline = ProcessInfo.processInfo.systemUptime + 8.0
+                while !Task.isCancelled {
+                    if standbyItem.status == .failed {
+                        PlayTrace.log("AV Sing prebuffer failed: \(standbyItem.error?.localizedDescription ?? "unknown")")
+                        onFailure?()
+                        return
                     }
+                    if standbyItem.status == .readyToPlay {
+                        let ahead = Self.bufferedAheadSeconds(for: standbyItem, at: self.currentTimeSec)
+                        if standbyItem.isPlaybackLikelyToKeepUp || ahead >= 2.0 {
+                            break
+                        }
+                    }
+                    if ProcessInfo.processInfo.systemUptime >= deadline {
+                        if standbyItem.status == .readyToPlay { break }
+                        PlayTrace.log("AV Sing prebuffer timed out")
+                        onFailure?()
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(40))
                 }
-                if ProcessInfo.processInfo.systemUptime >= deadline {
-                    if item.status == .readyToPlay { break }
-                    PlayTrace.log("AV Sing prebuffer timed out")
-                    onFailure?()
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(40))
+                guard !Task.isCancelled else { return }
+                standby.pause()
+                standby.replaceCurrentItem(with: nil)
+                self.singStandbyPlayer = nil
             }
-            guard !Task.isCancelled else { return }
 
-            // Detach from standby cleanly before inserting into the live queue player.
-            standby.pause()
-            standby.replaceCurrentItem(with: nil)
-            self.singStandbyPlayer = nil
+            // Build a brand-new AVPlayerItem exclusively owned by self.player with the 4ch->2ch tap attached.
+            guard let mix = SingQuadAudioTap.makeAudioMix(for: track, mixer: self.singMixer) else {
+                PlayTrace.log("AV Sing tap attach failed")
+                onFailure?()
+                return
+            }
+            let liveItem = AVPlayerItem(asset: asset)
+            liveItem.preferredForwardBufferDuration = 30
+            // Quad Sing channels are [I_L, I_R, V_L, V_R], never spatialized surround.
+            liveItem.allowedAudioSpatializationFormats = []
+            liveItem.audioMix = mix
 
             let livePos = self.currentTimeSec
             let wasPlaying = self.player.rate > 0
@@ -280,7 +287,7 @@ final class AVAudioOutput: AudioOutput {
             self.singActive = true
 
             if livePos > 0 {
-                await item.seek(
+                await liveItem.seek(
                     to: CMTime(seconds: livePos, preferredTimescale: 600),
                     toleranceBefore: .zero,
                     toleranceAfter: .zero
@@ -289,9 +296,9 @@ final class AVAudioOutput: AudioOutput {
             guard !Task.isCancelled, self.singActive else { return }
 
             self.player.removeAllItems()
-            self.current = item
-            self.player.insert(item, after: nil)
-            self.observeCurrent(item)
+            self.current = liveItem
+            self.player.insert(liveItem, after: nil)
+            self.observeCurrent(liveItem)
             self.next = nil
             self.nextURL = nil
             self.preload(savedNext)
@@ -409,6 +416,10 @@ final class AVAudioOutput: AudioOutput {
         let now = player.currentItem
         guard now !== current else { return }
         if let now, now === next {
+            cancelSingTransitions()
+            singActive = false
+            singOriginalURL = itemURLs[ObjectIdentifier(now)] ?? (now.asset as? AVURLAsset)?.url
+            singMixer.setVocalGain(1.0, rampSeconds: 0)
             current = now
             next = nil
             nextURL = nil
@@ -416,6 +427,10 @@ final class AVAudioOutput: AudioOutput {
             Self.log.info("advanced to preloaded item")
             events?.outputDidAdvanceToPreloaded()
         } else if now == nil, current != nil {
+            cancelSingTransitions()
+            singActive = false
+            singOriginalURL = nil
+            singMixer.setVocalGain(1.0, rampSeconds: 0)
             current = nil
             itemObservations = []
             Self.log.info("reached end of queue")

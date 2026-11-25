@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
@@ -848,7 +849,9 @@ private fun AlbumDetailContent(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .weight(1f),
+                        .weight(1f)
+                        // Where a page's pieces can be seen: the cover only flies to one in here.
+                        .then(if (flight == null) Modifier else Modifier.onGloballyPositioned(flight::recordViewport)),
                 ) { page ->
                     when (page) {
                         0 -> {
