@@ -2467,6 +2467,7 @@ private fun CompactPlayingContent(
                                                 current = state.noteTarget(),
                                                 positionMs = positionMs,
                                                 onSave = onSaveNote,
+                                                onShareEditing = rememberNoteShare(),
                                                 // The keyboard comes once the page
                                                 // has landed, not mid-reshape.
                                                 focusGate = stageMode == NowPlayingStageMode.Expanded &&
@@ -3247,6 +3248,7 @@ private fun WidePlayingContent(
                                             current = state.noteTarget(),
                                             positionMs = positionMs,
                                             onSave = onSaveNote,
+                                            onShareEditing = rememberNoteShare(),
                                             focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -4078,6 +4080,7 @@ private fun LandscapePlayingContent(
                                     current = state.noteTarget(),
                                     positionMs = positionMs,
                                     onSave = onSaveNote,
+                                    onShareEditing = rememberNoteShare(),
                                     inline = true,
                                     focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
                                         detailProgress >= NoteWriteFocusStageProgress,
