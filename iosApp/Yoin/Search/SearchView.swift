@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Search, the Apple Music iOS 26 way, with Android's content.
 ///
@@ -9,9 +10,12 @@ import SwiftUI
 ///
 /// Android content (library/LibrarySearchFilter.kt, LibraryScreen.kt
 /// SearchResultsContent): scopes Library and the provider's catalog (here
-/// Apple Music); type filters All / Artists / Albums / Songs / Playlists;
-/// All is sectioned artists → albums → playlists → songs; Artists and Albums
-/// alone are a grid, Songs and Playlists a list; "No results found" when empty.
+/// Apple Music); type filters All / Songs / Albums / Memories / Artists /
+/// Playlists (:shared's chips). All is Home's Jump Back In tiles, sections
+/// ranked by the hit, the listener's notes and memories from every account
+/// merged in (SearchTiles.swift, SearchMemories.swift; parity p3); Memories
+/// lists only those; Artists and Albums alone are a grid, Songs and Playlists
+/// a list; "No results found" when empty.
 /// Android has no recent searches and no voice search: before a query the
 /// surface is blank under the chips (SearchResultsContent returns nothing
 /// while searchResults is null), and the field's trailing slot is only ever
@@ -22,8 +26,10 @@ struct SearchView: View {
 
         var store: LibraryStore.SearchScope { self == .catalog ? .catalog : .library }
     }
+    /// The type chips, in :shared's chip order (`YoinSearchFilter`).
     enum Filter: String, CaseIterable {
-        case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists"
+        case all = "All", songs = "Songs", albums = "Albums", memories = "Memories", artists = "Artists",
+             playlists = "Playlists"
 
         /// The chip's text in the reader's language (the raw value stays the key).
         var title: String {
@@ -32,19 +38,40 @@ struct SearchView: View {
             case .artists: String(localized: "Artists")
             case .albums: String(localized: "Albums")
             case .songs: String(localized: "Songs")
+            case .memories: String(localized: "Memories")
             case .playlists: String(localized: "Playlists")
             }
         }
 
-        /// The one result type a filter lists (nil: All, which never reads more).
+        /// The one result type a filter lists (nil: All, which never reads more, and Memories, from the ledger).
         var kind: SearchKind? {
             switch self {
-            case .all: nil
+            case .all, .memories: nil
             case .artists: .artists
             case .albums: .albums
             case .songs: .songs
             case .playlists: .playlists
             }
+        }
+
+        init(_ shared: YoinSearchFilter) {
+            self = Filter.allCases.first { $0.shared == shared } ?? .all
+        }
+
+        var shared: YoinSearchFilter {
+            switch self {
+            case .all: .all
+            case .songs: .songs
+            case .albums: .albums
+            case .memories: .memories
+            case .artists: .artists
+            case .playlists: .playlists
+            }
+        }
+
+        /// A section's own chip (All's Show all).
+        init(_ section: YoinSearchSection) {
+            self = section == .songs ? .songs : section == .albums ? .albums : section == .artists ? .artists : .playlists
         }
     }
 
@@ -63,6 +90,10 @@ struct SearchView: View {
     @State private var width: CGFloat = 370
     /// The + / ✓ of Apple Music's song results.
     @State private var libraryAdder = SongLibraryAdder()
+    /// The listener's notes and memories the query met, every account's (the ledger, local: before the service).
+    @State private var memories = SearchMemories()
+    /// Another account's note or memory asks before it switches, once (Home's and All Memories' notice).
+    @State private var switchGate = AccountSwitchGate()
     /// The result songs (by position and id) whose "Apple Music doesn't stream" reason is open.
     @State private var notStreamedReasons: Set<String> = []
     @Environment(\.horizontalSizeClass) private var hSize
@@ -191,16 +222,19 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(600))
             scrollPosition.scrollTo(y: 380)
         }
-        // Source search once typing pauses (300 ms); a scope change asks again.
+        // Source search once typing pauses (300 ms); a scope change asks again. The ledger is local: its hits
+        // land first (Android observeSearch), every account's whatever the scope.
         .task(id: "\(model.store.generation)|\(scope)|\(query)") {
-            guard model.store.isReal else { return }
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
-                await model.store.runSearch("", scope: scope.store)
+                memories.clear()
+                if model.store.isReal { await model.store.runSearch("", scope: scope.store) }
                 return
             }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
+            memories.run(trimmed, ledger: MemorySearchLedger.current(model: model), activeProfileId: model.searchProfileId)
+            guard model.store.isReal else { return }
             await model.store.runSearch(query, scope: scope.store)
         }
     }
@@ -268,18 +302,29 @@ struct SearchView: View {
     // MARK: No results
 
     private var showsNoResults: Bool {
-        guard !query.isEmpty else { return false }
+        guard !query.isEmpty, filter != .memories else { return false }
         let r = results
         let shownEmpty = switch filter {
-        case .all: r.albums.isEmpty && r.tracks.isEmpty && r.artists.isEmpty && r.playlists.isEmpty
+        case .all: r.isEmpty && !hasMemories
+        case .memories: false
         case .artists: r.artists.isEmpty
         case .albums: r.albums.isEmpty
         case .songs: r.tracks.isEmpty
         case .playlists: r.playlists.isEmpty
         }
         guard shownEmpty else { return false }
+        // All waits for the ledger too: it may answer what the service doesn't.
+        if filter == .all, !memoriesAnswered { return false }
         return !model.store.isReal || realState == .loaded
     }
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// The ledger has answered the query on screen.
+    private var memoriesAnswered: Bool { !trimmedQuery.isEmpty && memories.query == trimmedQuery }
+
+    /// The ledger met the query on screen.
+    private var hasMemories: Bool { memoriesAnswered && !memories.isEmpty }
 
     /// What the source says about this query and scope (Android
     /// SearchResultsContent): loading while it is asked (or the 300 ms pause
@@ -432,12 +477,20 @@ struct SearchView: View {
         .padding(.horizontal, -16)
     }
 
-    /// Android searchFiltersFor: Playlists only where search returns them
-    /// (Apple Music, in either scope; not Subsonic's search3).
+    /// Android searchFiltersFor (:shared's `filters`): Playlists only where search returns them
+    /// (Apple Music and Spotify, in either scope, Codex N14; not Subsonic's search3).
     private var availableFilters: [Filter] {
-        // Spotify returns playlists in both scopes (Codex N14); a Subsonic server has none.
-        model.store.isReal && !model.store.searchesCatalog
-            ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
+        let searchesPlaylists = !(model.store.isReal && !model.store.searchesCatalog)
+        return YoinMemorySearch.companion.filters(canSearchPlaylists: searchesPlaylists, canReadPlaylists: true,
+                                                  savedLibrary: scope == .library).map(Filter.init)
+    }
+
+    /// The service's name for "N less relevant from …" (Android searchProviderName): the streaming services,
+    /// whose search ranks the whole catalog; nil for a Subsonic server and the mock.
+    private var providerName: String? {
+        guard model.store.isReal else { return nil }
+        if model.store.spotify != nil { return String(localized: "Spotify") }
+        return model.store.apple != nil ? "Apple Music" : nil
     }
 
     /// The provider whose whole catalog the catalog scope searches.
@@ -467,13 +520,18 @@ struct SearchView: View {
         } else {
             let r = results
             let shownEmpty = switch filter {
-            case .all: r.albums.isEmpty && r.tracks.isEmpty && r.artists.isEmpty && r.playlists.isEmpty
+            case .all: r.isEmpty && !hasMemories
+            case .memories: false
             case .artists: r.artists.isEmpty
             case .albums: r.albums.isEmpty
             case .songs: r.tracks.isEmpty
             case .playlists: r.playlists.isEmpty
             }
-            if model.store.isReal && realState == .failed {
+            // The ledger answers on its own: All shows its hits while the service is still asked, Memories never waits.
+            let waitsForService = filter != .memories && !(filter == .all && hasMemories)
+            if filter == .memories {
+                memoriesList(r)
+            } else if model.store.isReal && realState == .failed {
                 RetryRow(
                     scheme: scheme,
                     message: model.store.searchFailure,
@@ -482,7 +540,7 @@ struct SearchView: View {
                     Task { await model.store.runSearch(query, scope: scope.store) }
                 }
                     .transition(.opacity.animation(Yoin.effects))
-            } else if model.store.isReal && realState != .loaded {
+            } else if model.store.isReal && realState != .loaded && waitsForService {
                 RowSkeleton(scheme: scheme, rows: 5)
                     .transition(.opacity.animation(Yoin.effects))
             } else if shownEmpty {
@@ -493,6 +551,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch filter {
                     case .all: allResults(r)
+                    case .memories: EmptyView()
                     case .artists: artistGrid(r.artists)
                     case .albums: grid(r.albums.map { ($0, false) })
                     case .songs: songList(r.tracks)
@@ -538,19 +597,12 @@ struct SearchView: View {
         var albumCount: Int?
     }
 
-    private struct Results {
-        var artists: [ArtistHit] = []
-        var albums: [Album] = []
-        var playlists: [LibraryItem] = []
-        var tracks: [(Album, Track)] = []
-    }
-
     /// Mock search over the mock library. The catalog scope pretends to be
     /// the whole service, so it searches everything with artist names too.
-    private var results: Results {
+    private var results: SearchResultSet {
         if model.store.isReal {
-            guard realState == .loaded, let hits = model.store.search else { return Results() }
-            return Results(artists: hits.artists.map {
+            guard realState == .loaded, let hits = model.store.search else { return SearchResultSet() }
+            return SearchResultSet(artists: hits.artists.map {
                                ArtistHit(id: $0.id, name: $0.title, serverId: $0.id.rawId, palette: $0.palette,
                                          seed: 0, albumCount: $0.count)
                            },
@@ -558,10 +610,10 @@ struct SearchView: View {
                            tracks: hits.songs.map { ($0.album, $0.track) })
         }
         // No source and no demo arguments: nothing to search.
-        guard LaunchConfig.demoContent else { return Results() }
+        guard LaunchConfig.demoContent else { return SearchResultSet() }
         let q = query.lowercased()
         let all = model.library.albums()
-        var r = Results()
+        var r = SearchResultSet()
         var seenArtists = Set<String>()
         for a in all where a.artist.lowercased().contains(q) && seenArtists.insert(a.artist).inserted {
             r.artists.append(ArtistHit(id: a.id, name: a.artist, serverId: nil, palette: a.palette, seed: a.seed,
@@ -578,39 +630,78 @@ struct SearchView: View {
         return r
     }
 
-    /// Android SearchAllResults: artists, albums, playlists, songs, each
-    /// under a SectionHeader; rows touch (no list spacing).
+    /// The All page (Android SearchAllTiles): the best match, then each section as Home's tiles, best first, the
+    /// listener's notes and memories merged into Songs and Albums; Show all opens a section's own chip.
+    private func allResults(_ r: SearchResultSet) -> some View {
+        SearchAllTiles(page: memories.page(r.names, query: trimmedQuery, columns: tileColumns), query: trimmedQuery,
+                       results: r, memories: memories, providerName: providerName, width: width, columns: tileColumns,
+                       scheme: scheme, actions: tileActions(r), gate: switchGate)
+    }
+
+    /// The Memories chip: every note and memory the query met, or the line that says none did.
     @ViewBuilder
-    private func allResults(_ r: Results) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !r.artists.isEmpty {
-                sectionHeader(String(localized: "Artists"))
-                ForEach(r.artists) { a in artistRow(a) }
-            }
-            if !r.albums.isEmpty {
-                sectionHeader(String(localized: "Albums"))
-                // Library's columns (3 on Compact), chunked into rows with no
-                // vertical gap (a LazyColumn of Rows, spacedBy 12 across).
-                albumRows(r.albums)
-            }
-            if !r.playlists.isEmpty {
-                sectionHeader(String(localized: "Playlists"))
-                playlistList(r.playlists)
-            }
-            if !r.tracks.isEmpty {
-                sectionHeader(String(localized: "Songs"))
-                songList(r.tracks)
-            }
+    private func memoriesList(_ r: SearchResultSet) -> some View {
+        let page = memories.page(r.names, query: trimmedQuery, columns: tileColumns)
+        if !page.memories.isEmpty {
+            SearchMemoriesList(page: page, query: trimmedQuery, results: r, memories: memories, width: width,
+                               columns: tileColumns, scheme: scheme, actions: tileActions(r), gate: switchGate)
+        } else if memoriesAnswered {
+            SearchNoMemories(scheme: scheme)
+                .frame(minHeight: 240)
+        } else {
+            Color.clear.frame(height: 1)
         }
     }
 
-    /// Android SectionHeader: labelLarge onSurfaceVariant, padding 16 / 18 top / 6 bottom.
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .yoinRole(Tokens.type.labelLarge)
-            .foregroundStyle(scheme.onSurfaceVariant)
-            .padding(.top, Tokens.search.SECTION_HEADER_TOP.cg)
-            .padding(.bottom, Tokens.search.SECTION_HEADER_BOTTOM.cg)
+    /// The All page's tile columns: Home's three on a phone, the Library grid's count wider (iPad, Mac).
+    private var tileColumns: Int {
+        SearchMemories.columns(width: width + 32, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+    }
+
+    /// Leaves Search for what a tile opens (the phone folds it away; iPad's tab gives way the same).
+    private func leaveSearch() {
+        AppModel.dismissKeyboard()
+        focused = false
+        withAnimation(Yoin.spatial) { model.searchActive = false }
+    }
+
+    /// What the tiles do (Android SearchTileActions): a song plays the songs found from it, a note plays from its
+    /// second or opens its album (noteTarget), an album with a memory opens on its scrapbook.
+    private func tileActions(_ r: SearchResultSet) -> SearchTileActions {
+        SearchTileActions(
+            onSong: { i in
+                guard r.tracks.indices.contains(i) else { return }
+                switch NotStreamedRow.tap(r.tracks[i].1) {
+                case .play: model.play(r.tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
+                case .explain: PlaylistActions.shared.show(String(localized: "Apple Music doesn't stream this song in your region yet."))
+                }
+            },
+            onNote: { note, song, anchor in
+                let entry = song.flatMap { r.tracks.indices.contains($0) ? PlaylistEntry(album: r.tracks[$0].0, track: r.tracks[$0].1) : nil }
+                model.openSearchNote(note, song: entry, gate: switchGate, anchor: anchor, leave: leaveSearch)
+            },
+            onAlbum: { i, memory in
+                guard r.albums.indices.contains(i) else { return }
+                leaveSearch()
+                model.openSearchAlbum(r.albums[i], holdsMemory: memory)
+            },
+            onLedgerAlbum: { album, anchor in
+                model.openSearchLedgerAlbum(album, gate: switchGate, anchor: anchor, leave: leaveSearch)
+            },
+            onArtist: { i in if r.artists.indices.contains(i) { openArtist(r.artists[i]) } },
+            onPlaylist: { i in
+                guard r.playlists.indices.contains(i) else { return }
+                leaveSearch()
+                model.openPlaylist(r.playlists[i].id.rawId)
+            },
+            onShowAll: { section in select(Filter(section)) })
+    }
+
+    /// Switches the type chip, keeping each chip's place (Android LibrarySearchScrollMemory).
+    private func select(_ next: Filter) {
+        savedOffsets[positionKey] = offsetBox.value
+        withAnimation(Yoin.spatial) { filter = next }
+        scrollPosition.scrollTo(y: savedOffsets[positionKey] ?? 0)
     }
 
     /// Library's grid (LibraryGrid): 3 columns on a phone, more on a wider
@@ -619,31 +710,6 @@ struct SearchView: View {
         LibraryGrid.columns(width: width + 32, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
     }
     private var cell: CGFloat { LibraryGrid.cell(width: width + 32, columns: columns) }
-
-    /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
-    /// then 8 and the album-count meta pill.
-    private func artistRow(_ a: ArtistHit) -> some View {
-        SecondaryEntityButton(
-            target: .artist(name: a.name, id: a.serverId),
-            onOpen: { openArtist(a) },
-            onPrimaryTap: { openArtist(a) }
-        ) {
-            HStack(spacing: 0) {
-                EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: Tokens.library.ROW_THUMB.cg)
-                Spacer().frame(width: Tokens.library.ROW_GAP.cg)
-                Text(a.name)
-                    .lineLimit(1)
-                    .yoinRole(Tokens.type.titleSmall)
-                    .foregroundStyle(scheme.onSurface)
-                Spacer(minLength: 8)
-                // No count from the service: no pill (the section already says Artists).
-                if a.albumCount != nil { metaPill(albumCount(a.albumCount)) }
-            }
-            .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain).pointerHighlight()
-    }
 
     private func albumCount(_ n: Int?) -> String {
         guard let n else { return String(localized: "Artist") }
@@ -676,28 +742,6 @@ struct SearchView: View {
                     .frame(width: cell, alignment: .center)
                 }
                 .buttonStyle(PressScale())
-            }
-        }
-    }
-
-    /// Android ExpressiveMetaPill: labelMedium onSurfaceVariant, padding 10 × 6,
-    /// full round, surfaceContainerHighest at 90 %.
-    private func metaPill(_ text: String) -> some View {
-        Text(text)
-            .lineLimit(1)
-            .yoinRole(Tokens.type.labelMedium)
-            .foregroundStyle(scheme.onSurfaceVariant)
-            .padding(.horizontal, Tokens.library.META_PILL_PADDING_H.cg)
-            .padding(.vertical, Tokens.library.META_PILL_PADDING_V.cg)
-            .background(scheme.surfaceContainerHighest.opacity(Tokens.library.META_PILL_ALPHA), in: .capsule)
-    }
-
-    private func albumRows(_ albums: [Album]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(stride(from: 0, to: albums.count, by: columns)), id: \.self) { i in
-                HStack(alignment: .top, spacing: Tokens.library.GRID_GUTTER_H.cg) {
-                    ForEach(albums[i..<min(i + columns, albums.count)]) { a in gridCell(a, isArtist: false) }
-                }
             }
         }
     }
