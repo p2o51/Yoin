@@ -135,6 +135,67 @@ class SubsonicReadCacheTest {
         assertEquals(listOf("sibling read started", "hit consumed"), order)
     }
 
+    /** PR #331 review: a pull-to-refresh within the TTL returned the cached lists without asking. */
+    @Test
+    fun invalidateReadCacheMakesEveryListAskTheServerAgain() = runBlocking {
+        val requests = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests.incrementAndGet()
+                return MockResponse().setBody(
+                    """{"subsonic-response":{"status":"ok","version":"1.16.1","playlists":{"playlist":[]},"starred2":{},"artists":{"index":[]},"albumList2":{"album":[]}}}""",
+                )
+            }
+        }
+        server.start()
+        val source = source()
+        suspend fun readAll() {
+            source.library().getPlaylists()
+            source.library().getStarred()
+            source.library().getArtists()
+            source.library().getAlbumList("newest", 500, 0)
+        }
+        readAll()
+        readAll()
+        assertEquals("second pass served from the cache", 4, requests.get())
+        source.invalidateReadCache()
+        readAll()
+        assertEquals("a refresh asks the server for every list", 8, requests.get())
+    }
+
+    /** ProfileManager disposes a source on switch/delete: its reads in flight stop, later reads go uncached. */
+    @Test
+    fun disposeCancelsReadsInFlight_andLaterReadsAskTheServer() = runBlocking {
+        val cache = SubsonicReadCache(ttlMs = 20_000, clock = System::currentTimeMillis)
+        val gate = CompletableDeferred<Unit>()
+        val inFlight = async { runCatching { cache.getOrFetch<String>("artists") { gate.await(); "late" } } }
+        delay(50)
+        cache.close()
+        val result = withTimeout(5_000) { inFlight.await() }
+        assertTrue("read in flight not stopped: $result", result.exceptionOrNull() is IOException)
+        val calls = AtomicInteger()
+        cache.getOrFetch("artists") { calls.incrementAndGet(); "a" }
+        cache.getOrFetch("artists") { calls.incrementAndGet(); "b" }
+        assertEquals("uncached after dispose", 2, calls.get())
+    }
+
+    @Test
+    fun aDisposedSourceNoLongerKeepsReads() = runBlocking {
+        val requests = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests.incrementAndGet()
+                return MockResponse().setBody("""{"subsonic-response":{"status":"ok","version":"1.16.1","playlists":{"playlist":[]}}}""")
+            }
+        }
+        server.start()
+        val source = source()
+        source.dispose()
+        source.library().getPlaylists()
+        source.library().getPlaylists()
+        assertEquals(2, requests.get())
+    }
+
     @Test
     fun errorsAreNotKept() = runBlocking {
         val cache = SubsonicReadCache(ttlMs = 20_000, clock = System::currentTimeMillis)

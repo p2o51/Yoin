@@ -8,6 +8,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.yield
@@ -43,10 +44,11 @@ internal class SubsonicReadCache(
     private val entries = HashMap<String, Entry>()
     private val inFlight = HashMap<String, Flight>()
     private val generations = HashMap<String, Long>()
+    private var closed = false
 
     @Suppress("UNCHECKED_CAST")
     suspend fun <T : Any> getOrFetch(key: String, fetch: suspend () -> T): T {
-        if (ttlMs <= 0L) return fetch()
+        if (ttlMs <= 0L || synchronized(lock) { closed }) return fetch()
         var hit: Any? = null
         val flight = synchronized(lock) {
             val cached = entries[key]
@@ -74,6 +76,26 @@ internal class SubsonicReadCache(
             currentCoroutineContext().ensureActive()
             throw IOException("Subsonic read '$key' was cancelled", cancelled)
         }
+    }
+
+    /** [invalidate] for every key: an explicit refresh asks the server for everything again. */
+    fun invalidateAll() {
+        synchronized(lock) {
+            (entries.keys + inFlight.keys + generations.keys).toList().forEach(::invalidateLocked)
+        }
+    }
+
+    /**
+     * The source is disposed (account switched away or deleted): reads in flight are cancelled,
+     * and any later caller of this source reads the server directly, uncached.
+     */
+    fun close() {
+        synchronized(lock) {
+            closed = true
+            entries.clear()
+            inFlight.clear()
+        }
+        scope.cancel()
     }
 
     /** Drops [key]'s stored answer and its read in flight (see the class doc). */

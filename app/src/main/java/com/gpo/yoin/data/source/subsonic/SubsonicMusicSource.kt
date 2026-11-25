@@ -387,6 +387,10 @@ class SubsonicMusicSource(
         runCatching { library.getArtists() }
     }
 
+    override fun invalidateReadCache() = readCache.invalidateAll()
+
+    override fun dispose() = readCache.close()
+
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
         is CoverRef.Url -> ref.url
         is CoverRef.SourceRelative ->
