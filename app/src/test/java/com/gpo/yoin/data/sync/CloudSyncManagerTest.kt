@@ -18,7 +18,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -695,6 +698,65 @@ class CloudSyncManagerTest {
         assertEquals(CloudSyncPhase.NeedsReauth, phone.phase)
     }
 
+    @Test
+    fun should_surfaceHigherPriorityUploadError_when_multipleArtifactShardsFailWithDifferentErrors() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.turnOn()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+
+        (1..20).forEach { i -> phone.addTranslation("prio-trk-$i", "de-$i") }
+        // Shard 0 fails with 429 (Offline), shard 2 fails with StorageFull -> StorageFull must win.
+        drive.shardErrorOverrides[0] = SyncTransportException.RateLimited("429", null)
+        drive.shardErrorOverrides[2] = SyncTransportException.StorageFull("quota")
+        phone.sync()
+
+        assertEquals(CloudSyncPhase.StorageFull, phone.phase)
+    }
+
+    @Test
+    fun should_deduplicateConcurrentTokenIdentityChecks_andRejectMismatchedToken() = runBlocking {
+        val innerCalls = java.util.concurrent.atomic.AtomicInteger(0)
+        val aboutCalls = java.util.concurrent.atomic.AtomicInteger(0)
+        var currentToken = "tok-1"
+        var remotePerm = "perm-1"
+        val inner = object : SyncTokenProvider {
+            override suspend fun token(): String {
+                innerCalls.incrementAndGet()
+                return currentToken
+            }
+
+            override suspend fun invalidate(token: String) = Unit
+        }
+        val provider = IdentityCheckedTokenProvider(
+            inner = inner,
+            expectedPermissionId = { "perm-1" },
+            tokenPermissionId = {
+                aboutCalls.incrementAndGet()
+                kotlinx.coroutines.delay(50)
+                remotePerm
+            },
+        )
+
+        val resolved = coroutineScope {
+            (1..6).map { async { provider.token() } }.awaitAll()
+        }
+        assertEquals(List(6) { "tok-1" }, resolved)
+        assertEquals("fresh token should be verified only once across concurrent callers", 1, aboutCalls.get())
+        assertEquals(6, innerCalls.get())
+
+        // Cached verified token incurs zero additional about() calls.
+        assertEquals("tok-1", provider.token())
+        assertEquals(1, aboutCalls.get())
+
+        // Rotated token belonging to another Google account must throw Unauthorized.
+        currentToken = "tok-wrong"
+        remotePerm = "perm-other"
+        val thrown = runCatching { provider.token() }.exceptionOrNull()
+        assertTrue("expected Unauthorized, got $thrown", thrown is SyncTransportException.Unauthorized)
+    }
+
     private fun device(name: String, on: FakeDrive = drive): Device = Device(name, on, clock).also { devices += it }
 
     private class Device(name: String, drive: FakeDrive, private val clock: AtomicLong) {
@@ -883,6 +945,8 @@ class CloudSyncManagerTest {
 
         @Volatile var failArtifactShard: Int? = null
 
+        val shardErrorOverrides = java.util.concurrent.ConcurrentHashMap<Int, SyncTransportException>()
+
         @Volatile var failDelayMs: Long = 0
 
         val writesByKind = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
@@ -930,6 +994,9 @@ class CloudSyncManagerTest {
                 if (failDelayMs > 0) kotlinx.coroutines.delay(failDelayMs)
                 throw SyncTransportException.StorageFull("full")
             }
+            if (kind == SyncFileProps.KIND_ARTIFACTS && shard != null) {
+                shardErrorOverrides[shard]?.let { throw it }
+            }
             if (kind == failWritesOfKind || (kind == SyncFileProps.KIND_ARTIFACTS && shard == failArtifactShard)) {
                 if (failDelayMs > 0) kotlinx.coroutines.delay(failDelayMs)
                 throw SyncTransportException.RateLimited("429", null)
@@ -955,6 +1022,9 @@ class CloudSyncManagerTest {
             val props = synchronized(this) { files[fileId]?.file?.appProperties }
             val kind = props?.get(SyncFileProps.KIND)
             val shard = props?.get(SyncFileProps.SHARD)?.toIntOrNull()
+            if (kind == SyncFileProps.KIND_ARTIFACTS && shard != null) {
+                shardErrorOverrides[shard]?.let { throw it }
+            }
             if (kind != null &&
                 (kind == failWritesOfKind || (kind == SyncFileProps.KIND_ARTIFACTS && shard == failArtifactShard))
             ) {

@@ -14,6 +14,7 @@ internal class FakeDetailCacheDao : DetailCacheDao {
 
     var upsertGate: CompletableDeferred<Unit>? = null
     var touchGate: CompletableDeferred<Unit>? = null
+    var onCachedBeforeReturned: (suspend () -> Unit)? = null
 
     /** Completes when an upsert reaches the DAO (before any [upsertGate]). */
     val upsertEntered = CompletableDeferred<Unit>()
@@ -65,6 +66,22 @@ internal class FakeDetailCacheDao : DetailCacheDao {
         }
     }
 
+    override suspend fun deleteExpiredBatch(
+        profileId: String,
+        kind: String,
+        entityIds: List<String>,
+        cutoff: Long,
+    ) {
+        if (entityIds.isEmpty()) return
+        val ids = entityIds.toHashSet()
+        synchronized(rows) {
+            deleteBatchCalls++
+            rows.entries.removeAll { (k, entry) ->
+                k.first == profileId && k.second == kind && k.third in ids && entry.cachedAt < cutoff
+            }
+        }
+    }
+
     override suspend fun totalBytes(): Long = synchronized(rows) { rows.values.sumOf { it.json.codePointLength() } }
 
     override suspend fun sizesOldestFirst(): List<DetailCacheSize> = synchronized(rows) {
@@ -73,9 +90,13 @@ internal class FakeDetailCacheDao : DetailCacheDao {
             .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
     }
 
-    override suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize> = synchronized(rows) {
-        rows.values.filter { it.cachedAt < cutoff }
-            .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
+    override suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize> {
+        val snapshot = synchronized(rows) {
+            rows.values.filter { it.cachedAt < cutoff }
+                .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
+        }
+        onCachedBeforeReturned?.invoke()
+        return snapshot
     }
 
     override suspend fun deleteOlderThan(cutoff: Long) {

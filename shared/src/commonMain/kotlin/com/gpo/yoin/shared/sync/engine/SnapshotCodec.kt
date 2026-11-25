@@ -70,11 +70,15 @@ object SnapshotCodec {
         } catch (e: SyncGzipException) {
             throw MalformedSyncFileException("Corrupt gzip sync file", e)
         }
-        val fast = try {
-            SyncJson.json.decodeFromString(StrictWireEnvelope.serializer(), text)
-        } catch (_: SerializationException) {
-            null
-        } catch (_: IllegalArgumentException) {
+        val fast = if (hasStrictJsonDelimiters(text)) {
+            try {
+                SyncJson.json.decodeFromString(StrictWireEnvelope.serializer(), text)
+            } catch (_: SerializationException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } else {
             null
         }
         if (fast != null && fast.format == SyncFormat.FORMAT && fast.schema == SyncFormat.SCHEMA) {
@@ -213,6 +217,71 @@ private data class StrictWireEnvelope(
         purges = purges,
     )
 }
+
+/**
+ * Zero-allocation RFC 8259 structural delimiter check: rejects missing commas between object
+ * members or array elements (e.g. `"kv":1"s":"s0"`, `{"a":"x""b":1}`) and trailing commas, which
+ * `kotlinx.serialization`'s streaming decoder would otherwise tolerate when `parseToJsonElement` does not.
+ */
+private fun hasStrictJsonDelimiters(text: String): Boolean {
+    var state = 0
+    var i = 0
+    val n = text.length
+    while (i < n) {
+        when (val c = text[i]) {
+            ' ', '\t', '\r', '\n' -> i++
+            '"' -> {
+                if (state != 0 && state != 1) return false
+                i++
+                var closed = false
+                while (i < n) {
+                    val sc = text[i]
+                    if (sc == '\\') {
+                        i += 2
+                        continue
+                    }
+                    if (sc == '"') {
+                        closed = true
+                        i++
+                        break
+                    }
+                    i++
+                }
+                if (!closed) return false
+                state = 2
+            }
+            '{', '[' -> {
+                if (state != 0 && state != 1) return false
+                state = 0
+                i++
+            }
+            '}', ']' -> {
+                if (state == 1) return false
+                state = 3
+                i++
+            }
+            ':' -> {
+                if (state != 2) return false
+                state = 1
+                i++
+            }
+            ',' -> {
+                if (state != 2 && state != 3) return false
+                state = 1
+                i++
+            }
+            else -> {
+                if (state != 0 && state != 1) return false
+                while (i < n && isJsonPrimitiveChar(text[i])) i++
+                state = 3
+            }
+        }
+    }
+    return state == 2 || state == 3
+}
+
+private fun isJsonPrimitiveChar(c: Char): Boolean =
+    (c in '0'..'9') || (c in 'a'..'z') || (c in 'A'..'Z') || c == '-' || c == '+' || c == '.'
 
 // ---- Payload text <-> JsonObject
 

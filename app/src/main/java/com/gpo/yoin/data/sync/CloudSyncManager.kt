@@ -105,7 +105,13 @@ class CloudSyncManager(
     private val driveHttp by lazy { DriveAppDataClient.defaultHttpClient(versionName) }
 
     private val transport: SyncTransport by lazy {
-        hooks?.transport ?: driveClient(IdentityCheckedTokens(tokenProvider))
+        hooks?.transport ?: driveClient(
+            IdentityCheckedTokenProvider(
+                inner = tokenProvider,
+                expectedPermissionId = { dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID) },
+                tokenPermissionId = { token -> clientFor(token).about().permissionId },
+            ),
+        )
     }
 
     private fun driveClient(tokens: SyncTokenProvider): SyncTransport {
@@ -130,39 +136,6 @@ class CloudSyncManager(
             override suspend fun invalidate(token: String) = Unit
         },
     )
-
-    /**
-     * Every Drive request asks Play services for a token, and a token for the pinned account can
-     * silently fall back to the device's default account. Each token string is therefore checked
-     * once against the stored Google identity before any request uses it, so a cycle can never
-     * read from or write into another account's Drive.
-     */
-    private inner class IdentityCheckedTokens(private val inner: SyncTokenProvider) : SyncTokenProvider {
-        @Volatile private var verified: String? = null
-        private val verifyMutex = Mutex()
-
-        override suspend fun token(): String {
-            val fast = inner.token()
-            if (fast == verified) return fast
-            return verifyMutex.withLock {
-                val token = inner.token()
-                if (token == verified) return@withLock token
-                val expected = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-                if (expected != null && clientFor(token).about().permissionId != expected) {
-                    throw SyncTransportException.Unauthorized("Token belongs to a different Google account")
-                }
-                verified = token
-                token
-            }
-        }
-
-        override suspend fun invalidate(token: String) {
-            verifyMutex.withLock {
-                if (verified == token) verified = null
-            }
-            inner.invalidate(token)
-        }
-    }
 
     private val adapters: List<SyncAdapter> by lazy {
         YoinSyncAdapters.create(
@@ -531,7 +504,7 @@ class CloudSyncManager(
         val me = deviceId()
 
         val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
-        val (about, files) = supervisorScope {
+        val files = supervisorScope {
             val aboutDeferred = async { transport.about() }
             val filesDeferred = async { transport.list() }
             val aboutResult = try {
@@ -542,11 +515,10 @@ class CloudSyncManager(
             }
             if (owner != null && owner != aboutResult.permissionId) {
                 filesDeferred.cancel()
-                return@supervisorScope aboutResult to null
+                return@supervisorScope null
             }
-            aboutResult to filesDeferred.await()
-        }
-        if (files == null) return CODE_ACCOUNT_MISMATCH
+            filesDeferred.await()
+        } ?: return CODE_ACCOUNT_MISMATCH
 
         // A newer "delete cloud data" from any device wins over everything.
         val resets = files.filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_RESET }
@@ -784,7 +756,9 @@ class CloudSyncManager(
                     }
                 }.awaitAll()
             }
-            outcomes.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
+            outcomes.mapNotNull { it.exceptionOrNull() }
+                .minByOrNull(::uploadErrorPriority)
+                ?.let { throw it }
         }
         putMeta(SyncMetaKeys.HAS_PUBLISHED, "true")
         putMeta(SyncMetaKeys.LAST_SYNC_AT, now.toString())
@@ -1334,6 +1308,52 @@ class CloudSyncManager(
         private const val CODE_RESET_PREFIX = "reset:"
         private const val CODE_UPDATE_PREFIX = "update:"
         private const val ERROR_PREFIX = "error:"
+
+        /** Ranks concurrent shard upload failures so transient 429/network errors never mask auth or quota errors. */
+        private fun uploadErrorPriority(error: Throwable): Int = when (error) {
+            is SyncTransportException.Unauthorized -> 0
+            is SyncTransportException.StorageFull -> 1
+            is SyncTransportException.Misconfigured -> 2
+            is SyncTransportException.Server, is SyncTransportException.AlreadyExists -> 3
+            is SyncTransportException.RateLimited, is SyncTransportException.Network -> 4
+            else -> 2
+        }
+    }
+}
+
+/**
+ * Every Drive request asks Play services for a token, and a token for the pinned account can
+ * silently fall back to the device's default account. Each token string is therefore checked
+ * once against the stored Google identity before any request uses it (deduplicated across
+ * concurrent callers), so a cycle can never read from or write into another account's Drive.
+ */
+internal class IdentityCheckedTokenProvider(
+    private val inner: SyncTokenProvider,
+    private val expectedPermissionId: suspend () -> String?,
+    private val tokenPermissionId: suspend (String) -> String,
+) : SyncTokenProvider {
+    @Volatile private var verified: String? = null
+    private val verifyMutex = Mutex()
+
+    override suspend fun token(): String {
+        val candidate = inner.token()
+        if (candidate == verified) return candidate
+        return verifyMutex.withLock {
+            if (candidate == verified) return@withLock candidate
+            val expected = expectedPermissionId()
+            if (expected != null && tokenPermissionId(candidate) != expected) {
+                throw SyncTransportException.Unauthorized("Token belongs to a different Google account")
+            }
+            verified = candidate
+            candidate
+        }
+    }
+
+    override suspend fun invalidate(token: String) {
+        verifyMutex.withLock {
+            if (verified == token) verified = null
+        }
+        inner.invalidate(token)
     }
 }
 

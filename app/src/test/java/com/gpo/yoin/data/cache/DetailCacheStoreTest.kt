@@ -206,6 +206,24 @@ class DetailCacheStoreTest {
         assertEquals(setOf(id(906), id(907), id(908), id(909), id(550)), dao.entityIds)
     }
 
+    @Test
+    fun should_spareRowRefreshedBetweenScanAndDelete_when_purgingExpired() = runTest {
+        val dao = FakeDetailCacheDao()
+        val store = store(dao)
+        write(store, 1)
+        write(store, 2)
+        now += DetailCacheStore.DEFAULT_MAX_AGE_MS + 10_000L
+
+        // Simulate row 1 being refreshed concurrently right after cachedBefore(cutoff) snapshots victims.
+        dao.onCachedBeforeReturned = {
+            dao.onCachedBeforeReturned = null
+            store.writeAlbum(PROFILE, id(1), album(1))
+        }
+        store.purgeExpired()
+
+        assertEquals(setOf(id(1)), dao.entityIds)
+    }
+
     /** One album row's stored JSON length (every test album encodes to the same length). */
     private suspend fun TestScope.rowLength(): Long {
         val dao = FakeDetailCacheDao()

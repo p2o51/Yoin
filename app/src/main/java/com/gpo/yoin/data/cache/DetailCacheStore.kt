@@ -147,9 +147,10 @@ class DetailCacheStore(
     /** Hygiene pass (call once on startup): age out anything past [maxAgeMs]. */
     suspend fun purgeExpired() {
         runCatching {
-            val victims = dao.cachedBefore(clock() - maxAgeMs)
+            val cutoff = clock() - maxAgeMs
+            val victims = dao.cachedBefore(cutoff)
                 .filter { row -> !keeps(row.profileId, row.kind, row.entityId) }
-            deleteRowsBatched(victims)
+            deleteRowsBatched(victims, cutoff = cutoff)
         }
         // Bulk delete of unknown size: drop the running total; the next write
         // re-seeds it with one SUM.
@@ -297,12 +298,16 @@ class DetailCacheStore(
         }
     }
 
-    private suspend fun deleteRowsBatched(victims: List<DetailCacheSize>) {
+    private suspend fun deleteRowsBatched(victims: List<DetailCacheSize>, cutoff: Long? = null) {
         if (victims.isEmpty()) return
         victims.groupBy { it.profileId to it.kind }.forEach { (groupKey, groupRows) ->
             val (profileId, kind) = groupKey
             groupRows.map { it.entityId }.chunked(DELETE_BATCH_SIZE).forEach { batch ->
-                dao.deleteBatch(profileId, kind, batch)
+                if (cutoff != null) {
+                    dao.deleteExpiredBatch(profileId, kind, batch, cutoff)
+                } else {
+                    dao.deleteBatch(profileId, kind, batch)
+                }
             }
         }
     }

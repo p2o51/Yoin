@@ -18,8 +18,9 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * Differential parity suite comparing the legacy DOM-tree decoder with [SnapshotCodec.decode]
- * across missing-header inputs, hand-written edge cases, and 20,000 random byte/token mutations.
+ * Strict differential parity suite comparing the legacy DOM-tree decoder with [SnapshotCodec.decode]
+ * across missing-header inputs, missing-comma inputs, hand-written edge cases, and 20,000 random
+ * byte/token mutations with zero skipped categories.
  */
 class SnapshotCodecParityTest {
 
@@ -101,6 +102,25 @@ class SnapshotCodecParityTest {
     }
 
     @Test
+    fun should_rejectMissingCommasBetweenMembers_matchingLegacyDecoder() {
+        val tail = "\"deviceId\":\"dev-x\",\"deviceName\":\"Pixel\"," +
+            "\"fileClass\":\"state\",\"shard\":0,\"writtenAt\":10,\"appVersionCode\":31"
+        val r1 = """{"k":"song_note","id":"n1","ts":5,"d":"dev-x","v":{}}"""
+        val r2 = """{"k":"song_note","id":"n2","ts":6,"d":"dev-x","v":{}}"""
+        val missingCommaCases = listOf(
+            """{"format":"yoin-sync""schema":1,$header,"records":[]}""",
+            """{"format":"yoin-sync","schema":1 "epoch":3,$tail,"records":[]}""",
+            """{"format":"yoin-sync","schema":1,$header,"records":[{"k":"song_note","id":"n1","ts":5"d":"dev-x","v":{}}]}""",
+            """{"format":"yoin-sync","schema":1,$header,"records":[$r1$r2]}""",
+        )
+        for (text in missingCommaCases) {
+            val (old, new) = compare(text)
+            assertEquals("INPUT $text", "THROW MalformedSyncFileException", old)
+            assertEquals("INPUT $text", old, new)
+        }
+    }
+
+    @Test
     fun should_agreeWithLegacyDecoder_onHandWrittenEdgeCases() {
         val rec =
             """{"k":"song_note","s":"s1","id":"n1","ts":5,"d":"dev-x",""" +
@@ -132,7 +152,7 @@ class SnapshotCodecParityTest {
     }
 
     @Test
-    fun should_neverDivergeOnContentMissingHeaderOrErrorType_acrossRandomMutations() {
+    fun should_matchLegacyDecoderExactly_across20000RandomMutations() {
         val rnd = Random(42)
         val base = buildString {
             append("""{"format":"yoin-sync","schema":1,$header,"records":[""")
@@ -158,25 +178,10 @@ class SnapshotCodecParityTest {
             }
             val text = chars.joinToString("")
             val (old, new) = compare(text)
-            if (old == new) return@repeat
-            val missingHeaderKey = runCatching {
-                val root = SyncJson.json.parseToJsonElement(text) as JsonObject
-                "format" !in root || "schema" !in root
-            }.getOrDefault(false)
-            if (missingHeaderKey) {
-                diffs += "MISSING_HEADER INPUT $text\n  legacy: $old\n  new:    $new"
-                return@repeat
-            }
-            val cat = when {
-                old.startsWith("OK") && new.startsWith("OK") -> "BOTH_OK_DIFFERENT_CONTENT"
-                new.startsWith("OK") -> "NEW_ACCEPTS_LEGACY_REJECTS"
-                old.startsWith("OK") -> "NEW_REJECTS_LEGACY_ACCEPTS"
-                else -> "DIFFERENT_ERROR"
-            }
-            if (cat != "NEW_ACCEPTS_LEGACY_REJECTS" && diffs.size < 15) {
-                diffs += "$cat INPUT $text\n  legacy: $old\n  new:    $new"
+            if (old != new && diffs.size < 15) {
+                diffs += "INPUT $text\n  legacy: $old\n  new:    $new"
             }
         }
-        if (diffs.isNotEmpty()) fail("Divergences:\n" + diffs.joinToString("\n"))
+        if (diffs.isNotEmpty()) fail("Divergences (first ${diffs.size}):\n" + diffs.joinToString("\n"))
     }
 }

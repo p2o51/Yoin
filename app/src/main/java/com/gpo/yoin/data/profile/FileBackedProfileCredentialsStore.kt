@@ -24,6 +24,13 @@ import java.util.concurrent.atomic.AtomicLong
  * missing". We deliberately keep this plain-JDK rather than pull
  * `android.util.AtomicFile` so the same code runs in JVM unit tests
  * without Android shims.
+ *
+ * Decrypted [ProfileCredentials] are cached in memory per profile for the
+ * lifetime of the process (the active `MusicSource` instances already hold
+ * the same credentials on the heap) to avoid repeated Keystore IPC on source
+ * rebuilds and sync identity checks. Per-profile locks and monotonic version
+ * stamps ensure concurrent writes or deletes atomically replace/evict cached
+ * entries without blocking on Keystore decryption.
  */
 class FileBackedProfileCredentialsStore(
     private val storageDir: File,
