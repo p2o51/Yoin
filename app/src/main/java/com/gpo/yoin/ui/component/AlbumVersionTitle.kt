@@ -76,16 +76,27 @@ fun AlbumVersionTitle(
         },
     ) { measurables, outer ->
         val gap = TagGap.roundToPx()
-        // The badge is never cut: the name and its tag share what it leaves.
-        val badge = measurables.getOrNull(2)?.measure(Constraints())
+        // +1: the measured width is rounded down; a pixel less would ellipsize or scroll.
+        val natural = measurer.measure(shown, titleStyle, maxLines = 1, softWrap = false).size.width + 1
+        // The badge is never cut: the name and its tag share what it leaves. But the name wins: where the
+        // badge would leave it less than half the tile (or less than itself), the badge is left out.
+        val badgeMeasurable = measurables.getOrNull(2)
+        val showBadge = badgeMeasurable != null && (
+            !outer.hasBoundedWidth || run {
+                val badgeRoom = badgeMeasurable.maxIntrinsicWidth(outer.maxHeight) + gap
+                val rest = (outer.maxWidth - badgeRoom).coerceAtLeast(0)
+                val tagWidth = measurables[1].maxIntrinsicWidth(outer.maxHeight)
+                val tagShown = min(tagWidth, versionTagMaxWidth(rest, natural, tagWidth, gap))
+                explicitBadgeFits(outer.maxWidth, rest - tagShown - gap, natural)
+            }
+            )
+        val badge = if (showBadge) badgeMeasurable?.measure(Constraints()) else null
         val badgeRoom = badge?.let { it.width + gap } ?: 0
         val constraints = if (outer.hasBoundedWidth) {
             outer.copy(minWidth = 0, maxWidth = (outer.maxWidth - badgeRoom).coerceAtLeast(0))
         } else {
             outer
         }
-        // +1: the measured width is rounded down; a pixel less would ellipsize or scroll.
-        val natural = measurer.measure(shown, titleStyle, maxLines = 1, softWrap = false).size.width + 1
         val tagMax = if (constraints.hasBoundedWidth) {
             versionTagMaxWidth(
                 maxWidth = constraints.maxWidth,

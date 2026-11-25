@@ -6,6 +6,7 @@ import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import com.gpo.yoin.ui.component.ExplicitBadge
 import com.gpo.yoin.ui.component.ExplicitTitle
+import com.gpo.yoin.ui.component.explicitBadgeFits
 import com.gpo.yoin.ui.component.explicitBadgeGapPx
 import com.gpo.yoin.ui.component.explicitBadgeSidePx
 import androidx.compose.animation.AnimatedContent
@@ -6461,18 +6462,6 @@ internal fun NowPlayingMarqueeTitle(
         val density = LocalDensity.current
         val layoutDirection = LocalLayoutDirection.current
         val fallbackSize = androidx.compose.material3.LocalTextStyle.current.fontSize
-        val badgeRoomPx = if (explicit) {
-            with(density) {
-                ceil(explicitBadgeSidePx(style, fallbackSize)).toInt() + explicitBadgeGapPx(style, fallbackSize)
-            }
-        } else {
-            0
-        }
-        val availableWidthPx = if (constraints.maxWidth == Constraints.Infinity) {
-            Constraints.Infinity
-        } else {
-            (constraints.maxWidth - badgeRoomPx).coerceAtLeast(0)
-        }
         val effectiveOverflowScale = overflowStretchScale.coerceAtLeast(1f)
         val measuredWidthPx = remember(text, style, textMeasurer, density, layoutDirection) {
             textMeasurer.measure(
@@ -6484,6 +6473,24 @@ internal fun NowPlayingMarqueeTitle(
                 constraints = Constraints(maxWidth = Constraints.Infinity),
             ).size.width
         }
+        val fullBadgeRoomPx = if (explicit) {
+            with(density) {
+                ceil(explicitBadgeSidePx(style, fallbackSize)).toInt() + explicitBadgeGapPx(style, fallbackSize)
+            }
+        } else {
+            0
+        }
+        // The title wins: in a box too narrow to leave it half (or all of itself), no badge.
+        val showBadge = explicit && (
+            constraints.maxWidth == Constraints.Infinity ||
+                explicitBadgeFits(constraints.maxWidth, constraints.maxWidth - fullBadgeRoomPx, measuredWidthPx)
+            )
+        val badgeRoomPx = if (showBadge) fullBadgeRoomPx else 0
+        val availableWidthPx = if (constraints.maxWidth == Constraints.Infinity) {
+            Constraints.Infinity
+        } else {
+            (constraints.maxWidth - badgeRoomPx).coerceAtLeast(0)
+        }
         val shouldMarquee = availableWidthPx > 0 && availableWidthPx != Constraints.Infinity &&
             ceil(measuredWidthPx * effectiveOverflowScale).toInt() > availableWidthPx
         val originX = if (layoutDirection == LayoutDirection.Ltr) 0f else 1f
@@ -6493,7 +6500,7 @@ internal fun NowPlayingMarqueeTitle(
                 Box(
                     modifier = Modifier
                         .then(
-                            if (explicit) {
+                            if (showBadge) {
                                 Modifier.width(with(density) { availableWidthPx.toDp() })
                             } else {
                                 Modifier.fillMaxWidth()
@@ -6554,7 +6561,7 @@ internal fun NowPlayingMarqueeTitle(
                 }
             }
         }
-        if (!explicit) {
+        if (!showBadge) {
             title()
             return@BoxWithConstraints
         }

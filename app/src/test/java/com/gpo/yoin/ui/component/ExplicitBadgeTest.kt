@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -166,6 +168,68 @@ class ExplicitBadgeTest {
         assertEquals(bare.right - bare.left, wrapped.right - wrapped.left)
         assertEquals(bare.bottom - bare.top, wrapped.bottom - wrapped.top)
         rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun should_giveTheTitleTheRoom_when_aTileIsTooNarrowForTheBadge() {
+        // The rows preview's squeezed third tile: a version tag and the badge left the name ".d c…".
+        rule.setContent {
+            YoinTheme {
+                val style = MaterialTheme.typography.titleSmall
+                Column {
+                    Box(modifier = Modifier.width(91.dp).testTag("tagged")) {
+                        AlbumVersionTitle(name = "good kid, m.A.A.d city", version = "Deluxe", titleStyle = style, explicit = true) { text, m ->
+                            Text(text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = m.testTag("taggedName"))
+                        }
+                    }
+                    Box(modifier = Modifier.width(24.dp).testTag("tiny")) {
+                        ExplicitTitle(text = longTitle, explicit = true, style = style) { m ->
+                            Text(longTitle, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = m.testTag("tinyName"))
+                        }
+                    }
+                }
+            }
+        }
+
+        rule.onAllNodesWithContentDescription(explicitLabel, useUnmergedTree = true).assertAll(isNotDisplayedMatcher())
+        // Without the badge the name keeps what the tag leaves (the tag rule as before), and the tiny tile is all title.
+        val tagged = rule.onNodeWithTag("taggedName", useUnmergedTree = true).getBoundsInRoot()
+        assertTrue("name keeps ${tagged.right - tagged.left}", tagged.right - tagged.left >= 30.dp)
+        val tiny = rule.onNodeWithTag("tinyName", useUnmergedTree = true).getBoundsInRoot()
+        assertEquals(24.dp, tiny.right - tiny.left)
+    }
+
+    @Test
+    fun should_keepTheBadge_when_theTileLeavesTheTitleHalfItsWidth() {
+        rule.setContent {
+            YoinTheme {
+                val style = MaterialTheme.typography.titleSmall
+                Box(modifier = Modifier.width(91.dp).testTag("box")) {
+                    ExplicitTitle(text = longTitle, explicit = true, style = style) { m ->
+                        Text(longTitle, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = m.testTag("name"))
+                    }
+                }
+            }
+        }
+
+        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        badge.assertIsDisplayed()
+        assertInside(badge.getBoundsInRoot(), rule.onNodeWithTag("box").getBoundsInRoot())
+        val name = rule.onNodeWithTag("name", useUnmergedTree = true).getBoundsInRoot()
+        assertTrue("name keeps half the tile", name.right - name.left >= 91.dp / 2)
+    }
+
+    @Test
+    fun should_fitTheBadge_onlyWhenTheTitleKeepsHalfTheBoxOrAllOfItself() {
+        assertTrue(explicitBadgeFits(maxWidth = 200, titleRoom = 100, naturalTitle = 500))
+        assertTrue(!explicitBadgeFits(maxWidth = 200, titleRoom = 99, naturalTitle = 500))
+        // A short title that fits whole beside the badge keeps it however narrow the box.
+        assertTrue(explicitBadgeFits(maxWidth = 60, titleRoom = 40, naturalTitle = 40))
+        assertTrue(!explicitBadgeFits(maxWidth = 60, titleRoom = 20, naturalTitle = 40))
+    }
+
+    private fun isNotDisplayedMatcher() = androidx.compose.ui.test.SemanticsMatcher("is not displayed") { node ->
+        !node.layoutInfo.isPlaced || node.boundsInRoot.width <= 0f
     }
 
     private fun assertInside(inner: DpRect, outer: DpRect) {

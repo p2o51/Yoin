@@ -88,6 +88,14 @@ internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit): I
     return max(size.toPx() * 0.33f, ExplicitBadgeGap.toPx()).roundToInt()
 }
 
+/**
+ * Whether the badge may follow a title in a [maxWidth] box, leaving the title [titleRoom]: the title
+ * keeps at least half the box, or all of itself if it is shorter ([naturalTitle]). On a tile too narrow
+ * for that the badge is left out, so the name is never squeezed to a couple of glyphs beside it. Pure.
+ */
+internal fun explicitBadgeFits(maxWidth: Int, titleRoom: Int, naturalTitle: Int): Boolean =
+    titleRoom >= min(naturalTitle, maxWidth / 2)
+
 /** The badge's distance from a list row's title, as the note marker's (SongListItem, AlbumTrackRow). */
 val ExplicitBadgeGap = 6.dp
 
@@ -177,16 +185,18 @@ fun ExplicitTitle(
             ExplicitBadge(textStyle = style, color = badgeColor)
         },
     ) { measurables, constraints ->
-        val badge = measurables[1].measure(Constraints())
         val gap = explicitBadgeGapPx(style, fallbackSize)
         val bounded = constraints.hasBoundedWidth
-        val available = if (bounded) (constraints.maxWidth - badge.width - gap).coerceAtLeast(0) else Int.MAX_VALUE
-        val titleMax = if (fillsWidth) {
-            // +1: the measured width is rounded down; a pixel less would scroll.
-            min(measurer.measure(text, style, maxLines = 1, softWrap = false).size.width + 1, available)
-        } else {
-            available
-        }
+        // +1: the measured width is rounded down; a pixel less would cut or scroll.
+        val natural = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width + 1
+        val badgeWidth = measurables[1].maxIntrinsicWidth(constraints.maxHeight)
+        // The title wins: on a narrow tile the badge goes rather than squeeze the name to a few glyphs.
+        val showBadge = !bounded ||
+            explicitBadgeFits(constraints.maxWidth, constraints.maxWidth - badgeWidth - gap, natural)
+        val badge = if (showBadge) measurables[1].measure(Constraints()) else null
+        val room = if (badge != null) badge.width + gap else 0
+        val available = if (bounded) (constraints.maxWidth - room).coerceAtLeast(0) else Int.MAX_VALUE
+        val titleMax = if (fillsWidth) min(natural, available) else available
         val titlePlaceable = measurables[0].measure(
             Constraints(
                 minWidth = 0,
@@ -195,6 +205,12 @@ fun ExplicitTitle(
                 maxHeight = constraints.maxHeight,
             ),
         )
+        if (badge == null) {
+            return@Layout layout(
+                titlePlaceable.width.coerceIn(constraints.minWidth, constraints.maxWidth),
+                titlePlaceable.height.coerceAtLeast(constraints.minHeight),
+            ) { titlePlaceable.placeRelative(0, 0) }
+        }
         val end: Int
         val lastBaseline: Int
         if (fillsWidth) {
