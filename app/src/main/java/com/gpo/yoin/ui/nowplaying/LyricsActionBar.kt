@@ -66,6 +66,9 @@ internal fun LyricsActionBar(
     // 52 in the bottom accessory; smaller when the tools ride the tab row
     // (16:9 lyrics page, enlarged phone — 断点交接 §3.1 / §3.4).
     iconSize: Dp = 52.dp,
+    // False once the auto-hide has faded the keys all the way out: an
+    // unseen key takes no tap (LyricToolsIdleState.hidden).
+    interactive: Boolean = true,
 ) {
     val searchInteraction = remember { MutableInteractionSource() }
     val translateInteraction = remember { MutableInteractionSource() }
@@ -125,7 +128,7 @@ internal fun LyricsActionBar(
                         icon = rememberVectorPainter(YoinSymbols.Search),
                         contentDescription = stringResource(R.string.np_cd_search_lyrics),
                         interactionSource = searchInteraction,
-                        enabled = actionInFlight == null,
+                        enabled = interactive && actionInFlight == null,
                         onClick = onSearchClick,
                         size = iconSize,
                     )
@@ -153,7 +156,7 @@ internal fun LyricsActionBar(
                     icon = rememberTranslateSymbolPainter(translating = translating),
                     contentDescription = stringResource(R.string.np_cd_translate_lyrics),
                     interactionSource = translateInteraction,
-                    enabled = (actionInFlight == null || translating) && canTranslate,
+                    enabled = interactive && (actionInFlight == null || translating) && canTranslate,
                     onClick = { if (actionInFlight == null) onTranslateClick() },
                     size = iconSize,
                     // Showing / hiding plucks when the lines move (NowPlayingScreen).
@@ -170,7 +173,7 @@ internal fun LyricsActionBar(
                         stringResource(R.string.np_cd_add_lyrics)
                     },
                     interactionSource = selectInteraction,
-                    enabled = actionInFlight == null,
+                    enabled = interactive && actionInFlight == null,
                     onClick = onSelectClick,
                     size = iconSize,
                 )
@@ -178,7 +181,7 @@ internal fun LyricsActionBar(
                     icon = rememberVectorPainter(YoinSymbols.Recenter),
                     contentDescription = stringResource(R.string.np_cd_return_current_line),
                     interactionSource = recenterInteraction,
-                    enabled = actionInFlight == null && canRecenter,
+                    enabled = interactive && actionInFlight == null && canRecenter,
                     onClick = onRecenterClick,
                     size = iconSize,
                 )
