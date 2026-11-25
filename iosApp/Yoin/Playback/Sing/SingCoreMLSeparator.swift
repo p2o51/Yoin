@@ -367,6 +367,14 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
     /// Speed-gate threshold from the handoff spec: 1 chunk (`2.97 s`) taking `> 2.0 s` (`RTF > 0.7`) is too slow.
     static let maxAllowedChunkSeconds: Double = 2.0
 
+    /// DSP pipeline revision folded into `SingStemCache` keys so older stems produced before the
+    /// zero-phase polyphase resampler fix are automatically bypassed and re-separated cleanly.
+    static let stemPipelineVersion = "dsp2"
+
+    static func cacheKey(for songId: String) -> String {
+        "local|\(SingModelAsset.version)|\(stemPipelineVersion)|\(songId)"
+    }
+
     /// Per-song timing telemetry captured during `separateToQuadM4A` (useful for on-device ANE profiling).
     struct SeparationMetrics: Sendable {
         let modelSource: String
@@ -410,7 +418,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         continuation: AsyncStream<SingState>.Continuation
     ) async {
         defer { continuation.finish() }
-        let cacheKey = "local|\(SingModelAsset.version)|\(songId)"
+        let cacheKey = Self.cacheKey(for: songId)
         if let cached = await stemCache.hit(forKey: cacheKey) {
             Self.logger.info("Stem cache hit for \(songId, privacy: .public)")
             continuation.yield(.ready(source: .localFile(cached)))
