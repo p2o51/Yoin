@@ -365,6 +365,7 @@ struct SingLyricsCapsuleKey: View {
     var onExit: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var gesture = SingCapsuleDismissGesture(dismissThresholdPt: 28)
     @State private var overpull: CGFloat = 0
     @State private var wasInDetent = false
@@ -381,11 +382,13 @@ struct SingLyricsCapsuleKey: View {
     private var cornerRadius: CGFloat { capsuleExpanded ? keySize / 2 : keySize * 0.31 }
 
     var body: some View {
-        Group {
+        ZStack {
             if capsuleExpanded {
                 activeCapsule
+                    .transition(.opacity)
             } else {
                 compactKey
+                    .transition(.opacity)
             }
         }
         .frame(width: capsuleExpanded ? expandedWidth : keySize, height: keySize)
@@ -427,21 +430,34 @@ struct SingLyricsCapsuleKey: View {
     }
 
     private var compactKey: some View {
-        let bg = errorFlash ? scheme.errorContainer : scheme.primaryContainer
-        let fg = errorFlash ? scheme.onErrorContainer : scheme.onPrimaryContainer
+        let shape = RoundedRectangle(cornerRadius: keySize * 0.31, style: .continuous)
+        let ink = errorFlash
+            ? scheme.onErrorContainer
+            : LyricKeyStyle.ink(emphasized: false, scheme: scheme, colorScheme: colorScheme)
         return Button {
             if haptics { UISelectionFeedbackGenerator().selectionChanged() }
             onToggle()
         } label: {
             SingPreparingMicGlyph(
                 isPreparing: isPreparing,
-                size: 22,
+                size: 24,
                 fastSettle: holdExpand
             )
-            .foregroundStyle(fg)
+            .foregroundStyle(ink)
+            .labContrast("npPills")
             .frame(width: keySize, height: keySize)
-            .background(bg, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(shape)
+            .modifier(LyricKeyGlass(emphasized: false, scheme: scheme, shape: shape))
+            .overlay {
+                if errorFlash {
+                    shape.fill(scheme.errorContainer.opacity(0.85))
+                        .overlay {
+                            SingPreparingMicGlyph(isPreparing: false, size: 24, fastSettle: false)
+                                .foregroundStyle(scheme.onErrorContainer)
+                        }
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .buttonStyle(PressScale())
         .accessibilityLabel(String(localized: "Sing"))
@@ -452,38 +468,49 @@ struct SingLyricsCapsuleKey: View {
         let clamped = CGFloat(max(0, min(1, level)))
         let detentFraction = CGFloat(SingGainCurve.defaultSlider)
         let micZoneWidth: CGFloat = 34
+        let inset: CGFloat = dragActive && !GlassLab.solidSurfaces ? 3 : 0
+        let fillOpacity = dragActive ? 1.0 : GlassLab.shared.extra("ratingFill")
 
         return GeometryReader { geo in
             let w = max(1, geo.size.width)
             let h = geo.size.height
-            let fillWidth = max(0, min(w, w * clamped))
+            let innerW = max(0, w - inset * 2)
+            let innerH = max(0, h - inset * 2)
+            let fillWidth = max(0, min(innerW, innerW * clamped))
 
             ZStack(alignment: .leading) {
-                // High-contrast track matching RatingBar (`surfaceVariant` vs `primary` fill)
+                // Native iOS Liquid Glass + Solid dual-mode track matching RatingBar (`ratingTrack`).
                 Capsule(style: .continuous)
-                    .fill(scheme.surfaceVariant)
+                    .fill(.clear)
+                    .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: dragActive, in: Capsule(style: .continuous))
 
-                // Flat-edged live vocal fill clipped cleanly by the outer Capsule — zero distortion near 0%.
-                Rectangle()
-                    .fill(scheme.primary)
-                    .frame(width: fillWidth, height: h)
-                    .animation(dragActive ? nil : Yoin.spatial, value: clamped)
+                // Flat-edged live vocal fill clipped cleanly inside the Capsule — zero distortion near 0%.
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(scheme.primary.opacity(fillOpacity))
+                        .frame(width: fillWidth, height: innerH)
+                        .animation(dragActive ? nil : Yoin.spatial, value: clamped)
 
-                // Subtle 12% detent notch
-                Capsule(style: .continuous)
-                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.36))
-                    .frame(width: 2, height: 10)
-                    .offset(x: max(micZoneWidth, w * detentFraction) - 1)
+                    // Subtle 12% detent notch
+                    Capsule(style: .continuous)
+                        .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.36))
+                        .frame(width: 2, height: 10)
+                        .offset(x: max(micZoneWidth - inset, innerW * detentFraction) - 1)
 
-                // Left mic glyph: dual-tone clip over the flat fill edge so legibility stays crisp at any vocal level.
-                micGlyph(color: scheme.onSurfaceVariant)
-                micGlyph(color: scheme.onPrimary)
-                    .mask(alignment: .leading) {
-                        Rectangle().frame(width: fillWidth, height: h)
-                    }
+                    // Left mic glyph: dual-tone clip over the flat fill edge so legibility stays crisp at any vocal level.
+                    micGlyph(color: scheme.onSurfaceVariant)
+                    micGlyph(color: scheme.onPrimary)
+                        .mask(alignment: .leading) {
+                            Rectangle().frame(width: fillWidth, height: innerH)
+                        }
+                }
+                .frame(width: innerW, height: innerH, alignment: .leading)
+                .clipShape(Capsule(style: .continuous))
+                .padding(inset)
             }
-            .clipShape(Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
+            .scaleEffect(dragActive ? 1.03 : 1)
+            .animation(Yoin.spatialFast, value: dragActive)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -568,38 +595,54 @@ struct SingVocalVerticalSlider: View {
     var body: some View {
         let clamped = CGFloat(max(0, min(1, level)))
         let detentFraction = CGFloat(SingGainCurve.defaultSlider)
+        let inset: CGFloat = dragging && !GlassLab.solidSurfaces ? 4 : 0
+        let fillOpacity = dragging ? 1.0 : GlassLab.shared.extra("ratingFill")
 
         GeometryReader { geo in
             let w = geo.size.width
             let h = max(1, geo.size.height)
-            let fillHeight = max(0, min(h, h * clamped))
+            let innerW = max(0, w - inset * 2)
+            let innerH = max(0, h - inset * 2)
+            let fillHeight = max(0, min(innerH, innerH * clamped))
 
             ZStack(alignment: .bottom) {
-                Capsule(style: .continuous)
-                    .fill(scheme.surfaceVariant)
+                // Match RatingBar 1:1 across Liquid Glass, World (liftInFlow), and Solid Surfaces.
+                if GlassLab.shared.extra("liftInFlow") > 0.5 {
+                    RatingLift(lifted: dragging, scheme: scheme)
+                } else {
+                    Capsule(style: .continuous)
+                        .fill(.clear)
+                        .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: dragging, in: Capsule(style: .continuous))
+                }
 
-                // Flat-edged fill clipped by the outer Capsule — disappears cleanly at 0% with zero bowl distortion.
-                Rectangle()
-                    .fill(scheme.primary)
-                    .frame(width: w, height: fillHeight)
-                    .animation(dragging ? nil : Yoin.spatial, value: clamped)
+                // Flat-edged fill clipped cleanly inside the Capsule — disappears cleanly at 0% with zero bowl distortion.
+                ZStack(alignment: .bottom) {
+                    Rectangle()
+                        .fill(scheme.primary.opacity(fillOpacity))
+                        .frame(width: innerW, height: fillHeight)
+                        .animation(dragging ? nil : Yoin.spatial, value: clamped)
 
-                // Subtle default detent notch (~34%)
-                Capsule(style: .continuous)
-                    .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.34))
-                    .frame(width: 12, height: 2)
-                    .offset(y: -max(36, h * detentFraction))
+                    // Subtle default detent notch (~34%)
+                    Capsule(style: .continuous)
+                        .fill(clamped >= detentFraction ? scheme.onPrimary.opacity(0.48) : scheme.onSurfaceVariant.opacity(0.34))
+                        .frame(width: 12, height: 2)
+                        .offset(y: -max(36, innerH * detentFraction))
 
-                // Bottom mic glyph (dual-tone clipped along the flat live fill edge)
-                bottomMic(color: scheme.onSurfaceVariant)
-                bottomMic(color: scheme.onPrimary)
-                    .mask(alignment: .bottom) {
-                        Rectangle().frame(width: w, height: fillHeight)
-                    }
+                    // Bottom mic glyph (dual-tone clipped along the flat live fill edge)
+                    bottomMic(color: scheme.onSurfaceVariant)
+                    bottomMic(color: scheme.onPrimary)
+                        .mask(alignment: .bottom) {
+                            Rectangle().frame(width: innerW, height: fillHeight)
+                        }
+                }
+                .frame(width: innerW, height: innerH, alignment: .bottom)
+                .clipShape(Capsule(style: .continuous))
+                .padding(inset)
             }
-            .clipShape(Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
             .offset(y: -overpull * 6)
+            .scaleEffect(dragging ? RatingLift.scale : 1)
+            .animation(Yoin.spatial, value: dragging)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -654,30 +697,36 @@ struct SingVocalVerticalSlider: View {
 }
 
 /// Compact Now Playing exit button — morphs in-place from `heart` (`44pt` circle with `SingMicOffGlyph`
-/// or `SingPreparingMicGlyph` when preparing).
+/// or `SingPreparingMicGlyph` when preparing), honoring both Liquid Glass and Solid Surfaces.
 struct SingExitCircleButton: View {
     var scheme: CoverScheme
     var isPreparing: Bool = false
     var haptics: Bool = true
     var onExit: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Button {
+        let lab = GlassLab.shared
+        let tinted = lab.style("heart").tintOn && !lab.neutralTint("heart")
+        let ink = tinted ? scheme.onPrimaryContainer : scheme.onSurfaceVariant
+        return Button {
             if haptics { UISelectionFeedbackGenerator().selectionChanged() }
             onExit()
         } label: {
             ZStack {
                 if isPreparing {
                     SingPreparingMicGlyph(isPreparing: true, size: 22)
-                        .foregroundStyle(scheme.onPrimaryContainer)
+                        .foregroundStyle(ink)
                 } else {
                     SingMicOffGlyph(size: 22)
-                        .foregroundStyle(scheme.onPrimaryContainer)
+                        .foregroundStyle(ink)
                 }
             }
+            .labContrast("heart")
             .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
-            .background(scheme.primaryContainer, in: Circle())
             .contentShape(Circle())
+            .labGlass("heart", scheme: scheme, brand: .brand(dark: colorScheme == .dark),
+                      auto: scheme.primaryContainer, in: Circle())
         }
         .buttonStyle(PressScale())
         .accessibilityLabel(String(localized: "Exit Sing"))
@@ -735,7 +784,8 @@ struct SingAwareFavoriteSlot<HeartContent: View>: View {
                 heartFg: heartFg,
                 morph: morphTarget,
                 slash: slashTarget,
-                fillAlpha: fillTarget
+                fillAlpha: fillTarget,
+                scheme: scheme
             )
             .animation(Yoin.effects, value: bgMixTarget)
             .animation(reduceMotion ? Yoin.effects : Yoin.spatial, value: morphTarget)
@@ -776,6 +826,9 @@ private struct SingPerceptualMorphCircle: View, @preconcurrency Animatable {
     var morph: CGFloat
     var slash: CGFloat
     var fillAlpha: CGFloat
+    var scheme: CoverScheme
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
         get { AnimatablePair(AnimatablePair(bgMix, morph), AnimatablePair(slash, fillAlpha)) }
@@ -791,15 +844,15 @@ private struct SingPerceptualMorphCircle: View, @preconcurrency Animatable {
         let t = max(0, min(1, Double(bgMix)))
         let blendedBg = singBg.mix(with: heartBg, by: t, in: .perceptual)
         let blendedFg = singFg.mix(with: heartFg, by: t, in: .perceptual)
-        ZStack {
-            Circle().fill(blendedBg)
-            SingHeartMicMorphGlyph(
-                morph: morph,
-                slash: slash,
-                fillAlpha: fillAlpha,
-                size: 24
-            )
-            .foregroundStyle(blendedFg)
-        }
+        SingHeartMicMorphGlyph(
+            morph: morph,
+            slash: slash,
+            fillAlpha: fillAlpha,
+            size: 24
+        )
+        .foregroundStyle(blendedFg)
+        .labContrast("heart")
+        .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
+        .labGlass("heart", scheme: scheme, brand: .brand(dark: colorScheme == .dark), auto: blendedBg, in: Circle())
     }
 }

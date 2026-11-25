@@ -1,3 +1,4 @@
+import Accelerate
 import Compression
 import CoreML
 import CryptoKit
@@ -546,19 +547,40 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
     }
 
     private func fetchRemoteAudioToTempFile(from remoteURL: URL) async throws -> URL {
-        var req = URLRequest(url: remoteURL)
-        req.timeoutInterval = 30
-        let (tmpURL, response) = try await URLSession.shared.download(for: req)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            try? FileManager.default.removeItem(at: tmpURL)
-            throw NSError(domain: "SingCoreMLSeparator", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
+        var lastError: Error?
+        for attempt in 0..<2 {
+            try Task.checkCancellation()
+            // Re-check AudioCache on retry in case the live stream finished caching to disk.
+            if attempt > 0,
+               let cached = AudioCache.shared.completeCachedFile(for: remoteURL),
+               let linked = try? Self.stageCachedAudioFile(cached.url, contentType: cached.contentType, originURL: remoteURL) {
+                return linked
+            }
+            var req = URLRequest(url: remoteURL)
+            req.timeoutInterval = 90
+            do {
+                let (tmpURL, response) = try await URLSession.shared.download(for: req)
+                if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                    try? FileManager.default.removeItem(at: tmpURL)
+                    throw NSError(domain: "SingCoreMLSeparator", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
+                }
+                let ext = Self.inferAudioExtension(response: response, url: remoteURL)
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("sing-src-\(UUID().uuidString).\(ext)")
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: tmpURL, to: dest)
+                return dest
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                Self.logger.notice("Audio download attempt \(attempt + 1) failed: \(error.localizedDescription, privacy: .public)")
+                if attempt == 0 {
+                    try? await Task.sleep(for: .milliseconds(350))
+                }
+            }
         }
-        let ext = Self.inferAudioExtension(response: response, url: remoteURL)
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sing-src-\(UUID().uuidString).\(ext)")
-        try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.moveItem(at: tmpURL, to: dest)
-        return dest
+        throw lastError ?? NSError(domain: "SingCoreMLSeparator", code: -12, userInfo: [NSLocalizedDescriptionKey: "Audio download failed"])
     }
 
     private static func inferAudioExtension(response: URLResponse, url: URL) -> String {
@@ -815,6 +837,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         let olaWin = SingDSP.chunkOLAWindow
         var chunkTimesMs: [Double] = []
         chunkTimesMs.reserveCapacity(starts.count)
+        var slowSteadyStreak = 0
 
         for (chunkIdx, start) in starts.enumerated() {
             try Task.checkCancellation()
@@ -840,11 +863,11 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
                     }
                 }
                 let rms = Float(sqrt(sumSq / Double(elemCount) + 1e-6))
-                let invRms = 1.0 / rms
-                for i in 0..<elemCount { inPtr[i] *= invRms }
+                var invRms = 1.0 / rms
+                vDSP_vsmul(inPtr, 1, &invRms, inPtr, 1, vDSP_Length(elemCount))
                 let (outArray, elapsed) = try predictChunk(model: model, inputArray: inputArray)
                 chunkTimesMs.append(elapsed * 1000.0)
-                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, onStage: onStage)
+                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, slowStreak: &slowSteadyStreak, onStage: onStage)
                 accumulateOutput(outArray: outArray, rms: rms, hiBins: hiBins, chunkT: chunkT, tTot: tTot, start: start, valid: valid, olaWin: olaWin, outAcc: &outAcc)
             } else {
                 for f in 0..<hiBins {
@@ -877,7 +900,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
                 }
                 let (outArray, elapsed) = try predictChunk(model: model, inputArray: inputArray)
                 chunkTimesMs.append(elapsed * 1000.0)
-                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, onStage: onStage)
+                try handleChunkTiming(chunkIdx: chunkIdx, elapsed: elapsed, totalChunks: starts.count, slowStreak: &slowSteadyStreak, onStage: onStage)
                 accumulateOutput(outArray: outArray, rms: rms, hiBins: hiBins, chunkT: chunkT, tTot: tTot, start: start, valid: valid, olaWin: olaWin, outAcc: &outAcc)
             }
 
@@ -926,18 +949,27 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         chunkIdx: Int,
         elapsed: Double,
         totalChunks: Int,
+        slowStreak: inout Int,
         onStage: @Sendable (SingStage, Int?) -> Void
     ) throws {
         // Chunk 0 on a fresh install/cold CoreML load includes one-time ANE/GPU program specialization
-        // (~1-3 s on real iPhones), so only enforce the speed gate on steady-state chunk 1+.
+        // (~1-3 s on real iPhones). Require 3 consecutive slow steady-state chunks before tripping the
+        // speed gate so a single transient thermal/ANE hiccup never aborts separation.
         if chunkIdx == 0 {
             onStage(.separating, nil)
-        } else if chunkIdx == 1 {
+        } else {
             if elapsed > Self.maxAllowedChunkSeconds {
-                throw SpeedGateError(chunkSeconds: elapsed)
+                slowStreak += 1
+                if slowStreak >= 3 {
+                    throw SpeedGateError(chunkSeconds: elapsed)
+                }
+            } else {
+                slowStreak = 0
             }
-            let estRemain = max(1, Int((elapsed * Double(max(0, totalChunks - 2)) + 1.0).rounded()))
-            onStage(.separating, estRemain)
+            if chunkIdx == 1 {
+                let estRemain = max(1, Int((elapsed * Double(max(0, totalChunks - 2)) + 1.0).rounded()))
+                onStage(.separating, estRemain)
+            }
         }
     }
 
@@ -962,15 +994,26 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
 
         if outArray.dataType == .float32 {
             let outPtr = outArray.dataPointer.assumingMemoryBound(to: Float.self)
-            if s3 == 1 && s2 == chunkT && s1 == frameStride {
-                for c in 0..<4 {
-                    let cInOff = c * frameStride
-                    let cOutOff = c * hiBins * tTot
-                    for f in 0..<hiBins {
-                        let inRow = cInOff + f * chunkT
-                        let outRow = cOutOff + f * tTot + start
-                        for t in 0..<valid {
-                            outAcc[outRow + t] += (outPtr[inRow + t] * rms) * olaWin[t]
+            var scaledOla = [Float](repeating: 0, count: valid)
+            var rmsScalar = rms
+            olaWin.withUnsafeBufferPointer { wBuf in
+                if let wBase = wBuf.baseAddress {
+                    vDSP_vsmul(wBase, 1, &rmsScalar, &scaledOla, 1, vDSP_Length(valid))
+                }
+            }
+            if s3 == 1 {
+                let vLen = vDSP_Length(valid)
+                outAcc.withUnsafeMutableBufferPointer { accBuf in
+                    scaledOla.withUnsafeBufferPointer { sBuf in
+                        guard let accBase = accBuf.baseAddress, let sBase = sBuf.baseAddress else { return }
+                        for c in 0..<4 {
+                            let cInOff = c * s1
+                            let cOutOff = c * hiBins * tTot
+                            for f in 0..<hiBins {
+                                let inRow = outPtr.advanced(by: cInOff + f * s2)
+                                let outRow = accBase.advanced(by: cOutOff + f * tTot + start)
+                                vDSP_vma(inRow, 1, sBase, 1, outRow, 1, outRow, 1, vLen)
+                            }
                         }
                     }
                 }
@@ -982,7 +1025,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
                         let inRow = cInOff + f * s2
                         let outRow = cOutOff + f * tTot + start
                         for t in 0..<valid {
-                            outAcc[outRow + t] += (outPtr[inRow + t * s3] * rms) * olaWin[t]
+                            outAcc[outRow + t] += outPtr[inRow + t * s3] * scaledOla[t]
                         }
                     }
                 }

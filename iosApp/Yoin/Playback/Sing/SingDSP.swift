@@ -63,7 +63,7 @@ enum SingDSP {
         let paddedCount = pad + nSig + pad
         var padded = [Float](repeating: 0, count: paddedCount)
         if nSig > 0 {
-            signal.withUnsafeBufferPointer { src in
+            _ = signal.withUnsafeBufferPointer { src in
                 padded.withUnsafeMutableBufferPointer { dst in
                     memcpy(dst.baseAddress!.advanced(by: pad), src.baseAddress!, nSig * MemoryLayout<Float>.size)
                 }
@@ -161,37 +161,49 @@ enum SingDSP {
         var splitImag = [Float](repeating: 0, count: halfFFT)
         var timeFrame = [Float](repeating: 0, count: nFFT)
         let invScale: Float = 1.0 / Float(nFFT)
+        let scaledHann: [Float] = periodicHann.map { $0 * invScale }
         let winSq: [Float] = periodicHann.map { $0 * $0 }
 
-        for t in 0..<frameCount {
-            // Pack DC into real[0] and Nyquist into imag[0] for vDSP_fft_zrip inverse.
-            // Because vDSP forward scaled by 2 and vDSP inverse returns N * x(n) (from 2*X),
-            // feeding unscaled X gives N/2 * x(n) — wait: for vDSP_fft_zrip, inverse(forward(x)) == 2*N * x.
-            // Since we multiplied forward by 0.5, feeding X directly into inverse yields N * x(n),
-            // so dividing by N (= 1024) recovers exact x(n)!
-            splitReal[0] = spec.real[0 * frameCount + t]
-            splitImag[0] = spec.real[halfFFT * frameCount + t]
-            for k in 1..<halfFFT {
-                splitReal[k] = spec.real[k * frameCount + t]
-                splitImag[k] = spec.imag[k * frameCount + t]
-            }
+        acc.withUnsafeMutableBufferPointer { accBuf in
+            winSqAcc.withUnsafeMutableBufferPointer { winAccBuf in
+                scaledHann.withUnsafeBufferPointer { shBuf in
+                    winSq.withUnsafeBufferPointer { wsqBuf in
+                        guard let accBase = accBuf.baseAddress,
+                              let winAccBase = winAccBuf.baseAddress,
+                              let shBase = shBuf.baseAddress,
+                              let wsqBase = wsqBuf.baseAddress else { return }
+                        let vLen = vDSP_Length(nFFT)
+                        for t in 0..<frameCount {
+                            splitReal[0] = spec.real[0 * frameCount + t]
+                            splitImag[0] = spec.real[halfFFT * frameCount + t]
+                            for k in 1..<halfFFT {
+                                splitReal[k] = spec.real[k * frameCount + t]
+                                splitImag[k] = spec.imag[k * frameCount + t]
+                            }
 
-            splitReal.withUnsafeMutableBufferPointer { rPtr in
-                splitImag.withUnsafeMutableBufferPointer { iPtr in
-                    var split = DSPSplitComplex(realp: rPtr.baseAddress!, imagp: iPtr.baseAddress!)
-                    vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Inverse))
-                    timeFrame.withUnsafeMutableBufferPointer { tPtr in
-                        tPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfFFT) { cPtr in
-                            vDSP_ztoc(&split, 1, cPtr, 2, vDSP_Length(halfFFT))
+                            splitReal.withUnsafeMutableBufferPointer { rPtr in
+                                splitImag.withUnsafeMutableBufferPointer { iPtr in
+                                    var split = DSPSplitComplex(realp: rPtr.baseAddress!, imagp: iPtr.baseAddress!)
+                                    vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Inverse))
+                                    timeFrame.withUnsafeMutableBufferPointer { tPtr in
+                                        tPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfFFT) { cPtr in
+                                            vDSP_ztoc(&split, 1, cPtr, 2, vDSP_Length(halfFFT))
+                                        }
+                                    }
+                                }
+                            }
+
+                            let start = t * hopLength
+                            let accDst = accBase.advanced(by: start)
+                            let winDst = winAccBase.advanced(by: start)
+                            timeFrame.withUnsafeBufferPointer { tfBuf in
+                                guard let tfBase = tfBuf.baseAddress else { return }
+                                vDSP_vma(tfBase, 1, shBase, 1, accDst, 1, accDst, 1, vLen)
+                            }
+                            vDSP_vadd(winDst, 1, wsqBase, 1, winDst, 1, vLen)
                         }
                     }
                 }
-            }
-
-            let start = t * hopLength
-            for n in 0..<nFFT {
-                acc[start + n] += timeFrame[n] * invScale * periodicHann[n]
-                winSqAcc[start + n] += winSq[n]
             }
         }
 

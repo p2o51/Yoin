@@ -81,7 +81,21 @@ struct LyricKeyRow: View {
     }
 }
 
-private struct LyricKeyGlass<S: Shape>: ViewModifier {
+enum LyricKeyStyle {
+    @MainActor
+    static func ink(emphasized: Bool, scheme: CoverScheme, colorScheme: ColorScheme) -> Color {
+        let lab = GlassLab.shared
+        let neutral = lab.oneAccentPerLayer ? !emphasized : lab.neutralTint("npPills")
+        let surfaceId = lab.oneAccentPerLayer ? "npFloating" : "npPills"
+        let accentStrength: Double = lab.oneAccentPerLayer ? (emphasized ? 1.2 : 0.6) : (emphasized ? 1.5 : 1)
+        return neutral
+            ? scheme.onSurface
+            : (lab.usesAccentOnColor(surfaceId, dark: colorScheme == .dark, strength: accentStrength)
+                ? scheme.onPrimary : Color.white)
+    }
+}
+
+struct LyricKeyGlass<S: Shape>: ViewModifier {
     var emphasized: Bool
     var scheme: CoverScheme
     var shape: S
