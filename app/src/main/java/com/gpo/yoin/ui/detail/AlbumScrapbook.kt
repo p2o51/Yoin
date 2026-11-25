@@ -78,7 +78,8 @@ sealed interface ScrapPiece {
      * The album's About (owner + Carbon 2026-11-25): the editorial paragraph (Apple Music's own notes when
      * the service has them, else the AI's) on a tertiary-role card like the Ask cards,
      * right after the opening and before the tracks, a few lines on the paper; a tap opens the full text,
-     * Regenerate and Ask Gemini. [text] is null while the AI writes it for the first time ([pending]).
+     * Regenerate and Ask Gemini. [text] is null while the AI writes it for the first time ([pending]), and
+     * when it was asked and knew nothing (not [pending]): then the paper shows only a dashed ✦ circle.
      */
     data class AlbumAbout(
         val text: String?,
@@ -378,7 +379,9 @@ internal fun buildAlbumScrapbook(
     // The service's own notes (Apple Music) before the AI's paragraph.
     val serviceNotes = content.editorialNotes?.trim()?.takeIf(String::isNotEmpty)
     val blurb = serviceNotes ?: data.albumAbout.blurb
-    if (blurb != null || aboutPending) {
+    // Asked before and nothing came back (the AI knew nothing): the piece stays as a quiet way back in (a
+    // dashed circle, like the blank review), to generate again or ask.
+    if (blurb != null || aboutPending || data.albumAbout.generated) {
         pieces += ScrapPiece.AlbumAbout(
             text = blurb,
             pending = aboutPending && blurb == null,
@@ -531,9 +534,10 @@ private fun receiptLines(
     val albumNotes = data.albumNotes.count { it.content.isNotBlank() }
         .takeIf { it > 0 } ?: if (data.albumNote?.content.isNullOrBlank()) 0 else 1
     add("Notes" to (trackNotes + albumNotes).toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
+    // Questions about the songs and about the album itself (its About sheet's Ask) alike.
     val askCount = data.about.entries
         .filter { it.key.toString() in songIds }
-        .sumOf { (_, about) -> about.asks.count { !it.own } }
+        .sumOf { (_, about) -> about.asks.count { !it.own } } + data.albumAbout.asks.size
     add("Asked" to askCount.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
 }
 

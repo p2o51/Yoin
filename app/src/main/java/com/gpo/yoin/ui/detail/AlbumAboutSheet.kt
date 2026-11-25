@@ -151,13 +151,18 @@ internal fun AlbumAboutSheetBody(
                 regenerating = gemini.albumAbout,
                 onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { serviceText },
             )
-            AboutParagraph(
-                text = about.text,
-                regenerating = gemini.albumAbout && !serviceText,
-                colors = colors,
-                byService = serviceText,
-                onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { !serviceText },
-            )
+            if (about.text == null && !gemini.albumAbout && !about.pending) {
+                // Asked before and the AI knew nothing: no empty card, just the way to ask it again.
+                GenerateAbout(colors = colors, onGenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) })
+            } else {
+                AboutParagraph(
+                    text = about.text,
+                    regenerating = gemini.albumAbout && !serviceText,
+                    colors = colors,
+                    byService = serviceText,
+                    onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { !serviceText },
+                )
+            }
             gemini.albumAsking.forEach { question -> PendingAlbumAsk(question, colors) }
             about.asks.forEach { ask -> AlbumAskCard(ask, colors) }
             AskAlbum(colors = colors, onAsk = { question -> onEdit(ScrapEdit.AskAlbum(question)) })
@@ -291,6 +296,24 @@ private fun AboutParagraph(
             Spacer(Modifier.weight(1f))
             if (onRegenerate != null) RegenerateButton(colors = colors, enabled = !regenerating, onClick = onRegenerate)
         }
+    }
+}
+
+/** "Generate with <service>" (the song sheet's empty About offers the same), for an album About that came back empty. */
+@Composable
+private fun GenerateAbout(colors: ScrapbookColors, onGenerate: () -> Unit) {
+    FilledTonalButton(
+        onClick = onGenerate,
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.about, contentColor = colors.onAbout),
+        modifier = Modifier
+            .padding(top = 14.dp)
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .handPointer(),
+    ) {
+        Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(aiString(R.string.ai_generate_with), maxLines = 1)
     }
 }
 

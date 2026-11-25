@@ -214,4 +214,26 @@ class YoinRepositoryAlbumAboutTest {
         store.update { it.copy(deepSeekKey = "ds-key") }
         assertTrue(withStore.isAiReady())
     }
+
+    @Test
+    fun should_storeNothing_when_theCallFails_soTheNextVisitAsksAgain() = runTest {
+        coEvery { dao.getCanonical("spotify", "al-1") } returns emptyList()
+        coEvery { geminiService.runAlbumAbout(any(), any(), any()) } throws
+            com.gpo.yoin.data.remote.GeminiException("No album About in AI response")
+
+        val result = repository.ensureAlbumAbout(album)
+
+        assertTrue(result is YoinRepository.AboutLoadResult.Error)
+        coVerify(exactly = 0) { dao.upsertAll(any()) }
+    }
+
+    @Test
+    fun should_storeAnEmptyAnswer_asDone() = runTest {
+        coEvery { dao.getCanonical("spotify", "al-1") } returns emptyList()
+        coEvery { geminiService.runAlbumAbout(any(), any(), any()) } returns
+            GeminiService.AlbumAboutRun(AlbumAiCredits.None, null, "[CREDITS]{}[/CREDITS][ABOUT]N/A[/ABOUT]", emptyList())
+
+        assertEquals(YoinRepository.AboutLoadResult.Success, repository.ensureAlbumAbout(album))
+        coVerify(exactly = 1) { dao.upsertAll(any()) }
+    }
 }

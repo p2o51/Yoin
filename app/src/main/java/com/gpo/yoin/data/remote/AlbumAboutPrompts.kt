@@ -180,13 +180,21 @@ Question: $question
     // Parsing
     // -----------------------------------------------------------------------------------------------
 
-    /** The credits and paragraph of one reply; either may be missing (a truncated or off-format reply). */
-    data class Parsed(val credits: AlbumAiCredits, val blurb: String?)
+    /**
+     * The credits and paragraph of one reply; either may be missing. [answered] tells "the model answered in
+     * the format and knew nothing" (a [CREDITS] or [ABOUT] block, even an empty or N/A one) from a reply that
+     * isn't an answer at all (empty, refused, off-format): only the first is kept as done.
+     */
+    data class Parsed(val credits: AlbumAiCredits, val blurb: String?, val answered: Boolean)
 
     fun parseAboutResponse(rawText: String): Parsed = Parsed(
         credits = parseCredits(extractTag(rawText, "CREDITS")),
         blurb = cleanBlurb(extractTag(rawText, "ABOUT")),
+        answered = hasTag(rawText, "CREDITS") || hasTag(rawText, "ABOUT"),
     )
+
+    private fun hasTag(text: String, tag: String): Boolean =
+        Regex("""\[\s*$tag\s*]""", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
     /**
      * The [CREDITS] JSON as [AlbumAiCredits]: items below "medium" confidence, without a confidence, or

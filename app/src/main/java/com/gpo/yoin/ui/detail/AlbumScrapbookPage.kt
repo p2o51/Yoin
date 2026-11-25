@@ -265,6 +265,12 @@ internal data class ScrapbookColors(
     val stickyFold: Color,
     val note: Color,
     val onNote: Color,
+    /**
+     * Marks on the listener's own papers (a note's time stamps, rail and mention pills, "+N notes"): their
+     * own ink, onPrimaryContainer. The album ink (primary) on primaryContainer was nearly invisible on
+     * device covers once notes moved to primary (2026-11-25).
+     */
+    val noteMark: Color,
     val ask: Color,
     val onAsk: Color,
     val askMark: Color,
@@ -303,12 +309,13 @@ internal fun rememberScrapbookColors(scheme: androidx.compose.material3.ColorSch
         // 便利贴，为啥不是同一个颜色"): the review, the album stickies and the track notes. A sticky still reads
         // as a sticky by its shape, fold and lean; a note by its rail and moments. AI and objective text is
         // tertiary (Ask, About, the fact tags); secondary is left to the playing ticket.
-        sticky = animated(scheme.primaryContainer, "scrapSticky"),
-        onSticky = animated(scheme.onPrimaryContainer, "scrapOnSticky"),
+        sticky = animated(listenerPaperRoles(scheme).container, "scrapSticky"),
+        onSticky = animated(listenerPaperRoles(scheme).content, "scrapOnSticky"),
         // the folded corner: the sticky's paper with a third of the primary ink (D3)
         stickyFold = animated(lerp(scheme.primaryContainer, scheme.primary, StickyFoldInk), "scrapStickyFold"),
-        note = animated(scheme.primaryContainer, "scrapNote"),
-        onNote = animated(scheme.onPrimaryContainer, "scrapOnNote"),
+        note = animated(listenerPaperRoles(scheme).container, "scrapNote"),
+        onNote = animated(listenerPaperRoles(scheme).content, "scrapOnNote"),
+        noteMark = animated(listenerPaperRoles(scheme).mark, "scrapNoteMark"),
         ask = animated(scheme.tertiaryContainer, "scrapAsk"),
         onAsk = animated(scheme.onTertiaryContainer, "scrapOnAsk"),
         askMark = animated(scheme.tertiary, "scrapAskMark"),
@@ -1754,7 +1761,7 @@ private fun NotesClipping(
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.note)
-            .journalRail(colors.ink)
+            .journalRail(colors.noteMark)
             .padding(start = 24.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
     ) {
         lines.forEach { line -> NoteLine(line, colors, onClick = { onNote(line) }) }
@@ -1762,7 +1769,7 @@ private fun NotesClipping(
             Text(
                 text = pluralStringResource(R.plurals.detail_scrap_hidden_notes, hidden, hidden),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                color = colors.ink,
+                color = colors.noteMark,
                 modifier = Modifier
                     .clip(YoinContainerShapes.ListRow)
                     .handPointer()
@@ -1812,7 +1819,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
                 fontSize = 12.sp,
                 letterSpacing = 0.sp,
             ),
-            color = colors.ink,
+            color = colors.noteMark,
             modifier = Modifier
                 .width(NoteStampColumn)
                 .alignByBaseline(),
@@ -1823,7 +1830,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
             onToggleChecklist = toggle?.let { t -> { index -> t(line.noteId, index, false) } },
             style = userTextStyle(),
             color = colors.onNote,
-            mentionColor = colors.ink,
+            mentionColor = colors.noteMark,
             modifier = Modifier
                 .weight(1f)
                 .alignByBaseline(),
@@ -1898,7 +1905,8 @@ private fun AskCard(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.sp,
                         ),
-                        color = colors.askMark,
+                        // The card's own ink: the tertiary mark is too faint on tertiaryContainer.
+                        color = colors.onAsk,
                     )
                     if (moreAsks > 0) {
                         Text(

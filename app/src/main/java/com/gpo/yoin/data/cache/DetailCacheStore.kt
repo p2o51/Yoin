@@ -93,6 +93,9 @@ class DetailCacheStore(
             val dto = json.decodeFromString(AlbumDto.serializer(), row)
             // A row from before albums kept their release date fails like an incompatible one: a miss, read again.
             check(dto.dated) { "album row predates release dates" }
+            // Likewise a row from before albums kept their label and the service's notes (album About): the
+            // credits line and Apple Music's paragraph would be missing for the cache's week.
+            check(dto.credited) { "album row predates labels and editorial notes" }
             dto.toDomain()
         }
 

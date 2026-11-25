@@ -145,6 +145,8 @@ internal data class AlbumDto(
     val recordLabels: List<String> = emptyList(),
     val originalReleaseDate: ReleaseDateDto? = null,
     val editorialNotes: String? = null,
+    /** True on every row written since albums keep [recordLabels] / [editorialNotes]; older rows are read again. */
+    val credited: Boolean = false,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -188,6 +190,7 @@ internal data class AlbumDto(
             recordLabels = a.recordLabels,
             originalReleaseDate = a.originalReleaseDate?.let(ReleaseDateDto::from),
             editorialNotes = a.editorialNotes,
+            credited = true,
         )
     }
 }

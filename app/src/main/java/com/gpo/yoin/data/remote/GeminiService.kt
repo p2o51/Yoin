@@ -117,6 +117,8 @@ class GeminiService(
         // Lower than the song About's 0.8: credits are facts first, and the paragraph is editorial, not lyrical.
         val rawText = this.ai.generate(ai, prompt, temperature = ALBUM_ABOUT_TEMPERATURE, useSearch = true)
         val parsed = AlbumAboutPrompts.parseAboutResponse(rawText)
+        // Not an answer (empty, refused, off-format): a failure, so nothing is stored and the next visit asks again.
+        if (!parsed.answered) throw GeminiException("No album About in AI response")
         return AlbumAboutRun(
             credits = parsed.credits,
             // The service's own notes are the paragraph (credits-only prompt): nothing of the AI's replaces them.

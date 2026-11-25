@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ThinkingDots
+import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -54,6 +57,13 @@ import com.gpo.yoin.ui.theme.YoinContainerShapes
  */
 @Immutable
 internal data class AlbumAboutRoles(val container: Color, val content: Color, val mark: Color)
+
+/**
+ * The listener's own papers (review, album stickies, track notes): primary (51, 2026-11-25). [AlbumAboutRoles.mark]
+ * is their ink, onPrimaryContainer, for time stamps, rails and mention pills on them.
+ */
+internal fun listenerPaperRoles(scheme: ColorScheme): AlbumAboutRoles =
+    AlbumAboutRoles(container = scheme.primaryContainer, content = scheme.onPrimaryContainer, mark = scheme.onPrimaryContainer)
 
 internal fun albumAboutRoles(scheme: ColorScheme): AlbumAboutRoles =
     AlbumAboutRoles(container = scheme.tertiaryContainer, content = scheme.onTertiaryContainer, mark = scheme.tertiary)
@@ -95,6 +105,10 @@ internal fun AlbumAboutCard(
     modifier: Modifier = Modifier,
 ) {
     val text = piece.text
+    if (text == null && !piece.pending) {
+        EmptyAboutMark(colors = colors, onClick = onClick, modifier = modifier)
+        return
+    }
     val description = stringResource(R.string.detail_scrap_cd_about, albumName, text.orEmpty())
     val readAll = stringResource(R.string.detail_scrap_cd_read_all)
     var overflowing by remember(text) { mutableStateOf(false) }
@@ -158,6 +172,36 @@ internal fun AlbumAboutCard(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * The album's About was asked for and came back empty: no card, only a 48dp dashed circle with the ✦ (the
+ * blank review's pattern, in the generated text's tertiary). It opens the About sheet, where the AI can be
+ * asked again or asked a question. No words of its own: TalkBack reads "About".
+ */
+@Composable
+private fun EmptyAboutMark(colors: ScrapbookColors, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val about = stringResource(R.string.detail_scrap_about)
+    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        Box(
+            modifier = Modifier
+                .seamFade()
+                .size(48.dp)
+                .clip(CircleShape)
+                .dashedOutline(CircleShape, color = { colors.aboutMark }, width = 1.5.dp, gap = 5.dp)
+                .handPointer()
+                .clickable(role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = about },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = YoinSymbols.Sparkle,
+                contentDescription = null,
+                tint = colors.aboutMark,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

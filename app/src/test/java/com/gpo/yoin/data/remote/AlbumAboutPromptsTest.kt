@@ -201,4 +201,14 @@ class AlbumAboutPromptsTest {
         val notes = lines.lines().single { it.startsWith("Album notes (from the service): ") }
         assertEquals(AlbumAboutPrompts.MAX_NOTES_CHARS, notes.removePrefix("Album notes (from the service): ").length)
     }
+
+    @Test
+    fun should_tellAnEmptyAnswer_fromNoAnswer() {
+        // The model answered in the format and knew nothing: kept as done.
+        assertTrue(AlbumAboutPrompts.parseAboutResponse("[CREDITS]{}[/CREDITS]\n[ABOUT]N/A[/ABOUT]").answered)
+        assertTrue(AlbumAboutPrompts.parseAboutResponse("[CREDITS]\n{\"producers\": null}\n[/CREDITS]").answered)
+        // Not an answer (refused, off-format, empty): a failure, asked again next time.
+        assertFalse(AlbumAboutPrompts.parseAboutResponse("I'm sorry, I can't help with that.").answered)
+        assertFalse(AlbumAboutPrompts.parseAboutResponse("").answered)
+    }
 }

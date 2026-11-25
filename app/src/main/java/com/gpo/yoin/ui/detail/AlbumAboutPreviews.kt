@@ -106,7 +106,7 @@ private fun aboutPreviewData(zh: Boolean): AlbumScrapbookData = AlbumScrapbookDa
 )
 
 @Composable
-private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, apple: Boolean = false) {
+private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, apple: Boolean = false, empty: Boolean = false) {
     YoinTheme {
         ProvidePreviewWindow(widthDp = widthDp, heightDp = heightDp) {
             val content = aboutPreviewAlbum(zh, apple)
@@ -115,7 +115,10 @@ private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, appl
                     state = AlbumScrapbookUiState.Ready(
                         buildAlbumScrapbook(
                             content,
-                            aboutPreviewData(zh),
+                            aboutPreviewData(zh).let { data ->
+                                // Asked, and the AI knew nothing: only the dashed ✦ circle stays on the paper.
+                                if (empty) data.copy(albumAbout = AlbumAboutContent(generated = true)) else data
+                            },
                             nowMillis = AboutPreviewNow,
                             // zh with a Memory title (the line under it), en without (the line beside the cover).
                             title = if (zh) ScrapTitle("海边录下的那一年", edited = true, canRestore = false) else null,
@@ -241,3 +244,14 @@ private fun AlbumAboutSheetAppleZhPreview() = AboutSheetPreview(zh = true, apple
 @Preview(name = "Album About sheet · DeepSeek · en", widthDp = 390, heightDp = 1100, locale = "en")
 @Composable
 private fun AlbumAboutSheetDeepSeekPreview() = AboutSheetPreview(zh = false, provider = AiProvider.DeepSeek)
+
+@Preview(name = "Album About · came back empty · zh · light", widthDp = 390, heightDp = 700, locale = "zh-rCN")
+@Preview(
+    name = "Album About · came back empty · zh · dark",
+    widthDp = 390,
+    heightDp = 700,
+    locale = "zh-rCN",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun AlbumAboutEmptyPreview() = AboutScrapbookPreview(zh = true, widthDp = 390, heightDp = 700, empty = true)

@@ -1361,7 +1361,7 @@ private fun NoteCard(
         }
     }
     val ring by animateColorAsState(
-        targetValue = if (focused) colors.ink else colors.ink.copy(alpha = 0f),
+        targetValue = if (focused) colors.noteMark else colors.noteMark.copy(alpha = 0f),
         animationSpec = YoinMotion.effectsSpring(),
         label = "scrapNoteFocus",
     )
@@ -1372,7 +1372,7 @@ private fun NoteCard(
                 .clip(RoundedCornerShape(16.dp))
                 .border(2.dp, ring, RoundedCornerShape(16.dp))
                 .background(if (menuOpen) colors.note.copy(alpha = 0.8f) else colors.note)
-                .journalRail(colors.ink)
+                .journalRail(colors.noteMark)
                 .handPointer()
                 .clickable(onClick = onTap)
                 .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
@@ -1383,7 +1383,7 @@ private fun NoteCard(
                 text = note.text,
                 style = userTextStyle(),
                 color = colors.onNote,
-                mentionColor = colors.ink,
+                mentionColor = colors.noteMark,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -1432,7 +1432,7 @@ private fun NoteEditor(
             .noteEditorContainer(editor)
             .clip(RoundedCornerShape(16.dp))
             .background(colors.note)
-            .journalRail(colors.ink)
+            .journalRail(colors.noteMark)
             .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
     ) {
         if (at != null) NoteStamp(at, colors)
@@ -1442,8 +1442,8 @@ private fun NoteEditor(
             // Mentions as the note card draws them once saved: in the page's ink.
             colors = noteEditorColors(
                 text = colors.onNote,
-                chip = colors.ink.copy(alpha = 0.14f),
-                chipText = colors.ink,
+                chip = colors.noteMark.copy(alpha = 0.14f),
+                chipText = colors.noteMark,
             ),
             placeholder = at?.let { stringResource(R.string.detail_scrap_note_hint, it) }
                 ?: stringResource(R.string.detail_scrap_note_hint_plain),
@@ -1457,7 +1457,7 @@ private fun NoteEditor(
                 .padding(top = 4.dp)
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(colors.ink.copy(alpha = 0.6f)),
+                .background(colors.noteMark.copy(alpha = 0.6f)),
         )
         // The card is narrow on a phone: the formatting row scrolls on a line of its own, the buttons under it.
         NoteFormatToolbar(
@@ -1510,7 +1510,7 @@ private fun NoteStamp(at: String, colors: ScrapbookColors) {
             fontSize = 12.sp,
             letterSpacing = 0.3.sp,
         ),
-        color = colors.ink,
+        color = colors.noteMark,
     )
 }
 
