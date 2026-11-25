@@ -37,6 +37,18 @@ interface DetailCacheDao {
     )
     suspend fun delete(profileId: String, kind: String, entityId: String)
 
+    @Query(
+        "DELETE FROM detail_cache " +
+            "WHERE profileId = :profileId AND kind = :kind AND entityId IN (:entityIds)",
+    )
+    suspend fun deleteBatch(profileId: String, kind: String, entityIds: List<String>)
+
+    @Query(
+        "DELETE FROM detail_cache " +
+            "WHERE profileId = :profileId AND kind = :kind AND entityId IN (:entityIds) AND cachedAt < :cutoff",
+    )
+    suspend fun deleteExpiredBatch(profileId: String, kind: String, entityIds: List<String>, cutoff: Long)
+
     @Query("SELECT COALESCE(SUM(LENGTH(json)), 0) FROM detail_cache")
     suspend fun totalBytes(): Long
 

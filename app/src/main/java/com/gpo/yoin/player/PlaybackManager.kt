@@ -1472,7 +1472,8 @@ class PlaybackManager(
             SubsonicSourceBitrates.record(track.id.rawId, track.audioFormat?.bitRateKbps)
         }
         val artworkUri = track.coverArt
-            ?.let { ref -> source.resolveCoverUrl(ref) }
+            // The playback theme's URL (CoverSizes.heroPx), not the original.
+            ?.let { ref -> source.resolveCoverUrl(ref, com.gpo.yoin.data.model.CoverSizes.heroPx) }
             ?.let(Uri::parse)
 
         val extras = Bundle().apply {

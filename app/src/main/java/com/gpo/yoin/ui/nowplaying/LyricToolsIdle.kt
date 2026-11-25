@@ -1,10 +1,16 @@
 package com.gpo.yoin.ui.nowplaying
 
 import android.os.SystemClock
+import android.view.accessibility.AccessibilityManager
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,7 +22,11 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.delay
 
 /**
@@ -48,8 +58,14 @@ internal fun lyricToolsIdleEligible(
 /**
  * The idle count behind the auto-hide. A touch anywhere on the player calls
  * [onInteraction] (a plain field write, no snapshot churn per pointer move);
- * [track] runs from `LaunchedEffect(eligible)` and starts a FRESH count every
+ * [track] runs from [LyricToolsIdleEffect] and starts a FRESH count every
  * time eligibility returns, so leaving the Lyrics page and coming back re-arms.
+ *
+ * [idle] is where the tools are heading; [hidden] is whether they are gone.
+ * Tap routing reads [hidden]: while any part of the tools still shows (the
+ * fade out), a tap on a key is that key's (2026-11-25 QA: a tap on a key that
+ * was plainly still fading did nothing, and the tools seemed to take taps
+ * only for a moment after a scroll).
  */
 @Stable
 internal class LyricToolsIdleState(
@@ -59,17 +75,45 @@ internal class LyricToolsIdleState(
         private set
 
     private var lastInteractionMs = 0L
+    private var shownAlpha: State<Float>? = null
+    private var focusHeld = false
+
+    /**
+     * Fully stepped away: idle AND faded to nothing ([rememberLyricToolsAlpha]).
+     * Only then do the keys give up their hit area and their semantics, and a
+     * tap where they stood only brings them back. With no alpha attached
+     * (tests, the transport's focus count) this is [idle].
+     */
+    val hidden: Boolean
+        get() = idle && (shownAlpha?.value ?: 0f) <= 0f
 
     fun onInteraction() {
         lastInteractionMs = clock()
         if (idle) idle = false
     }
 
+    /**
+     * A key holds input focus (hardware keyboard, Switch Access): keep the
+     * tools while it does — no pointer touches the player then, and a focused
+     * key must not vanish under the focus ring.
+     */
+    fun holdAwake(held: Boolean) {
+        if (held == focusHeld) return
+        focusHeld = held
+        onInteraction()
+    }
+
+    internal fun attachAlpha(alpha: State<Float>) {
+        shownAlpha = alpha
+    }
+
     suspend fun track(eligible: Boolean, idleMs: Long = LyricToolsIdleMs) {
         idle = false
-        if (!eligible) return
+        // Long.MAX_VALUE: a screen reader explores by touch ([rememberLyricToolsIdleMs]).
+        if (!eligible || idleMs == Long.MAX_VALUE) return
         lastInteractionMs = clock()
         while (true) {
+            if (focusHeld) lastInteractionMs = clock()
             val elapsed = clock() - lastInteractionMs
             if (elapsed >= idleMs) {
                 if (!idle) idle = true
@@ -85,9 +129,77 @@ internal class LyricToolsIdleState(
 internal fun rememberLyricToolsIdleState(): LyricToolsIdleState = remember { LyricToolsIdleState() }
 
 /**
- * Any touch on the player re-arms the idle count. FINAL pass on purpose: for
- * the same down, [lyricToolsWakeGuard] (Initial pass) must still read the
- * state the finger landed on — tools away — before this clears it.
+ * Runs [state]'s idle count while [eligible], for [idleMs] — stretched to the
+ * system's "Time to take action" setting, and never at all while a screen
+ * reader explores by touch ([rememberLyricToolsIdleMs]).
+ */
+@Composable
+internal fun LyricToolsIdleEffect(
+    state: LyricToolsIdleState,
+    eligible: Boolean,
+    idleMs: Long = LyricToolsIdleMs,
+) {
+    val accessibleIdleMs = rememberLyricToolsIdleMs(idleMs)
+    LaunchedEffect(state, eligible, accessibleIdleMs) { state.track(eligible, accessibleIdleMs) }
+}
+
+/**
+ * [baseMs] as the user's accessibility settings want it. TalkBack and other
+ * explore-by-touch readers send the app no touches, so nothing would ever
+ * bring the tools back: they stay (Long.MAX_VALUE). Compose's
+ * calculateRecommendedTimeoutMillis covers that only below API 29, so touch
+ * exploration is read here directly; on top of it the "Time to take action"
+ * setting lengthens the count.
+ */
+@Composable
+internal fun rememberLyricToolsIdleMs(baseMs: Long): Long {
+    val touchExploration = rememberTouchExplorationEnabled()
+    val accessibility = LocalAccessibilityManager.current
+    if (touchExploration) return Long.MAX_VALUE
+    return remember(accessibility, baseMs) {
+        accessibility?.calculateRecommendedTimeoutMillis(
+            originalTimeoutMillis = baseMs,
+            containsIcons = true,
+            containsControls = true,
+        ) ?: baseMs
+    }
+}
+
+@Composable
+private fun rememberTouchExplorationEnabled(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
+    var enabled by remember(manager) { mutableStateOf(manager?.isTouchExplorationEnabled == true) }
+    DisposableEffect(manager) {
+        if (manager == null) return@DisposableEffect onDispose {}
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled = it }
+        manager.addTouchExplorationStateChangeListener(listener)
+        enabled = manager.isTouchExplorationEnabled
+        onDispose { manager.removeTouchExplorationStateChangeListener(listener) }
+    }
+    return enabled
+}
+
+/**
+ * The tools' fade, on the effects spring, attached to [state] so tap routing
+ * can tell a fading key (still the key's tap) from a gone one ([hidden]).
+ */
+@Composable
+internal fun rememberLyricToolsAlpha(state: LyricToolsIdleState, label: String): State<Float> {
+    val alpha = animateFloatAsState(
+        targetValue = if (state.idle) 0f else 1f,
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = label,
+    )
+    SideEffect { state.attachAlpha(alpha) }
+    return alpha
+}
+
+/**
+ * Any touch on the player re-arms the idle count (a mouse or stylus hovering
+ * over it too). FINAL pass on purpose: for the same down, [lyricToolsWakeGuard]
+ * (Initial pass) must still read the state the finger landed on — tools
+ * gone — before this clears it.
  */
 internal fun Modifier.lyricToolsTouchTracker(state: LyricToolsIdleState): Modifier =
     pointerInput(state) {
@@ -106,11 +218,13 @@ internal fun Modifier.lyricToolsTouchTracker(state: LyricToolsIdleState): Modifi
  * lyric lines — and a tap aimed at a tool that just stepped away landed on
  * them instead (2026-10-05 QA: the title's album route opened).
  *
- * So while the tools are away, the first tap in the band ONLY brings them
- * back: its down and lift are consumed on the way in (Initial pass), before
- * anything underneath can see a click. Moves are left alone, so a drag that
- * starts there (dismiss, lyrics scroll, page swipe) still goes through, and
- * once the tools are back every tap behaves normally.
+ * So once the tools are gone ([LyricToolsIdleState.hidden]), the first tap
+ * in the band ONLY brings them back: its down and lift are consumed on the
+ * way in (Initial pass), before anything underneath can see a click. Moves
+ * are left alone, so a drag that starts there (dismiss, lyrics scroll, page
+ * swipe) still goes through, and once the tools are back every tap behaves
+ * normally. While they are still fading out the band is not guarded: a tap
+ * on a key that still shows is that key's.
  *
  * [enabled] = the layout collapses the tools' slot when they idle (where they
  * fade in place instead, [lyricToolsInPlaceWakeGuard] guards the tools).
@@ -133,14 +247,15 @@ internal fun Modifier.lyricToolsWakeGuard(
  * into their spot, but they are just as unseen, and a blind tap on one still
  * fired it (2026-10-05 QA: the search sheet opened, or select mode). Sits on
  * the tools themselves and applies [lyricToolsWakeGuard]'s rule to their whole
- * footprint: while they are away the first tap there only brings them back.
+ * footprint: once they are gone the first tap there only brings them back
+ * (while they still show, the tap is the key's).
  */
 internal fun Modifier.lyricToolsInPlaceWakeGuard(state: LyricToolsIdleState): Modifier =
     pointerInput(state) {
         guardWakeTaps(state) { size.height.toFloat() }
     }
 
-/** Swallows each idle tap that lands in the bottom [bandPx] of this node (see [lyricToolsWakeTapSwallowed]). */
+/** Swallows each tap that lands in the bottom [bandPx] of this node while the tools are gone (see [lyricToolsWakeTapSwallowed]). */
 private suspend fun PointerInputScope.guardWakeTaps(
     state: LyricToolsIdleState,
     bandPx: PointerInputScope.() -> Float,
@@ -148,7 +263,7 @@ private suspend fun PointerInputScope.guardWakeTaps(
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         val swallow = lyricToolsWakeTapSwallowed(
-            toolsIdle = state.idle,
+            toolsHidden = state.hidden,
             downY = down.position.y,
             nodeHeight = size.height.toFloat(),
             bandPx = bandPx(),
@@ -162,14 +277,15 @@ private suspend fun PointerInputScope.guardWakeTaps(
 
 /**
  * Pure routing rule behind [lyricToolsWakeGuard]: a down is swallowed only
- * while the tools are away AND it lands inside the bottom band they left.
+ * while the tools are gone (faded out, not just fading) AND it lands inside
+ * the bottom band they left.
  */
 internal fun lyricToolsWakeTapSwallowed(
-    toolsIdle: Boolean,
+    toolsHidden: Boolean,
     downY: Float,
     nodeHeight: Float,
     bandPx: Float,
-): Boolean = toolsIdle && bandPx > 0f && downY >= nodeHeight - bandPx && downY <= nodeHeight
+): Boolean = toolsHidden && bandPx > 0f && downY >= nodeHeight - bandPx && downY <= nodeHeight
 
 /** Consumes [id]'s lift; gives up (consuming nothing more) once it turns into a drag. */
 private suspend fun AwaitPointerEventScope.consumeLiftUnlessDragged(id: PointerId, downY: Float, downX: Float) {

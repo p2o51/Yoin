@@ -45,7 +45,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
+import com.gpo.yoin.data.remote.YoinNetworkCore
 
 /**
  * The device's song storage: the stream cache songs fill as they play
@@ -85,7 +85,7 @@ class OfflineDownloads(
 
     /** Created on the main thread (the service's, or [ensureStarted]'s): DownloadManager is driven from its creating thread. */
     val manager: DownloadManager by lazy {
-        val upstream = ResolvingDataSource.Factory(OkHttpDataSource.Factory(OkHttpClient()), ::resolveDownload)
+        val upstream = ResolvingDataSource.Factory(OkHttpDataSource.Factory(YoinNetworkCore.mediaClient), ::resolveDownload)
         DownloadManager(appContext, databaseProvider, downloadCache, upstream, Executors.newFixedThreadPool(2)).apply {
             maxParallelDownloads = 2
             requirements = requirementsFor(settingsStore.current)

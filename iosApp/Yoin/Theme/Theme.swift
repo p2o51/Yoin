@@ -103,7 +103,9 @@ enum LaunchConfig {
     /// `-screen search` and `search-longpress` open empty (the keyboard up);
     /// `search-empty-results` with a query nothing matches; the rest with "la".
     static var searchQuery: String {
-        switch screen {
+        // `-searchQuery night`: a search screenshot's own words (with `-searchMemoriesDemo YES`, Memories & notes).
+        if screen.hasPrefix("search"), let q = UserDefaults.standard.string(forKey: "searchQuery") { return q }
+        return switch screen {
         case "search", "search-longpress": ""
         case "search-empty-results": "zzqx"
         default: screen.hasPrefix("search") ? "la" : ""
@@ -114,6 +116,7 @@ enum LaunchConfig {
         case "search-artists": .artists
         case "search-albums": .albums
         case "search-songs": .songs
+        case "search-memories": .memories
         case "search-playlists": .playlists
         default: .all
         }

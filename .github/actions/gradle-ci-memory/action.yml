@@ -1,0 +1,26 @@
+name: Gradle memory for CI
+description: >-
+  Sizes the Gradle daemon and the Kotlin daemon for a 16 GB / 4-core GitHub-hosted
+  runner. The repo's gradle.properties keeps a 2 GB Gradle heap for local machines,
+  and the Kotlin daemon inherits that: :app:compileDebugKotlin then runs out of heap
+  (OutOfMemoryError / GC overhead limit exceeded), and Android Lint, which runs in the
+  Gradle daemon, spends most of its time in GC. Properties in the Gradle user home
+  override the project's, so this only changes CI. Run it after setup-gradle.
+runs:
+  using: composite
+  steps:
+    - name: Write ~/.gradle/gradle.properties
+      shell: bash
+      run: |
+        mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}"
+        # Heaps: Gradle 5g (lint runs in it) + Kotlin 4g + the 2g unit-test worker
+        # (app/build.gradle.kts) leaves room for metaspace and the OS on 16 GB.
+        # Three workers on four cores leave one for the Kotlin daemon and GC, and
+        # cap how many big tasks share the Gradle heap at once.
+        cat >> "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties" <<'PROPS'
+        org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+        kotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+        org.gradle.workers.max=3
+        PROPS
+        echo "Runner: $(nproc) cores, $(free -g | awk '/^Mem:/ {print $2}') GB RAM"
+        cat "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"

@@ -247,6 +247,7 @@ final class AppModel {
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         sing.avOutputProvider = { [weak playbackSystem] in playbackSystem?.avOutput }
         sing.serverAccountProvider = { [weak session] in session?.account }
+        playbackSystem.onTrackChange = { [weak sing] track in sing?.onTrackChanged(track) }
         #if DEBUG
         profiles.useFakeSpotify()
         #endif
@@ -292,7 +293,7 @@ final class AppModel {
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs", "search-artists",
-             "search-playlists", "search-empty-results", "search-scrolled": searchActive = true
+             "search-playlists", "search-memories", "search-empty-results", "search-scrolled": searchActive = true
         case "home-search":
             // The bar's search circle, from Home: the field grows out of it.
             Task { @MainActor [weak self] in

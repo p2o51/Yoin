@@ -73,6 +73,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.scale
@@ -356,13 +358,17 @@ internal fun LyricsShareSheet(
                         artist = artist,
                         coverArtUrl = coverArtUrl,
                         exportLayer = if (shownFormat == LyricsShareFormat.Card) cardLayer else storyLayer,
-                        // The story previews as a screen (rounded); the PNG stays full-bleed.
+                        // Rounded only here, outside the recording: the story
+                        // previews as a screen, the card as a card; both PNGs
+                        // are full-bleed rectangles — rounded corners exported
+                        // as transparency show black once posted (owner,
+                        // 2026-11-25).
                         modifier = Modifier
-                            .then(
+                            .clip(
                                 if (shownFormat == LyricsShareFormat.Story) {
-                                    Modifier.clip(YoinContainerShapes.Card)
+                                    YoinContainerShapes.Card
                                 } else {
-                                    Modifier
+                                    YoinContainerShapes.Panel
                                 },
                             )
                             .scaleDownToFit(maxHeight = previewMaxHeight),
@@ -531,6 +537,8 @@ internal fun LyricsShareImage(
             ) { shownTone ->
                 val colors = shownTone.colors(MaterialTheme.colorScheme)
                 when (format) {
+                    // The card IS the image: square-cornered, so every pixel
+                    // of the PNG is opaque (the sheet rounds its preview).
                     LyricsShareFormat.Card -> LyricsShareCard(
                         lines = lines,
                         passageStarts = passageStarts,
@@ -539,6 +547,7 @@ internal fun LyricsShareImage(
                         artist = artist,
                         coverArtUrl = coverArtUrl,
                         colors = colors,
+                        shape = RectangleShape,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     LyricsShareFormat.Story -> LyricsShareStory(
@@ -560,7 +569,8 @@ internal fun LyricsShareImage(
 /**
  * The shareable card: the tone's container, cover + title + artist, the
  * picked lines in the rounded GSF cut the current lyric line uses, and the
- * Yoin mark.
+ * Yoin mark. [shape]: rounded where it sits on the story's backdrop; the Card
+ * format's PNG takes it square ([LyricsShareImage]).
  */
 @Composable
 internal fun LyricsShareCard(
@@ -572,13 +582,14 @@ internal fun LyricsShareCard(
     coverArtUrl: String?,
     modifier: Modifier = Modifier,
     colors: LyricsCardColors = LyricsCardTone.Soft.colors(MaterialTheme.colorScheme),
+    shape: Shape = YoinContainerShapes.Panel,
 ) {
     val context = LocalContext.current
     val lineStyle = lyricsCardLineStyle(lines)
     Column(
         modifier = modifier
             .testTag(LyricsShareCardTag)
-            .clip(YoinContainerShapes.Panel)
+            .clip(shape)
             .background(colors.card)
             .padding(24.dp),
     ) {
@@ -990,7 +1001,10 @@ private const val StoryZoomSearchSteps = 8
 /**
  * Records the content into [layer] at the format's export size (content
  * scaled up to it), then draws that same recording scaled back down — so the
- * preview and the PNG can't differ.
+ * preview and the PNG can't differ. Each axis is scaled to fill the export
+ * exactly: the Card's height is rounded to whole pixels, and one uniform
+ * scale left up to half a pixel of it undrawn — a see-through last row in
+ * the PNG. The two scales differ by under a pixel over the image.
  */
 private fun Modifier.recordForExport(layer: GraphicsLayer, format: LyricsShareFormat): Modifier =
     drawWithContent {
@@ -999,11 +1013,12 @@ private fun Modifier.recordForExport(layer: GraphicsLayer, format: LyricsShareFo
             return@drawWithContent
         }
         val export = lyricsShareExportSize(format, size.width, size.height)
-        val exportScale = export.width / size.width
+        val scaleX = export.width / size.width
+        val scaleY = export.height / size.height
         layer.record(size = export) {
-            scale(exportScale, pivot = Offset.Zero) { this@drawWithContent.drawContent() }
+            scale(scaleX, scaleY, pivot = Offset.Zero) { this@drawWithContent.drawContent() }
         }
-        scale(1f / exportScale, pivot = Offset.Zero) { drawLayer(layer) }
+        scale(1f / scaleX, 1f / scaleY, pivot = Offset.Zero) { drawLayer(layer) }
     }
 
 /** The layer's current recording as a bitmap; null before it has drawn once. */

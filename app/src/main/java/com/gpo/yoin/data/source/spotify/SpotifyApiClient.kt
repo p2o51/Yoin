@@ -249,10 +249,11 @@ class SpotifyApiClient(
 
     suspend fun getPlaylist(id: String): SpotifyPlaylistObject = withContext(Dispatchers.IO) {
         getDecoded(
-            // Same entry types as getPlaylistItems, so the embedded first page matches its pages.
+            // Same entry types and fields as getPlaylistItems, so the embedded first page matches its pages.
             url = apiUrl("v1", "playlists", id)
                 .newBuilder()
                 .addQueryParameter("additional_types", "track")
+                .addQueryParameter("fields", PLAYLIST_FIELDS)
                 .build(),
             deserializer = SpotifyPlaylistObject.serializer(),
         )
@@ -274,6 +275,7 @@ class SpotifyApiClient(
                 .newBuilder()
                 .addQueryParameter("limit", PAGE_LIMIT.toString())
                 .addQueryParameter("additional_types", "track")
+                .addQueryParameter("fields", PLAYLIST_ITEMS_FIELDS)
                 .addOffset(offset)
                 .build()
         },
@@ -946,6 +948,26 @@ class SpotifyApiClient(
         private const val DEFAULT_TRACKS_LIMIT = 1_000
         private const val MAX_SEARCH_LIMIT = 10
         private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
+
+        /**
+         * The `fields` filter of the playlist reads (`GET /v1/playlists/{id}` and its
+         * `/items` pages): every field [SpotifyPlaylistObject], [SpotifyPlaylistItemObject],
+         * [SpotifyTrackObject] and [SpotifySimplifiedAlbumObject] decode, under both the
+         * February 2026 names (`items` / `item`) and the deprecated ones (`tracks` / `track`).
+         * Dropped: `available_markets` (the bulk of a page), `added_at` / `added_by`, `popularity`,
+         * `explicit`, `preview_url`, `is_playable`, `linked_from` and the like, which nothing decodes.
+         * A field added to those DTOs must be added here too, or it decodes as its default.
+         */
+        internal const val PLAYLIST_TRACK_FIELDS =
+            "id,name,uri,duration_ms,track_number,type,is_local,external_ids(isrc)," +
+                "artists(id,name,uri,external_urls)," +
+                "album(id,name,uri,artists(id,name,uri,external_urls),images,total_tracks,release_date," +
+                "release_date_precision,album_type)"
+        internal const val PLAYLIST_ITEMS_FIELDS =
+            "total,limit,offset,next,items(item($PLAYLIST_TRACK_FIELDS),track($PLAYLIST_TRACK_FIELDS))"
+        internal const val PLAYLIST_FIELDS =
+            "id,name,uri,description,images,owner(id,display_name),public,snapshot_id," +
+                "items($PLAYLIST_ITEMS_FIELDS),tracks($PLAYLIST_ITEMS_FIELDS)"
 
         /** URIs one `GET /v1/me/library/contains` takes (its reference: "Maximum: 40 URIs"). */
         const val LIBRARY_CONTAINS_BATCH = 40

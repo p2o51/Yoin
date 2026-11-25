@@ -33,9 +33,10 @@ targets:
     platform: iOS
     sources:
       - path: Yoin
-      # Sing on-device CoreML model (8.3 MB FP32, do NOT convert to FP16): delivered via Apple ODR
-      # tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
-      - path: OnDemandResources/LyraSingLite.mlpackage
+      # Sing on-device CoreML model (7.6 MB FP32 .mlpackage.zip, single file so Xcode writes its exact
+      # filename in OnDemandResources.plist instead of an empty "" directory entry): delivered via Apple
+      # ODR tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
+      - path: OnDemandResources/LyraSingLite.mlpackage.zip
         type: file
         buildPhase: resources
         resourceTags:

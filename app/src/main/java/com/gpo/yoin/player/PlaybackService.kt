@@ -26,9 +26,9 @@ import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.data.remote.SubsonicStreamUrls
+import com.gpo.yoin.data.remote.YoinNetworkCore
 import com.gpo.yoin.player.sing.SingMixerAudioProcessor
 import com.gpo.yoin.player.sing.SingPlaybackSwitcher
-import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,10 +79,14 @@ class PlaybackService : MediaSessionService() {
         // The stream cache and the downloads are the process's, not the
         // service's: Settings reads and clears them, and the downloader fills one.
         val container = (application as YoinApplication).container
+        // Session artwork urls can be built here before any window has opened.
+        com.gpo.yoin.data.model.CoverSizes.install(this)
         val offlineDownloads = container.offlineDownloads
         val simpleCache = offlineDownloads.streamCache
 
-        val httpClient = OkHttpClient()
+        // The media queue: its own Dispatcher, so the stream never waits behind cover art or API calls
+        // (YoinNetworkCore), while sharing their pool and so their open connections to the server.
+        val httpClient = YoinNetworkCore.mediaClient
         val upstreamFactory = OkHttpDataSource.Factory(httpClient)
         val cacheDataSourceFactory = mediaCacheDataSourceFactory(simpleCache, upstreamFactory)
         val connectivity = getSystemService(ConnectivityManager::class.java)

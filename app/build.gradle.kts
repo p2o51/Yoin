@@ -66,7 +66,7 @@ android {
         applicationId = "com.gpo.yoin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 32
+        versionCode = 33
         versionName = "0.6.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -391,4 +391,76 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.espresso.core)
     debugImplementation(libs.compose.ui.test.manifest)
+}
+
+// Robolectric's android-all jars (one 90–200 MB jar per Android SDK) come from Gradle, not from Robolectric.
+// Left alone, Robolectric downloads them from Maven Central in the middle of the test run, with no retry,
+// and a network blip fails the whole test class (MavenArtifactFetcher … IOException). Gradle resolves them
+// like any other dependency instead: with its own retries and checksums, into its cache (which CI keeps), and
+// offline once cached. The test JVM gets a robolectric-deps.properties that maps each jar to its file.
+//
+// The jars are listed per SDK, so the list has to cover every SDK a test runs on: each @Config(sdk = …),
+// and targetSdk for tests without one. A test on an SDK that isn't listed fails with
+// "no artifacts found for org.robolectric:android-all-instrumented:…": add that SDK here. The version
+// strings and the -iN suffix are Robolectric's own (DefaultSdkProvider) and change with Robolectric.
+val robolectricVersion = "4.17"
+val robolectricAndroidAllVersions = mapOf(
+    26 to "8.0.0_r4-robolectric-r1",
+    27 to "8.1.0-robolectric-4611349",
+    34 to "14-robolectric-10818077",
+    35 to "15-robolectric-13954326",
+    36 to "16-robolectric-13921718"
+).mapValues { (_, version) -> "$version-i7" }
+
+check(libs.versions.robolectric.get() == robolectricVersion) {
+    "Robolectric is now ${libs.versions.robolectric.get()}: update robolectricVersion and " +
+        "robolectricAndroidAllVersions in app/build.gradle.kts from that release's " +
+        "org.robolectric.plugins.DefaultSdkProvider."
+}
+
+// One configuration per SDK: in a shared one, Gradle's conflict resolution would keep only the newest version.
+val robolectricAndroidAllJars = robolectricAndroidAllVersions.map { (sdk, version) ->
+    val configuration = configurations.register("robolectricAndroidAll$sdk") {
+        isCanBeConsumed = false
+        isTransitive = false
+    }
+    dependencies.add(configuration.name, "org.robolectric:android-all-instrumented:$version")
+    configuration
+}
+
+/** Writes the robolectric-deps.properties that points Robolectric at the jars Gradle resolved. */
+abstract class RobolectricDepsProperties : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val androidAllJars: ConfigurableFileCollection
+
+    @get:OutputFile
+    abstract val output: RegularFileProperty
+
+    @TaskAction
+    fun write() {
+        val lines = androidAllJars.files.sortedBy { it.name }.map { jar ->
+            val version = jar.name.removePrefix("android-all-instrumented-").removeSuffix(".jar")
+            // Keys are group:artifact:version; ':' separates keys from values in .properties, hence the escapes.
+            "org.robolectric\\:android-all-instrumented\\:$version=${jar.invariantSeparatorsPath}"
+        }
+        output.get().asFile.writeText(lines.joinToString(separator = "\n", postfix = "\n"))
+    }
+}
+
+val robolectricDeps = tasks.register<RobolectricDepsProperties>("robolectricDepsProperties") {
+    androidAllJars.from(robolectricAndroidAllJars)
+    output.set(layout.buildDirectory.file("robolectric/robolectric-deps.properties"))
+}
+
+class RobolectricDepsArgument(
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    val depsFile: Provider<RegularFile>
+) : CommandLineArgumentProvider {
+    override fun asArguments() = listOf("-Drobolectric-deps.properties=${depsFile.get().asFile.absolutePath}")
+}
+
+tasks.withType<Test>().configureEach {
+    jvmArgumentProviders.add(RobolectricDepsArgument(robolectricDeps.flatMap { it.output }))
 }

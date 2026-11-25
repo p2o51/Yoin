@@ -5,16 +5,17 @@
    every row a chevron; the selected row detaches as a 28-corner pill in the detail pane's colour (surfaceContainer).
    Nothing selected → a 148 Cookie12Sided outline and "No account selected". */
 const SET_CTL = [
-  { key: 'page', label: 'Page', options: [['root', 'Root'], ['links', 'Music links'], ['account', 'Subsonic account'], ['sync', 'Sync and backups']], def: 'root' },
+  { key: 'page', label: 'Page', options: [['root', 'Root'], ['labs', 'Labs'], ['tensor', 'Tensor'], ['links', 'Music links'], ['account', 'Subsonic account'], ['sync', 'Sync and backups']], def: 'root' },
+  { key: 'labs', label: 'Labs state', options: [['ready', 'Lyra Sing (0.6.3 (33))'], ['was', 'Before 0.6.3 (33)']], def: 'ready' },
   { key: 'links', label: 'Clipboard detection', options: [['on', 'On'], ['off', 'Off']], def: 'on' },
 ];
 function renderSettings(st, size, ) {
-  const dark = st.theme === 'dark', links = st.links === 'on';
+  const dark = st.theme === 'dark', links = st.links === 'on', labs = st.labs;
   if (size.cls === 'expanded') {
     const sel = st.page === 'root' ? '' : st.page;
-    const detail = st.page === 'root' ? `<div class="s-empty">${shapeSvg('Cookie12Sided')}<span>No account selected</span></div>` : settingsPage(st.page, dark, { links });
+    const detail = st.page === 'root' ? `<div class="s-empty">${shapeSvg('Cookie12Sided')}<span>No account selected</span></div>` : settingsPage(st.page, dark, { links, labs });
     return `<div class="set"><div class="s-pane s-list">${settingsList(dark, sel, links)}</div><div class="s-pane s-detail">${detail}</div></div>`;
   }
-  return `<div class="set"><div class="s-pane" style="left:0;right:0">${st.page === 'root' ? settingsRoot(dark, { links }) : settingsPage(st.page, dark, { links })}</div></div>`;
+  return `<div class="set"><div class="s-pane" style="left:0;right:0">${st.page === 'root' ? settingsRoot(dark, { links }) : settingsPage(st.page, dark, { links, labs })}</div></div>`;
 }
 Proto.init({ title: 'Settings', controls: SET_CTL, scheme: () => 'wallpaper', render: renderSettings });
