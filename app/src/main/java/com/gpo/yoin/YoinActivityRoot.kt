@@ -1,5 +1,7 @@
 package com.gpo.yoin
 
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.ui.component.LocalAiProvider
 import android.graphics.Color
 import android.os.Build
 import androidx.activity.ComponentActivity
@@ -205,7 +207,12 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         } ?: MentionCandidateSource.None
     }
 
+    // Copy names the AI service in use ("Ask DeepSeek"), and follows a switch in Settings.
+    val aiPrefs = app?.container?.aiProviderStore?.prefs?.collectAsState()
+    val aiProvider = aiPrefs?.value?.provider ?: AiProvider.Gemini
+
     CompositionLocalProvider(
+        LocalAiProvider provides aiProvider,
         LocalNoteMentions provides noteMentions,
         LocalNoteBacklinks provides app?.container?.noteBacklinks,
         LocalMentionCandidates provides mentionCandidates,

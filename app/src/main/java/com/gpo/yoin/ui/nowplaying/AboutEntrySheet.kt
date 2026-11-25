@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.aiString
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -81,7 +82,7 @@ internal fun AboutEntrySheet(
         AboutEntryAction(stringResource(R.string.np_about_manage), YoinSymbols.Note) {
             actions.onManage(entry)
         }.takeIf { actions.canManage() },
-        AboutEntryAction(stringResource(R.string.np_about_regenerate), YoinSymbols.Sparkle) {
+        AboutEntryAction(aiString(R.string.ai_regenerate_with), YoinSymbols.Sparkle) {
             actions.onRegenerate(entry)
         }.takeIf { entry.kind != SongAboutEntry.KIND_OWN },
     )

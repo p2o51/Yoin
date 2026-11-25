@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.remote.ai.AiProvider
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
@@ -3647,6 +3648,9 @@ class YoinRepository(
     // ── Album About (credits line + editorial card) ─────────────────────
 
     private val albumAboutDao get() = database.albumAboutEntryDao()
+
+    /** The AI service chosen in Settings (whose name copy shows); Gemini without a store (tests, previews). */
+    fun activeAiProvider(): AiProvider = aiProviderStore?.prefs?.value?.provider ?: AiProvider.Gemini
 
     /** Whether the chosen AI service has its key: without one the album page never shows a writing card. */
     suspend fun isAiReady(): Boolean = readyAi(geminiConfigDao.getConfig().first()) != null

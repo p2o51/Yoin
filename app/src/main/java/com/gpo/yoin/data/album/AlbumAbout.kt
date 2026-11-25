@@ -115,6 +115,11 @@ data class AlbumAboutGrounding(
     /** Track titles in album order. */
     val tracks: List<String> = emptyList(),
     val totalDurationSec: Int? = null,
+    /**
+     * The service's own notes on the album (Apple Music): the paragraph is already written, so the AI is
+     * asked for the credits only, with these notes as one more source.
+     */
+    val serviceNotes: String? = null,
 )
 
 /** The service's facts about this release, for the prompt. */
@@ -129,6 +134,7 @@ fun com.gpo.yoin.data.model.Album.toAboutGrounding(): AlbumAboutGrounding = Albu
     genre = genre,
     tracks = tracks.mapNotNull { it.title?.trim()?.takeIf(String::isNotEmpty) },
     totalDurationSec = durationSec ?: tracks.sumOf { it.durationSec ?: 0 }.takeIf { it > 0 },
+    serviceNotes = editorialNotes,
 )
 
 /** "2023-10-27" / "2023-10" / "2023", at the date's own precision. */

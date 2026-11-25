@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.aiString
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
@@ -125,7 +126,7 @@ fun AboutFullscreenPane(
             ) {
                 SourceReceipt(credits, facts)
                 Text(
-                    text = stringResource(R.string.np_about_api_key),
+                    text = aiString(R.string.ai_no_key),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

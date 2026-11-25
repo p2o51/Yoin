@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.data.remote.ai.AiProvider
+
 import com.gpo.yoin.data.local.AlbumAboutEntry
 
 import com.gpo.yoin.data.album.AlbumAboutContent
@@ -407,12 +409,13 @@ class AlbumDetailViewModelScrapbookTest {
     fun should_sayWhy_when_regenerateHasNoKey() = runTest {
         val ref = AlbumScrapbookAboutRef("song 2", "artist", "album", SongAboutEntry.KIND_CANONICAL, "producer")
         coEvery { repository.regenerateAboutEntry(ref) } returns YoinRepository.AboutRegenerateResult.ApiKeyMissing
+        every { repository.activeAiProvider() } returns AiProvider.Qwen
         val viewModel = viewModel()
         advanceUntilIdle()
 
         viewModel.scrapFeeds.events.test {
             viewModel.editScrapbook(ScrapEdit.Regenerate(ref))
-            assertEquals(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)), awaitItem())
+            assertEquals(ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(UiText.Res(R.string.ai_provider_qwen)))), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }

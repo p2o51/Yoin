@@ -48,12 +48,15 @@ import com.gpo.yoin.ui.theme.YoinContainerShapes
  * the editorial card after the opening. The sheet behind the card is AlbumAboutSheet.kt.
  */
 
-/** The album About card's roles: the owner's rule is About = secondary (notes, stickies, reviews = primary). */
+/**
+ * The album About card's roles: tertiary, like the Ask cards (51, 2026-11-25: what the listener writes and
+ * what is objective or generated are two colours; stickies stay secondary, the review primary).
+ */
 @Immutable
 internal data class AlbumAboutRoles(val container: Color, val content: Color, val mark: Color)
 
 internal fun albumAboutRoles(scheme: ColorScheme): AlbumAboutRoles =
-    AlbumAboutRoles(container = scheme.secondaryContainer, content = scheme.onSecondaryContainer, mark = scheme.secondary)
+    AlbumAboutRoles(container = scheme.tertiaryContainer, content = scheme.onTertiaryContainer, mark = scheme.tertiary)
 
 /** Lines of the paragraph the paper shows; the rest is a tap away (owner: 3–4, so the page doesn't grow). */
 internal const val AlbumAboutCardLines = 4
@@ -104,18 +107,30 @@ internal fun AlbumAboutCard(
             .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = YoinSymbols.Sparkle,
-                contentDescription = null,
-                tint = colors.aboutMark,
-                modifier = Modifier.size(14.dp),
-            )
-            Spacer(Modifier.width(6.dp))
+            // The sparkle marks generated text; Apple's own notes go without it.
+            if (!piece.fromService) {
+                Icon(
+                    imageVector = YoinSymbols.Sparkle,
+                    contentDescription = null,
+                    tint = colors.aboutMark,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             Text(
                 text = stringResource(R.string.detail_scrap_about),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
                 color = colors.aboutMark,
             )
+            if (piece.fromService) {
+                // Apple Music's own notes say whose they are, on the paper too.
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.settings_service_name_apple),
+                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.2.sp),
+                    color = colors.aboutMark.copy(alpha = 0.8f),
+                )
+            }
         }
         if (text == null) {
             ThinkingDots(color = colors.aboutMark, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))

@@ -212,6 +212,8 @@ import kotlin.math.sign
 
 /** Masonry tokens (D3 §5.1). */
 private object ScrapbookLayout {
+    /** Above the opening's cover and title (51, 2026-11-25: +10dp so the header breathes). */
+    val OpeningTopGap = 10.dp
     val LaneMin = 280.dp
     val LaneGap = 28.dp
     val RowGap = 28.dp
@@ -270,7 +272,7 @@ internal data class ScrapbookColors(
     val onTag: Color,
     val receipt: Color,
     val onReceipt: Color,
-    /** The album's About card (owner's rule: About = secondary; notes, stickies and reviews = primary). */
+    /** The album's About card: tertiary like the Ask cards ([albumAboutRoles]). */
     val about: Color,
     val onAbout: Color,
     val aboutMark: Color,
@@ -962,7 +964,13 @@ private fun Opening(
         { m -> AlbumNoteSticky(text, piece.albumNoteTilt, colors, m) }
     }
     ScrapStack(mirror = false, modifier = modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.scrapSlot(cross = false, overlap = 0.dp).fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .scrapSlot(cross = false, overlap = 0.dp)
+                .fillMaxWidth()
+                // Air above the cover and the title beside it (51, 2026-11-25: the header breathes).
+                .padding(top = ScrapbookLayout.OpeningTopGap),
+        ) {
             CoverWithEmblem(
                 content = content,
                 coverSide = coverSide,

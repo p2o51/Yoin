@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.aiString
 import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -235,7 +236,7 @@ private fun IdleOrErrorLayout(
         StaticIndicator()
         Spacer(modifier = Modifier.size(16.dp))
         Text(
-            text = message ?: stringResource(R.string.np_ask_gemini),
+            text = message ?: aiString(R.string.ai_ask_provider),
             style = MaterialTheme.typography.titleMedium,
             color = if (message != null) {
                 MaterialTheme.colorScheme.error
@@ -290,7 +291,7 @@ private fun FocusedLayout(
                 Box {
                     if (draft.text.isEmpty()) {
                         Text(
-                            text = stringResource(R.string.np_ask_placeholder),
+                            text = aiString(R.string.ai_ask_provider),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
                         )
@@ -336,7 +337,7 @@ private fun LoadingLayout(title: String, modifier: Modifier = Modifier) {
         YoinLoadingIndicator(size = 28.dp)
         Spacer(modifier = Modifier.size(16.dp))
         Text(
-            text = title.takeIf { it.isNotBlank() } ?: stringResource(R.string.np_ask_gemini),
+            text = title.takeIf { it.isNotBlank() } ?: aiString(R.string.ai_ask_provider),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer,
             maxLines = 1,

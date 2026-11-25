@@ -49,6 +49,12 @@ data class Album(
      * `originalReleaseDate`): a reissue's 首版 on the credits line. Null when unknown.
      */
     val originalReleaseDate: ReleaseDate? = null,
+    /**
+     * The service's own editorial notes on the album, as plain text (Apple Music `editorialNotes`:
+     * `standard`, else `short`, HTML stripped). The scrapbook's About paragraph uses it before asking
+     * any AI. Null when the service has none.
+     */
+    val editorialNotes: String? = null,
 ) {
     /**
      * [name] without the " (version)" a server appends to it (Navidrome's

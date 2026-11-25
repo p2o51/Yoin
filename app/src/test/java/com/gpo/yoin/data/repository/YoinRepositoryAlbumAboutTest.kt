@@ -10,7 +10,10 @@ import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.data.local.AiProviderStore
 import com.gpo.yoin.data.source.MusicSource
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -162,5 +166,52 @@ class YoinRepositoryAlbumAboutTest {
         assertEquals("who played organ?", row.captured.entryKey)
         assertEquals("Who played  organ?", row.captured.promptText)
         assertEquals("风琴", row.captured.titleText)
+    }
+
+    @Test
+    fun should_regenerateTheCreditsOnly_when_appleWroteTheNotes() = runTest {
+        val apple = album.copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1440"), editorialNotes = "Apple's notes.")
+        coEvery { dao.getCanonical(any(), any()) } returns emptyList()
+        coEvery { geminiService.runAlbumAbout(ai, any(), any()) } returns
+            GeminiService.AlbumAboutRun(AlbumAiCredits(producers = listOf("P")), null, "", emptyList())
+        val written = slot<List<AlbumAboutEntry>>()
+        coEvery { dao.upsertAll(capture(written)) } returns Unit
+
+        val result = repository.regenerateAlbumAbout(apple)
+
+        assertTrue(result is YoinRepository.AlbumAboutRegenerateResult.Success)
+        coVerify { geminiService.runAlbumAbout(ai, match { it.serviceNotes == "Apple's notes." }, any()) }
+        // Apple's text is never copied into the table (nor synced): the paragraph row stays empty.
+        assertEquals("", written.captured.single { it.entryKey == AlbumAboutEntry.CANON_BLURB }.answerText)
+    }
+
+    @Test
+    fun should_nameTheChosenService_andGateOnItsOwnKey_notGeminis() = runTest {
+        val store = AiProviderStore.InMemory(AiProviderPrefs(provider = AiProvider.DeepSeek))
+        val withStore = YoinRepository(
+            activeSource = MutableStateFlow(mockk<MusicSource>(relaxed = true)),
+            activeProfileId = MutableStateFlow("p1"),
+            database = database,
+            geminiService = geminiService,
+            songAboutEntryDao = mockk(relaxed = true),
+            geminiConfigDao = geminiConfigDao,
+            lyricsCacheDao = mockk(relaxed = true),
+            lyricsTranslationCacheDao = mockk(relaxed = true),
+            songNoteDao = mockk(relaxed = true),
+            albumNoteDao = mockk(relaxed = true),
+            albumRatingDao = mockk(relaxed = true),
+            memoryCopyCacheDao = mockk(relaxed = true),
+            neoDbSyncService = mockk<NeoDBSyncService>(relaxed = true),
+            aiProviderStore = store,
+        )
+        coEvery { dao.getCanonical(any(), any()) } returns emptyList()
+
+        // A Gemini key is set (init), but DeepSeek is chosen and has none: nothing is ready.
+        assertEquals(AiProvider.DeepSeek, withStore.activeAiProvider())
+        assertFalse(withStore.isAiReady())
+        assertEquals(YoinRepository.AboutLoadResult.ApiKeyMissing, withStore.ensureAlbumAbout(album))
+
+        store.update { it.copy(deepSeekKey = "ds-key") }
+        assertTrue(withStore.isAiReady())
     }
 }

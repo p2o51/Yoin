@@ -144,6 +144,7 @@ internal data class AlbumDto(
     val dated: Boolean = false,
     val recordLabels: List<String> = emptyList(),
     val originalReleaseDate: ReleaseDateDto? = null,
+    val editorialNotes: String? = null,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -163,6 +164,7 @@ internal data class AlbumDto(
         releaseDate = releaseDate?.toDomain(),
         recordLabels = recordLabels,
         originalReleaseDate = originalReleaseDate?.toDomain(),
+        editorialNotes = editorialNotes,
     )
 
     companion object {
@@ -185,6 +187,7 @@ internal data class AlbumDto(
             dated = true,
             recordLabels = a.recordLabels,
             originalReleaseDate = a.originalReleaseDate?.let(ReleaseDateDto::from),
+            editorialNotes = a.editorialNotes,
         )
     }
 }

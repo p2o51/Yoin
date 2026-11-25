@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.aiString
+import com.gpo.yoin.ui.component.aiProviderName
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +94,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -616,14 +619,14 @@ private fun GenerateAbout(
                     ThinkingDots(color = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        text = stringResource(R.string.detail_scrap_about_generating),
+                        text = aiString(R.string.ai_writing),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
                 EditorButton(
-                    label = stringResource(R.string.detail_scrap_about_generate),
+                    label = aiString(R.string.ai_generate_with),
                     icon = YoinSymbols.Sparkle,
                     container = colors.review,
                     content = colors.onReview,
@@ -875,7 +878,7 @@ internal fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
             Spacer(Modifier.width(4.dp))
         }
         Text(
-            text = stringResource(if (own) R.string.detail_scrap_by_you else R.string.detail_scrap_by_gemini),
+            text = if (own) stringResource(R.string.detail_scrap_by_you) else aiProviderName(),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
             color = color,
         )
@@ -1091,7 +1094,7 @@ private fun NewEntry(
             ) {
                 Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.detail_scrap_ask_gemini), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(aiString(R.string.ai_ask_provider), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Button(
                 onClick = {
@@ -1575,6 +1578,8 @@ internal fun EditField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = false,
     minHeight: androidx.compose.ui.unit.Dp = 0.dp,
+    // The keyboard's Send runs this (the album About sheet's question); null keeps the default action.
+    imeSend: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     BasicTextField(
@@ -1582,7 +1587,11 @@ internal fun EditField(
         textStyle = style.copy(color = scheme.onSurface),
         cursorBrush = SolidColor(scheme.primary),
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.MultiLine(),
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.Sentences,
+            imeAction = if (imeSend != null) ImeAction.Send else ImeAction.Default,
+        ),
+        onKeyboardAction = imeSend?.let { send -> { send() } },
         modifier = modifier.fillMaxWidth(),
         decorator = { field ->
             Box(

@@ -24,6 +24,9 @@ internal object AlbumAboutPrompts {
     /** Tracks listed in the prompt; a box set's hundredth track adds nothing to the album's background. */
     const val MAX_PROMPT_TRACKS = 40
 
+    /** The service's album notes quoted in the prompt, at most this long. */
+    const val MAX_NOTES_CHARS = 1_500
+
     /** Names kept per credit item: the line stays a line. */
     const val MAX_NAMES = 4
 
@@ -33,7 +36,15 @@ internal object AlbumAboutPrompts {
         if (count > 1) add("${grounding.album} ${grounding.artist} ${backgroundKeywords(grounding.album + grounding.artist)}")
     }.take(count.coerceAtLeast(1))
 
-    fun buildAboutPrompt(grounding: AlbumAboutGrounding, targetLanguage: String, searchLead: String): String = """
+    /**
+     * The About prompt. When the service already wrote the album's notes ([AlbumAboutGrounding.serviceNotes],
+     * Apple Music), the same call asks for the credits only: no [ABOUT] block, the notes as one more source.
+     */
+    fun buildAboutPrompt(grounding: AlbumAboutGrounding, targetLanguage: String, searchLead: String): String =
+        if (grounding.serviceNotes != null) {
+            buildCreditsOnlyPrompt(grounding, targetLanguage, searchLead)
+        } else {
+            """
 Write the About section of one album for a music app: its album-level credits and an editorial
 background paragraph, the way Apple Music's album notes read.
 
@@ -44,6 +55,32 @@ build on them and never contradict them.
 
 Respond strictly in the tagged format below, with nothing outside the tags.
 
+${creditsBlock(targetLanguage)}
+
+[ABOUT]
+One objective paragraph in $targetLanguage, ${blurbLength(targetLanguage)}: the album's place in the
+artist's career, its sound or concept, and the one behind-the-scenes fact most worth knowing.
+Editorial and factual, like Apple Music's album notes. No hype or superlatives, no track-by-track
+listing, no rating, no second person, no headings, lists or citation markers. Plain prose.
+If you know too little about this album to write it without guessing, write N/A.
+[/ABOUT]
+            """.trimIndent()
+        }
+
+    private fun buildCreditsOnlyPrompt(grounding: AlbumAboutGrounding, targetLanguage: String, searchLead: String) = """
+Find the album-level credits of one album for a music app.
+
+${groundingLines(grounding)}
+
+$searchLead The facts above come from the music service and are correct for this release:
+build on them and never contradict them.
+
+Respond strictly with the tagged block below, with nothing outside the tags.
+
+${creditsBlock(targetLanguage)}
+    """.trimIndent()
+
+    private fun creditsBlock(targetLanguage: String) = """
 [CREDITS]
 One JSON object with exactly these keys. Each value is null or an object whose "confidence" is
 "high" or "medium":
@@ -70,14 +107,6 @@ Rules for CREDITS:
   of an earlier album; otherwise null.
 - Names exactly as credited, in their original script. Dates in $targetLanguage.
 [/CREDITS]
-
-[ABOUT]
-One objective paragraph in $targetLanguage, ${blurbLength(targetLanguage)}: the album's place in the
-artist's career, its sound or concept, and the one behind-the-scenes fact most worth knowing.
-Editorial and factual, like Apple Music's album notes. No hype or superlatives, no track-by-track
-listing, no rating, no second person, no headings, lists or citation markers. Plain prose.
-If you know too little about this album to write it without guessing, write N/A.
-[/ABOUT]
     """.trimIndent()
 
     fun buildAskPrompt(
@@ -117,6 +146,9 @@ Question: $question
         if (grounding.labels.isNotEmpty()) add("Record label (from the service): ${grounding.labels.joinToString(", ")}")
         grounding.genre?.takeIf(String::isNotBlank)?.let { add("Genre: $it") }
         grounding.totalDurationSec?.takeIf { it > 0 }?.let { add("Length: ${it / 60} min") }
+        grounding.serviceNotes?.let { notes ->
+            add("Album notes (from the service): ${notes.replace(Regex("\\s+"), " ").take(MAX_NOTES_CHARS)}")
+        }
         if (grounding.tracks.isNotEmpty()) {
             add("Tracks (${grounding.tracks.size}):")
             grounding.tracks.take(MAX_PROMPT_TRACKS).forEachIndexed { i, title -> add("${i + 1}. $title") }

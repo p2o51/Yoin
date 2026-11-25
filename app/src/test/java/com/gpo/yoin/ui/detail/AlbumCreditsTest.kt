@@ -193,12 +193,12 @@ class AlbumCreditsTest {
     }
 
     @Test
-    fun should_paintTheAboutCardInTheSecondaryRole() {
+    fun should_paintTheAboutCardInTheTertiaryRole_likeTheAskCards() {
         listOf(lightColorScheme(), darkColorScheme()).forEach { scheme ->
             val roles = albumAboutRoles(scheme)
-            assertEquals(scheme.secondaryContainer, roles.container)
-            assertEquals(scheme.onSecondaryContainer, roles.content)
-            assertEquals(scheme.secondary, roles.mark)
+            assertEquals(scheme.tertiaryContainer, roles.container)
+            assertEquals(scheme.onTertiaryContainer, roles.content)
+            assertEquals(scheme.tertiary, roles.mark)
         }
     }
 
@@ -278,5 +278,26 @@ class AlbumCreditsTest {
             .pieces.first() as ScrapPiece.Opening
 
         assertEquals(listOf(AlbumCreditItem(AlbumCreditKind.Label, names = listOf("ECM"))), opening.credits)
+    }
+
+    @Test
+    fun should_showApplesOwnNotes_overTheAis_andSaySo() {
+        val data = withNotes.copy(albumAbout = AlbumAboutContent(blurb = "The AI's paragraph.", generated = true))
+        val content = album().copy(editorialNotes = "Apple's notes.")
+
+        val about = buildAlbumScrapbook(content, data, nowMillis = 0L, aboutPending = true).pieces[1] as ScrapPiece.AlbumAbout
+
+        assertEquals("Apple's notes.", about.text)
+        assertTrue(about.fromService)
+        // Writing the credits doesn't put the dots over Apple's text.
+        assertFalse(about.pending)
+    }
+
+    @Test
+    fun should_showApplesNotes_even_withoutAnyAi() {
+        val about = buildAlbumScrapbook(album().copy(editorialNotes = "Apple's notes."), withNotes, nowMillis = 0L)
+            .pieces[1] as ScrapPiece.AlbumAbout
+
+        assertEquals("Apple's notes.", about.text)
     }
 }

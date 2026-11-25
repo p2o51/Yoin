@@ -68,6 +68,8 @@ sealed interface AlbumDetailUiState {
         val recordLabels: List<String> = emptyList(),
         /** The service's first-release date, apart from [releaseDate] (OpenSubsonic): a reissue's 首版. */
         val originalReleaseDate: ReleaseDate? = null,
+        /** The service's own album notes (Apple Music): the About paragraph, before any AI. */
+        val editorialNotes: String? = null,
     ) : AlbumDetailUiState {
         /**
          * 「Based on X/N」的分母 N。用实际加载到的 songs.size，而不是 provider

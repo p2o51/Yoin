@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.aiProviderNameText
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -258,6 +259,7 @@ class AlbumDetailViewModel(
                     releaseDate = album.releaseDate,
                     recordLabels = album.recordLabels,
                     originalReleaseDate = album.originalReleaseDate,
+                    editorialNotes = album.editorialNotes,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
                     // Membership was seeded by the load itself (before Content existed), so
@@ -789,10 +791,10 @@ class AlbumDetailViewModel(
                 when (val result = repository.askAboutSong(keys.title, keys.artist, keys.album, question)) {
                     is YoinRepository.AskAboutResult.Success -> Unit
                     YoinRepository.AskAboutResult.ApiKeyMissing ->
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName()))))
                     is YoinRepository.AskAboutResult.Error -> {
                         Log.w(TAG, "Ask from the scrapbook failed: ${result.message}")
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName()))))
                     }
                 }
             } finally {
@@ -817,10 +819,10 @@ class AlbumDetailViewModel(
                 when (result) {
                     is YoinRepository.AboutLoadResult.Success -> Unit
                     YoinRepository.AboutLoadResult.ApiKeyMissing ->
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName()))))
                     is YoinRepository.AboutLoadResult.Error -> {
                         Log.w(TAG, "Generate from the scrapbook failed: ${result.message}")
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName()))))
                     }
                 }
             } finally {
@@ -839,12 +841,12 @@ class AlbumDetailViewModel(
                     is YoinRepository.AboutRegenerateResult.Success ->
                         ScrapEvent.Regenerated(ScrapEdit.About(ref, result.beforeTitle, result.beforeAnswer))
                     YoinRepository.AboutRegenerateResult.NothingNew ->
-                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_nothing))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_nothing_new, listOf(aiName())))
                     YoinRepository.AboutRegenerateResult.ApiKeyMissing ->
-                        ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                     is YoinRepository.AboutRegenerateResult.Error -> {
                         Log.w(TAG, "Regenerate from the scrapbook failed: ${result.message}")
-                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName())))
                     }
                 }
                 scrapEvents.tryEmit(event)
@@ -888,12 +890,12 @@ class AlbumDetailViewModel(
                     is YoinRepository.AlbumAboutRegenerateResult.Success ->
                         ScrapEvent.Regenerated(ScrapEdit.RestoreAlbumAbout(result.before))
                     YoinRepository.AlbumAboutRegenerateResult.NothingNew ->
-                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_nothing))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_nothing_new, listOf(aiName())))
                     YoinRepository.AlbumAboutRegenerateResult.ApiKeyMissing ->
-                        ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName())))
                     is YoinRepository.AlbumAboutRegenerateResult.Error -> {
                         Log.w(TAG, "Album About regenerate failed: ${result.message}")
-                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed))
+                        ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName())))
                     }
                 }
                 scrapEvents.tryEmit(event)
@@ -913,10 +915,10 @@ class AlbumDetailViewModel(
                 when (val result = repository.askAboutAlbum(album, text)) {
                     is YoinRepository.AskAboutResult.Success -> Unit
                     YoinRepository.AskAboutResult.ApiKeyMissing ->
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_key_missing, listOf(aiName()))))
                     is YoinRepository.AskAboutResult.Error -> {
                         Log.w(TAG, "Ask about the album failed: ${result.message}")
-                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.ai_failed, listOf(aiName()))))
                     }
                 }
             } finally {
@@ -956,6 +958,9 @@ class AlbumDetailViewModel(
         val id = MediaId.parseOrNull(albumId) ?: return
         viewModelScope.launch { runCatching { store.clearTitle(id) } }
     }
+
+    /** The AI service's name for messages ("DeepSeek couldn't answer"). */
+    private fun aiName(): UiText = aiProviderNameText(repository.activeAiProvider())
 
     class Factory(
         private val albumId: String,

@@ -119,7 +119,8 @@ class GeminiService(
         val parsed = AlbumAboutPrompts.parseAboutResponse(rawText)
         return AlbumAboutRun(
             credits = parsed.credits,
-            blurb = parsed.blurb,
+            // The service's own notes are the paragraph (credits-only prompt): nothing of the AI's replaces them.
+            blurb = parsed.blurb.takeIf { grounding.serviceNotes == null },
             rawText = rawText,
             searchQueries = if (ai.searchKind == AiSettings.SearchKind.External) queries else emptyList(),
         )

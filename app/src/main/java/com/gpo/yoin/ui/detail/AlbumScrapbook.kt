@@ -75,7 +75,8 @@ sealed interface ScrapPiece {
     }
 
     /**
-     * The album's About (owner + Carbon 2026-11-25): the AI's editorial paragraph on a secondary-role card,
+     * The album's About (owner + Carbon 2026-11-25): the editorial paragraph (Apple Music's own notes when
+     * the service has them, else the AI's) on a tertiary-role card like the Ask cards,
      * right after the opening and before the tracks, a few lines on the paper; a tap opens the full text,
      * Regenerate and Ask Gemini. [text] is null while the AI writes it for the first time ([pending]).
      */
@@ -85,6 +86,11 @@ sealed interface ScrapPiece {
         val tilt: Float,
         /** Questions asked about the album, newest first (the sheet lists them). */
         val asks: List<AlbumAboutAsk> = emptyList(),
+        /**
+         * [text] is Apple Music's own editorial notes, not the AI's: attributed to Apple Music, and its
+         * Regenerate only redoes the credits.
+         */
+        val fromService: Boolean = false,
     ) : ScrapPiece {
         override val key: String get() = "albumabout"
         override val fullLine: Boolean get() = true
@@ -369,13 +375,16 @@ internal fun buildAlbumScrapbook(
             ai = data.albumAbout.credits,
         ),
     )
-    val blurb = data.albumAbout.blurb
+    // The service's own notes (Apple Music) before the AI's paragraph.
+    val serviceNotes = content.editorialNotes?.trim()?.takeIf(String::isNotEmpty)
+    val blurb = serviceNotes ?: data.albumAbout.blurb
     if (blurb != null || aboutPending) {
         pieces += ScrapPiece.AlbumAbout(
             text = blurb,
             pending = aboutPending && blurb == null,
             tilt = tilt("albumabout", ScrapbookRules.CardTilts),
             asks = data.albumAbout.asks,
+            fromService = serviceNotes != null,
         )
     }
 

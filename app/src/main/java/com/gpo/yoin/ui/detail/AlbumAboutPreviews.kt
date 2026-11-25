@@ -5,13 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.gpo.yoin.data.album.AlbumAboutAsk
 import com.gpo.yoin.data.album.AlbumAboutContent
 import com.gpo.yoin.data.album.AlbumAiCredits
+import com.gpo.yoin.data.album.AlbumScrapbookAlbumNote
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.model.ReleaseDate
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.ui.component.LocalAiProvider
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -22,7 +26,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 
 private const val AboutPreviewNow = 1_791_000_000_000L
 
-private fun aboutPreviewAlbum(zh: Boolean): AlbumDetailUiState.Content {
+private fun aboutPreviewAlbum(zh: Boolean, apple: Boolean = false): AlbumDetailUiState.Content {
     val titles = listOf("Dawn Chorus", "Glass House", "Undertow", "Paper Moon", "Low Tide", "Coda")
     return AlbumDetailUiState.Content(
         albumId = "subsonic:al-tide",
@@ -44,10 +48,28 @@ private fun aboutPreviewAlbum(zh: Boolean): AlbumDetailUiState.Content {
         averageTrackRating = 8.6f,
         ratedTrackCount = 3,
         ratedSongIds = setOf("subsonic:t1", "subsonic:t3", "subsonic:t5"),
+        // Apple Music's own notes, as the source maps them (HTML stripped): the paragraph, credited to Apple.
+        editorialNotes = if (!apple) {
+            null
+        } else if (zh) {
+            "十年前，森川把乐队搬进镰仓海边的旧仓库，录下了这张让他从卧室制作人走向乐队领队的专辑。十周年版重新做了母带，并补上三首当年没完成的小样。"
+        } else {
+            "Ten years ago Morikawa moved a band into a seaside warehouse in Kamakura and made the record that " +
+                "turned a bedroom producer into a bandleader. The anniversary edition is newly mastered and adds " +
+                "three demos left unfinished at the time."
+        },
     )
 }
 
 private fun aboutPreviewData(zh: Boolean): AlbumScrapbookData = AlbumScrapbookData(
+    // An album-note sticky (the listener's, secondary) beside the About card (generated, tertiary).
+    albumNotes = listOf(
+        AlbumScrapbookAlbumNote(
+            id = "an-1",
+            content = if (zh) "下雨天从头听到尾，第三首最好。" else "Best start to finish on a rainy day. Track three.",
+            updatedAt = 1L,
+        ),
+    ),
     albumAbout = AlbumAboutContent(
         credits = AlbumAiCredits(
             producers = listOf("Kenji Arai", "Mei Lin"),
@@ -84,10 +106,10 @@ private fun aboutPreviewData(zh: Boolean): AlbumScrapbookData = AlbumScrapbookDa
 )
 
 @Composable
-private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int) {
+private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int, apple: Boolean = false) {
     YoinTheme {
         ProvidePreviewWindow(widthDp = widthDp, heightDp = heightDp) {
-            val content = aboutPreviewAlbum(zh)
+            val content = aboutPreviewAlbum(zh, apple)
             Box(Modifier.background(MaterialTheme.colorScheme.surface)) {
                 AlbumScrapbookPage(
                     state = AlbumScrapbookUiState.Ready(
@@ -113,14 +135,15 @@ private fun AboutScrapbookPreview(zh: Boolean, widthDp: Int, heightDp: Int) {
 }
 
 @Composable
-private fun AboutSheetPreview(zh: Boolean) {
+private fun AboutSheetPreview(zh: Boolean, apple: Boolean = false, provider: AiProvider = AiProvider.Gemini) {
     YoinTheme {
-        val content = aboutPreviewAlbum(zh)
+        val content = aboutPreviewAlbum(zh, apple)
         val book = buildAlbumScrapbook(content, aboutPreviewData(zh), nowMillis = AboutPreviewNow)
         val about = book.pieces.filterIsInstance<ScrapPiece.AlbumAbout>().first()
         val credits = book.pieces.filterIsInstance<ScrapPiece.Opening>().first().credits
         Box(Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-            AlbumAboutSheetBody(
+            CompositionLocalProvider(LocalAiProvider provides provider) {
+                AlbumAboutSheetBody(
                 albumName = content.albumName,
                 about = about,
                 credits = credits,
@@ -128,6 +151,7 @@ private fun AboutSheetPreview(zh: Boolean) {
                 gemini = ScrapGemini(),
                 onEdit = {},
             )
+            }
         }
     }
 }
@@ -198,3 +222,22 @@ private fun AlbumAboutSheetZhPreview() = AboutSheetPreview(zh = true)
 @Preview(name = "Album About sheet · en · tablet", widthDp = 800, heightDp = 1100, locale = "en")
 @Composable
 private fun AlbumAboutSheetEnPreview() = AboutSheetPreview(zh = false)
+
+@Preview(name = "Album About · Apple notes · phone · zh · light", widthDp = 390, heightDp = 900, locale = "zh-rCN")
+@Preview(
+    name = "Album About · Apple notes · phone · zh · dark",
+    widthDp = 390,
+    heightDp = 900,
+    locale = "zh-rCN",
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun AlbumAboutApplePhonePreview() = AboutScrapbookPreview(zh = true, widthDp = 390, heightDp = 900, apple = true)
+
+@Preview(name = "Album About sheet · Apple notes · Qwen · zh", widthDp = 390, heightDp = 1100, locale = "zh-rCN")
+@Composable
+private fun AlbumAboutSheetAppleZhPreview() = AboutSheetPreview(zh = true, apple = true, provider = AiProvider.Qwen)
+
+@Preview(name = "Album About sheet · DeepSeek · en", widthDp = 390, heightDp = 1100, locale = "en")
+@Composable
+private fun AlbumAboutSheetDeepSeekPreview() = AboutSheetPreview(zh = false, provider = AiProvider.DeepSeek)

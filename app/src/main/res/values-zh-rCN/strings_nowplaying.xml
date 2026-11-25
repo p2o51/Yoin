@@ -56,7 +56,6 @@
     <string name="np_cd_full_screen">全屏</string>
 
     <string name="np_about_searching">正在查找歌曲信息…</string>
-    <string name="np_about_api_key">未设置 Gemini API 密钥</string>
     <string name="np_about_open_settings">设置</string>
     <string name="np_about_retry">重试</string>
     <string name="np_about_creation_time">创作时间</string>
@@ -89,15 +88,9 @@
     <string name="np_about_review">关于</string>
     <string name="np_about_cd_entry_menu">这一条的选项</string>
     <string name="np_about_manage">在剪贴簿里管理</string>
-    <string name="np_about_regenerate">用 Gemini 重新生成</string>
     <string name="np_about_regenerated">已重新生成</string>
     <string name="np_about_undo">撤销</string>
-    <string name="np_about_regenerate_nothing">Gemini 没有新的内容</string>
-    <string name="np_about_regenerate_failed">Gemini 没能回答，再试一次</string>
 
-    <string name="np_ask_placeholder">问 Gemini</string>
-    <string name="np_ask_gemini">问 Gemini</string>
-    <string name="np_ask_api_key_missing">缺少 Gemini API 密钥</string>
 
     <string name="np_lyrics_search_placeholder">歌曲或艺术家</string>
     <string name="np_cd_close_lyrics_search">关闭歌词搜索</string>

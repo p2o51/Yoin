@@ -114,7 +114,7 @@ private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
                 val context = LocalContext.current
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = stringResource(R.string.cmp_song_info_no_key),
+                        text = aiString(R.string.ai_no_key),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f, fill = false),

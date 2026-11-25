@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.aiString
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.togetherWith
@@ -28,7 +29,9 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -133,12 +136,21 @@ internal fun AlbumAboutSheetBody(
                 .padding(start = AboutSheetGutter, end = AboutSheetGutter, bottom = 24.dp)
                 .animateContentSize(YoinMotion.defaultSpatialSpec()),
         ) {
-            CreditsReceipt(credits, colors)
+            // Apple's own notes are Apple's: Regenerate redoes only what the AI wrote, the credits, so it sits
+            // under the credits instead of on Apple's paragraph (where it would read as rewriting Apple).
+            val serviceText = about.fromService
+            CreditsReceipt(
+                credits = credits,
+                colors = colors,
+                regenerating = gemini.albumAbout,
+                onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { serviceText },
+            )
             AboutParagraph(
                 text = about.text,
-                regenerating = gemini.albumAbout,
+                regenerating = gemini.albumAbout && !serviceText,
                 colors = colors,
-                onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) },
+                byService = serviceText,
+                onRegenerate = { onEdit(ScrapEdit.RegenerateAlbumAbout) }.takeIf { !serviceText },
             )
             gemini.albumAsking.forEach { question -> PendingAlbumAsk(question, colors) }
             about.asks.forEach { ask -> AlbumAskCard(ask, colors) }
@@ -158,14 +170,20 @@ internal fun AlbumAboutSheetBody(
 
 /** The credits one per line, label left and value right, a dashed rule between (Now Playing's receipt). */
 @Composable
-private fun CreditsReceipt(credits: List<AlbumCreditItem>, colors: ScrapbookColors) {
+private fun CreditsReceipt(
+    credits: List<AlbumCreditItem>,
+    colors: ScrapbookColors,
+    regenerating: Boolean = false,
+    // Only when the paragraph is the service's: the credits are then all the AI wrote.
+    onRegenerate: (() -> Unit)? = null,
+) {
     val resources = LocalContext.current.resources
     val configuration = LocalConfiguration.current
     val rows = remember(credits, configuration) {
         val labels = resourceAlbumCreditLabels(resources)
         credits.mapNotNull { item -> albumCreditValue(item, labels)?.let { labels.label(item.kind) to it } }
     }
-    if (rows.isEmpty()) return
+    if (rows.isEmpty() && onRegenerate == null) return
     val rule = colors.aboutMark.copy(alpha = 0.45f)
     Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
         rows.forEachIndexed { index, (label, value) ->
@@ -199,6 +217,20 @@ private fun CreditsReceipt(credits: List<AlbumCreditItem>, colors: ScrapbookColo
                 )
             }
         }
+        if (onRegenerate != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (regenerating) {
+                    ThinkingDots(color = colors.aboutMark)
+                } else {
+                    Byline(own = false, color = colors.aboutMark)
+                }
+                Spacer(Modifier.weight(1f))
+                RegenerateButton(colors = colors, enabled = !regenerating, onClick = onRegenerate)
+            }
+        }
     }
 }
 
@@ -207,7 +239,8 @@ private fun AboutParagraph(
     text: String?,
     regenerating: Boolean,
     colors: ScrapbookColors,
-    onRegenerate: () -> Unit,
+    byService: Boolean,
+    onRegenerate: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
@@ -238,22 +271,37 @@ private fun AboutParagraph(
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Byline(own = false, color = colors.aboutMark)
-            Spacer(Modifier.weight(1f))
-            FilledTonalButton(
-                onClick = onRegenerate,
-                enabled = !regenerating,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = colors.aboutMark,
-                ),
-                modifier = Modifier.handPointer(enabled = !regenerating),
-            ) {
-                Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.detail_scrap_regenerate), maxLines = 1)
+            if (byService) {
+                // Apple Music's own editorial notes, credited to Apple Music, not to an AI.
+                Text(
+                    text = stringResource(R.string.settings_service_name_apple),
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
+                    color = colors.aboutMark,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
+            } else {
+                Byline(own = false, color = colors.aboutMark)
             }
+            Spacer(Modifier.weight(1f))
+            if (onRegenerate != null) RegenerateButton(colors = colors, enabled = !regenerating, onClick = onRegenerate)
         }
+    }
+}
+
+@Composable
+private fun RegenerateButton(colors: ScrapbookColors, enabled: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = colors.aboutMark,
+        ),
+        modifier = Modifier.handPointer(enabled = enabled),
+    ) {
+        Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(stringResource(R.string.detail_scrap_regenerate), maxLines = 1)
     }
 }
 
@@ -310,7 +358,10 @@ private fun PendingAlbumAsk(question: String, colors: ScrapbookColors) {
     }
 }
 
-/** The question field and Ask Gemini (the song sheet's new entry, without Write: About here is Gemini's). */
+/**
+ * The question field, "Ask <service>" as its hint, and a send button beside it (NP's ask bar: the keyboard's
+ * Send works too). No Write: everything on this sheet is generated.
+ */
 @Composable
 private fun AskAlbum(colors: ScrapbookColors, onAsk: (String) -> Unit) {
     val question = rememberTextFieldState()
@@ -318,38 +369,39 @@ private fun AskAlbum(colors: ScrapbookColors, onAsk: (String) -> Unit) {
     val card = remember { BringIntoViewRequester() }
     KeepAboveKeyboard(card, active = focused)
     val hasQuestion = question.text.isNotBlank()
-    Column(
+    val ask = aiString(R.string.ai_ask_provider)
+    val send = {
+        if (question.text.isNotBlank()) {
+            onAsk(question.text.toString().trim())
+            question.clearText()
+        }
+    }
+    Row(
         modifier = Modifier
             .padding(top = 18.dp)
             .fillMaxWidth()
             .bringIntoViewRequester(card)
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(start = 10.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         EditField(
             state = question,
-            hint = stringResource(R.string.np_ask_placeholder),
+            hint = ask,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.onFocusChanged { focused = it.isFocused },
+            imeSend = send,
+            modifier = Modifier.weight(1f).onFocusChanged { focused = it.isFocused },
         )
-        FilledTonalButton(
-            onClick = {
-                onAsk(question.text.toString().trim())
-                question.clearText()
-            },
+        FilledIconButton(
+            onClick = send,
             enabled = hasQuestion,
-            colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.about, contentColor = colors.onAbout),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .handPointer(enabled = hasQuestion),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.about, contentColor = colors.onAbout),
+            modifier = Modifier.size(44.dp).handPointer(enabled = hasQuestion),
         ) {
-            Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.detail_scrap_ask_gemini), maxLines = 1)
+            Icon(imageVector = YoinSymbols.Send, contentDescription = ask, modifier = Modifier.size(20.dp))
         }
     }
 }

@@ -181,4 +181,24 @@ class AlbumAboutPromptsTest {
 
         assertEquals("Cut off mid", parsed.blurb)
     }
+
+    @Test
+    fun should_askForTheCreditsOnly_when_theServiceWroteTheNotes() {
+        val withNotes = grounding.copy(serviceNotes = "Apple's own words about the album.")
+
+        val prompt = AlbumAboutPrompts.buildAboutPrompt(withNotes, "English", "lead")
+
+        assertTrue(prompt.contains("[CREDITS]") && prompt.contains("[/CREDITS]"))
+        assertFalse(prompt.contains("[ABOUT]"))
+        assertTrue(prompt.contains("Album notes (from the service): Apple's own words about the album."))
+        assertTrue(prompt.contains("Respond strictly with the tagged block below"))
+    }
+
+    @Test
+    fun should_capTheServicesNotes_inThePrompt() {
+        val lines = AlbumAboutPrompts.groundingLines(grounding.copy(serviceNotes = "x".repeat(5_000)))
+
+        val notes = lines.lines().single { it.startsWith("Album notes (from the service): ") }
+        assertEquals(AlbumAboutPrompts.MAX_NOTES_CHARS, notes.removePrefix("Album notes (from the service): ").length)
+    }
 }
