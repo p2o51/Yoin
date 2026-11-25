@@ -1,0 +1,14 @@
+{
+  "about": "Changelog figure for Yoin 0.6.3 (34) on yoin-site (public/changelog.html, section v0-6-3-34). Screens: phone, bare (the site draws the bezel), 1.5x WebP, the real catalogue. '-was' = the same screen before 0.6.3 (34), for the figure's Before view.",
+  "out": "../../../../yoin-site/public/media/changelog/0.6.3-34",
+  "defaults": { "frame": "phone", "bezel": "none", "scale": 1.5, "format": "webp", "catalog": "real" },
+  "themes": ["light", "dark"],
+  "langs": ["en", "zh"],
+  "exports": [
+    { "name": "share-about", "page": "share-cards", "state": "kind=sheet&tab=about" },
+    { "name": "share-note", "page": "share-cards", "state": "kind=sheet&tab=note&v=B" },
+    { "name": "share-lyrics", "page": "share-cards", "state": "kind=sheet&tab=lyrics&v=B" },
+    { "name": "album-about", "page": "album", "state": "page=scrapbook" },
+    { "name": "album-about-was", "page": "album", "state": "page=scrapbook&about=was" }
+  ]
+}

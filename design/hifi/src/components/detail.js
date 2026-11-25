@@ -100,10 +100,10 @@ function detailBar(size, { mode = size.cls === 'compact' ? 'compact' : 'medium',
   return `<nav class="bbar centred dbar">${playSplit(false)}${round('shuffle', 'Shuffle play')}${round('artist', 'Go to artist')}${round('share', 'Share')}${pill}</nav>`;
 }
 /** The album page in a box W wide: page 0 overview / 1 scrapbook (needs the scrapbook component). */
-function albumPane(key, { page = 0, pulled = false, editing = false, W = 412, popup = '' } = {}) {
+function albumPane(key, { page = 0, pulled = false, editing = false, about = true, W = 412, popup = '' } = {}) {
   const al = ALBUMS[key], mode = W >= 600 ? 'medium' : 'compact';
   if (page === 0) return albumOverview(al, { mode, pulled, W });
-  return `<div class="ad ad-sb">${albumHeader(al, { page: 1 })}<div class="ad-scroll">${scrapbook(key, { wide: W >= 600, editing, popup })}</div></div>`;
+  return `<div class="ad ad-sb">${albumHeader(al, { page: 1 })}<div class="ad-scroll">${scrapbook(key, { wide: W >= 600, editing, about, popup })}</div></div>`;
 }
 /** Expanded list-detail (PaneSplit): shell 600 | 24 gutter with the drag handle | detail; one page gradient, no cards. */
 function paneSplit(shell, detail) {

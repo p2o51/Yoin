@@ -13,11 +13,12 @@ Each page has a switcher bar with three widths (Phone 412, Tablet 800 = Medium, 
 | `home.html` | `edit`, `bubble`, `playing`, `tall=1` |
 | `now-playing.html` | `view` player / lyrics / note, `tab`, `sing`, `cover`, `mentions` (cover pill; `text` = the coloured name before 0.6.3 (32)) |
 | `library.html` | `view` all / playlists / artists / albums / songs / favorites, `sort` menu, `scroller` (fast scroller shown / dragging), `search` ("Harbor", the All results page), `detail` (album open: Expanded = 600 \| 24 \| 656 list-detail) |
-| `album.html` | `album` (Harbor Lights rich, Northern Field Recordings empty, Glass Orchard average), `page` overview / scrapbook, `pull` (Compact pulled-up = spectrum bar + rows; Medium = scrolled), `sticky` (sticky editor), `playing`, `date` (release date at the service's precision: header "21.4.16", the line under the last track, Released / Length on the receipt; `year` = before 0.6.3 (32)), `at=receipt` (Scrapbook scrolled to the receipt) |
+| `album.html` | `album` (Harbor Lights rich, Northern Field Recordings empty, Glass Orchard average), `page` overview / scrapbook, `pull` (Compact pulled-up = spectrum bar + rows; Medium = scrolled), `sticky` (sticky editor), `playing`, `date` (release date at the service's precision: header "21.4.16", the line under the last track, Released / Length on the receipt; `year` = before 0.6.3 (32)), `about` (Album About, credits line & primary listener paper; `was` = before 0.6.3 (34)), `at=receipt` (Scrapbook scrolled to the receipt) |
 | `lyrics.html` | `translate`, `state` following / scrolled away / select, `sing` (off / on; `none` = the four-key tool row before 0.6.3 (32)), `cover` |
 | `notes-editor.html` | `surface` NP write bar / album sticky, `query` none / `@` / `@Ni` / `@lj` (pinyin initials) — the popup is placed by measuring the drawn page (mentionPopupOffset) |
 | `memories.html` | `view` card / diary / All Memories / Rediscover (Home shelf), `ledger` timeline / cards / list, `card` |
 | `settings.html` | `page` root / Labs / Tensor / Music links / Subsonic account / Sync and backups, `labs` (Lyra Sing / Before 0.6.3 (33)), `links` (clipboard detection) |
+| `share-cards.html` | `kind` about / note / lyrics / sheet, `v` A–D, `fmt` Card / Story, `tab` lyrics / about / note, `picker` thumbnails / named chips, `tone` Soft / Deep / Vivid / Paper |
 
 ```
 build.mjs              node design/hifi/build.mjs  →  dist/<page>.html (inline + minified; fails if a page is over 200 KiB)
