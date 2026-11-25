@@ -104,6 +104,7 @@ import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AlbumVersionTag
+import com.gpo.yoin.ui.component.ExplicitBadge
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -792,6 +793,7 @@ private fun AlbumDetailContent(
                 AlbumTopHeader(
                     albumName = content.albumName,
                     albumVersion = content.albumVersion,
+                    albumExplicit = content.albumExplicit,
                     artistName = content.artistName,
                     releaseDate = albumHeaderDate(content.releaseDate, content.year),
                     titleColor = titleColor,
@@ -825,6 +827,7 @@ private fun AlbumDetailContent(
                         AlbumBarHeaderTwin(
                             albumName = content.albumName,
                             albumVersion = content.albumVersion,
+                            albumExplicit = content.albumExplicit,
                             artistName = content.artistName,
                             releaseDate = albumHeaderDate(content.releaseDate, content.year),
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -1015,6 +1018,7 @@ internal val AlbumBarTitleGap = 12.dp
 private fun AlbumTopHeader(
     albumName: String,
     albumVersion: String?,
+    albumExplicit: Boolean,
     artistName: String,
     // The release date as the meta line shows it ("22.6.12", "22.6", "2022"); null shows none.
     releaseDate: String?,
@@ -1087,6 +1091,13 @@ private fun AlbumTopHeader(
                             modifier = Modifier.padding(start = 8.dp),
                         )
                     }
+                    if (albumExplicit) {
+                        // After the version tag: the mark is the whole release's (Apple Music's order).
+                        ExplicitBadge(
+                            textStyle = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 }
                 DetailMetaLine(
                     groups = buildList {
@@ -1149,6 +1160,7 @@ private fun AlbumTopHeader(
 internal fun AlbumBarHeaderTwin(
     albumName: String,
     albumVersion: String? = null,
+    albumExplicit: Boolean = false,
     artistName: String,
     releaseDate: String?,
     pageFraction: () -> Float,
@@ -1173,6 +1185,7 @@ internal fun AlbumBarHeaderTwin(
         AlbumTopHeader(
             albumName = albumName,
             albumVersion = albumVersion,
+            albumExplicit = albumExplicit,
             artistName = artistName,
             releaseDate = releaseDate,
             titleColor = onBar,

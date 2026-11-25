@@ -27,6 +27,7 @@
 | `Scrapbook` | **`剪贴簿`** | 专辑第 2 页手写感图文拼贴界面（**禁用「手账」**） |
 | `Widget` | **`微件`** | 产品与 Android 标准词；说明 HarmonyOS 桌面入口时可注明「服务卡片」，iOS/macOS 可注明「小组件」 |
 | `What others say` | **`别人怎么说`** | 专辑页查看 NeoDB 众人评价的入口；页面标题为 `NeoDB 上别人怎么说` |
+| `Explicit`（歌曲 / 专辑的 E 标） | **`含不雅内容`**（PROPOSED） | 只用于 E 标的读屏文字（`cmp_explicit_badge_cd`）；标本身就是字母 E，不翻译。2026-11-25 Claude 暂拟，待 Rebecca / Argon 定稿 |
 | `Made For You` | **`为你推荐`** | Spotify（daylist / Daily Mix / Blend 等）与 Apple Music 个人混合歌单首页区段 |
 | `Online AI` | **`在线 AI`** | `设置 › 功能 › 在线 AI`（涵盖 Gemini、DeepSeek、千问、自定义服务与外部搜索） |
 | `China Direct` | **`中国直连`** | 在中国大陆无需代理即可使用的服务（自建服务器、QQ/网易云歌词、DeepSeek、千问、HarmonyOS 等） |

@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.DetailCacheEntry
 import com.gpo.yoin.data.local.DetailCacheSize
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.perf.YoinPerf
 import java.util.concurrent.ConcurrentHashMap
@@ -92,10 +93,14 @@ class DetailCacheStore(
         read(profileId, KIND_ALBUM, id) { row ->
             val dto = json.decodeFromString(AlbumDto.serializer(), row)
             // A row from before albums kept their release date fails like an incompatible one: a miss, read again.
-            check(dto.dated) { "album row predates release dates" }
+            check(dto.formatVersion >= DetailCacheFormat.DATED) { "album row predates release dates" }
             // Likewise a row from before albums kept their label and the service's notes (album About): the
             // credits line and Apple Music's paragraph would be missing for the cache's week.
             check(dto.credited) { "album row predates labels and editorial notes" }
+            // And (Apple Music, Spotify) a row from before tracks and albums kept their explicit mark.
+            check(DetailCacheFormat.serves(dto.formatVersion, MediaId.parse(dto.id).provider)) {
+                "album row predates explicit marks"
+            }
             dto.toDomain()
         }
 
@@ -106,8 +111,13 @@ class DetailCacheStore(
         }
 
     suspend fun readArtist(profileId: String, id: String): Cached<ArtistDetail>? =
-        read(profileId, KIND_ARTIST, id) {
-            json.decodeFromString(ArtistDetailDto.serializer(), it).toDomain()
+        read(profileId, KIND_ARTIST, id) { row ->
+            val dto = json.decodeFromString(ArtistDetailDto.serializer(), row)
+            // Its releases' explicit marks: an Apple Music artist row from before them is read again.
+            check(DetailCacheFormat.serves(dto.format, MediaId.parse(dto.id).provider)) {
+                "artist row predates explicit marks"
+            }
+            dto.toDomain()
         }
 
     suspend fun writeArtist(

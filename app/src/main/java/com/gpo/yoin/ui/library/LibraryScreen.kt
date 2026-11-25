@@ -1674,6 +1674,7 @@ private fun AlbumGridItem(
         title = album.name,
         subtitle = album.artist,
         version = album.version,
+        explicit = album.isExplicit,
         onClick = onClick,
         extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
@@ -1936,6 +1937,7 @@ private fun SongsTabContent(
                         isPlaying = isPlaying,
                         extractBackdropColors = false,
                         hasNote = song.id.toString() in notedSongIds,
+                        isExplicit = song.isExplicit,
                         isUnavailable = song.isUnplayableAppleImport,
                         modifier = Modifier
                             .animateItem(
@@ -2337,6 +2339,7 @@ private fun FavoritesTabContent(
                     isPlaying = isPlaying,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
+                    isExplicit = song.isExplicit,
                     modifier = Modifier
                         .animateItem(
                             fadeInSpec = YoinMotion.effectsSpring(),
@@ -2391,6 +2394,7 @@ private fun AlbumListItem(
                     name = album.name,
                     version = album.version,
                     titleStyle = MaterialTheme.typography.titleSmall,
+                    explicit = album.isExplicit,
                 ) { text, titleModifier ->
                     Text(
                         text = text,
@@ -2864,6 +2868,7 @@ private fun SearchSongRow(
             isPlaying = isPlaying,
             extractBackdropColors = false,
             hasNote = hasNote,
+            isExplicit = song.isExplicit,
             isUnavailable = song.isUnplayableAppleImport,
             trailingContent = if (canAddToLibrary && !song.isUnplayableAppleImport) {
                 {

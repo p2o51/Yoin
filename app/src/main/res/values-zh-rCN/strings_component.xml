@@ -108,6 +108,8 @@
     <string name="cmp_edge_cd_done">完成</string>
 
     <string name="cmp_song_cd_has_note">有笔记</string>
+    <!-- PROPOSED（Claude，2026-11-25）：歌名、专辑名后「E」标的读屏文字（ExplicitBadge）。待 Rebecca / Argon 定稿。 -->
+    <string name="cmp_explicit_badge_cd">含不雅内容</string>
     <string name="cmp_lyrics_empty">暂无歌词</string>
     <string name="cmp_wave_note">笔记</string>
     <string name="cmp_unavailable_cd">无法播放的原因</string>

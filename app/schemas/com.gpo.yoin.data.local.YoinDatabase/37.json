@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 37,
-    "identityHash": "c77e5b2c876846756e4fd5d377976156",
+    "identityHash": "2521bf5ff2d16995919fe593b7824775",
     "entities": [
       {
         "tableName": "local_ratings",
@@ -678,7 +678,7 @@
       },
       {
         "tableName": "spotify_library_track_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `title` TEXT, `artist` TEXT, `artistId` TEXT, `album` TEXT, `albumId` TEXT, `coverArtKey` TEXT, `durationSec` INTEGER, `addedAt` TEXT, `isSaved` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `pendingFavoriteAction` INTEGER NOT NULL, `lastSyncError` TEXT, PRIMARY KEY(`profileId`, `trackId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `title` TEXT, `artist` TEXT, `artistId` TEXT, `album` TEXT, `albumId` TEXT, `coverArtKey` TEXT, `durationSec` INTEGER, `addedAt` TEXT, `isSaved` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `pendingFavoriteAction` INTEGER NOT NULL, `lastSyncError` TEXT, `contentRating` TEXT, PRIMARY KEY(`profileId`, `trackId`))",
         "fields": [
           {
             "fieldPath": "profileId",
@@ -754,6 +754,11 @@
             "fieldPath": "lastSyncError",
             "columnName": "lastSyncError",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentRating",
+            "columnName": "contentRating",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -766,7 +771,7 @@
       },
       {
         "tableName": "spotify_library_album_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `isSaved` INTEGER NOT NULL, `addedAt` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `albumId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `isSaved` INTEGER NOT NULL, `addedAt` TEXT, `cachedAt` INTEGER NOT NULL, `contentRating` TEXT, PRIMARY KEY(`profileId`, `albumId`))",
         "fields": [
           {
             "fieldPath": "profileId",
@@ -827,6 +832,11 @@
             "columnName": "cachedAt",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "contentRating",
+            "columnName": "contentRating",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -1575,7 +1585,7 @@
       },
       {
         "tableName": "home_grid_pool_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `itemType` TEXT NOT NULL, `itemId` TEXT NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `coverArtKey` TEXT, `albumId` TEXT, `durationSec` INTEGER, `sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `version` TEXT, PRIMARY KEY(`profileId`, `provider`, `itemType`, `itemId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `itemType` TEXT NOT NULL, `itemId` TEXT NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `coverArtKey` TEXT, `albumId` TEXT, `durationSec` INTEGER, `sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `version` TEXT, `contentRating` TEXT, PRIMARY KEY(`profileId`, `provider`, `itemType`, `itemId`))",
         "fields": [
           {
             "fieldPath": "profileId",
@@ -1642,6 +1652,11 @@
           {
             "fieldPath": "version",
             "columnName": "version",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentRating",
+            "columnName": "contentRating",
             "affinity": "TEXT"
           }
         ],
@@ -2186,7 +2201,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c77e5b2c876846756e4fd5d377976156')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2521bf5ff2d16995919fe593b7824775')"
     ]
   }
 }

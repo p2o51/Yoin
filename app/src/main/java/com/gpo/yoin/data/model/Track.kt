@@ -22,7 +22,13 @@ data class Track(
     val discNumber: Int? = null,
     /** The song's ReplayGain as the service reports it; null where it doesn't (every service but Subsonic). */
     val replayGain: ReplayGain? = null,
+    /** Explicit or clean as the service marks the song; null = unknown (see [ContentRating]). */
+    val contentRating: ContentRating? = null,
 ) {
+    /** The service marks the song explicit: it wears the "E" badge after its title. */
+    val isExplicit: Boolean
+        get() = contentRating == ContentRating.Explicit
+
     companion object {
         /**
          * [extras] key of the track's ISRC (International Standard Recording

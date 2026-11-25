@@ -76,6 +76,7 @@ import com.gpo.yoin.data.search.SearchSectionPage
 import com.gpo.yoin.data.search.SearchTile
 import com.gpo.yoin.data.search.SearchTileRow
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.ExplicitTitle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.component.elasticPress
@@ -377,6 +378,7 @@ private fun SearchTileView(
                 side = note?.let { { NoteSide(it, query, textLines) } },
                 title = tile.track.title.orEmpty(),
                 subtitle = tile.track.artist.orEmpty(),
+                explicit = tile.track.isExplicit,
                 query = query,
                 onClick = { if (note != null) actions.onNote(note, tile.track) else actions.onSong(tile.track) },
                 onLongClick = actions.onSongLongClick?.let { open -> { open(tile.track) } },
@@ -423,6 +425,7 @@ private fun SearchTileView(
                 side = tile.hit?.let { hit -> { MemorySide(hit, tile.memory?.mark ?: hit.mark, query, textLines) } },
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
+                explicit = album.isExplicit,
                 inlineMark = tile.memory?.mark?.takeIf { !marks },
                 query = query,
                 onClick = { actions.onAlbum(album, tile.memory) },
@@ -517,6 +520,8 @@ private fun TileFrame(
     inlineMark: LedgerMark? = null,
     otherAccount: Boolean = false,
     centered: Boolean = false,
+    // The song or album is marked explicit: the "E" badge follows the title (ExplicitBadge).
+    explicit: Boolean = false,
 ) {
     val source = remember { MutableInteractionSource() }
     Column(
@@ -542,13 +547,20 @@ private fun TileFrame(
             if (inlineMark != null) {
                 InlineMemoryMark(inlineMark, modifier = Modifier.padding(end = 4.dp))
             }
-            MarkedText(
+            ExplicitTitle(
                 text = title,
-                marks = listOfNotNull(query.match(title).originalRange.takeUnless { it.isEmpty() }),
+                explicit = explicit,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
+            ) { titleModifier ->
+                MarkedText(
+                    text = title,
+                    marks = listOfNotNull(query.match(title).originalRange.takeUnless { it.isEmpty() }),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = titleModifier,
+                )
+            }
         }
         if (!subtitle.isNullOrBlank() || otherAccount) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -704,13 +716,26 @@ private fun SearchBestMatchCard(
             }
             Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
                 Text(text = kindLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                MarkedText(
+                val explicit = when (best) {
+                    is SearchBestMatch.Song -> best.track.isExplicit
+                    is SearchBestMatch.AlbumMatch -> best.album.isExplicit
+                    else -> false
+                }
+                ExplicitTitle(
                     text = title,
-                    marks = listOfNotNull(query.match(title).originalRange.takeUnless { it.isEmpty() }),
+                    explicit = explicit,
                     style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
-                )
+                ) { titleModifier ->
+                    MarkedText(
+                        text = title,
+                        marks = listOfNotNull(query.match(title).originalRange.takeUnless { it.isEmpty() }),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        modifier = titleModifier,
+                    )
+                }
                 if (subtitle.isNotBlank()) {
                     Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

@@ -954,6 +954,7 @@ private fun WidgetCoverCaption(card: HomeWidgetCard) {
         AlbumVersionTitle(
             name = card.title,
             version = card.version,
+            explicit = card.explicit,
             titleStyle = titleStyle,
             modifier = Modifier.seamFade(),
         ) { text, titleModifier ->

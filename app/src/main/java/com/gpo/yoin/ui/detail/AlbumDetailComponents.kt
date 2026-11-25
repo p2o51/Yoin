@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.ExplicitBadge
 import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.sheetScrollEdge
 import android.content.res.Resources
@@ -593,6 +594,9 @@ internal fun AlbumTrackRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                if (song.isExplicit) {
+                    ExplicitBadge(textStyle = MaterialTheme.typography.titleMedium)
+                }
                 if (hasNote) {
                     Icon(
                         imageVector = YoinSymbols.Note,

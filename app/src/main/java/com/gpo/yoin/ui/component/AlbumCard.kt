@@ -38,6 +38,8 @@ fun AlbumCard(
     metaLabel: String? = null,
     // The album's version, shown as a tag after the title (AlbumVersionTitle).
     version: String? = null,
+    // The release is marked explicit: the "E" badge follows the title (ExplicitBadge).
+    explicit: Boolean = false,
     onClick: () -> Unit,
     extractBackdropColors: Boolean = true,
     modifier: Modifier = Modifier,
@@ -112,6 +114,7 @@ fun AlbumCard(
                 titleStyle = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.fillMaxWidth().seamFade(),
                 nameEllipsizes = false,
+                explicit = explicit,
             ) { text, titleModifier ->
                 MarqueeText(
                     text = text,

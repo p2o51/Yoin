@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseDate
@@ -40,6 +41,7 @@ internal fun SpotifyTrackObject.toTrack(
             // Every credited artist, for a playlist backup (Track.artist is the first).
             if (artists.size > 1) put(Track.EXTRA_ARTISTS, Track.joinArtists(artists.map { it.name }))
         },
+        contentRating = ContentRating.fromExplicitFlag(explicit),
     )
 }
 
@@ -62,6 +64,7 @@ internal fun SpotifyAlbumObject.toAlbum(
     isStarred = id in savedAlbumIds,
     releaseDate = releaseDate(),
     recordLabels = listOfNotNull(label?.trim()?.takeIf(String::isNotEmpty)),
+    contentRating = contentRating(tracksOverride),
     tracks = tracksOverride.map { track ->
         track.toTrack(
             savedTrackIds = savedTrackIds,
@@ -70,8 +73,28 @@ internal fun SpotifyAlbumObject.toAlbum(
     },
 )
 
+/**
+ * The album's rating from its tracks (Spotify rates tracks, not albums): explicit when one of
+ * [tracks] is; clean only when [tracks] is the whole tracklist (`total_tracks`, else the embedded
+ * page's `total`) and none is; else unknown. Nothing is read just for this.
+ */
+internal fun SpotifyAlbumObject.contentRating(
+    tracks: List<SpotifyTrackObject> = this.tracks?.items.orEmpty(),
+): ContentRating? {
+    val total = totalTracks ?: this.tracks?.total
+    return ContentRating.fromTracks(
+        ratings = tracks.map { ContentRating.fromExplicitFlag(it.explicit) },
+        complete = total != null && tracks.size >= total,
+    )
+}
+
+/**
+ * [contentRating] is the release's when the caller knows it (a saved album's embedded tracks,
+ * [SpotifyAlbumObject.contentRating]); a simplified album says nothing of its tracks, so unknown.
+ */
 internal fun SpotifySimplifiedAlbumObject.toAlbum(
     savedAlbumIds: Set<String> = emptySet(),
+    contentRating: ContentRating? = null,
 ): Album = Album(
     id = MediaId.spotify(id),
     name = name,
@@ -85,6 +108,7 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
     isStarred = id in savedAlbumIds,
     releaseType = spotifyReleaseType(albumType, totalTracks),
     releaseDate = releaseDate(),
+    contentRating = contentRating,
 )
 
 /**

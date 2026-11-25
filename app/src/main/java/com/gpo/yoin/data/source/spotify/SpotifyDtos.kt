@@ -70,6 +70,8 @@ data class SpotifyTrackObject(
     val type: String? = null,
     /** A file from the user's device added to a playlist: no id, never playable through the Web API. */
     @SerialName("is_local") val isLocal: Boolean = false,
+    /** Spotify marks the track explicit; null when the response left it out. */
+    val explicit: Boolean? = null,
 )
 
 @Serializable

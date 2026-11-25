@@ -35,6 +35,7 @@ internal fun HomeUiState.Content.toSnapshotFeed(): HomeFeedDto = HomeFeedDto(
     heroSongCount = activityHeroSongCount,
     heroMinutes = activityHeroMinutes,
     heroVersion = activityHeroVersion,
+    heroExplicit = activityHeroExplicit,
     widgetGrid = widgetGrid.map { card -> card.toSnapshotCard() },
     recentlyAddedTracks = recentlyAddedTracks.map(::snapshotTrack),
     recentlyAddedAlbums = recentlyAddedAlbums.map(::snapshotAlbum),
@@ -55,6 +56,7 @@ internal fun HomeFeedDto.toHomeContent(coverUrl: (key: String) -> String?): Home
         activityHeroSongCount = heroSongCount,
         activityHeroMinutes = heroMinutes,
         activityHeroVersion = heroVersion,
+        activityHeroExplicit = heroExplicit,
         widgetGrid = widgetGrid.mapNotNull { card -> readOrNull { card.toCard(resolve(card.coverKey)) } },
         recentlyAddedTracks = recentlyAddedTracks.mapNotNull { track -> readOrNull { track.toDomain() } },
         recentlyAddedAlbums = recentlyAddedAlbums.mapNotNull { album -> readOrNull { album.toDomain() } },
@@ -117,6 +119,7 @@ private fun HomeWidgetCard.toSnapshotCard(): HomeCardDto {
         commentSerif = commentSerif,
         expanded = expanded,
         version = version,
+        explicit = explicit,
         target = snapshotTarget
     )
 }
@@ -157,7 +160,8 @@ private fun HomeCardDto.toCard(coverArtUrl: String?): HomeWidgetCard {
         ratingBasisDateMillis = ratingBasisDateMillis,
         ratingUnavailable = ratingUnavailable,
         coverKey = coverKey,
-        version = version
+        version = version,
+        explicit = explicit
     )
 }
 

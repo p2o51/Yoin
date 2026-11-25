@@ -147,6 +147,7 @@ private fun ResultRow(row: OpenInResultRow, onClick: () -> Unit) {
             coverArtUrl = row.coverUrl,
             onClick = click,
             extractBackdropColors = false,
+            isExplicit = row.track.isExplicit,
         )
         is OpenInResultRow.AlbumRow -> EntityRow(
             title = row.album.name,

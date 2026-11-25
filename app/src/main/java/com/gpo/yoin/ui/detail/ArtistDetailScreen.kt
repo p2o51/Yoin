@@ -1170,6 +1170,7 @@ private fun ArtistReleaseRow(
                 name = album.name,
                 version = album.version,
                 titleStyle = MaterialTheme.typography.titleMedium,
+                explicit = album.isExplicit,
             ) { text, titleModifier ->
                 Text(
                     text = text,

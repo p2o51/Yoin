@@ -4,6 +4,10 @@ import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
 import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
+import com.gpo.yoin.ui.component.ExplicitBadge
+import com.gpo.yoin.ui.component.ExplicitTitle
+import com.gpo.yoin.ui.component.explicitBadgeGapPx
+import com.gpo.yoin.ui.component.explicitBadgeSidePx
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -3079,17 +3083,26 @@ private fun WidePlayingContent(
                             // A short window sets the title on one marquee
                             // line (decided per window, never per song).
                             if (budget.titleForm == DualPaneTitleForm.TwoLines) {
-                                Text(
+                                ExplicitTitle(
                                     text = state.songTitle,
+                                    explicit = state.isExplicit,
                                     style = MaterialTheme.typography.headlineMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
                                     modifier = titleRouteModifier,
-                                )
+                                ) { titleModifier ->
+                                    Text(
+                                        text = state.songTitle,
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = titleModifier,
+                                    )
+                                }
                             } else {
                                 NowPlayingMarqueeTitle(
                                     text = state.songTitle,
+                                    explicit = state.isExplicit,
                                     style = MaterialTheme.typography.headlineMedium,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     stretchScale = 1f,
@@ -3895,13 +3908,21 @@ private fun LandscapePlayingContent(
                     .graphicsLayer { alpha = stackedTitleBlock },
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                Text(
+                ExplicitTitle(
                     text = state.songTitle,
+                    explicit = state.isExplicit,
                     style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                ) { titleModifier ->
+                    Text(
+                        text = state.songTitle,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = titleModifier,
+                    )
+                }
                 Text(
                     text = state.artist,
                     style = MaterialTheme.typography.labelLarge,
@@ -3923,6 +3944,7 @@ private fun LandscapePlayingContent(
             ) {
                 NowPlayingMarqueeTitle(
                     text = state.songTitle,
+                    explicit = state.isExplicit,
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     stretchScale = 1f,
@@ -4383,20 +4405,19 @@ private fun TabletopPlayingContent(
                                 onNavigate = { onAlbumClick(id) },
                             )
                         }
-                        Text(
+                        val tabletopTitleStyle = MaterialTheme.typography.headlineSmall.copy(
+                            // Wider travel (24→15 / 16→12 / 0.95→1.70 lyric scale):
+                            // the old 24→17 barely registered on the tabletop pane.
+                            // Pinned to designed geometry: the formula assumes
+                            // fontScale 1 — dividing it back out stops the user's
+                            // fontScale double-applying inside the fixed tabletop
+                            // pane (lyrics keep the user's scale; they scroll).
+                            fontSize = (24f - 9f * lyricsEmphasis).sp / density.fontScale,
+                        )
+                        ExplicitTitle(
                             text = state.songTitle,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                // Wider travel (24→15 / 16→12 / 0.95→1.70 lyric scale):
-                                // the old 24→17 barely registered on the tabletop pane.
-                                // Pinned to designed geometry: the formula assumes
-                                // fontScale 1 — dividing it back out stops the user's
-                                // fontScale double-applying inside the fixed tabletop
-                                // pane (lyrics keep the user's scale; they scroll).
-                                fontSize = (24f - 9f * lyricsEmphasis).sp / density.fontScale,
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            explicit = state.isExplicit,
+                            style = tabletopTitleStyle,
                             modifier = tabletopTitleRoute?.let { route ->
                                 Modifier
                                     .graphicsLayer {
@@ -4409,7 +4430,16 @@ private fun TabletopPlayingContent(
                                         onClick = route.onClick,
                                     )
                             } ?: Modifier,
-                        )
+                        ) { titleModifier ->
+                            Text(
+                                text = state.songTitle,
+                                style = tabletopTitleStyle,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = titleModifier,
+                            )
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         val tabletopArtistRoute = artistId?.let { id ->
                             rememberNowPlayingRouteInteraction(
@@ -4766,13 +4796,20 @@ internal fun StageTopBar(
                         .pointerInput(Unit) { detectTapGestures { } },
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text(
+                    ExplicitTitle(
                         text = state.songTitle,
+                        explicit = state.isExplicit,
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    ) { titleModifier ->
+                        Text(
+                            text = state.songTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = titleModifier,
+                        )
+                    }
                     Text(
                         text = state.artist,
                         style = MaterialTheme.typography.labelMedium,
@@ -5664,6 +5701,7 @@ internal fun CompactBottomHero(
                         Box(modifier = titleClip.then(titleModifier).then(titleClickModifier)) {
                             NowPlayingMarqueeTitle(
                                 text = state.songTitle,
+                                explicit = state.isExplicit,
                                 style = MaterialTheme.typography.displaySmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 stretchScale = titleStretchScale,
@@ -5730,6 +5768,7 @@ internal fun CompactBottomHero(
                     ) {
                         NowPlayingMarqueeTitle(
                             text = state.songTitle,
+                            explicit = state.isExplicit,
                             style = MaterialTheme.typography.displaySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             stretchScale = titleStretchScale,
@@ -5775,6 +5814,7 @@ internal fun CompactBottomHero(
                     ) {
                         NowPlayingMarqueeTitle(
                             text = state.songTitle,
+                            explicit = state.isExplicit,
                             style = MaterialTheme.typography.displaySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             stretchScale = titleStretchScale,
@@ -6401,6 +6441,11 @@ internal fun AlbumCover(
     if (menu != null) NowPlayingCoverMenu(songId = songId, menu = menu)
 }
 
+/**
+ * The Now Playing title on one line: scrolls (marquee) when it doesn't fit, else sits at its
+ * width, stretched by [stretchScale] from its start. [explicit]: the "E" badge ([ExplicitBadge])
+ * follows it, taken out of the title's room first so it never scrolls away, and rides the stretch.
+ */
 @Composable
 internal fun NowPlayingMarqueeTitle(
     text: String,
@@ -6409,95 +6454,126 @@ internal fun NowPlayingMarqueeTitle(
     stretchScale: Float,
     modifier: Modifier = Modifier,
     overflowStretchScale: Float = 1f,
+    explicit: Boolean = false,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val textMeasurer = rememberTextMeasurer()
         val density = LocalDensity.current
         val layoutDirection = LocalLayoutDirection.current
-        val availableWidthPx = constraints.maxWidth
-        val effectiveOverflowScale = overflowStretchScale.coerceAtLeast(1f)
-        val shouldMarquee = remember(
-            text,
-            style,
-            availableWidthPx,
-            effectiveOverflowScale,
-            textMeasurer,
-            density,
-            layoutDirection,
-        ) {
-            if (availableWidthPx <= 0 || availableWidthPx == Constraints.Infinity) {
-                false
-            } else {
-                val measuredWidthPx = textMeasurer.measure(
-                    text = AnnotatedString(text),
-                    style = style,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    constraints = Constraints(maxWidth = Constraints.Infinity),
-                ).size.width
-                ceil(measuredWidthPx * effectiveOverflowScale).toInt() > availableWidthPx
+        val fallbackSize = androidx.compose.material3.LocalTextStyle.current.fontSize
+        val badgeRoomPx = if (explicit) {
+            with(density) {
+                ceil(explicitBadgeSidePx(style, fallbackSize)).toInt() + explicitBadgeGapPx(style, fallbackSize)
             }
+        } else {
+            0
         }
+        val availableWidthPx = if (constraints.maxWidth == Constraints.Infinity) {
+            Constraints.Infinity
+        } else {
+            (constraints.maxWidth - badgeRoomPx).coerceAtLeast(0)
+        }
+        val effectiveOverflowScale = overflowStretchScale.coerceAtLeast(1f)
+        val measuredWidthPx = remember(text, style, textMeasurer, density, layoutDirection) {
+            textMeasurer.measure(
+                text = AnnotatedString(text),
+                style = style,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                constraints = Constraints(maxWidth = Constraints.Infinity),
+            ).size.width
+        }
+        val shouldMarquee = availableWidthPx > 0 && availableWidthPx != Constraints.Infinity &&
+            ceil(measuredWidthPx * effectiveOverflowScale).toInt() > availableWidthPx
         val originX = if (layoutDirection == LayoutDirection.Ltr) 0f else 1f
 
-        if (shouldMarquee) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .horizontalFadeMask(edgeWidth = 28.dp)
-                    .basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        repeatDelayMillis = 2000,
-                        initialDelayMillis = 1500,
-                    ),
-            ) {
-                Text(
-                    text = text,
-                    style = style,
-                    color = color,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
+        val title: @Composable () -> Unit = {
+            if (shouldMarquee) {
+                Box(
                     modifier = Modifier
-                        .layout { measurable, constraints ->
-                            val placeable = measurable.measure(constraints)
-                            val scaledWidth = ceil(placeable.width * effectiveOverflowScale).toInt()
-                            val baseline = placeable[FirstBaseline]
-                            val alignmentLines: Map<AlignmentLine, Int> =
-                                if (baseline != AlignmentLine.Unspecified) {
-                                    mapOf<AlignmentLine, Int>(FirstBaseline to baseline)
-                                } else {
-                                    emptyMap()
+                        .then(
+                            if (explicit) {
+                                Modifier.width(with(density) { availableWidthPx.toDp() })
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
+                        )
+                        .clipToBounds()
+                        .horizontalFadeMask(edgeWidth = 28.dp)
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            repeatDelayMillis = 2000,
+                            initialDelayMillis = 1500,
+                        ),
+                ) {
+                    Text(
+                        text = text,
+                        style = style,
+                        color = color,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                val scaledWidth = ceil(placeable.width * effectiveOverflowScale).toInt()
+                                val baseline = placeable[FirstBaseline]
+                                val alignmentLines: Map<AlignmentLine, Int> =
+                                    if (baseline != AlignmentLine.Unspecified) {
+                                        mapOf<AlignmentLine, Int>(FirstBaseline to baseline)
+                                    } else {
+                                        emptyMap()
+                                    }
+                                layout(scaledWidth, placeable.height, alignmentLines = alignmentLines) {
+                                    placeable.placeRelative(0, 0)
                                 }
-                            layout(scaledWidth, placeable.height, alignmentLines = alignmentLines) {
-                                placeable.placeRelative(0, 0)
                             }
-                        }
-                        .graphicsLayer {
+                            .graphicsLayer {
+                                scaleX = stretchScale
+                                transformOrigin = TransformOrigin(originX, 0.5f)
+                            },
+                    )
+                }
+            } else {
+                // A title that fits wraps its text, so a one-row hero can set the
+                // artist right after it; the caller's modifier decides the width.
+                Box {
+                    Text(
+                        text = text,
+                        style = style,
+                        color = color,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.graphicsLayer {
                             scaleX = stretchScale
                             transformOrigin = TransformOrigin(originX, 0.5f)
                         },
-                )
+                    )
+                }
             }
-        } else {
-            // A title that fits wraps its text, so a one-row hero can set the
-            // artist right after it; the caller's modifier decides the width.
-            Box {
-                Text(
-                    text = text,
-                    style = style,
-                    color = color,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = stretchScale
-                        transformOrigin = TransformOrigin(originX, 0.5f)
+        }
+        if (!explicit) {
+            title()
+            return@BoxWithConstraints
+        }
+        // The badge sits on the title's baseline (its square's bottom is its baseline).
+        Row {
+            Box(modifier = Modifier.alignByBaseline()) { title() }
+            ExplicitBadge(
+                textStyle = style,
+                modifier = Modifier
+                    .alignByBaseline()
+                    .padding(start = with(density) { explicitBadgeGapPx(style, fallbackSize).toDp() })
+                    .graphicsLayer {
+                        // Rides the fitted title's stretch, so the gap stays the same.
+                        if (!shouldMarquee) {
+                            val growth = measuredWidthPx * (stretchScale - 1f)
+                            translationX = if (layoutDirection == LayoutDirection.Ltr) growth else -growth
+                        }
                     },
-                )
-            }
+            )
         }
     }
 }

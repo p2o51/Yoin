@@ -116,6 +116,8 @@ sealed interface NowPlayingUiState {
         val spatialPlayback: SpatialPlayback = SpatialPlayback.NotMultichannel,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
+        /** The service marks the song explicit: the title wears the "E" badge. */
+        val isExplicit: Boolean = false,
     ) : NowPlayingUiState
 }
 

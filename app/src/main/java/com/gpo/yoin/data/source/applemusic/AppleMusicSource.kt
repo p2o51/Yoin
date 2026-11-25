@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.LibraryMembership
@@ -1007,6 +1008,9 @@ class AppleMusicSource(
                 // through its catalog relationship.
                 editorialNotes = appleEditorialNotes(a["editorialNotes"] as? JsonObject)
                     ?: appleEditorialNotes(catalog?.attributes()?.get("editorialNotes") as? JsonObject),
+                // A library album without its own rating takes its catalog album's, like the genre.
+                contentRating = ContentRating.fromAppleMusic(a.text("contentRating"))
+                    ?: ContentRating.fromAppleMusic(catalog?.attributes()?.text("contentRating")),
             )
         }
 

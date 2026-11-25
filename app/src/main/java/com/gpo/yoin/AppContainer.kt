@@ -172,6 +172,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_34_35,
                 MIGRATION_35_36,
                 MIGRATION_36_37,
+                MIGRATION_37_38,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -1249,6 +1250,16 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        // The "E" badge: Spotify's mirrored saved tracks and albums, and Jump Back In's pools, keep the
+        // service's explicit / clean mark. Rows from before it are unknown until the next sync rewrites them.
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `spotify_library_track_cache` ADD COLUMN `contentRating` TEXT")
+                db.execSQL("ALTER TABLE `spotify_library_album_cache` ADD COLUMN `contentRating` TEXT")
+                db.execSQL("ALTER TABLE `home_grid_pool_cache` ADD COLUMN `contentRating` TEXT")
             }
         }
 

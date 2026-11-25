@@ -1411,6 +1411,7 @@ class HomeViewModel(
                         activityHeroSongCount = latest.activityHeroSongCount.takeUnless { heroChanged },
                         activityHeroMinutes = latest.activityHeroMinutes.takeUnless { heroChanged },
                         activityHeroVersion = latest.activityHeroVersion.takeUnless { heroChanged },
+                        activityHeroExplicit = latest.activityHeroExplicit && !heroChanged,
                         recentlyPlayed = recentlyPlayedRead?.notShownIn(activities) ?: latest.recentlyPlayed
                     )
                 )
@@ -1431,7 +1432,8 @@ class HomeViewModel(
                             activityHeroYear = footnote.year,
                             activityHeroSongCount = footnote.songCount,
                             activityHeroMinutes = footnote.minutes,
-                            activityHeroVersion = footnote.version
+                            activityHeroVersion = footnote.version,
+                            activityHeroExplicit = footnote.explicit
                         )
                     }
                 }
@@ -1656,6 +1658,7 @@ class HomeViewModel(
                             activityHeroSongCount = footnote.songCount,
                             activityHeroMinutes = footnote.minutes,
                             activityHeroVersion = footnote.version,
+                            activityHeroExplicit = footnote.explicit,
                         )
                     }
                     if (!keepEndpointFeed) {
@@ -2401,6 +2404,7 @@ class HomeViewModel(
             target = HomeWidgetTarget.AlbumDetail(id.toString()),
             coverKey = coverKey,
             version = version,
+            explicit = isExplicit,
         )
     }
 
@@ -2416,6 +2420,7 @@ class HomeViewModel(
             coverArtUrl = coverArtUrl,
             target = HomeWidgetTarget.PlaySong(this),
             coverKey = coverKey,
+            explicit = isExplicit,
         )
     }
 
@@ -2480,6 +2485,7 @@ class HomeViewModel(
             songCount = songs,
             minutes = minutes,
             version = album.version,
+            explicit = album.isExplicit,
         )
     }
 
@@ -2489,6 +2495,7 @@ class HomeViewModel(
         val songCount: Int? = null,
         val minutes: Int? = null,
         val version: String? = null,
+        val explicit: Boolean = false,
     )
 
     private fun albumSubtitle(artist: String?): Pair<String, UiText> {
