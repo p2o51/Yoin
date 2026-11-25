@@ -7,8 +7,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.res.stringResource
 import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import com.gpo.yoin.ui.common.UiText
-import com.gpo.yoin.ui.common.tightenCjkSpaces
 
 /*
  * Whose words the generated text is, and who a question goes to: the AI service chosen in Settings › AI
@@ -35,12 +35,12 @@ fun aiProviderName(provider: AiProvider = LocalAiProvider.current): String = str
 
 /**
  * Copy with the active service's name filled in ([id] takes it as `%1$s`), the space before or after a
- * Chinese name dropped (问千问, 千问正在写…; 问 Gemini keeps its space).
+ * Chinese name dropped (问千问, 千问正在写…; 问 Gemini keeps its space; the rule is :shared's, as on iOS).
  */
 @Composable
 @ReadOnlyComposable
 fun aiString(@StringRes id: Int, provider: AiProvider = LocalAiProvider.current): String =
-    tightenCjkSpaces(stringResource(id, aiProviderName(provider)))
+    YoinAlbumAbout.tightenCjkSpaces(stringResource(id, aiProviderName(provider)))
 
 /** The same name for a ViewModel's [UiText] arguments (spaces tightened the same way when shown). */
 fun aiProviderNameText(provider: AiProvider): UiText = UiText.Res(aiProviderNameRes(provider))

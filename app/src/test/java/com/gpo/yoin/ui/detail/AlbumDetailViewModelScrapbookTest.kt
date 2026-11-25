@@ -4,7 +4,7 @@ import com.gpo.yoin.data.remote.ai.AiProvider
 
 import com.gpo.yoin.data.local.AlbumAboutEntry
 
-import com.gpo.yoin.data.album.AlbumAboutContent
+import com.gpo.yoin.shared.albumabout.AlbumAboutContent
 
 import app.cash.turbine.test
 import com.gpo.yoin.R

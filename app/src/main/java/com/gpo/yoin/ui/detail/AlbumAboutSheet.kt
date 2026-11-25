@@ -66,7 +66,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
-import com.gpo.yoin.data.album.AlbumAboutAsk
+import com.gpo.yoin.shared.albumabout.AlbumAboutAsk
+import com.gpo.yoin.shared.albumabout.AlbumCreditItem
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ThinkingDots
 import com.gpo.yoin.ui.component.YoinSnackbarHost
@@ -218,10 +219,7 @@ private fun CreditsReceipt(
 ) {
     val resources = LocalContext.current.resources
     val configuration = LocalConfiguration.current
-    val rows = remember(credits, configuration) {
-        val labels = resourceAlbumCreditLabels(resources)
-        credits.mapNotNull { item -> albumCreditValue(item, labels)?.let { labels.label(item.kind) to it } }
-    }
+    val rows = remember(credits, configuration) { albumCreditRows(credits, resources).map { it.label to it.value } }
     if (rows.isEmpty() && onRegenerate == null) return
     val rule = colors.aboutMark.copy(alpha = 0.45f)
     Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {

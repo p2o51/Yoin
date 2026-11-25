@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.local
 
 import androidx.room.Entity
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 
 /**
  * One row of an album's About (the scrapbook's credits line and About card, owner + Carbon 2026-11-25):
@@ -14,7 +15,7 @@ import androidx.room.Entity
  * material, not the listener's own data.
  *
  * Canonical rows: [entryKey] [CANON_CREDITS] holds the parsed credits as compact JSON
- * ([com.gpo.yoin.data.album.AlbumAiCredits]); [CANON_BLURB] the editorial paragraph. Ask rows: [entryKey]
+ * ([com.gpo.yoin.shared.albumabout.AlbumAiCredits]); [CANON_BLURB] the editorial paragraph. Ask rows: [entryKey]
  * is the normalized question, [promptText] the question as typed, [titleText] Gemini's short heading.
  *
  * Invalidation follows the song rows: kept until regenerated on demand or until the AI language changes
@@ -38,10 +39,10 @@ data class AlbumAboutEntry(
     val updatedAt: Long,
 ) {
     companion object {
-        const val KIND_CANONICAL = "canonical"
-        const val KIND_ASK = "ask"
+        const val KIND_CANONICAL = YoinAlbumAbout.KIND_CANONICAL
+        const val KIND_ASK = YoinAlbumAbout.KIND_ASK
 
-        const val CANON_CREDITS = "credits"
-        const val CANON_BLURB = "blurb"
+        const val CANON_CREDITS = YoinAlbumAbout.CANON_CREDITS
+        const val CANON_BLURB = YoinAlbumAbout.CANON_BLURB
     }
 }
