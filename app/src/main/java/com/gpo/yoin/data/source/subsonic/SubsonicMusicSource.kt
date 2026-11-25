@@ -46,9 +46,14 @@ class SubsonicMusicSource(
         SubsonicApiFactory.create(credentialsProvider = provider, loggingEnabled = false)
     },
     override val profileId: String? = null,
+    clock: () -> Long = System::currentTimeMillis,
+    readCacheTtlMs: Long = DEFAULT_READ_CACHE_TTL_MS,
 ) : MusicSource {
 
     private val api: SubsonicApi = apiFactory { credentials }
+
+    /** Coalesced list reads; every write below invalidates what it changes (SubsonicReadCache). */
+    private val readCache = SubsonicReadCache(ttlMs = readCacheTtlMs, clock = clock)
 
     override val id: String = MediaId.PROVIDER_SUBSONIC
 
@@ -60,9 +65,13 @@ class SubsonicMusicSource(
             return true
         }
 
-        override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> =
-            unwrap(api.getAlbumList2(type, size, offset))
+        override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
+            suspend fun read() = unwrap(api.getAlbumList2(type, size, offset))
                 .albumList2?.album.orEmpty().map { it.toAlbum() }
+            // `random` is never shared: each refresh asks for fresh picks.
+            if (type == "random") return read()
+            return readCache.getOrFetch("$KEY_ALBUM_LIST$type:$size:$offset") { read() }
+        }
 
         override suspend fun getAlbum(id: MediaId): Album? =
             unwrap(api.getAlbum(id.requireSubsonic())).album?.toAlbum()
@@ -81,20 +90,26 @@ class SubsonicMusicSource(
             getAlbumList(type = "recent", size = size, offset = 0)
 
         override suspend fun getArtists(): List<ArtistIndex> =
-            unwrap(api.getArtists()).artists?.index.orEmpty().map { it.toArtistIndex() }
+            readCache.getOrFetch(KEY_ARTISTS) {
+                unwrap(api.getArtists()).artists?.index.orEmpty().map { it.toArtistIndex() }
+            }
 
         override suspend fun getArtist(id: MediaId): ArtistDetail? =
             unwrap(api.getArtist(id.requireSubsonic())).artist?.toArtistDetail()
 
         override suspend fun getPlaylists(): List<Playlist> =
-            unwrap(api.getPlaylists(username = null))
-                .playlists?.playlist.orEmpty().map { it.toPlaylist(currentUsername = credentials.username) }
+            readCache.getOrFetch(KEY_PLAYLISTS) {
+                unwrap(api.getPlaylists(username = null))
+                    .playlists?.playlist.orEmpty().map { it.toPlaylist(currentUsername = credentials.username) }
+            }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? =
             unwrap(api.getPlaylist(id.requireSubsonic())).playlist?.toPlaylist(currentUsername = credentials.username)
 
         override suspend fun getStarred(): Starred =
-            unwrap(api.getStarred2()).starred2?.toStarred() ?: Starred()
+            readCache.getOrFetch(KEY_STARRED) {
+                unwrap(api.getStarred2()).starred2?.toStarred() ?: Starred()
+            }
 
         override suspend fun getRandomSongs(size: Int): List<Track> =
             unwrap(api.getRandomSongs(size))
@@ -154,10 +169,15 @@ class SubsonicMusicSource(
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
             runCatching {
                 val rawId = id.requireSubsonic()
-                if (favorite) {
-                    unwrap(api.star(id = rawId))
-                } else {
-                    unwrap(api.unstar(id = rawId))
+                try {
+                    if (favorite) {
+                        unwrap(api.star(id = rawId))
+                    } else {
+                        unwrap(api.unstar(id = rawId))
+                    }
+                } finally {
+                    readCache.invalidate(KEY_STARRED)
+                    readCache.invalidatePrefix("${KEY_ALBUM_LIST}starred:")
                 }
             }
 
@@ -167,23 +187,32 @@ class SubsonicMusicSource(
         override suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
             runCatching {
                 val rawId = id.requireSubsonic()
-                if (followed) {
-                    unwrap(api.star(artistId = rawId))
-                } else {
-                    unwrap(api.unstar(artistId = rawId))
+                try {
+                    if (followed) {
+                        unwrap(api.star(artistId = rawId))
+                    } else {
+                        unwrap(api.unstar(artistId = rawId))
+                    }
+                } finally {
+                    readCache.invalidate(KEY_STARRED)
+                    readCache.invalidate(KEY_ARTISTS)
                 }
             }
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             runCatching {
                 val clamped = rating.coerceIn(0, 5)
-                unwrap(api.setRating(trackId.requireSubsonic(), clamped))
+                try {
+                    unwrap(api.setRating(trackId.requireSubsonic(), clamped))
+                } finally {
+                    readCache.invalidatePrefix("${KEY_ALBUM_LIST}highest:")
+                }
             }
 
         override suspend fun createPlaylist(
             name: String,
             description: String?,
-        ): Result<Playlist> = runCatching {
+        ): Result<Playlist> = playlistWrite {
             val body = unwrap(api.createPlaylist(name = name))
             val created = body.playlist
                 ?: throw SubsonicException(
@@ -203,7 +232,7 @@ class SubsonicMusicSource(
             id: MediaId,
             name: String,
             description: String?,
-        ): Result<Unit> = runCatching {
+        ): Result<Unit> = playlistWrite {
             unwrap(
                 api.updatePlaylist(
                     playlistId = id.requireSubsonic(),
@@ -213,15 +242,15 @@ class SubsonicMusicSource(
             )
         }
 
-        override suspend fun deletePlaylist(id: MediaId): Result<Unit> = runCatching {
+        override suspend fun deletePlaylist(id: MediaId): Result<Unit> = playlistWrite {
             unwrap(api.deletePlaylist(id.requireSubsonic()))
         }
 
         override suspend fun addTracksToPlaylist(
             playlistId: MediaId,
             tracks: List<MediaId>,
-        ): Result<String?> = runCatching {
-            if (tracks.isEmpty()) return@runCatching null
+        ): Result<String?> = playlistWrite {
+            if (tracks.isEmpty()) return@playlistWrite null
             unwrap(
                 api.updatePlaylist(
                     playlistId = playlistId.requireSubsonic(),
@@ -235,8 +264,8 @@ class SubsonicMusicSource(
             playlistId: MediaId,
             items: List<PlaylistItemRef>,
             snapshotId: String?,
-        ): Result<String?> = runCatching {
-            if (items.isEmpty()) return@runCatching null
+        ): Result<String?> = playlistWrite {
+            if (items.isEmpty()) return@playlistWrite null
             val rawPlaylistId = playlistId.requireSubsonic()
             // updatePlaylist.view removes by index and checks nothing, so each
             // index is found in the playlist as the server holds it now, never
@@ -247,7 +276,7 @@ class SubsonicMusicSource(
                 playlistIndexNearest(current, item.trackId.requireSubsonic(), item.position)
             }
             // Already gone on the server: nothing to send.
-            if (indexes.isEmpty()) return@runCatching null
+            if (indexes.isEmpty()) return@playlistWrite null
             // Subsonic ignores snapshotId — its updatePlaylist.view is
             // last-writer-wins. Positions must be sorted descending when
             // removing multiple indices in one call so earlier removals
@@ -262,6 +291,16 @@ class SubsonicMusicSource(
         }
     }
 
+    /**
+     * A playlist write: `runCatching`, and the playlist list is read again afterwards
+     * whether it succeeded or not (a failed request may still have reached the server).
+     */
+    private inline fun <T> playlistWrite(block: () -> T): Result<T> = try {
+        runCatching(block)
+    } finally {
+        readCache.invalidate(KEY_PLAYLISTS)
+    }
+
     private val playback = object : MusicPlayback {
         override suspend fun handleFor(track: Track): PlaybackHandle {
             val rawId = track.id.requireSubsonic()
@@ -270,7 +309,12 @@ class SubsonicMusicSource(
         }
 
         override suspend fun reportNowPlaying(trackId: MediaId): Result<Unit> = runCatching {
-            unwrap(api.scrobble(id = listOf(trackId.requireSubsonic()), submission = false))
+            try {
+                unwrap(api.scrobble(id = listOf(trackId.requireSubsonic()), submission = false))
+            } finally {
+                // Navidrome's "recent" moves on a now-playing report.
+                readCache.invalidatePrefix("${KEY_ALBUM_LIST}recent:")
+            }
         }
 
         override suspend fun submitPlays(plays: List<PlayReport>): Result<Unit> = runCatching {
@@ -287,6 +331,9 @@ class SubsonicMusicSource(
                 // Anything else (auth, a server hiccup) is worth retrying.
                 if (error.code == 10 || error.code == 70) throw PlayReportRejectedException(error.message, error)
                 throw error
+            } finally {
+                readCache.invalidatePrefix("${KEY_ALBUM_LIST}recent:")
+                readCache.invalidatePrefix("${KEY_ALBUM_LIST}frequent:")
             }
         }
 
@@ -332,12 +379,17 @@ class SubsonicMusicSource(
     /**
      * Warm two slices of library data Home/Library land on first after a
      * switch. Errors are ignored — [com.gpo.yoin.data.profile.ProfileManager]
-     * wraps this in `runCatching`.
+     * wraps this in `runCatching`. Both go through [readCache], so Home and
+     * Library landing meanwhile join these reads instead of repeating them.
      */
     override suspend fun prime() {
         runCatching { library.getAlbumList(type = "recent", size = 20, offset = 0) }
         runCatching { library.getArtists() }
     }
+
+    override fun invalidateReadCache() = readCache.invalidateAll()
+
+    override fun dispose() = readCache.close()
 
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
         is CoverRef.Url -> ref.url
@@ -387,6 +439,13 @@ class SubsonicMusicSource(
     companion object {
         /** Subsonic's "the requested data was not found". */
         private const val ERROR_DATA_NOT_FOUND = 70
+
+        /** How long a list read is reused; writes through this source invalidate sooner. */
+        internal const val DEFAULT_READ_CACHE_TTL_MS = 20_000L
+        private const val KEY_ARTISTS = "artists"
+        private const val KEY_PLAYLISTS = "playlists"
+        private const val KEY_STARRED = "starred"
+        private const val KEY_ALBUM_LIST = "albumList:"
 
         fun fromProfileCredentials(
             credentials: ProfileCredentials.Subsonic,

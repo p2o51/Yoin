@@ -4065,6 +4065,11 @@ class YoinRepository(
 
     // ── URLs (provider-agnostic) ───────────────────────────────────────
 
+    /** The active source's short-lived read cache forgotten: an explicit user refresh ([MusicSource.invalidateReadCache]). */
+    fun invalidateReadCache() {
+        activeSource.value?.invalidateReadCache()
+    }
+
     fun resolveCoverUrl(ref: CoverRef?, size: Int? = null): String? =
         ref?.let { activeSource.value?.resolveCoverUrl(it, size) }
 

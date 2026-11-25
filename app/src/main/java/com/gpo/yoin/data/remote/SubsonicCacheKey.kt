@@ -29,6 +29,21 @@ object SubsonicCacheKey {
             .toString()
     }
 
+    /**
+     * The key a sized cover [key] (`getCoverArt` with `size`) had before covers were
+     * sized: the same key without `size`. Null for any other key. Covers stored before
+     * the upgrade are under that key, so the image loader reads it when the sized
+     * request fails (offline), instead of showing no cover.
+     */
+    fun unsizedCoverKey(key: String): String? {
+        if (COVER_ART_MARKER !in key) return null
+        val parsed = key.toHttpUrlOrNull() ?: return null
+        if (parsed.queryParameter(SIZE) == null) return null
+        return parsed.newBuilder().removeAllQueryParameters(SIZE).build().toString()
+    }
+
+    private const val COVER_ART_MARKER = "/getCoverArt"
+    private const val SIZE = "size"
     private const val REST_SEGMENT = "rest"
     private const val REST_PATH_MARKER = "/$REST_SEGMENT/"
     private const val TOKEN = "t"

@@ -21,8 +21,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okio.Path.Companion.toOkioPath
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -119,5 +121,55 @@ class ImageDiskCacheInterceptorTest {
         loaders += loader
         loader.execute(ImageRequest.Builder(context).data(url).build())
         diskCache.openSnapshot(url).use { assertNotNull(it) }
+    }
+
+    @Test
+    fun should_readThePreSizingEntry_when_aSizedSubsonicCoverFails() = runBlocking {
+        val credentials = com.gpo.yoin.data.remote.ServerCredentials("https://music.example", "u", "p")
+        val unsizedUrl = com.gpo.yoin.data.remote.SubsonicApiFactory.buildCoverArtUrl(credentials, "al-1", null)
+        val sizedUrl = com.gpo.yoin.data.remote.SubsonicApiFactory.buildCoverArtUrl(credentials, "al-1", 1600)
+        // What an older version stored: the original, under the key of the url without a size.
+        val legacyKey = com.gpo.yoin.data.remote.SubsonicCacheKey.of(unsizedUrl)!!
+        val diskCache = DiskCache.Builder().directory(temp.newFolder().toOkioPath()).maxSizeBytes(1_000_000L).build()
+        diskCache.openEditor(legacyKey)!!.apply { diskCache.fileSystem.write(data) { writeUtf8("stored") } }.commit()
+        val asked = mutableListOf<String?>()
+        val loader = ImageLoader.Builder(context).memoryCache(null).diskCache(diskCache).components {
+            add(ImageDiskCacheInterceptor { diskCache })
+            add(
+                Interceptor { chain ->
+                    asked += chain.request.diskCacheKey
+                    // Offline: only a disk-only read of the stored entry answers.
+                    if (chain.request.diskCacheKey == legacyKey &&
+                        chain.request.networkCachePolicy == coil3.request.CachePolicy.DISABLED
+                    ) {
+                        SuccessResult(ColorImage(0), chain.request, DataSource.DISK)
+                    } else {
+                        ErrorResult(null, chain.request, IOException("offline"))
+                    }
+                },
+            )
+        }.build()
+        loaders += loader
+
+        val result = loader.execute(ImageRequest.Builder(context).data(sizedUrl).build())
+
+        assertTrue("offline upgrade lost the stored cover: $result, asked $asked", result is SuccessResult)
+        assertEquals(com.gpo.yoin.data.remote.SubsonicCacheKey.of(sizedUrl), asked.first())
+    }
+
+    @Test
+    fun should_notFallBack_when_noPreSizingEntryExists() = runBlocking {
+        val credentials = com.gpo.yoin.data.remote.ServerCredentials("https://music.example", "u", "p")
+        val sizedUrl = com.gpo.yoin.data.remote.SubsonicApiFactory.buildCoverArtUrl(credentials, "al-2", 1600)
+        val diskCache = DiskCache.Builder().directory(temp.newFolder().toOkioPath()).maxSizeBytes(1_000_000L).build()
+        var calls = 0
+        val loader = ImageLoader.Builder(context).memoryCache(null).diskCache(diskCache).components {
+            add(ImageDiskCacheInterceptor { diskCache })
+            add(Interceptor { chain -> calls++; ErrorResult(null, chain.request, IOException("offline")) })
+        }.build()
+        loaders += loader
+        val result = loader.execute(ImageRequest.Builder(context).data(sizedUrl).build())
+        assertTrue(result is ErrorResult)
+        assertEquals("retried without a stored entry", 1, calls)
     }
 }

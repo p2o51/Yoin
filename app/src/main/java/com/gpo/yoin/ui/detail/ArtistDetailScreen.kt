@@ -154,7 +154,7 @@ fun ArtistDetailScreen(
 ) {
     val content = uiState as? ArtistDetailUiState.Content
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
-    val heroUrl = content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl
+    val heroUrl = content?.heroUrl
     val pageAccent = rememberDetailPageAccent(heroUrl)
 
     // Material roles seeded from the portrait (same MCU path as Album/Playlist),
@@ -273,8 +273,7 @@ fun ArtistDetailScreen(
                                 is ArtistDetailUiState.Content ->
                                     ArtistBody(
                                         content = state,
-                                        heroUrl = state.heroCoverArtUrl
-                                            ?: state.albums.firstOrNull()?.coverArtUrl,
+                                        heroUrl = state.heroUrl,
                                         colors = colors,
                                         onAlbumClick = onAlbumClick,
                                         onMostPlayedClick = onMostPlayedClick,

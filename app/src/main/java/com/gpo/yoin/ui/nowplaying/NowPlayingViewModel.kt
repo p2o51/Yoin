@@ -548,7 +548,7 @@ class NowPlayingViewModel(
                 NowPlayingUiState.ConnectError(
                     songTitle = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
-                    coverArtUrl = repository.resolveCoverUrl(song.coverArt),
+                    coverArtUrl = repository.resolveCoverUrl(song.coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_playback_interrupted),
                     opensSpotify = state.connectionFailure == SpotifyConnectFailure.SpotifyAsleep,
@@ -558,7 +558,7 @@ class NowPlayingViewModel(
                 songTitle = song.title.orEmpty(),
                 artist = song.artist.orEmpty(),
                 albumName = song.album.orEmpty(),
-                coverArtUrl = repository.resolveCoverUrl(song.coverArt),
+                coverArtUrl = repository.resolveCoverUrl(song.coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx),
                 isPlaying = state.playWhenReady,
                 durationMs = state.duration,
                 songId = song.id.toString(),
@@ -588,7 +588,7 @@ class NowPlayingViewModel(
                         songId = queueSong.id.toString(),
                         title = queueSong.title.orEmpty(),
                         artist = queueSong.artist.orEmpty(),
-                        coverArtUrl = repository.resolveCoverUrl(queueSong.coverArt),
+                        coverArtUrl = repository.resolveCoverUrl(queueSong.coverArt, com.gpo.yoin.data.model.CoverSizes.rowPx),
                         entryId = state.queueEntryIds.getOrNull(index) ?: "i$index",
                         userQueued = index in state.userQueued,
                     )
@@ -612,7 +612,7 @@ class NowPlayingViewModel(
                     songTitle = pending.title.orEmpty(),
                     artist = pending.artist.orEmpty(),
                     albumName = pending.album.orEmpty(),
-                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
+                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx),
                     durationMs = pending.durationSec?.times(1_000L) ?: 0L,
                     hint = UiText.Res(R.string.np_msg_connecting_spotify),
                 )
@@ -623,7 +623,7 @@ class NowPlayingViewModel(
                 NowPlayingUiState.ConnectError(
                     songTitle = pending.title.orEmpty(),
                     artist = pending.artist.orEmpty(),
-                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
+                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_couldnt_start),
                     opensSpotify = state.connectionFailure == SpotifyConnectFailure.SpotifyAsleep,
@@ -1432,7 +1432,7 @@ class NowPlayingViewModel(
                     id = playlist.id,
                     name = playlist.name,
                     songCount = playlist.songCount,
-                    coverArtUrl = repository.resolveCoverUrl(playlist.coverArt),
+                    coverArtUrl = repository.resolveCoverUrl(playlist.coverArt, com.gpo.yoin.data.model.CoverSizes.rowPx),
                 )
             }
 

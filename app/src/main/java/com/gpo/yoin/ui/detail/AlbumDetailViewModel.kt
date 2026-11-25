@@ -254,7 +254,7 @@ class AlbumDetailViewModel(
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
-                    coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
+                    coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it, com.gpo.yoin.data.model.CoverSizes.heroPx) },
                     year = album.year,
                     releaseDate = album.releaseDate,
                     recordLabels = album.recordLabels,

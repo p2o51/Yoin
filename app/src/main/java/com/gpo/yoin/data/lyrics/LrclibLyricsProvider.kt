@@ -160,7 +160,7 @@ class LrclibLyricsProvider(
             .add("accept", "application/json")
             .build()
 
-        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        private fun defaultClient(): OkHttpClient = com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)
