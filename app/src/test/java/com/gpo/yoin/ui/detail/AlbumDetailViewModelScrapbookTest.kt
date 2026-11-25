@@ -1,5 +1,9 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.data.local.AlbumAboutEntry
+
+import com.gpo.yoin.data.album.AlbumAboutContent
+
 import app.cash.turbine.test
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
@@ -299,6 +303,88 @@ class AlbumDetailViewModelScrapbookTest {
         advanceUntilIdle()
         assertTrue(viewModel.scrapFeeds.gemini.value.asking.isEmpty())
         coVerify { repository.askAboutSong("Song 2", "Artist", "Album", "Who sampled it?") }
+    }
+
+    @Test
+    fun should_writeTheAlbumAboutOnce_andShowItPending_when_thePageSettles() = runTest {
+        val answer = CompletableDeferred<YoinRepository.AboutLoadResult>()
+        coEvery { repository.isAiReady() } returns true
+        coEvery { repository.ensureAlbumAbout(any(), any()) } coAnswers { answer.await() }
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.EnsureAlbumAbout)
+        runCurrent()
+        assertTrue(viewModel.scrapFeeds.gemini.value.albumAbout)
+        // A second settle (the pager coming back) doesn't ask again.
+        viewModel.editScrapbook(ScrapEdit.EnsureAlbumAbout)
+
+        answer.complete(YoinRepository.AboutLoadResult.Success)
+        advanceUntilIdle()
+        assertFalse(viewModel.scrapFeeds.gemini.value.albumAbout)
+        coVerify(exactly = 1) { repository.ensureAlbumAbout(match { it.name == "Album" }, false) }
+    }
+
+    @Test
+    fun should_showNoWritingCard_when_noAiIsSetUp() = runTest {
+        coEvery { repository.isAiReady() } returns false
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.EnsureAlbumAbout)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.scrapFeeds.gemini.value.albumAbout)
+        coVerify(exactly = 0) { repository.ensureAlbumAbout(any(), any()) }
+    }
+
+    @Test
+    fun should_notAskTheAi_when_theAlbumAboutIsAlreadyWritten() = runTest {
+        coEvery { repository.isAiReady() } returns true
+        data.value = AlbumScrapbookData(albumAbout = AlbumAboutContent(blurb = "Cached.", generated = true))
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.EnsureAlbumAbout)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.ensureAlbumAbout(any(), any()) }
+    }
+
+    @Test
+    fun should_offerTheOldAlbumAboutBack_when_aRegenerateLands() = runTest {
+        val before = listOf(
+            AlbumAboutEntry("subsonic", "al-1", "Album", "Artist", "canonical", "blurb", null, null, "Old.", 1L, 1L),
+        )
+        coEvery { repository.regenerateAlbumAbout(any()) } returns YoinRepository.AlbumAboutRegenerateResult.Success(before)
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.scrapFeeds.events.test {
+            viewModel.editScrapbook(ScrapEdit.RegenerateAlbumAbout)
+            assertEquals(ScrapEvent.Regenerated(ScrapEdit.RestoreAlbumAbout(before)), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        viewModel.editScrapbook(ScrapEdit.RestoreAlbumAbout(before))
+        advanceUntilIdle()
+        coVerify { repository.restoreAlbumAbout(before) }
+    }
+
+    @Test
+    fun should_askAboutTheAlbum_andShowItAsking_when_askedFromTheAboutSheet() = runTest {
+        val answer = CompletableDeferred<YoinRepository.AskAboutResult>()
+        coEvery { repository.askAboutAlbum(any(), any()) } coAnswers { answer.await() }
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.AskAlbum("  Who mastered it? "))
+        runCurrent()
+        assertEquals(listOf("Who mastered it?"), viewModel.scrapFeeds.gemini.value.albumAsking)
+
+        answer.complete(YoinRepository.AskAboutResult.Success("Someone."))
+        advanceUntilIdle()
+        assertTrue(viewModel.scrapFeeds.gemini.value.albumAsking.isEmpty())
+        coVerify { repository.askAboutAlbum(any(), "Who mastered it?") }
     }
 
     @Test

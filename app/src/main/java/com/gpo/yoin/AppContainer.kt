@@ -171,6 +171,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_33_34,
                 MIGRATION_34_35,
                 MIGRATION_35_36,
+                MIGRATION_36_37,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -1201,6 +1202,30 @@ class AppContainer(private val context: Context) {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_lyric_highlights_shown` " +
                         "ON `lyric_highlights` (`profileId`, `provider`, `lastShownAt`)",
+                )
+            }
+        }
+
+        // Album About: the scrapbook's credits line and About card (album_about_entries).
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `album_about_entries` (
+                        `provider` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `albumDisplay` TEXT NOT NULL,
+                        `artistDisplay` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `entryKey` TEXT NOT NULL,
+                        `promptText` TEXT,
+                        `titleText` TEXT,
+                        `answerText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`provider`, `albumId`, `kind`, `entryKey`)
+                    )
+                    """.trimIndent(),
                 )
             }
         }

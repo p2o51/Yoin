@@ -14,6 +14,7 @@ import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsTranslationCache
 import com.gpo.yoin.data.local.MemoryCopyCache
 import com.gpo.yoin.data.local.Profile
+import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SpotifyConfig
@@ -241,6 +242,23 @@ interface SyncDomainDao {
 
     @Upsert
     suspend fun upsertSongAbout(entry: SongAboutEntry)
+
+    // ---- album_about_entries (the album's AI credits + paragraph, and Ask Q&A about the album)
+
+    @Query("SELECT * FROM album_about_entries")
+    suspend fun allAlbumAbout(): List<AlbumAboutEntry>
+
+    @Query(
+        "SELECT * FROM album_about_entries WHERE provider = :provider AND albumId = :albumId " +
+            "AND kind = :kind AND entryKey = :entryKey LIMIT 1",
+    )
+    suspend fun albumAbout(provider: String, albumId: String, kind: String, entryKey: String): AlbumAboutEntry?
+
+    @Upsert
+    suspend fun upsertAlbumAbout(entry: AlbumAboutEntry)
+
+    @Query("SELECT COUNT(*) FROM album_about_entries")
+    suspend fun albumAboutEntryCount(): Int
 
     // ---- track_album_links: not synced, but backups and Memories transfers carry them
     // (album_notes are synced: see the album_notes section above)

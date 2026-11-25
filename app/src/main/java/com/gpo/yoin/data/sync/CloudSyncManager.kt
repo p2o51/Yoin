@@ -1218,6 +1218,7 @@ class CloudSyncManager(
             "lyrics_translation_cache",
             "memory_copy_cache",
             "song_about_entries",
+            "album_about_entries",
             "album_memory_titles",
             "playlist_backups",
             "profiles",

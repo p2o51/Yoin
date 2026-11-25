@@ -37,8 +37,9 @@ import androidx.room.RoomDatabase
         ImportItem::class,
         PlaylistBackup::class,
         LyricHighlight::class,
+        AlbumAboutEntry::class,
     ],
-    version = 36,
+    version = 37,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -51,6 +52,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun activityEventDao(): ActivityEventDao
 
     abstract fun songAboutEntryDao(): SongAboutEntryDao
+
+    abstract fun albumAboutEntryDao(): AlbumAboutEntryDao
 
     abstract fun geminiConfigDao(): GeminiConfigDao
 

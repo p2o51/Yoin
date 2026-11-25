@@ -997,6 +997,10 @@ class AppleMusicSource(
                     ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
                 libraryAddedAt = a.text("dateAdded"),
                 releaseDate = releaseDate,
+                // A catalog album names its label; a library album only through its catalog relationship.
+                recordLabels = listOfNotNull(
+                    (a.text("recordLabel") ?: catalog?.attributes()?.text("recordLabel"))?.trim()?.takeIf(String::isNotEmpty),
+                ),
             )
         }
 

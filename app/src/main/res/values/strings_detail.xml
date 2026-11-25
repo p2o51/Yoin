@@ -308,4 +308,19 @@
     <string name="neodb_voices_douban">Douban</string>
     <string name="neodb_voices_rym" translatable="false">RYM</string>
     <string name="neodb_voices_aoty" translatable="false">AOTY</string>
+
+    <!-- PROPOSED: needs Rebecca/Argon -->
+    <!-- Album About: the scrapbook's credits line under the album title (owner + Carbon 2026-11-25).
+         Each label sits before its value: "Label ECM · Producer Manfred Eicher". -->
+    <string name="detail_album_credit_label">Label</string>
+    <string name="detail_album_credit_producer">Producer</string>
+    <string name="detail_album_credit_mastering">Mastering</string>
+    <string name="detail_album_credit_mixing">Mix</string>
+    <string name="detail_album_credit_recorded">Recorded</string>
+    <string name="detail_album_credit_source">Source</string>
+    <string name="detail_album_credit_first_released">First released</string>
+    <!-- Between two names within one item (quoted to keep the space). -->
+    <string name="detail_album_credit_name_separator">", "</string>
+    <!-- The recording time, then the studio: "Jan 1975, Rainbow Studio". -->
+    <string name="detail_album_credit_time_place">%1$s, %2$s</string>
 </resources>

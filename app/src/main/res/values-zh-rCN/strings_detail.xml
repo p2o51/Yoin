@@ -258,4 +258,16 @@
     <string name="neodb_voices_failed">连不上 NeoDB。</string>
     <string name="neodb_voices_open_neodb">在 NeoDB 里看全部</string>
     <string name="neodb_voices_douban">豆瓣</string>
+
+    <!-- PROPOSED: needs Rebecca/Argon -->
+    <!-- 专辑「关于」：剪贴簿专辑名下的一行制作信息（owner + Carbon 2026-11-25）。 -->
+    <string name="detail_album_credit_label">厂牌</string>
+    <string name="detail_album_credit_producer">制作</string>
+    <string name="detail_album_credit_mastering">母带</string>
+    <string name="detail_album_credit_mixing">混音</string>
+    <string name="detail_album_credit_recorded">录制</string>
+    <string name="detail_album_credit_source">原作</string>
+    <string name="detail_album_credit_first_released">首版</string>
+    <string name="detail_album_credit_name_separator">、</string>
+    <string name="detail_album_credit_time_place">%1$s，%2$s</string>
 </resources>

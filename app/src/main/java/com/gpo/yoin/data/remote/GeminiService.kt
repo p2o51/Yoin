@@ -1,5 +1,7 @@
 package com.gpo.yoin.data.remote
 
+import com.gpo.yoin.data.album.AlbumAboutGrounding
+import com.gpo.yoin.data.album.AlbumAiCredits
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.remote.ai.AiClient
 import com.gpo.yoin.data.remote.ai.AiSettings
@@ -87,6 +89,52 @@ class GeminiService(
     ): AskAnswer {
         val searched = searchFor(ai, listOf("$title $artist $question"))
         val prompt = buildAskPrompt(title, artist, album, question, targetLanguage, searchLead(ai, searched)) + searched.appendix
+        val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = true)
+        return parseAskResponse(rawText, fallbackQuestion = question)
+    }
+
+    /** What one album About call came back with, and what it searched (for logs and the test page). */
+    data class AlbumAboutRun(
+        val credits: AlbumAiCredits,
+        val blurb: String?,
+        val rawText: String,
+        val searchQueries: List<String>,
+    )
+
+    /**
+     * An album's credits and editorial paragraph in one searched call ([AlbumAboutPrompts]): the
+     * service's facts in [grounding] go in as ground truth; only items the model vouches for come back.
+     */
+    suspend fun runAlbumAbout(
+        ai: AiSettings,
+        grounding: AlbumAboutGrounding,
+        targetLanguage: String,
+    ): AlbumAboutRun {
+        val queries = AlbumAboutPrompts.searchQueries(grounding, ai.searchQueries)
+        val searched = searchFor(ai, queries)
+        val prompt = AlbumAboutPrompts.buildAboutPrompt(grounding, targetLanguage, searchLead(ai, searched)) +
+            searched.appendix
+        // Lower than the song About's 0.8: credits are facts first, and the paragraph is editorial, not lyrical.
+        val rawText = this.ai.generate(ai, prompt, temperature = ALBUM_ABOUT_TEMPERATURE, useSearch = true)
+        val parsed = AlbumAboutPrompts.parseAboutResponse(rawText)
+        return AlbumAboutRun(
+            credits = parsed.credits,
+            blurb = parsed.blurb,
+            rawText = rawText,
+            searchQueries = if (ai.searchKind == AiSettings.SearchKind.External) queries else emptyList(),
+        )
+    }
+
+    /** Searched free-form Q&A about an album; the same tagged reply as [askAboutSong]. */
+    suspend fun askAboutAlbum(
+        ai: AiSettings,
+        grounding: AlbumAboutGrounding,
+        question: String,
+        targetLanguage: String,
+    ): AskAnswer {
+        val searched = searchFor(ai, listOf("${grounding.album} ${grounding.artist} $question"))
+        val prompt = AlbumAboutPrompts.buildAskPrompt(grounding, question, targetLanguage, searchLead(ai, searched)) +
+            searched.appendix
         val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = true)
         return parseAskResponse(rawText, fallbackQuestion = question)
     }
@@ -528,6 +576,9 @@ If you are not sure which song this is, write N/A in both tags.
          */
         const val MEMORY_NARRATION_PROMPT_VERSION = 2
         private const val MEMORY_NARRATION_TIMEOUT_SECONDS = 8L
+
+        /** The album About call's temperature ([runAlbumAbout]). */
+        internal const val ALBUM_ABOUT_TEMPERATURE = 0.4f
 
         /** [resolveReleaseNames] runs while the lyrics view waits on it. */
         private const val RELEASE_NAMES_TIMEOUT_SECONDS = 20L

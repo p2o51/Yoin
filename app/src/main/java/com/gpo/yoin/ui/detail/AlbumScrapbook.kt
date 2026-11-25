@@ -1,11 +1,13 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.runtime.Immutable
+import com.gpo.yoin.data.album.AlbumAboutAsk
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookFact
 import com.gpo.yoin.data.album.AlbumScrapbookNote
+import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.shared.detail.ScrapbookTilt
 import java.time.Instant
@@ -62,8 +64,29 @@ sealed interface ScrapPiece {
          * first leans like [albumNoteTilt], the rest alternate.
          */
         val stickies: List<ScrapSticky> = emptyList(),
+        /**
+         * The credits line under the title beside the cover (owner + Carbon 2026-11-25; it took Last
+         * Play's place there): the known items only, in order ([albumCreditItems]); empty = no line.
+         */
+        val credits: List<AlbumCreditItem> = emptyList(),
     ) : ScrapPiece {
         override val key: String get() = "opening"
+        override val fullLine: Boolean get() = true
+    }
+
+    /**
+     * The album's About (owner + Carbon 2026-11-25): the AI's editorial paragraph on a secondary-role card,
+     * right after the opening and before the tracks, a few lines on the paper; a tap opens the full text,
+     * Regenerate and Ask Gemini. [text] is null while the AI writes it for the first time ([pending]).
+     */
+    data class AlbumAbout(
+        val text: String?,
+        val pending: Boolean,
+        val tilt: Float,
+        /** Questions asked about the album, newest first (the sheet lists them). */
+        val asks: List<AlbumAboutAsk> = emptyList(),
+    ) : ScrapPiece {
+        override val key: String get() = "albumabout"
         override val fullLine: Boolean get() = true
     }
 
@@ -222,6 +245,21 @@ sealed interface ScrapEdit {
 
     /** A tap on a to-do's box: line [lineIndex] of song note [noteId] ([album]: of album note [noteId]). */
     data class ToggleChecklist(val noteId: String, val lineIndex: Int, val album: Boolean = false) : ScrapEdit
+
+    /**
+     * The page came to rest: write the album's About if it was never written (one AI call per album, then
+     * cached). Quiet: no key, or a failure, simply leaves the card off.
+     */
+    data object EnsureAlbumAbout : ScrapEdit
+
+    /** "Regenerate" in the album's About sheet (undoable). */
+    data object RegenerateAlbumAbout : ScrapEdit
+
+    /** Undo of [RegenerateAlbumAbout]: the album's About rows as they were. */
+    data class RestoreAlbumAbout(val rows: List<AlbumAboutEntry>) : ScrapEdit
+
+    /** Ask Gemini about the album from its About sheet. */
+    data class AskAlbum(val question: String) : ScrapEdit
 }
 
 /** The page's fixed rules (D3 §5). */
@@ -266,6 +304,8 @@ internal fun buildAlbumScrapbook(
     zone: ZoneId = ZoneId.systemDefault(),
     // The shared Memory-title resolver's answer (user > AI); null = read from [data].
     title: ScrapTitle? = null,
+    // The AI is writing the album's About for the first time: its card holds the place with Gemini's dots.
+    aboutPending: Boolean = false,
 ): AlbumScrapbook {
     val seed = content.albumId
     fun tilt(key: String, set: FloatArray): Float = ScrapbookTilt.tilt(seed, key, set)
@@ -322,7 +362,22 @@ internal fun buildAlbumScrapbook(
         stickies = stickies,
         title = title ?: scrapTitle(user = data.memoryTitleUser, ai = data.memoryTitle),
         reviewAt = content.userReviewAt?.takeIf { review != null }?.let { relativeDayLabel(it, nowMillis, zone) },
+        credits = albumCreditItems(
+            sourceLabels = content.recordLabels,
+            releaseDate = content.releaseDate,
+            originalReleaseDate = content.originalReleaseDate,
+            ai = data.albumAbout.credits,
+        ),
     )
+    val blurb = data.albumAbout.blurb
+    if (blurb != null || aboutPending) {
+        pieces += ScrapPiece.AlbumAbout(
+            text = blurb,
+            pending = aboutPending && blurb == null,
+            tilt = tilt("albumabout", ScrapbookRules.CardTilts),
+            asks = data.albumAbout.asks,
+        )
+    }
 
     val best = tracks
         .filter { it.score != null && it.score >= ScrapbookRules.BestFrom }

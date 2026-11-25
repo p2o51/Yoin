@@ -270,6 +270,10 @@ internal data class ScrapbookColors(
     val onTag: Color,
     val receipt: Color,
     val onReceipt: Color,
+    /** The album's About card (owner's rule: About = secondary; notes, stickies and reviews = primary). */
+    val about: Color,
+    val onAbout: Color,
+    val aboutMark: Color,
     val outline: Color,
     val muted: Color,
     val dots: Color,
@@ -306,6 +310,9 @@ internal fun rememberScrapbookColors(scheme: androidx.compose.material3.ColorSch
         onTag = animated(scheme.onSecondaryContainer, "scrapOnTag"),
         receipt = animated(scheme.surfaceContainer, "scrapReceipt"),
         onReceipt = animated(scheme.onSurface, "scrapOnReceipt"),
+        about = animated(albumAboutRoles(scheme).container, "scrapAbout"),
+        onAbout = animated(albumAboutRoles(scheme).content, "scrapOnAbout"),
+        aboutMark = animated(albumAboutRoles(scheme).mark, "scrapAboutMark"),
         outline = animated(scheme.outline, "scrapOutline"),
         muted = animated(scheme.onSurfaceVariant, "scrapMuted"),
         dots = animated(scheme.outlineVariant.copy(alpha = if (dark) 0.35f else 0.45f), "scrapDots"),
@@ -424,6 +431,11 @@ private fun ScrapbookPaper(
     val paperScope = rememberCoroutineScope()
     // The open track sheet: which track, on which tab, and the About row it opened editing.
     var trackSheet by remember { mutableStateOf<ScrapSheetOpen?>(null) }
+    // The album About sheet (the About card's tap).
+    var aboutSheetOpen by remember { mutableStateOf(false) }
+    // Once the pager rests here, the album's About is written if it never was (cached after that).
+    val latestEnsure by rememberUpdatedState(onEdit)
+    LaunchedEffect(settled) { if (settled) latestEnsure(ScrapEdit.EnsureAlbumAbout) }
     // Where each piece sits in the scrolling column, for "View in Scrapbook".
     val pieceTops = remember { mutableStateMapOf<String, Int>() }
     var masonryTop by remember { mutableIntStateOf(0) }
@@ -601,6 +613,13 @@ private fun ScrapbookPaper(
                                 onManage = { songId -> trackSheet = ScrapSheetOpen(songId) },
                                 modifier = slot,
                             )
+                            is ScrapPiece.AlbumAbout -> AlbumAboutCard(
+                                piece = piece,
+                                albumName = content.albumName,
+                                colors = colors,
+                                onClick = { aboutSheetOpen = true },
+                                modifier = slot,
+                            )
                             is ScrapPiece.NotYet -> NotYet(piece, colors, onSongClick, slot)
                             is ScrapPiece.Receipt -> Receipt(piece, colors, slot)
                         }
@@ -630,7 +649,7 @@ private fun ScrapbookPaper(
         }
         // The track sheet carries this host while it is open; after it closes the notice sits here,
         // above the window's bar.
-        if (trackSheet == null) {
+        if (trackSheet == null && !aboutSheetOpen) {
             YoinSnackbarHost(
                 hostState = removedSnackbar,
                 modifier = Modifier
@@ -666,6 +685,25 @@ private fun ScrapbookPaper(
                     initialNote = open.note,
                 )
             }
+        }
+    }
+
+    if (aboutSheetOpen) {
+        val about = remember(book) { book.pieces.firstNotNullOfOrNull { it as? ScrapPiece.AlbumAbout } }
+        val credits = remember(book) { book.pieces.firstNotNullOfOrNull { it as? ScrapPiece.Opening }?.credits.orEmpty() }
+        if (about == null) {
+            SideEffect { aboutSheetOpen = false }
+        } else {
+            AlbumAboutSheet(
+                albumName = content.albumName,
+                about = about,
+                credits = credits,
+                colors = colors,
+                onEdit = onEdit,
+                onDismiss = { aboutSheetOpen = false },
+                feeds = feeds,
+                snackbar = removedSnackbar,
+            )
         }
     }
 }
@@ -935,14 +973,15 @@ private fun Opening(
                 stamped = stamped,
                 onStamped = onStamped,
             )
+            val credits = piece.credits
             if (title != null) {
                 // the emblem's sideways overhang plus a little air
                 Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
                 Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
                     OpeningTitle(title, wide, onRenameTitle, onRestoreTitle)
-                    // Last Play in full, where the hero's time lands (owner 2026-10-29: the
-                    // space under the title was empty).
-                    AlbumScrapLastPlay(content.lastPlayedAt, Modifier.padding(top = 16.dp))
+                    // The credits line, where Last Play was (owner + Carbon 2026-11-25: Last Play stays on
+                    // page 1 and on the receipt).
+                    AlbumCreditsLine(credits, colors, Modifier.padding(top = 12.dp))
                     if (reviewBeside) {
                         // Wide: the review (and the sticky tucked under it) follows the title in its column.
                         Spacer(Modifier.height(16.dp))
@@ -954,6 +993,29 @@ private fun Opening(
                                     .padding(start = ScrapbookLayout.StickyIndentWide)
                                     .stickyWidth(),
                             )
+                        }
+                    }
+                }
+            } else if (credits.isNotEmpty()) {
+                // No title yet: the credits line still sits beside the cover, the review (when it fits there)
+                // under it.
+                Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
+                Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
+                    AlbumCreditsLine(credits, colors)
+                    if (reviewBeside) {
+                        Spacer(Modifier.height(12.dp))
+                        if (wide && albumNote != null) {
+                            ScrapStack(mirror = false, modifier = Modifier.fillMaxWidth()) {
+                                review(Modifier.scrapSlot(cross = false, overlap = 0.dp).widthIn(max = 420.dp))
+                                albumNote(
+                                    Modifier
+                                        .scrapSlot(cross = false, overlap = ScrapbookLayout.StickyTuck)
+                                        .padding(start = ScrapbookLayout.StickyIndentWide)
+                                        .stickyWidth(),
+                                )
+                            }
+                        } else {
+                            review(Modifier.widthIn(max = 420.dp))
                         }
                     }
                 }

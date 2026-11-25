@@ -160,6 +160,9 @@ class AlbumDetailViewModel(
      */
     private val scrapbookData = MutableStateFlow<AlbumScrapbookData?>(null)
 
+    /** Gemini's work in flight from page 2 (declared before [scrapbook], which reads it). */
+    private val scrapGemini = MutableStateFlow(ScrapGemini())
+
     /**
      * Page 2 (the scrapbook), rebuilt whenever the album content or its data moves. Pure
      * ([buildAlbumScrapbook]), so an unrelated Content change (a library check) rebuilds to an equal
@@ -170,7 +173,10 @@ class AlbumDetailViewModel(
         scrapbookData.filterNotNull(),
         // Never holds page 2 back: no title until the resolver answers.
         (MediaId.parseOrNull(albumId)?.let(memoryTitles) ?: flowOf(null)).onStart { emit(null) },
-    ) { content, data, title -> buildAlbumScrapbook(content, data, clock(), title = title) }
+        scrapGemini.map { it.albumAbout }.distinctUntilChanged(),
+    ) { content, data, title, aboutPending ->
+        buildAlbumScrapbook(content, data, clock(), title = title, aboutPending = aboutPending)
+    }
         .distinctUntilChanged()
         .map<AlbumScrapbook, AlbumScrapbookUiState> { book -> AlbumScrapbookUiState.Ready(book) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumScrapbookUiState.Loading)
@@ -179,7 +185,6 @@ class AlbumDetailViewModel(
 
     /** Page 2's timed lyrics per song, read once per visit (the Note tab of a track sheet). Main thread. */
     private val scrapLyricsCache = HashMap<String, ScrapLyrics>()
-    private val scrapGemini = MutableStateFlow(ScrapGemini())
     private val scrapEvents = MutableSharedFlow<ScrapEvent>(extraBufferCapacity = 4)
 
     /** Notes deleted from page 2, as they were, for Undo ([ScrapEdit.RestoreNote]). Main thread. */
@@ -251,6 +256,8 @@ class AlbumDetailViewModel(
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
                     releaseDate = album.releaseDate,
+                    recordLabels = album.recordLabels,
+                    originalReleaseDate = album.originalReleaseDate,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
                     // Membership was seeded by the load itself (before Content existed), so
@@ -733,6 +740,10 @@ class AlbumDetailViewModel(
                     repository.toggleNoteChecklist(edit.noteId, edit.lineIndex)
                 }
             }
+            ScrapEdit.EnsureAlbumAbout -> ensureAlbumAbout()
+            ScrapEdit.RegenerateAlbumAbout -> regenerateAlbumAbout()
+            is ScrapEdit.RestoreAlbumAbout -> launchScrapWrite { repository.restoreAlbumAbout(edit.rows) }
+            is ScrapEdit.AskAlbum -> askAboutAlbum(edit.question)
             is ScrapEdit.RestoreAlbumNote -> {
                 val deleted = deletedAlbumNotes.remove(edit.noteId) ?: return
                 viewModelScope.launch {
@@ -839,6 +850,77 @@ class AlbumDetailViewModel(
                 scrapEvents.tryEmit(event)
             } finally {
                 scrapGemini.update { it.copy(regenerating = it.regenerating - ref) }
+            }
+        }
+    }
+
+    /** Whether this page already asked for the album's About (once per visit; the cache answers after). */
+    private var albumAboutEnsured = false
+
+    private fun ensureAlbumAbout() {
+        val album = loadedAlbum ?: return
+        if (albumAboutEnsured || scrapGemini.value.albumAbout) return
+        albumAboutEnsured = true
+        // Already written (here or synced): nothing to ask, and no dots.
+        if ((scrapbookData.value?.albumAbout?.generated) == true) return
+        viewModelScope.launch {
+            // No key: nothing to write, and no card flashing Gemini's dots on the way to nothing.
+            if (!repository.isAiReady()) return@launch
+            scrapGemini.update { it.copy(albumAbout = true) }
+            try {
+                when (val result = repository.ensureAlbumAbout(album)) {
+                    is YoinRepository.AboutLoadResult.Error -> Log.w(TAG, "Album About failed: ${result.message}")
+                    else -> Unit
+                }
+            } finally {
+                scrapGemini.update { it.copy(albumAbout = false) }
+            }
+        }
+    }
+
+    private fun regenerateAlbumAbout() {
+        val album = loadedAlbum ?: return
+        if (scrapGemini.value.albumAbout) return
+        scrapGemini.update { it.copy(albumAbout = true) }
+        viewModelScope.launch {
+            try {
+                val event = when (val result = repository.regenerateAlbumAbout(album)) {
+                    is YoinRepository.AlbumAboutRegenerateResult.Success ->
+                        ScrapEvent.Regenerated(ScrapEdit.RestoreAlbumAbout(result.before))
+                    YoinRepository.AlbumAboutRegenerateResult.NothingNew ->
+                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_nothing))
+                    YoinRepository.AlbumAboutRegenerateResult.ApiKeyMissing ->
+                        ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing))
+                    is YoinRepository.AlbumAboutRegenerateResult.Error -> {
+                        Log.w(TAG, "Album About regenerate failed: ${result.message}")
+                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed))
+                    }
+                }
+                scrapEvents.tryEmit(event)
+            } finally {
+                scrapGemini.update { it.copy(albumAbout = false) }
+            }
+        }
+    }
+
+    private fun askAboutAlbum(question: String) {
+        val text = question.trim()
+        val album = loadedAlbum ?: return
+        if (text.isEmpty()) return
+        scrapGemini.update { it.copy(albumAsking = it.albumAsking + text) }
+        viewModelScope.launch {
+            try {
+                when (val result = repository.askAboutAlbum(album, text)) {
+                    is YoinRepository.AskAboutResult.Success -> Unit
+                    YoinRepository.AskAboutResult.ApiKeyMissing ->
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                    is YoinRepository.AskAboutResult.Error -> {
+                        Log.w(TAG, "Ask about the album failed: ${result.message}")
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                    }
+                }
+            } finally {
+                scrapGemini.update { it.copy(albumAsking = it.albumAsking - text) }
             }
         }
     }

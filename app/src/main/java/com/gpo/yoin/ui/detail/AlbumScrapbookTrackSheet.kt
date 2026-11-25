@@ -863,7 +863,7 @@ private fun PendingAsk(question: String, colors: ScrapbookColors) {
 }
 
 @Composable
-private fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
+internal fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         if (!own) {
             Icon(
@@ -1517,7 +1517,7 @@ private fun NoteStamp(at: String, colors: ScrapbookColors) {
 
 /** Keeps [requester]'s item in view while the keyboard moves (only while [active]). */
 @Composable
-private fun KeepAboveKeyboard(requester: BringIntoViewRequester, active: Boolean = true) {
+internal fun KeepAboveKeyboard(requester: BringIntoViewRequester, active: Boolean = true) {
     val ime = WindowInsets.ime
     val density = LocalDensity.current
     LaunchedEffect(active) {
@@ -1567,7 +1567,7 @@ private fun SheetHint(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EditField(
+internal fun EditField(
     state: TextFieldState,
     hint: String,
     style: TextStyle,
