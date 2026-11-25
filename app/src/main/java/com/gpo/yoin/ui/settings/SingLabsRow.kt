@@ -11,8 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -186,9 +184,9 @@ internal fun LyraSingLabsRow(
                     )
                     AnimatedVisibility(
                         visible = easterEggOpen,
-                        enter = fadeIn(YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard)) +
+                        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                             expandVertically(YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard)),
-                        exit = fadeOut(YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard)) +
+                        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
                             shrinkVertically(YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard)),
                     ) {
                         TensorTpuEasterEggCard(
