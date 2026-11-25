@@ -79,6 +79,8 @@ class PlaybackService : MediaSessionService() {
         // The stream cache and the downloads are the process's, not the
         // service's: Settings reads and clears them, and the downloader fills one.
         val container = (application as YoinApplication).container
+        // Session artwork urls can be built here before any window has opened.
+        com.gpo.yoin.data.model.CoverSizes.install(this)
         val offlineDownloads = container.offlineDownloads
         val simpleCache = offlineDownloads.streamCache
 

@@ -35,6 +35,7 @@ import com.gpo.yoin.ui.notes.editor.MentionCandidateSource
 import com.gpo.yoin.ui.notes.editor.RepositoryMentionCandidateSource
 import com.gpo.yoin.ui.notes.openNoteDestination
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.media3.common.Player
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
@@ -121,6 +122,12 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val fallbackMotionCapabilityProvider = remember { MotionCapabilityProvider(lowRamDevice = false) }
     val motionCapabilityProvider = app?.container?.motionCapabilityProvider ?: fallbackMotionCapabilityProvider
     val motionProfile by motionCapabilityProvider.profile.collectAsState(initial = MotionProfile.Full)
+
+    // The hero cover size, before any cover url is built; a fold opening raises it (CoverSizes).
+    val windowSize = LocalWindowInfo.current.containerSize
+    // Idempotent (returns at once after the first call); it must run before the content composes urls.
+    if (app != null) CoverSizes.install(app)
+    LaunchedEffect(windowSize) { CoverSizes.noteDisplay(windowSize.width, windowSize.height) }
 
     if (app != null) {
         val context = app.applicationContext

@@ -1,6 +1,9 @@
 package com.gpo.yoin.data.model
 
+import android.content.Context
 import android.content.res.Resources
+import android.hardware.display.DisplayManager
+import androidx.core.content.edit
 import kotlin.math.ceil
 import kotlin.math.min
 
@@ -18,8 +21,11 @@ import kotlin.math.min
  *   ONE url per cover, so the theme's read warms Now Playing, the neighbours'
  *   read prefetches the next song's hero, and a skip reuses the theme already
  *   computed for the cover that just played. A square cover can never be shown
- *   larger than the display's short side, so that is its size: 1080 px on a
- *   1080×2400 phone → 1200; Pixel Tablet's 1600 px → 1600.
+ *   larger than a display's short side, so that is its size, for the LARGEST
+ *   display this device has shown: 1080 px on a 1080×2400 phone → 1200; Pixel
+ *   Tablet's 1600 px → 1600; a foldable's inner screen → 1600, folded or not
+ *   ([HeroSize]). One value per device, so the url never changes with rotation
+ *   or posture.
  * - [rowPx]: list rows (queue, track sheet header, playlist picker, an
  *   artist's songs and releases): [ROW_DP] at the display's density.
  *
@@ -48,15 +54,94 @@ object CoverSizes {
     /** The hero bucket for a display [widthPx] × [heightPx]: its short side, rounded up. */
     fun heroFor(widthPx: Int, heightPx: Int): Int = bucketUp(min(widthPx, heightPx))
 
-    /** See the class doc. Read once: the display's short side doesn't change on rotation. */
-    val heroPx: Int by lazy {
-        displayMetrics()?.let { heroFor(it.widthPixels, it.heightPixels) } ?: FALLBACK_HERO_PX
-    }
+    private val hero = HeroSize(fallback = { systemMetrics()?.let { heroFor(it.widthPixels, it.heightPixels) } ?: FALLBACK_HERO_PX })
 
     /** See the class doc. */
-    val rowPx: Int by lazy { forDisplay(ROW_DP, displayMetrics()?.density ?: FALLBACK_DENSITY) }
+    val heroPx: Int get() = hero.px
 
-    private fun displayMetrics() = runCatching { Resources.getSystem().displayMetrics }
+    /**
+     * Reads every display this device has (all logical displays and their modes) and the
+     * largest hero this device has needed before. Called from the first window and the
+     * playback service, before any cover url is built; later calls do nothing.
+     */
+    fun install(context: Context) {
+        if (hero.installed) return
+        val app = context.applicationContext
+        val displays = runCatching {
+            app.getSystemService(DisplayManager::class.java)?.displays.orEmpty().flatMap { display ->
+                display.supportedModes.map { it.physicalWidth to it.physicalHeight } +
+                    (display.mode.physicalWidth to display.mode.physicalHeight)
+            }
+        }.getOrDefault(emptyList())
+        hero.install(displays, PrefsHeroStore(app))
+    }
+
+    /**
+     * A display this device shows now ([widthPx] × [heightPx], physical): a foldable that
+     * started folded reports its inner screen here once unfolded. Only ever raises the hero.
+     */
+    fun noteDisplay(widthPx: Int, heightPx: Int) = hero.note(widthPx, heightPx)
+
+    /** See the class doc. */
+    val rowPx: Int by lazy { forDisplay(ROW_DP, systemMetrics()?.density ?: FALLBACK_DENSITY) }
+
+    private fun systemMetrics() = runCatching { Resources.getSystem().displayMetrics }
         .getOrNull()
         ?.takeIf { it.widthPixels > 0 && it.heightPixels > 0 && it.density > 0f }
+
+    private class PrefsHeroStore(context: Context) : HeroSize.Store {
+        private val prefs = context.getSharedPreferences("cover_sizes", Context.MODE_PRIVATE)
+        override fun read(): Int = prefs.getInt(KEY_HERO_PX, 0)
+        override fun write(px: Int) = prefs.edit { putInt(KEY_HERO_PX, px) }
+    }
+
+    private const val KEY_HERO_PX = "hero_px"
+}
+
+/**
+ * The device's hero bucket: the largest display short side it has (or has had: a foldable's
+ * logical display reports only the panel in use, so a start folded can't see the inner one
+ * until it unfolds), kept in [Store] so it holds across postures and restarts. Never lowered.
+ */
+internal class HeroSize(private val fallback: () -> Int) {
+    interface Store {
+        fun read(): Int
+        fun write(px: Int)
+    }
+
+    @Volatile private var current: Int = 0
+    @Volatile var installed: Boolean = false
+        private set
+    private var store: Store? = null
+
+    val px: Int
+        get() {
+            val known = current
+            if (known > 0) return known
+            return synchronized(this) { current.takeIf { it > 0 } ?: fallback().also { current = it } }
+        }
+
+    /** [displays]: physical (width, height) of every display and mode the device lists. */
+    @Synchronized
+    fun install(displays: List<Pair<Int, Int>>, store: Store) {
+        if (installed) return
+        this.store = store
+        val fromDisplays = displays.filter { (w, h) -> w > 0 && h > 0 }
+            .maxOfOrNull { (w, h) -> CoverSizes.heroFor(w, h) } ?: 0
+        val best = maxOf(current, store.read(), fromDisplays)
+        if (best > 0) {
+            current = best
+            store.write(best)
+        }
+        installed = true
+    }
+
+    @Synchronized
+    fun note(widthPx: Int, heightPx: Int) {
+        if (widthPx <= 0 || heightPx <= 0) return
+        val bucket = CoverSizes.heroFor(widthPx, heightPx)
+        if (bucket <= current) return
+        current = bucket
+        store?.write(bucket)
+    }
 }
