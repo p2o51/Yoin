@@ -37,7 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.floor
-import okhttp3.OkHttpClient
 
 /**
  * Lyra-Sing-Lite on this device, for Subsonic songs (streamed or downloaded), live: the original keeps
@@ -801,7 +800,9 @@ class OnDeviceSingStreamProvider(
 
         /** The engine as the app runs it: model in noBackupFilesDir, results in the cache dir. */
         fun create(context: Context, downloads: OfflineDownloads, scope: CoroutineScope): OnDeviceSingStreamProvider {
-            val http = OkHttpClient()
+            // The song's stream through the playback cache, so the media queue and shared pool
+            // (YoinNetworkCore): OkHttp's default timeouts, no call timeout, as before.
+            val http = com.gpo.yoin.data.remote.YoinNetworkCore.mediaClient
             val cache = SingCache(File(context.cacheDir, CACHE_DIR), suffix = SingVocalTrack.SUFFIX)
             scope.launch(Dispatchers.IO) {
                 File(context.cacheDir, LEGACY_CACHE_DIR).deleteRecursively()

@@ -34,6 +34,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.verify
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDateTime
@@ -537,6 +538,21 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(before, (viewModel.uiState.value as HomeUiState.Content).memoryPill)
+    }
+
+    /** PR #331 review: Retry asks the server, not SubsonicReadCache's lists of the last 20 s. */
+    @Test
+    fun should_forgetTheReadCache_when_refreshed() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-refresh-cache")
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        val viewModel = homeViewModel(repository, "subsonic-refresh-cache")
+        advanceUntilIdle()
+        verify(exactly = 0) { repository.invalidateReadCache() }
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { repository.invalidateReadCache() }
     }
 
     @Test
