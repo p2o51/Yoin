@@ -16,8 +16,8 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.search.MemorySearchSource
-import com.gpo.yoin.data.search.MemorySearchMatches
-import com.gpo.yoin.data.search.MemoryAttachment
+import com.gpo.yoin.shared.search.MemorySearchMatches
+import com.gpo.yoin.shared.search.MemoryAttachment
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException

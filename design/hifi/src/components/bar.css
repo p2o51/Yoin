@@ -1,0 +1,30 @@
+/* bottom bar — see bar.js */
+.bbar { position: absolute; z-index: 30; left: 16px; right: 16px; bottom: calc(var(--bottom) + 12px); height: 68px; padding: 10px; border-radius: 34px; background: var(--surfaceContainer); display: flex; gap: 8px; align-items: center; }
+.bbar.centred { left: 50%; right: auto; width: min(600px, calc(100% - 40px)); transform: translateX(-50%); height: 60px; padding: 8px; border-radius: 30px; bottom: calc(var(--bottom) + 4px); }
+.device[data-size="expanded"] .bbar.centred { bottom: calc(var(--bottom) + 8px); }
+.bb-btn { height: 48px; border: 0; border-radius: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; background: transparent; color: var(--onSurfaceVariant); font-size: 14px; font-weight: 500; flex: none; }
+.bbar.centred .bb-btn { height: 44px; border-radius: 22px; flex: 1; }
+.bb-nav { width: 56px; background: var(--surfaceContainerHigh); }
+.bb-nav.on { width: 84px; background: var(--primary); color: var(--onPrimary); }
+.bbar.centred .bb-nav { width: auto; }
+.bb-pill { flex: 1; min-width: 0; height: 48px; border: 0; border-radius: 24px; padding: 0 14px 0 6px; display: flex; align-items: center; gap: 10px; background: var(--primaryContainer); color: var(--onPrimaryContainer); text-align: left; cursor: pointer; }
+.device[data-theme="dark"] .bb-pill { background: color-mix(in oklab, var(--primary) 82%, var(--surface)); color: var(--onPrimary); }
+.bbar.centred .bb-pill { flex: none; width: 200px; height: 44px; border-radius: 22px; }
+.bb-art { width: 36px; height: 36px; border-radius: 8px; flex: none; }
+.bbar.centred .bb-art { width: 32px; height: 32px; }
+.bb-pt { display: flex; flex-direction: column; min-width: 0; line-height: 16px; }
+.bb-pt b { font-size: 14px; font-weight: 600; }
+.bb-pt span { font-size: 12px; opacity: .78; }
+.bbar.edit .bb-btn { flex: 1; width: auto; }
+.bb-undo { background: var(--surfaceContainerHighest); color: color-mix(in srgb, var(--onSurface) 38%, transparent) !important; }
+.bb-done { background: var(--primary) !important; color: var(--onPrimary) !important; }
+/* the halftone the content dissolves into around the bar */
+.bdis { position: absolute; z-index: 29; left: 0; right: 0; bottom: 0; height: calc(var(--bottom) + 108px); pointer-events: none;
+  background: radial-gradient(circle at 3px 3px, transparent 1.3px, var(--surface) 2.6px) 0 0 / 6px 6px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 46px); mask-image: linear-gradient(to bottom, transparent 0, #000 46px); }
+.bdis::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 3px 3px, transparent .6px, var(--surface) 1.6px) 0 0 / 6px 6px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 75%); mask-image: linear-gradient(to bottom, transparent 30%, #000 75%); }
+.bdis.centred { height: calc(var(--bottom) + 100px); }
+.tall .bdis { display: none; }
+.bbar.idle .bb-nav { flex: 1; width: auto; }
+.bbar.idle:not(.centred) .bb-nav span { display: none; }

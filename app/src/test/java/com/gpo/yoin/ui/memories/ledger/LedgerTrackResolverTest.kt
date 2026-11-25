@@ -1,7 +1,7 @@
 package com.gpo.yoin.ui.memories.ledger
 
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.profile.ProfileManager

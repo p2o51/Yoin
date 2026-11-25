@@ -7,66 +7,22 @@ import com.gpo.yoin.data.local.LedgerAlbumFactRow
 import com.gpo.yoin.data.local.LedgerSongNoteRow
 import com.gpo.yoin.data.local.LedgerTrackRatingRow
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.ledgerAlbumKey
 import kotlinx.coroutines.CancellationException
 
 /*
  * The memory ledger (owner 2026-11-08): every memory the listener has kept, on one timeline, across all
  * their accounts. The pull-down Memories deck deals them one at a time; the ledger is the whole account
- * book: Home's Memories grid and the All Memories page read it. Local only.
+ * book: Home's Memories grid and the All Memories page read it. Local only. The entry model
+ * (MemoryLedgerEntry, MemoryLedgerAlbum, MemoryLedgerKind) lives in :shared (com.gpo.yoin.shared.memory),
+ * where search reads it; this file builds the entries from Room's rows.
  */
 
-/** What kind of mark a ledger entry is. The first four are writing; the last two are scores. */
-enum class MemoryLedgerKind(val wrote: Boolean) {
-    AlbumNote(true),
-    SongNote(true),
-    Review(true),
-    Title(true),
-    AlbumRating(false),
-    TrackRating(false),
-}
-
-/** The album an entry belongs to, in its own account: what the grid colours a cell with. */
-data class MemoryLedgerAlbum(
-    val profileId: String,
-    val provider: String,
-    /** Raw id in [provider]'s namespace. */
-    val albumId: String,
-    val name: String,
-    val artist: String,
-    /** The cover's storage key ([com.gpo.yoin.data.model.CoverRef.toStorageKey]); null when unknown. */
-    val coverKey: String?,
-) {
-    /** One album in one account: two accounts on the same album are two albums here, as everywhere. */
-    val key: String get() = ledgerAlbumKey(profileId, provider, albumId)
-
-    val mediaId: MediaId get() = MediaId(provider, albumId)
-}
-
-internal fun ledgerAlbumKey(profileId: String, provider: String, albumId: String): String =
-    "$profileId|$provider|$albumId"
-
-data class MemoryLedgerEntry(
-    /** Stable across reloads: the kind plus the row's own key. */
-    val id: String,
-    val kind: MemoryLedgerKind,
-    /** When it was written or scored (epoch ms). */
-    val at: Long,
-    val profileId: String,
-    /** Null for a song note or track score whose album Yoin never learned. */
-    val album: MemoryLedgerAlbum?,
-    /** A note's or review's text, or the title itself. */
-    val text: String? = null,
-    /** The song a song note or track score is about, when known. */
-    val trackTitle: String? = null,
-    /** That song's raw id (song notes and track scores): what tells two songs of one name apart. */
-    val songId: String? = null,
-    /** That song's provider (song notes and track scores), known even when its album isn't. */
-    val songProvider: String? = null,
-    /** Where in the song a note was written (ms). */
-    val positionMs: Long? = null,
-    /** An album's or track's score, 0–10. */
-    val score: Float? = null,
-)
+/** The album's id in its provider: what opens it. */
+val MemoryLedgerAlbum.mediaId: MediaId get() = MediaId(provider, albumId)
 
 data class MemoryLedgerStats(
     /** Albums with any memory. */
@@ -90,7 +46,7 @@ fun memoryLedgerStats(entries: List<MemoryLedgerEntry>): MemoryLedgerStats {
     return MemoryLedgerStats(
         albums = entries.mapNotNullTo(HashSet()) { it.album?.key }.size,
         writings = writings.size,
-        characters = writings.sumOf { entry -> entry.text?.codePointCount(0, entry.text.length) ?: 0 },
+        characters = writings.sumOf { entry -> entry.text?.let { it.codePointCount(0, it.length) } ?: 0 },
         ratedTracks = entries.count { it.kind == MemoryLedgerKind.TrackRating },
         firstAt = entries.minOfOrNull { it.at },
     )

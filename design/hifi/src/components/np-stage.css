@@ -1,0 +1,63 @@
+/* Now Playing stage — see np-stage.js */
+.np-bg { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(180deg, var(--surfaceContainer), var(--surface) 70%); }
+.np-bg i { position: absolute; border-radius: 50%; filter: blur(60px); }
+.np-bg .f1 { width: 70%; height: 38%; right: -18%; top: 4%; background: color-mix(in oklab, var(--primary) 26%, transparent); }
+.np-bg .f2 { width: 60%; height: 34%; left: -20%; top: 30%; background: color-mix(in oklab, var(--wash) 50%, transparent); }
+.np-bg .f3 { width: 70%; height: 30%; right: -10%; bottom: 18%; background: color-mix(in oklab, var(--wash) 34%, transparent); }
+.np-bg .f4 { width: 60%; height: 26%; left: 30%; bottom: -10%; background: color-mix(in oklab, var(--tertiaryContainer) 22%, transparent); }
+.device[data-theme="light"] .np-bg { background: var(--surface); }
+.device[data-theme="light"] .np-bg .f1 { width: 120%; height: 30%; left: -10%; top: -16%; background: color-mix(in oklab, var(--tertiaryContainer) 45%, transparent); }
+.device[data-theme="light"] .np-bg .f2 { width: 70%; height: 46%; left: 15%; top: 26%; background: color-mix(in oklab, var(--primary) 18%, transparent); }
+.device[data-theme="light"] .np-bg .f3 { width: 120%; height: 30%; left: -10%; right: auto; bottom: -16%; background: color-mix(in oklab, var(--primaryContainer) 90%, transparent); }
+.device[data-theme="light"] .np-bg .f4 { display: none; }
+/* top bar */
+.np-tb { display: flex; align-items: center; height: 56px; flex: none; gap: 8px; }
+.np-tb-lead { width: 48px; height: 48px; margin-left: -12px; display: grid; place-items: center; color: var(--onSurface); flex: none; }
+.np-tb-cv { width: 44px; height: 44px; border-radius: 8px !important; flex: none; margin-right: 6px; }
+.np-from { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 18px; }
+.np-from small { font-size: 11px; font-weight: 500; letter-spacing: .5px; color: var(--onSurfaceVariant); opacity: .75; }
+.np-from span { font-size: 14px; font-weight: 500; }
+.np-round { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; background: color-mix(in oklab, var(--surfaceContainerLowest) 70%, transparent); color: var(--onSurface); }
+/* cover + rating column */
+.np-cr { display: flex; gap: 12px; flex: none; }
+.np-cover { width: var(--cover); height: var(--cover); border-radius: 16px !important; flex: none; }
+.np-rcol { width: 56px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rbar { position: relative; width: 48px; border-radius: 24px; overflow: hidden; background: var(--primaryContainer); }
+.device[data-theme="dark"] .rbar { background: color-mix(in oklab, var(--wash) 62%, var(--surfaceContainerLowest)); }
+/* Sing's vocal slider: surfaceVariant track, primary flat-edged fill (SingControls, sing branch) */
+.rbar.vocal, .device[data-theme="dark"] .rbar.vocal { background: var(--surfaceVariant); }
+.rfill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 24px; background: var(--primary); }
+.rnum { position: absolute; top: 12px; left: 0; right: 0; text-align: center; font-size: 20px; font-weight: 600; font-stretch: 92%; color: var(--onSurfaceVariant); }
+.rnum.on { color: var(--onPrimary); }
+.vfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--primary); }
+.vnotch { position: absolute; left: 18px; width: 12px; height: 2px; border-radius: 1px; background: var(--onSurfaceVariant); opacity: .34; }
+.vnotch.on { background: var(--onPrimary); opacity: .48; }
+.vmic { position: absolute; left: 14px; bottom: 12px; color: var(--onSurfaceVariant); }
+.vmic.on { color: var(--onPrimary); }
+.np-heart { width: 44px; height: 44px; border-radius: 22px; border: 0; display: grid; place-items: center; background: var(--vivid); color: var(--onVivid); flex: none; }
+.np-heart.exit { background: var(--primary); color: var(--onPrimary); }
+/* transport */
+.np-tr { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.tr1, .tr2 { display: flex; align-items: center; gap: 8px; height: 56px; }
+.sp { flex: 1; }
+.tr-play { height: 56px; padding: 0 26px; border-radius: 28px; border: 0; background: var(--primary); color: var(--onPrimary); font-size: 20px; font-weight: 700; letter-spacing: .4px; }
+.tr-c { width: 56px; height: 56px; border-radius: 28px; border: 0; display: grid; place-items: center; flex: none; }
+.tr-next { background: var(--primary); color: var(--onPrimary); }
+.tr-mode { background: var(--vivid); color: var(--onVivid); }
+.tr-prev { background: var(--secondary); color: var(--onSecondary); }
+.tt0, .tt1 { font-size: 14px; min-width: 44px; color: var(--onSurface); opacity: .9; }
+.tt1 { min-width: 52px; text-align: right; }
+.wave { flex: 1; min-width: 0; }
+.wplay { fill: none; stroke: var(--primary); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.wtrack { fill: none; stroke: color-mix(in oklab, var(--onSurface) 14%, transparent); stroke-width: 4; stroke-linecap: round; }
+.wstop { fill: var(--primary); }
+/* hero + pills */
+.np-hero { flex: none; }
+.np-artist { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 24px; color: var(--onSurface); opacity: .92; }
+.np-chip { font-size: 11px; font-weight: 500; letter-spacing: .3px; line-height: 20px; padding: 0 7px; border-radius: 6px; background: var(--tertiaryContainer); color: var(--onTertiaryContainer); }
+.np-title { font-size: 40px; line-height: 50px; margin-top: 2px; font-weight: 400; }
+/* a title wider than the column is a marquee in the app (NowPlayingMarqueeTitle): at rest it runs off the edge, no ellipsis */
+.np-title.ell { text-overflow: clip; }
+.np-hero.sm .np-title { font-size: 28px; line-height: 36px; }
+.np-pills { display: flex; gap: 6px; flex: none; }
+.np-pill { height: 44px; border: 0; border-radius: 22px; padding: 0 14px 0 12px; display: flex; align-items: center; gap: 6px; background: var(--primary); color: var(--onPrimary); font-size: 14px; font-weight: 500; }

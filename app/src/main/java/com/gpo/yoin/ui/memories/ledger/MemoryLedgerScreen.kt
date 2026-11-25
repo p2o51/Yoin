@@ -81,10 +81,10 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.memory.MemoryGridCell
 import com.gpo.yoin.data.memory.MemoryGridScale
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
 import com.gpo.yoin.data.memory.MemoryLedgerItem
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.MemoryLedgerSort
 import com.gpo.yoin.data.memory.MemoryLedgerView
 import com.gpo.yoin.data.memory.MemoryTimelineRow
@@ -355,9 +355,11 @@ private fun LedgerBody(
                 lift = lift,
                 // A full-line item is given the whole width: let go of it first, or the cap does nothing.
                 modifier = gridItemModifier
-                    // Centred on a large screen, so the cap doesn't leave one side empty.
-                    .wrapContentWidth(if (layout.wide) Alignment.CenterHorizontally else Alignment.Start)
-                    .widthIn(max = if (layout.wide) 760.dp else 640.dp)
+                    // Centred on a large screen, so the cap doesn't leave one side empty. A Medium page (two
+                    // columns, 600–840) takes the large screen's cap too: its 640 start-aligned left up to a
+                    // fifth of a small tablet's portrait width empty on the right (owner 2026-11-24).
+                    .wrapContentWidth(if (layout.columns > 1) Alignment.CenterHorizontally else Alignment.Start)
+                    .widthIn(max = if (layout.columns > 1) 760.dp else 640.dp)
                     .seamDissolve()
                     .onGloballyPositioned { lift.grid = it }
                     .graphicsLayer { alpha = gridAlpha() }
@@ -1122,9 +1124,11 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
                 maxLines = 1,
             )
         }
+        val text = entry.text
+        val score = entry.score
         when {
-            !entry.text.isNullOrBlank() -> NoteMarkupText(
-                text = entry.text,
+            !text.isNullOrBlank() -> NoteMarkupText(
+                text = text,
                 mentionColor = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = YoinSerifTitle,
@@ -1134,7 +1138,7 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
                 maxLines = 10,
                 overflow = TextOverflow.Ellipsis,
             )
-            entry.score != null -> ScoreLine(entry.score, null, size = 30)
+            score != null -> ScoreLine(score, null, size = 30)
         }
         // A song note: the song, and where in it (lighter).
         entry.trackTitle?.let { song ->

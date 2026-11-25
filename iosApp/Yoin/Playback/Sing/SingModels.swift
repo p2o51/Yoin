@@ -91,10 +91,12 @@ enum SingModelAsset {
     static let odrPreservationPriority: Double = 0.8
     static let compiledResourceName = "LyraSingLite"
     static let compiledResourceExtension = "mlmodelc"
+    static let odrZipResourceName = "LyraSingLite.mlpackage"
+    static let odrZipResourceExtension = "zip"
     static let packageName = "LyraSingLite.mlpackage"
     static let zipFileName = "LyraSingLite.mlpackage.zip"
-    /// Deterministic zip SHA-256 verified against `lyra_sing_lite_best.pt` (`SNR=137.97 dB`, `8.58 ms/chunk` on Apple Silicon).
-    static let zipSha256 = "32c0c0d143f219e3bfdf2de474186219716672f774adb4cbfa3a30be590c4aae"
+    /// Pinned SHA-256 of `iosApp/OnDemandResources/LyraSingLite.mlpackage.zip` (FP32 `base_ch=48`, 7.6 MB).
+    static let zipSha256 = "be119ab07979f9708c7f1a0212d340d618a2646531f40b18b91b2d52a1cb63f8"
     static let expectedZipBytes: Int64 = 7_990_000
 }
 

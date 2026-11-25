@@ -1,0 +1,4 @@
+{
+  "title": "Lyrics",
+  "components": ["np-stage", "lyrics"]
+}

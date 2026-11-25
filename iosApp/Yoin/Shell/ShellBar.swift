@@ -313,7 +313,7 @@ struct ShellBar: View {
         }
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            if !model.searchActive, !model.np.mounted, !r.nearlyMatches(model.np.pillFrame) { model.np.pillFrame = r }
+            if !model.searchActive { model.np.pillMeasured(.pill, r) }
         }
         // While Now Playing is up (or morphing), the morph's glass shape is
         // the pill: it starts and ends exactly on this frame.
@@ -566,18 +566,14 @@ struct PillContent: View {
                 .frame(width: 42, height: 42)
                 .opacity(showCover ? 1 : 0)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                    if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillCoverFrame) {
-                        np.pillCoverFrame = r
-                    }
+                    if let np, !model.searchActive { np.pillMeasured(.cover, r) }
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
                 MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                        if let np, !model.searchActive, !np.mounted, !r.nearlyMatches(np.pillTitleFrame) {
-                            np.pillTitleFrame = r
-                        }
+                        if let np, !model.searchActive { np.pillMeasured(.title, r) }
                     }
                 MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }

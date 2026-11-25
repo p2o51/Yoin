@@ -9,10 +9,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.toShape
 import androidx.compose.ui.text.style.TextOverflow
+import com.gpo.yoin.data.memory.MemoryGrid
 import com.gpo.yoin.data.memory.MemoryGridScale
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.buildMemoryGrid
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -79,9 +79,10 @@ internal fun MemoryLedgerSection(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(titleGap)) {
         HomeSectionTitle(text = stringResource(HomeSection.MemoryGrid.titleRes))
         Column(
+            // The card spans the feed's content width like every other block (owner 2026-11-24: on a small
+            // tablet in portrait it stopped at 560dp and left the rest of the row empty); past the old
+            // 560dp card the wall adds columns instead of growing its cells (memoryCardWallColumns).
             modifier = Modifier
-                // A tablet's wide feed would blow a month's quads up past a cover; the card stays phone-wide.
-                .widthIn(max = 560.dp)
                 .fillMaxWidth()
                 .elasticPress(interactionSource)
                 .clip(RoundedCornerShape(28.dp))
@@ -97,14 +98,72 @@ internal fun MemoryLedgerSection(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             MemoryLedgerCount(state)
-            MemoryGridView(
-                grid = state.grid,
-                coverUrls = state.coverUrls,
-                placement = MemoryGridPlacement.Home,
-                extractColors = extractBackdropColors,
-            )
+            MemoryCardWall(state = state, extractBackdropColors = extractBackdropColors)
         }
     }
+}
+
+/**
+ * The single-column card's wall: up to the old 560dp card (inner [MemoryCardWallReferenceDp]) the
+ * scale's own columns, exactly as before; wider, as many columns as cells of that card's size fit, so a
+ * wider card looks further back instead of blowing a month's quads up past a cover.
+ */
+@Composable
+private fun MemoryCardWall(state: MemoryLedgerState, extractBackdropColors: Boolean) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = memoryCardWallColumns(state.grid.scale, maxWidth.value)
+        val firstDay = remember { java.time.temporal.WeekFields.of(java.util.Locale.getDefault()).firstDayOfWeek }
+        val wall = remember(state.entries, state.grid, columns, state.today, state.zone, firstDay) {
+            if (columns == null) {
+                state.grid
+            } else {
+                buildMemoryGrid(
+                    state.entries,
+                    state.today,
+                    state.zone,
+                    firstDay,
+                    state.grid.scale,
+                    memoryCardWallPeriods(state.grid.scale, columns),
+                )
+            }
+        }
+        MemoryGridView(
+            grid = wall,
+            coverUrls = state.coverUrls,
+            placement = MemoryGridPlacement.Home,
+            extractColors = extractBackdropColors,
+            columns = columns,
+        )
+    }
+}
+
+/** The 560dp phone-wide card's inner width (less its 16dp side padding): the widest wall at the scale's own columns. */
+internal const val MemoryCardWallReferenceDp = 528f
+
+/**
+ * Columns for the single-column card's wall [innerWidthDp] wide: null (the scale's own 17 day weeks,
+ * 13 week columns or 6 months) up to [MemoryCardWallReferenceDp]; wider, as many columns as cells the
+ * size of the reference wall's fit, so the cells stay the 560dp card's and the extra width shows more
+ * of the past. Pure.
+ */
+internal fun memoryCardWallColumns(scale: MemoryGridScale, innerWidthDp: Float): Int? {
+    val (base, gap) = when (scale) {
+        MemoryGridScale.Day -> 17 to 3f
+        MemoryGridScale.Week -> 13 to 5f
+        MemoryGridScale.Month -> 6 to 8f
+    }
+    if (innerWidthDp <= MemoryCardWallReferenceDp) return null
+    val cell = (MemoryCardWallReferenceDp - gap * (base - 1)) / base
+    // The same 0.01dp guard as the feed's breakpoints: a float sum an ulp short keeps its column.
+    val columns = kotlin.math.floor((innerWidthDp + 0.01f + gap) / (cell + gap)).toInt()
+    val capped = if (scale == MemoryGridScale.Month) columns.coerceAtMost(MemoryGrid.MAX_MONTHS) else columns
+    return capped.takeIf { it > base }
+}
+
+/** How many periods [buildMemoryGrid] builds for [columns] wall columns: weeks for a day, two a column for a week. */
+internal fun memoryCardWallPeriods(scale: MemoryGridScale, columns: Int): Int = when (scale) {
+    MemoryGridScale.Week -> columns * 2
+    MemoryGridScale.Day, MemoryGridScale.Month -> columns
 }
 
 /** "12 memories written": what you wrote leads; with only scores so far, the scores. */

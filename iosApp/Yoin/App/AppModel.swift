@@ -247,6 +247,7 @@ final class AppModel {
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         sing.avOutputProvider = { [weak playbackSystem] in playbackSystem?.avOutput }
         sing.serverAccountProvider = { [weak session] in session?.account }
+        playbackSystem.onTrackChange = { [weak sing] track in sing?.onTrackChanged(track) }
         #if DEBUG
         profiles.useFakeSpotify()
         #endif
@@ -585,6 +586,10 @@ final class AppModel {
     func zoomSourceID(_ id: MediaId) -> String? { zoomTiles[id].map { ZoomTile.sourceID(id, tile: $0) } }
 
     func open(_ album: Album, tile: String? = nil) {
+        // Go to album from Now Playing (its Playing from line, its title, the song sheet) on that album's
+        // own page: the page is already there, as it was left (scrolled, pulled up, its zoom tile).
+        // Pushing it again stacked a second copy that the back gesture then had to leave twice.
+        if !isPad, case .album(let top)? = path.last, top.id == album.id { return }
         zoomTiles[album.id] = tile
         prefetch(.album(album.id.rawId))
         if isPad {

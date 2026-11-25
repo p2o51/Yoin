@@ -1,0 +1,43 @@
+/* Page: Now Playing — layout; pieces in components/np-stage, lyrics, notes */
+.np-phone, .np-medium, .dual { position: absolute; inset: 0; }
+.npcol { position: absolute; inset: 0; display: flex; flex-direction: column; padding: var(--top) 24px calc(var(--bottom) + 2px); }
+.npcol > .np-cr { margin-top: 0; }
+.np-mid { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
+.npcol .np-tr { margin: 6px 0 14px; }
+.npcol .np-hero { margin-bottom: 14px; }
+.npcol .np-pills { margin-bottom: 4px; }
+.npcol.full .np-tgroup { margin: 6px 0 4px; }
+.npcol.full .ly-full { margin: 0 -4px; }
+.np-foot { flex: none; display: flex; flex-direction: column; gap: 14px; padding: 8px 0 6px; }
+.npcol.full .np-tb { gap: 6px; }
+/* medium: album page + side panel */
+.np-medium { background: var(--surface); }
+.np-panel { position: absolute; top: 0; right: 0; bottom: 0; border-radius: 28px 0 0 28px; overflow: hidden; }
+.alb { position: absolute; left: 0; top: 0; bottom: 0; right: 400px; padding: calc(var(--top) + 8px) 20px 0 16px; background: linear-gradient(180deg, color-mix(in oklab, var(--wash) 40%, var(--surface)), var(--surface) 60%); }
+.alb-head { display: flex; gap: 14px; align-items: flex-start; }
+.alb-back { width: 40px; height: 40px; border-radius: 20px; flex: none; display: grid; place-items: center; background: var(--surfaceContainerLowest); margin-top: 4px; }
+.alb h2 { margin: 0; font-size: 28px; line-height: 36px; font-weight: 400; color: var(--primary); }
+.alb-sub { font-size: 14px; color: var(--onSurface); } .alb-sub b { color: var(--primary); font-weight: 500; margin: 0 6px; }
+.alb-dots { display: flex; gap: 8px; justify-content: center; margin: 14px 0 10px; } .alb-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--onSurfaceVariant); opacity: .4; } .alb-dots i.on { background: var(--primary); opacity: 1; }
+.alb-stamp { display: flex; gap: 18px; align-items: center; padding-left: 26px; }
+.alb-unr { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; color: var(--onSurfaceVariant); border: 1.5px dashed var(--outline); }
+.alb-stamp span:last-child { display: flex; flex-direction: column; font-size: 14px; } .alb-stamp em { font-style: normal; color: var(--primary); } .alb-stamp small { color: var(--onSurfaceVariant); font-size: 12px; margin-top: 4px; }
+.alb-meta { display: flex; gap: 12px; margin: 24px 0 8px; font-size: 12px; color: var(--onSurfaceVariant); } .alb-meta b { color: var(--onSurface); font-weight: 600; margin-right: 3px; }
+.alb-list { margin: 0; font-size: 28px; line-height: 36px; color: var(--onSurface); }
+.alb-list .alt { color: color-mix(in oklab, var(--primary) 78%, var(--surface)); }
+.alb-list .now { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+/* expanded: dual-pane */
+/* NowPlayingBudget at 1280 × 800: frame 24 / top 16, bar 48, gap 8, cover 312 + rating side 68 (12 + 56) = slot 380,
+   cover → transport 12, title bottom-aligned; column gap 24 → right column 428–1256, its text inset 24 (452–1232). */
+.dual-l { position: absolute; left: 24px; top: calc(var(--top) + 16px); bottom: calc(var(--bottom) + 16px); width: 380px; display: flex; flex-direction: column; }
+.dual-l .np-tb { height: 48px; margin-bottom: 0; }
+.dual-l .np-cr { margin-top: 8px; }
+.dual-l .np-tr { margin-top: 12px; }
+.dual-r { position: absolute; left: 452px; right: 48px; top: calc(var(--top) + 72px); bottom: calc(var(--bottom) + 16px); display: flex; flex-direction: column; }
+.dual-r .np-ttabs { margin-bottom: 18px; }
+.dual-icons { position: absolute; right: -28px; top: -54px; display: flex; align-items: center; gap: 4px; color: var(--onSurface); }
+.dual-icons > span { width: 44px; height: 44px; display: grid; place-items: center; }
+.np-round.dark { margin-left: 6px; background: var(--surfaceContainerLowest); }
+.dual-foot { flex: none; padding-top: 8px; }
+.dual-foot .nwb { max-width: 520px; }
+.dual .np-about { font-size: 16px; line-height: 26px; }

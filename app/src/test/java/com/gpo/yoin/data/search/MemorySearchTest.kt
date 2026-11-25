@@ -1,8 +1,14 @@
 package com.gpo.yoin.data.search
 
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.search.SearchQuery
+import com.gpo.yoin.shared.search.MatchTier
+import com.gpo.yoin.shared.search.MemoryHitField
+import com.gpo.yoin.shared.search.LedgerMarkKind
+import com.gpo.yoin.shared.search.LedgerMark
+import com.gpo.yoin.shared.search.searchMemoryLedger
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import org.junit.Assert.assertEquals

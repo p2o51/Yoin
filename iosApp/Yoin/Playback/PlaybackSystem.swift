@@ -35,6 +35,8 @@ final class PlaybackSystem {
     /// liked, whether this source can be liked from here, and the flip (the
     /// same `FavoritesStore` write Now Playing's heart makes). Set by `live()`.
     var favorite = FavoriteHooks()
+    /// Fired whenever the engine's current track changes (even when `NowPlayingView` is collapsed/unmounted).
+    var onTrackChange: ((PlayableTrack?) -> Void)?
 
     struct FavoriteHooks {
         var isFavorite: (PlayableTrack) -> Bool = { _ in false }
@@ -384,6 +386,7 @@ final class PlaybackSystem {
     private var watchesSpotifyHeart = false
 
     private func refreshNowPlaying() {
+        onTrackChange?(engine.currentTrack)
         releaseIfNotOurs()
         readSpotifyModesIfNew()
         if watchesSpotifyHeart { SpotifyHeartRefresh.shared.observe(engine.currentTrack) }

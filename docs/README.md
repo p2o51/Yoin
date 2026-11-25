@@ -120,6 +120,7 @@ All UI icons come from the sibling repository **`../yoin-symbols`** (`p2o51/yoin
 
 The subdirectories and dated files below are **historical records preserved for provenance**. Do not treat them as current product truth when they conflict with `docs/design.md` or `docs/platforms.md`:
 
+- **`design/hifi/`** (repo root) — the Hi-Fi HTML prototypes of the Android app (components with real tokens, strings and the demo catalogue), `build.mjs` and `export.mjs`. Every picture of the app's UI on yoin-site is exported from here; update them before each release (`design/hifi/README.md`).
 - **`docs/handoff/`** — Point-in-time design handoffs, UI copy audits, interactive HTML/JS showcase prototypes (`memories-showcase/`, `dissolve-reference/`), and feature kickoff notes (`home-edit-mode/`, `handoff-2026-11-14.md`). Relevant finalized decisions have been folded into `docs/design.md`.
 - **`docs/validation/`** — Dated hardware/feature validation reports and structured evidence (`dlna-2026-10-20.md`, `yoin-playlist-*-2026-10-20.md`).
 - **`docs/temp/`** — Early design scratchpads (`neodb-rating-memory-design.md`, `qq-lyrics-endpoint-research-handoff.md`); canonical rules now live in `docs/design.md`.

@@ -1,0 +1,50 @@
+/* lyrics — see lyrics.js */
+.np-ttabs { display: flex; gap: 12px; align-items: baseline; height: 30px; flex: none; font-size: 16px; font-weight: 500; color: var(--onSurfaceVariant); }
+.np-ttabs span { opacity: .65; }
+.np-ttabs .on { color: var(--onSurface); opacity: 1; font-weight: 600; transform: scaleX(1.08); transform-origin: left; margin-right: 4px; }
+.np-tgroup { display: flex; gap: 8px; flex: none; }
+.np-tgroup span { flex: 1; height: 52px; border-radius: 26px; display: grid; place-items: center; font-size: 14px; font-weight: 500; background: var(--primaryContainer); color: var(--onPrimaryContainer); }
+.np-tgroup .on { background: var(--primary); color: var(--onPrimary); font-weight: 700; }
+/* lyric lists */
+.ly { position: relative; flex: 1; min-height: 0; overflow: hidden; --anchor: .22;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 80%, transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 80%, transparent 100%); }
+.ly-in { position: absolute; left: 0; right: 0; top: 0; }
+.ly p { margin: 0; color: var(--onSurface); }
+.ly-compact p { font-size: 15px; line-height: 20px; padding: 6px 0; opacity: .5; }
+.ly-compact p.cur { font-size: 18px; line-height: 24px; font-weight: 600; color: var(--primary); opacity: 1; }
+.ly-full { --anchor: .45; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 64px, #000 calc(100% - 64px), transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 64px, #000 calc(100% - 64px), transparent 100%); }
+.ly-full p { font-size: 24px; line-height: 32px; padding: 8px 0 9px; opacity: .42; font-weight: 450; }
+.ly-full p.past { opacity: .3; }
+.ly-full p.cur { opacity: 1; font-weight: 600; color: var(--primary); }
+.ly-wide { --anchor: .14; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent 100%); mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent 100%); }
+.ly-wide p { font-size: 22px; line-height: 30px; padding: 11px 0; opacity: .4; }
+.ly-wide p.cur { opacity: 1; font-weight: 600; color: var(--primary); }
+.ly-head { padding: 4px 0 10px; display: flex; flex-direction: column; opacity: .42; }
+.ly-head b { font-size: 22px; line-height: 30px; font-weight: 500; }
+.ly-head span { font-size: 14px; }
+/* tool row */
+.np-tools { display: flex; gap: 8px; flex: none; }
+.lk { width: 52px; height: 52px; border-radius: 16px; border: 0; display: grid; place-items: center; flex: none; background: var(--primaryContainer); color: var(--onPrimaryContainer); position: relative; overflow: hidden; }
+.lk.off { background: color-mix(in srgb, var(--onSurface) 10%, transparent); color: color-mix(in srgb, var(--onSurface) 38%, transparent); }
+.lk.sing.on { width: 124px; border-radius: 26px; background: var(--surfaceVariant); color: var(--onSurfaceVariant); display: block; }
+.sfill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); }
+.snotch { position: absolute; top: 21px; width: 2px; height: 10px; border-radius: 1px; background: var(--onSurfaceVariant); opacity: .36; }
+.snotch.lit { background: var(--onPrimary); opacity: .48; }
+.smic { position: absolute; left: 0; top: 0; width: 34px; height: 52px; display: grid; place-items: center; padding-left: 8px; color: var(--onSurfaceVariant); }
+.smic.onf { color: var(--onPrimary); }
+.np-about { flex: 1; min-height: 0; font-size: 14px; line-height: 22px; color: var(--onSurfaceVariant); padding-top: 6px; }
+.np-about p { margin: 0 0 6px; } .np-about b { color: var(--onSurface); font-weight: 600; }
+/* full-screen lyrics with translation */
+.lyx { --anchor: .4; margin: 0 -12px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 64px, #000 calc(100% - 64px), transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 64px, #000 calc(100% - 64px), transparent 100%); }
+.lx { padding: 6px 12px; margin-bottom: 4px; color: var(--onSurfaceVariant); opacity: var(--a); border-radius: 16px; }
+.lx p { margin: 0; font-size: 24px; line-height: 32px; font-weight: 500; transform: scale(.96); transform-origin: 0 50%; }
+.lx small { display: block; padding-top: 4px; font-size: 16px; line-height: 24px; opacity: .7; transform: scale(.96); transform-origin: 0 50%; }
+.lx.cur { color: var(--primary); } .lx.cur p { font-weight: 600; transform: none; } .lx.cur small { opacity: .82; font-weight: 500; transform: none; }
+.lx.card { opacity: .4; } .lx.card small { opacity: 1; }
+.lyx.selmode .lx { opacity: .7; }
+.lyx .lx.sel { opacity: 1; background: var(--primaryContainer); color: var(--onPrimaryContainer); border-radius: 4px; margin-bottom: 0; }
+.lx.sel.sf { border-top-left-radius: 16px; border-top-right-radius: 16px; } .lx.sel.sl { border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; margin-bottom: 4px; }
+.lx.sel + .lx.sel { margin-top: 2px; }
+.lk.emph { background: var(--primary); color: var(--onPrimary); }
+.lyx.wide .lx p { font-size: 22px; line-height: 30px; }
+.lx p { color: inherit; }

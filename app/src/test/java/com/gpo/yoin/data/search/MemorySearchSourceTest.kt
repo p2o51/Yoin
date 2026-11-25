@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.search
 
+import com.gpo.yoin.shared.search.MemoryHitField
 import com.gpo.yoin.data.local.AlbumMemoryTitle
 import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumRating

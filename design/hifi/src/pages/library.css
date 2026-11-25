@@ -1,0 +1,18 @@
+/* Page: Library — layout; pieces in components/lib, detail, home-cards */
+.lt .lt-s + .lt-s { display: none; }
+.lgrid .lt.round .lt-s { display: block; }
+.srch { position: absolute; inset: 0; background: var(--surfaceContainerHigh); overflow: hidden; }
+.srch-bar { height: 72px; margin-top: var(--top); display: flex; align-items: center; gap: 16px; padding: 0 16px; color: var(--onSurfaceVariant); border-bottom: 1px solid var(--outlineVariant); }
+.srch-q { flex: 1; font-size: 16px; color: var(--onSurface); }
+.srch-chips { display: flex; gap: 8px; padding: 8px 16px; overflow: hidden; }
+.device:not([data-size="compact"]) .srch-chips { padding: 8px 32px; }
+.srch .chip { background: var(--surfaceContainerHighest); }
+.srch .chip.on { background: var(--secondaryContainer); }
+.srch-best { display: flex; gap: 16px; align-items: center; padding: 14px; margin: 8px 0 4px; border-radius: 16px; background: color-mix(in oklab, var(--pal) 30%, var(--surfaceContainerLow)); --ink: var(--pal); }
+.device[data-theme="dark"] .srch-best { --ink: var(--acc); }
+.srch-best .col { display: flex; flex-direction: column; } .srch-best small { font-size: 12px; font-weight: 500; color: var(--ink); } .srch-best b { font-size: 22px; line-height: 28px; font-weight: 600; } .srch-best span { font-size: 14px; color: var(--onSurfaceVariant); }
+.srch-sec { margin-top: 18px; }
+.srch-h { display: flex; justify-content: space-between; align-items: center; height: 36px; font-size: 14px; font-weight: 500; } .srch-h span { color: var(--primary); }
+.srch .jbi { row-gap: 14px; }
+.srch mark { background: color-mix(in srgb, var(--tertiaryContainer) 70%, transparent); color: inherit; padding: 0 1px; }
+.device[data-theme="light"] .srch mark { background: #ffe58a; }

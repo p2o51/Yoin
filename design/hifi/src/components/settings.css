@@ -1,0 +1,68 @@
+/* Settings — see settings.js */
+.set { position: absolute; inset: 0; overflow: hidden; background: var(--surfaceContainer); color: var(--onSurface); }
+.s-pane { position: absolute; top: 0; bottom: 0; overflow: hidden; padding: calc(var(--top) + 12px) 16px 24px; }
+.s-back { margin: 4px 0 0 4px; }
+.s-title { margin: 40px 8px 36px; font-size: 36px; line-height: 44px; font-weight: 400; }
+.sgrp { margin-bottom: 28px; }
+.sgrp h3 { display: flex; justify-content: space-between; margin: 0 8px 8px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--primary); }
+.sgrp h3:empty, .sgrp h3 span:empty { display: none; }
+.sgrp h3 small { font-size: 12px; color: var(--onSurfaceVariant); }
+.sseg { display: flex; flex-direction: column; gap: 2px; }
+.srow { position: relative; display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 14px 16px; border-radius: 4px; background: var(--surfaceBright); }
+.sseg > :first-child { border-top-left-radius: 20px; border-top-right-radius: 20px; }
+.sseg > :last-child { border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }
+.srow.sel { border-radius: 28px !important; background: var(--surfaceContainer); margin: 2px 0; }
+.sr-ic { width: 40px; height: 40px; display: grid; place-items: center; color: var(--onSurfaceVariant); flex: none; }
+.srow .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.srow .col b { font-size: 16px; line-height: 24px; font-weight: 500; }
+.srow .col > span { font-size: 14px; line-height: 20px; color: var(--onSurfaceVariant); }
+.srow .col i { font-style: normal; opacity: .6; margin-left: 12px; }
+.sr-ch { color: var(--onSurfaceVariant); }
+/* account cards */
+.acards { display: flex; gap: 12px; margin: 0 -16px; padding: 6px 16px; overflow: hidden; }
+.acard { flex: none; width: 200px; height: 184px; padding: 16px 4px 16px 16px; border-radius: 16px; background: var(--surfaceBright); display: flex; flex-direction: column; position: relative; transform: scale(.96); }
+.acard.on { background: var(--sc); color: var(--son); transform: none; }
+.acard > b { font-size: 16px; line-height: 24px; font-weight: 500; margin-top: 8px; padding-right: 12px; }
+.ac-sub { display: flex; flex-direction: column; font-size: 14px; line-height: 20px; color: var(--onSurfaceVariant); padding-right: 12px; }
+.ac-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ac-sub .dim { opacity: .75; }
+.acard.on .ac-sub { color: var(--son); }
+.ac-pill { align-self: flex-start; margin-top: 10px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--surfaceContainerHighest); color: var(--onSurfaceVariant); }
+.acard.on .ac-pill { background: color-mix(in srgb, var(--son) 14%, transparent); color: var(--son); }
+.ac-more { position: absolute; right: 4px; top: 8px; width: 48px; height: 48px; display: grid; place-items: center; color: var(--onSurfaceVariant); }
+.acard.on .ac-more { color: var(--son); }
+.acard.add { width: 112px; align-items: center; justify-content: center; gap: 8px; color: var(--primary); font-size: 14px; font-weight: 500; padding: 16px; transform: none; }
+/* avatar */
+.sv-av { position: relative; width: var(--av); height: var(--av); flex: none; display: block; }
+.sv-sh { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--sa); }
+.sv-g { position: absolute; inset: 0; display: grid; place-items: center; color: var(--soa); transform: translate(-7%, -7%); }
+.sv-b { position: absolute; right: -2px; bottom: -2px; width: var(--bd); height: var(--bd); border-radius: 50%; display: grid; place-items: center; background: var(--si); color: var(--sic); font-size: calc(var(--bd) * .5); font-weight: 600; box-shadow: 0 0 0 2px var(--ring, var(--surfaceBright)); }
+.acard.on .sv-b { --ring: var(--sc); }
+/* list pane rows */
+.srow.acc { padding: 12px 4px 12px 16px; }
+.srow.acc .col > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srow.acc .col > span i { display: inline-block; width: 10px; }
+.inuse { align-self: flex-start; margin-top: 6px; padding: 2px 10px; border-radius: 999px; font-size: 14px !important; background: var(--sa); color: var(--soa) !important; }
+.srow.acc > .ic { width: 48px; color: var(--onSurfaceVariant); }
+/* switch (M3) */
+.sw { width: 52px; height: 32px; border-radius: 16px; flex: none; border: 2px solid var(--outline); background: var(--surfaceContainerHighest); display: flex; align-items: center; padding: 0 6px; }
+.sw i { width: 16px; height: 16px; border-radius: 50%; background: var(--outline); display: grid; place-items: center; }
+.sw.on { border-color: var(--primary); background: var(--primary); justify-content: flex-end; padding: 0 2px; }
+.sw.on i { width: 24px; height: 24px; background: var(--onPrimary); color: var(--onPrimaryContainer); }
+/* account page */
+.s-hero { display: flex; flex-direction: column; gap: 16px; margin: 32px 8px 32px; }
+.s-hero h1 { margin: 0; font-size: 32px; line-height: 40px; font-weight: 400; }
+.s-hero > span { font-size: 16px; } .s-hero .mut { font-style: normal; opacity: .6; margin-right: 12px; }
+.srow.form { flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; }
+.srow.form label { display: flex; flex-direction: column; justify-content: center; position: relative; height: 56px; padding: 0 16px; border-radius: 4px; border: 1px solid var(--outline); font-size: 16px; }
+.srow.form label small { position: absolute; top: -9px; left: 12px; padding: 0 4px; font-size: 12px; color: var(--onSurfaceVariant); background: var(--surfaceBright); }
+.srow.form label .ic { position: absolute; right: 14px; top: 19px; color: var(--onSurfaceVariant); }
+.s-ok { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--primary); }
+.s-btns { display: flex; gap: 12px; } .s-btns button { flex: 1; height: 40px; border-radius: 20px; font-size: 14px; font-weight: 500; }
+.ob { border: 1px solid var(--outline); background: none; color: var(--primary); } .fb { border: 0; background: var(--primary); color: var(--onPrimary); }
+/* two-pane */
+.s-list { left: 0; width: 420px; background: var(--surfaceDim); }
+.s-detail { left: 420px; right: 0; }
+.s-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; font-size: 14px; color: var(--onSurfaceVariant); }
+.s-empty svg { width: 148px; height: 148px; fill: none; stroke: var(--outlineVariant); stroke-width: 2; }
+.s-empty path { vector-effect: non-scaling-stroke; }
+.s-hero .mut { font-style: normal; }
