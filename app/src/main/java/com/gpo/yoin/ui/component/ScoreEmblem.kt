@@ -153,7 +153,7 @@ fun ScoreEmblem(
  * an accent of the seed's hue family) — and cached per URL, so the album page, Memories and Now Playing never show
  * one cover as two colours.
  *
- * Pass the playback theme's URL for the cover (`repository.resolveCoverUrl(coverArt)`; on the album page that is
+ * Pass the playback theme's URL for the cover (`repository.resolveCoverUrl(coverArt, CoverSizes.heroPx)`; on the album page that is
  * `AlbumDetailUiState.Content.coverArtUrl`). Until the cover is read (or when [coverUrl] is null) the theme's
  * primary stands in; the hand-off animates on the effects spring.
  */

@@ -401,7 +401,7 @@ class HuaweiLyricsProvider(
         private fun isHan(char: Char): Boolean =
             Character.UnicodeScript.of(char.code) == Character.UnicodeScript.HAN
 
-        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        private fun defaultClient(): OkHttpClient = com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)

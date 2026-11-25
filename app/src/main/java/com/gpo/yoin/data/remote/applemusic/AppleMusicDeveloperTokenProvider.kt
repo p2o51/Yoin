@@ -19,7 +19,7 @@ import okhttp3.Request
 /** Fetches a signed developer JWT from a configured HTTPS service; never receives a .p8 key. */
 class AppleMusicDeveloperTokenProvider(
     private val endpoint: HttpUrl,
-    transport: OkHttpClient = OkHttpClient(),
+    transport: OkHttpClient = com.gpo.yoin.data.remote.YoinNetworkCore.apiClient,
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
 ) {
     private val http = transport.newBuilder().followRedirects(false).followSslRedirects(false)

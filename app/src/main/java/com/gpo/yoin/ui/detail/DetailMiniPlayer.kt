@@ -58,12 +58,12 @@ private fun PlaybackState.toDetailMiniPlayerState(
         trackId = track.id.toString(),
         title = track.title.orEmpty(),
         artist = track.artist.orEmpty(),
-        // EXACTLY the shell pill's URL (YoinNavHost: no size). This pill is
+        // EXACTLY the shell pill's URL (YoinNavHost: the hero size). This pill is
         // the pixel twin drawn over the shell's during the hand-off; a sized
         // URL was a different cache key, so every detail window re-downloaded
         // the thumbnail and the pill's cover blinked out and faded back in
         // mid hand-off. Same URL = memory hit = painted on the first frame.
-        coverArtUrl = container.repository.resolveCoverUrl(track.coverArt),
+        coverArtUrl = container.repository.resolveCoverUrl(track.coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx),
         isPlaying = isPlaying,
     )
 }

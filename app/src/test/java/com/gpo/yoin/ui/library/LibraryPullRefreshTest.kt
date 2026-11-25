@@ -15,8 +15,10 @@ import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -96,6 +98,23 @@ class LibraryPullRefreshTest {
         // All never went back to its loading indicator, and stayed the view shown.
         assertTrue(shown.none { it == null })
         assertEquals(LibraryTab.All, content(viewModel).selectedTab)
+    }
+
+    /** PR #331 review: a Subsonic pull within 20 s returned SubsonicReadCache's lists without asking. */
+    @Test
+    fun should_forgetTheReadCacheBeforeRereading_when_subsonicIsPulled() = runTest {
+        val repository = subsonic()
+        val viewModel = shownLibrary(repository)
+        verify(exactly = 0) { repository.invalidateReadCache() }
+
+        viewModel.pullRefresh()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { repository.invalidateReadCache() }
+        coVerifyOrder {
+            repository.invalidateReadCache()
+            repository.getPlaylists()
+        }
     }
 
     @Test

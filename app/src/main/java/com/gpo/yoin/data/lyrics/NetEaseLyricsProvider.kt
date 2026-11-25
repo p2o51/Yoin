@@ -224,7 +224,7 @@ class NetEaseLyricsProvider(
         /** 自动匹配时要的候选数，和 QQ 一致。 */
         private const val SEARCH_PAGE_SIZE = 10
 
-        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        private fun defaultClient(): OkHttpClient = com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)

@@ -40,8 +40,9 @@ import okhttp3.Response
 class AppleMusicApiClient(
     private val developerToken: suspend () -> String,
     private val musicUserToken: () -> String?,
-    // Dedicated transport: never inherit another provider's logging/auth interceptors.
-    private val transport: OkHttpClient = OkHttpClient(),
+    // Its own interceptors, timeouts and Dispatcher below: never another provider's logging/auth interceptors.
+    // Only the connection pool is shared (YoinNetworkCore).
+    private val transport: OkHttpClient = com.gpo.yoin.data.remote.YoinNetworkCore.apiClient,
     private val baseUrl: HttpUrl = "https://api.music.apple.com/".toHttpUrl()
 ) {
     private val http = transport.newBuilder().followRedirects(false).followSslRedirects(false)

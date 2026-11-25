@@ -8,6 +8,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.CoverSizes
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
@@ -87,13 +88,15 @@ class ArtistDetailViewModel(
                 _uiState.value = ArtistDetailUiState.Content(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
-                    heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it) },
+                    heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it, CoverSizes.heroPx) },
+                    fallbackHeroCoverArtUrl = releases.firstOrNull()?.coverArt
+                        ?.let { repository.resolveCoverUrl(it, CoverSizes.heroPx) },
                     isStarred = artist.isStarred,
                     albums = releases.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
                             name = album.name,
-                            coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
+                            coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it, CoverSizes.rowPx) },
                             year = album.year,
                             songCount = album.songCount,
                             releaseType = album.releaseType,
@@ -156,7 +159,7 @@ class ArtistDetailViewModel(
                         title = row.title,
                         album = row.album,
                         coverArtUrl = CoverRef.fromStorageKey(row.coverArtId)
-                            ?.let { ref -> repository.resolveCoverUrl(ref) },
+                            ?.let { ref -> repository.resolveCoverUrl(ref, CoverSizes.rowPx) },
                         durationSec = (row.durationMs / 1000).toInt().takeIf { secs -> secs > 0 },
                         playCount = row.playCount,
                     )

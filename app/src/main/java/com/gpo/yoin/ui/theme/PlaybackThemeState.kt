@@ -80,15 +80,19 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
                 val swatchPalette = bitmap?.let { withContext(Dispatchers.Default) { CoverSeedExtractor.palette(it) } }
                 val seed = swatchPalette?.let { CoverSeedExtractor.seedSwatch(it)?.rgb }
                 val field = bitmap?.let { readCoverField(it, swatchPalette?.let(::swatchesOf) ?: IntArray(0)) }
+                val current = palette
                 val built = seed?.let {
-                    if (palette?.seed == it) {
-                        palette
+                    if (current?.seed == it) {
+                        current
                     } else {
-                        PlaybackPalette(
-                            seed = it,
-                            light = ExpressiveColorSchemeFactory.fromSeed(it, isDark = false),
-                            dark = ExpressiveColorSchemeFactory.fromSeed(it, isDark = true),
-                        )
+                        // The two scheme builds off the main thread too, like the Palette pass and the field.
+                        withContext(Dispatchers.Default) {
+                            PlaybackPalette(
+                                seed = it,
+                                light = ExpressiveColorSchemeFactory.fromSeed(it, isDark = false),
+                                dark = ExpressiveColorSchemeFactory.fromSeed(it, isDark = true),
+                            )
+                        }
                     }
                 }
                 if (field != null || built != null) {
