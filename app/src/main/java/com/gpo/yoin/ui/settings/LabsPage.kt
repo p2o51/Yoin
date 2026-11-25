@@ -27,6 +27,7 @@ import com.gpo.yoin.data.highlight.NanoStatus
 import com.gpo.yoin.player.sing.SingAcceleratorReport
 import com.gpo.yoin.player.sing.SingBackendLabel
 import com.gpo.yoin.player.sing.SingBackendRun
+import com.gpo.yoin.player.sing.SingModelOverview
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -48,7 +49,9 @@ private fun visibleUnavailableReason(reason: String?): String? =
 @Composable
 internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val processor = (context.applicationContext as YoinApplication).container.lyricHighlightProcessor
+    val container = (context.applicationContext as YoinApplication).container
+    val processor = container.lyricHighlightProcessor
+    val singManager = container.singModelManager
     val status by processor.status.collectAsState()
     val downloading by processor.downloading.collectAsState()
     val reason by processor.unavailableReason.collectAsState()
@@ -56,7 +59,11 @@ internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
     val greetingsOn by processor.greetingsEnabled.collectAsState()
     val aboutFollowUpsOn by processor.aboutFollowUpsEnabled.collectAsState()
     val singBackend by SingAcceleratorReport.get(context).last.collectAsState()
-    LaunchedEffect(processor) { processor.checkNow() }
+    val singModel by singManager.state.collectAsState()
+    LaunchedEffect(processor, singManager) {
+        processor.checkNow()
+        singManager.refresh()
+    }
     ExperimentalFeaturesGroup(
         state = LabsState(
             nano = if (downloading) NanoStatus.DOWNLOADING else status,
@@ -65,12 +72,15 @@ internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
             greetingsOn = greetingsOn,
             aboutFollowUpsOn = aboutFollowUpsOn,
             singBackend = singBackend,
+            singModel = singModel,
         ),
         onDownload = processor::downloadNow,
         onCheckAgain = processor::checkNow,
         onLyricsChange = processor::setOptedIn,
         onGreetingsChange = processor::setGreetingsEnabled,
         onAboutFollowUpsChange = processor::setAboutFollowUpsEnabled,
+        onDownloadSingModel = singManager::downloadNow,
+        onRemoveSingModel = singManager::removeModel,
         onOpenDiagnostics = {
             context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
         },
@@ -81,7 +91,9 @@ internal fun ExperimentalFeaturesSection(modifier: Modifier = Modifier) {
 @Composable
 internal fun LabsPageContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val processor = (context.applicationContext as YoinApplication).container.lyricHighlightProcessor
+    val container = (context.applicationContext as YoinApplication).container
+    val processor = container.lyricHighlightProcessor
+    val singManager = container.singModelManager
     val status by processor.status.collectAsState()
     val downloading by processor.downloading.collectAsState()
     val reason by processor.unavailableReason.collectAsState()
@@ -89,7 +101,11 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     val greetingsOn by processor.greetingsEnabled.collectAsState()
     val aboutFollowUpsOn by processor.aboutFollowUpsEnabled.collectAsState()
     val singBackend by SingAcceleratorReport.get(context).last.collectAsState()
-    LaunchedEffect(processor) { processor.checkNow() }
+    val singModel by singManager.state.collectAsState()
+    LaunchedEffect(processor, singManager) {
+        processor.checkNow()
+        singManager.refresh()
+    }
     LabsPageBody(
         state = LabsState(
             nano = if (downloading) NanoStatus.DOWNLOADING else status,
@@ -100,12 +116,15 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
             greetingsOn = greetingsOn,
             aboutFollowUpsOn = aboutFollowUpsOn,
             singBackend = singBackend,
+            singModel = singModel,
         ),
         onDownload = processor::downloadNow,
         onCheckAgain = processor::checkNow,
         onLyricsChange = processor::setOptedIn,
         onGreetingsChange = processor::setGreetingsEnabled,
         onAboutFollowUpsChange = processor::setAboutFollowUpsEnabled,
+        onDownloadSingModel = singManager::downloadNow,
+        onRemoveSingModel = singManager::removeModel,
         onOpenDiagnostics = {
             context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
         },
@@ -122,6 +141,8 @@ internal data class LabsState(
     val aboutFollowUpsOn: Boolean = false,
     /** What on-device Sing's last session ran on; null until it has run a chunk. */
     val singBackend: SingBackendRun? = null,
+    /** Full Lyra-Sing-Lite model distribution, download, and Tensor TPU easter egg state. */
+    val singModel: SingModelOverview? = null,
 )
 
 /** The standalone Labs page body, stateless, so the Tips demo can show the real thing. */
@@ -137,6 +158,8 @@ internal fun LabsPageBody(
     onOpenDiagnostics: (() -> Unit)? = null,
     onGreetingsChange: ((Boolean) -> Unit)? = null,
     onAboutFollowUpsChange: ((Boolean) -> Unit)? = null,
+    onDownloadSingModel: (() -> Unit)? = null,
+    onRemoveSingModel: (() -> Unit)? = null,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text(
@@ -154,6 +177,8 @@ internal fun LabsPageBody(
             onOpenDiagnostics = onOpenDiagnostics,
             onGreetingsChange = onGreetingsChange,
             onAboutFollowUpsChange = onAboutFollowUpsChange,
+            onDownloadSingModel = onDownloadSingModel,
+            onRemoveSingModel = onRemoveSingModel,
         )
     }
 }
@@ -173,6 +198,8 @@ internal fun ExperimentalFeaturesGroup(
     onOpenDiagnostics: (() -> Unit)? = null,
     onGreetingsChange: ((Boolean) -> Unit)? = null,
     onAboutFollowUpsChange: ((Boolean) -> Unit)? = null,
+    onDownloadSingModel: (() -> Unit)? = null,
+    onRemoveSingModel: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val nanoHere = state.nano != null && state.nano != NanoStatus.UNAVAILABLE
@@ -212,16 +239,25 @@ internal fun ExperimentalFeaturesGroup(
                     },
                 )
             }
-            state.singBackend?.let { run ->
-                // Once Sing has run a chunk anywhere: the backend (and any fallback), the build and SoC.
-                // Technical labels (SingBackendLabel), not translated.
+            if (state.singModel != null) {
                 item {
-                    SettingsItem(
-                        icon = YoinSymbols.Mic,
-                        title = stringResource(R.string.np_sing),
-                        summary = SingBackendLabel.summary(run),
-                        summaryDetail = SingBackendLabel.detail(run),
+                    LyraSingLabsRow(
+                        overview = state.singModel,
+                        onDownload = { onDownloadSingModel?.invoke() },
+                        onRemove = { onRemoveSingModel?.invoke() },
                     )
+                }
+            } else {
+                state.singBackend?.let { run ->
+                    // Fallback for isolated previews/harnesses that pass only singBackend.
+                    item {
+                        SettingsItem(
+                            icon = YoinSymbols.Mic,
+                            title = stringResource(R.string.np_sing),
+                            summary = SingBackendLabel.summary(run),
+                            summaryDetail = SingBackendLabel.detail(run),
+                        )
+                    }
                 }
             }
             if (onOpenDiagnostics != null) {

@@ -429,6 +429,20 @@
     <string name="labs_nano_download">Download model</string>
     <string name="labs_nano_check_again">Check again</string>
     <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
+    <string name="labs_sing_model_name" translatable="false">Lyra Sing</string>
+    <string name="labs_sing_ready">Ready on this device · %1$s</string>
+    <string name="labs_sing_not_downloaded">Not downloaded yet (~%1$s)</string>
+    <string name="labs_sing_downloading">Downloading model… %1$d%%</string>
+    <string name="labs_sing_checking">Checking local model…</string>
+    <string name="labs_sing_download">Download</string>
+    <string name="labs_sing_remove">Remove</string>
+    <string name="labs_sing_download_failed">Download failed: %1$s</string>
+    <string name="labs_sing_tpu_badge" translatable="false">Tensor TPU</string>
+    <string name="labs_sing_tpu_egg_1">Dedicated Tensor silicon active — vocals and backing on separate express lanes.</string>
+    <string name="labs_sing_tpu_egg_2">Ahead-of-time compiled for Tensor TPU — separating before the next beat lands.</string>
+    <string name="labs_sing_tpu_egg_3">2.97-second spectrograms fly through the TPU while your CPU barely wakes up.</string>
+    <string name="labs_sing_tpu_egg_4">A small love letter to Pixel Tensor — you found the hidden silicon easter egg.</string>
+    <string name="labs_sing_tpu_egg_hint">Tap to pulse TPU</string>
     <string name="labs_features_section">Experimental features</string>
     <string name="labs_lyrics_detail">Show lyrics picked on this device on Home, and tap to play</string>
     <string name="labs_greetings_title">Home greeting</string>

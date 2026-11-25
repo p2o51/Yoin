@@ -15761,6 +15761,76 @@
           }
         }
       }
+    },
+    "Checking local model…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查本机模型…"
+          }
+        }
+      }
+    },
+    "Not downloaded yet (~%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未下载（约 %@）"
+          }
+        }
+      }
+    },
+    "Downloading model… %lld%%": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载模型… %lld%%"
+          }
+        }
+      }
+    },
+    "Ready on this device · %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机已就绪 · %@"
+          }
+        }
+      }
+    },
+    "Download failed: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载失败：%@"
+          }
+        }
+      }
+    },
+    "Download model": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载模型"
+          }
+        }
+      }
+    },
+    "Remove model": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除模型"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
