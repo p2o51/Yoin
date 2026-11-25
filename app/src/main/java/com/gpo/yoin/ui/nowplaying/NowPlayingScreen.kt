@@ -1555,7 +1555,7 @@ private fun CompactPlayingContent(
         }
         val focusIdleEligible = stageMode == NowPlayingStageMode.Immersive && focusKeepsList &&
             state.isPlaying && hasSyncedLyrics
-        LaunchedEffect(focusIdleEligible) { focusIdle.track(focusIdleEligible, FocusIdleMs) }
+        LyricToolsIdleEffect(focusIdle, focusIdleEligible, FocusIdleMs)
         val focusIdleProgress by animateFloatAsState(
             targetValue = if (focusIdleEligible && focusIdle.idle) 1f else 0f,
             animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -1656,7 +1656,7 @@ private fun CompactPlayingContent(
             selectingLines = lyricsSelection.active,
             singEnabled = portraitSingEnabled,
         )
-        LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+        LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
         // Once the expanded Lyrics pane leaves composition (back to Compact/Focus, or
         // paged away to Note where HorizontalPager discards page 0's LazyListState),
         // restore auto-scroll so re-entering expanded Lyrics lands on the playing line
@@ -1677,11 +1677,7 @@ private fun CompactPlayingContent(
                 pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
             onMessage = onLyricsMessage,
         )
-        val lyricToolsAlpha by animateFloatAsState(
-            targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-            animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-            label = "lyricToolsAlpha",
-        )
+        val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "lyricToolsAlpha")
         // Bottom tools collapse their slot when they move up (16:9) or step
         // away (idle): the title sinks to where the tools' bottom edge was and
         // the lyrics grow into the space.
@@ -1771,6 +1767,7 @@ private fun CompactPlayingContent(
                     }
                 },
                 iconSize = iconSize,
+                idle = lyricToolsIdle,
             )
         }
 
@@ -2718,18 +2715,14 @@ private fun WidePlayingContent(
         selectingLines = lyricsSelection.active,
         singEnabled = dualSingEnabled,
     )
-    LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
     LyricsSelectionHost(
         state = state,
         selection = lyricsSelection,
         lyricsPageOnScreen = pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
         onMessage = onLyricsMessage,
     )
-    val lyricToolsAlpha by animateFloatAsState(
-        targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-        label = "wideLyricToolsAlpha",
-    )
+    val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "wideLyricToolsAlpha")
     // Focus at ease, as in the single column and landscape (owner 2026-11-05;
     // the tablet kept its buttons, owner 2026-11-08 「聚焦模式 3 秒之后按键还是
     // 显示的」): FocusIdleMs without a touch while synced lyrics play, the
@@ -2737,7 +2730,7 @@ private fun WidePlayingContent(
     val focusIdle = rememberLyricToolsIdleState()
     val wideFocusIdleEligible = stageMode == NowPlayingStageMode.Immersive &&
         state.isPlaying && hasSyncedLyrics && !lyricsSelection.active
-    LaunchedEffect(wideFocusIdleEligible) { focusIdle.track(wideFocusIdleEligible, FocusIdleMs) }
+    LyricToolsIdleEffect(focusIdle, wideFocusIdleEligible, FocusIdleMs)
     val focusIdleProgress by animateFloatAsState(
         targetValue = if (wideFocusIdleEligible && focusIdle.idle) 1f else 0f,
         animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -3239,6 +3232,7 @@ private fun WidePlayingContent(
                                             },
                                             onEditLyricsClick = { showApplyDialog = true },
                                             onMessage = onLyricsMessage,
+                                            idle = lyricToolsIdle,
                                         )
                                         NowPlayingDetailPage.About -> AskGeminiBar(
                                             askState = askState,
@@ -3462,7 +3456,7 @@ private fun LandscapePlayingContent(
         selectingLines = lyricsSelection.active,
         singEnabled = landscapeSingEnabled,
     )
-    LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
     val expandedMounted = expanded || detailProgress > HiddenLayerVisibilityThreshold
     LaunchedEffect(expandedMounted) {
         if (!expandedMounted) lyricsAutoScroll = true
@@ -3470,13 +3464,9 @@ private fun LandscapePlayingContent(
     LaunchedEffect(pagerState.settledPage) {
         if (pagerState.settledPage == NowPlayingDetailPage.Note.ordinal) lyricsAutoScroll = true
     }
-    val lyricToolsAlpha by animateFloatAsState(
-        targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-        label = "landscapeLyricToolsAlpha",
-    )
+    val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "landscapeLyricToolsAlpha")
     val focusIdleEligible = inFocus && state.isPlaying && hasSyncedLyrics
-    LaunchedEffect(focusIdleEligible) { focusIdle.track(focusIdleEligible, FocusIdleMs) }
+    LyricToolsIdleEffect(focusIdle, focusIdleEligible, FocusIdleMs)
     val focusIdleProgress by animateFloatAsState(
         targetValue = if (focusIdleEligible && focusIdle.idle) 1f else 0f,
         animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -4054,6 +4044,7 @@ private fun LandscapePlayingContent(
                                 onEditLyricsClick = { showApplyDialog = true },
                                 onMessage = onLyricsMessage,
                                 iconSize = ShortTabToolSize,
+                                idle = lyricToolsIdle,
                                 modifier = actionsModifier
                                     // Idle: they fade in place; a blind tap
                                     // there only brings them back.

@@ -39,8 +39,8 @@ function accountCard(a, dark) {
 function accountRow(a, dark, sel) {
   return `<div class="srow acc ${sel ? 'sel' : ''}" style="${svcVars(a.svc, dark)}">${svcAvatar(a, 40, dark)}<span class="col"><b class="ell">${a.name}</b><span class="ell">${a.host ? `${a.host}<i></i>` : ''}${a.scope}</span>${a.active ? '<span class="inuse">In use</span>' : ''}</span>${ic('more_vertical', 20)}</div>`;
 }
-function srow(icon, title, sub, { trail = '', sel = false, chevron = false } = {}) {
-  return `<div class="srow ${sel ? 'sel' : ''}"><span class="sr-ic">${ic(icon, 24)}</span><span class="col"><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</span>${trail}${chevron ? ic('chevron_right', 24, 'sr-ch') : ''}</div>`;
+function srow(icon, title, sub, { trail = '', sub2 = '', sel = false, chevron = false } = {}) {
+  return `<div class="srow ${sel ? 'sel' : ''}"><span class="sr-ic">${ic(icon, 24)}</span><span class="col"><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}${sub2 ? `<span>${sub2}</span>` : ''}</span>${trail}${chevron ? ic('chevron_right', 24, 'sr-ch') : ''}</div>`;
 }
 function sgroup(title, rows, end = '') { return `<section class="sgrp">${title ? `<h3><span>${title}</span>${end ? `<small>${end}</small>` : ''}</h3>` : ''}<div class="sseg">${rows.join('')}</div></section>`; }
 const meta = (...g) => g.map((x, i) => (i ? `<i>${x}</i>` : x)).join('');
@@ -59,7 +59,37 @@ function settingsList(dark, sel, links) {
   return `${sHead('Settings')}<section class="sgrp"><h3><span>Accounts</span><small>4 of 5</small></h3><div class="sseg">${ACCOUNTS.map((a) => accountRow(a, dark, sel === 'account' && a.active)).join('')}${srow('add', 'Add account', '')}</div></section>${rootGroups({ chevron: true, sel, links })}`;
 }
 function switchEl(on) { return `<span class="sw ${on ? 'on' : ''}"><i>${on ? ic('check', 16) : ''}</i></span>`; }
-function settingsPage(page, dark, { links = true } = {}) {
+function tensorDieSvg() {
+  const N = 25, m = 11, span = 100 - m * 2, step = span / (N - 1), r = step * 0.27;
+  let dots = '';
+  for (let row = 0; row < N; row++) for (let col = 0; col < N; col++) {
+    if (col >= 6 && col <= 18 && row >= 7 && row <= 17) continue;
+    dots += `<circle cx="${(m + col * step).toFixed(2)}" cy="${(m + row * step).toFixed(2)}" r="${r.toFixed(2)}" fill="rgba(255,255,255,.88)"/>`;
+  }
+  return `<svg class="t-die-svg" viewBox="0 0 100 100" aria-hidden="true">${dots}</svg>`;
+}
+function settingsPage(page, dark, { links = true, labs = 'ready' } = {}) {
+  if (page === 'labs') {
+    // LabsPage.kt / SingLabsRow.kt + strings_settings.xml (values / values-zh-rCN), 0.6.3 (33)
+    const sing = labs !== 'was';
+    const rows = [
+      srow('sparkle', 'Gemini Nano', loc('Ready on this device', '本机已就绪')),
+      ...(sing ? [srow('mic', 'Lyra Sing', loc('Ready on this device (12.2 MB)', '本机已就绪（12.2 MB）'), {
+        sub2: loc('Optimized for Google Tensor G6', '已为 Google Tensor G6 优化'),
+        trail: `<button type="button" class="s-tbtn">${loc('Remove', '删除')}</button>`,
+      })] : []),
+      srow('insights', loc('Gemini Nano diagnostics', 'Gemini Nano 诊断'), loc('Check model availability and run a test', '查看本机模型状态与运行测试'), { chevron: true }),
+      srow('music_note', loc('Lyric Cards', '歌词卡片'), loc('Show lyrics picked on this device on Home, and tap to play', '在首页显示本机挑出的歌词，轻点播放'), { trail: switchEl(true) }),
+      srow('light_mode', loc('Home greeting', '首页问候'), loc('Generate greetings based on recent activity', '根据最近状态生成问候语'), { trail: switchEl(true) }),
+      srow('sparkle', loc('Suggested questions', '推荐追问'), loc('Follow-up questions from About', '在「关于」里根据正文给出追问'), { trail: switchEl(true) }),
+    ];
+    return `${sHead('Yoin Labs')}<p class="s-intro">${loc("Experimental features we're trying out. They may change or be removed.", '正在尝试的实验性功能，之后可能会调整或移除。')}</p>${sgroup(loc('Experimental features', '实验功能'), rows)}`;
+  }
+  if (page === 'tensor') {
+    return `<div class="t-egg"><span class="ad-back t-back">${ic('back', 22)}</span>` +
+      `<div class="t-die">${tensorDieSvg()}<span class="t-code">G6</span></div>` +
+      `<b>Google Tensor G6</b><small>Lyra Sing</small></div>`;
+  }
   if (page === 'links') {
     // strings_open_in.xml (values / values-zh-rCN), Rebecca 2026-11-24
     return `${sHead(loc('Music links', '音乐链接'))}<section class="sgrp"><div class="sseg">${srow('link', loc('Detect music links in clipboard', '识别剪贴板中的音乐链接'), loc('Checks the clipboard only when you open Yoin. Only looks for music links; nothing else is uploaded or saved.', '仅在打开 Yoin 时检查剪贴板，只识别音乐链接，其他内容不会上传或保存。'), { trail: switchEl(links) })}</div></section>` +

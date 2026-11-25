@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -347,6 +348,26 @@ class HomeSnapshotStoreTest {
             includes.item(index).attributes.getNamedItem("domain").nodeValue
         }
         assertEquals(setOf("database", "sharedpref"), domains.toSet())
+    }
+
+    @Test
+    fun should_omitDefaultFieldsAndStayReadableByLegacyTreeDecoder_when_savingSnapshot() = runTest {
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SUBSONIC) { feed("Morning") }
+        settle()
+
+        val raw = fileOf(PROFILE).readText()
+        assertFalse("default empty shelves should not be serialized: $raw", raw.contains("\"recentlyPlayed\""))
+        val legacyJson = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
+        }
+        val decodedByLegacy = legacyJson.decodeFromJsonElement(
+            HomeSnapshotFileDto.serializer(),
+            legacyJson.parseToJsonElement(raw),
+        )
+        assertEquals(feed("Morning"), decodedByLegacy.feed)
     }
 
     private companion object {

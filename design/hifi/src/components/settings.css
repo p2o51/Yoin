@@ -66,3 +66,15 @@
 .s-empty svg { width: 148px; height: 148px; fill: none; stroke: var(--outlineVariant); stroke-width: 2; }
 .s-empty path { vector-effect: non-scaling-stroke; }
 .s-hero .mut { font-style: normal; }
+/* Labs & Tensor chip easter egg */
+.s-title:has(+ .s-intro) { margin-bottom: 16px; }
+.s-intro { margin: 0 8px 20px; font-size: 14px; line-height: 20px; color: var(--onSurfaceVariant); }
+.s-tbtn { height: 40px; padding: 0 12px; border: 0; border-radius: 20px; background: none; color: var(--primary); font-size: 14px; font-weight: 500; flex: none; }
+.t-egg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 44%, #151923, #07080b 74%); color: rgba(255,255,255,.86); padding: 24px; }
+.t-back { position: absolute; top: calc(var(--top) + 12px); left: 20px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.88); }
+.t-die { position: relative; width: 276px; height: 276px; border-radius: 8px; background: linear-gradient(135deg, #c8d0dc 0%, #838e9e 22%, #0e1219 44%, #07090d 56%, #232a36 74%, #8e98a8 90%, #c0c9d6 100%); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.42), 0 24px 64px rgba(159,180,212,.14); display: grid; place-items: center; }
+.t-die-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.t-code { position: relative; font-family: 'Google Sans Flex', sans-serif; font-weight: 800; font-size: 59px; letter-spacing: -1.2px; color: #f5f7fb; line-height: 1; }
+.t-egg > b { margin-top: 40px; font-family: 'Google Sans Flex', sans-serif; font-size: 16px; line-height: 24px; font-weight: 500; letter-spacing: .2px; color: rgba(255,255,255,.86); }
+.t-egg > small { margin-top: 6px; font-family: 'Google Sans Flex', sans-serif; font-size: 12px; line-height: 16px; color: rgba(255,255,255,.42); }
+.device:has(.t-egg) .sys-status, .device:has(.t-egg) .sys-nav { color: #e2e2e8; --onSurface: #e2e2e8; }

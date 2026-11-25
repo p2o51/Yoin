@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,10 +21,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
@@ -263,8 +266,13 @@ internal fun LyricsTools(
     // lyrics page first (select mode lives there).
     onBeforeSelect: () -> Unit = {},
     iconSize: Dp = 52.dp,
+    // The auto-hide's count (design.md 自动沉浸): faded all the way out, the
+    // keys drop their hit area and semantics; a key holding input focus keeps
+    // the tools from stepping away.
+    idle: LyricToolsIdleState? = null,
 ) {
     val resources = LocalContext.current.resources
+    val toolsHidden by remember(idle) { derivedStateOf { idle?.hidden == true } }
     val copyLyrics = rememberCopyLyrics(onMessage)
     val haptics = rememberYoinHaptics()
     // Action light (ActionGlow.kt): copied or shared lyrics light a band over the lines.
@@ -285,7 +293,9 @@ internal fun LyricsTools(
         },
         contentAlignment = Alignment.CenterStart,
         label = "lyricsTools",
-        modifier = modifier,
+        modifier = modifier
+            .then(if (idle != null) Modifier.onFocusChanged { idle.holdAwake(it.hasFocus) } else Modifier)
+            .then(if (toolsHidden) Modifier.clearAndSetSemantics {} else Modifier),
     ) { selecting ->
         if (selecting) {
             LyricsSelectionBar(
@@ -341,6 +351,7 @@ internal fun LyricsTools(
                 },
                 onRecenterClick = onRecenterClick,
                 iconSize = iconSize,
+                interactive = !toolsHidden,
             )
         }
     }
