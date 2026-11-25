@@ -17,7 +17,7 @@ Each page has a switcher bar with three widths (Phone 412, Tablet 800 = Medium, 
 | `lyrics.html` | `translate`, `state` following / scrolled away / select, `sing` (off / on; `none` = the four-key tool row before 0.6.3 (32)), `cover` |
 | `notes-editor.html` | `surface` NP write bar / album sticky, `query` none / `@` / `@Ni` / `@lj` (pinyin initials) — the popup is placed by measuring the drawn page (mentionPopupOffset) |
 | `memories.html` | `view` card / diary / All Memories / Rediscover (Home shelf), `ledger` timeline / cards / list, `card` |
-| `settings.html` | `page` root / Music links / Subsonic account / Sync and backups, `links` (clipboard detection) |
+| `settings.html` | `page` root / Labs / Tensor / Music links / Subsonic account / Sync and backups, `labs` (Lyra Sing / Before 0.6.3 (33)), `links` (clipboard detection) |
 
 ```
 build.mjs              node design/hifi/build.mjs  →  dist/<page>.html (inline + minified; fails if a page is over 200 KiB)
