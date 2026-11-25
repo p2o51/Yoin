@@ -409,12 +409,13 @@ val robolectricAndroidAllVersions = mapOf(
     27 to "8.1.0-robolectric-4611349",
     34 to "14-robolectric-10818077",
     35 to "15-robolectric-13954326",
-    36 to "16-robolectric-13921718",
+    36 to "16-robolectric-13921718"
 ).mapValues { (_, version) -> "$version-i7" }
 
 check(libs.versions.robolectric.get() == robolectricVersion) {
-    "Robolectric is now ${libs.versions.robolectric.get()}: update robolectricVersion and robolectricAndroidAllVersions " +
-        "in app/build.gradle.kts from that release's org.robolectric.plugins.DefaultSdkProvider."
+    "Robolectric is now ${libs.versions.robolectric.get()}: update robolectricVersion and " +
+        "robolectricAndroidAllVersions in app/build.gradle.kts from that release's " +
+        "org.robolectric.plugins.DefaultSdkProvider."
 }
 
 // One configuration per SDK: in a shared one, Gradle's conflict resolution would keep only the newest version.
@@ -455,7 +456,7 @@ val robolectricDeps = tasks.register<RobolectricDepsProperties>("robolectricDeps
 class RobolectricDepsArgument(
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    val depsFile: Provider<RegularFile>,
+    val depsFile: Provider<RegularFile>
 ) : CommandLineArgumentProvider {
     override fun asArguments() = listOf("-Drobolectric-deps.properties=${depsFile.get().asFile.absolutePath}")
 }
