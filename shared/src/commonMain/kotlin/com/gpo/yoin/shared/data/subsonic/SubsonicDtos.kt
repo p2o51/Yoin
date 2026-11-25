@@ -114,6 +114,26 @@ internal data class AlbumDto(
     val releaseTypes: List<String> = emptyList(),
     /** OpenSubsonic: the release's version ("Deluxe", "全景声"), from the files' ALBUMVERSION tag. */
     val version: String? = null,
+    /** OpenSubsonic: this release's date (RELEASEDATE tag), as far as the tags give it. */
+    val releaseDate: ItemDateDto? = null,
+    /** OpenSubsonic: the original release's date (ORIGINALDATE tag). */
+    val originalReleaseDate: ItemDateDto? = null,
+    /** OpenSubsonic: the record labels (LABEL / PUBLISHER tags); absent on older servers. */
+    val recordLabels: List<RecordLabelDto> = emptyList(),
+)
+
+/** OpenSubsonic ItemDate: every part optional (Navidrome sends `{}` or just a year when that's all it has). */
+@Serializable
+internal data class ItemDateDto(
+    val year: Int? = null,
+    val month: Int? = null,
+    val day: Int? = null,
+)
+
+/** OpenSubsonic RecordLabel: just its name. */
+@Serializable
+internal data class RecordLabelDto(
+    val name: String? = null,
 )
 
 @Serializable
