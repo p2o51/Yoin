@@ -101,6 +101,7 @@ class BackdropCover extends ConsumerWidget {
     required this.size,
     this.requestSize = HomeCoverRequest.standard,
     this.markAlbum,
+    this.mark,
   });
 
   final CoverRef? cover;
@@ -111,6 +112,10 @@ class BackdropCover extends ConsumerWidget {
   /// The album whose memory mark the cover wears (home_album_memory_mark.dart),
   /// on the cover's own footprint, pressed with it; null = a bare cover.
   final MediaId? markAlbum;
+
+  /// A mark given outright instead of Home's ([markAlbum]): Library search's,
+  /// read from the memory ledger. Null with [markAlbum] null = a bare cover.
+  final HomeAlbumMemoryMark? mark;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -140,7 +145,7 @@ class BackdropCover extends ConsumerWidget {
             Align(
               alignment: AlignmentDirectional.bottomEnd,
               child: _PressedArtwork(
-                child: markAlbum == null
+                child: markAlbum == null && mark == null
                     ? HomeArtwork(image: image, kind: kind, size: artworkSide)
                     : Stack(
                         clipBehavior: Clip.none,
@@ -150,11 +155,13 @@ class BackdropCover extends ConsumerWidget {
                           PositionedDirectional(
                             top: -HomeTokens.memoryMarkLift,
                             end: 0,
-                            child: AlbumMemoryMarkSlot(
-                              album: markAlbum!,
-                              coverUrl: image?.url,
-                              coverImage: image?.image,
-                            ),
+                            child: markAlbum == null
+                                ? AlbumMemoryMarkSticker(mark: mark, coverUrl: image?.url, coverImage: image?.image)
+                                : AlbumMemoryMarkSlot(
+                                    album: markAlbum!,
+                                    coverUrl: image?.url,
+                                    coverImage: image?.image,
+                                  ),
                           ),
                         ],
                       ),

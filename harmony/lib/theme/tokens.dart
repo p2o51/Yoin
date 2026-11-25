@@ -1293,6 +1293,84 @@ abstract final class SearchTokens {
   /// SectionHeader: padding above / below.
   static const double sectionHeaderTop = 18;
   static const double sectionHeaderBottom = 6;
+
+  /// The All page (owner 2026-11-20, #Yoin:#18): each section shows at most
+  /// this many rows of Home-style tiles, of which at most [allMaxWide] are 1×2
+  /// (a note or memory beside its cover). Counts, not lengths (ALL_MAX_ROWS / ALL_MAX_WIDE).
+  static const int allMaxRows = 4;
+  static const int allMaxWide = 3;
+
+  // The tiles (Android LibrarySearchTiles.kt; Dart-only until the Kotlin side takes them).
+
+  /// Between tiles in a row, and under each row (TileGap / TileRowGap).
+  static const double tileGap = 12;
+  static const double tileRowGap = 16;
+
+  /// The tiled pages' side margin and top padding.
+  static const double tilePageSide = 16;
+  static const double tilePageTop = 8;
+
+  /// A section header's end inset (its Show all carries its own padding) and Show all's padding.
+  static const double tileHeaderEnd = 4;
+  static const double showAllPaddingH = 12;
+  static const double showAllPaddingV = 6;
+
+  /// Cover → caption, and the words' top inset beside a 1×2's cover.
+  static const double tileCaptionGap = 6;
+  static const double tileSideTop = 2;
+  static const double tileSideSpacing = 2;
+
+  /// Lines of a note or memory's words: in All's 1×2, and in the Memories list.
+  static const int tileTextLines = 4;
+  static const int memoriesTextLines = 6;
+
+  /// The memory mark beside a title (a Spotify cover wears none) and beside a 1×2's score.
+  static const double inlineMarkSize = 12;
+  static const double inlineMarkGap = 4;
+  static const double sideMarkSize = 16;
+  static const double sideMarkGap = 6;
+  static const double inlineMarkStroke = 1.25;
+  static const double inlineMarkDash = 2;
+  static const double inlineMarkDashGap = 1.5;
+
+  /// Another account's light badge.
+  static const double otherAccountBadge = 8;
+  static const double otherAccountBadgeGap = 4;
+
+  /// "N less relevant from …": its card.
+  static const double foldedCorner = 16;
+  static const double foldedTop = 12;
+  static const double foldedPaddingH = 14;
+  static const double foldedPaddingV = 10;
+
+  /// The best-match card.
+  static const double bestCorner = 28;
+  static const double bestMarginTop = 8;
+  static const double bestMarginBottom = 4;
+  static const double bestPadding = 16;
+  static const double bestArt = 104;
+  static const double bestTextStart = 16;
+  static const double bestMemoryTop = 6;
+
+  /// Memories with nothing matching: the empty line's padding.
+  static const double memoriesEmptyPadding = 24;
+
+  /// The All page's columns past a phone: the Library grid's smallest cell
+  /// (landscape handset: [tileMinCellCompactHeight]), between 3 and [tileMaxColumns].
+  static const double tileMinCell = 96;
+  static const double tileMinCellCompactHeight = 100;
+  static const int tileMinColumns = 3;
+  static const int tileMaxColumns = 8;
+
+  /// The marker-pen ink under a hit, as fractions of the line's height.
+  static const double markerOverhang = 0.12;
+  static const double markerTopStart = 0.40;
+  static const double markerTopEnd = 0.34;
+  static const double markerBottomEndInset = 0.04;
+  static const double markerBottomEnd = 0.06;
+  static const double markerBottomStartInset = 0.05;
+  static const double markerBottomStart = 0.02;
+  static const double markerStroke = 0.10;
 }
 
 /// Settings' account list (HarmonyOS v1; the Kotlin side has no Settings

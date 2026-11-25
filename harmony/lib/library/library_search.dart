@@ -4,11 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/search/memory_search.dart';
+import '../data/search/search_filter.dart';
 import '../data/source/music_source.dart';
+import 'library_search_memories.dart';
 
-/// Search type chips (Android LibrarySearchFilter). Playlists only with
-/// Capability.searchPlaylists, which Subsonic lacks.
-enum LibrarySearchFilter { all, artists, albums, songs, playlists }
+/// Search type chips (Android LibrarySearchFilter, :shared SearchFilter), in
+/// chip order: All, Songs, Albums, Memories, Artists, Playlists. Playlists
+/// only with Capability.searchPlaylists, which Subsonic lacks.
+typedef LibrarySearchFilter = SearchFilter;
 
 /// Where a search looks (Android LibrarySearchScope): the user's library, or
 /// the service's whole catalogue (Apple Music) where it has one.
@@ -19,13 +23,11 @@ enum LibrarySearchScope { library, catalog }
 /// type, so the row doesn't reshuffle as results land. Playlists need
 /// Capability.searchPlaylists, and inside the library the library must hold
 /// playlists (Capability.playlistsRead).
-List<LibrarySearchFilter> searchFiltersFor(Set<Capability> capabilities, LibrarySearchScope scope) => [
-  for (final f in LibrarySearchFilter.values)
-    if (f != LibrarySearchFilter.playlists ||
-        (capabilities.contains(Capability.searchPlaylists) &&
-            (scope != LibrarySearchScope.library || capabilities.contains(Capability.playlistsRead))))
-      f,
-];
+List<LibrarySearchFilter> searchFiltersFor(Set<Capability> capabilities, LibrarySearchScope scope) => searchFilters(
+  canSearchPlaylists: capabilities.contains(Capability.searchPlaylists),
+  canReadPlaylists: capabilities.contains(Capability.playlistsRead),
+  savedLibrary: scope == LibrarySearchScope.library,
+);
 
 /// What a song row says after Add to library (Android LibraryActionFeedback).
 enum LibraryAddFeedback { added, pending, failed }
@@ -45,9 +47,22 @@ final class LibrarySearchState {
     this.adding = const {},
     this.feedback = const {},
     this.addFailures = const {},
+    this.searched = '',
+    this.memories = MemorySearchMatches.empty,
+    this.ledger = MemorySearchSnapshot.empty,
   });
 
   final String query;
+
+  /// The query last searched (trimmed): what [memories] answer, and [results] once they land.
+  final String searched;
+
+  /// The listener's notes and memories [searched] met, every account's
+  /// (#Yoin:#18). Local: they land before the service answers.
+  final MemorySearchMatches memories;
+
+  /// The ledger they came from: the memories kept on the returned albums are read from it.
+  final MemorySearchSnapshot ledger;
 
   /// null = nothing searched yet (or cleared).
   final SearchResults? results;
@@ -95,6 +110,9 @@ final class LibrarySearchState {
     Set<MediaId>? adding,
     Map<MediaId, LibraryAddFeedback>? feedback,
     Map<MediaId, Object>? addFailures,
+    String? searched,
+    MemorySearchMatches? memories,
+    MemorySearchSnapshot? ledger,
   }) => LibrarySearchState(
     query: query ?? this.query,
     results: clearResults ? null : (results ?? this.results),
@@ -107,6 +125,9 @@ final class LibrarySearchState {
     adding: adding ?? this.adding,
     feedback: feedback ?? this.feedback,
     addFailures: addFailures ?? this.addFailures,
+    searched: searched ?? this.searched,
+    memories: memories ?? this.memories,
+    ledger: ledger ?? this.ledger,
   );
 }
 
@@ -141,7 +162,14 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
     if (trimmed.isEmpty) {
       _token++;
       _lastSearched = '';
-      state = state.copyWith(query: query, clearResults: true, isSearching: false, clearError: true);
+      state = state.copyWith(
+        query: query,
+        clearResults: true,
+        isSearching: false,
+        clearError: true,
+        searched: '',
+        memories: MemorySearchMatches.empty,
+      );
       return;
     }
     state = state.copyWith(query: query);
@@ -163,7 +191,13 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
     _timer?.cancel();
     _token++;
     _lastSearched = '';
-    final next = state.copyWith(scope: scope, clearResults: true, isSearching: false, clearError: true);
+    final next = state.copyWith(
+      scope: scope,
+      clearResults: true,
+      isSearching: false,
+      clearError: true,
+      memories: MemorySearchMatches.empty,
+    );
     state = next.copyWith(filter: next.filters.contains(next.filter) ? next.filter : LibrarySearchFilter.all);
     final query = state.query.trim();
     if (query.isNotEmpty) unawaited(_run(query));
@@ -182,7 +216,8 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
     final token = ++_token;
     _lastSearched = query;
     final scope = state.scope;
-    state = state.copyWith(isSearching: true, clearError: true);
+    state = state.copyWith(isSearching: true, clearError: true, searched: query, memories: MemorySearchMatches.empty);
+    unawaited(_searchLedger(query, token));
     try {
       final source = await ref.read(activeSourceProvider.future);
       // No account: Search failed, not a connectivity line.
@@ -203,6 +238,14 @@ class LibrarySearchNotifier extends Notifier<LibrarySearchState> {
       _lastSearched = '';
       state = state.copyWith(isSearching: false, error: error, clearResults: true);
     }
+  }
+
+  /// The ledger's answer for [query], every account's (Android
+  /// searchMemories): local, so it lands before the service's.
+  Future<void> _searchLedger(String query, int token) async {
+    final ledger = await ref.read(memorySearchPortProvider).read();
+    if (!ref.mounted || token != _token) return;
+    state = state.copyWith(memories: ledger.search(query), ledger: ledger);
   }
 
   /// Asks the library about the shown catalogue songs, a few at a time

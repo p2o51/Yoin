@@ -491,7 +491,7 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
     - 别的账号的先走现有的切换账号提示。
     - 首页 Jump Back In 的回忆 1×2 同样直接进剪贴簿，不再拉下卡组。
   - **实现**：
-    - 规则在 `:shared` 的 `search/`（parity p3）：`SearchMatch` 匹配、`MemorySearch` 读 ledger、`SearchPage` 分区与打包、`SearchFilter` 类型胶囊、`NoteOpenTarget` 点笔记去哪；iOS 经 `YoinMemorySearch` 调用，HarmonyOS 对 `memory-search.json` 金样移植。Android 的 `data/search/` 只把结果映射回自己的模型，`MemorySearchSource` 从 Room 读 ledger。
+    - 规则在 `:shared` 的 `search/`（parity p3）：`SearchMatch` 匹配、`MemorySearch` 读 ledger、`SearchPage` 分区与打包、`SearchFilter` 类型胶囊、`NoteOpenTarget` 点笔记去哪；iOS 经 `YoinMemorySearch` 调用，HarmonyOS 对 `memory-search.json` 金样移植（`harmony/lib/data/search/`，界面在 `harmony/lib/library/library_search_tiles.dart`）。Android 的 `data/search/` 只把结果映射回自己的模型，`MemorySearchSource` 从 Room 读 ledger。
     - `ui/library/LibrarySearchTiles.kt`。
 - 右上角是当前账号的头像，点开是和首页同一张账号切换卡片（`HomeAccountSwitcherHost`，没有「编辑首页」；owner 2026-10-13「资料库也要显示当前的账号」）；还没有账号时仍是 ⚙️ 设置入口
 - 筛选胶囊与下方网格 / 列表的交界用潮线（2026-10-04 取代 10-01 的曲线 C 网点；2026-09-29 起已取代硬截断）：交界处不盖任何渐变、模糊或色带；两道页面底色的波浪以遮罩形式把内容从交界处挖掉，图形沉进水线，文字在水线以下 10dp 内淡完、不拆成点。曲线 C 的顶部网点在快速滑动时挤成密排圆盘和针孔，有密恐感，所以上面默认用潮线，下面保留网点场；用户可在 设置 › Motion › Scroll edge 换成原版网点或曲奇浪口（见「溶解」一节）。胶囊下的固定间距只留 4dp，网格顶部内边距 8dp
