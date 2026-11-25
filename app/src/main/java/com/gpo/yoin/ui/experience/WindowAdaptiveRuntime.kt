@@ -142,10 +142,9 @@ data class YoinWindowInfo(
  * Tracked (compositionLocalOf), not static: a column re-provides it whenever
  * something gives width away — the Now Playing side panel opening or closing,
  * the detail column — and a static local recomposed the WHOLE column with
- * nothing skipped (every Home card, image and text) in that one frame — part
- * of the ~90ms frame where the side panel's close landed. Tracked, only what
- * reads the info recomposes. Structural equality: an equal copy invalidates
- * nothing.
+ * nothing skipped (every Home card, image and text) in that one frame, the
+ * heaviest of the panel's close. Tracked, only what reads the info
+ * recomposes. Structural equality: an equal copy invalidates nothing.
  */
 val LocalYoinWindowInfo = compositionLocalOf(structuralEqualityPolicy()) {
     YoinWindowInfo(

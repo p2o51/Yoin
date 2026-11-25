@@ -297,9 +297,6 @@ class NowPlayingPanelMotion {
 
 private val NoTravel: () -> Float = { 0f }
 
-/** What is left of a closing panel's inset when it counts as landed: under a pixel or two. */
-internal val PanelLandedSlop = 1.dp
-
 @Composable
 fun rememberNowPlayingPanelMotion(): NowPlayingPanelMotion = remember { NowPlayingPanelMotion() }
 
@@ -327,15 +324,16 @@ class NowPlayingPanelInset internal constructor(
     val isMoving: Boolean get() = base.value != baseTarget
 
     /**
-     * The panel still takes width from the content beside it: open, or
-     * closing with more than [PanelLandedSlop] of its inset left. The columns
-     * beside it re-tier back to their full width when this turns false — as
-     * the panel lands, not after the spring's sub-pixel tail, which held
-     * Home's narrow layout ~250ms past the panel's exit before it snapped.
-     * Snapshot read.
+     * The width the content beside the panel takes its layout tier from in a
+     * [windowWidth]-wide window: what is left beside the panel while it is
+     * open, the whole window from the moment a close is committed (owner
+     * 2026-11-25: the close re-tiers at its start, as the open does — the
+     * relayout lands under the panel's exit, not as a snap after it). A
+     * cancelled drag or back never closes the panel, so it never re-tiers.
+     * The live inset still moves on the spring, in the layout pass.
      */
-    val holdsWidth: Boolean
-        get() = panelOpen || base.value * (1f - frozenTravelFraction[0]) > PanelLandedSlop
+    fun restingWidthBeside(windowWidth: Dp): Dp =
+        (if (panelOpen) windowWidth - panelWidth else windowWidth).coerceAtLeast(0.dp)
 
     /**
      * A gesture is carrying the open panel (back preview, swipe-to-close), so
@@ -492,7 +490,7 @@ fun ProvideBesidePanelWindowInfo(panel: NowPlayingPanelInset, content: @Composab
     // Remembered so an unchanged column keeps the SAME instance (no copy to
     // compare on every recomposition).
     val besideInfo = remember(windowInfo, windowWidth, panel.panelOpen, panel.panelWidth) {
-        if (panel.panelOpen) windowInfo.forPaneWidth(windowWidth - panel.panelWidth) else windowInfo
+        if (panel.panelOpen) windowInfo.forPaneWidth(panel.restingWidthBeside(windowWidth)) else windowInfo
     }
     CompositionLocalProvider(
         LocalYoinWindowInfo provides besideInfo,

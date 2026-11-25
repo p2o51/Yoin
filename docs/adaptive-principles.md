@@ -95,7 +95,7 @@
 - 让位是可逆的、逐帧的：侧栏被手势带走多少，旁边内容就收回多少（`NowPlayingPanelMotion`），
   两者之间永远不露窗口底色；侧栏的圆角和阴影跟着侧栏容器一起走。
 - 档位怎么跟：**换档永远不发生在弹簧中途**（整块 section 重排一次要几百毫秒，落在弹簧里弹簧就跳帧）。
-  NP 侧栏在开始时就换档（按侧栏静止宽度算）；详情列打开时在点击那一帧换档、等帧率平稳后弹簧
+  NP 侧栏开和关都在开始时就换档（按侧栏静止宽度算；关 = 提交关闭的那一帧，2026-11-25 owner）；详情列打开时在点击那一帧换档、等帧率平稳后弹簧
   才起步（`DetailPaneState.requestColumn` / `awaitPrewarm`），关闭时等弹簧落定后才换回
   （`holdsColumn`）；把手拖动是手指驱动，按实时宽度换档（`rememberColumnWindowInfos`，
   `derivedStateOf` 只在跨断点那帧重组）。
@@ -103,8 +103,8 @@
   并在 prewarm 期间（列还在区域右缘外、被裁掉）完成首次布局，弹簧起步时页面已经建好，随列一起滑进来
   （`DetailPaneState.pageReady` 随 `requestColumn` 置位，`DetailColumnsLayout` 在 `holdsColumn` 时就测量列）。
   推入页的底栏 morph 仍跟页面 96dp 滑入同一拍起步（`slideReleased`）。
-- 侧栏关上时，旁边的栏（详情列、Memories）要等侧栏落地后才换回宽档（`holdsNpPanel` = `NowPlayingPanelInset.holdsWidth`：剩下的让位不到 1dp 就算落地，不等弹簧最后那段亚像素尾巴——那段尾巴让首页在侧栏走后还窄着停了约 250ms 才跳宽，2026-11-25）；开侧栏仍在开始时换档。
-  `LocalYoinWindowInfo` 是跟踪读取的 `compositionLocalOf`（结构相等），不是 static：换档时只有读档位的地方重组；static 会让整列（首页每张卡、封面、文字）一个不跳地全部重组，是侧栏关上落地那一帧（~90ms）的重活之一。
+- **2026-11-25 owner：侧栏关上也在开始时换档，和打开一样**（推翻 2026-11-12「关侧栏等弹簧落定才换回宽档」）。提交关闭的那一帧（拖动松手过阈值、预测返回提交、点关闭）旁边的栏（首页、详情列、Memories、详情页 Activity 里的页面）就按整窗宽度换档（`NowPlayingPanelInset.restingWidthBeside`，`panelOpen` 在提交时翻转），之后侧栏滑走、旁边的内容按实时宽度跟着变宽。原来等落定的做法让首页在侧栏走后还窄着停约 250ms，再在一帧里（~90ms）跳成宽档。重排放在提交那一帧、退场动画的时钟起步之前：动画从下一帧才记起点，所以那一帧再重也只是晚几帧起步，滑动本身是匀的；推到下一帧会正好落在记起点的那一帧上，第一步滑动跳一大截（JVM 测帧位置验证过）。拖动或预测返回取消（没过阈值、弹回）不关侧栏，`panelOpen` 不变，不换档。代价：专辑页在关侧栏的滑动途中就重新显示自己的封面（`LocalNowPlayingPanelBeside`），侧栏里同一张封面还在滑走。
+  `LocalYoinWindowInfo` 是跟踪读取的 `compositionLocalOf`（结构相等），不是 static：换档时只有读档位的地方重组；static 会让整列（首页每张卡、封面、文字）一个不跳地全部重组。
   关列时 Home 的 `homeCovered` 和 Memories 的底部留白跟随 `paneHasEntries`（列真正离开后才变），不在关列弹簧的首帧重排。
 - 宽度换档时首页的版块（「接着听」、Activities）原地一次换好，不再交叉淡化（淡化在点击那一帧把整页叠成重影）；
   同宽度下的模板 / 种子变化仍然淡化。

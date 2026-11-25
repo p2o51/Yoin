@@ -1310,16 +1310,13 @@ private fun YoinShell(
         // Column tiers come from the region at rest (window − a settled
         // panel); the live widths are the layout's (measure phase only).
         val windowWidth = rememberWindowWidthDp()
-        // The columns re-tier when the panel starts opening, but only after it
-        // has finished closing (the columns are then at rest at their new
-        // width): a page swapping to its wide layout mid-slide doubled the
-        // album cover and jumped (2026-11-12). Finished = landed (holdsWidth),
-        // not the spring's sub-pixel tail. Derived: flips twice, not per frame.
-        val holdsNpPanel by remember(npPanel) {
-            derivedStateOf { npPanel.holdsWidth }
-        }
-        val restingRegionWidth = (windowWidth - if (holdsNpPanel) npPanel.panelWidth else 0.dp)
-            .coerceAtLeast(0.dp)
+        // The columns re-tier at the START of the panel's open and of its
+        // close (owner 2026-11-25, reversing 2026-11-12's wait for the close
+        // spring to settle): the relayout lands in the commit frame, before
+        // the exit's clock starts, so the panel then slides out smoothly over
+        // the content already in its new tier — no snap after it has gone.
+        // A cancelled drag or back never closes the panel: no re-tier.
+        val restingRegionWidth = npPanel.restingWidthBeside(windowWidth)
         val columnWindowInfos = rememberColumnWindowInfos(restingRegionWidth, paneState, paneSplit)
         // Post-release settles have no touch boost: vote High while the
         // column or the panel beside it moves (ARR panels pace them at 60Hz).
