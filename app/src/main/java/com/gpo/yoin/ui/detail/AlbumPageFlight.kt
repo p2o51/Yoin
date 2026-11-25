@@ -57,10 +57,28 @@ internal class AlbumPageFlight(
     var coverTarget by mutableStateOf<Rect?>(null)
     var coverTargetTilt by mutableFloatStateOf(0f)
 
+    /** The pager's box (under the header), in content-box coordinates; null until placed. */
+    var pageViewport by mutableStateOf<Rect?>(null)
+
     /** Eased 0..1 page progress (0 = page 0 at rest). */
     fun t(): Float = pageFraction().coerceIn(0f, 1f)
 
-    fun coverFlying(): Boolean = flies() && coverTarget != null
+    /**
+     * Only to a scrapbook cover in view: scrolled down the scrapbook (to its receipt), its
+     * cover sits above the page, and flying there sent the hero up through the header and
+     * off the top of the screen (owner 2026-11-25). Then the cover slides away with page 0
+     * as it does under reduced motion, and the scrapbook keeps its own cover showing.
+     */
+    fun coverFlying(): Boolean {
+        val target = coverTarget ?: return false
+        return flies() && albumPageFlightLands(target, pageViewport)
+    }
+
+    /** Records the pager's box: the cover only flies to a target inside it ([coverFlying]). */
+    fun recordViewport(coordinates: LayoutCoordinates) {
+        val topLeft = coordinates.positionInRoot() - origin
+        pageViewport = Rect(topLeft, coordinates.size.toSize())
+    }
 
     /** [coordinates] of a page-[page] node, as its rect at rest in content-box coordinates. */
     fun restRect(coordinates: LayoutCoordinates, page: Int): Rect {
@@ -86,6 +104,20 @@ internal fun albumHeroPageFade(flight: AlbumPageFlight?): Float =
     if (flight == null || !flight.coverFlying()) 1f else (1f - flight.t() * 3.5f).coerceIn(0f, 1f)
 
 internal val LocalAlbumPageFlight = staticCompositionLocalOf<AlbumPageFlight?> { null }
+
+/**
+ * Whether the cover can land on [target]: wholly inside the page [viewport] (a little rounding
+ * aside). A scrapbook scrolled even part way past its cover puts the target under the header or
+ * above the screen, where the flight would show the cover over the header. No viewport yet: lands.
+ */
+internal fun albumPageFlightLands(target: Rect, viewport: Rect?): Boolean {
+    if (viewport == null) return true
+    val slack = 1f
+    return target.top >= viewport.top - slack &&
+        target.bottom <= viewport.bottom + slack &&
+        target.left >= viewport.left - slack &&
+        target.right <= viewport.right + slack
+}
 
 internal fun lerpRect(a: Rect, b: Rect, t: Float): Rect =
     Rect(lerp(a.left, b.left, t), lerp(a.top, b.top, t), lerp(a.right, b.right, t), lerp(a.bottom, b.bottom, t))
