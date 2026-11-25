@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -175,19 +176,29 @@ class SpotifyLibrarySyncCoordinator(
         )
     }
 
-    suspend fun readLocalSearchSnapshot(profileId: String): SpotifyLocalSearchSnapshot {
+    suspend fun readLocalSearchSnapshot(profileId: String): SpotifyLocalSearchSnapshot = coroutineScope {
         val minCachedAt = 0L
-        return SpotifyLocalSearchSnapshot(
-            artists = dao.getFreshArtists(profileId, minCachedAt).map { it.toArtist() },
-            albums = dao.getFreshAlbums(profileId, minCachedAt).map { it.toAlbum() },
-            tracks = dao.getFreshTracks(profileId, minCachedAt)
+        val artistsDeferred = async(Dispatchers.IO) { dao.getFreshArtists(profileId, minCachedAt) }
+        val albumsDeferred = async(Dispatchers.IO) { dao.getFreshAlbums(profileId, minCachedAt) }
+        val tracksDeferred = async(Dispatchers.IO) { dao.getFreshTracks(profileId, minCachedAt) }
+        val playlistsDeferred = async(Dispatchers.IO) { dao.getFreshPlaylists(profileId, minCachedAt) }
+
+        val rawArtists = artistsDeferred.await()
+        val rawAlbums = albumsDeferred.await()
+        val rawTracks = tracksDeferred.await()
+        val rawPlaylists = playlistsDeferred.await()
+
+        SpotifyLocalSearchSnapshot(
+            artists = rawArtists.map { it.toArtist() },
+            albums = rawAlbums.map { it.toAlbum() },
+            tracks = rawTracks
                 .filter { it.isSaved }
                 .map { it.toTrack() },
-            playlists = dao.getFreshPlaylists(profileId, minCachedAt).map { it.toPlaylist() },
+            playlists = rawPlaylists.map { it.toPlaylist() },
             starred = buildStarredFromCache(
-                tracks = dao.getFreshTracks(profileId, minCachedAt),
-                albums = dao.getFreshAlbums(profileId, minCachedAt),
-                artists = dao.getFreshArtists(profileId, minCachedAt),
+                tracks = rawTracks,
+                albums = rawAlbums,
+                artists = rawArtists,
             ),
         )
     }

@@ -18,7 +18,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -607,6 +610,153 @@ class CloudSyncManagerTest {
 
     // ---- harness
 
+    @Test
+    fun should_notPublishArtifactShards_when_firstStateCreateFails() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.addTranslation("trk-1", "eins")
+        drive.failCreatesOfKind = SyncFileProps.KIND_STATE
+        drive.failDelayMs = 150
+        phone.turnOn()
+
+        assertEquals(CloudSyncPhase.StorageFull, phone.phase)
+        val artifacts = drive.files().filter { it.appProperties[SyncFileProps.KIND] == SyncFileProps.KIND_ARTIFACTS }
+        assertTrue("artifact shards published without a state file: ${artifacts.map { it.name }}", artifacts.isEmpty())
+    }
+
+    @Test
+    fun should_notReuploadState_when_onlyArtifactUploadFailedLastCycle() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.addTranslation("trk-1", "eins")
+        phone.turnOn()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+
+        phone.addNote(p, "n2", "two")
+        phone.addTranslation("trk-2", "zwei")
+        drive.failWritesOfKind = SyncFileProps.KIND_ARTIFACTS
+        drive.failDelayMs = 150
+        phone.sync()
+        val stateWritesAfterFailedCycle = drive.writesByKind[SyncFileProps.KIND_STATE]?.get() ?: 0
+
+        drive.failWritesOfKind = null
+        phone.sync()
+        val stateWritesAfterRetry = drive.writesByKind[SyncFileProps.KIND_STATE]?.get() ?: 0
+
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+        assertEquals(
+            "the state file already went up in the failed cycle; retry should only send the artifact",
+            stateWritesAfterFailedCycle,
+            stateWritesAfterRetry,
+        )
+    }
+
+    @Test
+    fun should_notReuploadSucceededArtifactShards_when_siblingArtifactShardFails() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.turnOn()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+
+        // Populate enough distinct translation keys to cover multiple artifact shards, then fail shard 1 only.
+        (1..20).forEach { i -> phone.addTranslation("multi-shard-trk-$i", "de-$i") }
+        drive.failArtifactShard = 1
+        drive.failDelayMs = 50
+        phone.sync()
+        assertEquals(CloudSyncPhase.Offline, phone.phase)
+        val artifactWritesAfterPartialFailure = drive.writesByKind[SyncFileProps.KIND_ARTIFACTS]?.get() ?: 0
+        assertTrue("sibling shards should have succeeded", artifactWritesAfterPartialFailure >= 2)
+
+        drive.failArtifactShard = null
+        phone.sync()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+        val artifactWritesAfterRetry = drive.writesByKind[SyncFileProps.KIND_ARTIFACTS]?.get() ?: 0
+        assertEquals(
+            "retry should only upload the single failed shard",
+            artifactWritesAfterPartialFailure + 1,
+            artifactWritesAfterRetry,
+        )
+    }
+
+    @Test
+    fun should_reportAccountMismatch_evenWhen_parallelListFails() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.turnOn()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+
+        val wrongAccountDrive = FakeDrive(permissionId = "perm-other").apply {
+            failListWith = SyncTransportException.RateLimited("429", null)
+        }
+        phone.useDrive(wrongAccountDrive)
+        phone.sync()
+
+        assertEquals(CloudSyncPhase.NeedsReauth, phone.phase)
+    }
+
+    @Test
+    fun should_surfaceHigherPriorityUploadError_when_multipleArtifactShardsFailWithDifferentErrors() = runBlocking {
+        val phone = device("Pixel 9")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        phone.addNote(p, "n1", "one")
+        phone.turnOn()
+        assertEquals(CloudSyncPhase.UpToDate, phone.phase)
+
+        (1..20).forEach { i -> phone.addTranslation("prio-trk-$i", "de-$i") }
+        // Shard 0 fails with 429 (Offline), shard 2 fails with StorageFull -> StorageFull must win.
+        drive.shardErrorOverrides[0] = SyncTransportException.RateLimited("429", null)
+        drive.shardErrorOverrides[2] = SyncTransportException.StorageFull("quota")
+        phone.sync()
+
+        assertEquals(CloudSyncPhase.StorageFull, phone.phase)
+    }
+
+    @Test
+    fun should_deduplicateConcurrentTokenIdentityChecks_andRejectMismatchedToken() = runBlocking {
+        val innerCalls = java.util.concurrent.atomic.AtomicInteger(0)
+        val aboutCalls = java.util.concurrent.atomic.AtomicInteger(0)
+        var currentToken = "tok-1"
+        var remotePerm = "perm-1"
+        val inner = object : SyncTokenProvider {
+            override suspend fun token(): String {
+                innerCalls.incrementAndGet()
+                return currentToken
+            }
+
+            override suspend fun invalidate(token: String) = Unit
+        }
+        val provider = IdentityCheckedTokenProvider(
+            inner = inner,
+            expectedPermissionId = { "perm-1" },
+            tokenPermissionId = {
+                aboutCalls.incrementAndGet()
+                kotlinx.coroutines.delay(50)
+                remotePerm
+            },
+        )
+
+        val resolved = coroutineScope {
+            (1..6).map { async { provider.token() } }.awaitAll()
+        }
+        assertEquals(List(6) { "tok-1" }, resolved)
+        assertEquals("fresh token should be verified only once across concurrent callers", 1, aboutCalls.get())
+        assertEquals(6, innerCalls.get())
+
+        // Cached verified token incurs zero additional about() calls.
+        assertEquals("tok-1", provider.token())
+        assertEquals(1, aboutCalls.get())
+
+        // Rotated token belonging to another Google account must throw Unauthorized.
+        currentToken = "tok-wrong"
+        remotePerm = "perm-other"
+        val thrown = runCatching { provider.token() }.exceptionOrNull()
+        assertTrue("expected Unauthorized, got $thrown", thrown is SyncTransportException.Unauthorized)
+    }
+
     private fun device(name: String, on: FakeDrive = drive): Device = Device(name, on, clock).also { devices += it }
 
     private class Device(name: String, drive: FakeDrive, private val clock: AtomicLong) {
@@ -679,6 +829,30 @@ class CloudSyncManagerTest {
                     rating = rating,
                     serverRating = 0,
                     updatedAt = clock.addAndGet(1_000),
+                ),
+            )
+        }
+
+        suspend fun addTranslation(trackId: String, text: String) {
+            db.syncDomainDao().writeLyricsCache(
+                com.gpo.yoin.data.local.LyricsCache(
+                    trackProvider = "spotify",
+                    trackRawId = trackId,
+                    lyricsProvider = "qq",
+                    lyricsProviderSongId = "s-$trackId",
+                    lrc = "[00:01.00]line one",
+                    cachedAt = clock.get(),
+                ),
+            )
+            db.syncDomainDao().insertTranslationIfAbsent(
+                com.gpo.yoin.data.local.LyricsTranslationCache(
+                    trackProvider = "spotify",
+                    trackRawId = trackId,
+                    sourceHash = "h-$trackId",
+                    targetLanguage = "German",
+                    model = "gemini-3.1-flash-lite",
+                    translationsJson = "[\"$text\"]",
+                    cachedAt = clock.addAndGet(1_000),
                 ),
             )
         }
@@ -766,6 +940,21 @@ class CloudSyncManagerTest {
         @Volatile var failDeletes = 0
 
         @Volatile var failListWith: SyncTransportException? = null
+
+        @Volatile var failWritesOfKind: String? = null
+
+        @Volatile var failArtifactShard: Int? = null
+
+        val shardErrorOverrides = java.util.concurrent.ConcurrentHashMap<Int, SyncTransportException>()
+
+        @Volatile var failDelayMs: Long = 0
+
+        val writesByKind = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+
+        private fun countKind(kind: String?) {
+            writesByKind.getOrPut(kind.orEmpty()) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet()
+        }
+
         private data class Entry(val file: RemoteFile, val bytes: ByteArray)
 
         private val files = linkedMapOf<String, Entry>()
@@ -799,7 +988,20 @@ class CloudSyncManagerTest {
             mimeType: String,
             bytes: ByteArray,
         ): RemoteFile {
-            if (appProperties[SyncFileProps.KIND] == failCreatesOfKind) throw SyncTransportException.StorageFull("full")
+            val kind = appProperties[SyncFileProps.KIND]
+            val shard = appProperties[SyncFileProps.SHARD]?.toIntOrNull()
+            if (kind == failCreatesOfKind) {
+                if (failDelayMs > 0) kotlinx.coroutines.delay(failDelayMs)
+                throw SyncTransportException.StorageFull("full")
+            }
+            if (kind == SyncFileProps.KIND_ARTIFACTS && shard != null) {
+                shardErrorOverrides[shard]?.let { throw it }
+            }
+            if (kind == failWritesOfKind || (kind == SyncFileProps.KIND_ARTIFACTS && shard == failArtifactShard)) {
+                if (failDelayMs > 0) kotlinx.coroutines.delay(failDelayMs)
+                throw SyncTransportException.RateLimited("429", null)
+            }
+            countKind(kind)
             synchronized(this) {
                 if (fileId in files) throw SyncTransportException.AlreadyExists(fileId)
                 writes++
@@ -817,6 +1019,19 @@ class CloudSyncManagerTest {
         }
 
         override suspend fun update(fileId: String, bytes: ByteArray): RemoteFile? {
+            val props = synchronized(this) { files[fileId]?.file?.appProperties }
+            val kind = props?.get(SyncFileProps.KIND)
+            val shard = props?.get(SyncFileProps.SHARD)?.toIntOrNull()
+            if (kind == SyncFileProps.KIND_ARTIFACTS && shard != null) {
+                shardErrorOverrides[shard]?.let { throw it }
+            }
+            if (kind != null &&
+                (kind == failWritesOfKind || (kind == SyncFileProps.KIND_ARTIFACTS && shard == failArtifactShard))
+            ) {
+                if (failDelayMs > 0) kotlinx.coroutines.delay(failDelayMs)
+                throw SyncTransportException.RateLimited("429", null)
+            }
+            if (kind != null) countKind(kind)
             synchronized(this) {
                 val entry = files[fileId] ?: return null
                 writes++

@@ -14,6 +14,7 @@ internal class FakeDetailCacheDao : DetailCacheDao {
 
     var upsertGate: CompletableDeferred<Unit>? = null
     var touchGate: CompletableDeferred<Unit>? = null
+    var onCachedBeforeReturned: (suspend () -> Unit)? = null
 
     /** Completes when an upsert reaches the DAO (before any [upsertGate]). */
     val upsertEntered = CompletableDeferred<Unit>()
@@ -23,6 +24,10 @@ internal class FakeDetailCacheDao : DetailCacheDao {
 
     /** How many times eviction scanned the table ([sizesOldestFirst]). */
     var evictionScans = 0
+        private set
+
+    /** How many batched SQL delete statements ran ([deleteBatch]). */
+    var deleteBatchCalls = 0
         private set
 
     val entityIds: Set<String> get() = synchronized(rows) { rows.values.mapTo(linkedSetOf()) { it.entityId } }
@@ -52,6 +57,31 @@ internal class FakeDetailCacheDao : DetailCacheDao {
         synchronized(rows) { rows.remove(key(profileId, kind, entityId)) }
     }
 
+    override suspend fun deleteBatch(profileId: String, kind: String, entityIds: List<String>) {
+        if (entityIds.isEmpty()) return
+        val ids = entityIds.toHashSet()
+        synchronized(rows) {
+            deleteBatchCalls++
+            rows.keys.removeAll { (p, k, id) -> p == profileId && k == kind && id in ids }
+        }
+    }
+
+    override suspend fun deleteExpiredBatch(
+        profileId: String,
+        kind: String,
+        entityIds: List<String>,
+        cutoff: Long,
+    ) {
+        if (entityIds.isEmpty()) return
+        val ids = entityIds.toHashSet()
+        synchronized(rows) {
+            deleteBatchCalls++
+            rows.entries.removeAll { (k, entry) ->
+                k.first == profileId && k.second == kind && k.third in ids && entry.cachedAt < cutoff
+            }
+        }
+    }
+
     override suspend fun totalBytes(): Long = synchronized(rows) { rows.values.sumOf { it.json.codePointLength() } }
 
     override suspend fun sizesOldestFirst(): List<DetailCacheSize> = synchronized(rows) {
@@ -60,9 +90,13 @@ internal class FakeDetailCacheDao : DetailCacheDao {
             .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
     }
 
-    override suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize> = synchronized(rows) {
-        rows.values.filter { it.cachedAt < cutoff }
-            .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
+    override suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize> {
+        val snapshot = synchronized(rows) {
+            rows.values.filter { it.cachedAt < cutoff }
+                .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
+        }
+        onCachedBeforeReturned?.invoke()
+        return snapshot
     }
 
     override suspend fun deleteOlderThan(cutoff: Long) {

@@ -341,17 +341,29 @@ class AppContainer(private val context: Context) {
     }
 
     init {
-        // Force the lazy `spotifyClientIdFlow` to resolve at container
-        // construction time so `SharingStarted.Eagerly` begins collecting
-        // from Room immediately. Without this, the first reader (usually
-        // PlaybackManager's warmConnection on cold start) triggers the
-        // lazy init itself and has to race against the same IO threads
-        // the Batch 3D migration is using — resulting in "Client ID not
-        // configured" banners on upgrade launches even though the row
-        // is populated. Touching the field here ensures Room starts
-        // emitting before any other code path needs `.value`.
-        @Suppress("UNUSED_EXPRESSION")
-        spotifyClientIdFlow
+        // Warm `spotifyClientIdFlow` on `applicationScope` so Room starts emitting immediately
+        // without constructing `YoinDatabase` synchronously on the Application.onCreate() main thread.
+        applicationScope.launch {
+            @Suppress("UNUSED_EXPRESSION")
+            spotifyClientIdFlow
+        }
+    }
+
+    /**
+     * Registers background startup observers without constructing [lyricHighlightProcessor] (and its
+     * [repository] / [database] / [playbackManager] graph) synchronously during Application.onCreate().
+     * Lifecycle callbacks and [LyricHighlightProcessor] calls stay strictly ordered on Main.
+     */
+    internal fun startBackgroundServices() {
+        startPendingRatingRetries()
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
+            com.gpo.yoin.data.highlight.LazyForegroundLifecycleObserver(
+                scope = applicationScope,
+                factory = { lyricHighlightProcessor },
+                onForeground = { it.onForeground() },
+                onBackground = { it.onBackground() },
+            ),
+        )
     }
 
     /**
