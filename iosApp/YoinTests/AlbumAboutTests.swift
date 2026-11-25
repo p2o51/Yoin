@@ -453,13 +453,17 @@ final class AlbumAboutTests: XCTestCase {
     // MARK: Colours
 
     /// The scrapbook's papers keep their words readable on every cover, light and dark (Android: ≥ 4.5:1): the
-    /// listener's (review, stickies, notes: onPrimaryContainer on primaryContainer) and the AI's (About, Ask, facts:
+    /// listener's (the review clipping, stickies, notes: onPrimaryContainer on primaryContainer, full strength) and the
+    /// AI's (About, Ask, facts:
     /// onTertiaryContainer on tertiaryContainer).
     func test_should_keepPaperInkReadable_onEveryCover() {
         for album in MockLibrary.allAlbums {
             for dark in [false, true] {
                 let s = CoverScheme(album: album, dark: dark)
                 XCTAssertGreaterThanOrEqual(Self.contrast(s.onPrimaryContainer, s.primaryContainer), 4.5, "\(album.title) \(dark)")
+                // The review clipping (its words and its date) uses exactly these, at full strength.
+                let review = AlbumScrapbookView.paperInk(s)
+                XCTAssertGreaterThanOrEqual(Self.contrast(review.text, review.paper), 4.5, "review \(album.title) \(dark)")
                 XCTAssertGreaterThanOrEqual(Self.contrast(s.onTertiaryContainer, s.tertiaryContainer), 4.5, "\(album.title) \(dark)")
                 // The ✦ circle and the sheet's marks: tertiary on the page.
                 XCTAssertGreaterThanOrEqual(Self.contrast(s.tertiary, s.surface), 3, "\(album.title) \(dark)")

@@ -160,6 +160,10 @@ struct AlbumScrapbookView: View {
         return ScrapAboutPieces.of(store.entries(SongAboutStore.key(title: k.title, artist: k.artist, album: k.album)))
     }
 
+    /// The listener's own papers (review, stickies, track notes; 51 2026-11-25): primaryContainer with its words
+    /// and every mark on it in onPrimaryContainer at full strength (≥ 4.5:1 on every cover, AlbumAboutTests).
+    static func paperInk(_ s: CoverScheme) -> (paper: Color, text: Color) { (s.primaryContainer, s.onPrimaryContainer) }
+
     // MARK: Album About (Android AlbumAbout.kt, AlbumAboutCard.kt)
 
     /// The album as About reads it (DEBUG `-albumAboutDemo`: the mock album with a label and dates).
@@ -415,7 +419,9 @@ struct AlbumScrapbookView: View {
                             credits: creditItems(aboutContent), scheme: s, notice: aboutNotice,
                             onRegenerate: regenerateAbout, onAsk: askAbout)
                 .reportsSheetRise()
-                .ySolidSheet(s.surfaceContainerLow)
+                // Always opaque (not the system glass `ySolidSheet` leaves on): the receipt and the paragraph are
+                // reading text, and the page's tertiary About card right under the sheet bled through them.
+                .presentationBackground(s.surfaceContainerLow)
         }
         }
     }
@@ -531,22 +537,24 @@ struct AlbumScrapbookView: View {
             Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
-                NoteMarkupText(text: review, size: 15, mentionColor: s.onPrimaryContainer, glyphColor: s.onPrimaryContainer)
+                let ink = Self.paperInk(s)
+                NoteMarkupText(text: review, size: 15, mentionColor: ink.text, glyphColor: ink.text)
                     .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
-                    .foregroundStyle(s.onPrimaryContainer)
+                    .foregroundStyle(ink.text)
                 if let reviewAt {
                     Text(reviewAt)
                         .yoinRole(Tokens.type.labelMedium)
-                        .foregroundStyle(s.onPrimaryContainer.opacity(0.6))
+                        .foregroundStyle(ink.text)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .background(Self.paperInk(s).paper, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             }
             .buttonStyle(.plain).pointerHighlight()
-            .disabled(isMock || onEditReview == nil)
+            // Not `.disabled`: a disabled button fades its label, and the listener's words stay at full ink.
+            .allowsHitTesting(!isMock && onEditReview != nil)
             .accessibilityLabel("Edit comment")
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
             } else if !isMock, let onEditReview {
@@ -953,7 +961,7 @@ struct AlbumScrapbookView: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .disabled(isMock)
+                    .allowsHitTesting(!isMock)
                     .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(NoteMarkupRender.words(n.text))")
                         : String(localized: "Note at \(n.time): \(NoteMarkupRender.words(n.text))"))
                 }
@@ -967,7 +975,7 @@ struct AlbumScrapbookView: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .disabled(isMock)
+                    .allowsHitTesting(!isMock)
                 }
             }
             .padding(.leading, 24).padding(.trailing, 12).padding(.vertical, 8)
