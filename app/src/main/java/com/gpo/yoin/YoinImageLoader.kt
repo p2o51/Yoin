@@ -10,10 +10,12 @@ import coil3.network.CacheStrategy
 import coil3.network.NetworkRequest
 import coil3.network.NetworkResponse
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.CachePolicy
 import coil3.request.ErrorResult
 import coil3.request.ImageResult
 import coil3.request.Options
 import com.gpo.yoin.data.remote.SubsonicCacheKey
+import com.gpo.yoin.data.remote.YoinNetworkCore
 import com.gpo.yoin.perf.YoinPerfImages
 import com.gpo.yoin.ui.component.ArtworkFailureKind
 import com.gpo.yoin.ui.component.ArtworkRetryPolicy
@@ -23,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 
 /**
@@ -55,10 +56,10 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
             add(ImageDiskCacheInterceptor { diskCache.value })
             add(
                 OkHttpNetworkFetcherFactory(
-                    // Its own client with OkHttp's default timeouts. Not the Spotify or
-                    // Subsonic client: both carry an OkHttp HTTP cache, which would store
-                    // every image a second time beside Coil's disk cache.
-                    callFactory = { OkHttpClient() },
+                    // The image queue, OkHttp's default timeouts, the shared connection pool.
+                    // Not the Spotify or Subsonic client: both carry an OkHttp HTTP cache,
+                    // which would store every image a second time beside Coil's disk cache.
+                    callFactory = { YoinNetworkCore.imageClient },
                     cacheStrategy = { SuccessOnlyCacheStrategy }
                 )
             )
@@ -77,6 +78,11 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
  * a salt drawn per process). Any other url keeps Coil's key, the url. The
  * price: a restart no longer refetches a stored cover (see
  * [SuccessOnlyCacheStrategy] on staleness).
+ *
+ * Covers sized since this version ([com.gpo.yoin.data.model.CoverSizes]) have
+ * new keys; when one fails, the cover's pre-sizing entry
+ * ([SubsonicCacheKey.unsizedCoverKey]) is read from disk if it is there, so an
+ * offline listener keeps the covers stored before the upgrade.
  *
  * Bytes that made no image: Coil stores a body before it decodes it, and
  * serves a stored entry without asking the network, so the next request for
@@ -97,13 +103,28 @@ internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?
             chain
         }
         val result = keyed.proceed()
-        if (result is ErrorResult && ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
+        if (result !is ErrorResult) return result
+        if (ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
             // Even when the request is cancelled as it fails (scrolled off, a widget's
             // timeout, a skip): a cancellable hop would skip the removal, and the bytes
             // would stay under a key that outlives the process.
             withContext(NonCancellable + Dispatchers.IO) { diskCache()?.remove(key) }
+            return result
         }
-        return result
+        // A sized cover that failed (offline, the server away): the original this cover was
+        // stored as before covers were sized, if the disk still has it, from disk only.
+        val unsized = SubsonicCacheKey.unsizedCoverKey(key) ?: return result
+        if (!hasEntry(unsized)) return result
+        return chain.withRequest(
+            request.newBuilder()
+                .diskCacheKey(unsized)
+                .networkCachePolicy(CachePolicy.DISABLED)
+                .build(),
+        ).proceed()
+    }
+
+    private suspend fun hasEntry(key: String): Boolean = withContext(Dispatchers.IO) {
+        diskCache()?.openSnapshot(key)?.use { true } ?: false
     }
 
     /** The key Coil stores a network url under when the request names none: the url itself. */

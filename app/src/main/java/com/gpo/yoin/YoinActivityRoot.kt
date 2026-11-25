@@ -22,6 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.CoverSizes
+import com.gpo.yoin.player.PlaybackState
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.gpo.yoin.data.notes.MentionAccount
 import com.gpo.yoin.ui.notes.LocalNoteBacklinks
 import com.gpo.yoin.ui.notes.LocalNoteMentions
@@ -31,6 +35,7 @@ import com.gpo.yoin.ui.notes.editor.MentionCandidateSource
 import com.gpo.yoin.ui.notes.editor.RepositoryMentionCandidateSource
 import com.gpo.yoin.ui.notes.openNoteDestination
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.media3.common.Player
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
@@ -118,18 +123,31 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val motionCapabilityProvider = app?.container?.motionCapabilityProvider ?: fallbackMotionCapabilityProvider
     val motionProfile by motionCapabilityProvider.profile.collectAsState(initial = MotionProfile.Full)
 
+    // The hero cover size, before any cover url is built; a fold opening raises it (CoverSizes).
+    val windowSize = LocalWindowInfo.current.containerSize
+    // Idempotent (returns at once after the first call); it must run before the content composes urls.
+    if (app != null) CoverSizes.install(app)
+    LaunchedEffect(windowSize) { CoverSizes.noteDisplay(windowSize.width, windowSize.height) }
+
     if (app != null) {
         val context = app.applicationContext
         val imageLoader = remember(context) { SingletonImageLoader.get(context) }
-        val playbackState by app.container.playbackManager.playbackState.collectAsState()
-        val coverArt = playbackState.currentTrack?.coverArt
+        // Only the fields the playback art reads: position ticks (every 250 ms) no longer
+        // recompose this root, which every window composes. It starts from the playback
+        // state as it is now, not an empty snapshot, so a window opening never sends
+        // "no cover, empty queue" to the app-wide theme (that cleared the shared palette
+        // and the neighbour edges for one frame, or for good if the next frame came late).
+        val playbackFlow = app.container.playbackManager.playbackState
+        val artwork by remember(app) {
+            playbackFlow.map(::rootArtworkSnapshotOf).distinctUntilChanged()
+        }.collectAsState(initial = remember(app) { rootArtworkSnapshotOf(playbackFlow.value) })
 
         val configurationRevision by app.container.musicConfigurationRevision.collectAsState()
-        LaunchedEffect(coverArt, playbackState.queue.isEmpty(), configurationRevision) {
-            val model = coverArt?.let { app.container.repository.resolveCoverUrl(it) }
+        LaunchedEffect(artwork.coverArt, artwork.queueEmpty, configurationRevision) {
+            val model = artwork.coverArt?.let { playbackCoverUrl(app.container.repository::resolveCoverUrl, it) }
             app.container.playbackThemeState.updateArtwork(
                 model = model,
-                clearWhenMissing = playbackState.queue.isEmpty(),
+                clearWhenMissing = artwork.queueEmpty,
             ) { url ->
                 val request = ImageRequest.Builder(context)
                     .data(url)
@@ -141,23 +159,14 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         }
 
         // Now Playing's room is framed by the songs before and after this one
-        // (RoomAmbient, the iOS World recipe).
-        val (previousIndex, nextIndex) = roomNeighbourIndices(
-            queueSize = playbackState.queue.size,
-            currentIndex = playbackState.currentIndex,
-            upcoming = playbackState.upcoming,
-            repeatAll = playbackState.repeatMode == Player.REPEAT_MODE_ALL,
-            repeatOne = playbackState.repeatMode == Player.REPEAT_MODE_ONE,
-            shuffle = playbackState.shuffleEnabled,
-        )
-        val previousArt = previousIndex?.let { playbackState.queue.getOrNull(it)?.coverArt }
-        // The player's own next (shuffle + repeat-all wrap included) wins
-        // over the non-wrapping upcoming list.
-        val nextArt = (playbackState.nextTrack ?: nextIndex?.let { playbackState.queue.getOrNull(it) })?.coverArt
-        LaunchedEffect(previousArt, nextArt, configurationRevision) {
+        // (RoomAmbient, the iOS World recipe). The same URL as their hero when they
+        // play (decoded at 200 px here), so this read also fetches the next song's
+        // Now Playing cover, and a skip finds the cover that just played.
+        LaunchedEffect(artwork.previousArt, artwork.nextArt, configurationRevision) {
+            val resolve = app.container.repository::resolveCoverUrl
             app.container.playbackThemeState.updateNeighbours(
-                previous = previousArt?.let { app.container.repository.resolveCoverUrl(it) },
-                next = nextArt?.let { app.container.repository.resolveCoverUrl(it) },
+                previous = artwork.previousArt?.let { playbackCoverUrl(resolve, it) },
+                next = artwork.nextArt?.let { playbackCoverUrl(resolve, it) },
             ) { url ->
                 val request = ImageRequest.Builder(context)
                     .data(url)
@@ -232,3 +241,37 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
 
 /** The mention thumbnail and peek card's cover, requested once at the larger (peek) size. */
 private const val MentionArtworkSizePx = 240
+
+/** What the root's playback art reads from [PlaybackState]: the cover, whether the queue is empty, the neighbours. */
+internal data class RootArtworkSnapshot(
+    val coverArt: CoverRef? = null,
+    val queueEmpty: Boolean = true,
+    val previousArt: CoverRef? = null,
+    val nextArt: CoverRef? = null,
+)
+
+internal fun rootArtworkSnapshotOf(state: PlaybackState): RootArtworkSnapshot {
+    val (previousIndex, nextIndex) = roomNeighbourIndices(
+        queueSize = state.queue.size,
+        currentIndex = state.currentIndex,
+        upcoming = state.upcoming,
+        repeatAll = state.repeatMode == Player.REPEAT_MODE_ALL,
+        repeatOne = state.repeatMode == Player.REPEAT_MODE_ONE,
+        shuffle = state.shuffleEnabled,
+    )
+    return RootArtworkSnapshot(
+        coverArt = state.currentTrack?.coverArt,
+        queueEmpty = state.queue.isEmpty(),
+        previousArt = previousIndex?.let { state.queue.getOrNull(it)?.coverArt },
+        // The player's own next (shuffle + repeat-all wrap included) wins
+        // over the non-wrapping upcoming list.
+        nextArt = (state.nextTrack ?: nextIndex?.let { state.queue.getOrNull(it) })?.coverArt,
+    )
+}
+
+/**
+ * The URL the playback theme, its neighbour edges, Now Playing and the pill
+ * load a playing song's cover from: one per cover ([CoverSizes.heroPx]).
+ */
+internal fun playbackCoverUrl(resolve: (CoverRef?, Int?) -> String?, cover: CoverRef): String? =
+    resolve(cover, CoverSizes.heroPx)

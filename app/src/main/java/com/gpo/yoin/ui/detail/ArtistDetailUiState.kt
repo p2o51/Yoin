@@ -27,7 +27,16 @@ sealed interface ArtistDetailUiState {
          * Most Played grows in once it lands.
          */
         val listening: ArtistListeningSummary? = null,
-    ) : ArtistDetailUiState
+        /**
+         * The newest release's cover at the hero size, for when there is no
+         * portrait: [ArtistAlbum.coverArtUrl] is sized for its 56 dp row.
+         */
+        val fallbackHeroCoverArtUrl: String? = null,
+    ) : ArtistDetailUiState {
+        /** The hero's cover: the portrait, else the newest release's cover. */
+        val heroUrl: String?
+            get() = heroCoverArtUrl ?: fallbackHeroCoverArtUrl ?: albums.firstOrNull()?.coverArtUrl
+    }
 
     data class Error(val message: UiText, val diagnostics: String? = null) : ArtistDetailUiState
 }

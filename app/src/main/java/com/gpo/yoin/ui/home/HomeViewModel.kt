@@ -505,6 +505,8 @@ class HomeViewModel(
 
     /** Reload the current scope (Retry, an edit of the active account's credentials). */
     fun refresh() {
+        // Retry asks the server, not the coalesced reads of the last 20 s (SubsonicReadCache).
+        repository.invalidateReadCache()
         refreshRequests.update { it + 1 }
     }
 
@@ -554,7 +556,10 @@ class HomeViewModel(
         viewModelScope.launch {
             configurationRevision.drop(1).collect {
                 val scope = HomeScope(providerId = repository.currentProviderId(), profileId = activeProfileId.value)
-                if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) refresh()
+                // A new source: its read cache is fresh (and may hold prime()'s reads), so no invalidation.
+                if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) {
+                    refreshRequests.update { it + 1 }
+                }
             }
         }
     }

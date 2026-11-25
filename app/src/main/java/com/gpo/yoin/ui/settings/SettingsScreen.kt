@@ -433,6 +433,7 @@ fun SettingsContent(
                                                     SettingsFeature.AiTry,
                                                     SettingsFeature.Labs,
                                                     SettingsFeature.NanoDiagnostics,
+                                                    SettingsFeature.TensorEasterEgg,
                                                 ),
                                             )
                                         }
@@ -1559,6 +1560,7 @@ enum class SettingsFeature {
     NeoDb,
     Labs,
     NanoDiagnostics,
+    TensorEasterEgg,
     ScrollEdge,
     ScreenCorners,
     StreamQuality,
@@ -1586,6 +1588,10 @@ internal fun SettingsFeatureScreen(
     if (feature == SettingsFeature.ScreenCorners) {
         // A page of its own: the whole window is its preview, no list scaffold.
         ScreenCornersPage(onBackClick = onBackClick, modifier = modifier)
+        return
+    }
+    if (feature == SettingsFeature.TensorEasterEgg) {
+        TensorEasterEggPage(onBackClick = onBackClick, modifier = modifier)
         return
     }
     val uiState by viewModel.uiState.collectAsState()
@@ -1616,6 +1622,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
         SettingsFeature.NanoDiagnostics -> stringResource(R.string.nano_diag_title)
+        SettingsFeature.TensorEasterEgg -> stringResource(R.string.labs_sing_model_name)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.ScreenCorners -> stringResource(R.string.settings_motion_screen_corners)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)

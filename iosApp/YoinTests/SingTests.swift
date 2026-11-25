@@ -575,6 +575,32 @@ final class SingTests: XCTestCase {
         }
     }
 
+    // MARK: - 15. Yoin Labs SingModelStore size reporting & removal
+
+    func test_should_reportInstalledSize_and_removeCompiledModelCleanly() async throws {
+        let storeDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sing-labs-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: storeDir) }
+
+        let store = SingModelStore(baseDirectory: storeDir)
+        let sizeBefore = await store.installedSizeBytes()
+        XCTAssertNil(sizeBefore)
+
+        let odrProvider = SingModelODRProvider(bundle: .main, modelStore: store)
+        let lease = try await odrProvider.loadModel { _ in }
+        lease.release()
+
+        let installedBytes = await store.installedSizeBytes()
+        XCTAssertNotNil(installedBytes)
+        XCTAssertGreaterThan(installedBytes ?? 0, 1_000_000, "Compiled LyraSingLite.mlmodelc should report > 1 MB on disk")
+
+        try await store.removeInstalledModel()
+        let installedAfter = await store.isInstalled
+        let sizeAfter = await store.installedSizeBytes()
+        XCTAssertFalse(installedAfter)
+        XCTAssertNil(sizeAfter)
+    }
+
     // MARK: - 11. Sing UI Motion Geometry (A + 1)
 
     func testSingMotionGeometryEndpointsAndMirrorSymmetry() {

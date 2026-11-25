@@ -298,7 +298,7 @@ internal fun ArtistPaneEntry(
         context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
     }
 
-    val heroUrl = content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl
+    val heroUrl = content?.heroUrl
     val scheme = rememberCoverColorScheme(heroUrl) ?: MaterialTheme.colorScheme
     PublishPaneBarActions(
         registry = registry,

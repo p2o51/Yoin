@@ -409,7 +409,7 @@ class PlaylistDetailViewModel(
             // Hero shows the playlist's OWN cover (mosaic/custom art);
             // a first-track ref is only the no-art fallback. The page
             // palette follows whichever cover wins.
-            coverArtUrl = heroCover?.let { repository.resolveCoverUrl(it) },
+            coverArtUrl = heroCover?.let { repository.resolveCoverUrl(it, com.gpo.yoin.data.model.CoverSizes.heroPx) },
             canWrite = playlist.canWrite,
             canRemoveSongs = playlist.canWrite &&
                 Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
