@@ -317,7 +317,6 @@ class NowPlayingPanelInset internal constructor(
     val panelWidth: Dp,
     private val base: State<Dp>,
     private val motion: NowPlayingPanelMotion?,
-    private val frozenTravelFraction: FloatArray,
     private val baseTarget: Dp = 0.dp,
 ) {
     /** The open/close spring is running (for a High frame-rate vote; snapshot read). */
@@ -341,23 +340,19 @@ class NowPlayingPanelInset internal constructor(
      */
     val isCarried: Boolean get() = panelOpen && (motion?.travelPx() ?: 0f) > 0f
     /**
-     * The end inset this frame, px. While the panel is carried right (back
-     * preview, swipe-to-close) the content takes the vacated width back 1:1
-     * — the panel's resting width minus its travel. On commit the last
-     * travel is frozen and scaled down with the base spring, so the column
-     * widens monotonically instead of snapping back as the two springs cross.
-     * Layout / draw phase only.
+     * The end inset this frame, px: the panel's live width on the open/close
+     * spring minus how far a gesture carries it (back preview, swipe-to-close)
+     * — open, and after the close is committed too, where the panel leaves
+     * from that carried pose ([NowPlayingOverlayHost] keeps it until the
+     * player is gone). So the content's edge IS the panel's edge every frame.
+     * (The travel used to be frozen at the commit as a fraction and scaled
+     * with the spring: the content's edge fell behind the leaving panel, by
+     * up to a fifth of its width, and a translucent detail window showed the
+     * shell through the gap.) Layout / draw phase only.
      */
     fun insetPx(density: Density): Float = with(density) {
-        val basePx = base.value.toPx()
-        if (panelOpen) {
-            val travel = (motion?.travelPx() ?: 0f).coerceAtLeast(0f)
-            val widthPx = panelWidth.toPx()
-            if (widthPx > 0f) frozenTravelFraction[0] = (travel / widthPx).coerceIn(0f, 1f)
-            (basePx - travel).coerceAtLeast(0f)
-        } else {
-            basePx * (1f - frozenTravelFraction[0])
-        }
+        val travel = (motion?.travelPx() ?: 0f).coerceAtLeast(0f)
+        (base.value.toPx() - travel).coerceAtLeast(0f)
     }
 }
 
@@ -375,14 +370,12 @@ fun rememberNowPlayingPanelInset(
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "nowPlayingPanelInset",
     )
-    val frozen = remember { FloatArray(1) }
-    return remember(panelOpen, frame.panelWidth, base, motion, frozen) {
+    return remember(panelOpen, frame.panelWidth, base, motion) {
         NowPlayingPanelInset(
             panelOpen = panelOpen,
             panelWidth = frame.panelWidth,
             base = base,
             motion = motion,
-            frozenTravelFraction = frozen,
             baseTarget = if (panelOpen) frame.panelWidth else 0.dp,
         )
     }

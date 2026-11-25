@@ -104,6 +104,7 @@
   （`DetailPaneState.pageReady` 随 `requestColumn` 置位，`DetailColumnsLayout` 在 `holdsColumn` 时就测量列）。
   推入页的底栏 morph 仍跟页面 96dp 滑入同一拍起步（`slideReleased`）。
 - **2026-11-25 owner：侧栏关上也在开始时换档，和打开一样**（推翻 2026-11-12「关侧栏等弹簧落定才换回宽档」）。提交关闭的那一帧（拖动松手过阈值、预测返回提交、点关闭）旁边的栏（首页、详情列、Memories、详情页 Activity 里的页面）就按整窗宽度换档（`NowPlayingPanelInset.restingWidthBeside`，`panelOpen` 在提交时翻转），之后侧栏滑走、旁边的内容按实时宽度跟着变宽。原来等落定的做法让首页在侧栏走后还窄着停约 250ms，再在一帧里（~90ms）跳成宽档。重排放在提交那一帧、退场动画的时钟起步之前：动画从下一帧才记起点，所以那一帧再重也只是晚几帧起步，滑动本身是匀的；推到下一帧会正好落在记起点的那一帧上，第一步滑动跳一大截（JVM 测帧位置验证过）。拖动或预测返回取消（没过阈值、弹回）不关侧栏，`panelOpen` 不变，不换档。代价：专辑页在关侧栏的滑动途中就重新显示自己的封面（`LocalNowPlayingPanelBeside`），侧栏里同一张封面还在滑走。
+  换档那一帧要轻：Activities 和「接着听」的卡片按 stableId 各有一份 `movableContentOf`（`ActivityCards` / `JbiCards`），手机排法 ⇄ 单元网格 / 模板之间换档时卡片是**搬过去**，不是销毁重建（封面、取色、按压形状都留着）；按压形状的 `Morph` 全进程按 (base, pressed) 共用一份（`PressMorphs`）。
   `LocalYoinWindowInfo` 是跟踪读取的 `compositionLocalOf`（结构相等），不是 static：换档时只有读档位的地方重组；static 会让整列（首页每张卡、封面、文字）一个不跳地全部重组。
   关列时 Home 的 `homeCovered` 和 Memories 的底部留白跟随 `paneHasEntries`（列真正离开后才变），不在关列弹簧的首帧重排。
 - 宽度换档时首页的版块（「接着听」、Activities）原地一次换好，不再交叉淡化（淡化在点击那一帧把整页叠成重影）；

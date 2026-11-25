@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
@@ -61,6 +62,27 @@ class PanelCloseReTierTest {
         }
         motion.travelReader = { 0f }
         rule.runOnIdle { assertDp(400.dp, inset!!.restingWidthBeside(window)) }
+    }
+
+    @Test
+    fun should_keepTheContentEdgeOnTheLeavingPanel_when_aCarriedPanelIsCommitted() {
+        // Dragged 160px right, then released past the threshold: the panel
+        // leaves from that pose (its offset keeps the travel) while its width
+        // springs to 0. The content's edge must stay on the panel's edge — the
+        // inset is the spring's width minus the live travel — never behind it
+        // (a translucent detail window showed the shell through that gap).
+        val motion = NowPlayingPanelMotion().apply { travelReader = { 160f } }
+        val base = mutableStateOf(300.dp)
+        val leaving = NowPlayingPanelInset(
+            panelOpen = false,
+            panelWidth = 400.dp,
+            base = base,
+            motion = motion,
+        )
+        val density = Density(1f)
+        assertEquals(140f, leaving.insetPx(density), 0.01f)
+        base.value = 100.dp
+        assertEquals("the panel is off the window: nothing left to give back", 0f, leaving.insetPx(density), 0.01f)
     }
 
     @Test

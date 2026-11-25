@@ -69,6 +69,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -2304,6 +2305,14 @@ private fun ActivityBento(
         val generations = remember { HomeContentGenerations<ActivityBentoSpec>() }
         val generation = generations.of(spec) { old, new -> old.recipe == new.recipe && old.units == new.units }
         val swap = remember { HomeInstantSwap() }
+        // Each card keeps ONE composition across that re-seat (ActivityCards).
+        val cards = remember { ActivityCards() }
+        val shared = ActivityCardShared(
+            heroFootnoteExtra = heroFootnoteExtra,
+            heroVersion = heroVersion,
+            extractBackdropColors = extractBackdropColors,
+            onEntryClick = onEntryClick,
+        )
         AnimatedContent(
             targetState = BentoContent(spec, hero, candidates, rowsPreset, generation),
             contentKey = { it.generation },
@@ -2353,10 +2362,8 @@ private fun ActivityBento(
                             slots = composition.slots,
                             hero = hero,
                             supporting = supporting,
-                            heroFootnoteExtra = heroFootnoteExtra,
-                            heroVersion = heroVersion,
-                            extractBackdropColors = extractBackdropColors,
-                            onEntryClick = onEntryClick,
+                            cards = cards,
+                            shared = shared,
                             fontScale = fontScale,
                         )
                     } else {
@@ -2364,10 +2371,8 @@ private fun ActivityBento(
                             rows = composition.rows,
                             hero = hero,
                             supporting = supporting,
-                            heroFootnoteExtra = heroFootnoteExtra,
-                            heroVersion = heroVersion,
-                            extractBackdropColors = extractBackdropColors,
-                            onEntryClick = onEntryClick,
+                            cards = cards,
+                            shared = shared,
                             fontScale = fontScale,
                         )
                     }
@@ -2393,11 +2398,8 @@ private fun ActivityBentoRows(
     rows: List<ActivityCodeRow>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
-    heroFootnoteExtra: List<MetaGroup>,
-    // The hero album's version ("全景声"), a tag after its title; null when none.
-    heroVersion: String? = null,
-    extractBackdropColors: Boolean,
-    onEntryClick: (HomeEntryTarget) -> Unit,
+    cards: ActivityCards,
+    shared: ActivityCardShared,
     fontScale: Float,
 ) {
     @Composable
@@ -2406,35 +2408,7 @@ private fun ActivityBentoRows(
             .homeRowsCard(entry.stableId, kind)
             .homeEditCard(editIndex)
             .then(modifier)
-        val onClick = { onEntryClick(entry.target) }
-        when (kind) {
-            SlotKind.Hero -> ActivityHeroCard(
-                entry = entry,
-                footnoteExtra = heroFootnoteExtra,
-                version = heroVersion,
-                extractBackdropColors = extractBackdropColors,
-                onClick = onClick,
-                modifier = cardModifier,
-            )
-            SlotKind.Wide -> ActivityWideCard(
-                entry = entry,
-                extractBackdropColors = extractBackdropColors,
-                onClick = onClick,
-                modifier = cardModifier,
-            )
-            SlotKind.Small -> ActivitySmallCard(
-                entry = entry,
-                extractBackdropColors = extractBackdropColors,
-                onClick = onClick,
-                modifier = cardModifier,
-            )
-            SlotKind.Strip -> ActivityStripCard(
-                entry = entry,
-                extractBackdropColors = extractBackdropColors,
-                onClick = onClick,
-                modifier = cardModifier,
-            )
-        }
+        cards.of(entry.stableId)(entry, kind, shared, cardModifier)
     }
 
     fun entryOf(slot: ActivityCodeSlot): HomeMomentEntry? =
@@ -2488,11 +2462,8 @@ private fun ActivityUnitGrid(
     slots: List<ActivitySlot>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
-    heroFootnoteExtra: List<MetaGroup>,
-    // The hero album's version ("全景声"), a tag after its title; null when none.
-    heroVersion: String? = null,
-    extractBackdropColors: Boolean,
-    onEntryClick: (HomeEntryTarget) -> Unit,
+    cards: ActivityCards,
+    shared: ActivityCardShared,
     fontScale: Float,
 ) {
     val placed = slots.mapNotNull { slot ->
@@ -2503,39 +2474,11 @@ private fun ActivityUnitGrid(
         content = {
             placed.forEachIndexed { index, (slot, entry) ->
                 key(entry.stableId) {
-                    val onClick = { onEntryClick(entry.target) }
                     // Edit-mode card order = placement order.
                     val editCard = Modifier
                         .homeRowsCard(entry.stableId, slot.kind)
                         .homeEditCard(index)
-                    when (slot.kind) {
-                        SlotKind.Hero -> ActivityHeroCard(
-                            entry = entry,
-                            footnoteExtra = heroFootnoteExtra,
-                            version = heroVersion,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = onClick,
-                            modifier = editCard,
-                        )
-                        SlotKind.Wide -> ActivityWideCard(
-                            entry = entry,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = onClick,
-                            modifier = editCard,
-                        )
-                        SlotKind.Small -> ActivitySmallCard(
-                            entry = entry,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = onClick,
-                            modifier = editCard,
-                        )
-                        SlotKind.Strip -> ActivityStripCard(
-                            entry = entry,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = onClick,
-                            modifier = editCard,
-                        )
-                    }
+                    cards.of(entry.stableId)(entry, slot.kind, shared, editCard)
                 }
             }
         },
@@ -2589,6 +2532,70 @@ private fun ActivityUnitGrid(
 }
 
 private val ActivityBentoGap = 10.dp
+
+/** What every Activities card takes besides its entry, kind and place. */
+@Immutable
+private data class ActivityCardShared(
+    val heroFootnoteExtra: List<MetaGroup>,
+    // The hero album's version ("全景声"), a tag after its title; null when none.
+    val heroVersion: String?,
+    val extractBackdropColors: Boolean,
+    val onEntryClick: (HomeEntryTarget) -> Unit,
+)
+
+/**
+ * One movable composition per Activities card (by its entry's stableId). A
+ * width class change re-seats the bento between the phone rows and the unit
+ * grid — the Now Playing side panel opening or closing, a column, a
+ * rotation — and used to dispose every card and build it again (its cover,
+ * palette wash, press shape, title) in that one frame; now each card MOVES
+ * to its new place and only recomposes for what changed there. A card whose
+ * kind changes (small → wide) is still built anew.
+ */
+@Stable
+private class ActivityCards {
+    private val cards = HashMap<String, @Composable (HomeMomentEntry, SlotKind, ActivityCardShared, Modifier) -> Unit>()
+
+    fun of(stableId: String): @Composable (HomeMomentEntry, SlotKind, ActivityCardShared, Modifier) -> Unit =
+        cards.getOrPut(stableId) {
+            movableContentOf { entry: HomeMomentEntry, kind: SlotKind, shared: ActivityCardShared, modifier: Modifier ->
+                ActivityCard(entry, kind, shared, modifier)
+            }
+        }
+}
+
+@Composable
+private fun ActivityCard(entry: HomeMomentEntry, kind: SlotKind, shared: ActivityCardShared, modifier: Modifier) {
+    val onClick = { shared.onEntryClick(entry.target) }
+    when (kind) {
+        SlotKind.Hero -> ActivityHeroCard(
+            entry = entry,
+            footnoteExtra = shared.heroFootnoteExtra,
+            version = shared.heroVersion,
+            extractBackdropColors = shared.extractBackdropColors,
+            onClick = onClick,
+            modifier = modifier,
+        )
+        SlotKind.Wide -> ActivityWideCard(
+            entry = entry,
+            extractBackdropColors = shared.extractBackdropColors,
+            onClick = onClick,
+            modifier = modifier,
+        )
+        SlotKind.Small -> ActivitySmallCard(
+            entry = entry,
+            extractBackdropColors = shared.extractBackdropColors,
+            onClick = onClick,
+            modifier = modifier,
+        )
+        SlotKind.Strip -> ActivityStripCard(
+            entry = entry,
+            extractBackdropColors = shared.extractBackdropColors,
+            onClick = onClick,
+            modifier = modifier,
+        )
+    }
+}
 
 /**
  * Activities on the grid: the title row, then [units] rows of cards, each

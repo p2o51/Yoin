@@ -48,8 +48,23 @@ fun rememberPressMorphShape(
         animationSpec = YoinMotion.fastSpatialSpec(role = YoinMotionRole.Expressive),
         label = "pressShapeMorph",
     )
-    val morph = remember(base, pressed) { Morph(base, pressed) }
+    val morph = remember(base, pressed) { PressMorphs.of(base, pressed) }
     return remember(morph, progress) { MorphProgressShape(morph) { progress.value } }
+}
+
+/**
+ * One [Morph] per (base, pressed) pair for the process. Matching two
+ * polygons' features is the costly part of a press shape (~0.1ms each on
+ * the JVM) and a Morph never changes, yet every Home card built its own:
+ * a width re-tier that builds a screenful of cards at once (the Now Playing
+ * side panel's close) paid for dozens of identical ones. Main thread only,
+ * like composition; the app uses a handful of pairs.
+ */
+internal object PressMorphs {
+    private val morphs = HashMap<Pair<RoundedPolygon, RoundedPolygon>, Morph>()
+
+    fun of(base: RoundedPolygon, pressed: RoundedPolygon): Morph =
+        morphs.getOrPut(base to pressed) { Morph(base, pressed) }
 }
 
 /**

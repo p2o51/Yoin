@@ -295,6 +295,11 @@ dependencies {
     implementation(libs.compose.animation)
     implementation(libs.compose.runtime)
     debugImplementation(libs.compose.ui.tooling)
+    // Composition tracing (composable names as Perfetto slices) on the debug and
+    // R8 test builds only, never in the Play release: the Now Playing panel's
+    // re-tier frame is profiled on the tablet with these (2026-11-25).
+    debugImplementation(libs.compose.runtime.tracing)
+    "releaseDebugSignedImplementation"(libs.compose.runtime.tracing)
 
     // Material3 — stable from BOM + Expressive alpha explicit
     implementation(libs.material3)
