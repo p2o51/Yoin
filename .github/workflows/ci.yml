@@ -106,7 +106,19 @@ jobs:
       - name: Size Gradle and Kotlin daemon heaps for the runner
         uses: ./.github/actions/gradle-ci-memory
       # Robolectric's android-all jars are Gradle dependencies (app/build.gradle.kts),
-      # so setup-gradle caches them and nothing is downloaded mid-test.
+      # so setup-gradle caches them and nothing is downloaded mid-test. When they're
+      # not cached yet (a PR before main has saved them, a Robolectric bump), fetch
+      # them up front and wait out Maven Central's 429 rate limiting: each attempt
+      # keeps the jars the previous one finished.
+      - name: Fetch Robolectric android-all jars
+        run: |
+          for wait in 30 60 120 0; do
+            ./gradlew :app:robolectricDepsProperties -PyoinSymbolsDir=yoin-symbols && exit 0
+            [ "$wait" -gt 0 ] || break
+            echo "::warning::Fetching the Robolectric jars failed; retrying in ${wait}s."
+            sleep "$wait"
+          done
+          exit 1
       - name: Unit tests
         run: ./gradlew test -PyoinSymbolsDir=yoin-symbols
       - name: Upload test reports

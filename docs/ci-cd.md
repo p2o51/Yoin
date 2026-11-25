@@ -38,7 +38,10 @@ machines; with that on CI, `:app:compileDebugKotlin` ran out of heap and Android
 Robolectric's android-all jars are Gradle dependencies (`robolectricAndroidAll*` in
 `app/build.gradle.kts`), so Gradle downloads them with retries, `setup-gradle` caches
 them, and the tests read them through a generated `robolectric-deps.properties`.
-Robolectric no longer downloads anything while tests run. The list has one entry per
+Robolectric no longer downloads anything while tests run. When the jars aren't cached
+yet (a PR before `main` has saved them, or after a Robolectric bump), the Unit tests job
+fetches them in a separate step first and retries with backoff, because Maven Central
+answers bursts of large downloads with `429 Too Many Requests`. The list has one entry per
 SDK the tests use (every `@Config(sdk = …)` plus `targetSdk`). A test on an SDK that
 isn't listed fails with `no artifacts found for org.robolectric:android-all-instrumented:…`:
 add that SDK there. When Robolectric is bumped, the build stops with a message saying
