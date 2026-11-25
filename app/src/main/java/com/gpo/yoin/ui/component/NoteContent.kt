@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.IconButton
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -479,7 +481,9 @@ internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
  * [inline] (the landscape phone, where the keyboard leaves little height)
  * puts 记下 at the end of the line and keeps the card to 3 lines (no footer).
  * [focusGate] holds a pending [NoteWriteBarState.requestWriting] until the
- * host's page has landed.
+ * host's page has landed. [onShareEditing]: a note opened for editing (its long press) and not yet
+ * changed offers Share as image beside 保存 (owner 2026-11-25) — the keyboard goes, the edit closes
+ * unchanged, and the host opens its share sheet on that note.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -491,6 +495,7 @@ fun NoteWriteBar(
     modifier: Modifier = Modifier,
     inline: Boolean = false,
     focusGate: Boolean = true,
+    onShareEditing: ((noteId: String) -> Unit)? = null,
 ) {
     val draftState = state.draftState
     val draft = draftState.draft
@@ -653,6 +658,31 @@ fun NoteWriteBar(
                         .horizontalScroll(rememberScrollState()),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                val shareId = draft.editingNoteId?.takeIf { draft.isUntouchedEdit }
+                AnimatedVisibility(
+                    visible = onShareEditing != null && shareId != null,
+                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+                        YoinMotion.expandHorizontally(role = YoinMotionRole.Standard),
+                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
+                        YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard),
+                ) {
+                    IconButton(
+                        onClick = {
+                            val id = shareId ?: return@IconButton
+                            haptics.performContextClick()
+                            // The keyboard going closes the unchanged edit (see above).
+                            focusManager.clearFocus()
+                            onShareEditing?.invoke(id)
+                        },
+                        modifier = Modifier.handPointer(),
+                    ) {
+                        Icon(
+                            imageVector = YoinSymbols.Share,
+                            contentDescription = stringResource(R.string.np_share_sheet_title),
+                            tint = scheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 NoteSavePill(enabled = draft.canSave, onClick = save)
             }
         }

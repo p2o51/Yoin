@@ -380,6 +380,20 @@ internal fun lyricsShareSnapshot(state: NowPlayingUiState.Playing, selected: Set
 }
 
 /**
+ * The share sheet's content for [this] pick: the lines, and — when Now Playing provides its [sources] — the
+ * song's About and note, for the sheet's other tabs. Only the pick's own song: a song that changed since
+ * the pick began leaves the other tabs out rather than mixing two songs.
+ */
+internal fun LyricsShareSnapshot.shareContent(sources: ShareSources?, resources: android.content.res.Resources): ShareContent {
+    val pick = LyricsSharePick(lines, passageStarts, showTranslation)
+    val full = sources?.takeIf { it.state()?.songId == songId }?.content(resources, lyrics = pick)
+    return full ?: ShareContent(
+        song = ShareSong(songId = songId, title = songTitle, artist = artist, coverArtUrl = coverArtUrl),
+        lyrics = pick,
+    )
+}
+
+/**
  * The open share sheet and the [LyricsShareSnapshot] it renders. Held by the
  * layout, not per song like the pick, so it outlives a song change under it.
  */
@@ -406,7 +420,7 @@ internal class LyricsShareSheetState {
  * The pick's Share ([LyricsSelectionState.openShare]) is taken up here: what
  * it shows is frozen into [shareSheet], which stays open — same lines, same
  * song — when the song changes underneath; the live pick still resets for the
- * new song. [sheet] draws it (the real [LyricsShareSheet]; tests swap it).
+ * new song. [sheet] draws it (the real [ShareSheet], opened on its lyrics tab; tests swap it).
  */
 @Composable
 internal fun LyricsSelectionHost(
@@ -418,13 +432,12 @@ internal fun LyricsSelectionHost(
     sheet: @Composable (snapshot: LyricsShareSnapshot, onShared: () -> Unit, onDismiss: () -> Unit) -> Unit =
         { snapshot, onShared, onDismiss ->
             val context = LocalContext.current
-            LyricsShareSheet(
-                lines = snapshot.lines,
-                passageStarts = snapshot.passageStarts,
-                showTranslation = snapshot.showTranslation,
-                songTitle = snapshot.songTitle,
-                artist = snapshot.artist,
-                coverArtUrl = snapshot.coverArtUrl,
+            val sources = LocalShareSources.current
+            // The pick, with whatever About and note the song has — frozen as the sheet opens.
+            val content = remember(snapshot) { snapshot.shareContent(sources, context.resources) }
+            ShareSheet(
+                content = content,
+                initialTab = ShareTab.Lyrics,
                 onShared = onShared,
                 onDismiss = onDismiss,
                 onMessage = onMessage,

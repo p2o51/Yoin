@@ -132,8 +132,6 @@
     </plurals>
     <string name="np_lyrics_credit">%1$s\n%2$s</string>
     <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
-
-    <string name="np_share_title">分享歌词</string>
     <string name="np_share_save">保存</string>
     <string name="np_share_saving">正在保存…</string>
     <string name="np_share_saved">已保存</string>
@@ -146,8 +144,27 @@
     <string name="np_cd_tone_deep">深色配色</string>
     <string name="np_cd_tone_vivid">鲜艳配色</string>
     <string name="np_cd_tone_mist">薄雾配色</string>
-    <string name="np_share_file_untitled">Yoin 歌词 %1$s.png</string>
-    <string name="np_share_file_named">Yoin 歌词 - %1$s - %2$s.png</string>
+    <!-- PROPOSED: needs Rebecca/Argon (generic now: lyrics, About and Note images share it) -->
+    <string name="np_share_file_untitled">Yoin %1$s.png</string>
+    <string name="np_share_file_named">Yoin - %1$s - %2$s.png</string>
+    <!-- PROPOSED: needs Rebecca/Argon — share sheet round 2 (About & Note share images, layout picker, 2026-11-25) -->
+    <string name="np_share_sheet_title">分享图片</string>
+    <string name="np_share_layout">版式</string>
+    <string name="np_share_layout_classic">经典</string>
+    <string name="np_share_layout_poster">海报</string>
+    <string name="np_share_layout_player">播放器</string>
+    <string name="np_share_layout_vertical">竖排</string>
+    <string name="np_share_layout_receipt">小票</string>
+    <string name="np_share_layout_quote">引文</string>
+    <string name="np_share_layout_liner">内页</string>
+    <string name="np_share_layout_big">大字</string>
+    <string name="np_share_layout_clipping">剪贴</string>
+    <string name="np_share_layout_timeline">时间线</string>
+    <string name="np_share_lyrics_gist">歌词大意：%1$s</string>
+    <string name="np_share_ai_sign">由 %1$s 整理</string>
+    <string name="np_share_ai_generic">AI</string>
+    <string name="np_share_note_written">写于 %1$s</string>
+    <string name="np_cd_tone_paper">纸</string>
     <plurals name="np_note_count">
         <item quantity="other">%1$d 条笔记</item>
     </plurals>
