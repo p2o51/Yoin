@@ -2,6 +2,7 @@ package com.gpo.yoin.data.local
 
 import androidx.room.Entity
 import androidx.room.Index
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 
 /**
  * Unified row for both canonical song About fields (Creation Time / Lyricist /
@@ -76,17 +77,10 @@ data class SongAboutEntry(
          * Cheap identity normalization so "Fake Love" / "fake love" /
          * "Fake Love (feat. X)" collapse to the same key. Not exhaustive —
          * remaster / remix / edition tags still slip through, which is
-         * acceptable until real collisions show up in practice.
+         * acceptable until real collisions show up in practice. Lives in :shared
+         * ([YoinAlbumAbout.questionKey], also the album asks' key) so iOS and
+         * HarmonyOS key synced rows alike.
          */
-        fun normalize(text: String): String =
-            text.trim()
-                .lowercase()
-                .replace(FEAT_SUFFIX_REGEX, "")
-                .replace(WHITESPACE_REGEX, " ")
-                .trim()
-
-        private val FEAT_SUFFIX_REGEX =
-            Regex("\\s*\\(feat\\.[^)]*\\)", RegexOption.IGNORE_CASE)
-        private val WHITESPACE_REGEX = Regex("\\s+")
+        fun normalize(text: String): String = YoinAlbumAbout.questionKey(text)
     }
 }

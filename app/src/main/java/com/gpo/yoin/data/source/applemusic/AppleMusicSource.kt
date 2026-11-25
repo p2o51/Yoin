@@ -13,8 +13,6 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.ReleaseDate
-import com.gpo.yoin.data.model.plainTextFromHtml
-import com.gpo.yoin.data.model.plainTextFromHtml
 import com.gpo.yoin.data.model.orMorePrecise
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -42,6 +40,7 @@ import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.MadeForYouKind
 import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -1010,12 +1009,13 @@ class AppleMusicSource(
             )
         }
 
-        /** Apple's `editorialNotes` as plain text: `standard`, else `short`; null when neither has words. */
+        /**
+         * Apple's `editorialNotes` as plain text: `standard`, else `short`; null when neither has words (the
+         * rule and the HTML stripping are :shared's, so iOS reads the same notes).
+         */
         internal fun appleEditorialNotes(notes: JsonObject?): String? {
             notes ?: return null
-            return listOf("standard", "short").firstNotNullOfOrNull { key ->
-                notes.text(key)?.let(::plainTextFromHtml)
-            }
+            return YoinAlbumAbout.editorialNotes(standard = notes.text("standard"), short = notes.text("short"))
         }
 
         /**

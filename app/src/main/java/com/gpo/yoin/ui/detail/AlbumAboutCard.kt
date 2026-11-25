@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
+import com.gpo.yoin.shared.albumabout.AlbumCreditItem
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ThinkingDots
 import com.gpo.yoin.ui.component.dashedOutline
@@ -83,8 +84,7 @@ internal const val AlbumAboutCardLines = 4
 internal fun AlbumCreditsLine(items: List<AlbumCreditItem>, colors: ScrapbookColors, modifier: Modifier = Modifier) {
     val resources = LocalContext.current.resources
     val configuration = LocalConfiguration.current
-    val line = remember(items, configuration) { albumCreditsLine(items, resourceAlbumCreditLabels(resources)) }
-        ?: return
+    val line = remember(items, configuration) { albumCreditsLine(items, resources)?.text } ?: return
     Text(
         text = line,
         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, lineHeight = 1.5.em, letterSpacing = 0.sp),
