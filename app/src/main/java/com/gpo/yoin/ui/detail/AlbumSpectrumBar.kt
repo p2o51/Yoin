@@ -575,10 +575,12 @@ internal fun AlbumFlyingCover(
                     albumBarCoverRect(now, coverNow(), p)
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
-                val target = pageFlight?.coverTarget
                 // From wherever the pull-up holds it (the hero's middle or the
                 // stamp) to the scrapbook's cover, with the pager; back the same way.
-                val toPage = if (target == null || !pageFlight.flies()) 0f else pageFlight.t()
+                // Not to a cover scrolled out of the page (AlbumPageFlight.coverFlying).
+                val landing = pageFlight?.takeIf { it.coverFlying() }
+                val target = landing?.coverTarget
+                val toPage = landing?.t() ?: 0f
                 val flown = if (target == null || toPage <= 0f) {
                     r.translate(-pageShift(), 0f)
                 } else {
@@ -593,7 +595,7 @@ internal fun AlbumFlyingCover(
                 translationY = flown.top - side * (1f - scale) / 2f
                 scaleX = scale
                 scaleY = scale
-                rotationZ = if (target == null) 0f else pageFlight.coverTargetTilt * toPage
+                rotationZ = (landing?.coverTargetTilt ?: 0f) * toPage
                 val corner = if (reduced) {
                     if (p < 0.5f) restingPx else stampPx
                 } else {

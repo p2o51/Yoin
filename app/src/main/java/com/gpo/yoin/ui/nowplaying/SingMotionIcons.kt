@@ -173,7 +173,6 @@ internal fun SingPreparingMicIcon(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val eFast = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     val eDefault = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-    val slowEffects = YoinMotion.slowEffectsSpec<Float>(role = YoinMotionRole.Standard)
     val defaultEffects = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
 
     val split = remember { Animatable(0f) }
@@ -189,13 +188,13 @@ internal fun SingPreparingMicIcon(
     LaunchedEffect(preparing, reduced) {
         if (preparing) {
             if (reduced) {
+                // Static calm dim mic under Remove animations / reduced motion: never run a loop,
+                // because animator_duration_scale == 0 turns tween() into 0ms and would strobe at 120Hz.
                 split.snapTo(0f)
-                var dim = true
-                while (isActive) {
-                    reducedAlpha.animateTo(if (dim) 0.42f else 1f, slowEffects)
-                    delay(450L)
-                    dim = !dim
-                }
+                barL.snapTo(3.2f)
+                barC.snapTo(8.8f)
+                barR.snapTo(3.2f)
+                reducedAlpha.animateTo(0.58f, defaultEffects)
             } else {
                 reducedAlpha.snapTo(1f)
                 var step = 0
@@ -318,9 +317,10 @@ internal fun SingPreparingMicIcon(
 }
 
 /**
- * Option 1 (**麦头展成爱心**) true 6-cubic Bézier path morph between `MicOff` (`morph = 0`) and
- * `yoin_favorite` Heart (`morph = 1`), with independent [slashProgress] (`1 = full slash`, `0 = retracted`)
- * and [heartFillAlpha] (`0..1`) for favorited tracks.
+ * Option 1 (**麦头展成爱心**) true 6-cubic Bézier path morph between `MicOff` (`morph = 0`, 22dp optical
+ * size matching [SingExitButton]) and `yoin_favorite` Heart (`morph = 1`, 24dp optical size matching
+ * [FavoriteButton]), with independent [slashProgress] (`1 = full slash`, `0 = retracted`) and
+ * [heartFillAlpha] (`0..1`) for favorited tracks.
  */
 @Composable
 internal fun SingHeartMicMorphIcon(
@@ -329,13 +329,16 @@ internal fun SingHeartMicMorphIcon(
     heartFillAlpha: Float,
     tint: Color,
     modifier: Modifier = Modifier,
-    size: Dp = 22.dp,
+    size: Dp = 24.dp,
 ) {
     val morphPath = remember { Path() }
 
     Canvas(modifier = modifier.size(size)) {
-        val s = minOf(this.size.width, this.size.height) / SingMotionGeometry.VIEWBOX
         val clamped = morph.coerceIn(0f, 1f)
+        // Continuously scale optical size from 22dp (MicOff) → 24dp (Heart) inside the fixed 24dp canvas
+        // so handing off to FavoriteButton (24dp) / SingExitButton (22dp) has zero last-frame size jump.
+        val opticalScale = SingMotionGeometry.lerp(22f / 24f, 1f, clamped)
+        val s = minOf(this.size.width, this.size.height) / SingMotionGeometry.VIEWBOX
         val sl = slashProgress.coerceIn(0f, 1f)
         val fillOp = heartFillAlpha.coerceIn(0f, 1f)
         val stroke = Stroke(
@@ -347,74 +350,75 @@ internal fun SingHeartMicMorphIcon(
         val contour = SingMotionGeometry.interpolateMicToHeart(morph)
         SingMotionGeometry.writeToPath(contour, s, morphPath)
 
-        // Optional heart fill blooming from center for starred tracks
-        if (fillOp > 0.01f) {
-            val fillScale = SingMotionGeometry.lerp(0.5f, 1f, fillOp)
-            withTransform({
-                scale(scaleX = fillScale, scaleY = fillScale, pivot = Offset(12f * s, 12f * s))
-            }) {
+        withTransform({
+            scale(scaleX = opticalScale, scaleY = opticalScale, pivot = Offset(12f * s, 12f * s))
+        }) {
+            // Optional heart fill sits flush inside morphPath (scale 1.0) so starred transitions never show a double edge.
+            if (fillOp > 0.01f) {
                 drawPath(
                     path = morphPath,
                     color = tint.copy(alpha = tint.alpha * fillOp),
                 )
             }
-        }
 
-        // Cradle + stem gently fold toward bottom tip (12, 19.35) as mic opens into heart
-        val auxAlpha = (1f - clamped * 1.65f).coerceIn(0f, 1f)
-        if (auxAlpha > 0.01f) {
-            val auxColor = tint.copy(alpha = tint.alpha * auxAlpha)
-            val auxScale = SingMotionGeometry.lerp(1f, 0.55f, clamped)
-            val auxTy = SingMotionGeometry.lerp(0f, 3.2f, clamped) * s
-            val cradleRect = Rect(
-                left = (12f - 5.7f) * s,
-                top = (10.6f - 5.7f) * s,
-                right = (12f + 5.7f) * s,
-                bottom = (10.6f + 5.7f) * s,
-            )
-            withTransform({
-                translate(left = 0f, top = auxTy)
-                scale(scaleX = auxScale, scaleY = auxScale, pivot = Offset(12f * s, 14f * s))
-            }) {
-                drawArc(
+            // Cradle + stem gently fold toward bottom tip (12, 19.35) as mic opens into heart
+            val auxAlpha = (1f - clamped * 1.65f).coerceIn(0f, 1f)
+            if (auxAlpha > 0.01f) {
+                val auxColor = tint.copy(alpha = tint.alpha * auxAlpha)
+                val auxScale = SingMotionGeometry.lerp(1f, 0.55f, clamped)
+                val auxTy = SingMotionGeometry.lerp(0f, 3.2f, clamped) * s
+                val cradleRect = Rect(
+                    left = (12f - 5.7f) * s,
+                    top = (10.6f - 5.7f) * s,
+                    right = (12f + 5.7f) * s,
+                    bottom = (10.6f + 5.7f) * s,
+                )
+                withTransform({
+                    translate(left = 0f, top = auxTy)
+                    scale(scaleX = auxScale, scaleY = auxScale, pivot = Offset(12f * s, 14f * s))
+                }) {
+                    drawArc(
+                        color = auxColor,
+                        startAngle = 0f,
+                        sweepAngle = 180f,
+                        useCenter = false,
+                        topLeft = cradleRect.topLeft,
+                        size = cradleRect.size,
+                        style = stroke,
+                    )
+                }
+                val stemY1 = SingMotionGeometry.lerp(16.4f, 19.2f, clamped) * s
+                val stemY2 = SingMotionGeometry.lerp(20.5f, 19.35f, clamped) * s
+                drawLine(
                     color = auxColor,
-                    startAngle = 0f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = cradleRect.topLeft,
-                    size = cradleRect.size,
-                    style = stroke,
+                    start = Offset(12f * s, stemY1),
+                    end = Offset(12f * s, stemY2),
+                    strokeWidth = SingMotionGeometry.STROKE_WIDTH * s,
+                    cap = StrokeCap.Round,
                 )
             }
-            val stemY1 = SingMotionGeometry.lerp(16.4f, 19.2f, clamped) * s
-            val stemY2 = SingMotionGeometry.lerp(20.5f, 19.35f, clamped) * s
-            drawLine(
-                color = auxColor,
-                start = Offset(12f * s, stemY1),
-                end = Offset(12f * s, stemY2),
-                strokeWidth = SingMotionGeometry.STROKE_WIDTH * s,
-                cap = StrokeCap.Round,
-            )
-        }
 
-        // Main morphing stroke (Mic capsule ↔ Heart contour)
-        drawPath(
-            path = morphPath,
-            color = tint,
-            style = stroke,
-        )
-
-        // Diagonal slash retracts cleanly toward top-left on S·fast
-        if (sl > 0.03f) {
-            val x2 = SingMotionGeometry.lerp(4.5f, 19.5f, sl) * s
-            val y2 = SingMotionGeometry.lerp(4.5f, 19.5f, sl) * s
-            drawLine(
+            // Main morphing stroke (Mic capsule ↔ Heart contour)
+            drawPath(
+                path = morphPath,
                 color = tint,
-                start = Offset(4.5f * s, 4.5f * s),
-                end = Offset(x2, y2),
-                strokeWidth = SingMotionGeometry.STROKE_WIDTH * s,
-                cap = StrokeCap.Round,
+                style = stroke,
             )
+
+            // Diagonal slash retracts inward toward (7.5, 7.5) with alpha fade so StrokeCap.Round
+            // never leaves a stub dot at the top-left corner of the heart.
+            val slashAlpha = ((sl - 0.14f) / 0.86f).coerceIn(0f, 1f)
+            if (slashAlpha > 0.01f) {
+                val startPos = SingMotionGeometry.lerp(7.5f, 4.5f, sl) * s
+                val endPos = SingMotionGeometry.lerp(7.5f, 19.5f, sl) * s
+                drawLine(
+                    color = tint.copy(alpha = tint.alpha * slashAlpha),
+                    start = Offset(startPos, startPos),
+                    end = Offset(endPos, endPos),
+                    strokeWidth = SingMotionGeometry.STROKE_WIDTH * s,
+                    cap = StrokeCap.Round,
+                )
+            }
         }
     }
 }
