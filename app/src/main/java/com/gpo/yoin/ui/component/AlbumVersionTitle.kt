@@ -68,11 +68,11 @@ fun AlbumVersionTitle(
     val shown = albumNameWithoutVersion(name, tag)
     val measurer = rememberTextMeasurer()
     Layout(
-        modifier = modifier,
+        modifier = if (explicit) modifier.explicitTitleSemantics() else modifier,
         content = {
             title(shown, Modifier)
             AlbumVersionTag(version = tag, style = tagStyle)
-            if (explicit) ExplicitBadge(textStyle = titleStyle)
+            if (explicit) ExplicitBadge(textStyle = titleStyle, describe = false)
         },
     ) { measurables, outer ->
         val gap = TagGap.roundToPx()

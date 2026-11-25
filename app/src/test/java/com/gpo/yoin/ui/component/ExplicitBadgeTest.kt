@@ -7,11 +7,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.test.onChildren
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.assertAll
-import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,7 +89,7 @@ class ExplicitBadgeTest {
     fun should_keepTheBadgeInTheRow_when_aLongTitleIsCut() {
         row(longTitle, explicit = true)
 
-        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
         badge.assertIsDisplayed()
         val row = rule.onNodeWithTag("row").getBoundsInRoot()
         val bounds = badge.getBoundsInRoot()
@@ -105,7 +110,7 @@ class ExplicitBadgeTest {
             }
         }
 
-        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
         badge.assertIsDisplayed()
         assertInside(badge.getBoundsInRoot(), rule.onNodeWithTag("box").getBoundsInRoot())
     }
@@ -126,7 +131,7 @@ class ExplicitBadgeTest {
             }
         }
 
-        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
         badge.assertIsDisplayed()
         assertInside(badge.getBoundsInRoot(), rule.onNodeWithTag("box").getBoundsInRoot())
     }
@@ -144,7 +149,7 @@ class ExplicitBadgeTest {
             }
         }
 
-        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
         badge.assertIsDisplayed()
         assertInside(badge.getBoundsInRoot(), rule.onNodeWithTag("box").getBoundsInRoot())
     }
@@ -191,7 +196,7 @@ class ExplicitBadgeTest {
             }
         }
 
-        rule.onAllNodesWithContentDescription(explicitLabel, useUnmergedTree = true).assertAll(isNotDisplayedMatcher())
+        rule.onAllNodesWithTag(ExplicitBadgeTestTag, useUnmergedTree = true).assertAll(isNotDisplayedMatcher())
         // Without the badge the name keeps what the tag leaves (the tag rule as before), and the tiny tile is all title.
         val tagged = rule.onNodeWithTag("taggedName", useUnmergedTree = true).getBoundsInRoot()
         assertTrue("name keeps ${tagged.right - tagged.left}", tagged.right - tagged.left >= 30.dp)
@@ -212,11 +217,60 @@ class ExplicitBadgeTest {
             }
         }
 
-        val badge = rule.onNodeWithContentDescription(explicitLabel, useUnmergedTree = true)
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
         badge.assertIsDisplayed()
         assertInside(badge.getBoundsInRoot(), rule.onNodeWithTag("box").getBoundsInRoot())
         val name = rule.onNodeWithTag("name", useUnmergedTree = true).getBoundsInRoot()
         assertTrue("name keeps half the tile", name.right - name.left >= 91.dp / 2)
+    }
+
+    @Test
+    fun should_stillSayExplicit_when_aNarrowTileLeavesTheBadgeOut() {
+        rule.setContent {
+            YoinTheme {
+                val style = MaterialTheme.typography.titleSmall
+                Column {
+                    // Tiles read as one node, as Library and Home's cards do.
+                    Box(modifier = Modifier.width(91.dp).semantics(mergeDescendants = true) {}.testTag("tagged")) {
+                        AlbumVersionTitle(name = "good kid, m.A.A.d city", version = "Deluxe", titleStyle = style, explicit = true) { text, m ->
+                            Text(text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = m)
+                        }
+                    }
+                    Box(modifier = Modifier.width(24.dp).semantics(mergeDescendants = true) {}.testTag("tiny")) {
+                        ExplicitTitle(text = longTitle, explicit = true, style = style) { m ->
+                            Text(longTitle, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = m)
+                        }
+                    }
+                    Box(modifier = Modifier.width(300.dp).semantics(mergeDescendants = true) {}.testTag("marquee")) {
+                        com.gpo.yoin.ui.nowplaying.NowPlayingMarqueeTitle(
+                            text = longTitle,
+                            style = MaterialTheme.typography.displaySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            stretchScale = 1f,
+                            explicit = true,
+                        )
+                    }
+                }
+            }
+        }
+
+        // No badge drawn on the two narrow tiles, yet each still says "Explicit" once, beside its title.
+        val drawn = rule.onAllNodesWithTag(ExplicitBadgeTestTag, useUnmergedTree = true).fetchSemanticsNodes()
+            .count { it.layoutInfo.isPlaced && it.boundsInRoot.width > 0f }
+        assertEquals("only the marquee draws its badge", 1, drawn)
+        listOf("tagged", "tiny", "marquee").forEach { tag ->
+            val config = rule.onNodeWithTag(tag).fetchSemanticsNode().config
+            assertEquals(tag, listOf(explicitLabel), config.getOrNull(SemanticsProperties.ContentDescription))
+            assertTrue(tag, config.getOrNull(SemanticsProperties.Text).orEmpty().isNotEmpty())
+        }
+    }
+
+    @Test
+    fun should_sayExplicitOnce_when_theBadgeIsDrawn() {
+        row("HUMBLE.", explicit = true)
+
+        val config = rule.onNodeWithTag("row").onChildren().onFirst().fetchSemanticsNode().config
+        assertEquals(listOf(explicitLabel), config.getOrNull(SemanticsProperties.ContentDescription)?.filter { it == explicitLabel })
     }
 
     @Test

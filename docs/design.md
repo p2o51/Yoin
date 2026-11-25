@@ -518,7 +518,7 @@ owner：专辑和歌曲没有 Explicit 标，Apple Music 上同一张专辑的 E
 - **样子**（`ui/component/ExplicitBadge.kt`）：Apple Music 式的小圆角方块，中间镂空一个 E（E 是挖空的，底下是什么颜色就透出什么，封面色、色谱顶栏、NP 的极光背景上都成立）。方块高度 = 标题字体的大写字高（GSF cap height 0.716 em，最小 9dp），底边落在标题基线上，像一个大写字母；圆角是边长的 1/5；颜色用 `onSurfaceVariant`（和副标题同一档的中性色，不和标题抢）。离标题 6dp（列表行里和笔记标记一样），大字号按 1/3 字号放宽。
 - **截断**：标题不能把标挤掉。单行标题被省略号截断时，标跟在省略号后面（`ExplicitTitle` 量出省略号的位置）；两行标题跟在最后一行后面；会滚动的标题（Library 网格卡片、NP 大标题）先把标的位置让出来，滚动只在剩下的宽度里，标钉在后面；NP 标题播放时的拉伸，标跟着一起移。有版本标签时顺序是「名字 [版本] E」，版本标签可以被压短，E 不会。**标题优先**（2026-11-25 评审）：标会让标题剩下不到一半宽度（标题本身更短时，不到它自己的宽度）的窄卡片上，不画标，宽度全给标题，不会把名字挤成两三个字（`explicitBadgeFits`；Library 挤窄的网格、主页窄卡、NP 的窄窗都一样）。
 - **出现的位置**：歌曲行（Library 歌曲 / 收藏、搜索结果、专辑曲目表、歌单曲目表、Open in Yoin 结果、主页 Recently Added 单曲）；专辑卡片和行（Library 网格和列表、搜索的瓦片和最佳匹配、主页 Activities 主卡 / Jump Back In / Recently Added / Recently Played、艺人页作品列表）；专辑页页头（色谱顶栏上的白色副本也有）；Now Playing 的所有标题形态（单行 / 堆叠 / 两行 / 横屏 / 桌面模式 / 收起后的小标题）。没做：专辑页首屏把曲名连成一段大字的那块、队列、歌曲长按面板的头部。
-- **读屏**：标本身读「Explicit」（中文「含不雅内容」，PROPOSED，待 Rebecca / Argon 定稿），整行合并读时接在标题后面。
+- **读屏**：读「Explicit」（中文「含不雅内容」，PROPOSED，待 Rebecca / Argon 定稿），整行合并读时和标题一起读。卡片、瓦片、NP 标题上这句话挂在标题上而不是标上，所以窄卡片没画标时照样读出来（2026-11-25 评审）；列表行里由标本身说。
 - **缓存**：详情缓存（专辑 / 艺人 / 歌单 JSON）带上了标；格式升到 2，之前写的 Apple Music / Spotify 专辑和艺人行当作未命中重新读一次，Subsonic 的行照用（反正是未知）。Spotify 资料库镜像和 Jump Back In 候选池加了 `contentRating` 列（DB v38，旧行为未知，下次同步自然补上）；主页快照、NP 的 `MediaItem` extras 也带着。
 - **其他平台**：iOS / iPadOS / macOS / HarmonyOS 还没有，见 [platforms.md](platforms.md)。
 

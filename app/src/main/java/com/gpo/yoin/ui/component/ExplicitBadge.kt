@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -96,6 +97,20 @@ internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit): I
 internal fun explicitBadgeFits(maxWidth: Int, titleRoom: Int, naturalTitle: Int): Boolean =
     titleRoom >= min(naturalTitle, maxWidth / 2)
 
+/**
+ * "Explicit" for TalkBack on a title that may leave its badge out on a narrow tile
+ * ([explicitBadgeFits]): said by the title itself, so it is read whether or not the badge is drawn
+ * (the badge inside is drawn with `describe = false`).
+ */
+@Composable
+internal fun Modifier.explicitTitleSemantics(): Modifier {
+    val description = stringResource(R.string.cmp_explicit_badge_cd)
+    return semantics { contentDescription = description }
+}
+
+/** The drawn badge's test tag (its "Explicit" may be said by the title around it instead). */
+const val ExplicitBadgeTestTag = "ExplicitBadge"
+
 /** The badge's distance from a list row's title, as the note marker's (SongListItem, AlbumTrackRow). */
 val ExplicitBadgeGap = 6.dp
 
@@ -109,6 +124,11 @@ fun ExplicitBadge(
     textStyle: TextStyle,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    /**
+     * The badge says "Explicit" itself. False where the title around it says it instead
+     * ([explicitTitleSemantics]), so it is read whether or not the badge is drawn.
+     */
+    describe: Boolean = true,
 ) {
     val density = LocalDensity.current
     val fallbackSize = LocalTextStyle.current.fontSize
@@ -125,7 +145,8 @@ fun ExplicitBadge(
     val description = stringResource(R.string.cmp_explicit_badge_cd)
     Canvas(
         modifier = modifier
-            .semantics { contentDescription = description }
+            .testTag(ExplicitBadgeTestTag)
+            .then(if (describe) Modifier.semantics { contentDescription = description } else Modifier)
             .layout { measurable, _ ->
                 val px = ceil(sidePx).toInt()
                 val placeable = measurable.measure(Constraints.fixed(px, px))
@@ -179,10 +200,10 @@ fun ExplicitTitle(
     val fallbackSize = LocalTextStyle.current.fontSize
     val layoutDirection = LocalLayoutDirection.current
     Layout(
-        modifier = modifier,
+        modifier = modifier.explicitTitleSemantics(),
         content = {
             title(Modifier)
-            ExplicitBadge(textStyle = style, color = badgeColor)
+            ExplicitBadge(textStyle = style, color = badgeColor, describe = false)
         },
     ) { measurables, constraints ->
         val gap = explicitBadgeGapPx(style, fallbackSize)

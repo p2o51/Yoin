@@ -9,6 +9,7 @@ import com.gpo.yoin.ui.component.ExplicitTitle
 import com.gpo.yoin.ui.component.explicitBadgeFits
 import com.gpo.yoin.ui.component.explicitBadgeGapPx
 import com.gpo.yoin.ui.component.explicitBadgeSidePx
+import com.gpo.yoin.ui.component.explicitTitleSemantics
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -6457,7 +6458,8 @@ internal fun NowPlayingMarqueeTitle(
     overflowStretchScale: Float = 1f,
     explicit: Boolean = false,
 ) {
-    BoxWithConstraints(modifier = modifier) {
+    // "Explicit" is said by the title, so TalkBack reads it even where the badge is left out.
+    BoxWithConstraints(modifier = if (explicit) modifier.explicitTitleSemantics() else modifier) {
         val textMeasurer = rememberTextMeasurer()
         val density = LocalDensity.current
         val layoutDirection = LocalLayoutDirection.current
@@ -6570,6 +6572,7 @@ internal fun NowPlayingMarqueeTitle(
             Box(modifier = Modifier.alignByBaseline()) { title() }
             ExplicitBadge(
                 textStyle = style,
+                describe = false,
                 modifier = Modifier
                     .alignByBaseline()
                     .padding(start = with(density) { explicitBadgeGapPx(style, fallbackSize).toDp() })
