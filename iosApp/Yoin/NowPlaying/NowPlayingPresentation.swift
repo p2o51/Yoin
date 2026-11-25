@@ -42,10 +42,34 @@ final class NowPlayingPresentation {
     var panelRadius: CGFloat = 28
     var fromPanel = false
 
-    /// Global frames of the bar's pill and its cover / title.
+    /// Global frames of the bar's pill and its cover / title: where the page folds into and its cover
+    /// and title fly to. Set through `pillMeasured`.
     var pillFrame: CGRect = .zero
     var pillCoverFrame: CGRect = .zero
     var pillTitleFrame: CGRect = .zero
+
+    enum PillPart { case pill, cover, title }
+    /// What the bar measured last, kept unobserved while the page is up.
+    @ObservationIgnored private var measuredPill: [PillPart: CGRect] = [:]
+
+    /// The bar's pill (or its cover / title) laid out at `frame`. Published while the page is folded
+    /// away or folding into the pill; up (or opening) it is only kept, so the bar can't rebuild the
+    /// morph on every frame. Folding, it must reach the morph: Go to album pushes the album page as
+    /// the page folds, the album page's bar puts the pill beside its Play split, and the page and its
+    /// cover went on to where the pill had been on the screen before (near the middle).
+    func pillMeasured(_ part: PillPart, _ frame: CGRect) {
+        measuredPill[part] = frame
+        if !mounted || closing { publishPill(part) }
+    }
+
+    private func publishPill(_ part: PillPart) {
+        guard let r = measuredPill[part] else { return }
+        switch part {
+        case .pill: if !r.nearlyMatches(pillFrame) { pillFrame = r }
+        case .cover: if !r.nearlyMatches(pillCoverFrame) { pillCoverFrame = r }
+        case .title: if !r.nearlyMatches(pillTitleFrame) { pillTitleFrame = r }
+        }
+    }
     /// The page's cover / title in page space (= the screen at rest).
     /// Where the page's cover is drawn: the stage's own transforms (the
     /// expanded dock into the top bar, focus) sit outside the anchor, so
@@ -72,6 +96,8 @@ final class NowPlayingPresentation {
     /// never restarts from rest.
     func show(_ open: Bool, velocity: CGFloat? = nil) {
         let to: CGFloat = open ? 1 : 0
+        // Folding: land where the pill is now (the bar may have moved while the page was up).
+        if !open { for part in [PillPart.pill, .cover, .title] { publishPill(part) } }
         warmTask?.cancel()
         warming = false
         if open && !mounted {

@@ -74,11 +74,20 @@ description: Step-by-step workflow for synchronizing documentation, facts/terms 
 
 | 目标文件 | 同步内容 | 备注 |
 | --- | --- | --- |
-| `public/changelog.html`<br>`public/zh/changelog.html` | 新增版本区块、移动 `Latest / 最新` 标签、一句话 `.sum`、脱敏测试者致谢、**必带** `public/spot.js` + `changelog.css` 前后对比画圈草图（`<figure class="spot" data-set="...">` + `data-spot`） | 保持精简，不写成操作说明书 |
+| `public/changelog.html`<br>`public/zh/changelog.html` | 新增版本区块、移动 `Latest / 最新` 标签、一句话 `.sum`、脱敏测试者致谢、**必带** 前后对比图（`<figure class="spot" data-set="...">` + `data-spot`；画面一律用 `design/hifi/export.mjs` 从高保真原型导出，在 `public/spot.js` 里登记 `shot` / `was` 和框，见下方 5a） | 保持精简，不写成操作说明书 |
 | `public/index.html`<br>`public/zh/index.html` | 更新 Hero 与页脚两处 `a.ver` 版本胶囊、四端状态徽标及对应功能亮点 | 首页文案风格见 `yoin-site/AGENTS.md` |
 | `public/licenses.html`<br>`public/zh/licenses.html` | 更新页脚 `a.ver` 版本胶囊；如本版引入新开源库或字体则补充列表 | 与应用内开源许可页保持一致 |
 | `public/docs.html`<br>`public/zh/docs.html` | **承接所有从更新日志精简下沉的具体规则**：表单字段、可选参数/档位、支持的服务列表、平台差异、额度/数量限制、快捷键列表与故障排查 | 对应 `write-copy` 输出的文档同步清单；中文遵循 `write-copy`，英文准确表达中文功能点即可 |
 | `public/privacy.html` | **仅当**本版新增或修改了数据流向、第三方 SDK、联网请求、AI 服务商/外接搜索或密钥存储位置时更新 | 法律文本，改动须经 51 确认 |
+
+### 5a. 发版前先更新原型，再导出官网画面（51 于 2026-11-24 定）
+
+**每次发版前，先更新改动过的界面的高保真原型（`design/hifi`），再用 `export.mjs` 导出官网用的画面；官网上的应用界面一律不手画。**
+
+1. 对照发版分支的 Compose 代码和真机截图，改 `design/hifi/src/components/` 里对应的组件（不复制一份另画），给页面加上新状态；官网要做前后对比时，再加一个按被替换代码画的「Before <版本>」状态。
+2. `node design/hifi/build.mjs`，`node design/hifi/tools/shoot.mjs <page>`，浅色 / 深色、EN / 中文都看一遍（名字、封面、图标、`values` / `values-zh-rCN` 文案）。
+3. 写 `design/hifi/site/<版本>.json`，导出到 `yoin-site` 工作树：`node design/hifi/export.mjs --batch design/hifi/site/<版本>.json --out <yoin-site 工作树>/public/media/changelog/<版本>`（需要 `NODE_PATH` 上有 `playwright-core`）。
+4. 在 `public/spot.js` 里给这一版登记 `shot` / `was` / 框（`box`，按 412 × 915 屏幕的百分比），两种语言、两种主题都检查。原型改动和导出清单进 Yoin 的发版 PR，WebP 进 `yoin-site` 的 PR。
 
 如果当前任务仅有权修改 `Yoin` 仓库而不能直接改动 `yoin-site`，必须在输出中附带一份按上述文件拆分的 **`yoin-site` 待同步清单**。
 
@@ -95,7 +104,7 @@ python3 -m http.server 4611 --directory public
 
 1. **版本对比录屏**：每次发版必录一版对比上一版的更新录屏，重点录 UI 改动页面（手机/平板哪个改了 UI 就录哪个，**默认录手机**）。
 2. **录屏按页命名备份到 Google Drive**：按页面分别起好语义化文件名，整理存进 Google Drive：`我的云端硬盘 › 01 项目 › Yoin › Yoin recordings › <版本号>/`。
-3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须使用 HTML/SVG 前后对比画框/画圈（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。（可直接依据真机对比截图/录屏绘制，不强依赖 Figma 专业版；Drive 录屏本身兼作设计存档。）
+3. **官网画圈展示不可省**：`yoin-site` 的 `changelog.html` / `zh/changelog.html` 必须用前后对比画框（`public/spot.js` + `changelog.css`）标注出具体改在了哪，不能只发纯文字条目。框里的画面从高保真原型导出（见 5a），不再手画草图（2026-11-24 起）；Drive 录屏本身兼作设计存档。
 4. **商店文案直接发进 `#yoin` 发版线程**：每次发版时把 **Google Play** 与 **App Store Connect** 的发布说明直接发到 `#yoin` 对应的发版线程里（App Store Connect 受限制可简写如 `bug fix` 等）；此后所有发版相关内容均集中在该发版线程内留存与跟进。
 5. **双语文案标准**：中文文案严格遵循 `write-copy` 技能；英文按中文功能点自然准确翻译即可，不必过度打磨修辞。
 6. **Notion 结构化枢纽与发版文档工厂（2026-11-21 落地）**：
@@ -118,5 +127,6 @@ python3 -m http.server 4611 --directory public
 - [ ] （发版时）已录制版本改动对比录屏（默认手机），按页面命名放进 Google Drive `01 项目/Yoin/Yoin recordings/`
 - [ ] （发版时）Google Play 与 App Store Connect 更新文案已发进 `#yoin` 发版线程
 - [ ] （发版时）Notion「版本库」对应版本行 5 项发版检查勾选框已全勾齐，Yoin 主页「当前状态」已顺手刷新，定稿视觉 Artifact / 对比录屏已存入「设计存档」
-- [ ] `yoin-site`（`docs.html`、`zh/docs.html`、`changelog.html`、`zh/changelog.html` 含 `spot.js` 画圈前后对比图、`index.html`、`zh/index.html`、`licenses.html`、`zh/licenses.html`，以及必要时的 `privacy.html`）已同步或已输出清晰的待同步清单，且 `python3 tools/check.py` 通过
+- [ ] （发版时）改动过的界面已更新 `design/hifi` 原型，官网画面已用 `export.mjs` 导出（`design/hifi/site/<版本>.json`），没有手画的应用界面
+- [ ] `yoin-site`（`docs.html`、`zh/docs.html`、`changelog.html`、`zh/changelog.html` 含 `spot.js` 前后对比图（原型导出）、`index.html`、`zh/index.html`、`licenses.html`、`zh/licenses.html`，以及必要时的 `privacy.html`）已同步或已输出清晰的待同步清单，且 `python3 tools/check.py` 通过
 - [ ] 全文未出现禁用术语（绝对“零追踪”声明、`Nowledge Mem`、`nmem`、`回忆`、`手账`、`国内直连`）

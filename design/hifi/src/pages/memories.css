@@ -1,0 +1,5 @@
+/* Page: Memories — layout; pieces in components/memories, groove, home-cards */
+.m-home-x { position: absolute; inset: 0; padding: calc(var(--top) + 10px) var(--pad) 0; background: var(--surface); }
+.mh-head { display: flex; flex-direction: column; margin-bottom: 28px; } .mh-head span { font-size: 16px; font-weight: 500; color: var(--onSurfaceVariant); } .mh-head b { font-size: 28px; line-height: 36px; font-weight: 450; }
+.mh-sec h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 600; } .mh-sec p { margin: 2px 0 12px; font-size: 12px; color: var(--onSurfaceVariant); }
+.redis-shelf .redis { width: var(--rw); }

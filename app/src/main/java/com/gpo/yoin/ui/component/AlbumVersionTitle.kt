@@ -17,6 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.albumNameWithoutVersion
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,7 +34,9 @@ import kotlin.math.min
  * [title] gets the name to draw and a modifier to put on it; [titleStyle] is
  * the style it draws in, to measure the name with (a MarqueeText always fills
  * its width, so the name is given just the width it needs and the tag sits
- * after it, not at the far end).
+ * after it, not at the far end). [nameEllipsizes]: the name is cut with an
+ * ellipsis when it doesn't fit, so the tag follows the ellipsis; false for a
+ * title that scrolls (MarqueeText) and so fills the width it is given.
  */
 @Composable
 fun AlbumVersionTitle(
@@ -42,6 +45,7 @@ fun AlbumVersionTitle(
     titleStyle: TextStyle,
     modifier: Modifier = Modifier,
     tagStyle: TextStyle = MaterialTheme.typography.labelSmall,
+    nameEllipsizes: Boolean = true,
     title: @Composable (text: String, modifier: Modifier) -> Unit,
 ) {
     val tag = version?.trim()?.takeIf(String::isNotEmpty)
@@ -61,12 +65,13 @@ fun AlbumVersionTitle(
         val gap = TagGap.roundToPx()
         // +1: the measured width is rounded down; a pixel less would ellipsize or scroll.
         val natural = measurer.measure(shown, titleStyle, maxLines = 1, softWrap = false).size.width + 1
-        // The name comes first: a long version ("Deluxe Edition") on a narrow
-        // card may take at most what the name leaves, at least half the width,
-        // and is cut short itself rather than hide the name.
         val tagMax = if (constraints.hasBoundedWidth) {
-            val nameRoom = min(natural, constraints.maxWidth / 2)
-            (constraints.maxWidth - nameRoom - gap).coerceAtLeast(0)
+            versionTagMaxWidth(
+                maxWidth = constraints.maxWidth,
+                nameWidth = natural,
+                tagWidth = measurables[1].maxIntrinsicWidth(constraints.maxHeight),
+                gap = gap,
+            )
         } else {
             Constraints.Infinity
         }
@@ -76,16 +81,46 @@ fun AlbumVersionTitle(
         } else {
             natural
         }
+        val titleWidth = min(natural, available)
         val titlePlaceable = measurables[0].measure(
-            Constraints(minWidth = 0, maxWidth = min(natural, available), minHeight = 0, maxHeight = constraints.maxHeight),
+            Constraints(minWidth = 0, maxWidth = titleWidth, minHeight = 0, maxHeight = constraints.maxHeight),
         )
-        val width = (titlePlaceable.width + gap + tagPlaceable.width).coerceIn(constraints.minWidth, constraints.maxWidth)
+        // A cut name ends on its ellipsis, short of the box it was given (a CJK glyph is wide): the tag
+        // follows the ellipsis, not the box, or it floats off on its own (owner 2026-11-24, small tablet).
+        val nameEnd = if (nameEllipsizes && titleWidth < natural) {
+            val cut = measurer.measure(
+                shown,
+                titleStyle,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                softWrap = false,
+                constraints = Constraints(maxWidth = titleWidth),
+            )
+            ceil(cut.getLineRight(0)).toInt().coerceIn(0, titlePlaceable.width)
+        } else {
+            titlePlaceable.width
+        }
+        val width = (nameEnd + gap + tagPlaceable.width).coerceIn(constraints.minWidth, constraints.maxWidth)
         val height = max(titlePlaceable.height, tagPlaceable.height).coerceAtLeast(constraints.minHeight)
         layout(width, height) {
             titlePlaceable.place(0, (height - titlePlaceable.height) / 2)
-            tagPlaceable.place(titlePlaceable.width + gap, (height - tagPlaceable.height) / 2)
+            tagPlaceable.place(nameEnd + gap, (height - tagPlaceable.height) / 2)
         }
     }
+}
+
+/**
+ * How wide the version tag may be in a [maxWidth] row whose name is [nameWidth] wide and whose tag is
+ * [tagWidth] whole. The name comes first: a long version ("Deluxe Edition") on a narrow card may take at
+ * most what the name leaves, at least half the width, and is cut short itself rather than hide the name.
+ * A short version ("全景声", "Live") that fits whole beside a third of the row stays whole — on an 82dp
+ * shelf card the half rule cut both to one glyph ("你们… 全…", owner 2026-11-24), saying neither. Pure.
+ */
+internal fun versionTagMaxWidth(maxWidth: Int, nameWidth: Int, tagWidth: Int, gap: Int): Int {
+    val wholeRoom = maxWidth - min(nameWidth, maxWidth / 3) - gap
+    if (tagWidth <= wholeRoom) return tagWidth.coerceAtLeast(0)
+    val nameRoom = min(nameWidth, maxWidth / 2)
+    return (maxWidth - nameRoom - gap).coerceAtLeast(0)
 }
 
 private val TagGap = 6.dp

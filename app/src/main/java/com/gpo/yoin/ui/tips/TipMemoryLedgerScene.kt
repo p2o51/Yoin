@@ -16,9 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.memory.MemoryGrid
 import com.gpo.yoin.data.memory.MemoryGridScale
-import com.gpo.yoin.data.memory.MemoryLedgerAlbum
-import com.gpo.yoin.data.memory.MemoryLedgerEntry
-import com.gpo.yoin.data.memory.MemoryLedgerKind
+import com.gpo.yoin.shared.memory.MemoryLedgerAlbum
+import com.gpo.yoin.shared.memory.MemoryLedgerEntry
+import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.buildMemoryGrid
 import com.gpo.yoin.data.memory.memoryLedgerStats
 import com.gpo.yoin.data.profile.ProviderKind
