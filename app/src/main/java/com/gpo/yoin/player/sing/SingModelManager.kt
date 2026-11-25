@@ -61,29 +61,51 @@ data class SingModelOverview(
 
     val isDownloading: Boolean get() = status is SingModelDownloadStatus.Downloading
 
-    /** True on Google Tensor G5 / G6 TPU AOT targets or whenever NPU actually ran. */
+    /** True on Google Tensor G5 / G6 TPU AOT targets. */
     val isTensorTpu: Boolean
-        get() = lastRun?.accelerator == SingAccelerator.NPU ||
-            expectedBuildName.startsWith("Tensor ", ignoreCase = true) ||
-            installedBuilds.any { SingAccelerator.NPU in it.accelerators }
+        get() = tensorGeneration != null
 
     /** Which Google Tensor generation this device is optimized for, or null on non-Tensor devices. */
     val tensorGeneration: TensorGeneration?
         get() {
-            if (!isTensorTpu) return null
             val haystack = listOfNotNull(
-                lastRun?.model,
+                lastRun?.takeIf { it.accelerator == SingAccelerator.NPU }?.model,
                 installedBuilds.firstOrNull { SingAccelerator.NPU in it.accelerators }?.name,
-                expectedBuildName,
-                installedGroup,
-                expectedPackGroup,
-                soc,
+                expectedBuildName.takeIf { it.contains("Tensor", ignoreCase = true) },
+                installedGroup?.takeIf { it.contains("Tensor", ignoreCase = true) },
+                expectedPackGroup.takeIf { it.contains("Tensor", ignoreCase = true) },
             ).joinToString(" ")
+            val isTensor = haystack.contains("Tensor", ignoreCase = true) ||
+                (lastRun?.accelerator == SingAccelerator.NPU && soc?.contains("Tensor", ignoreCase = true) == true)
+            if (!isTensor) return null
+            val full = listOfNotNull(haystack, soc).joinToString(" ")
             return when {
-                haystack.contains("G6", ignoreCase = true) -> TensorGeneration.G6
-                haystack.contains("G5", ignoreCase = true) -> TensorGeneration.G5
+                full.contains("G6", ignoreCase = true) -> TensorGeneration.G6
+                full.contains("G5", ignoreCase = true) -> TensorGeneration.G5
                 else -> TensorGeneration.Generic
             }
+        }
+
+    /**
+     * Human-readable chip name when this device has a dedicated NPU / AOT optimization
+     * (e.g. "Google Tensor G6", "Google Tensor G5", "MediaTek Dimensity 9400"), or null when
+     * using the generic GPU/CPU build.
+     */
+    val optimizedForTarget: String?
+        get() {
+            tensorGeneration?.let { return it.displayName }
+            val hasNpuBuild = lastRun?.accelerator == SingAccelerator.NPU ||
+                installedBuilds.any { SingAccelerator.NPU in it.accelerators } ||
+                (expectedPackGroup != GROUP_OTHER && !expectedBuildName.equals("fp16", ignoreCase = true)) ||
+                (installedGroup != null && !installedGroup.equals(GROUP_OTHER, ignoreCase = true))
+            if (!hasNpuBuild) return null
+            return formatOptimizedChipName(
+                soc = soc,
+                group = installedGroup ?: expectedPackGroup.takeIf { it != GROUP_OTHER },
+                buildName = lastRun?.model
+                    ?: installedBuilds.firstOrNull { SingAccelerator.NPU in it.accelerators }?.name
+                    ?: expectedBuildName,
+            )
         }
 
     val activeBuildName: String
@@ -141,6 +163,22 @@ data class SingModelOverview(
             }
         }
 
+        fun formatOptimizedChipName(
+            soc: String?,
+            group: String?,
+            buildName: String?,
+        ): String {
+            val raw = soc?.takeIf { it.isNotBlank() }
+                ?: group?.takeIf { it.isNotBlank() && !it.equals(GROUP_OTHER, ignoreCase = true) }?.replace('_', ' ')
+                ?: buildName?.removeSuffix(" AOT")?.removeSuffix(" aot")?.trim()?.takeIf { it.isNotBlank() }
+                ?: "NPU"
+            return raw
+                .replace(Regex("\\bmediatek\\b", RegexOption.IGNORE_CASE), "MediaTek")
+                .replace(Regex("\\bqualcomm\\b", RegexOption.IGNORE_CASE), "Qualcomm")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
+
         fun baseline(
             socManufacturer: String?,
             socModel: String?,
@@ -154,6 +192,12 @@ data class SingModelOverview(
             val (group, estBytes) = when {
                 buildName.contains("G6", ignoreCase = true) -> GROUP_TENSOR_G6 to TENSOR_G6_PACK_BYTES
                 buildName.contains("G5", ignoreCase = true) -> GROUP_TENSOR_G5 to TENSOR_G5_PACK_BYTES
+                trusted?.socModel != null -> {
+                    val customGroup = listOfNotNull(trusted.socManufacturer, trusted.socModel)
+                        .joinToString("_")
+                        .replace(' ', '_')
+                    customGroup to TENSOR_G5_PACK_BYTES
+                }
                 else -> GROUP_OTHER to GENERIC_PACK_BYTES
             }
             val soc = listOfNotNull(socManufacturer, socModel)

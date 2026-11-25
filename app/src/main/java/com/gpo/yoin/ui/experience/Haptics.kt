@@ -43,9 +43,15 @@ class YoinHaptics internal constructor(private val view: View) {
         performLightTick()
     }
 
-    /** Crisp mechanical 3D flip impulse for the Tensor silicon easter egg: launch click, mid-turn tick, landing settle. */
-    fun performTensorFlip() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorFlip()) return
+    /** Crisp impulse when tapping the Tensor silicon die to add spin momentum. */
+    fun performTensorTap() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorTap()) return
+        performClick()
+    }
+
+    /** Weighty magnetic settle when the Tensor silicon die lands after spinning. */
+    fun performTensorLand() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composeTensorLand()) return
         performConfirm()
     }
 
@@ -56,21 +62,40 @@ class YoinHaptics internal constructor(private val view: View) {
     }
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
-    private fun composeTensorFlip(): Boolean {
+    private fun composeTensorTap(): Boolean {
         if (!view.isHapticFeedbackEnabled) return true
         val v = vibrator ?: return false
         return try {
             if (!v.hasVibrator()) return false
             val click = VibrationEffect.Composition.PRIMITIVE_CLICK
-            val tick = VibrationEffect.Composition.PRIMITIVE_TICK
-            if (!v.areAllPrimitivesSupported(click, tick)) return false
+            if (!v.areAllPrimitivesSupported(click)) return false
             if (!isLegacyHapticsEnabled()) return true
-            val hasThud = v.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_THUD)
-            val land = if (hasThud) VibrationEffect.Composition.PRIMITIVE_THUD else click
             val effect = VibrationEffect.startComposition()
-                .addPrimitive(click, 0.70f)
-                .addPrimitive(tick, 0.36f, 150)
-                .addPrimitive(land, 0.58f, 260)
+                .addPrimitive(click, 0.72f)
+                .compose()
+            playComposed(v, effect)
+            true
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+    private fun composeTensorLand(): Boolean {
+        if (!view.isHapticFeedbackEnabled) return true
+        val v = vibrator ?: return false
+        return try {
+            if (!v.hasVibrator()) return false
+            val click = VibrationEffect.Composition.PRIMITIVE_CLICK
+            val thud = VibrationEffect.Composition.PRIMITIVE_THUD
+            val land = when {
+                v.areAllPrimitivesSupported(thud) -> thud
+                v.areAllPrimitivesSupported(click) -> click
+                else -> return false
+            }
+            if (!isLegacyHapticsEnabled()) return true
+            val effect = VibrationEffect.startComposition()
+                .addPrimitive(land, 0.56f)
                 .compose()
             playComposed(v, effect)
             true

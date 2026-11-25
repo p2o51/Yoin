@@ -36,8 +36,24 @@ class SingModelManagerTest {
         val generic = SingModelOverview.baseline("Qualcomm", "SM8750", npuAllowed = true, bundledInApk = false)
         assertFalse(generic.isTensorTpu)
         assertEquals(null, generic.tensorGeneration)
+        assertEquals(null, generic.optimizedForTarget)
         assertEquals("fp16", generic.expectedBuildName)
         assertEquals(SingModelOverview.GROUP_OTHER, generic.expectedPackGroup)
+
+        val mediatekNpu = SingModelOverview(
+            status = SingModelDownloadStatus.Ready,
+            expectedBuildName = "Dimensity 9400 AOT",
+            expectedPackGroup = "MediaTek_Dimensity_9400",
+            installedGroup = "MediaTek_Dimensity_9400",
+            installedBuilds = listOf(
+                SingInstalledBuild("Dimensity 9400 AOT", 7_100_000L, "abcdef12", listOf(SingAccelerator.NPU)),
+            ),
+            soc = "Mediatek Dimensity 9400",
+            lastRun = SingBackendRun(SingAccelerator.NPU, model = "Dimensity 9400 AOT", soc = "Mediatek Dimensity 9400"),
+        )
+        assertFalse(mediatekNpu.isTensorTpu)
+        assertEquals(null, mediatekNpu.tensorGeneration)
+        assertEquals("MediaTek Dimensity 9400", mediatekNpu.optimizedForTarget)
     }
 
     @Test

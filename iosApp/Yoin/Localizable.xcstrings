@@ -15762,6 +15762,46 @@
         }
       }
     },
+    "Show all": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示全部"
+          }
+        }
+      }
+    },
+    "%lld less relevant from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 另有 %1$lld 条不太相关"
+          }
+        }
+      }
+    },
+    "Your memory": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的回忆"
+          }
+        }
+      }
+    },
+    "Nothing you've written matches.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有碰到你写过的东西。"
+          }
+        }
+      }
+    },
     "Not downloaded (%@)": {
       "localizations": {
         "zh-Hans": {

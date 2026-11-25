@@ -139,7 +139,52 @@ class SingLabsRowTest {
 
     @Config(qualifiers = "w360dp-h800dp")
     @Test
-    fun should_renderTensorEasterEggPage_and_acceptChipTap() {
+    fun should_showMediaTekOptimization_and_notOpenTensorEasterEgg() {
+        val mediatekOverview = SingModelOverview(
+            status = SingModelDownloadStatus.Ready,
+            expectedBuildName = "Dimensity 9400 AOT",
+            expectedPackGroup = "MediaTek_Dimensity_9400",
+            installedGroup = "MediaTek_Dimensity_9400",
+            installedBuilds = listOf(
+                SingInstalledBuild("Dimensity 9400 AOT", 7_100_000L, "abcdef12", listOf(SingAccelerator.NPU)),
+            ),
+            totalInstalledBytes = 7_100_000L,
+            soc = "Mediatek Dimensity 9400",
+            lastRun = SingBackendRun(SingAccelerator.NPU, model = "Dimensity 9400 AOT", soc = "Mediatek Dimensity 9400"),
+        )
+        var openedEasterEgg = 0
+        rule.setContent {
+            YoinTheme {
+                SettingsPageBackground(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        SettingsGroup(title = "Labs") {
+                            item {
+                                LyraSingLabsRow(
+                                    overview = mediatekOverview,
+                                    onDownload = {},
+                                    onRemove = {},
+                                    onOpenTensorEasterEgg = { openedEasterEgg++ },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+
+        val expected = context.getString(R.string.labs_sing_optimized_for, "MediaTek Dimensity 9400")
+        rule.onNodeWithText(expected, useUnmergedTree = true).assertExists()
+
+        repeat(10) {
+            rule.onNodeWithText("Lyra Sing", useUnmergedTree = true).performClick()
+        }
+        rule.runOnIdle { assertEquals(0, openedEasterEgg) }
+    }
+
+    @Config(qualifiers = "w360dp-h800dp")
+    @Test
+    fun should_renderTensorEasterEggPage_and_acceptRapidChipTaps() {
         var backed = 0
         rule.setContent {
             YoinTheme {
@@ -153,7 +198,9 @@ class SingLabsRowTest {
 
         rule.onNodeWithText("Google Tensor G5").assertExists()
         val chipCd = context.getString(R.string.labs_sing_tensor_chip_cd, "Google Tensor G5")
-        rule.onNodeWithContentDescription(chipCd).performClick()
+        repeat(4) {
+            rule.onNodeWithContentDescription(chipCd).performClick()
+        }
         rule.waitForIdle()
         assertEquals(0, backed)
     }

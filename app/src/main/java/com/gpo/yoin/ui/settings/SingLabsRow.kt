@@ -78,8 +78,8 @@ internal fun LyraSingLabsRow(
         null
     }
 
-    val optimizationLine = overview.tensorGeneration?.let { gen ->
-        stringResource(R.string.labs_sing_optimized_for, gen.displayName)
+    val optimizationLine = overview.optimizedForTarget?.let { target ->
+        stringResource(R.string.labs_sing_optimized_for, target)
     } ?: if (overview.lastRun?.accelerator == SingAccelerator.CPU) {
         stringResource(R.string.labs_sing_running_cpu)
     } else {

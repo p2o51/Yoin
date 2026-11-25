@@ -2,8 +2,15 @@
 
 package com.gpo.yoin.ui.settings
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Build
+import android.view.Surface
+import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -27,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,6 +61,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -70,6 +79,10 @@ import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.GoogleSansFlex
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.yoinFont
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -122,9 +135,94 @@ private fun TensorDarkSystemBarsEffect() {
     }
 }
 
+/**
+ * Heavy geometric Google Sans Flex variable cut matching the bold machined `G5` / `G6`
+ * wordmark etched into the Google Tensor silicon die.
+ */
+private val TensorDieFont = FontFamily(
+    yoinFont(
+        resId = R.font.google_sans_flex_variable,
+        weight = FontWeight.ExtraBold,
+        axes = mapOf(
+            "wght" to 820f,
+            "ROND" to 72f,
+            "wdth" to 104f,
+            "opsz" to 72f,
+        ),
+    ),
+)
+
 private val StudioBackdropTop = Color(0xFF151923)
 private val StudioBackdropBottom = Color(0xFF07080B)
-private val SpinEasing = CubicBezierEasing(0.20f, 0.98f, 0.34f, 1.0f)
+
+/**
+ * Reads smoothed gravity tilt in degrees (`x` = rotationY, `y` = rotationX), compensating for
+ * current display rotation and capturing the user's comfortable handheld pitch as neutral rest.
+ */
+@Composable
+private fun rememberGravityTiltDegrees(enabled: Boolean): State<Offset> {
+    val context = LocalContext.current
+    val tilt = remember { mutableStateOf(Offset.Zero) }
+    DisposableEffect(context, enabled) {
+        if (!enabled) {
+            tilt.value = Offset.Zero
+            return@DisposableEffect onDispose {}
+        }
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            ?: return@DisposableEffect onDispose {}
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            ?: return@DisposableEffect onDispose {}
+
+        var initialized = false
+        var baseGx = 0f
+        var baseGy = 4.5f
+        var smoothY = 0f
+        var smoothX = 0f
+
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val rawX = event.values.getOrNull(0) ?: return
+                val rawY = event.values.getOrNull(1) ?: return
+                val rotation = currentDisplayRotation(context)
+                val (gx, gy) = when (rotation) {
+                    Surface.ROTATION_90 -> -rawY to rawX
+                    Surface.ROTATION_180 -> -rawX to -rawY
+                    Surface.ROTATION_270 -> rawY to -rawX
+                    else -> rawX to rawY
+                }
+                if (!initialized) {
+                    initialized = true
+                    baseGx = gx.coerceIn(-2.2f, 2.2f)
+                    baseGy = gy.coerceIn(0f, 8.2f)
+                }
+                val targetRotY = (-((gx - baseGx) / 5.2f).coerceIn(-1f, 1f)) * 14f
+                val targetRotX = (((gy - baseGy) / 5.2f).coerceIn(-1f, 1f)) * 12f
+                smoothY += (targetRotY - smoothY) * 0.11f
+                smoothX += (targetRotX - smoothX) * 0.11f
+                tilt.value = Offset(smoothY, smoothX)
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        onDispose {
+            manager.unregisterListener(listener)
+        }
+    }
+    return tilt
+}
+
+private fun currentDisplayRotation(context: Context): Int {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        runCatching { context.display.rotation }.getOrNull()?.let { return it }
+    }
+    @Suppress("DEPRECATION")
+    return (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)
+        ?.defaultDisplay
+        ?.rotation
+        ?: Surface.ROTATION_0
+}
 
 @Composable
 internal fun TensorEasterEggContent(
@@ -136,72 +234,103 @@ internal fun TensorEasterEggContent(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val scope = rememberCoroutineScope()
 
+    val gravityTilt by rememberGravityTiltDegrees(enabled = !reduced)
+
     val spinY = remember { Animatable(0f) }
-    val pitchX = remember { Animatable(0f) }
     val liftScale = remember { Animatable(1f) }
     val waveProgress = remember { Animatable(0f) }
+    val waveGain = remember { Animatable(0f) }
     val reducedPulse = remember { Animatable(0f) }
 
-    var tapCount by remember { mutableIntStateOf(0) }
+    var targetTurns by remember { mutableIntStateOf(0) }
     var waveMode by remember { mutableIntStateOf(1) }
-    var activeJob by remember { mutableStateOf<Job?>(null) }
+    var isSpinning by remember { mutableStateOf(false) }
+    var waveJob by remember { mutableStateOf<Job?>(null) }
+    var reducedJob by remember { mutableStateOf<Job?>(null) }
+
+    val spinSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val liftSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Standard)
+
+    // Smooth lift response while spinning; never snaps on rapid taps.
+    LaunchedEffect(isSpinning, reduced) {
+        if (reduced) {
+            liftScale.snapTo(1f)
+        } else {
+            liftScale.animateTo(if (isSpinning) 1.055f else 1f, animationSpec = liftSpec)
+        }
+    }
 
     // Play a gentle introductory dot-matrix sweep shortly after opening.
     LaunchedEffect(reduced) {
         if (!reduced) {
             delay(260L)
-            waveMode = 1
+            if (targetTurns == 0) {
+                waveMode = 1
+                waveJob = launch {
+                    waveProgress.snapTo(0f)
+                    waveGain.snapTo(1f)
+                    waveProgress.animateTo(1f, tween(durationMillis = 1350, easing = LinearEasing))
+                    waveGain.snapTo(0f)
+                    waveProgress.snapTo(0f)
+                }
+            }
+        }
+    }
+
+    // Velocity-continuous spin accumulator: rapid taps add turns cleanly without ever restarting
+    // or snapping; when the die finally settles, fire landing haptic + flowing dot-matrix wave.
+    LaunchedEffect(targetTurns) {
+        if (targetTurns <= 0 || reduced) return@LaunchedEffect
+        isSpinning = true
+        // Smoothly relax any in-flight wave without snapping dot radii.
+        waveJob?.cancel()
+        if (waveGain.value > 0.01f) {
+            launch {
+                waveGain.animateTo(0f, tween(durationMillis = 140, easing = FastOutSlowInEasing))
+            }
+        }
+        val targetDeg = targetTurns * 360f
+        spinY.animateTo(
+            targetValue = targetDeg,
+            animationSpec = spinSpec,
+        )
+        isSpinning = false
+        haptics.performTensorLand()
+        delay(36L)
+        waveMode = (targetTurns - 1) % 4
+        waveJob = launch {
             waveProgress.snapTo(0f)
+            waveGain.snapTo(1f)
+            haptics.performTensorWave()
             waveProgress.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 1350, easing = LinearEasing),
+                animationSpec = tween(durationMillis = 1380, easing = LinearEasing),
             )
+            waveGain.snapTo(0f)
             waveProgress.snapTo(0f)
         }
     }
 
     val onTapChip: () -> Unit = {
-        tapCount += 1
-        activeJob?.cancel()
         if (reduced) {
             haptics.performConfirm()
-            activeJob = scope.launch {
-                reducedPulse.snapTo(1f)
-                reducedPulse.animateTo(0f, tween(durationMillis = 480, easing = FastOutSlowInEasing))
+            reducedJob?.cancel()
+            reducedJob = scope.launch {
+                reducedPulse.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
+                reducedPulse.animateTo(0f, tween(durationMillis = 360, easing = FastOutSlowInEasing))
             }
         } else {
-            val nextMode = (tapCount - 1) % 4
-            waveMode = nextMode
-            val targetAngle = ((spinY.value / 360f).toInt() + 1) * 360f
-            haptics.performTensorFlip()
-            activeJob = scope.launch {
-                waveProgress.snapTo(0f)
-                val pitchJob = launch {
-                    pitchX.animateTo(13f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
-                    pitchX.animateTo(-5f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
-                    pitchX.animateTo(0f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
-                }
-                val scaleJob = launch {
-                    liftScale.animateTo(1.06f, tween(durationMillis = 240, easing = FastOutSlowInEasing))
-                    liftScale.animateTo(0.985f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
-                    liftScale.animateTo(1f, tween(durationMillis = 240, easing = FastOutSlowInEasing))
-                }
-                spinY.animateTo(
-                    targetValue = targetAngle,
-                    animationSpec = tween(durationMillis = 720, easing = SpinEasing),
-                )
-                pitchJob.join()
-                scaleJob.join()
-                // After landing, send a sequential flowing & scaling wave across the dot matrix with subtle haptics.
-                haptics.performTensorWave()
-                waveProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(durationMillis = 1380, easing = LinearEasing),
-                )
-                waveProgress.snapTo(0f)
-            }
+            haptics.performTensorTap()
+            targetTurns += 1
         }
     }
+
+    // Unified 3D pose combining spin momentum + gravity tilt so graphicsLayer, back-face handoff,
+    // and specular lighting are mathematically identical with zero seam at 90 deg / 270 deg.
+    val spinRad = (spinY.value * PI / 180.0).toFloat()
+    val spinPitch = if (reduced) 0f else sin(spinRad) * 9f
+    val totalRotY = if (reduced) 0f else spinY.value + gravityTilt.x
+    val totalRotX = if (reduced) 0f else spinPitch + gravityTilt.y
 
     Box(
         modifier = modifier
@@ -239,38 +368,44 @@ internal fun TensorEasterEggContent(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    // Ambient obsidian studio floor shadow reacting to the 3D turn.
-                    val cosTurn = abs(cos(spinY.value * PI / 180.0)).toFloat().coerceIn(0.18f, 1f)
+                    // Ambient studio reflection following both 3D spin face visibility and gravity tilt.
+                    val cosTurn = abs(cos(totalRotY * PI / 180.0)).toFloat().coerceIn(0.18f, 1f)
                     Canvas(
                         modifier = Modifier
-                            .size(width = dieSize * 1.12f, height = dieSize * 1.12f),
+                            .size(width = dieSize * 1.16f, height = dieSize * 1.16f),
                     ) {
                         val glowRadius = size.minDimension * 0.56f
+                        val shift = Offset(
+                            x = -gravityTilt.x * 1.3.dp.toPx(),
+                            y = gravityTilt.y * 1.3.dp.toPx(),
+                        )
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    Color(0xFF9FB4D4).copy(alpha = 0.14f * cosTurn + 0.08f * reducedPulse.value),
+                                    Color(0xFF9FB4D4).copy(alpha = 0.15f * cosTurn + 0.08f * reducedPulse.value),
                                     Color.Transparent,
                                 ),
-                                center = center,
+                                center = center + shift,
                                 radius = glowRadius,
                             ),
                             radius = glowRadius,
-                            center = center,
+                            center = center + shift,
                         )
                     }
 
                     TensorSiliconDie(
                         chipCode = generation.chipCode,
-                        rotationYDeg = spinY.value,
+                        rotationYDeg = totalRotY,
+                        rotationXDeg = totalRotX,
                         waveProgress = waveProgress.value,
+                        waveGain = waveGain.value,
                         waveMode = waveMode,
                         highlightBoost = reducedPulse.value,
                         modifier = Modifier
                             .size(dieSize)
                             .graphicsLayer {
-                                rotationY = spinY.value
-                                rotationX = pitchX.value
+                                rotationY = totalRotY
+                                rotationX = totalRotX
                                 scaleX = liftScale.value
                                 scaleY = liftScale.value
                                 cameraDistance = 14f * density
@@ -293,15 +428,16 @@ internal fun TensorEasterEggContent(
                 Text(
                     text = generation.displayName,
                     style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = GoogleSansFlex,
                         fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.3.sp,
+                        letterSpacing = 0.2.sp,
                     ),
-                    color = Color.White.copy(alpha = 0.84f),
+                    color = Color.White.copy(alpha = 0.86f),
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = stringResource(R.string.labs_sing_model_name),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = GoogleSansFlex),
                     color = Color.White.copy(alpha = 0.42f),
                 )
             }
@@ -313,7 +449,9 @@ internal fun TensorEasterEggContent(
 private fun TensorSiliconDie(
     chipCode: String,
     rotationYDeg: Float,
+    rotationXDeg: Float,
     waveProgress: Float,
+    waveGain: Float,
     waveMode: Int,
     highlightBoost: Float,
     modifier: Modifier = Modifier,
@@ -323,13 +461,16 @@ private fun TensorSiliconDie(
     Canvas(modifier = modifier) {
         val normDeg = ((rotationYDeg % 360f) + 360f) % 360f
         val showingBack = normDeg in 90f..270f
-        val angleRad = (normDeg * PI / 180.0).toFloat()
+        val angleYRad = (normDeg * PI / 180.0).toFloat()
+        val angleXRad = (rotationXDeg * PI / 180.0).toFloat()
         val corner = CornerRadius(size.minDimension * 0.028f)
 
         if (showingBack) {
             scale(scaleX = -1f, scaleY = 1f, pivot = center) {
                 drawSiliconBackFace(
                     chipCode = chipCode,
+                    angleYRad = angleYRad,
+                    angleXRad = angleXRad,
                     corner = corner,
                     textMeasurer = textMeasurer,
                 )
@@ -337,41 +478,30 @@ private fun TensorSiliconDie(
             return@Canvas
         }
 
-        // Subtle metallic machined slab edge visibility as the chip rotates in 3D.
-        val edgeShift = sin(angleRad) * size.width * 0.036f
-        if (abs(edgeShift) > 0.5f) {
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFF9EA8B8), Color(0xFF39414E), Color(0xFF778191)),
-                ),
-                topLeft = Offset(edgeShift, 0f),
-                size = size,
-                cornerRadius = corner,
-            )
-        }
-
-        // Brushed obsidian & titanium diagonal metallic surface matching the Google Tensor silicon die.
-        val glintOffset = sin(angleRad) * size.width * 0.45f
+        // Brushed obsidian & titanium diagonal metallic surface reacting smoothly to both tilt & spin.
+        val glintX = sin(angleYRad) * size.width * 0.42f
+        val glintY = -sin(angleXRad) * size.height * 0.36f
         drawRoundRect(
             brush = Brush.linearGradient(
                 colorStops = arrayOf(
-                    0.00f to Color(0xFFC5CDD9),
+                    0.00f to Color(0xFFC8D0DC),
                     0.22f to Color(0xFF838E9E),
                     0.44f to Color(0xFF0E1219),
                     0.56f to Color(0xFF07090D),
                     0.74f to Color(0xFF232A36),
                     0.90f to Color(0xFF8E98A8),
-                    1.00f to Color(0xFFBDC6D4),
+                    1.00f to Color(0xFFC0C9D6),
                 ),
-                start = Offset(size.width * 0.08f + glintOffset, 0f),
-                end = Offset(size.width * 0.92f + glintOffset, size.height),
+                start = Offset(size.width * 0.08f + glintX, glintY),
+                end = Offset(size.width * 0.92f + glintX, size.height + glintY),
             ),
             size = size,
             cornerRadius = corner,
         )
 
-        // Subtle sweeping specular sheen during 3D rotation or reduced-motion pulse.
-        val sheenAlpha = (abs(sin(angleRad)) * 0.22f + highlightBoost * 0.14f).coerceIn(0f, 0.28f)
+        // Subtle sweeping specular sheen driven by unified 3D tilt + spin angle.
+        val tiltEnergy = hypot(sin(angleYRad).toDouble(), sin(angleXRad).toDouble()).toFloat()
+        val sheenAlpha = (tiltEnergy * 0.24f + highlightBoost * 0.14f).coerceIn(0f, 0.28f)
         if (sheenAlpha > 0.01f) {
             drawRoundRect(
                 brush = Brush.linearGradient(
@@ -380,45 +510,51 @@ private fun TensorSiliconDie(
                         Color.White.copy(alpha = sheenAlpha),
                         Color.Transparent,
                     ),
-                    start = Offset(size.width * 0.1f + glintOffset, 0f),
-                    end = Offset(size.width * 0.7f + glintOffset, size.height),
+                    start = Offset(size.width * 0.12f + glintX, glintY),
+                    end = Offset(size.width * 0.72f + glintX, size.height + glintY),
                 ),
                 size = size,
                 cornerRadius = corner,
             )
         }
 
-        // Precision machined outer chamfer bevel highlight.
+        // Precision machined chamfer bevel contained strictly within the die bounds (zero corner seam).
+        val rimBiasX = (sin(angleYRad) * 0.25f).coerceIn(-0.22f, 0.22f)
+        val rimBiasY = (-sin(angleXRad) * 0.25f).coerceIn(-0.22f, 0.22f)
+        val rimStroke = 1.6.dp.toPx()
+        val halfStroke = rimStroke * 0.5f
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.55f),
-                    Color.White.copy(alpha = 0.10f),
-                    Color.White.copy(alpha = 0.36f),
+                    Color.White.copy(alpha = (0.56f + rimBiasX + rimBiasY).coerceIn(0.18f, 0.82f)),
+                    Color.White.copy(alpha = 0.12f),
+                    Color.White.copy(alpha = (0.38f - rimBiasX - rimBiasY).coerceIn(0.14f, 0.72f)),
                 ),
                 start = Offset.Zero,
                 end = Offset(size.width, size.height),
             ),
-            size = size,
+            topLeft = Offset(halfStroke, halfStroke),
+            size = Size(size.width - rimStroke, size.height - rimStroke),
             cornerRadius = corner,
-            style = Stroke(width = 1.5.dp.toPx()),
+            style = Stroke(width = rimStroke),
         )
 
         // 25 x 25 luminous dot-matrix ring surrounding the central glossy obsidian G5 / G6 window.
         drawTensorDotMatrix(
             waveProgress = waveProgress,
+            waveGain = waveGain,
             waveMode = waveMode,
             highlightBoost = highlightBoost,
         )
 
-        // Centered geometric G5 / G6 emblem inside the obsidian cutout.
-        val labelFontSize = (size.minDimension * 0.205f).toSp()
+        // Bold Google Sans Flex G5 / G6 emblem centered inside the obsidian cutout.
+        val labelFontSize = (size.minDimension * 0.215f).toSp()
         val style = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.Bold,
+            fontFamily = TensorDieFont,
+            fontWeight = FontWeight.ExtraBold,
             fontSize = labelFontSize,
-            letterSpacing = (-1.5).sp,
-            color = Color(0xFFF4F6FA).copy(alpha = (0.94f + highlightBoost * 0.06f).coerceAtMost(1f)),
+            letterSpacing = (-1.2).sp,
+            color = Color(0xFFF5F7FB).copy(alpha = (0.95f + highlightBoost * 0.05f).coerceAtMost(1f)),
         )
         val layout = textMeasurer.measure(chipCode, style = style)
         val textTopLeft = Offset(
@@ -431,6 +567,7 @@ private fun TensorSiliconDie(
 
 private fun DrawScope.drawTensorDotMatrix(
     waveProgress: Float,
+    waveGain: Float,
     waveMode: Int,
     highlightBoost: Float,
 ) {
@@ -439,7 +576,7 @@ private fun DrawScope.drawTensorDotMatrix(
     val span = size.minDimension - margin * 2f
     val step = span / (grid - 1)
     val baseRadius = step * 0.27f
-    val waveActive = waveProgress > 0.001f && waveProgress < 0.999f
+    val waveActive = waveGain > 0.005f && waveProgress > 0.001f && waveProgress < 0.999f
     val front = waveProgress * 1.48f - 0.24f
     val half = (grid - 1) * 0.5f
 
@@ -459,29 +596,22 @@ private fun DrawScope.drawTensorDotMatrix(
                 val ny = row / (grid - 1f)
                 val order = when (waveMode) {
                     0 -> {
-                        // Clockwise perimeter flow with subtle spiral depth.
                         val angle = atan2((row - half).toDouble(), (col - half).toDouble()).toFloat()
                         val cw = ((angle + PI.toFloat() * 0.75f) / (2f * PI.toFloat()) + 1f) % 1f
                         val rNorm = hypot((col - half).toDouble(), (row - half).toDouble()).toFloat() / (half * 1.42f)
                         (cw * 0.86f + rNorm * 0.14f).coerceIn(0f, 1f)
                     }
-                    1 -> {
-                        // Diagonal top-left to bottom-right sweep.
-                        (nx + ny) * 0.5f
-                    }
+                    1 -> (nx + ny) * 0.5f
                     2 -> {
-                        // Radial outward pulse from the G5 / G6 core.
                         val rNorm = hypot((col - half).toDouble(), (row - half).toDouble()).toFloat() / (half * 1.42f)
                         ((rNorm - 0.34f) / 0.66f).coerceIn(0f, 1f)
                     }
-                    else -> {
-                        // Left-to-right flowing wave with gentle vertical curve.
-                        (nx * 0.88f + abs(ny - 0.5f) * 0.24f).coerceIn(0f, 1f)
-                    }
+                    else -> (nx * 0.88f + abs(ny - 0.5f) * 0.24f).coerceIn(0f, 1f)
                 }
                 val delta = order - front
-                crest = exp(-((delta / 0.135f) * (delta / 0.135f)).toDouble()).toFloat()
-                val trough = exp(-(((delta + 0.17f) / 0.11f) * ((delta + 0.17f) / 0.11f)).toDouble()).toFloat() * 0.32f
+                crest = exp(-((delta / 0.135f) * (delta / 0.135f)).toDouble()).toFloat() * waveGain
+                val trough = exp(-(((delta + 0.17f) / 0.11f) * ((delta + 0.17f) / 0.11f)).toDouble()).toFloat() *
+                    0.32f * waveGain
                 radiusScale = (1f + 0.80f * crest - trough).coerceIn(0.60f, 1.84f)
                 alpha = (0.84f + 0.16f * crest - 0.22f * trough).coerceIn(0.52f, 1f)
             }
@@ -505,23 +635,30 @@ private fun DrawScope.drawTensorDotMatrix(
 
 private fun DrawScope.drawSiliconBackFace(
     chipCode: String,
+    angleYRad: Float,
+    angleXRad: Float,
     corner: CornerRadius,
-    textMeasurer: androidx.compose.ui.text.TextMeasurer,
+    textMeasurer: TextMeasurer,
 ) {
+    val shiftX = -sin(angleYRad) * size.width * 0.25f
+    val shiftY = -sin(angleXRad) * size.height * 0.25f
     drawRoundRect(
         brush = Brush.linearGradient(
-            colors = listOf(Color(0xFF1D222C), Color(0xFF0C0F14), Color(0xFF1A2029)),
-            start = Offset.Zero,
-            end = Offset(size.width, size.height),
+            colors = listOf(Color(0xFF232934), Color(0xFF0C0F14), Color(0xFF1E242F)),
+            start = Offset(shiftX, shiftY),
+            end = Offset(size.width + shiftX, size.height + shiftY),
         ),
         size = size,
         cornerRadius = corner,
     )
+    val rimStroke = 1.4.dp.toPx()
+    val halfStroke = rimStroke * 0.5f
     drawRoundRect(
-        color = Color.White.copy(alpha = 0.18f),
-        size = size,
+        color = Color.White.copy(alpha = 0.22f),
+        topLeft = Offset(halfStroke, halfStroke),
+        size = Size(size.width - rimStroke, size.height - rimStroke),
         cornerRadius = corner,
-        style = Stroke(width = 1.2.dp.toPx()),
+        style = Stroke(width = rimStroke),
     )
 
     // Subtle BGA contact pad grid on the reverse of the silicon die.
@@ -541,11 +678,11 @@ private fun DrawScope.drawSiliconBackFace(
     }
 
     val style = TextStyle(
-        fontFamily = FontFamily.Monospace,
+        fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.SemiBold,
-        fontSize = (size.minDimension * 0.062f).toSp(),
-        letterSpacing = 3.sp,
-        color = Color.White.copy(alpha = 0.34f),
+        fontSize = (size.minDimension * 0.064f).toSp(),
+        letterSpacing = 2.6.sp,
+        color = Color.White.copy(alpha = 0.36f),
     )
     val layout = textMeasurer.measure("TENSOR $chipCode", style = style)
     drawText(
