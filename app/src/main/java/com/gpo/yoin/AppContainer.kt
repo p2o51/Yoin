@@ -595,8 +595,18 @@ class AppContainer(private val context: Context) {
      * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
      * here loads LiteRT until a song is actually separated.
      */
+    private var singEngineInitialized = false
+
     val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
+        singEngineInitialized = true
         com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)
+    }
+
+    /** Yoin Labs model inspection, proactive download, and removal for on-device Lyra-Sing-Lite. */
+    val singModelManager: com.gpo.yoin.player.sing.SingModelManager by lazy {
+        com.gpo.yoin.player.sing.SingModelManager.create(context, applicationScope) {
+            if (singEngineInitialized) singEngine.invalidateModelCache()
+        }
     }
 
     /** Cached `/api/v1/capabilities` Sing probe per active Subsonic/Lyra server URL. */

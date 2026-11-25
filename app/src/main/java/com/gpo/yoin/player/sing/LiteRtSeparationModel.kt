@@ -260,6 +260,12 @@ class LiteRtSingBackend(
             return if (r.set.complete()) r.set.fileFor(r.plan.first().model) else null
         }
 
+    /** Drops cached local resolution after Labs downloads or removes the model pack. */
+    fun invalidateLocalCache() {
+        resolved = null
+        lookedLocally = false
+    }
+
     override suspend fun ensure(onProgress: (Float) -> Unit): File = mutex.withLock {
         withContext(Dispatchers.IO) {
             val set = models.resolve(onProgress)

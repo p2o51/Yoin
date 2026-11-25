@@ -396,6 +396,17 @@
     <string name="labs_nano_download">下载模型</string>
     <string name="labs_nano_check_again">重新检查</string>
     <string name="labs_nano_download_note">模型由 Android 系统（AICore）下载，大约几 GB，建议连 Wi‑Fi 下载。</string>
+    <string name="labs_sing_ready">本机已就绪（%1$s）</string>
+    <string name="labs_sing_not_downloaded">尚未下载（约 %1$s）</string>
+    <string name="labs_sing_downloading">正在下载… %1$d%%</string>
+    <string name="labs_sing_checking">正在检查…</string>
+    <string name="labs_sing_download">下载</string>
+    <string name="labs_sing_remove">删除</string>
+    <string name="labs_sing_download_failed">下载失败：%1$s</string>
+    <string name="labs_sing_optimized_for">已为 %1$s 优化</string>
+    <string name="labs_sing_accelerated_gpu">使用 GPU 加速</string>
+    <string name="labs_sing_running_cpu">使用 CPU 运行</string>
+    <string name="labs_sing_tensor_chip_cd">%1$s 芯片，轻点翻转</string>
     <string name="labs_features_section">实验功能</string>
     <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，轻点播放</string>
     <string name="labs_greetings_title">首页问候</string>
