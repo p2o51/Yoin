@@ -8,8 +8,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -111,6 +113,26 @@ class SubsonicReadCacheTest {
         assertTrue("joined the pre-write read", joinedAfterWrite.await().tracks.any { it.id.rawId == "s1" })
         val after = source.library().getStarred()
         assertTrue("starred list stale after a confirmed star", after.tracks.any { it.id.rawId == "s1" })
+    }
+
+    /**
+     * Measured on the tablet: Library's All starts its reads together on Main.immediate and
+     * publishes each as it lands. A hit that returned without suspending ran its publish before
+     * the sibling's network read was even sent (covers settled ~100 ms later).
+     */
+    @Test
+    fun aCacheHitLetsSiblingReadsStartFirst() = runBlocking {
+        val cache = SubsonicReadCache(ttlMs = 20_000, clock = System::currentTimeMillis)
+        cache.getOrFetch("artists") { "cached" }
+        val order = mutableListOf<String>()
+        coroutineScope {
+            async(start = CoroutineStart.UNDISPATCHED) {
+                cache.getOrFetch("artists") { "refetched" }
+                order += "hit consumed"
+            }
+            async(start = CoroutineStart.UNDISPATCHED) { order += "sibling read started" }
+        }
+        assertEquals(listOf("sibling read started", "hit consumed"), order)
     }
 
     @Test

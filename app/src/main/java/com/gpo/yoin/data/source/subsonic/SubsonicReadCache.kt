@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.yield
 
 /**
  * Coalesces identical Subsonic list reads ([SubsonicMusicSource]'s artists,
@@ -46,13 +47,23 @@ internal class SubsonicReadCache(
     @Suppress("UNCHECKED_CAST")
     suspend fun <T : Any> getOrFetch(key: String, fetch: suspend () -> T): T {
         if (ttlMs <= 0L) return fetch()
+        var hit: Any? = null
         val flight = synchronized(lock) {
             val cached = entries[key]
-            if (cached != null) {
-                if (cached.expiresAtMs > clock()) return cached.value as T
-                entries.remove(key)
+            if (cached != null && cached.expiresAtMs > clock()) {
+                hit = cached.value
+                null
+            } else {
+                if (cached != null) entries.remove(key)
+                inFlight[key] ?: startFlight(key, fetch).also { inFlight[key] = it }
             }
-            inFlight[key] ?: startFlight(key, fetch).also { inFlight[key] = it }
+        }
+        if (flight == null) {
+            // A hit still suspends once: a caller that starts several reads together on
+            // Main.immediate (Library's All publishes each list as it lands) would otherwise
+            // run this one's consumer before its siblings' network reads are even sent.
+            yield()
+            return hit as T
         }
         flight.deferred.start()
         return try {
