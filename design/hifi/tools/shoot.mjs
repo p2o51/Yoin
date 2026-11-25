@@ -18,11 +18,12 @@ const SHOTS = {
   home: [['default', ''], ['edit', 'edit=1'], ['bubble', 'bubble=memory'], ['tip-idle', 'bubble=tip&playing=none'], ['full-feed', 'tall=1']],
   'now-playing': [['player', ''], ['player-sing', 'sing=1'], ['lyrics', 'view=lyrics'], ['lyrics-sing', 'view=lyrics&sing=1'], ['note', 'view=note'], ['yehang-note-tab', 'cover=yehang&tab=note'], ['note-before-pills', 'view=note&mentions=text']],
   library: [['all', ''], ['sort-open', 'sort=open'], ['scroller-held', 'scroller=held'], ['songs', 'view=songs'], ['playlists', 'view=playlists'], ['favorites', 'view=favorites'], ['search', 'search=on'], ['album-open', 'detail=harbor']],
-  album: [['overview', ''], ['overview-pulled', 'pull=up'], ['scrapbook', 'page=scrapbook'], ['scrapbook-sticky', 'page=scrapbook&sticky=edit'], ['empty-overview', 'album=north&playing=no'], ['empty-scrapbook', 'album=north&page=scrapbook'], ['glass-average', 'album=glass'], ['receipt', 'page=scrapbook&at=receipt'], ['overview-pulled-year-only', 'pull=up&date=year']],
+  album: [['overview', ''], ['overview-pulled', 'pull=up'], ['scrapbook', 'page=scrapbook'], ['scrapbook-before-about', 'page=scrapbook&about=was'], ['scrapbook-sticky', 'page=scrapbook&sticky=edit'], ['empty-overview', 'album=north&playing=no'], ['empty-scrapbook', 'album=north&page=scrapbook'], ['glass-average', 'album=glass'], ['receipt', 'page=scrapbook&at=receipt'], ['overview-pulled-year-only', 'pull=up&date=year']],
   lyrics: [['default', ''], ['translation', 'translate=1'], ['away-sing', 'state=away&sing=1'], ['select', 'state=select'], ['yehang-translation', 'cover=yehang&translate=1'], ['before-sing', 'sing=none']],
   'notes-editor': [['at-ni', ''], ['at-empty', 'query=empty'], ['at-pinyin', 'query=lj'], ['no-popup', 'query=off'], ['sticky', 'surface=sticky&query=off'], ['sticky-at', 'surface=sticky&query=empty']],
   memories: [['card', ''], ['card-unrated', 'card=2'], ['diary', 'view=diary'], ['ledger-timeline', 'view=ledger'], ['ledger-cards', 'view=ledger&ledger=cards'], ['ledger-list', 'view=ledger&ledger=list'], ['rediscover', 'view=rediscover']],
   settings: [['root', ''], ['labs', 'page=labs'], ['labs-before', 'page=labs&labs=was'], ['tensor', 'page=tensor'], ['music-links', 'page=links'], ['music-links-off', 'page=links&links=off'], ['account', 'page=account'], ['sync', 'page=sync']],
+  'share-cards': [['sheet-about', 'kind=sheet&tab=about'], ['sheet-note', 'kind=sheet&tab=note&v=B'], ['sheet-lyrics-poster', 'kind=sheet&tab=lyrics&v=B']],
 };
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;

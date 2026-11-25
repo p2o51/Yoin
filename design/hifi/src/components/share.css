@@ -1,0 +1,221 @@
+/* share images — see share.js. Logical px = dp on the 360-wide image. */
+.si { position: relative; width: 360px; color: var(--c-ink); font-family: var(--font); }
+.si-card { background: var(--c-card); }
+.si-story { height: 640px; background: var(--c-back); display: flex; align-items: center; justify-content: center; padding: 72px 28px; }
+.si-story.poster { background: var(--c-card); padding: 0; align-items: stretch; }
+.sc { position: relative; width: 100%; padding: 24px; display: flex; flex-direction: column; color: var(--c-ink); }
+.sc.in-story { background: var(--c-card); border-radius: 20px; } /* Panel 20: the backdrop fills the corners */
+.si-story.poster .sc { padding: 72px 28px; justify-content: center; }
+.sc b { font-weight: 600; }
+.sc-mark { display: block; flex: none; color: var(--c-mark); }
+
+/* shared: head + foot (LyricsShareCard) */
+.sc-head { display: flex; align-items: center; gap: 12px; }
+.sc-cv { width: 44px; height: 44px; border-radius: 4px; flex: none; }
+.sc-ht { display: flex; flex-direction: column; min-width: 0; }
+.sc-ht b { font-size: 14px; line-height: 20px; font-weight: 600; }
+.sc-ht small { font-size: 12px; line-height: 16px; opacity: .72; }
+.sc-head.sm .sc-cv { width: 32px; height: 32px; }
+.sc-foot { display: flex; align-items: center; gap: 6px; margin-top: 24px; }
+.sc-foot > b { font-size: 14px; font-weight: 600; letter-spacing: .1px; }
+.sc-sign { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; opacity: .72; }
+.sc-time { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px 0 8px; border-radius: 13px; font-size: 13px; font-weight: 600; background: color-mix(in oklab, var(--c-ink) 12%, transparent); }
+.sc-time i { font-style: normal; font-weight: 500; opacity: .6; margin-left: 2px; }
+.sc-mp { display: inline-flex; align-items: center; gap: .25em; height: 1.3em; padding: 0 .4em 0 .14em; margin: 0 .06em; border-radius: .65em; vertical-align: -.22em; white-space: nowrap; background: color-mix(in oklab, var(--c-ink) 12%, transparent); }
+.sc-mp-th { width: 1.02em; height: 1.02em; border-radius: .2em !important; flex: none; }
+.sc-mp-th.round { border-radius: 50% !important; }
+.sc-mp b { font-weight: 650; }
+
+/* lyrics (today) */
+.sc-lines { margin-top: 20px; font-size: 22px; line-height: 1.3; font-weight: 600; }
+.sc-lines p { margin: 0 0 6px; }
+
+/* About A: receipt */
+.sc-rcpt { margin-top: 20px; }
+.sc-rr { display: flex; align-items: baseline; gap: 12px; padding: 8px 0; }
+.sc-rr span { width: 88px; flex: none; font-size: 12px; font-weight: 500; opacity: .72; }
+.sc-rr b { flex: 1; text-align: right; font-size: 14px; font-weight: 500; line-height: 20px; }
+.sc-dash { display: block; height: 1px; background: repeating-linear-gradient(90deg, color-mix(in oklab, var(--c-ink) 30%, transparent) 0 4px, transparent 4px 7px); }
+.sc-para { margin-top: 16px; }
+.sc-para h4 { margin: 0 0 6px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.sc-para p { margin: 0; font-size: 14px; line-height: 22px; }
+
+/* About B: quote */
+.sc-tag { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px 0 10px; border-radius: 14px; font-size: 13px; font-weight: 600; background: var(--c-ink); color: var(--c-card); }
+.sc-quote { margin: 18px 0 0; font-size: 19px; line-height: 1.5; font-weight: 600; letter-spacing: .1px; }
+.sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; }
+.sc-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; background: color-mix(in oklab, var(--c-ink) 10%, transparent); }
+.sc-chip small { font-size: 11px; font-weight: 500; opacity: .72; }
+.sc-rule { height: 1px; margin: 20px 0 16px; background: color-mix(in oklab, var(--c-ink) 18%, transparent); }
+
+/* About C: liner notes */
+.sc-ctop { display: flex; align-items: flex-start; justify-content: space-between; }
+.sc-over { font-size: 12px; font-weight: 600; letter-spacing: 1.6px; text-transform: uppercase; opacity: .72; margin-top: 2px; }
+.sc-cv-c { width: 72px; height: 72px; border-radius: 8px; flex: none; }
+.sc-big { margin: 8px 0 0; font-size: 36px; line-height: 1.12; font-weight: 650; letter-spacing: -.2px; }
+.sc-by { margin-top: 6px; font-size: 14px; opacity: .72; }
+.sc-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; margin-top: 20px; }
+.sc-cell { padding: 10px 0 12px; border-top: 1px solid color-mix(in oklab, var(--c-ink) 22%, transparent); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sc-cell small { font-size: 11px; font-weight: 500; opacity: .72; }
+.sc-cell b { font-size: 16px; line-height: 22px; font-weight: 600; }
+.sc-body { margin: 12px 0 0; font-size: 14px; line-height: 22px; }
+
+/* Note A: lyric twin */
+.sc-ntop { margin-top: 20px; display: flex; }
+.sc-note { margin-top: 12px; font-size: 21px; line-height: 1.38; font-weight: 400; } /* Markdown bold needs room above the base weight */
+.sc-note p { margin: 0 0 10px; }
+.sc-note p:last-child { margin-bottom: 0; }
+.sc-note b { font-weight: 700; }
+
+/* Note B: scrapbook clipping on dot paper (the paper fills the image; the tone colours the clipping) */
+.paperbg { background: var(--surface); padding: 28px 24px 24px; overflow: hidden; }
+.si-card:has(.paperbg) { background: var(--surface); }
+.si-story.poster:has(.paperbg) { background: var(--surface); }
+.sc-dots { position: absolute; inset: 0; background-image: radial-gradient(circle at 8px 8px, color-mix(in oklab, var(--outlineVariant) 70%, transparent) 1.2px, transparent 1.4px); background-size: 16px 16px; }
+.sc-nb { position: relative; display: flex; flex-direction: column; flex: 1; }
+.sc-nb-top { display: flex; align-items: flex-end; gap: 0; }
+.sc-nb-cv { width: 104px; height: 104px; transform: rotate(-3deg); flex: none; }
+.sc-nb-cv .cv { width: 100%; height: 100%; border-radius: 6px; }
+.sc-stub { transform: rotate(2deg); margin: 0 0 6px -10px; padding: 8px 14px 8px 16px; border-radius: 10px; background: var(--surfaceContainerHigh); color: var(--onSurface); display: flex; flex-direction: column; min-width: 0; }
+.sc-stub b { font-size: 22px; line-height: 26px; font-weight: 700; color: var(--c-mark); }
+.sc-stub small { font-size: 12px; line-height: 16px; color: var(--onSurfaceVariant); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-clip { margin-top: 14px; padding: 16px 18px 14px; border-radius: 16px; background: var(--c-card); color: var(--c-ink); transform: rotate(1deg); }
+.sc-note-b { font-size: 16px; line-height: 1.6; font-weight: 500; }
+.sc-note-b p { margin: 0 0 8px; }
+.sc-clip > small { display: block; text-align: right; font-size: 12px; opacity: .72; }
+.sc-note-b b { font-weight: 700; }
+.si-story .sc-nb-cv { width: 136px; height: 136px; }
+.si-story .sc-stub b { font-size: 26px; line-height: 30px; }
+.si-story .sc-note-b { font-size: 18px; }
+.si-story .sc-clip { margin-top: 18px; padding: 18px 20px 16px; }
+.paperbg .sc-foot { color: var(--onSurface); }
+.paperbg .sc-mark { color: var(--onSurface); }
+
+/* Note C: timeline moment */
+.sc-tl { position: relative; margin-top: 22px; padding-top: 34px; }
+.sc-tl-t { position: absolute; top: 0; transform: translateX(-50%); }
+.sc-wave { display: block; overflow: visible; }
+.sc-wave path { fill: none; stroke-linecap: round; }
+.sc-wave .pl { stroke: var(--c-ink); stroke-width: 4; }
+.sc-wave .tr { stroke: color-mix(in oklab, var(--c-ink) 24%, transparent); stroke-width: 4; }
+.sc-wave .hd { fill: var(--c-ink); }
+.sc-tl-ends { display: flex; justify-content: space-between; font-size: 11px; font-weight: 500; opacity: .6; margin-top: 2px; }
+.sc-bub { position: relative; margin-top: 16px; padding: 16px 18px; border-radius: 16px; background: color-mix(in oklab, var(--c-ink) 9%, var(--c-card)); }
+.sc-bub::before { content: ""; position: absolute; top: -8px; left: calc(var(--tip) - 8px); width: 16px; height: 8px; background: inherit; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.sc-note-c { font-size: 17px; line-height: 1.5; font-weight: 500; }
+.sc-note-c p { margin: 0 0 8px; }
+.sc-note-c p:last-child { margin-bottom: 0; }
+.sc-note-c b { font-weight: 700; }
+
+/* the share sheet */
+.sh-bg { position: absolute; inset: 0; }
+.sh-np { position: absolute; left: 24px; right: 24px; top: var(--top); }
+.sh-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .32); }
+.sh { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 28px 28px 0 0; background: var(--surfaceContainer); padding: 0 24px calc(var(--bottom) + 16px); }
+.sh-handle { display: block; width: 32px; height: 4px; border-radius: 2px; margin: 16px auto 18px; background: var(--onSurfaceVariant); opacity: .4; }
+.sh-title { font-size: 16px; line-height: 24px; font-weight: 500; color: var(--onSurface); }
+.sh-tabs { margin: 10px 0 14px; }
+.sh-prev { position: relative; }
+.sh-prev-in { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.sh-prev-in .si { border-radius: 16px; overflow: hidden; } /* previews read as a card / a screen; the PNG stays a full rectangle */
+.sh-fmt { margin-top: 20px; }
+.sh-fmt span { height: 44px; border-radius: 22px; }
+.sh-sws { display: flex; gap: 4px; margin-top: 12px; }
+.sh-sw { width: 48px; height: 48px; display: grid; place-items: center; color: var(--c-ink); position: relative; }
+.sh-sw::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: var(--c-card); z-index: 0; }
+.sh-sw.on::before { border-radius: 10px; }
+.sh-sw .ic { position: relative; z-index: 1; }
+.sh-act { display: flex; gap: 12px; margin-top: 20px; }
+.sh-act button { flex: 1; height: 56px; border: 0; border-radius: 28px; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.sh-save { background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.sh-share { background: var(--primary); color: var(--onPrimary); }
+.sh-sw.paper::before { box-shadow: inset 0 0 0 2px var(--c-mark); }
+
+/* ── round 2 ── */
+/* Note B: the ticket stub reads title > artist > time (owner 2026-11-25) */
+.sc-stub { padding: 9px 14px 9px 16px; gap: 1px; max-width: 190px; }
+.sc-stub b { font-size: 17px; line-height: 22px; font-weight: 650; color: var(--onSurface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-stub small { font-size: 13px; line-height: 18px; }
+.sc-stub-t { display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; font-size: 12px; line-height: 16px; font-weight: 400; font-variation-settings: "wdth" 80; letter-spacing: -.1px; color: var(--onSurfaceVariant); opacity: .9; }
+.sc-stub-t .ic { opacity: .7; }
+.si-story .sc-stub b { font-size: 20px; line-height: 26px; }
+.si-story .sc-stub small { font-size: 14px; }
+.si-story .sc-stub-t { font-size: 13px; }
+
+/* Lyrics A: translation under a line */
+.sc-lines p small { display: block; margin-top: 2px; font-size: 14px; line-height: 20px; font-weight: 500; opacity: .76; font-variation-settings: normal; }
+/* Lyrics B: poster */
+.sc-lyrics-B { min-height: 400px; padding: 28px 28px 24px; }
+.sc-pq { font-size: 72px; line-height: 56px; height: 44px; font-weight: 700; opacity: .35; font-family: Georgia, "Roboto Serif", serif; }
+.sc-pl { margin: 8px 0 0; font-size: 40px; line-height: 1.18; font-weight: 650; letter-spacing: -.3px; }
+.sc-ptr { margin: 14px 0 0; font-size: 17px; line-height: 1.45; font-weight: 500; opacity: .76; }
+.sc-pfoot { display: flex; align-items: center; gap: 12px; margin-top: 28px; }
+.si-story.poster .sc-lyrics-B { justify-content: flex-start; }
+.si-story.poster .sc-lyrics-B .sc-pl { font-size: 44px; }
+/* Lyrics C: timeline */
+.sc-lt { margin-top: 18px; }
+.sc-ltr { display: flex; padding: 4px 0; }
+.sc-ltr > span { width: 44px; flex: none; font-size: 12px; line-height: 27px; font-weight: 500; opacity: .6; }
+.sc-ltr p { margin: 0; flex: 1; font-size: 19px; line-height: 27px; font-weight: 600; }
+.sc-ltr p small { display: block; font-size: 13px; line-height: 19px; font-weight: 500; opacity: .76; font-variation-settings: normal; }
+.sc-ltw { margin-top: 16px; }
+/* Lyrics D: vertical (CJK) */
+.sc-lyrics-D { min-height: 470px; padding: 28px 24px 24px; }
+.sc-vt { flex: 1; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.sc-vside { writing-mode: vertical-rl; display: flex; gap: 6px; }
+.sc-vside b { font-size: 14px; font-weight: 600; letter-spacing: 2px; }
+.sc-vside small { font-size: 12px; opacity: .72; letter-spacing: 2px; }
+.sc-vlines { writing-mode: vertical-rl; display: flex; gap: 14px; font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: 6px; }
+.sc-vlines p { margin: 0; }
+.sc-vlines p:nth-child(2) { margin-top: 48px; } /* the second column starts lower: a poem's stagger */
+.sc-vfoot { display: flex; align-items: center; gap: 6px; margin-top: 20px; }
+.sc-vfoot .sc-cv { width: 36px; height: 36px; }
+.sc-vfoot b { font-size: 14px; font-weight: 600; }
+.si-story.poster .sc-lyrics-D { justify-content: flex-start; }
+.si-story.poster .sc-lyrics-D .sc-vlines { font-size: 36px; }
+.si-story.poster .sc-lyrics-D .sc-vt { padding-top: 12px; }
+
+/* sheet, round 2 */
+.sh .sh-tabs { margin: 0 0 12px; height: 32px; font-size: 18px; }
+.sh-lbl { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--onSurfaceVariant); margin: 0 0 8px; }
+.sh-thumbs { display: flex; gap: 10px; margin-bottom: 16px; }
+.sh-th { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 70px; }
+.sh-th-box { position: relative; width: 70px; height: 88px; border-radius: 12px; overflow: hidden; background: var(--surfaceContainerHigh); box-shadow: inset 0 0 0 1px var(--outlineVariant); }
+.sh-th-in { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.sh-th.on .sh-th-box { box-shadow: 0 0 0 2px var(--surfaceContainer), 0 0 0 4px var(--primary); }
+.sh-th small { font-size: 12px; line-height: 16px; color: var(--onSurfaceVariant); font-weight: 500; }
+.sh-th.on small { color: var(--primary); font-weight: 700; }
+.sh-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.sh-chip { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--onSurfaceVariant); box-shadow: inset 0 0 0 1px var(--outline); }
+.sh-chip.on { padding-left: 8px; background: var(--secondaryContainer); color: var(--onSecondaryContainer); box-shadow: none; }
+.sh .sh-fmt { margin-top: 16px; }
+.sh .sh-act { margin-top: 16px; }
+.sh .sh-sws { margin-top: 8px; }
+/* expanded: two panes */
+.sh-np.wide { left: 40px; right: 40px; }
+.sh.wide { left: 50%; right: auto; width: 1040px; margin-left: -520px; top: calc(var(--top) + 20px); padding: 0 32px calc(var(--bottom) + 12px); display: flex; flex-direction: column; }
+.sh.wide .sh-handle { margin: 14px auto 12px; }
+.sh-panes { flex: 1; min-height: 0; display: flex; gap: 40px; }
+.sh-left { width: 470px; flex: none; display: flex; align-items: center; }
+.sh-left .sh-prev { width: 100%; }
+.sh-right { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 8px; }
+.sh-right .sh-thumbs { gap: 12px; }
+.sh-right .sh-th { width: 84px; }
+.sh-right .sh-th-box { width: 84px; height: 106px; }
+.sh-right .sh-fmt { margin-top: 0; }
+.sc-wave path { vector-effect: non-scaling-stroke; }
+.sc-ltw { position: relative; margin-top: 18px; padding-top: 34px; }
+.sc-ltw-chip { position: absolute; top: 0; transform: translateX(-50%); }
+.sc-ltbar { position: relative; height: 8px; display: flex; align-items: center; }
+.sc-ltbar::before { content: ""; position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--c-ink) 24%, transparent); }
+.sc-ltbar i { position: absolute; height: 8px; border-radius: 4px; background: var(--c-ink); }
+.sc-ltw .sc-tl-ends { margin-top: 6px; }
+/* Lyrics D: bounded column height, so each lyric line is one column */
+.sc-vlines { height: 414px; font-size: 26px; letter-spacing: 4px; gap: 18px; }
+.sc-vlines p:nth-child(2) { margin-top: 24px; }
+.si-story.poster .sc-lyrics-D .sc-vlines { height: 470px; font-size: 30px; }
+.si-story.poster .sc-lyrics-B .sc-pl { font-size: 50px; }
+.sc-time { white-space: nowrap; }
+.sc-vlines { display: block; }
+.sc-vlines p { margin: 0 0 0 18px; }
+.sc-vlines p:nth-child(2) { margin-top: 28px; }
