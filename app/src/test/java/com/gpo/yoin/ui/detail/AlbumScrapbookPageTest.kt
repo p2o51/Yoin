@@ -52,6 +52,7 @@ class AlbumScrapbookPageTest {
     private val moments = mutableListOf<Pair<String, Long?>>()
     private var reviewEdits = 0
     private val edits = mutableListOf<ScrapEdit>()
+    private var ensured = 0
     private val askRef = AlbumScrapbookAboutRef("song 3", "artist", "album", SongAboutEntry.KIND_ASK, "who plays?")
 
     @Test
@@ -90,6 +91,14 @@ class AlbumScrapbookPageTest {
         rule.waitForIdle()
 
         rule.onNodeWithText("Second sentence. Third sentence.", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun should_askForTheAlbumAboutOnce_when_thePageIsSettled() {
+        show()
+        rule.waitForIdle()
+
+        assertEquals(1, ensured)
     }
 
     @Test
@@ -397,7 +406,8 @@ class AlbumScrapbookPageTest {
                     onSongClick = { played += it },
                     onNoteMomentClick = { songId, at -> moments += songId to at },
                     onEditReview = { reviewEdits++ },
-                    onEdit = { edits += it },
+                    // The settled page's own request for the album About is asserted on its own.
+                    onEdit = { if (it == ScrapEdit.EnsureAlbumAbout) ensured++ else edits += it },
                     feeds = feeds,
                 )
             }

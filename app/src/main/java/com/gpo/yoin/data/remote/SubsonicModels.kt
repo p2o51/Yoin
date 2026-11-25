@@ -134,6 +134,14 @@ data class Album(
     val releaseDate: SubsonicItemDate? = null,
     /** OpenSubsonic: the original release's date (ORIGINALDATE tag). */
     val originalReleaseDate: SubsonicItemDate? = null,
+    /** OpenSubsonic: the record labels (LABEL / PUBLISHER tags); absent on older servers. */
+    val recordLabels: List<SubsonicRecordLabel> = emptyList(),
+)
+
+/** OpenSubsonic RecordLabel: just its name. */
+@Serializable
+data class SubsonicRecordLabel(
+    val name: String? = null,
 )
 
 /** OpenSubsonic ItemDate: every part optional (Navidrome sends `{}` or just a year when that's all it has). */

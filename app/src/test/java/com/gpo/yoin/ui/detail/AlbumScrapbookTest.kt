@@ -358,6 +358,7 @@ class AlbumScrapbookTest {
             is ScrapPiece.ContactSheet -> piece.tilts
             is ScrapPiece.NotYet -> piece.tracks.map { it.tilt }
             is ScrapPiece.Receipt -> listOf(piece.tilt)
+            is ScrapPiece.AlbumAbout -> listOf(piece.tilt)
         }
     }
 

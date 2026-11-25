@@ -90,6 +90,12 @@ data class SpotifyAlbumObject(
     @SerialName("release_date_precision") val releaseDatePrecision: String? = null,
     @SerialName("album_type") val albumType: String? = null,
     val tracks: SpotifyPagingObject<SpotifyTrackObject>? = null,
+    /**
+     * The record label on the full album object. The February 2026 migration guide lists it among the
+     * fields dropped for Development Mode apps, so it is optional; when it is missing the credits
+     * line asks the AI for the label instead.
+     */
+    val label: String? = null,
 )
 
 @Serializable

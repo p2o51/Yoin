@@ -87,6 +87,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -192,6 +193,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -280,6 +282,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -353,6 +356,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -450,6 +454,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -553,6 +558,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -633,6 +639,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -708,6 +715,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -784,6 +792,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -884,6 +893,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1003,6 +1013,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1077,6 +1088,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1157,6 +1169,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1255,6 +1268,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1325,6 +1339,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1397,6 +1412,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1449,6 +1465,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1517,6 +1534,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1597,6 +1615,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_33_34,
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
             )
             .allowMainThreadQueries()
             .build()
@@ -1662,7 +1681,12 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_33_34, AppContainer.MIGRATION_34_35, AppContainer.MIGRATION_35_36)
+            .addMigrations(
+                AppContainer.MIGRATION_33_34,
+                AppContainer.MIGRATION_34_35,
+                AppContainer.MIGRATION_35_36,
+                AppContainer.MIGRATION_36_37,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -1995,7 +2019,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_34_35, AppContainer.MIGRATION_35_36)
+            .addMigrations(AppContainer.MIGRATION_34_35, AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37)
             .allowMainThreadQueries()
             .build()
 
@@ -2046,11 +2070,11 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_35_36)
+            .addMigrations(AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37)
             .allowMainThreadQueries()
             .build()
 
-        // Room validated the v36 schema on open; the new table takes a row.
+        // Room validated the latest schema on open; the new table takes a row.
         val dao = migrated.lyricHighlightDao()
         dao.upsert(
             LyricHighlight(
@@ -2074,6 +2098,71 @@ class YoinDatabaseMigrationTest {
         assertEquals(listOf("s1"), dao.settledSongIds("p1", "subsonic", retryAfter = 0L, fingerprintPrefix = "v2:"))
         // Picked under an older question: queued again.
         assertEquals(emptyList<String>(), dao.settledSongIds("p1", "subsonic", retryAfter = 0L, fingerprintPrefix = "v3:"))
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_createAlbumAboutEntries_when_migrating_36_to_37() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(36) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion24Schema(db)
+                            listOf(
+                                AppContainer.MIGRATION_24_25,
+                                AppContainer.MIGRATION_25_26,
+                                AppContainer.MIGRATION_26_27,
+                                AppContainer.MIGRATION_27_28,
+                                AppContainer.MIGRATION_28_29,
+                                AppContainer.MIGRATION_29_30,
+                                AppContainer.MIGRATION_30_31,
+                                AppContainer.MIGRATION_31_32,
+                                AppContainer.MIGRATION_32_33,
+                                AppContainer.MIGRATION_33_34,
+                                AppContainer.MIGRATION_34_35,
+                                AppContainer.MIGRATION_35_36,
+                            ).forEach { it.migrate(db) }
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_36_37)
+            .allowMainThreadQueries()
+            .build()
+
+        // Room validated the v37 schema on open; the new table takes a row and reads it back by album.
+        val dao = migrated.albumAboutEntryDao()
+        dao.upsert(
+            AlbumAboutEntry(
+                provider = "subsonic",
+                albumId = "al-1",
+                albumDisplay = "潮汐表",
+                artistDisplay = "森川",
+                kind = AlbumAboutEntry.KIND_CANONICAL,
+                entryKey = AlbumAboutEntry.CANON_BLURB,
+                promptText = null,
+                titleText = null,
+                answerText = "段落。",
+                createdAt = 1L,
+                updatedAt = 1L,
+            ),
+        )
+        assertEquals(1, dao.getCanonical("subsonic", "al-1").size)
+        assertEquals(0, dao.getCanonical("spotify", "al-1").size)
 
         migrated.close()
     }

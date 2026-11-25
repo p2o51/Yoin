@@ -71,4 +71,16 @@
     <string name="ai_try_builtin">The model searched on its own</string>
     <string name="ai_try_no_key">Paste a key first</string>
     <string name="ai_try_error">Failed: %1$s</string>
+
+    <!-- Copy that names the AI service in use (51, 2026-11-25): %1$s is ai_provider_gemini / _deepseek /
+         _qwen, or ai_provider_generic_name for a Custom endpoint. Same words as the old Gemini-only strings. -->
+    <string name="ai_provider_generic_name" translatable="false">AI</string>
+    <string name="ai_ask_provider">Ask %1$s</string>
+    <string name="ai_writing">%1$s is writing…</string>
+    <string name="ai_generate_with">Generate with %1$s</string>
+    <string name="ai_regenerate_with">Regenerate with %1$s</string>
+    <string name="ai_failed">%1$s couldn\'t answer. Try again.</string>
+    <string name="ai_nothing_new">%1$s had nothing new</string>
+    <string name="ai_key_missing">%1$s API key missing</string>
+    <string name="ai_no_key">No %1$s API key</string>
 </resources>
