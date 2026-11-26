@@ -17,6 +17,11 @@ final class HomeTwoColumnUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["-screen", "home", "-homeLayoutReset", "YES", "-silentAudio", "YES", "-AppleLanguages", "(\(lang))",
                                "-AppleLocale", lang.hasPrefix("zh") ? "zh_CN" : "en_US"]
+        // `HOME_EXTRA_ARGS` (`TEST_RUNNER_HOME_EXTRA_ARGS`): more launch arguments, e.g. `-platformMac YES` to stand in
+        // for the Mac ("Designed for iPad") on the iPad simulator.
+        if let extra = ProcessInfo.processInfo.environment["HOME_EXTRA_ARGS"], !extra.isEmpty {
+            app.launchArguments += extra.split(separator: " ").map(String.init)
+        }
     }
 
     override func tearDown() {
