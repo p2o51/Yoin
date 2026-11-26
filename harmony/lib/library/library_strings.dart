@@ -94,6 +94,15 @@ class LibraryStrings {
   String get searchSectionAlbums => zh ? '专辑' : 'Albums'; // library_search_section_albums
   String get searchSectionSongs => zh ? '歌曲' : 'Songs'; // library_search_section_songs
   String get searchSectionPlaylists => zh ? '播放列表' : 'Playlists'; // library_search_section_playlists
+  String get searchFilterMemories => 'Memories'; // library_search_filter_memories (zh: Memories)
+  String get searchShowAll => zh ? '显示全部' : 'Show all'; // library_search_show_all
+
+  /// library_search_folded: "%1$d less relevant from %2$s" / "%2$s 另有 %1$d 条不太相关".
+  String searchFolded(int count, String provider) =>
+      zh ? '$provider 另有 $count 条不太相关' : '$count less relevant from $provider';
+  String get searchYourNote => zh ? '你的笔记' : 'Your note'; // library_search_your_note
+  String get searchYourMemory => zh ? '你的回忆' : 'Your memory'; // library_search_your_memory
+  String get searchNoMemories => zh ? '没有碰到你写过的东西。' : "Nothing you've written matches."; // library_search_no_memories
   String get emptySearch => zh ? '未找到结果' : 'No results found'; // library_empty_search
   String get searchRetry => zh ? '重试' : 'Retry'; // library_search_retry
   String get errorSearch => zh ? '搜索失败。' : 'Search failed.'; // library_error_search

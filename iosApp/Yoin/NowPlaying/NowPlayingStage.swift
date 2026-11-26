@@ -27,6 +27,52 @@ enum NowPlayingDetailPage: Int, CaseIterable {
     }
 }
 
+/// The detail pager's maths (Android HorizontalPager + StageTabs): where the pager is under the
+/// finger, which tab it is heading for, how much each tab reads as selected, and where a release
+/// lands. The tabs and the pages read the same position, so a tap and a swipe can't disagree.
+enum NowPlayingPager {
+    static let lastPage = NowPlayingDetailPage.allCases.count - 1
+
+    /// The settled tab, less the finger's drag in pages (+ drag = toward the previous page).
+    static func position(tab: Int, drag: CGFloat, width: CGFloat) -> CGFloat {
+        CGFloat(tab) - drag / max(width, 1)
+    }
+
+    /// The page the pager is heading for (Android targetPage): the bold tab, the bar under the page.
+    static func shownTab(position: CGFloat) -> Int {
+        min(max(Int(position.rounded()), 0), lastPage)
+    }
+
+    /// How selected `page`'s tab reads at `position`: 1 on it, falling linearly to 0 a page away,
+    /// so the highlight passes from tab to tab with the finger and settles on the landed one.
+    static func selection(of page: Int, at position: CGFloat) -> CGFloat {
+        let p = min(max(position, 0), CGFloat(lastPage))
+        return max(0, 1 - abs(p - CGFloat(page)))
+    }
+
+    /// Past the first or last page the drag resists (a rubber band).
+    static func rubberBand(tab: Int, dx: CGFloat, width: CGFloat) -> CGFloat {
+        let w = max(width, 1)
+        let raw = CGFloat(tab) - dx / w
+        guard raw < 0 || raw > CGFloat(lastPage) else { return dx }
+        let edge = raw < 0 ? CGFloat(tab) : CGFloat(tab - lastPage)
+        let past = abs(dx) - abs(edge * w)
+        let eased = pow(max(past, 0), 0.7)
+        return (dx < 0 ? -1 : 1) * (abs(edge * w) + eased)
+    }
+
+    /// Release: a fling or a drag past a third of a page turns it, one page at most.
+    static func releaseTarget(tab: Int, drag: CGFloat, width: CGFloat, velocity: CGFloat, cancelled: Bool) -> Int {
+        var target = tab
+        if !cancelled {
+            let moved = -drag / max(width, 1)
+            if velocity < -400 || moved > 0.35 { target = tab + 1 }
+            if velocity > 400 || moved < -0.35 { target = tab - 1 }
+        }
+        return min(max(target, 0), lastPage)
+    }
+}
+
 extension Yoin {
     /// Android YoinMotion.stageSettleSpring (YoinTokens stageSettle: damping
     /// 0.85, stiffness 700): the ONE spring every stage reshape rides —

@@ -23,7 +23,8 @@ struct HomeDensity: Equatable, Sendable {
 
     init(width w: CGFloat, height h: CGFloat) {
         width = w
-        wide = w >= 840 && h >= 480
+        // The two-column tier, :shared's `homeTwoColumn` (golden home-grid.json "twoColumn").
+        wide = HomeGrid.twoColumn(width: w, height: h)
         margin = wide ? 32 : max(16, (w - Self.cappedContent) / 2)
         content = max(0, w - 2 * margin)
         let c = content

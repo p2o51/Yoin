@@ -168,9 +168,15 @@ class LyraSingStreamProvider(
     private val activeCalls = ConcurrentHashMap<String, CopyOnWriteArrayList<Call>>()
     private val cancelledKeys = ConcurrentHashMap.newKeySet<String>()
 
-    private val sseClient: OkHttpClient by lazy {
+    /**
+     * The status stream stays open for the whole separation (20–90 s): only the read timeout
+     * between events bounds it. No call timeout, whatever the client it derives from sets, or
+     * a slow separation would drop to polling when it fires.
+     */
+    internal val sseClient: OkHttpClient by lazy {
         httpClient.newBuilder()
             .readTimeout(sseReadTimeoutSeconds, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
     }
 

@@ -2,6 +2,7 @@ package com.gpo.yoin.data.cache
 
 import com.gpo.yoin.data.local.DetailCacheDao
 import com.gpo.yoin.data.local.DetailCacheEntry
+import com.gpo.yoin.data.local.DetailCacheSize
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.Playlist
@@ -92,6 +93,9 @@ class DetailCacheStore(
             val dto = json.decodeFromString(AlbumDto.serializer(), row)
             // A row from before albums kept their release date fails like an incompatible one: a miss, read again.
             check(dto.dated) { "album row predates release dates" }
+            // Likewise a row from before albums kept their label and the service's notes (album About): the
+            // credits line and Apple Music's paragraph would be missing for the cache's week.
+            check(dto.credited) { "album row predates labels and editorial notes" }
             dto.toDomain()
         }
 
@@ -146,9 +150,10 @@ class DetailCacheStore(
     /** Hygiene pass (call once on startup): age out anything past [maxAgeMs]. */
     suspend fun purgeExpired() {
         runCatching {
-            dao.cachedBefore(clock() - maxAgeMs).forEach { row ->
-                if (!keeps(row.profileId, row.kind, row.entityId)) dao.delete(row.profileId, row.kind, row.entityId)
-            }
+            val cutoff = clock() - maxAgeMs
+            val victims = dao.cachedBefore(cutoff)
+                .filter { row -> !keeps(row.profileId, row.kind, row.entityId) }
+            deleteRowsBatched(victims, cutoff = cutoff)
         }
         // Bulk delete of unknown size: drop the running total; the next write
         // re-seeds it with one SUM.
@@ -278,19 +283,35 @@ class DetailCacheStore(
             var total = dao.totalBytes()
             if (total <= maxBytes) return total
             // SQLite (minSdk 26) has no guaranteed window functions, so accumulate
-            // and delete oldest-accessed in Kotlin until we're back under target.
+            // victims in Kotlin and delete them in batched SQL statements per (profileId, kind).
+            val victims = mutableListOf<DetailCacheSize>()
             for (row in dao.sizesOldestFirst()) {
                 if (total <= trimTargetBytes) break
                 if (row.profileId == keepProfileId && row.kind == keepKind && row.entityId == keepId) continue
                 if (Triple(row.profileId, row.kind, row.entityId) in touchesPending) continue
                 if (keeps(row.profileId, row.kind, row.entityId)) continue
-                dao.delete(row.profileId, row.kind, row.entityId)
+                victims += row
                 total -= row.bytes
                 rows++
             }
+            deleteRowsBatched(victims)
             return total
         } finally {
             if (perf != null) YoinPerf.end(perf, "rows" to rows)
+        }
+    }
+
+    private suspend fun deleteRowsBatched(victims: List<DetailCacheSize>, cutoff: Long? = null) {
+        if (victims.isEmpty()) return
+        victims.groupBy { it.profileId to it.kind }.forEach { (groupKey, groupRows) ->
+            val (profileId, kind) = groupKey
+            groupRows.map { it.entityId }.chunked(DELETE_BATCH_SIZE).forEach { batch ->
+                if (cutoff != null) {
+                    dao.deleteExpiredBatch(profileId, kind, batch, cutoff)
+                } else {
+                    dao.deleteBatch(profileId, kind, batch)
+                }
+            }
         }
     }
 
@@ -304,6 +325,9 @@ class DetailCacheStore(
 
         /** ~24 MB on-disk cap (JSON char count proxy). */
         const val DEFAULT_MAX_BYTES = 24L * 1024 * 1024
+
+        /** Max `entityId IN (...)` parameters per batch delete statement (plus profileId and kind). */
+        internal const val DELETE_BATCH_SIZE = 200
 
         /** Entries older than this are never served and get purged (30 days). */
         const val DEFAULT_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000

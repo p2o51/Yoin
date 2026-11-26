@@ -38,6 +38,23 @@ data class Album(
      * when the service gives no date.
      */
     val releaseDate: ReleaseDate? = null,
+    /**
+     * The record label(s) as the service names them (Spotify `label`, Apple Music `recordLabel`,
+     * OpenSubsonic `recordLabels`): the scrapbook's credits line shows them before asking any AI.
+     * Library data, never translated; empty when the service doesn't say.
+     */
+    val recordLabels: List<String> = emptyList(),
+    /**
+     * The first release's date when the service gives it apart from this release's (OpenSubsonic
+     * `originalReleaseDate`): a reissue's 首版 on the credits line. Null when unknown.
+     */
+    val originalReleaseDate: ReleaseDate? = null,
+    /**
+     * The service's own editorial notes on the album, as plain text (Apple Music `editorialNotes`:
+     * `standard`, else `short`, HTML stripped). The scrapbook's About paragraph uses it before asking
+     * any AI. Null when the service has none.
+     */
+    val editorialNotes: String? = null,
 ) {
     /**
      * [name] without the " (version)" a server appends to it (Navidrome's

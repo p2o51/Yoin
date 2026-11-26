@@ -14,22 +14,26 @@ enum LandingHomeLayout {
     }
 
     /// Moves the row at [from] to [to] among the listed rows, hidden ones included. The slots of the
-    /// sections iOS doesn't list stay where they are.
+    /// sections iOS doesn't list stay where they are; the half flags follow the pairing memory at the new
+    /// order (shared `withRememberedPairs`).
     static func move(_ layout: HomeLayout, from: Int, to: Int) -> HomeLayout {
         let slots = layout.sections.indices.filter { layout.sections[$0].section.supportedOnIOS }
         guard slots.indices.contains(from), slots.indices.contains(to), from != to else { return layout }
-        var rows = slots.map { layout.sections[$0] }
+        var rows = slots.map { layout.sections[$0].section }
         rows.insert(rows.remove(at: from), at: to)
-        var next = layout
-        for (slot, row) in zip(slots, rows) { next.sections[slot] = row }
-        return next
+        var order = layout.sections.map(\.section)
+        for (slot, row) in zip(slots, rows) { order[slot] = row }
+        return layout.withSectionsOrdered(order)
     }
 
-    /// Android `finish`: a layout equal to the default (nothing retained either) clears the account back
-    /// to "never customized"; anything else is saved.
+    /// Android `finish`, through the shared persist rule (`homePersistAction`): either default with nothing
+    /// retained clears the account back to "never customized"; anything else writes its document.
     @MainActor
     static func write(_ layout: HomeLayout, scope: String, to store: HomeLayoutStore = .shared) {
-        if layout.isDefault && layout.retained.isEmpty { store.clear(scope) } else { store.save(layout, scope: scope) }
+        switch HomeLayoutCodec.persist(layout) {
+        case .clear: store.clear(scope)
+        case .write(let json): store.write(json, layout: layout, scope: scope)
+        }
     }
 
     /// The Home layout scope of [profile]'s account (`LibraryStore.homeScope`: provider|account), nil when

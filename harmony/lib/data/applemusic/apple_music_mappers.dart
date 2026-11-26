@@ -207,6 +207,15 @@ Album? albumFrom(AppleMusicJson resource) {
       (_, true) => ReleaseType.compilation,
       _ => null,
     },
+    // "2014-05-20" / "2014" as Apple gives it: the ISO date the credits line reads.
+    releaseDate: switch (text(a, 'releaseDate')?.trim()) {
+      final d? when RegExp(r'^\d{4}(-\d{2}(-\d{2})?)?$').hasMatch(d) => d,
+      _ => null,
+    },
+    // The scrapbook's credits line names the label before asking any AI (Android AppleMusicSource).
+    recordLabels: [
+      ?(text(a, 'recordLabel') ?? text(catalog == null ? null : attributesOf(catalog), 'recordLabel'))?.trim(),
+    ],
   );
 }
 
@@ -227,6 +236,9 @@ Album albumWithTracks(Album album, List<Track> tracks) => Album(
   addedAt: album.addedAt,
   releaseType: album.releaseType,
   version: album.version,
+  releaseDate: album.releaseDate,
+  recordLabels: album.recordLabels,
+  originalReleaseDate: album.originalReleaseDate,
 );
 
 /// An artist. A library artist keeps its library id but has no artwork: its

@@ -2,18 +2,17 @@ import SwiftUI
 import UIKit
 import YoinShared
 
-/// Home edit mode, in place (Android ui/home/edit, owner decisions
-/// 2026-10-04): whole sections are the unit. Long-press a section (or the
-/// footer's Edit Home) and Home becomes editable where it is: plates come up
-/// under the sections, each title row gets Hide and a drag handle, the
-/// sections sway and settle after 6 s untouched; dragging a handle folds every
-/// section into a cover strip, the carried one follows the finger 1:1 and the
-/// rest make way, and letting go unfolds them in the new order. Hidden
-/// sections wait in the tray under the last one. Every change is saved at once
-/// for this account (HomeLayoutStore); Undo walks them back; Done leaves.
+/// Home edit mode, in place (Android ui/home/edit; design.md §主页 › 就地编辑): whole sections are the
+/// unit. Long-press a section (or the footer's Edit Home) and Home becomes editable where it is: plates
+/// come up under the sections, each title row gets Hide and a drag handle, the sections sway and settle
+/// after 6 s untouched. Hold a block (or press its handle) and it lifts and follows the finger in place
+/// while the others make way (HomeDragController, on :shared's HomeDragCore), the feed scrolling at its
+/// ends; a pinch folds the feed into a compact list of strips (HomeEditList). Hidden sections wait in the
+/// tray under the last one. Every change is saved at once for this account (HomeLayoutStore); Undo walks
+/// them back; Done, a blank tap or ⌘[ leaves.
 ///
-/// One progress P (0 feed … 1 editing) on the stage-settle spring drives the
-/// header's title swap, the plates, the badges' ripple and the tray.
+/// One progress P (0 feed … 1 editing) on the stage-settle spring drives the header's title swap, the
+/// plates, the badges' ripple and the tray.
 @MainActor
 @Observable
 final class HomeEditController {
@@ -23,13 +22,12 @@ final class HomeEditController {
     /// The layout being edited (the saved one while not editing).
     private(set) var layout: HomeLayout = .default
     private(set) var undoStack: [HomeLayout] = []
-    /// Strips: 0 = sections, 1 = folded into strips (while carrying).
-    private(set) var fold: CGFloat = 0
-    /// The section being carried, and the live order while it is.
-    private(set) var carried: HomeSection?
-    private(set) var liveOrder: [HomeSection] = []
     /// The sway's envelope (0 still … 1 swaying); it settles after 6 s untouched.
     private(set) var sway: CGFloat = 0
+    /// The block a normal-mode press is charging (half the long press in): it shrinks a little.
+    private(set) var charged: HomeSection?
+    /// Asks the feed to scroll to the tray (the header's Add).
+    private(set) var trayRequest = 0
     /// When a long-press entered edit: the press's own release must not tap the card under it.
     @ObservationIgnored private(set) var enteredAt: Date = .distantPast
     #if DEBUG
@@ -37,29 +35,53 @@ final class HomeEditController {
     var lyricCountShot: Int?
     #endif
 
+    /// The lift, the in-place drag, the glide (HomeDragController).
+    let drag = HomeDragController()
+    /// The pinched compact list (HomeEditList).
+    let list = HomeEditListMode()
+    /// Two columns' ⌟: the span and unit drags (HomeGridResize).
+    let resize = HomeGridResize()
+
     @ObservationIgnored private(set) var scope = ""
+    /// Homes on screen with this session (a rebuild shows the new one before the old one goes).
+    @ObservationIgnored var homesShown = 0
     @ObservationIgnored private let store: HomeLayoutStore
     @ObservationIgnored private let stage = SpringRunner()
-    @ObservationIgnored private let foldSpring = SpringRunner()
-    @ObservationIgnored private let carrySpring = SpringRunner()
     @ObservationIgnored private let swaySpring = SpringRunner()
-    @ObservationIgnored private var carryStart = 0
     @ObservationIgnored private var idleTask: Task<Void, Never>?
+    @ObservationIgnored private var kicks: [HomeSection: HomeEditKick] = [:]
+    /// The recognizers on the feed and on the list (a drag let go from outside tells them).
+    @ObservationIgnored weak var feedRecognizer: HomeEditTouchRecognizer?
+    @ObservationIgnored weak var listRecognizer: HomeEditTouchRecognizer?
 
-    nonisolated static let undoMax = 20
+    nonisolated static let undoMax = Int(YoinHomeLayout.shared.undoMax)
     /// The feed's coordinate space (the sections report their frames in it).
     nonisolated static let feedSpace = "homeFeed"
-    /// How long a finger holds a section's body before it lifts: out of edit mode the long-press
-    /// that enters it; in edit mode a short hold, so a scroll still scrolls (Android's T and slop).
-    nonisolated static func holdDuration(editing: Bool) -> TimeInterval { editing ? 0.2 : 0.4 }
+    /// The pinched list's coordinate space (its strips report their frames in it).
+    nonisolated static let listSpace = "homeEditList"
+    /// How long a finger holds a section's body before it lifts: out of edit mode the long press that
+    /// enters it (T); in edit mode the body hold, max(150 ms, T/2) (shared HomeEditGestureMachine).
+    nonisolated static func holdDuration(editing: Bool) -> TimeInterval {
+        let t = Double(HomeEditGestureDriver.longPressMs) / 1000
+        return editing ? max(0.15, t / 2) : t
+    }
     /// IdleSettle: this long without a touch and the sway settles.
     nonisolated static let idleSeconds: Double = 6
-    /// A strip's height and the gap between strips (HomeEditTokens §4).
-    nonisolated static let stripHeight: CGFloat = 56
-    nonisolated static let stripGap: CGFloat = 8
-    nonisolated static var stripPitch: CGFloat { stripHeight + stripGap }
+    /// An exclusion under a key with this prefix holds only out of edit mode.
+    nonisolated static let normalOnly = "normal."
 
-    init(store: HomeLayoutStore = .shared) { self.store = store }
+    init(store: HomeLayoutStore = .shared) {
+        self.store = store
+        drag.commit = { [weak self] order, pairs in self?.commitDrop(order, pairs: pairs) ?? false }
+        drag.kick = { [weak self] section, a in self?.kick(section, a) }
+        drag.letGo = { [weak self] in
+            self?.feedRecognizer?.carryEnded()
+            self?.listRecognizer?.carryEnded()
+        }
+        list.canChange = { [weak self] in self.map { $0.isEditing && !$0.drag.isCarrying && $0.drag.liftSection == nil } ?? false }
+        resize.commitSpan = { [weak self] section, write in self?.commitSpan(section, write) }
+        resize.commitUnits = { [weak self] section, units in self?.setUnits(section, units) }
+    }
 
     /// The account changed (or Home appeared): its saved layout, unless mid-edit.
     func load(scope: String) {
@@ -70,59 +92,114 @@ final class HomeEditController {
         undoStack = []
     }
 
-    /// The sections in the order the feed draws them right now.
-    var order: [HomeSection] { hole != nil ? liveOrder : layout.shownSections }
+    // MARK: Two columns (parity p4 B2)
+
+    /// The feed lays out in two columns (Home sets it from its container: `HomeDensity.wide`).
+    private(set) var twoColumn = false
+    /// The layout edit mode started from (the stored one): an untouched draft follows a width change from it.
+    @ObservationIgnored private var base: HomeLayout = .default
+
+    /// The feed's width crossed the two-column tier. A drag still on rolls back first (its geometry is gone); in
+    /// edit mode the draft follows (shared `homeDraftAtWidth`): untouched it is what entering at this width would
+    /// have made it, edited it keeps its order and two columns pair it from its memory.
+    func setTwoColumn(_ on: Bool) {
+        guard on != twoColumn else { return }
+        drag.cancel()
+        resize.snap()
+        twoColumn = on
+        guard isEditing else { return }
+        let next = layout.atWidth(edited: !undoStack.isEmpty, base: base, twoColumn: on)
+        if next != layout { layout = next }
+    }
+
+    /// What the feed shows: the draft while editing; otherwise the saved layout at this width (in two columns a
+    /// never-customized one is the large-screen default).
+    var shown: HomeLayout {
+        let l = layout, e = isEditing, t = twoColumn
+        if let c = shownCache, c.editing == e, c.twoColumn == t, c.layout == l { return c.shown }
+        let v = e ? l : l.forTwoColumn(t)
+        shownCache = (l, e, t, v)
+        return v
+    }
+    @ObservationIgnored private var shownCache: (layout: HomeLayout, editing: Bool, twoColumn: Bool, shown: HomeLayout)?
+
+    /// The pairs the feed shows side by side now (the drag's live ones while one runs in the feed); none in one column.
+    var pairs: [(left: HomeSection, right: HomeSection)] {
+        guard twoColumn else { return [] }
+        if drag.live != nil, !drag.inList { return drag.livePairs }
+        return shown.pairs
+    }
+
+    /// The sections in the order the feed draws them right now (the drag's live order while one runs in the feed).
+    var order: [HomeSection] { (drag.inList ? nil : drag.live) ?? shown.shownSections }
+
+    /// The sections in the order the list draws them right now.
+    var listOrder: [HomeSection] { (drag.inList ? drag.live : nil) ?? shown.shownSections }
 
     // MARK: Enter / leave
 
     func enter() {
         guard !isEditing else { return }
         enteredAt = Date()
+        base = layout
+        // Two columns edit what they show: a never-customized layout starts as the large-screen default.
+        layout = layout.forTwoColumn(twoColumn)
         isEditing = true
         undoStack = []
         run(stage, from: progress, to: 1, spring: Self.stageSpring) { [weak self] in self?.progress = $0 }
         touched()
     }
 
-    func exit() {
+    /// Leaves edit mode. A drag still on ends first: Done and the app's own exits keep its drop, Back and a
+    /// blank tap roll it back (shared `dragExitKeepsDrop`).
+    func exit(_ reason: HomeEditExitReason = .done) {
         guard isEditing else { return }
+        if drag.isCarrying { drag.exit(reason) } else { drag.dropLift(0) }
+        list.close()
+        resize.snap()
         isEditing = false
-        endCarry(commit: true, velocity: 0)
+        charged = nil
+        feedRecognizer?.editEnded()
+        listRecognizer?.editEnded()
+        if reason == .done { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+        // The saved layout again (either default was written as "never customized": it shows per width).
+        let saved = store.layout(scope)
+        if saved != layout { layout = saved }
         idleTask?.cancel()
         run(swaySpring, from: sway, to: 0, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in self?.sway = $0 }
         run(stage, from: progress, to: 0, spring: Self.stageSpring) { [weak self] in self?.progress = $0 }
     }
 
-    /// Gone at once (Home left the screen, the account changed).
+    /// Gone at once (Home left the screen, the account changed): a drag still on rolls back.
     func snapExit() {
+        drag.snapToRest()
+        list.snapOff()
+        resize.snap()
+        if isEditing, !scope.isEmpty { layout = store.layout(scope) }
         isEditing = false
-        [stage, foldSpring, carrySpring, swaySpring].forEach { $0.stop() }
+        [stage, swaySpring].forEach { $0.stop() }
         idleTask?.cancel()
-        progress = 0; fold = 0; sway = 0; carried = nil; landing = nil
+        progress = 0; sway = 0; charged = nil
     }
+
+    /// The feed's geometry changed under a drag (a rotation, a width or size-class change) or the app went
+    /// to the background: the drag rolls back to before the lift, nothing written.
+    func cancelDrag() { drag.cancel() }
 
     /// A press under the long-press that entered edit lands on a card: drop that tap.
     var swallowsTap: Bool { isEditing || Date().timeIntervalSince(enteredAt) < 0.8 }
 
     /// A tap on a Jump Back In card while editing (not the release of the hold that entered edit): the
     /// "not now" menu's way in (Android's edit-mode card tap).
-    var acceptsCardTap: Bool { isEditing && carried == nil && Date().timeIntervalSince(enteredAt) >= 0.8 }
-
-    // MARK: Changes (each one saved, each one an Undo step)
+    var acceptsCardTap: Bool { isEditing && drag.liftSection == nil && Date().timeIntervalSince(enteredAt) >= 0.8 }
 
     // MARK: Row presets (D1 resize)
 
     /// A handle drag's preset while the finger is down; written (one Undo step) on release.
     private(set) var rowsPreview: [HomeSection: HomeRowPreset] = [:]
-    /// Each section's resize handle, in the feed's space: a hold on it never lifts the block.
-    @ObservationIgnored private var rowsHandleFrames: [HomeSection: CGRect] = [:]
 
     /// [s]'s row preset as drawn now: the drag's, else the layout's.
-    func rowsOf(_ s: HomeSection) -> HomeRowPreset { rowsPreview[s] ?? layout.rowsOf(s) }
-
-    func reportRowsHandle(_ s: HomeSection, frame: CGRect) { rowsHandleFrames[s] = frame }
-
-    func isOverRowsHandle(_ point: CGPoint) -> Bool { rowsHandleFrames.values.contains { $0.contains(point) } }
+    func rowsOf(_ s: HomeSection) -> HomeRowPreset { rowsPreview[s] ?? shown.rowsOf(s) }
 
     /// The handle crossed a stop: the section recomposes at [rows] under the finger.
     func previewRows(_ s: HomeSection, _ rows: HomeRowPreset) {
@@ -157,32 +234,90 @@ final class HomeEditController {
         commit(next)
     }
 
+    // MARK: Changes (each one saved, each one an Undo step; a drag's drop waits for nothing else)
+
     func hide(_ s: HomeSection) { commit(layout.withEnabled(s, false)) }
     func show(_ s: HomeSection) { commit(layout.withEnabled(s, true)) }
     func move(_ s: HomeSection, to index: Int) { commit(layout.movedShown(s, to: index)) }
 
-    func reset() {
-        let next = layout.reset()
-        guard !next.sameSections(as: layout) else { return }
-        push()
-        layout = next
-        store.clear(scope)
+    /// The header's Add: the feed scrolls to the tray.
+    func showTray() {
+        trayRequest += 1
         touched()
     }
 
+    /// Back to this width's default (two columns: the large-screen one), written by the persist rule (either
+    /// default with nothing retained clears the account back to "never customized").
+    func reset() {
+        guard !drag.isCarrying else { return }
+        let next = layout.reset(twoColumn: twoColumn)
+        guard !next.sameSections(as: layout) else { return }
+        push()
+        withAnimation(Yoin.spatial) { layout = next }
+        store.save(next, scope: scope)
+        touched()
+    }
+
+    /// Reset has nothing to do: the draft is this width's default.
+    var isAtDefault: Bool { layout.isDefault(twoColumn: twoColumn) }
+
+    // MARK: Two-column edits (the span handle, the unit handle, VoiceOver)
+
+    /// [s] (full width) the left half of a pair with the row after it.
+    func setHalf(_ s: HomeSection) { commit(layout.withHalf(s)) }
+    /// [s] (one of a pair) full width; its partner takes its own row after it.
+    func setFull(_ s: HomeSection) { commit(layout.withFull(s)) }
+    /// [s] (full width) the right half beside the full section before it.
+    func placeBesidePrevious(_ s: HomeSection) { commit(layout.withBesidePrevious(s)) }
+    /// [s]'s row (and its partner) at [units] grid units.
+    func setUnits(_ s: HomeSection, _ units: Int) { commit(layout.withUnits(s, units)) }
+
+    /// A span drag or key's write: half (pulling the row after it up beside it) or full.
+    func commitSpan(_ s: HomeSection, _ write: HomeSpanCommit) {
+        switch write {
+        case .tohalf: setHalf(s)
+        case .tofull: setFull(s)
+        default: break
+        }
+    }
+
+    /// VoiceOver's "Place beside previous" applies to [s] now.
+    func canPlaceBesidePrevious(_ s: HomeSection) -> Bool { twoColumn && layout.withBesidePrevious(s) != layout }
+    /// [s] is half a pair in the draft.
+    func isHalf(_ s: HomeSection) -> Bool { twoColumn && shown.partner(of: s) != nil }
+
     func undo() {
-        guard let prev = undoStack.popLast() else { return }
+        guard !drag.isCarrying, let prev = undoStack.popLast() else { return }
         withAnimation(Yoin.spatial) { layout = prev }
         store.save(prev, scope: scope)
         touched()
     }
 
+    // One edit's step (shared `homeEditStep`): nothing changed is no step; two columns also make the memory
+    // what they show, so a pair formed or split here is remembered for the next time the feed is wide.
     private func commit(_ next: HomeLayout, animated: Bool = true) {
-        guard !next.sameSections(as: layout) else { return }
+        guard !drag.isCarrying, !next.sameSections(as: layout) else { return }
+        apply(twoColumn ? next.rememberingShownPairs() : next, animated: animated)
+    }
+
+    private func apply(_ next: HomeLayout, animated: Bool) {
         push()
         if animated { withAnimation(Yoin.spatial) { layout = next } } else { layout = next }
         store.save(next, scope: scope)
         touched()
+    }
+
+    /// A drag's drop: the order it left (every block the feed shows) and, in two columns, exactly the pairs it
+    /// left side by side (shared `withArrangement`), written once with a confirming tap.
+    private func commitDrop(_ order: [HomeSection], pairs: [(HomeSection, HomeSection)]) -> Bool {
+        let unseen = layout.enabledSections.filter { !order.contains($0) }
+        let next = twoColumn && !drag.inList
+            ? layout.withArrangement(order, pairs: pairs, unseen: unseen)
+            : layout.withEnabledOrder(order, unseen: unseen)
+        guard !next.sameSections(as: layout) else { return false }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        apply(twoColumn ? next.rememberingShownPairs() : next, animated: false)
+        return true
     }
 
     private func push() {
@@ -190,7 +325,10 @@ final class HomeEditController {
         if undoStack.count > Self.undoMax { undoStack.removeFirst(undoStack.count - Self.undoMax) }
     }
 
-    // MARK: Sway (IdleSettle)
+    // MARK: Sway (IdleSettle) and kicks
+
+    /// A finger is down on the page: the sway stays up until it lifts.
+    @ObservationIgnored private var fingerDown = false
 
     /// Any touch while editing revives the sway; 6 s without one settles it.
     func touched() {
@@ -199,99 +337,213 @@ final class HomeEditController {
         idleTask?.cancel()
         idleTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.idleSeconds))
-            guard let self, !Task.isCancelled, self.carried == nil else { return }
+            guard let self, !Task.isCancelled, !self.drag.isCarrying, !self.fingerDown else { return }
             self.run(self.swaySpring, from: self.sway, to: 0, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in self?.sway = $0 }
         }
+    }
+
+    /// [section]'s kick (one observable per block, so a kick redraws that block alone).
+    func kickState(_ section: HomeSection) -> HomeEditKick {
+        if let k = kicks[section] { return k }
+        let k = HomeEditKick(sign: Self.swaySign(section))
+        kicks[section] = k
+        return k
+    }
+
+    /// Kicks [section] by [a] (first peak = a), along a kick still ringing (Android impulse).
+    func kick(_ section: HomeSection, _ a: CGFloat) {
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        kickState(section).kick(a)
     }
 
     /// Port sheet §3: a card-sized rotation, detuned per section, ~2.4 Hz.
     static func swayAngle(_ section: HomeSection, time: TimeInterval, envelope: CGFloat) -> Double {
         guard envelope > 0.0005 else { return 0 }
-        let hash = section.id.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        let hash = sectionHash(section)
         let detune = 1 + 0.07 * (Double(hash % 200) / 100 - 1)
         let phase = Double(hash % 628) / 100
         return sin(2 * .pi * 2.4 * detune * time + phase) * 0.35 * Double(envelope)
     }
 
-    // MARK: Carry (fold into strips, reorder, unfold)
+    private static func sectionHash(_ section: HomeSection) -> Int {
+        section.id.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+    }
 
-    /// Each shown section's frame in the feed's space ("homeFeed"), as laid out.
+    /// A block's kick direction: its own, alternating by its id (Android swaySign).
+    static func swaySign(_ section: HomeSection) -> CGFloat { sectionHash(section) % 2 == 0 ? 1 : -1 }
+
+    // MARK: Geometry (feed space), hits and the drag's rows
+
+    /// Each shown section's block, as laid out (not as drawn), in the feed's space; the list's strips in the list's.
     @ObservationIgnored private var frames: [HomeSection: CGRect] = [:]
-    /// The carried strip's top in the feed's space, under the finger.
-    private(set) var floatY: CGFloat = 0
-    /// The carried strip is landing in its slot (the finger is up).
-    private(set) var landing: HomeSection?
-    @ObservationIgnored private var floatStart: CGFloat = 0
+    @ObservationIgnored private var listFrames: [HomeSection: CGRect] = [:]
+    /// Each block's drag handle (edit mode), in the feed's space; the list's in the list's.
+    @ObservationIgnored private var handles: [HomeSection: CGRect] = [:]
+    @ObservationIgnored private var listHandles: [HomeSection: CGRect] = [:]
+    /// Controls a press leaves alone (header actions, Hide, the resize handles, the tray, the footer).
+    @ObservationIgnored private var exclusions: [String: CGRect] = [:]
+    @ObservationIgnored private var listExclusions: [String: CGRect] = [:]
+    // The rows' top and gap, read at rest: a drag lays a new order out from them at once.
+    @ObservationIgnored private var restTop: [Bool: CGFloat] = [:]
+    @ObservationIgnored private var restGap: [Bool: CGFloat] = [:]
 
-    /// The section's block, as laid out (not as drawn).
-    func report(_ s: HomeSection, frame: CGRect) { frames[s] = frame }
-
-    /// The shown section whose block holds feed-space [y].
-    func section(atY y: CGFloat) -> HomeSection? {
-        order.first { frames[$0].map { $0.minY <= y && y <= $0.maxY } ?? false }
+    /// The section's block, as laid out (nil: gone).
+    func report(_ s: HomeSection, frame: CGRect?, inList: Bool = false, owner: UUID? = nil) {
+        guard owns("block.\(s.id).\(inList)", frame, owner) else { return }
+        if inList { listFrames[s] = frame } else { frames[s] = frame }
     }
 
-    func beginCarry(_ s: HomeSection) {
-        guard isEditing, carried == nil, landing == nil, let i = layout.shownSections.firstIndex(of: s) else { return }
-        liveOrder = layout.shownSections
-        carryStart = i
-        floatStart = frames[s]?.minY ?? 0
-        floatY = floatStart
-        carried = s
-        carrySpring.stop()
-        idleTask?.cancel()
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        run(foldSpring, from: fold, to: 1, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in self?.fold = $0 }
+    func reportHandle(_ s: HomeSection, frame: CGRect?, inList: Bool = false, owner: UUID? = nil) {
+        guard owns("handle.\(s.id).\(inList)", frame, owner) else { return }
+        if inList { listHandles[s] = frame } else { handles[s] = frame }
     }
 
-    /// The finger moved [ty] pt from where the carry began: the strip follows
-    /// 1:1, and the hole goes where its centre is.
-    func carry(_ ty: CGFloat) {
-        guard let s = carried else { return }
-        floatY = floatStart + ty
-        let centre = floatY + Self.stripHeight / 2
-        let others = liveOrder.filter { $0 != s }
-        let target = Self.slot(centre: centre, others: others.map { frames[$0] ?? .zero })
-        if liveOrder.firstIndex(of: s) != target {
-            var o = others
-            o.insert(s, at: target)
-            withAnimation(Yoin.spatial) { liveOrder = o }
-            UISelectionFeedbackGenerator().selectionChanged()
+    /// A control a press leaves alone, under [key]; nil frame = gone.
+    func reportExcluded(_ key: String, frame: CGRect?, inList: Bool = false, owner: UUID? = nil) {
+        guard owns("excl.\(key).\(inList)", frame, owner) else { return }
+        if inList { listExclusions[key] = frame } else { exclusions[key] = frame }
+    }
+
+    // Who reported each frame last: a view going away clears only its own (a rebuilt block appears before
+    // the old one disappears).
+    @ObservationIgnored private var frameOwners: [String: UUID] = [:]
+
+    private func owns(_ key: String, _ frame: CGRect?, _ owner: UUID?) -> Bool {
+        guard let owner else { return true }
+        if frame != nil { frameOwners[key] = owner; return true }
+        guard frameOwners[key] == owner else { return false }
+        frameOwners[key] = nil
+        return true
+    }
+
+    /// Each section's resize handle: a hold on it never lifts the block.
+    func reportRowsHandle(_ s: HomeSection, frame: CGRect) {
+        exclusions["rows.\(s.id)"] = frame.isNull ? nil : frame
+    }
+
+    /// What a press at [p] (the feed's or the list's space) lands on, for the gesture machine.
+    func editHit(at p: CGPoint, inList: Bool) -> HomeEditHit {
+        let excluded = inList ? listExclusions : exclusions
+        if excluded.contains(where: { (!isEditing || !$0.key.hasPrefix(Self.normalOnly)) && $0.value.contains(p) }) {
+            return HomeEditHitExcluded.shared
+        }
+        let blocks = (inList ? listFrames : frames).filter { (inList ? listOrder : order).contains($0.key) }
+        if isEditing, let h = (inList ? listHandles : handles).first(where: { blocks[$0.key] != nil && $0.value.insetBy(dx: -4, dy: -4).contains(p) }) {
+            let block = blocks[h.key]!
+            return HomeEditHitHandle(section: HomeDragController.shared(h.key), local: local(p, in: block), size: size(block))
+        }
+        // The plate's outset (8 / 6) counts as the block.
+        if let b = blocks.first(where: { $0.value.insetBy(dx: inList ? 0 : -8, dy: inList ? 0 : -6).contains(p) }) {
+            return HomeEditHitBlock(section: HomeDragController.shared(b.key), local: local(p, in: b.value), size: size(b.value))
+        }
+        let nearest = blocks.min { abs($0.value.midY - p.y) < abs($1.value.midY - p.y) }?.key
+        return HomeEditHitBlank(nearest: nearest.map(HomeDragController.shared))
+    }
+
+    private func local(_ p: CGPoint, in r: CGRect) -> HomePoint { HomePoint(x: Float(p.x - r.minX), y: Float(p.y - r.minY)) }
+    private func size(_ r: CGRect) -> HomeSize { HomeSize(width: Float(r.width), height: Float(r.height)) }
+
+    /// The sections the feed (or the list) lays out now, for a drag's start.
+    func dragOrder(inList: Bool) -> [HomeSection] {
+        let on = inList ? listOrder : order
+        let laid = inList ? listFrames : frames
+        return on.filter { laid[$0] != nil }
+    }
+
+    /// The rows [order] lays out in the feed's (or the list's) space: the blocks' measured heights from
+    /// the rows' top, one gap apart, so a new order is laid out the moment the drag decides it.
+    func layoutBands(for order: [HomeSection], inList: Bool) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
+        let laid = inList ? listFrames : frames
+        let at = order.compactMap { s in laid[s].map { (s, $0) } }
+        guard !at.isEmpty else { return [] }
+        if !drag.isCarrying && drag.settling == nil || restTop[inList] == nil {
+            let sorted = at.map(\.1).sorted { $0.minY < $1.minY }
+            restTop[inList] = sorted.first!.minY
+            let gaps = zip(sorted, sorted.dropFirst()).map { $1.minY - $0.maxY }.filter { $0 >= 0 }
+            restGap[inList] = gaps.min() ?? (inList ? HomeEditListTokens.rowGap : 18)
+        }
+        var y = restTop[inList] ?? 0
+        let gap = restGap[inList] ?? 18
+        return at.map { s, r in
+            defer { y += r.height + gap }
+            return (s, y, y + r.height)
         }
     }
 
-    /// Let go: the order is committed (one Undo step), the strip lands in its
-    /// hole with the finger's velocity, then the sections unfold.
-    func endCarry(commit: Bool, velocity: CGFloat) {
-        guard let s = carried else { return }
-        let to = liveOrder.firstIndex(of: s) ?? carryStart
-        let order = liveOrder
-        landing = s
-        carried = nil
-        let hole = frames[s]?.minY ?? floatY
-        carrySpring.run(from: floatY, to: hole, velocity: velocity, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in
-            self?.floatY = $0
-        } completion: { [weak self] in
-            guard let self else { return }
-            var t = Transaction()
-            t.disablesAnimations = true
-            withTransaction(t) {
-                if commit, to != self.carryStart { self.commit(self.layout.movedShown(s, to: to), animated: false) }
-                self.liveOrder = order
-                self.landing = nil
+    /// Two columns: the rows [rows] lay out in the feed's space, each exactly its grid height (its units in the
+    /// draft: a pair its left half's count held in both ranges), one feed spacing apart from the rows' top at rest.
+    func layoutRowBands(for rows: [[HomeSection]]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
+        let laid = rows.compactMap(\.first).compactMap { frames[$0] }
+        if !drag.isCarrying && drag.settling == nil || restTop[false] == nil, let top = laid.map(\.minY).min() {
+            restTop[false] = top
+        }
+        var y = restTop[false] ?? 0
+        let l = shown
+        return rows.compactMap { row in
+            guard let first = row.first else { return nil }
+            let h = HomeGrid.height(units: l.units(ofRow: row))
+            defer { y += h + HomeGrid.feedSpacing }
+            return (first, y, y + h)
+        }
+    }
+
+    /// The content's left edge and width across, in the feed's (or the list's) space.
+    func contentBand(inList: Bool) -> CGRect {
+        let laid = (inList ? listFrames : frames).filter { (inList ? listOrder : order).contains($0.key) }.values
+        guard let minX = laid.map(\.minX).min(), let maxX = laid.map(\.maxX).max() else { return .zero }
+        return CGRect(x: minX, y: 0, width: maxX - minX, height: 0)
+    }
+
+    // MARK: The gesture machine's actions
+
+    /// Applies the shared machine's actions in order (Android HomeEditGestureExecutor).
+    func perform(_ actions: [HomeEditGestureAction], inList: Bool, finger: CGPoint) {
+        for a in actions {
+            switch a {
+            case is HomeEditGestureActionEnter:
+                enter()
+            case let s as HomeEditGestureActionStartCharge:
+                if let section = HomeSection(rawValue: s.section.id) { withAnimation(Yoin.spatialFast) { charged = section } }
+            case is HomeEditGestureActionReleaseCharge:
+                if charged != nil { withAnimation(Yoin.spatial) { charged = nil } }
+            case is HomeEditGestureActionLongPressHaptic:
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case is HomeEditGestureActionDragStartHaptic:
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            case let l as HomeEditGestureActionLift:
+                guard rowsPreview.isEmpty, !resize.isActive, let section = HomeSection(rawValue: l.section.id) else { break }
+                kickState(section).still()
+                drag.liftBlock(section)
+            case let d as HomeEditGestureActionDropLift:
+                drag.dropLift(CGFloat(d.kick))
+            case let s as HomeEditGestureActionStartCarry:
+                drag.setFingerX(finger.x)
+                drag.start(fingerY: CGFloat(s.y), inList: inList)
+            case let m as HomeEditGestureActionCarryMove:
+                drag.setFingerX(finger.x)
+                drag.move(y: CGFloat(m.y))
+            case let r as HomeEditGestureActionCarryRelease:
+                drag.release(cancelled: r.cancelled)
+                touched()
+            case let t as HomeEditGestureActionBlockTap:
+                if let section = HomeSection(rawValue: t.section.id) { kick(section, HomeEditMotionTokens.kickTap) }
+            case is HomeEditGestureActionExitBlank:
+                exit(.blank)
+            case is HomeEditGestureActionTouch:
+                touched()
+            case let p as HomeEditGestureActionPointerDown:
+                fingerDown = p.down
+            case is HomeEditGestureActionPinchStart:
+                list.pinchStart()
+            case let p as HomeEditGestureActionPinchBy:
+                list.pinchBy(CGFloat(p.scale))
+            case is HomeEditGestureActionPinchEnd:
+                list.pinchEnd()
+            default:
+                break
             }
-            self.run(self.foldSpring, from: self.fold, to: 0, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in self?.fold = $0 }
-            self.touched()
         }
     }
-
-    /// The hole's index: how many of the other strips' centres lie above [centre].
-    nonisolated static func slot(centre: CGFloat, others: [CGRect]) -> Int {
-        others.filter { $0.midY < centre }.count
-    }
-
-    /// Which section's strip the feed draws in flow as the hole.
-    var hole: HomeSection? { carried ?? landing }
 
     // MARK: Springs
 
@@ -310,76 +562,97 @@ final class HomeEditController {
     }
 }
 
+extension HomeEditController: HomeEditTouchTarget {}
+
+/// One block's kick (Android HomeEditMotion.impulse): a light, ringing spring from where it is, its start
+/// velocity the amplitude × KickGain, along a kick still ringing.
+@MainActor
+@Observable
+final class HomeEditKick {
+    /// Normalised (first peak = the amplitude).
+    private(set) var value: CGFloat = 0
+    @ObservationIgnored private let sign: CGFloat
+    @ObservationIgnored private let spring = SpringRunner()
+
+    init(sign: CGFloat) { self.sign = sign }
+
+    func kick(_ a: CGFloat) {
+        let base = a * HomeEditMotionTokens.kickGain
+        let v = spring.isRunning && abs(spring.currentVelocity) > 1e-3
+            ? spring.currentVelocity + (spring.currentVelocity > 0 ? base : -base)
+            : base * sign
+        spring.run(from: value, to: 0, velocity: v, spring: .yoin(Tokens.motion.homeEditKick)) { [weak self] in self?.value = $0 }
+    }
+
+    /// A lift stills the block.
+    func still() {
+        spring.stop()
+        value = 0
+    }
+}
+
 // MARK: - Edit-mode pieces
 
-/// One section on the feed, editable: the plate that comes up under it, its
-/// title-row badges (Hide, the drag handle), and its fold into a strip while
-/// one is carried. The carried one is drawn floating (HomeEditStrip, by
-/// HomeView) and leaves a hole here.
+/// One section on the feed, editable: the plate that comes up under it, its title-row badges (Hide, the
+/// drag handle), its lift and its place in a drag. Dragged, it follows the finger in its own layer
+/// (HomeDragFollow) over every other block, its slot marked where it will land (HomeDropSlot); dropped, it
+/// glides home and is kicked. In edit mode it is one VoiceOver element: "Section j of N", with Move up /
+/// Move down, Hide and (Activities, Jump Back In) More rows / Fewer rows.
 struct HomeEditBlock<Content: View>: View {
     @Environment(\.homeScheme) private var scheme
     var edit: HomeEditController
     var section: HomeSection
     var index: Int
-    /// Up to three covers for the strip.
+    /// Up to three covers (the pinched list's strip).
     var covers: [CoverPalette]
     /// The section's resize handle (Activities, Jump Back In); nil = none.
     var rows: HomeRowsHandle? = nil
     /// Lyric Cards' count handle (its dots) instead of a resize.
     var lyricCount: Bool = false
+    /// How many blocks the feed shows (VoiceOver's "of N").
+    var count: Int = 0
+    /// Two columns: where it sits (its ⌟ drags its span and its row's units instead of the phone's rows).
+    var place: HomeGridPlace? = nil
     @ViewBuilder var content: () -> Content
-    @State private var naturalHeight: CGFloat = 0
 
     var body: some View {
         let s = scheme!
         let p = edit.progress
         let r = HomeEditController.ripple(p, index: index)
-        let f = edit.fold
-        let isHole = edit.hole == section
-        let height = naturalHeight > 0 ? naturalHeight + (HomeEditController.stripHeight - naturalHeight) * f : nil
-        ZStack(alignment: .top) {
-            content()
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { naturalHeight = $0 }
-                .opacity(1 - smoothstep(0, 0.45, f))
-                .allowsHitTesting(!edit.isEditing || (section == .jumpBackIn && f == 0))
-                .fixedSize(horizontal: false, vertical: true)
-            if f > 0.001 {
-                if isHole {
-                    // The hole the carried strip will land in.
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(s.secondaryContainer.opacity(0.35 * Double(smoothstep(0.3, 1, f))))
-                        .frame(height: HomeEditController.stripHeight)
-                } else {
-                    HomeEditStrip(section: section, covers: covers, fold: f)
+        let onTop = edit.drag.drawsOnTop(section)
+        content()
+            .allowsHitTesting(!edit.isEditing || (section == .jumpBackIn && edit.drag.liftSection == nil))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityHidden(edit.isEditing)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .modifier(HomeBlockChrome(edit: edit, section: section, ripple: r, scheme: s))
+            .overlay(alignment: .topTrailing) {
+                if p > 0.02 { badges(s, r) }
+            }
+            .overlay(alignment: place?.span == .right ? .topTrailing : .topLeading) {
+                if let place, edit.resize.spanSection == section {
+                    HomeSpanOutline(resize: edit.resize, place: place, scheme: s)
                 }
             }
-        }
-        .frame(height: height, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .top)
-        .background {
-            // Plate: the section's container comes up under it (outset 8 / 6).
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(s.surfaceContainer.opacity(Double(r) * Double(1 - smoothstep(0, 0.45, f))))
-                .padding(.horizontal, -8)
-                .padding(.vertical, -6)
-                .scaleEffect(0.96 + 0.04 * r)
-        }
-        .overlay(alignment: .topTrailing) {
-            if p > 0.02 && f < 0.5 { badges(s, r).opacity(Double(1 - smoothstep(0, 0.3, f))) }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if let rows, rows.stops.count > 1, p > 0.02, f < 0.5 {
-                HomeRowsHandleView(edit: edit, section: section, handle: rows, scheme: s, ripple: r)
-                    .opacity(Double(1 - smoothstep(0, 0.3, f)))
-            } else if lyricCount, p > 0.02, f < 0.5 {
-                HomeLyricCountHandleView(edit: edit, scheme: s, ripple: r)
-                    .opacity(Double(1 - smoothstep(0, 0.3, f)))
+            .overlay(alignment: .bottomTrailing) {
+                if let place, p > 0.02 {
+                    HomeGridHandleView(edit: edit, place: place, scheme: s, ripple: r)
+                } else if let rows, rows.stops.count > 1, p > 0.02 {
+                    HomeRowsHandleView(edit: edit, section: section, handle: rows, scheme: s, ripple: r)
+                } else if lyricCount, p > 0.02 {
+                    HomeLyricCountHandleView(edit: edit, scheme: s, ripple: r)
+                }
             }
-        }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
-            edit.report(section, frame: $0)
-        }
-        .modifier(SwayModifier(section: section, envelope: edit.sway * (1 - f)))
+            .modifier(SwayModifier(edit: edit, section: section, kick: edit.kickState(section)))
+            // Where it lands stays at its laid-out place; the block follows the finger.
+            .modifier(HomeDragFollow(drag: edit.drag, section: section, inList: false) {
+                HomeDropSlot(drag: edit.drag, section: section, inList: false, scheme: s).padding(.horizontal, -8).padding(.vertical, -6)
+            })
+            .overlay { if edit.isEditing { accessibilityStop } }
+            .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.report(section, frame: $0, owner: $1) })
+            // Over every row from its lift until it has landed; its own move is the finger's, never a spring.
+            .zIndex(onTop ? 1 : 0)
+            .transaction { if onTop { $0.animation = nil } }
     }
 
     private func badges(_ s: CoverScheme, _ r: CGFloat) -> some View {
@@ -394,22 +667,167 @@ struct HomeEditBlock<Content: View>: View {
                     .contentShape(.rect)
             }
             .buttonStyle(PressScale())
-            .disabled(!edit.isEditing)
-            .accessibilityLabel("Hide \(section.title)")
+            .disabled(!edit.isEditing || edit.drag.isCarrying)
+            .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.reportExcluded("hide.\(section.id)", frame: $0, owner: $1) })
             YoinIcon("drag_handle", size: 24)
                 .foregroundStyle(s.onSurfaceVariant)
                 .frame(width: 48, height: 48)
                 .contentShape(.rect)
-                .accessibilityLabel("Reorder \(section.title)")
-                .accessibilityActions {
-                    Button("Move up") { edit.move(section, to: index - 1) }
-                    Button("Move down") { edit.move(section, to: index + 1) }
-                }
+                // A pointer over it in edit mode: the move cursor (both ways in two columns, where a drag pairs too).
+                .overlay { if edit.isEditing { HomeHandlePointer(axes: edit.twoColumn ? .both : .vertical) } }
+                .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.reportHandle(section, frame: $0, owner: $1) })
         }
+        .accessibilityHidden(true)
         .scaleEffect(0.6 + 0.4 * shown)
         .opacity(Double(shown))
         // The 48 targets centre on the 28 title row and overhang the plate's edge.
         .offset(x: 12, y: -10)
+    }
+
+    /// The block as one VoiceOver element in edit mode (Android HomeEditBlock semantics).
+    private var accessibilityStop: some View {
+        let rowsLabel = rows.flatMap { h in h.stops.indices.contains(h.index) ? HomeRowsHandle.label(h.stops[h.index].rowCount) : nil }
+        let n = max(count, index + 1)
+        return Color.clear
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel(section.title)
+            .accessibilityValue(HomeEditAccessibility.position(index + 1, of: n, rows: place.map { HomeRowsHandle.label($0.units) } ?? rowsLabel,
+                                                               span: place.map(\.span)))
+            .accessibilityIdentifier("home.section.\(section.id)")
+            .accessibilityActions {
+                if index > 0 { Button(String(localized: "Move up")) { edit.move(section, to: index - 1) } }
+                if index < n - 1 { Button(String(localized: "Move down")) { edit.move(section, to: index + 1) } }
+                // Two columns: pairing without a drag (beside the block before, or back to a full row).
+                if edit.canPlaceBesidePrevious(section) {
+                    Button(HomeGridAccessibility.placeBesidePrevious) { edit.placeBesidePrevious(section) }
+                }
+                if edit.isHalf(section) {
+                    Button(HomeGridAccessibility.makeFullWidth) { edit.setFull(section) }
+                }
+                Button(String(localized: "Hide")) { edit.hide(section) }
+                if let place {
+                    if place.range.contains(place.units + 1) {
+                        Button(String(localized: "More rows")) { edit.setUnits(section, place.units + 1) }
+                    }
+                    if place.range.contains(place.units - 1) {
+                        Button(String(localized: "Fewer rows")) { edit.setUnits(section, place.units - 1) }
+                    }
+                } else if let rows, rows.stops.count > 1 {
+                    if rows.index < rows.stops.count - 1 {
+                        Button(String(localized: "More rows")) { edit.setRows(section, rows.stops[rows.index + 1].preset) }
+                    }
+                    if rows.index > 0 {
+                        Button(String(localized: "Fewer rows")) { edit.setRows(section, rows.stops[rows.index - 1].preset) }
+                    }
+                }
+            }
+    }
+}
+
+/// Reports a view's frame in [space] for the edit gestures' hit test and the drag's rows: as it changes, again
+/// when the view comes back on screen (its geometry unchanged, `onGeometryChange` stays quiet), and nil while
+/// it is off.
+struct EditFrameReport: ViewModifier {
+    var space: String
+    /// The frame (nil: gone) and this view's own token.
+    var report: (CGRect?, UUID) -> Void
+    @State private var last: CGRect?
+    @State private var token = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: {
+                last = $0
+                report($0, token)
+            }
+            .onAppear { if let last { report(last, token) } }
+            .onDisappear { report(nil, token) }
+    }
+}
+
+/// VoiceOver's words for a block in edit mode.
+enum HomeEditAccessibility {
+    /// "Section 2 of 9" (Android home_cd_section_index), with ", 4 rows" for a section that has rows.
+    static func position(_ j: Int, of n: Int, rows: String?, span: HomeGridPlace.Span? = nil) -> String {
+        let base: String
+        if let rows { base = String(localized: "Section \(j) of \(n), \(rows)") } else { base = String(localized: "Section \(j) of \(n)") }
+        // Two columns: which side of its row a half is on ("Left half" / "Right half").
+        switch span {
+        case .left: return base + ", " + String(localized: "Left half")
+        case .right: return base + ", " + String(localized: "Right half")
+        default: return base
+        }
+    }
+}
+
+/// A block's plate, charge and lift (Android HomeEditBlock + HomeDragEngine.lift): the plate comes up
+/// under it through the ripple; a normal-mode press half way to the long press shrinks it a little; lifted
+/// it grows 2 %, casts a 6 pt shadow and its plate tints toward surfaceContainerHighest. The lift is read
+/// only by the lifted block, so its frames redraw that one alone.
+struct HomeBlockChrome: ViewModifier {
+    var edit: HomeEditController
+    var section: HomeSection
+    var ripple: CGFloat
+    var scheme: CoverScheme
+
+    func body(content: Content) -> some View {
+        let lifted = edit.drag.liftSection == section
+        let lift = lifted ? min(max(edit.drag.lift, 0), 1.2) : 0
+        let tint = lifted ? min(max(edit.drag.liftTint, 0), 1) : 0
+        let charge: CGFloat = edit.charged == section ? 0.985 : 1
+        content
+            .background {
+                // Plate: the section's container comes up under it (outset 8 / 6).
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(scheme.surfaceContainer.mix(with: scheme.surfaceContainerHighest, by: Double(tint), in: .perceptual)
+                        .opacity(max(Double(ripple), Double(tint))))
+                    .padding(.horizontal, -8)
+                    .padding(.vertical, -6)
+                    .scaleEffect(0.96 + 0.04 * max(ripple, tint))
+                    .shadow(color: .black.opacity(0.2 * Double(lift)), radius: HomeEditMotionTokens.liftShadow * lift, y: 3 * lift)
+            }
+            .scaleEffect(charge * (1 + HomeEditMotionTokens.liftScale * lift))
+    }
+}
+
+/// The dragged (or gliding) block's offset from its slot: read here alone, so a frame of the drag moves
+/// this one layer and lays nothing out.
+struct HomeDragFollow<Slot: View>: ViewModifier {
+    var drag: HomeDragController
+    var section: HomeSection
+    var inList: Bool
+    /// Drawn behind the block at its laid-out place (the drop slot): it doesn't follow.
+    @ViewBuilder var slot: () -> Slot
+
+    func body(content: Content) -> some View {
+        let follows = (drag.dragging == section || drag.settling == section) && drag.inList == inList
+        let o = follows ? drag.offset : .zero
+        content
+            .background { slot().offset(x: -o.width, y: -o.height) }
+            .offset(o)
+    }
+}
+
+/// Where the dragged block will land (Android dragSlotMark): the lifted plate colour at 55 % with a 2 pt
+/// outline, at the slot the live order gives it, until it has glided home.
+struct HomeDropSlot: View {
+    var drag: HomeDragController
+    var section: HomeSection
+    var inList: Bool
+    var scheme: CoverScheme
+
+    var body: some View {
+        let shown = drag.slotShown(section, inList: inList)
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(scheme.surfaceContainerHighest.opacity(HomeEditMotionTokens.slotFillAlpha))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(scheme.outlineVariant, lineWidth: HomeEditMotionTokens.slotStroke)
+            }
+            .opacity(shown ? 1 : 0)
+            .animation(Yoin.effects, value: shown)
+            .allowsHitTesting(false)
     }
 }
 
@@ -456,6 +874,7 @@ struct HomeRowsHandleView: View {
             .frame(width: 44, height: 44, alignment: .bottomTrailing)
             .padding(8)
             .contentShape(.rect)
+            .overlay { if edit.isEditing { HomeHandlePointer(axes: .vertical) } }
             .scaleEffect(0.6 + 0.4 * shown)
             .opacity(Double(shown))
             // The plate's corner (outset 8 / 6), the glyph's corner inside it.
@@ -626,59 +1045,28 @@ private struct HomeLyricCountPicker: View {
     }
 }
 
-/// The strip a section folds into (HomeEditTokens §4): three overlapping
-/// covers, its title, the handle; washed toward its first cover.
-struct HomeEditStrip: View {
-    @Environment(\.homeScheme) private var scheme
-    var section: HomeSection
-    var covers: [CoverPalette]
-    var fold: CGFloat
-    var lifted = false
-
-    var body: some View {
-        let s = scheme!
-        HStack(spacing: 12) {
-            HStack(spacing: -10) {
-                ForEach(Array(covers.prefix(3).enumerated()), id: \.offset) { _, pal in
-                    CoverArt(palette: pal, cornerRadius: Tokens.shape.THUMB.cg)
-                        .frame(width: 32, height: 32)
-                }
-            }
-            Text(section.title)
-                .homeType(Tokens.type.titleMedium, .semibold)
-                .foregroundStyle(s.onSurface)
-                .lineLimit(1)
-                .opacity(Double(smoothstep(0.55, 1, fold)))
-            Spacer(minLength: 0)
-            YoinIcon("drag_handle", size: 24).foregroundStyle(s.onSurfaceVariant)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: HomeEditController.stripHeight)
-        .background {
-            let tint = covers.first.map { BackdropColors($0).base } ?? s.surfaceContainerHigh
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(s.surfaceContainerHigh.mix(with: tint, by: 0.3 * Double(fold), in: .perceptual))
-                .shadow(color: .black.opacity(lifted ? 0.18 * Double(smoothstep(0.6, 1, fold)) : 0), radius: 6, y: 3)
-        }
-        .opacity(Double(smoothstep(0, 0.45, fold)))
-        .scaleEffect(lifted ? 1.02 : 1)
-    }
-}
-
-/// The edit-mode sway: a TimelineView of its own, so only this modifier
-/// redraws each frame while the envelope is up.
+/// The edit-mode sway and the block's kicks: a TimelineView of its own, so only this modifier redraws each
+/// frame while the envelope is up; a kick (HomeEditKick) rings on top, in this block alone. Still while
+/// the block is lifted, dragged or gliding home (it follows the finger, not the clock).
 private struct SwayModifier: ViewModifier {
+    var edit: HomeEditController
     var section: HomeSection
-    var envelope: CGFloat
+    var kick: HomeEditKick
+
+    /// A kick's first peak, in degrees per unit of amplitude.
+    private static let kickDegrees = 0.6
 
     func body(content: Content) -> some View {
+        let still = edit.drag.drawsOnTop(section) || UIAccessibility.isReduceMotionEnabled
+        let envelope = still ? 0 : edit.sway
+        let k = still ? 0 : Double(kick.value) * Self.kickDegrees
         if envelope > 0.0005 {
             TimelineView(.animation) { t in
                 content.rotationEffect(.degrees(HomeEditController.swayAngle(section, time: t.date.timeIntervalSinceReferenceDate,
-                                                                           envelope: envelope)))
+                                                                           envelope: envelope) + k))
             }
         } else {
-            content
+            content.rotationEffect(.degrees(abs(k) < 0.0005 ? 0 : k))
         }
     }
 }
@@ -688,6 +1076,8 @@ private struct SwayModifier: ViewModifier {
 struct HomeEditTray: View {
     @Environment(\.homeScheme) private var scheme
     var edit: HomeEditController
+    /// Under the pinched list, not the feed.
+    var inList = false
 
     var body: some View {
         let s = scheme!
@@ -733,15 +1123,20 @@ struct HomeEditTray: View {
                     YoinIcon("refresh", size: 18)
                     Text("Reset Home").homeType(Tokens.type.labelLarge, .semibold)
                 }
-                .foregroundStyle(edit.layout.isDefault ? s.onSurface.opacity(0.38) : s.primary)
+                .foregroundStyle(edit.isAtDefault ? s.onSurface.opacity(0.38) : s.primary)
                 .padding(.horizontal, 16)
                 .frame(height: 48)
             }
             .buttonStyle(PressScale())
-            .disabled(edit.layout.isDefault)
+            .disabled(edit.isAtDefault || edit.drag.isCarrying)
             .frame(maxWidth: .infinity)
         }
+        .id(HomeEditTray.id)
+        .modifier(EditFrameReport(space: inList ? HomeEditController.listSpace : HomeEditController.feedSpace) { edit.reportExcluded("tray", frame: $0, inList: inList, owner: $1) })
     }
+
+    /// The feed scrolls here for the header's Add.
+    static let id = "home.edit.tray"
 }
 
 // MARK: - Header and feed pieces through P
@@ -775,9 +1170,11 @@ struct EditTitleSwap: View {
     }
 }
 
-/// The header's end through P: the account button gives way (gone by P .5)
-/// to Undo and Done. (Android puts [Undo|Add][Done] in the bar; iOS keeps the
-/// bar as it is and puts them where the account button was.)
+/// The header's end through P: the account button gives way (gone by P .5) to the edit actions:
+/// the list switch, Undo or Add, and Done. (Android puts [Undo|Add][Done] in the bar and the switch where
+/// the settings gear was; iOS keeps the bar as it is and puts them where the account button was.) Undo
+/// shows while there is a step to undo, else Add while the tray holds a section (it scrolls the feed to the
+/// tray), else a dimmed Undo.
 struct HeaderActions<Account: View>: View {
     var edit: HomeEditController
     var scheme: CoverScheme
@@ -790,34 +1187,83 @@ struct HeaderActions<Account: View>: View {
                 .opacity(Double(1 - smoothstep(0, 0.5, p)))
                 .allowsHitTesting(p < 0.5)
             if p > 0.01 {
-                HStack(spacing: 8) {
-                    Button { edit.undo() } label: {
-                        YoinIcon("undo", size: 20)
-                            .foregroundStyle(scheme.onSurface)
-                            .frame(width: 40, height: 40)
-                            .background(scheme.surfaceContainerHigh, in: .circle)
-                            .frame(width: 48, height: 48)
-                    }
-                    .buttonStyle(PressScale())
-                    .disabled(edit.undoStack.isEmpty)
-                    .opacity(edit.undoStack.isEmpty ? 0.38 : 1)
-                    .accessibilityLabel("Undo")
-                    Button { edit.exit() } label: {
-                        Text("Done")
-                            .homeType(Tokens.type.labelLarge, .semibold)
-                            .foregroundStyle(scheme.onPrimary)
-                            .padding(.horizontal, 20)
-                            .frame(height: 40)
-                            .background(scheme.primary, in: .capsule)
-                    }
-                    .buttonStyle(PressScale())
-                    .demoTarget("editDone")
-                }
-                .opacity(Double(smoothstep(0.5, 1, p)))
-                .scaleEffect(0.9 + 0.1 * smoothstep(0.5, 1, p), anchor: .trailing)
-                .allowsHitTesting(edit.isEditing)
+                HomeEditActions(edit: edit, scheme: scheme)
+                    .opacity(Double(smoothstep(0.5, 1, p)))
+                    .scaleEffect(0.9 + 0.1 * smoothstep(0.5, 1, p), anchor: .trailing)
+                    .allowsHitTesting(edit.isEditing)
+                    // Under the compact list, which carries its own.
+                    .accessibilityHidden(edit.list.on)
             }
         }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
+            edit.reportExcluded("header.actions", frame: $0)
+        }
+    }
+}
+
+/// Edit mode's actions: the list switch, Undo or Add, and Done (the feed's header and the compact list's).
+struct HomeEditActions: View {
+    var edit: HomeEditController
+    var scheme: CoverScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            HomeEditViewToggle(edit: edit, scheme: scheme)
+            undoOrAdd
+            Button { edit.exit(.done) } label: {
+                Text("Done")
+                    .homeType(Tokens.type.labelLarge, .semibold)
+                    .foregroundStyle(scheme.onPrimary)
+                    .padding(.horizontal, 20)
+                    .frame(height: 40)
+                    .background(scheme.primary, in: .capsule)
+            }
+            .buttonStyle(PressScale())
+            .demoTarget("editDone")
+            .accessibilityIdentifier("home.edit.done")
+        }
+    }
+
+    @ViewBuilder private var undoOrAdd: some View {
+        let canUndo = !edit.undoStack.isEmpty
+        let canAdd = !canUndo && !edit.layout.trayed.isEmpty
+        Button { canAdd ? edit.showTray() : edit.undo() } label: {
+            YoinIcon(canAdd ? "add" : "undo", size: 20)
+                .foregroundStyle(scheme.onSurface)
+                .frame(width: 40, height: 40)
+                .background(scheme.surfaceContainerHigh, in: .circle)
+                .frame(width: 44, height: 48)
+                .contentTransition(.opacity)
+        }
+        .buttonStyle(PressScale())
+        .disabled((!canUndo && !canAdd) || edit.drag.isCarrying)
+        .opacity(canUndo || canAdd ? 1 : 0.38)
+        .accessibilityLabel(canAdd ? String(localized: "Add") : String(localized: "Undo"))
+        .accessibilityIdentifier(canAdd ? "home.edit.add" : "home.edit.undo")
+        .animation(Yoin.effects, value: canAdd)
+    }
+}
+
+/// The header's one-hand switch between the full layout and the compact list (Android HomeEditViewToggle;
+/// the pinch stays the main way): it shows where a tap goes, the list over the full layout and the cards
+/// over the list. Ignored while a block is lifted or dragged.
+struct HomeEditViewToggle: View {
+    var edit: HomeEditController
+    var scheme: CoverScheme
+
+    var body: some View {
+        let on = edit.list.on
+        Button { edit.list.toggle() } label: {
+            YoinIcon(on ? "view_cards" : "view_list", size: 22)
+                .foregroundStyle(scheme.onSurface)
+                .frame(width: 44, height: 48)
+                .contentShape(.rect)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(PressScale())
+        .disabled(!edit.isEditing || edit.drag.isCarrying || edit.drag.liftSection != nil)
+        .accessibilityLabel(on ? String(localized: "Full layout") : String(localized: "Compact list"))
+        .accessibilityIdentifier("home.edit.toggle")
     }
 }
 
@@ -829,22 +1275,6 @@ struct EditFade: ViewModifier {
 
     func body(content: Content) -> some View {
         content.opacity(Double(smoothstep(from, to, edit.progress)))
-    }
-}
-
-/// The carried strip, floating under the finger over the feed (its hole
-/// waits in the flow), then landing in it.
-struct CarriedStrip: View {
-    var edit: HomeEditController
-    var covers: [CoverPalette]
-
-    var body: some View {
-        if let s = edit.hole {
-            HomeEditStrip(section: s, covers: covers, fold: max(edit.fold, 0.0001), lifted: edit.carried != nil)
-                .offset(y: edit.floatY)
-                .allowsHitTesting(false)
-                .zIndex(3)
-        }
     }
 }
 
@@ -861,8 +1291,8 @@ extension EnvironmentValues {
 }
 
 #if DEBUG
-/// Recording aid: `-homeEditScripted YES` enters edit mode, carries the first
-/// section two slots down (a finger on its handle), hides the next one, shows
+/// Recording aid: `-homeEditScripted YES` enters edit mode, moves the first
+/// section two slots down, hides the next one, shows
 /// it again from the tray, undoes, and leaves with Done.
 @MainActor
 enum HomeEditScript {
@@ -872,6 +1302,11 @@ enum HomeEditScript {
 
     static func run() async {
         let d = UserDefaults.standard
+        if let shot = d.string(forKey: "homeEditShot"), !started {
+            started = true
+            await editShot(shot)
+            return
+        }
         // `-homeLyricCountShot 3` (with `-lyricHighlightSeed YES`): edit mode with Lyric Cards' dots held
         // open at that count, the section moved first; `-homeLyricCountSet 2` drops the count there as a finger would.
         let shot = d.integer(forKey: "homeLyricCountShot"), set = d.integer(forKey: "homeLyricCountSet")
@@ -895,12 +1330,8 @@ enum HomeEditScript {
         edit.enter()
         try? await Task.sleep(for: .seconds(2))
         guard let first = edit.layout.shownSections.first else { return }
-        edit.beginCarry(first)
-        try? await Task.sleep(for: .milliseconds(450))
-        let distance = HomeEditController.stripPitch * 2
-        await MemoriesScript.finger(0.9) { edit.carry($0 * distance) }
-        try? await Task.sleep(for: .milliseconds(200))
-        edit.endCarry(commit: true, velocity: 0)
+        // Two slots down, as a drop would write it.
+        edit.move(first, to: 2)
         try? await Task.sleep(for: .seconds(2))
         if let second = edit.layout.shownSections.first { edit.hide(second) }
         try? await Task.sleep(for: .seconds(1.5))
@@ -910,76 +1341,41 @@ enum HomeEditScript {
         try? await Task.sleep(for: .seconds(1.5))
         edit.exit()
     }
+
+    /// `-homeEditShot drag|edge|drop|list|listdrag`: screenshots and recordings of edit v2 with a scripted finger
+    /// on the real drag (HomeDragController): Activities lifted and carried down past Jump Back In and held there
+    /// (`drag`), carried into the bottom band and held while the feed scrolls (`edge`), carried and dropped
+    /// (`drop`), the compact list (`list`), a strip carried in it (`listdrag`).
+    private static func editShot(_ shot: String) async {
+        try? await Task.sleep(for: .seconds(4))
+        guard let edit else { return }
+        edit.enter()
+        try? await Task.sleep(for: .seconds(1.5))
+        let inList = shot.hasPrefix("list")
+        if inList {
+            edit.list.set(true)
+            try? await Task.sleep(for: .seconds(1.2))
+            if shot == "list" { return }
+        }
+        guard let host = inList ? edit.drag.listHost : edit.drag.feedHost,
+              let band = host.bands(for: host.order).first(where: { $0.section == .activities }) else { return }
+        let y0 = band.top + min(60, (band.bottom - band.top) / 2)
+        edit.drag.setFingerX(120)
+        edit.drag.liftBlock(.activities)
+        try? await Task.sleep(for: .milliseconds(250))
+        edit.drag.start(fingerY: y0, inList: inList)
+        let area = host.scrollArea
+        let target: CGFloat = switch shot {
+        case "edge": area.bottom - 24
+        case "listdrag": y0 + (HomeEditListTokens.rowHeight + HomeEditListTokens.rowGap) * 2.6
+        default: min(y0 + 480, area.bottom - 140)
+        }
+        await MemoriesScript.finger(1.1) { t in edit.drag.move(y: y0 + (target - y0) * t) }
+        if shot == "drop" {
+            try? await Task.sleep(for: .milliseconds(400))
+            edit.drag.release(cancelled: false)
+        }
+    }
 }
 #endif
 
-/// Home's hold over the whole feed (Android's page-wide edit detector): a
-/// finger held on a section's body enters edit mode and lifts it, then the
-/// same touch carries it until it lifts. It is a UIKit long-press on the
-/// feed's scroll view (found from this view, set behind the feed's stack):
-/// it keeps tracking after it begins whatever the views under the finger do
-/// (a SwiftUI gesture on the section was cancelled the moment the section
-/// folded into its strip), and it runs beside the scroll view's own pan.
-struct HomeHoldObserver: UIViewRepresentable {
-    var edit: HomeEditController
-
-    func makeUIView(context: Context) -> HoldView { HoldView() }
-
-    func updateUIView(_ v: HoldView, context: Context) {
-        v.edit = edit
-        v.hold.minimumPressDuration = HomeEditController.holdDuration(editing: edit.isEditing)
-    }
-
-    final class HoldView: UIView, UIGestureRecognizerDelegate {
-        var edit: HomeEditController?
-        let hold = UILongPressGestureRecognizer()
-        private var startY: CGFloat = 0
-        private var lastY: CGFloat = 0
-        private var lastTime: TimeInterval = 0
-        private var velocity: CGFloat = 0
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            isUserInteractionEnabled = false
-            hold.minimumPressDuration = HomeEditController.holdDuration(editing: false)
-            hold.delegate = self
-            hold.addTarget(self, action: #selector(held(_:)))
-        }
-
-        required init?(coder: NSCoder) { fatalError() }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            guard window != nil, hold.view == nil else { return }
-            var v: UIView? = superview
-            while let cur = v, !(cur is UIScrollView) { v = cur.superview }
-            v?.addGestureRecognizer(hold)
-        }
-
-        func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
-
-        @objc private func held(_ g: UILongPressGestureRecognizer) {
-            guard let edit else { return }
-            // This view lies behind the feed's stack: its space is the feed's.
-            let y = g.location(in: self).y
-            switch g.state {
-            case .began:
-                // A hold on a resize handle is the handle's: the section stays put.
-                guard !edit.isOverRowsHandle(g.location(in: self)), let section = edit.section(atY: y) else { return }
-                if !edit.isEditing { edit.enter() }
-                edit.beginCarry(section)
-                startY = y; lastY = y; lastTime = CACurrentMediaTime(); velocity = 0
-            case .changed:
-                guard edit.carried != nil else { return }
-                let now = CACurrentMediaTime()
-                if now > lastTime { velocity = (y - lastY) / CGFloat(now - lastTime) }
-                lastY = y; lastTime = now
-                edit.carry(y - startY)
-            case .ended, .cancelled, .failed:
-                if edit.carried != nil { edit.endCarry(commit: g.state == .ended, velocity: velocity) }
-            default: break
-            }
-        }
-    }
-}

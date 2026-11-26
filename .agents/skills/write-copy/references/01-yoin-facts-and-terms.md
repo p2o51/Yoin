@@ -12,16 +12,16 @@
 ## 2. 产品概况（0.6.3 基线）
 
 - **定位与四端平台**：Spotoolfy 的原生重写续作，本地优先、多音源设计。
-  - **Android（`app/`）**：采用 Jetpack Compose 与 Material 3 Expressive 构建，已在 Google Play 封闭测试发布 **0.6.3（`versionCode 31`）**，需 Android 8.0（API 26）及以上，适配手机、折叠屏（如 Pixel Fold、Galaxy Z Fold）、平板与 Googlebook。
-  - **iOS / iPadOS 与 macOS（`iosApp/` + `:shared`）**：基于 Kotlin Multiplatform `:shared` 核心与 SwiftUI（Liquid Glass、iPad 双角浮动胶囊与详情列/侧栏、单窗口模式；**0.6.3 Build 36**，并通过 iPad-on-Mac 多平台形态运行于 Mac），已在 `main` 分支合入与 `:shared`/Spotify 的对齐修复（原生 `YoinMac` 线已冻结），iPad 适配问题仍在持续完善。
+  - **Android（`app/`）**：采用 Jetpack Compose 与 Material 3 Expressive 构建，已在 Google Play 封闭测试发布 **0.6.3（`versionCode 34`）**，需 Android 8.0（API 26）及以上，适配手机、折叠屏（如 Pixel Fold、Galaxy Z Fold）、平板与 Googlebook。
+  - **iOS / iPadOS 与 macOS（`iosApp/` + `:shared`）**：基于 Kotlin Multiplatform `:shared` 核心与 SwiftUI（Liquid Glass、iPad 双角浮动胶囊与详情列/侧栏、单窗口模式；**0.6.3 Build 37**，并通过 iPad-on-Mac 多平台形态运行于 Mac），已在 `main` 分支合入与 `:shared`/Spotify 的对齐修复（原生 `YoinMac` 线已冻结），iPad 适配问题仍在持续完善。
   - **鸿蒙（`harmony/`）**：Flutter UI + ArkTS 原生模块，已合入 `main` 分支，适配华为手机、折叠屏（含 Pura X 外屏）与鸿蒙电脑（HarmonyOS 7 / API 26），处于开发与真机测试阶段（注：鸿蒙端暂不支持 Spotify App Remote SDK，且 ArkWeb 不支持 EME DRM，见 `docs/integrations/spotify-harmonyos.md`）。
 - **多账号与多音源**：
   - 支持同时接入多个**自建服务器**（Navidrome、Gonic 等 Subsonic / OpenSubsonic 服务，支持原始音质与转码档位、音量平衡 ReplayGain 与离线下载）、**Spotify**（读取个人资料库，通过 Spotify 应用或 Spotify Connect 远程播放与控场，支持休眠唤醒、首页「为你推荐」与 Android 首页顶部曲目胶囊）与 **Apple Music**（通过 Apple MusicKit 原生播放、默认或自定义开发者令牌服务、首页「为你推荐」与曲目入库）。
   - 界面功能按服务实际能力（`Capability`）动态呈现；长按底栏头像并滑动可快速切换账号，首页提供「在你的其他资料里」组件。
 - **核心功能**：
-  - **评分、笔记、搜索与 Memories**：0.1 精度滑动评分（含填充边缘分色与删号时清理待发服务器队列）、锚定到秒的时间戳笔记（Android 支持 `@` 提及歌曲/专辑/艺术家与轻量 Markdown 格式、专辑剪贴簿多张专辑笔记与底部「被提及」汇总）、专辑 Memories 与「全部 Memories」总账；**资料库搜索支持跨全部已登录账号搜索 Memories 与笔记**（「全部」页按卡片铺排并可点按跳至剪贴簿或从笔记对应秒数起播）；NeoDB 同步（评分与评论可独立同步，区分短评与长评）与「别人怎么说」（含 Discogs / MusicBrainz 公开评分展示）。
+  - **评分、笔记、搜索与 Memories**：0.1 精度滑动评分（含填充边缘分色与删号时清理待发服务器队列）、锚定到秒的时间戳笔记（Android 支持 `@` 提及歌曲/专辑/艺术家与轻量 Markdown 格式、专辑剪贴簿封面旁制作署名行 + 专辑「关于」卡片（或 Apple Music 官方编辑推荐）+ 多张专辑笔记与底部「被提及」汇总，个人书写统一 `primary` 色、AI 信息统一 `tertiary` 色；支持歌词/关于/笔记 3 页签 10 版式卡片与 Story 分享）、专辑 Memories 与「全部 Memories」总账；**资料库搜索支持跨全部已登录账号搜索 Memories 与笔记**（「全部」页按卡片铺排并可点按跳至剪贴簿或从笔记对应秒数起播）；NeoDB 同步（评分与评论可独立同步，区分短评与长评）与「别人怎么说」（含 Discogs / MusicBrainz 公开评分展示）。
   - **歌词与本地化匹配**：逐行同步歌词与「聚焦」模式、制作人员（Credits）解析、多源查词（自动与手动查词涵盖 QQ 音乐、Spotoolfy 网易云网关、LRCLIB，手动搜索含华为音乐）；支持 Spotify 多语种原名（`Accept-Language`）+ MusicBrainz ISRC 反查，以及 Apple Music「歌曲名」三档设置（按 Apple Music 显示、按歌曲原地区、按指定地区，支持英/日/韩及简繁中文歌曲、专辑与歌手原名），并支持整首歌词翻译（0.6.3 含底部柔和光波、逐行轻缓展开与拨弦触感）。
-  - **在线 AI v2 与端侧 AI**（「设置 › 功能 › 在线 AI」）：在线模型支持 **Gemini**（默认 3.1 Flash-Lite，可选 3.5 Flash-Lite + Google 搜索）、**DeepSeek**、**通义千问（Qwen）**，以及 **自定义服务（OpenAI 与 Anthropic 兼容接口）**；自定义/外接搜索支持 **DeepSeek、Exa、Tavily、Brave、火山引擎豆包（Doubao）** 或关闭搜索；支持从最近播放的 6 首歌中「拿一首歌试试」、歌曲「关于」与 Ask 问答收入专辑「剪贴簿」。端侧 AI 支持 Android Gemini Nano（「歌词一句」、首页早中晚问候、「关于」推荐追问与诊断页面）及 iOS Apple Intelligence 歌词要点。
+  - **在线 AI v2 与端侧 AI**（「设置 › 功能与外观 › AI 功能」）：在线模型支持 **Gemini**（默认 3.1 Flash-Lite，可选 3.5 Flash-Lite + Google 搜索）、**DeepSeek**、**通义千问（Qwen）**，以及 **自定义服务（OpenAI 与 Anthropic 兼容接口）**；自定义/外接搜索支持 **DeepSeek、Exa、Tavily、Brave、火山引擎豆包（Doubao）** 或关闭搜索；支持从最近播放的 6 首歌中「拿一首歌试试」、歌曲与专辑「关于」与 Ask 问答收入专辑「剪贴簿」（问答入口及状态随当前启用的 AI 服务自动显示名称）。端侧 AI 支持 Android Gemini Nano（「歌词卡片」、首页早中晚问候、「关于」推荐追问与诊断页面）、实验功能中的 **Lyra Sing** 唱歌模型管理（查看就绪状态与硬件加速方式、随时下载或删除；Google Tensor 机型附带隐藏芯片彩蛋）及 iOS Apple Intelligence 歌词要点。
   - **迁移、备份、同步与桌面体验**：**歌单云端备份与恢复**（跨服务匹配与逐首审阅）、Spotoolfy 导入迁移、模块化主页（长按直接拖动、双指捏合「收成列表」/「展开版面」，大屏支持双栏等高网格与拖到旁边并排并分开记住横竖屏排布、封面架翻页与首页隐藏底栏、「接着听」Memories 卡片按次轮换）、桌面微件（Play / Memory）、预测性返回手势、键盘快捷键与指针悬停、屏幕圆角适配，以及 Google Drive `appDataFolder`（Android 支持查看云端数据、下载全部数据快照与 Markdown、从备份导入、按账号移除云端数据与跨账号转移 Memories）与 Apple 端私有 iCloud（CloudKit）同步（支持四步校验迁移同步位置）。
 
 ## 3. 事实边界与准确表述

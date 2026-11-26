@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
@@ -40,8 +41,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -166,6 +165,8 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.HomeSpanTokens
 import com.gpo.yoin.ui.home.edit.HomeSpanCommit
@@ -677,7 +678,7 @@ internal fun HomeEditorialContent(
     val seamBackground = expressivePageSeamBackground()
     // The tide line washes with the gradient's TOP stop, where it lives.
     val pageColor = MaterialTheme.colorScheme.surfaceContainer
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarTop = WindowInsets.topBars.asPaddingValues().calculateTopPadding()
     val statusBarPx = with(LocalDensity.current) { statusBarTop.toPx() }
     // The Memories entry (owner 2026-10-04): a safe-area arrow with a speech
     // bubble (HomeMemoryBubble.kt), or the trial's header pill / chevron.
@@ -2093,7 +2094,7 @@ private fun HomeContentHeader(
         modifier = modifier
             // The page the Memories arrow centres on.
             .memoryBubblePage(bubbleController)
-            .statusBarsPadding()
+            .topBarsPadding()
             // 8dp, plus the 4dp the list's top padding used to add.
             .padding(top = 12.dp)
             .heightIn(min = 48.dp),
@@ -2760,6 +2761,7 @@ private fun ActivityHeroCard(
                     titleStyle = heroTitleStyle,
                     modifier = Modifier.fillMaxWidth(),
                     tagStyle = MaterialTheme.typography.labelMedium,
+                    nameEllipsizes = false,
                 ) { text, titleModifier ->
                     MarqueeText(
                         text = text,
@@ -3140,7 +3142,7 @@ private val RecentlyAddedTrackCover = 52.dp
 private val RecentlyAddedAlbumStackGap = 14.dp
 
 @Composable
-private fun RecentlyAddedSection(
+internal fun RecentlyAddedSection(
     tracks: List<Track>,
     albums: List<Album>,
     extractBackdropColors: Boolean,
@@ -3169,15 +3171,36 @@ private fun RecentlyAddedSection(
     val grid = LocalHomeGridHeight.current
     val gridUnits = grid?.units?.coerceIn(HomeSection.RecentlyAdded.unitRange)
     val half = LocalHomeColumn.current.half
-    val maxColumns = if (gridUnits != null) {
-        homeGridTrackColumns(frame.contentWidth.value.let { if (half) (it - HomeSpanTokens.ColumnGap.value) / 2f else it })
+    // No albums to follow the tracks (off the two-column grid): the grid is the whole row, so it takes
+    // the full content width with columns to match (HomeFeedDensity: recentlyAddedLoneGrid).
+    val loneGrid = if (gridUnits == null && albums.isEmpty()) {
+        recentlyAddedLoneGrid(
+            coverColumns = windowInfo.feedCoverColumns,
+            trackCount = tracks.size,
+            maxRows = recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf),
+        )
     } else {
-        recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+        null
     }
-    val rows = if (gridUnits != null) homeGridTrackRows(gridUnits) else recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    val maxColumns = when {
+        gridUnits != null -> homeGridTrackColumns(
+            frame.contentWidth.value.let { if (half) (it - HomeSpanTokens.ColumnGap.value) / 2f else it },
+        )
+        loneGrid != null -> loneGrid.columns
+        else -> recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+    }
+    val rows = when {
+        gridUnits != null -> homeGridTrackRows(gridUnits)
+        loneGrid != null -> loneGrid.rows
+        else -> recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    }
     val rowHeight = gridUnits?.let { homeGridTrackRowDp(it).dp }
     val shownTracks = remember(tracks, maxColumns, rows) { tracks.take(maxColumns * rows) }
-    val gridColumns = if (gridUnits != null) maxColumns else recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    val gridColumns = if (gridUnits != null || loneGrid != null) {
+        maxColumns
+    } else {
+        recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    }
     val albumStack = gridUnits ?: recentlyAddedAlbumStack(rows)
     val shownAlbums = remember(albums, maxColumns, albumStack) {
         albums.take(recentlyAddedAlbumLimit(maxColumns)).chunked(albumStack)
@@ -3214,8 +3237,9 @@ private fun RecentlyAddedSection(
                     // read in the layout pass only, so a column spring
                     // never re-subcomposes the shelf. A page wide when paged.
                     modifier = Modifier.layout { measurable, constraints ->
-                        // On the grid a full row's tracks take the whole content width (no cap).
-                        val width = pageWidth?.roundToPx() ?: if (grid != null) {
+                        // On the grid a full row's tracks take the whole content width (no cap), and so
+                        // do tracks with no albums after them.
+                        val width = pageWidth?.roundToPx() ?: if (grid != null || loneGrid != null) {
                             (frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2).roundToPx()
                         } else recentlyAddedGridWidth(
                             // Less the plate's content inset (V2; else 0).

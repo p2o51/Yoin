@@ -533,7 +533,8 @@ private fun YoinShell(
     }
 
     val coverArtUrl = currentTrack?.coverArt?.let { coverArt ->
-        app.container.repository.resolveCoverUrl(coverArt)
+        // The playback theme's URL (YoinActivityRoot): one cover, one cache entry.
+        app.container.repository.resolveCoverUrl(coverArt, com.gpo.yoin.data.model.CoverSizes.heroPx)
     }
 
     LaunchedEffect(Unit) {

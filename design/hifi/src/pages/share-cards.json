@@ -1,0 +1,4 @@
+{
+  "title": "Share images (prototype)",
+  "components": ["np-stage", "lyrics", "share-mark", "share"]
+}

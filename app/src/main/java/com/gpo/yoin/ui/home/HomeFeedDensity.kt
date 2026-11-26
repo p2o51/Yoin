@@ -456,6 +456,38 @@ internal fun recentlyAddedAlbumLimit(columns: Int): Int = when {
     else -> RecentlyAddedMaxAlbums
 }
 
+/** The widest cover columns [recentlyAddedLoneGrid] seats 2 / 3 track columns at. */
+private const val LoneTwoColumnsMaxCover = 3
+private const val LoneThreeColumnsMaxCover = 5
+
+/** A track grid with no album shelf beside it: its column count and rows. */
+internal data class RecentlyAddedLoneGrid(val columns: Int, val rows: Int)
+
+/**
+ * The track grid when there are no albums to follow it (owner 2026-11-24,
+ * small tablet in portrait: 「很多 widget 没有铺满」). Nothing shares the row,
+ * so the grid takes the whole content width instead of the capped grid width
+ * beside the shelf — its tiles widen, their insides (52dp cover, type) stay
+ * the same. Columns come from the resting cover columns like every other
+ * Home count (`feedCoverColumns`, ⌊(C + 12) / 124⌋): 3 (C < 484, every
+ * phone) → 2; 4–5 (C 484–731: every Medium portrait, 516dp to the 763dp
+ * small tablet and the 800dp tablet at C 688) → 3, the tablet portrait's own
+ * column count, tiles 156–237dp so titles keep their words; ≥ 6 (C ≥ 732,
+ * the landscape phone) → 4. Never more columns than tracks (but the phone's
+ * 2: a lone tile keeps its column width); rows as the tracks need, at most
+ * [maxRows] ([recentlyAddedTrackRows]).
+ */
+internal fun recentlyAddedLoneGrid(coverColumns: Int, trackCount: Int, maxRows: Int): RecentlyAddedLoneGrid {
+    val fit = when {
+        coverColumns <= LoneTwoColumnsMaxCover -> RecentlyAddedPhoneColumns
+        coverColumns <= LoneThreeColumnsMaxCover -> 3
+        else -> RecentlyAddedMaxColumns
+    }
+    val columns = fit.coerceAtMost(trackCount.coerceAtLeast(RecentlyAddedPhoneColumns))
+    val rows = ((trackCount + columns - 1) / columns).coerceIn(1, maxRows.coerceAtLeast(1))
+    return RecentlyAddedLoneGrid(columns = columns, rows = rows)
+}
+
 /**
  * The Recently Added track grid's width for content width [contentWidth]
  * (C). Compact height (landscape phone): `min((C − 14) × 0.45, 340)`, today's

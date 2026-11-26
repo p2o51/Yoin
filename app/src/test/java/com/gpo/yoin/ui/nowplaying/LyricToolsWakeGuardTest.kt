@@ -240,11 +240,11 @@ class LyricToolsWakeGuardTest {
 
     @Test
     fun should_swallowOnlyIdleDownsInsideTheBottomBand_when_routing() {
-        assertTrue(lyricToolsWakeTapSwallowed(toolsIdle = true, downY = 590f, nodeHeight = 600f, bandPx = 136f))
-        assertTrue(lyricToolsWakeTapSwallowed(toolsIdle = true, downY = 464f, nodeHeight = 600f, bandPx = 136f))
-        assertFalse(lyricToolsWakeTapSwallowed(toolsIdle = true, downY = 463f, nodeHeight = 600f, bandPx = 136f))
-        assertFalse(lyricToolsWakeTapSwallowed(toolsIdle = false, downY = 590f, nodeHeight = 600f, bandPx = 136f))
-        assertFalse(lyricToolsWakeTapSwallowed(toolsIdle = true, downY = 590f, nodeHeight = 600f, bandPx = 0f))
+        assertTrue(lyricToolsWakeTapSwallowed(toolsHidden = true, downY = 590f, nodeHeight = 600f, bandPx = 136f))
+        assertTrue(lyricToolsWakeTapSwallowed(toolsHidden = true, downY = 464f, nodeHeight = 600f, bandPx = 136f))
+        assertFalse(lyricToolsWakeTapSwallowed(toolsHidden = true, downY = 463f, nodeHeight = 600f, bandPx = 136f))
+        assertFalse(lyricToolsWakeTapSwallowed(toolsHidden = false, downY = 590f, nodeHeight = 600f, bandPx = 136f))
+        assertFalse(lyricToolsWakeTapSwallowed(toolsHidden = true, downY = 590f, nodeHeight = 600f, bandPx = 0f))
     }
 
     private companion object {

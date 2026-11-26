@@ -1,0 +1,5 @@
+# built pages, screenshots and ad-hoc exports are regenerated: node design/hifi/build.mjs / tools/shoot.mjs / export.mjs
+dist/
+screenshots/
+exports/
+node_modules/

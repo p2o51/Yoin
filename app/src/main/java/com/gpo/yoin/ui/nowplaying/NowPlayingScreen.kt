@@ -1,4 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
@@ -325,7 +327,9 @@ fun NowPlayingScreen(
     // Delete with undo: a deleted note leaves every pane (and the seek-bar
     // notches) at once, is offered back in its place on the Note page, and
     // is deleted for real only when the undo window closes — or when Now
-    // Playing leaves the screen.
+    // Playing leaves the screen, or the app leaves it (stopped: the process
+    // may be killed in the background before the window would close, and the
+    // note would come back).
     val noteDeletion = remember { NoteDeletionState() }
     val latestDeleteNote by rememberUpdatedState(onDeleteNote)
     val latestNotes by rememberUpdatedState(notesState)
@@ -336,6 +340,7 @@ fun NowPlayingScreen(
     DisposableEffect(noteDeletion) {
         onDispose { noteDeletion.commit(latestDeleteNote) }
     }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { noteDeletion.commit(latestDeleteNote) }
     LaunchedEffect(notesState) { noteDeletion.prune(notesState) }
     val visibleNotes = remember(notesState, noteDeletion.hiddenIds) { noteDeletion.visible(notesState) }
     val requestNoteDelete: (String) -> Unit = remember(noteDeletion) {
@@ -1555,7 +1560,7 @@ private fun CompactPlayingContent(
         }
         val focusIdleEligible = stageMode == NowPlayingStageMode.Immersive && focusKeepsList &&
             state.isPlaying && hasSyncedLyrics
-        LaunchedEffect(focusIdleEligible) { focusIdle.track(focusIdleEligible, FocusIdleMs) }
+        LyricToolsIdleEffect(focusIdle, focusIdleEligible, FocusIdleMs)
         val focusIdleProgress by animateFloatAsState(
             targetValue = if (focusIdleEligible && focusIdle.idle) 1f else 0f,
             animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -1656,7 +1661,7 @@ private fun CompactPlayingContent(
             selectingLines = lyricsSelection.active,
             singEnabled = portraitSingEnabled,
         )
-        LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+        LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
         // Once the expanded Lyrics pane leaves composition (back to Compact/Focus, or
         // paged away to Note where HorizontalPager discards page 0's LazyListState),
         // restore auto-scroll so re-entering expanded Lyrics lands on the playing line
@@ -1677,11 +1682,7 @@ private fun CompactPlayingContent(
                 pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
             onMessage = onLyricsMessage,
         )
-        val lyricToolsAlpha by animateFloatAsState(
-            targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-            animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-            label = "lyricToolsAlpha",
-        )
+        val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "lyricToolsAlpha")
         // Bottom tools collapse their slot when they move up (16:9) or step
         // away (idle): the title sinks to where the tools' bottom edge was and
         // the lyrics grow into the space.
@@ -1771,6 +1772,7 @@ private fun CompactPlayingContent(
                     }
                 },
                 iconSize = iconSize,
+                idle = lyricToolsIdle,
             )
         }
 
@@ -1984,6 +1986,7 @@ private fun CompactPlayingContent(
                                         detailPage == NowPlayingDetailPage.Lyrics &&
                                         (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
                                     val showPortraitSingInRating = portraitSing?.isActive == true && !portraitLyricsSingVisible
+                                    val showPortraitSingInFavorite = portraitSing?.isEnabled == true && !portraitLyricsSingVisible
                                     SingAwareRatingBarSlot(
                                         showSing = showPortraitSingInRating,
                                         sing = portraitSing,
@@ -2002,7 +2005,7 @@ private fun CompactPlayingContent(
                                     Spacer(modifier = Modifier.height(YoinTokens.NowPlaying.RATING_TO_HEART_GAP.dp))
 
                                     SingAwareFavoriteSlot(
-                                        showSing = showPortraitSingInRating,
+                                        showSing = showPortraitSingInFavorite,
                                         sing = portraitSing,
                                         isStarred = state.isStarred,
                                     ) {
@@ -2469,6 +2472,7 @@ private fun CompactPlayingContent(
                                                 current = state.noteTarget(),
                                                 positionMs = positionMs,
                                                 onSave = onSaveNote,
+                                                onShareEditing = rememberNoteShare(),
                                                 // The keyboard comes once the page
                                                 // has landed, not mid-reshape.
                                                 focusGate = stageMode == NowPlayingStageMode.Expanded &&
@@ -2716,18 +2720,14 @@ private fun WidePlayingContent(
         selectingLines = lyricsSelection.active,
         singEnabled = dualSingEnabled,
     )
-    LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
     LyricsSelectionHost(
         state = state,
         selection = lyricsSelection,
         lyricsPageOnScreen = pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
         onMessage = onLyricsMessage,
     )
-    val lyricToolsAlpha by animateFloatAsState(
-        targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-        label = "wideLyricToolsAlpha",
-    )
+    val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "wideLyricToolsAlpha")
     // Focus at ease, as in the single column and landscape (owner 2026-11-05;
     // the tablet kept its buttons, owner 2026-11-08 「聚焦模式 3 秒之后按键还是
     // 显示的」): FocusIdleMs without a touch while synced lyrics play, the
@@ -2735,7 +2735,7 @@ private fun WidePlayingContent(
     val focusIdle = rememberLyricToolsIdleState()
     val wideFocusIdleEligible = stageMode == NowPlayingStageMode.Immersive &&
         state.isPlaying && hasSyncedLyrics && !lyricsSelection.active
-    LaunchedEffect(wideFocusIdleEligible) { focusIdle.track(wideFocusIdleEligible, FocusIdleMs) }
+    LyricToolsIdleEffect(focusIdle, wideFocusIdleEligible, FocusIdleMs)
     val focusIdleProgress by animateFloatAsState(
         targetValue = if (wideFocusIdleEligible && focusIdle.idle) 1f else 0f,
         animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -2961,6 +2961,7 @@ private fun WidePlayingContent(
                                     detailPage == NowPlayingDetailPage.Lyrics &&
                                     !inFocus
                                 val showDualSingInRating = dualSing?.isActive == true && !dualLyricsSingVisible
+                                val showDualSingInFavorite = dualSing?.isEnabled == true && !dualLyricsSingVisible
                                 SingAwareRatingBarSlot(
                                     showSing = showDualSingInRating,
                                     sing = dualSing,
@@ -2977,7 +2978,7 @@ private fun WidePlayingContent(
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 SingAwareFavoriteSlot(
-                                    showSing = showDualSingInRating,
+                                    showSing = showDualSingInFavorite,
                                     sing = dualSing,
                                     isStarred = state.isStarred,
                                 ) {
@@ -3236,6 +3237,7 @@ private fun WidePlayingContent(
                                             },
                                             onEditLyricsClick = { showApplyDialog = true },
                                             onMessage = onLyricsMessage,
+                                            idle = lyricToolsIdle,
                                         )
                                         NowPlayingDetailPage.About -> AskGeminiBar(
                                             askState = askState,
@@ -3251,6 +3253,7 @@ private fun WidePlayingContent(
                                             current = state.noteTarget(),
                                             positionMs = positionMs,
                                             onSave = onSaveNote,
+                                            onShareEditing = rememberNoteShare(),
                                             focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -3458,7 +3461,7 @@ private fun LandscapePlayingContent(
         selectingLines = lyricsSelection.active,
         singEnabled = landscapeSingEnabled,
     )
-    LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    LyricToolsIdleEffect(lyricToolsIdle, idleEligible)
     val expandedMounted = expanded || detailProgress > HiddenLayerVisibilityThreshold
     LaunchedEffect(expandedMounted) {
         if (!expandedMounted) lyricsAutoScroll = true
@@ -3466,13 +3469,9 @@ private fun LandscapePlayingContent(
     LaunchedEffect(pagerState.settledPage) {
         if (pagerState.settledPage == NowPlayingDetailPage.Note.ordinal) lyricsAutoScroll = true
     }
-    val lyricToolsAlpha by animateFloatAsState(
-        targetValue = if (lyricToolsIdle.idle) 0f else 1f,
-        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-        label = "landscapeLyricToolsAlpha",
-    )
+    val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "landscapeLyricToolsAlpha")
     val focusIdleEligible = inFocus && state.isPlaying && hasSyncedLyrics
-    LaunchedEffect(focusIdleEligible) { focusIdle.track(focusIdleEligible, FocusIdleMs) }
+    LyricToolsIdleEffect(focusIdle, focusIdleEligible, FocusIdleMs)
     val focusIdleProgress by animateFloatAsState(
         targetValue = if (focusIdleEligible && focusIdle.idle) 1f else 0f,
         animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
@@ -3620,6 +3619,7 @@ private fun LandscapePlayingContent(
             expanded &&
             detailPage == NowPlayingDetailPage.Lyrics
         val showLandscapeSingInRating = landscapeSing?.isActive == true && !landscapeLyricsSingVisible
+        val showLandscapeSingInFavorite = landscapeSing?.isEnabled == true && !landscapeLyricsSingVisible
         val ratingAway = if (stacked) detailProgress else 0f
         if (!focusSettled && !(stacked && expandedSettled)) {
             Column(
@@ -3653,7 +3653,7 @@ private fun LandscapePlayingContent(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 SingAwareFavoriteSlot(
-                    showSing = showLandscapeSingInRating,
+                    showSing = showLandscapeSingInFavorite,
                     sing = landscapeSing,
                     isStarred = state.isStarred,
                 ) {
@@ -3705,7 +3705,7 @@ private fun LandscapePlayingContent(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 SingAwareFavoriteSlot(
-                    showSing = showLandscapeSingInRating,
+                    showSing = showLandscapeSingInFavorite,
                     sing = landscapeSing,
                     isStarred = state.isStarred,
                 ) {
@@ -4049,6 +4049,7 @@ private fun LandscapePlayingContent(
                                 onEditLyricsClick = { showApplyDialog = true },
                                 onMessage = onLyricsMessage,
                                 iconSize = ShortTabToolSize,
+                                idle = lyricToolsIdle,
                                 modifier = actionsModifier
                                     // Idle: they fade in place; a blind tap
                                     // there only brings them back.
@@ -4084,6 +4085,7 @@ private fun LandscapePlayingContent(
                                     current = state.noteTarget(),
                                     positionMs = positionMs,
                                     onSave = onSaveNote,
+                                    onShareEditing = rememberNoteShare(),
                                     inline = true,
                                     focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
                                         detailProgress >= NoteWriteFocusStageProgress,

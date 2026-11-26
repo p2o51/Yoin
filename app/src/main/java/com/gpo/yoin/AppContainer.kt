@@ -171,6 +171,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_33_34,
                 MIGRATION_34_35,
                 MIGRATION_35_36,
+                MIGRATION_36_37,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -296,7 +297,7 @@ class AppContainer(private val context: Context) {
     }
 
     private val spotifyHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .cache(
                 Cache(
                     directory = File(context.cacheDir, "http/spotify"),
@@ -311,7 +312,7 @@ class AppContainer(private val context: Context) {
     }
 
     private val subsonicBaseHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .cache(
                 Cache(
                     directory = File(context.cacheDir, "http/subsonic"),
@@ -341,17 +342,29 @@ class AppContainer(private val context: Context) {
     }
 
     init {
-        // Force the lazy `spotifyClientIdFlow` to resolve at container
-        // construction time so `SharingStarted.Eagerly` begins collecting
-        // from Room immediately. Without this, the first reader (usually
-        // PlaybackManager's warmConnection on cold start) triggers the
-        // lazy init itself and has to race against the same IO threads
-        // the Batch 3D migration is using — resulting in "Client ID not
-        // configured" banners on upgrade launches even though the row
-        // is populated. Touching the field here ensures Room starts
-        // emitting before any other code path needs `.value`.
-        @Suppress("UNUSED_EXPRESSION")
-        spotifyClientIdFlow
+        // Warm `spotifyClientIdFlow` on `applicationScope` so Room starts emitting immediately
+        // without constructing `YoinDatabase` synchronously on the Application.onCreate() main thread.
+        applicationScope.launch {
+            @Suppress("UNUSED_EXPRESSION")
+            spotifyClientIdFlow
+        }
+    }
+
+    /**
+     * Registers background startup observers without constructing [lyricHighlightProcessor] (and its
+     * [repository] / [database] / [playbackManager] graph) synchronously during Application.onCreate().
+     * Lifecycle callbacks and [LyricHighlightProcessor] calls stay strictly ordered on Main.
+     */
+    internal fun startBackgroundServices() {
+        startPendingRatingRetries()
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
+            com.gpo.yoin.data.highlight.LazyForegroundLifecycleObserver(
+                scope = applicationScope,
+                factory = { lyricHighlightProcessor },
+                onForeground = { it.onForeground() },
+                onBackground = { it.onBackground() },
+            ),
+        )
     }
 
     /**
@@ -595,8 +608,18 @@ class AppContainer(private val context: Context) {
      * Reads a song as the player would: downloads, then the stream cache, then the network. Nothing
      * here loads LiteRT until a song is actually separated.
      */
+    private var singEngineInitialized = false
+
     val singEngine: com.gpo.yoin.player.sing.OnDeviceSingStreamProvider by lazy {
+        singEngineInitialized = true
         com.gpo.yoin.player.sing.OnDeviceSingStreamProvider.create(context, offlineDownloads, applicationScope)
+    }
+
+    /** Yoin Labs model inspection, proactive download, and removal for on-device Lyra-Sing-Lite. */
+    val singModelManager: com.gpo.yoin.player.sing.SingModelManager by lazy {
+        com.gpo.yoin.player.sing.SingModelManager.create(context, applicationScope) {
+            if (singEngineInitialized) singEngine.invalidateModelCache()
+        }
     }
 
     /** Cached `/api/v1/capabilities` Sing probe per active Subsonic/Lyra server URL. */
@@ -794,7 +817,7 @@ class AppContainer(private val context: Context) {
 
     val geminiService: GeminiService by lazy {
         GeminiService(
-            client = OkHttpClient.Builder()
+            client = com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(45, TimeUnit.SECONDS)
                 .build(),
@@ -805,7 +828,7 @@ class AppContainer(private val context: Context) {
     private val neoDbJson: Json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val neoDbHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.gpo.yoin.data.remote.YoinNetworkCore.newApiBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -1201,6 +1224,30 @@ class AppContainer(private val context: Context) {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_lyric_highlights_shown` " +
                         "ON `lyric_highlights` (`profileId`, `provider`, `lastShownAt`)",
+                )
+            }
+        }
+
+        // Album About: the scrapbook's credits line and About card (album_about_entries).
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `album_about_entries` (
+                        `provider` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `albumDisplay` TEXT NOT NULL,
+                        `artistDisplay` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `entryKey` TEXT NOT NULL,
+                        `promptText` TEXT,
+                        `titleText` TEXT,
+                        `answerText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`provider`, `albumId`, `kind`, `entryKey`)
+                    )
+                    """.trimIndent(),
                 )
             }
         }

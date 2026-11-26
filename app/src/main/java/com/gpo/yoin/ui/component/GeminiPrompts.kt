@@ -102,7 +102,7 @@ internal fun QuickPrompts(
 @Composable
 internal fun ThinkingDots(color: Color, modifier: Modifier = Modifier) {
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
-    val description = stringResource(R.string.cmp_cd_gemini_thinking)
+    val description = aiString(R.string.ai_writing)
     val transition = rememberInfiniteTransition(label = "geminiThinking")
     Row(
         modifier = modifier.semantics { contentDescription = description },

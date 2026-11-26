@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -107,6 +106,7 @@ import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.detail.AlbumBarStatusBarEffect
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsHeadline
@@ -167,7 +167,7 @@ internal fun MemoryLedgerScreen(
     var sort by rememberSaveable { mutableStateOf(MemoryLedgerSort.Recent) }
     val listState = rememberLazyStaggeredGridState()
     val lift = remember { MemoryGridLift() }
-    val barHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + BarHeight
+    val barHeight = WindowInsets.topBars.asPaddingValues().calculateTopPadding() + BarHeight
     val pixels = remember(state?.grid) { state?.grid?.let(::liftPixels).orEmpty() }
     val albumColors = rememberLedgerAlbumColors(
         albums = remember(state?.grid) { state?.grid?.cells?.let(::albumsIn).orEmpty() },
@@ -355,9 +355,11 @@ private fun LedgerBody(
                 lift = lift,
                 // A full-line item is given the whole width: let go of it first, or the cap does nothing.
                 modifier = gridItemModifier
-                    // Centred on a large screen, so the cap doesn't leave one side empty.
-                    .wrapContentWidth(if (layout.wide) Alignment.CenterHorizontally else Alignment.Start)
-                    .widthIn(max = if (layout.wide) 760.dp else 640.dp)
+                    // Centred on a large screen, so the cap doesn't leave one side empty. A Medium page (two
+                    // columns, 600–840) takes the large screen's cap too: its 640 start-aligned left up to a
+                    // fifth of a small tablet's portrait width empty on the right (owner 2026-11-24).
+                    .wrapContentWidth(if (layout.columns > 1) Alignment.CenterHorizontally else Alignment.Start)
+                    .widthIn(max = if (layout.columns > 1) 760.dp else 640.dp)
                     .seamDissolve()
                     .onGloballyPositioned { lift.grid = it }
                     .graphicsLayer { alpha = gridAlpha() }

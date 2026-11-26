@@ -13,7 +13,8 @@ struct HomeView: View {
     @State private var feedSize = CGSize(width: 402, height: 874)
     private var density: HomeDensity { HomeDensity(width: feedSize.width, height: feedSize.height) }
     /// Edit mode and the account's section layout (HomeEdit.swift).
-    @State private var edit = HomeEditController()
+    /// The app's one edit session (AppModel.homeEditor): a rebuilt Home keeps it.
+    private var edit: HomeEditController { model.homeEditor }
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
     @State private var bubble = MemoryBubbleController()
     /// Another Spotify account's playback, shown 5 s in the header (HomeSpotifyElsewhere.swift).
@@ -83,11 +84,22 @@ struct HomeView: View {
             GeometryReader { g in
                 feedScroll
                     .frame(width: g.size.width, height: g.size.height)
+                    // Edit mode's compact list, over the feed while it is pinched in (HomeEditList).
+                    .overlay {
+                        if edit.list.shown, let feed {
+                            HomeEditList(edit: edit, background: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
+                                         margin: density.margin) { covers($0, feed) }
+                        }
+                    }
                     .onChange(of: g.size, initial: true) { _, size in
                         guard abs(size.width - feedSize.width) > 0.5 || abs(size.height - feedSize.height) > 0.5 else { return }
+                        // A rotation, a resize or a size-class flip mid-drag: its geometry is gone, it rolls back.
+                        if abs(size.width - feedSize.width) > 0.5 { edit.cancelDrag() }
                         feedSize = size
-                        let nextWidth = HomeDensity(width: size.width, height: size.height).content
-                        if abs(nextWidth - contentWidth) > 0.5 { contentWidth = nextWidth }
+                        let next = HomeDensity(width: size.width, height: size.height)
+                        if abs(next.content - contentWidth) > 0.5 { contentWidth = next.content }
+                        // The two-column tier (the container's size, not the orientation): an edit draft follows it.
+                        edit.setTwoColumn(next.wide)
                     }
             }
                 .modifier(IslandPush(bubble: bubble))
@@ -139,6 +151,7 @@ struct HomeView: View {
             await MemoryLedgerSource.shared.resolveSongs(model: model)
         }
         .onAppear {
+            edit.homesShown += 1
             edit.load(scope: model.store.homeScope)
             // ⌘[ ends edit mode (ShellBackOrder.exitHomeEdit).
             model.homeEdit = edit
@@ -150,6 +163,11 @@ struct HomeView: View {
         .task { spotifyElsewhere.look(model) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
+            // Off to the background: a drag rolls back, then edit mode closes (design.md 退出).
+            if phase == .background {
+                edit.cancelDrag()
+                edit.exit(.programmatic)
+            }
             // Lyric Cards pick only while Yoin is in front (Android: the process lifecycle).
             if phase == .active { LyricHighlightProcessor.shared.appBecameActive(model) }
             else { LyricHighlightProcessor.shared.appResignedActive() }
@@ -186,7 +204,11 @@ struct HomeView: View {
             if !MemoriesPresentation.survivesHomeHidden(onHome: model.section == .home, pushed: !model.path.isEmpty) {
                 memories.snapClosed()
             }
-            edit.snapExit()
+            // A Home the shell only rebuilt (its columns appearing or going) appears again at once: the session
+            // goes on. Gone for good (Library), it closes.
+            edit.homesShown -= 1
+            let edit = edit
+            Task { @MainActor in if edit.homesShown <= 0 { edit.snapExit() } }
         }
         .onChange(of: model.path.isEmpty) { _, home in
             if !home {
@@ -203,6 +225,11 @@ struct HomeView: View {
         #if DEBUG
         // Recording aids, off the view's lifecycle (Home is rebuilt once at launch).
         .onAppear {
+            // `-homeLayoutReset YES` (UI tests): this account's Home back to the default first.
+            if UserDefaults.standard.bool(forKey: "homeLayoutReset") {
+                HomeLayoutStore.shared.clear(model.store.homeScope)
+                edit.load(scope: model.store.homeScope)
+            }
             HomeEditScript.edit = edit
             let focus = pill?.recall.dropFirst().first?.albumId
             Task { await MemoriesScript.run(memories, focus: focus) }
@@ -241,18 +268,24 @@ struct HomeView: View {
     }
 
     private var feedScroll: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 if let feed {
                     let shown = edit.order.filter { edit.isEditing || hasContent($0, feed) }
-                    ForEach(Array(shown.enumerated()), id: \.element) { i, section in
-                        HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
-                                      rows: rowsHandle(section, feed),
-                                      // Whenever the block shows anything, the Beta intro alone included
-                                      // (Android HomeEditBlock: every block that isn't a placeholder).
-                                      lyricCount: section == .lyricHighlight && hasContent(section, feed)) {
-                            sectionView(section, feed)
+                    if density.wide {
+                        twoColumnRows(shown, feed)
+                    } else {
+                        ForEach(Array(shown.enumerated()), id: \.element) { i, section in
+                            HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
+                                          rows: rowsHandle(section, feed, .feed(density)),
+                                          // Whenever the block shows anything, the Beta intro alone included
+                                          // (Android HomeEditBlock: every block that isn't a placeholder).
+                                          lyricCount: section == .lyricHighlight && hasContent(section, feed),
+                                          count: shown.count) {
+                                sectionView(section, feed, .feed(density))
+                            }
                         }
                     }
                     if edit.isEditing || edit.progress > 0 {
@@ -277,16 +310,21 @@ struct HomeView: View {
             }
             .padding(.horizontal, density.margin)
             .coordinateSpace(.named(HomeEditController.feedSpace))
-            .background(HomeHoldObserver(edit: edit))
-            .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
+            // Edit mode's gestures (the shared machine) and the drag's host; a lifted block holds the pan off.
+            .background(HomeEditTouchView(edit: edit))
             .background(HomePullBridge(memories: memories, edit: edit) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
+        .accessibilityIdentifier("home.feed")
+        // The header's Add: the tray, a little below the top.
+        .onChange(of: edit.trayRequest) {
+            guard !edit.list.on else { return }
+            withAnimation(Yoin.spatial) { proxy.scrollTo(HomeEditTray.id, anchor: UnitPoint(x: 0.5, y: 0.1)) }
+        }
+        }
         .environment(\.homeMargin, density.margin)
         .contentMargins(.bottom, 24, for: .scrollContent)
-        // A carried section owns the finger: the feed doesn't scroll under it.
-        .scrollDisabled(edit.carried != nil)
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
@@ -336,6 +374,167 @@ struct HomeView: View {
             .ignoresSafeArea()
     }
 
+    // MARK: Two columns (parity p4 B2; Android HomeFeedRows.kt)
+
+    /// The feed's sections in rows of one full section or two halves 20 pt apart, every row exactly its grid
+    /// height (a unit drag's live height while one runs), each cell laid out for its own width (a span drag's live
+    /// width while one runs). One flat list keyed by section: a section changing rows moves to its new place.
+    @ViewBuilder
+    private func twoColumnRows(_ shown: [HomeSection], _ feed: HomeFeed) -> some View {
+        let rows = HomeGrid.rows(shown, pairs: edit.pairs, twoColumn: true)
+        let layout = edit.shown
+        let resize = edit.resize
+        let units = rows.map { layout.units(ofRow: $0) }
+        let heights = rows.enumerated().map { r, row in resize.liveHeight(row) ?? HomeGrid.height(units: units[r]) }
+        let liveSpan = rows.lazy.compactMap { resize.liveSpan($0) }.first
+        let enabled = layout.shownSections
+        HomeFeedRowsLayout(rows: rows, heights: heights, drag: liveSpan) {
+            ForEach(Array(rows.joined().enumerated()), id: \.element) { i, section in
+                let r = rows.firstIndex { $0.contains(section) } ?? 0
+                let row = rows[r]
+                let widths = HomeGrid.cellWidths(row, width: density.content, dragged: resize.liveSpan(row)?.section,
+                                                 dragWidth: resize.liveSpan(row)?.width ?? density.content)
+                let k = row.firstIndex(of: section) ?? 0
+                let cell = HomeCell(density: HomeDensity(column: k < widths.count ? widths[k] : density.content, margin: density.margin),
+                                    units: resize.liveHeight(row) != nil ? resize.unitTarget : units[r], half: row.count == 2,
+                                    height: heights[r])
+                HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
+                              count: shown.count,
+                              place: HomeGridPlace.of(section, rows: rows, enabledOrder: enabled, fullWidth: density.content, layout: layout)) {
+                    sectionView(section, feed, cell)
+                }
+            }
+        }
+    }
+
+    /// [s] on the grid (Android's two-column section layouts): Activities the phone's bento for the column at the
+    /// units' preset; Jump Back In unit rows of covers; Recently Added three track rows a unit; the cover shelves one
+    /// or two rows of cards a unit tall; Rediscover's unit cards; Lyric Cards' unit cards; All Memories' card.
+    @ViewBuilder
+    private func gridSection(_ s: HomeSection, _ feed: HomeFeed, _ cell: HomeCell, units: Int) -> some View {
+        switch s {
+        case .activities:
+            activities(feed.activities, preset: HomeGrid.activityPreset(units: min(max(units, 1), 3)), cell)
+        case .jumpBackIn: gridJumpBackIn(feed, cell, units: units)
+        case .recentlyAdded: gridRecentlyAdded(feed, cell, units: units)
+        case .rediscover: gridRediscover(feed.rediscover, cell, units: units)
+        case .recentlyPlayed:
+            gridShelf(HomeSection.recentlyPlayed.title, cell, units: units, items: feed.recentlyPlayed) { album in
+                AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-played", size: HomeGrid.cover)
+            }
+        case .yourPlaylists:
+            gridShelf(HomeSection.yourPlaylists.title, cell, units: units, items: feed.playlists) { PlaylistMini(item: $0, size: HomeGrid.cover) }
+        case .madeForYou:
+            gridShelf(HomeSection.madeForYou.title, cell, units: units, items: model.store.madeForYou) { PlaylistMini(item: $0, size: HomeGrid.cover) }
+        case .otherProfiles:
+            OtherAccountsShelf(items: otherAccounts, cell: cell)
+        case .lyricHighlight:
+            HomeLyricCardsSection(cards: Array(lyricCards.prefix(edit.rowsOf(.lyricHighlight).lyricCards)), cell: cell)
+        case .memoryGrid:
+            if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state, cell: cell) }
+        }
+    }
+
+    /// Jump Back In on the grid (Android JbiUnitSection): the title row, then [units] rows of covers (U − 44
+    /// square, two caption lines under), as many columns as fit, a signal card two columns wide lying beside its
+    /// copy. Cards past the last row wait for a larger count.
+    private func gridJumpBackIn(_ feed: HomeFeed, _ cell: HomeCell, units: Int) -> some View {
+        let cards = tabletJbiCards(feed)
+        let columns = HomeGrid.columns(width: cell.width)
+        let slots = HomeGrid.pack(spans: cards.map { if case .signal = $0 { 2 } else { 1 } }, columns: columns,
+                                  rows: min(max(units, 1), 4))
+        let cover = HomeGrid.cover
+        return VStack(alignment: .leading, spacing: 0) {
+            HomeGridTitleRow(String(localized: "Jump Back In"))
+            HomeGridCellsLayout(slots: slots, columns: columns) {
+                ForEach(slots, id: \.index) { slot in
+                    switch cards[slot.index] {
+                    case let .signal(signal):
+                        SignalCard(signal: signal, cover: cover).frame(maxWidth: .infinity, alignment: .topLeading)
+                    case let .cover(item):
+                        JBICell(item: item, marks: feed.memoryMarks, size: cover).frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }
+            }
+            .animation(Yoin.spatial, value: slots)
+        }
+    }
+
+    /// Recently Added on the grid (Android RecentlyAddedSection on the grid): three track rows a unit filling the
+    /// box exactly, ⌊W / 280⌋ columns, then the albums stacked one a unit; one shelf, paged in a half (the tracks its
+    /// first page), free in a full row.
+    private func gridRecentlyAdded(_ feed: HomeFeed, _ cell: HomeCell, units: Int) -> some View {
+        let u = min(max(units, 1), 2)
+        let tiles = feed.recentTracks
+        let columns = HomeGrid.trackColumns(width: cell.width)
+        let rows = HomeGrid.trackRows(units: u)
+        let rowHeight = HomeGrid.trackRowHeight(units: u)
+        let shownTracks = Array(tiles.prefix(columns * rows))
+        let stacks = stride(from: 0, to: feed.recentAlbums.count, by: u).map { Array(feed.recentAlbums[$0..<min($0 + u, feed.recentAlbums.count)]) }
+        return HomeGridShelf(title: HomeSection.recentlyAdded.title, cell: cell, cardWidth: HomeGrid.cover, cards: stacks.count,
+                             hasLead: !shownTracks.isEmpty) { width in
+            let slots = HomeGrid.pack(spans: Array(repeating: 1, count: shownTracks.count), columns: columns, rows: rows)
+            HomeGridCellsLayout(slots: slots, columns: columns, gap: Tokens.home.RECENTLY_ADDED_TILE_GAP.cg, rowHeight: rowHeight,
+                                rowGap: HomeGrid.trackRowGap) {
+                ForEach(slots, id: \.index) { slot in
+                    recentTrackButton(tiles, index: slot.index, width: nil, cover: rowHeight)
+                }
+            }
+            .frame(width: width, alignment: .topLeading)
+        } content: { _ in
+            ForEach(Array(stacks.enumerated()), id: \.offset) { si, stack in
+                VStack(alignment: .leading, spacing: HomeGrid.gap) {
+                    ForEach(Array(stack.enumerated()), id: \.offset) { k, album in
+                        AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-added-\(si * u + k)", size: HomeGrid.cover)
+                            .frame(height: HomeGrid.unit, alignment: .top)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A cover shelf on the grid (Android homeShelfCards): a unit's row of cards, two rows at 2 units, every card
+    /// one unit tall; paged by whole cards in a half, free in a full row.
+    private func gridShelf<Item: Identifiable, Card: View>(_ title: String, _ cell: HomeCell, units: Int, items: [Item],
+                                                           @ViewBuilder card: @escaping (Item) -> Card) -> some View {
+        let rows = min(max(units, 1), 2)
+        let stacks = stride(from: 0, to: items.count, by: rows).map { Array(items[$0..<min($0 + rows, items.count)]) }
+        return HomeGridShelf(title: title, cell: cell, cardWidth: HomeGrid.cover, cards: stacks.count) { _ in
+            ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
+                VStack(alignment: .leading, spacing: HomeGrid.gap) {
+                    ForEach(stack) { item in card(item).frame(height: HomeGrid.unit, alignment: .top) }
+                }
+            }
+        }
+    }
+
+    /// Rediscover on the grid (Android RediscoverSection on the grid): every card one unit tall, a unit's row of
+    /// them, two rows at 2 units; two cards a page in a half, the full row's free shelf otherwise.
+    private func gridRediscover(_ cards: [RediscoverEntry], _ cell: HomeCell, units: Int) -> some View {
+        let rows = min(max(units, 1), 2)
+        let width = cell.half ? HomeGrid.cardWidth(page: cell.width, perPage: 2) : min(cell.width * 0.86, 420)
+        let stacks = stride(from: 0, to: cards.count, by: rows).map { Array(cards[$0..<min($0 + rows, cards.count)]) }
+        return HomeGridShelf(title: String(localized: "Rediscover"), cell: cell, cardWidth: width, cards: stacks.count,
+                             fullGap: Tokens.home.REDISCOVER_GAP.cg, minGap: 14) { _ in
+            ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
+                VStack(alignment: .leading, spacing: HomeGrid.gap) {
+                    ForEach(Array(stack.enumerated()), id: \.offset) { _, c in
+                        Group {
+                            if let song = c.song {
+                                RediscoverSongCard(entry: song, away: c.away, score: c.score, snippet: c.noteSnippet)
+                            } else {
+                                RediscoverCard(album: c.album, reason: c.reason, away: c.away, score: c.score,
+                                               footnote: (c.footnoteDate, c.footnotePlays))
+                            }
+                        }
+                        .frame(width: width, height: HomeGrid.unit)
+                        .clipped()
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Sections (the account's layout, Android HomeSection catalog)
 
     private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool {
@@ -374,28 +573,35 @@ struct HomeView: View {
     private var otherAccounts: [OtherAccountItem] { HomeOtherAccounts.items(model: model) }
 
     @ViewBuilder
-    private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
+    private func sectionView(_ s: HomeSection, _ feed: HomeFeed, _ cell: HomeCell) -> some View {
         if !hasContent(s, feed) {
             // Editing, a section with nothing yet: its panel, its title and its own honest line (Android).
             VStack(alignment: .leading, spacing: 4) {
-                HomeSectionTitle(s.title)
+                if cell.grid { HomeGridTitleRow(s.title) } else { HomeSectionTitle(s.title) }
                 Text(s.placeholder).homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
             }
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+            .homeGridBox(cell.units, height: cell.height)
+        } else if let units = cell.units {
+            // Two columns: the section's own layout on the grid, exactly its row's units tall (HomeFeedRows.swift).
+            gridSection(s, feed, cell, units: units)
+                .environment(\.homeGridCell, cell)
+                .environment(\.homeMargin, cell.bleed)
+                .homeGridBox(units, height: cell.height)
         } else {
             switch s {
-            case .activities: activities(feed.activities, preset: edit.rowsOf(.activities))
-            case .jumpBackIn: jumpBackIn(feed, preset: edit.rowsOf(.jumpBackIn))
-            case .recentlyAdded: recentlyAdded(feed)
-            case .rediscover: rediscover(feed.rediscover)
-            case .recentlyPlayed: recentlyPlayed(feed)
-            case .yourPlaylists: yourPlaylists(feed.playlists)
+            case .activities: activities(feed.activities, preset: edit.rowsOf(.activities), cell)
+            case .jumpBackIn: jumpBackIn(feed, preset: edit.rowsOf(.jumpBackIn), cell)
+            case .recentlyAdded: recentlyAdded(feed, cell)
+            case .rediscover: rediscover(feed.rediscover, cell)
+            case .recentlyPlayed: recentlyPlayed(feed, cell)
+            case .yourPlaylists: yourPlaylists(feed.playlists, cell)
             case .otherProfiles: OtherAccountsShelf(items: otherAccounts)
             // As many cards as its dots say (Android lyricCards: two to four).
             case .lyricHighlight: HomeLyricCardsSection(cards: Array(lyricCards.prefix(edit.rowsOf(.lyricHighlight).lyricCards)))
             case .memoryGrid:
                 if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state) }
-            case .madeForYou: madeForYou(model.store.madeForYou)
+            case .madeForYou: madeForYou(model.store.madeForYou, cell)
             }
         }
     }
@@ -430,6 +636,7 @@ struct HomeView: View {
         .buttonStyle(PressScale())
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
+        .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.reportExcluded("footer", frame: $0, owner: $1) })
     }
 
     // MARK: Header (HomeGreetingTitle.kt)
@@ -518,18 +725,22 @@ struct HomeView: View {
         }
         .frame(minHeight: 48)
         .padding(.top, 12)
+        // Out of edit mode the header's own holds (Glass Lab, the account switch) win over entering edit.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
+            edit.reportExcluded(HomeEditController.normalOnly + "header", frame: $0)
+        }
     }
 
     // MARK: Activities (bento, phone preset L)
 
     /// The bento at [preset] (Android activityCodeRows): the hero, then rows of cards and a strip,
     /// as many as the preset seats and the history fills.
-    private func activities(_ a: [ActivityEntry], preset: HomeRowPreset) -> some View {
+    private func activities(_ a: [ActivityEntry], preset: HomeRowPreset, _ cell: HomeCell) -> some View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
         let hasHero = a[0].entity != .artist
         // A tablet-wide feed: the unit grid (more cards per row, the same card sizes; Android N ≥ 3).
-        let rows = density.isTablet
-            ? HomeDensity.activityGrid(units: density.units, hasHero: hasHero, supportingCount: hasHero ? a.count - 1 : a.count,
+        let rows = cell.density.isTablet
+            ? HomeDensity.activityGrid(units: cell.density.units, hasHero: hasHero, supportingCount: hasHero ? a.count - 1 : a.count,
                                        preset: preset)
             : activityStops(a).stops.stopPayload(for: preset)
         let supporting = hasHero ? Array(a.dropFirst()) : a
@@ -542,11 +753,11 @@ struct HomeView: View {
                 case .strip:
                     if let e = supporting.entry(at: row.slots[0].entryIndex) { StripCard(entry: e) }
                 case .cards:
-                    let usable = max(0, contentWidth - gap * CGFloat(row.slots.count - 1))
+                    let usable = max(0, cell.width - gap * CGFloat(row.slots.count - 1))
                     let total = CGFloat(row.slots.reduce(0) { $0 + $1.weight })
                     HStack(spacing: gap) {
                         ForEach(Array(row.slots.enumerated()), id: \.offset) { slotIndex, slot in
-                            let width = contentWidth > 0 ? usable * CGFloat(slot.weight) / total : nil
+                            let width = cell.width > 0 ? usable * CGFloat(slot.weight) / total : nil
                             Group {
                                 if slot.kind == .hero {
                                     HeroCard(entry: a[0], tile: "act-hero-\(rowIndex)-\(slotIndex)").frame(maxHeight: .infinity)
@@ -576,15 +787,15 @@ struct HomeView: View {
 
     /// [section]'s resize handle: its stops on this screen and the one it stands at; nil when the
     /// section takes no presets or the supply leaves a single stop.
-    private func rowsHandle(_ s: HomeSection, _ feed: HomeFeed) -> HomeRowsHandle? {
+    private func rowsHandle(_ s: HomeSection, _ feed: HomeFeed, _ cell: HomeCell) -> HomeRowsHandle? {
         guard s.supportsRows, hasContent(s, feed) else { return nil }
         let current = edit.rowsOf(s)
         switch s {
         case .activities:
             let stops = activityStops(feed.activities).stops
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
-        case .jumpBackIn where density.isTablet && !(feed.jumpBackIn.isEmpty && feed.signals.isEmpty):
-            let stops = tabletJbiStops(feed)
+        case .jumpBackIn where cell.density.isTablet && !(feed.jumpBackIn.isEmpty && feed.signals.isEmpty):
+            let stops = tabletJbiStops(feed, cell)
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
         case .jumpBackIn where feed.layout == .server:
             let stops = jbiStops(feed)
@@ -596,13 +807,13 @@ struct HomeView: View {
     // MARK: Jump Back In (3 columns, two 1×2 signal cards)
 
     @ViewBuilder
-    private func jumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
-        if density.isTablet, !feed.jumpBackIn.isEmpty || !feed.signals.isEmpty {
-            tabletJumpBackIn(feed, preset: preset)
+    private func jumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset, _ cell: HomeCell) -> some View {
+        if cell.density.isTablet, !feed.jumpBackIn.isEmpty || !feed.signals.isEmpty {
+            tabletJumpBackIn(feed, preset: preset, cell)
         } else if feed.layout == .mock {
-            mockJumpBackIn(feed.jumpBackIn.compactMap(\.album))
+            mockJumpBackIn(feed.jumpBackIn.compactMap(\.album), cell)
         } else {
-            serverJumpBackIn(feed, preset: preset)
+            serverJumpBackIn(feed, preset: preset, cell)
         }
     }
 
@@ -619,8 +830,8 @@ struct HomeView: View {
     }
 
     /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).
-    private func tabletJbiStops(_ feed: HomeFeed) -> [HomeRowStop<JbiPresetLayout<JBICard>>] {
-        jbiTabletLadder(cards: tabletJbiCards(feed), columns: density.coverColumns)
+    private func tabletJbiStops(_ feed: HomeFeed, _ cell: HomeCell) -> [HomeRowStop<JbiPresetLayout<JBICard>>] {
+        jbiTabletLadder(cards: tabletJbiCards(feed), columns: cell.density.coverColumns)
     }
 
     /// Jump Back In on a tablet-wide feed (Android HomeJbiTemplate): phone-sized covers in `coverColumns`
@@ -628,16 +839,16 @@ struct HomeView: View {
     /// cover over its copy) or lies (2 columns, cover beside its copy) as the seeded template says, and a
     /// lying card's right neighbour drops half a row. A shelf too short for any template is a plain column
     /// grid. The preset picks the rows (S = L−2 … XL = L+1).
-    private func tabletJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
+    private func tabletJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset, _ cell: HomeCell) -> some View {
         let gap = Tokens.home.JBI_COLUMN_GAP.cg
         let rowGap = Tokens.home.JBI_ROW_GAP.cg
-        let cols = density.coverColumns
-        let (colW, cover) = density.jbiColumn(gap: gap)
-        let composition = tabletJbiStops(feed).stopPayload(for: preset)
+        let cols = cell.density.coverColumns
+        let (colW, cover) = cell.density.jbiColumn(gap: gap)
+        let composition = tabletJbiStops(feed, cell).stopPayload(for: preset)
         let pitch = cover + 50 + rowGap
         let wideWidth = colW * 2 + gap
 
-        func cell(_ card: JBICard, standing: Bool = false, wide: Bool = false) -> some View {
+        func jbiCell(_ card: JBICard, standing: Bool = false, wide: Bool = false) -> some View {
             Group {
                 switch card {
                 case let .signal(signal):
@@ -659,23 +870,23 @@ struct HomeView: View {
                 let height = (t.pieces.map { CGFloat(t.top(of: $0)) + CGFloat($0.kind.rowSpan) }.max() ?? 1) * pitch - rowGap
                 ZStack(alignment: .topLeading) {
                     ForEach(layout.cells, id: \.card.stableId) { c in
-                        cell(c.card, standing: c.piece.kind == .tallSignal, wide: c.piece.kind == .wideSignal)
+                        jbiCell(c.card, standing: c.piece.kind == .tallSignal, wide: c.piece.kind == .wideSignal)
                             .offset(x: CGFloat(c.piece.column) * (colW + gap), y: CGFloat(t.top(of: c.piece)) * pitch)
                             .transition(.jbiRemoval)
                     }
                 }
-                .frame(width: density.content, height: height, alignment: .topLeading)
+                .frame(width: cell.density.content, height: height, alignment: .topLeading)
                 // A hidden card folds away and the next one steps up on a spring.
                 .animation(Yoin.spatial, value: layout.cells.map { "\($0.card.stableId)@\($0.piece.column),\($0.piece.row)" })
             case let .packed(rows):
                 VStack(alignment: .leading, spacing: rowGap) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                         HStack(alignment: .top, spacing: gap) {
-                            ForEach(row, id: \.stableId) { card in cell(card, wide: card.expanded).transition(.jbiRemoval) }
+                            ForEach(row, id: \.stableId) { card in jbiCell(card, wide: card.expanded).transition(.jbiRemoval) }
                         }
                     }
                 }
-                .frame(width: density.content, alignment: .leading)
+                .frame(width: cell.density.content, alignment: .leading)
                 .animation(Yoin.spatial, value: rows.map { $0.map(\.stableId) })
             }
         }
@@ -715,10 +926,10 @@ struct HomeView: View {
 
     /// A server's shelf: the history's 1×2s, then plain cells, three to a row;
     /// covers wear their memory marks.
-    private func serverJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
+    private func serverJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset, _ cell: HomeCell) -> some View {
         let colGap = Tokens.home.JBI_COLUMN_GAP.cg
-        let col = (contentWidth - 2 * colGap) / 3
-        let pairUnit = (contentWidth - colGap) / 3
+        let col = (cell.width - 2 * colGap) / 3
+        let pairUnit = (cell.width - colGap) / 3
         let rows = jbiStops(feed).stopPayload(for: preset)
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
             HomeSectionTitle(String(localized: "Jump Back In"))
@@ -747,13 +958,13 @@ struct HomeView: View {
         .animation(Yoin.spatial, value: feed.signals.map(\.hideKey) + feed.jumpBackIn.map(\.stableId))
     }
 
-    private func mockJumpBackIn(_ a: [Album]) -> some View {
+    private func mockJumpBackIn(_ a: [Album], _ cell: HomeCell) -> some View {
         // Compose Row weights (HomeWidgetGrid.kt phone path): each row splits
         // what its own 12 dp gaps leave, so a 1×2 row (one gap) gets
         // (C − 12) × 2/3 + (C − 12)/3 and a three-cover row (C − 24)/3 each.
         let colGap = Tokens.home.JBI_COLUMN_GAP.cg
-        let col = (contentWidth - 2 * colGap) / 3
-        let pairUnit = (contentWidth - colGap) / 3
+        let col = (cell.width - 2 * colGap) / 3
+        let pairUnit = (cell.width - colGap) / 3
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
             HomeSectionTitle(String(localized: "Jump Back In"))
             VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
@@ -790,12 +1001,12 @@ struct HomeView: View {
 
     // MARK: Recently Added (2×2 track grid, then album cards)
 
-    private func recentlyAdded(_ feed: HomeFeed) -> some View {
+    private func recentlyAdded(_ feed: HomeFeed, _ cell: HomeCell) -> some View {
         let tiles = feed.recentTracks
         // Tablet: 3 or 4 track columns (only as many as fill two rows), whole 166-wide cells.
-        let trackCols = density.isTablet ? min(density.recentTrackColumns, max(2, (min(tiles.count, 8) + 1) / 2)) : 2
-        let gridWidth = density.isTablet ? density.recentGridWidth(columns: trackCols)
-                                         : min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
+        let trackCols = cell.density.isTablet ? min(cell.density.recentTrackColumns, max(2, (min(tiles.count, 8) + 1) / 2)) : 2
+        let gridWidth = cell.density.isTablet ? cell.density.recentGridWidth(columns: trackCols)
+                                         : min(340, max(226.8, (cell.width - 14) * 2.6 / 3.6))
         let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Recently Added"))
@@ -817,20 +1028,21 @@ struct HomeView: View {
                         AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-added-\(i)")
                     }
                 }
-                .padding(.horizontal, density.margin)
+                .padding(.horizontal, cell.density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -density.margin)
+            .padding(.horizontal, -cell.density.margin)
         }
     }
 
     @ViewBuilder
-    private func recentTrackButton(_ tiles: [PlaylistEntry], index i: Int, width: CGFloat) -> some View {
+    private func recentTrackButton(_ tiles: [PlaylistEntry], index i: Int, width: CGFloat?, cover: CGFloat? = nil) -> some View {
         let entry = tiles[i]
         let isEditing = edit.isEditing
         Button { homeTap(edit) { model.play(tiles, startAt: i) } } label: {
-            TrackTile(album: entry.album, track: entry.track)
+            TrackTile(album: entry.album, track: entry.track, cover: cover ?? Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg)
                 .frame(width: width, alignment: .leading)
+                .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: width == nil ? .infinity : nil, alignment: .leading)
                 .contentShape(.rect)
                 .onSecondaryClick {
                     if !isEditing {
@@ -846,8 +1058,8 @@ struct HomeView: View {
     // MARK: Recently Played, Your Playlists (Android AlbumShelfSection, YourPlaylistsSection)
 
     /// The source's recent albums: Recently Added's album cards, full bleed.
-    private func recentlyPlayed(_ feed: HomeFeed) -> some View {
-        shelf(HomeSection.recentlyPlayed.title) {
+    private func recentlyPlayed(_ feed: HomeFeed, _ cell: HomeCell) -> some View {
+        shelf(HomeSection.recentlyPlayed.title, cell) {
             ForEach(feed.recentlyPlayed) { album in
                 AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId], tile: "recent-played")
             }
@@ -855,34 +1067,34 @@ struct HomeView: View {
     }
 
     /// The library's playlists: the same card on the playlist shape, its song count under the name.
-    private func yourPlaylists(_ playlists: [LibraryItem]) -> some View {
-        shelf(HomeSection.yourPlaylists.title) {
+    private func yourPlaylists(_ playlists: [LibraryItem], _ cell: HomeCell) -> some View {
+        shelf(HomeSection.yourPlaylists.title, cell) {
             ForEach(playlists) { PlaylistMini(item: $0) }
         }
     }
 
     /// Personalized mixes made by Spotify (App Remote) or Apple Music (`/v1/me/recommendations`).
-    private func madeForYou(_ items: [LibraryItem]) -> some View {
-        shelf(HomeSection.madeForYou.title) {
+    private func madeForYou(_ items: [LibraryItem], _ cell: HomeCell) -> some View {
+        shelf(HomeSection.madeForYou.title, cell) {
             ForEach(items) { PlaylistMini(item: $0) }
         }
     }
 
-    private func shelf<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+    private func shelf<Content: View>(_ title: String, _ cell: HomeCell, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(title)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) { content() }
-                    .padding(.horizontal, density.margin)
+                    .padding(.horizontal, cell.density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -density.margin)
+            .padding(.horizontal, -cell.density.margin)
         }
     }
 
     // MARK: Rediscover (peeking shelf)
 
-    private func rediscover(_ cards: [RediscoverEntry]) -> some View {
+    private func rediscover(_ cards: [RediscoverEntry], _ cell: HomeCell) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Rediscover"))
             ScrollView(.horizontal) {
@@ -897,14 +1109,14 @@ struct HomeView: View {
                                                footnote: (c.footnoteDate, c.footnotePlays))
                             }
                         }
-                        .frame(width: contentWidth * 0.86)
+                        .frame(width: cell.width * 0.86)
                     }
                 }
                 .frame(minHeight: cards.contains { $0.song == nil } ? Tokens.home.REDISCOVER_CARD_HEIGHT.cg : nil)
-                .padding(.horizontal, density.margin)
+                .padding(.horizontal, cell.density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -density.margin)
+            .padding(.horizontal, -cell.density.margin)
         }
     }
 }
@@ -980,6 +1192,7 @@ func cardInk(_ palette: CoverPalette, dark: Bool) -> Color {
 /// Section title: titleLarge SemiBold at 18 sp (line height 28).
 struct HomeSectionTitle: View {
     @Environment(\.homeScheme) private var scheme
+    @Environment(\.homeGridCell) private var gridCell
     var text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -987,6 +1200,8 @@ struct HomeSectionTitle: View {
             .homeType(Tokens.type.titleLarge, .semibold, size: 18)
             .foregroundStyle(scheme?.onSurface ?? Yoin.ink)
             .lineLimit(1)
+            // Two columns: every title on the centre line of the same 40 pt row, so a row's two halves line up.
+            .frame(minHeight: gridCell != nil ? HomeGrid.titleRow : nil, alignment: .leading)
     }
 }
 
@@ -998,10 +1213,12 @@ private struct MetaLine: View {
     var style: YoinTokens.TypographyStyle = Tokens.type.labelSmall
     var color: Color
     var body: some View {
-        HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+        // Groups on one baseline, not centred (Android MetaLine 2026-11-24: a digits-only group sat above a
+        // Chinese one, whose CJK fallback font has a taller line).
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                 if let unit = g.1 {
-                    HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.INNER_GAP.cg) {
                         Text(g.0).homeType(style, .medium, digits: true)
                         Text(unit).homeType(style, .regular).opacity(Tokens.metaLine.MUTED_ALPHA)
                     }
@@ -1335,9 +1552,9 @@ private struct JBICell: View {
     }
 }
 
-/// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner.
-private struct MemoryMarkView: View {
-    var mark: MemoryMark
+/// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner (also Search's tiles).
+struct MemoryMarkView: View {
+    var mark: AlbumMemoryMark
     var ink: Color
     var bg: Color
 
@@ -1559,12 +1776,14 @@ private struct TrackTile: View {
     @Environment(\.homeScheme) private var scheme
     var album: Album
     var track: Track
+    /// The cover's side: the phone's, or on the grid a track row's height.
+    var cover: CGFloat = Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg
 
     var body: some View {
         let s = scheme!
         HStack(spacing: 8) {
             CoverArt(palette: album.palette, cornerRadius: Tokens.shape.THUMB.cg, seed: album.seed)
-                .frame(width: Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg, height: Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg)
+                .frame(width: cover, height: cover)
             VStack(alignment: .leading, spacing: 0) {
                 // bodyMedium at 13 sp Medium (line height stays 20).
                 Text(track.title).homeType(Tokens.type.bodyMedium, .medium, size: 13).foregroundStyle(s.onSurface)
@@ -1583,6 +1802,8 @@ private struct AlbumMini: View {
     var album: Album
     var mark: MemoryMark? = nil
     var tile: String
+    /// The cover's side: the phone's 82, or the grid's U − 44.
+    var size: CGFloat = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
     @Environment(\.zoomNamespace) private var zoomNS
 
     var body: some View {
@@ -1593,7 +1814,7 @@ private struct AlbumMini: View {
             onPrimaryTap: { homeTap(edit) { model.open(album, tile: tile) } }
         ) {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
-            AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
+            AlbumItem(album: album, size: size, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6) {
                 if let mark, let s = scheme {
                     MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background)
@@ -1613,10 +1834,11 @@ private struct PlaylistMini: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var item: LibraryItem
+    /// The cover's side: the phone's 82, or the grid's U − 44.
+    var size: CGFloat = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
 
     var body: some View {
         let s = scheme!
-        let size = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
         SecondaryEntityButton(
             target: .playlist(item),
             onOpen: { model.openPlaylist(item.id.rawId) },
@@ -1766,7 +1988,7 @@ private struct RediscoverSongCard: View {
                         .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 22)
                         .foregroundStyle(s.onSurface)
                         .padding(.top, 2)
-                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if let artist = entry.track.artist, !artist.isEmpty { Text(artist) }
                         if !album.title.isEmpty { Text(album.title).opacity(Tokens.metaLine.MUTED_ALPHA) }
                     }
@@ -1915,7 +2137,7 @@ private struct HomeCoverEffects: View {
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: covered) { _, c in if c { edit.exit() } }
+            .onChange(of: covered) { _, c in if c { edit.exit(.programmatic) } }
             .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
     }
 }

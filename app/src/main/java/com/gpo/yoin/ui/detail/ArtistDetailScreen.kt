@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +84,7 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -154,7 +154,7 @@ fun ArtistDetailScreen(
 ) {
     val content = uiState as? ArtistDetailUiState.Content
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
-    val heroUrl = content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl
+    val heroUrl = content?.heroUrl
     val pageAccent = rememberDetailPageAccent(heroUrl)
 
     // Material roles seeded from the portrait (same MCU path as Album/Playlist),
@@ -273,8 +273,7 @@ fun ArtistDetailScreen(
                                 is ArtistDetailUiState.Content ->
                                     ArtistBody(
                                         content = state,
-                                        heroUrl = state.heroCoverArtUrl
-                                            ?: state.albums.firstOrNull()?.coverArtUrl,
+                                        heroUrl = state.heroUrl,
                                         colors = colors,
                                         onAlbumClick = onAlbumClick,
                                         onMostPlayedClick = onMostPlayedClick,
@@ -377,7 +376,7 @@ private fun ArtistTopHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -40,6 +40,7 @@ import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.MadeForYouKind
 import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -997,7 +998,24 @@ class AppleMusicSource(
                     ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
                 libraryAddedAt = a.text("dateAdded"),
                 releaseDate = releaseDate,
+                // A catalog album names its label; a library album only through its catalog relationship.
+                recordLabels = listOfNotNull(
+                    (a.text("recordLabel") ?: catalog?.attributes()?.text("recordLabel"))?.trim()?.takeIf(String::isNotEmpty),
+                ),
+                // A catalog album's default attributes carry Apple's notes; a library album has them only
+                // through its catalog relationship.
+                editorialNotes = appleEditorialNotes(a["editorialNotes"] as? JsonObject)
+                    ?: appleEditorialNotes(catalog?.attributes()?.get("editorialNotes") as? JsonObject),
             )
+        }
+
+        /**
+         * Apple's `editorialNotes` as plain text: `standard`, else `short`; null when neither has words (the
+         * rule and the HTML stripping are :shared's, so iOS reads the same notes).
+         */
+        internal fun appleEditorialNotes(notes: JsonObject?): String? {
+            notes ?: return null
+            return YoinAlbumAbout.editorialNotes(standard = notes.text("standard"), short = notes.text("short"))
         }
 
         /**

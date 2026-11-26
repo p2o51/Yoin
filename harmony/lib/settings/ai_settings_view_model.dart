@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/about/album_about_repository.dart';
+import '../data/about/album_about_store.dart';
 import '../data/about/song_about_repository.dart';
 import '../data/about/song_about_store.dart';
 import '../data/ai/ai_client.dart';
@@ -80,8 +82,10 @@ final class StoredAiSettingsActions implements AiSettingsActions {
     final before = _ref.read(aiSettingsProvider).value?.targetLanguage;
     // Read before the write: the page (and its WidgetRef) may be gone by the time it lands.
     SongAboutStore? about;
+    AlbumAboutStore? albumAbout;
     try {
       about = _ref.read(songAboutStoreProvider);
+      albumAbout = _ref.read(albumAboutStoreProvider);
     } catch (_) {
       // No app storage (a harness): nothing to clear.
     }
@@ -91,6 +95,8 @@ final class StoredAiSettingsActions implements AiSettingsActions {
         // clearGeneratedAbout); the listener's own About entries stay.
         if (before != null && AiLanguages.normalize(before) != AiLanguages.normalize(language)) {
           await about?.deleteGenerated();
+          // Every album About row is the AI's (AiSettingsViewModel: albumAboutEntryDao().deleteAll()).
+          await albumAbout?.deleteAll();
         }
       }),
     );

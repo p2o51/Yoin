@@ -99,7 +99,32 @@ internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(
     songs = song.map { it.toSongInfo() },
     played = played?.takeIf { it.isNotEmpty() },
     version = version?.trim()?.takeIf { it.isNotEmpty() },
+    recordLabels = recordLabels.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct(),
+    // Android subsonicReleaseDate: this release's date, else the original's, else the year.
+    releaseDate = releaseDate?.toIso() ?: originalReleaseDate?.toIso() ?: isoDate(year, null, null),
+    originalReleaseDate = originalReleaseDate?.toIso(),
 )
+
+private fun ItemDateDto.toIso(): String? = isoDate(year, month, day)
+
+/**
+ * "2014-05-20" / "2014-05" / "2014" as far as the parts make a real date (Android `ReleaseDate.of`): an invalid
+ * month drops the month and day, an invalid day drops the day; null without a usable year.
+ */
+internal fun isoDate(year: Int?, month: Int?, day: Int?): String? {
+    val y = year?.takeIf { it in 1..9999 } ?: return null
+    val yy = y.toString().padStart(4, '0')
+    val m = month?.takeIf { it in 1..12 } ?: return yy
+    val mm = "$yy-${m.toString().padStart(2, '0')}"
+    val d = day?.takeIf { it in 1..daysIn(y, m) } ?: return mm
+    return "$mm-${d.toString().padStart(2, '0')}"
+}
+
+private fun daysIn(year: Int, month: Int): Int = when (month) {
+    2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
+    4, 6, 9, 11 -> 30
+    else -> 31
+}
 
 /** OpenSubsonic `releaseTypes` → lower-case type; the first recognised value wins (Android: `subsonicReleaseType`). */
 internal fun subsonicReleaseType(releaseTypes: List<String>): String? =

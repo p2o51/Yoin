@@ -8,6 +8,8 @@ import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/nowplaying/note_logic.dart';
 import 'package:yoin/nowplaying/note_page.dart';
 import 'package:yoin/nowplaying/note_write_bar.dart';
+import 'package:yoin/nowplaying/share_content.dart';
+import 'package:yoin/nowplaying/share_sheet.dart';
 import 'package:yoin/nowplaying/playhead_clock.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/playback/playhead.dart';
@@ -34,20 +36,23 @@ void main() {
       ..setCurrent(_track);
   }
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(WidgetTester tester, {void Function(ShareRequest)? share}) async {
+    Widget scoped(Widget child) => share == null ? child : NowPlayingShareScope(open: share, child: child);
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: Column(
-            children: [
-              Expanded(
-                child: NotePage(notes: notes, clock: clock),
-              ),
-              SizedBox(
-                height: 160,
-                child: NoteWriteBar(notes: notes, clock: clock),
-              ),
-            ],
+        home: scoped(
+          Scaffold(
+            body: Column(
+              children: [
+                Expanded(
+                  child: NotePage(notes: notes, clock: clock),
+                ),
+                SizedBox(
+                  height: 160,
+                  child: NoteWriteBar(notes: notes, clock: clock),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -277,6 +282,45 @@ void main() {
     final colors = Theme.of(tester.element(find.text('Shout'))).colorScheme;
     expect(tester.widget<Text>(find.text('Shout')).style!.color, colors.primary);
     expect(tester.widget<Text>(find.text('Chorus')).style!.color, isNot(colors.primary));
+    notes.dispose();
+    store.dispose();
+  });
+
+  testWidgets('should_offerShareThenCloseTheEdit_when_anEditIsUntouched', (tester) async {
+    setUpNotes();
+    await putNote('n1', 'Clap', positionMs: 1000);
+    final asked = <ShareRequest>[];
+    await pumpPage(tester, share: asked.add);
+    expect(find.byKey(const ValueKey('note-share')), findsNothing);
+    await tester.longPress(find.text('Clap'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('note-share')), findsOneWidget);
+
+    // Changed: Share goes (the words would be lost).
+    await tester.enterText(find.byType(TextField), 'Clap along');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('note-share')), findsNothing);
+    await tester.enterText(find.byType(TextField), 'Clap');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('note-share')));
+    await tester.pumpAndSettle();
+    expect(asked.single.tab, ShareTab.note);
+    expect(asked.single.noteId, 'n1');
+    // The edit closed as it was.
+    expect(notes.editingId, isNull);
+    expect((await store.notesForTracks([_track.trackId])).single.content, 'Clap');
+    notes.dispose();
+    store.dispose();
+  });
+
+  testWidgets('should_offerNoShare_when_outsideNowPlaying', (tester) async {
+    setUpNotes();
+    await putNote('n1', 'Clap', positionMs: 1000);
+    await pumpPage(tester);
+    await tester.longPress(find.text('Clap'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('note-share')), findsNothing);
     notes.dispose();
     store.dispose();
   });

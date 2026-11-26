@@ -34,6 +34,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.verify
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDateTime
@@ -537,6 +538,21 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(before, (viewModel.uiState.value as HomeUiState.Content).memoryPill)
+    }
+
+    /** PR #331 review: Retry asks the server, not SubsonicReadCache's lists of the last 20 s. */
+    @Test
+    fun should_forgetTheReadCache_when_refreshed() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-refresh-cache")
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        val viewModel = homeViewModel(repository, "subsonic-refresh-cache")
+        advanceUntilIdle()
+        verify(exactly = 0) { repository.invalidateReadCache() }
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { repository.invalidateReadCache() }
     }
 
     @Test
@@ -2347,6 +2363,40 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("grid-note:note-kept"), noted())
+    }
+
+    @Test
+    fun should_dropTheNotedTrackCard_when_itsNoteIsDeleted() = runTest {
+        // Now Playing deletes a note (its undo window closed): the table's
+        // change stamp moves and Jump Back In's note 1×2 leaves the shelf —
+        // no reload, no stale "N/A · song — words" card.
+        val profile = "subsonic-note-deleted"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = listOf(
+            SongNote(
+                id = "note-gone",
+                profileId = profile,
+                trackId = "noted-song",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                content = "delete me",
+                createdAt = 1L,
+                updatedAt = 1L,
+                title = "Noted",
+                artist = "Artist"
+            )
+        )
+        coEvery { repository.getRecentSongNotes(any()) } answers { notes }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        val noted = { (viewModel.uiState.value as HomeUiState.Content).widgetGrid.map { it.stableId } }
+        assertEquals(listOf("grid-note:note-gone"), noted())
+
+        notes = emptyList()
+        stamp.value = 4L
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), noted())
     }
 
     @Test

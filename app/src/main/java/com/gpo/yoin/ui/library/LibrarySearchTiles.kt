@@ -2,6 +2,8 @@
 
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.theme.YoinShapeTokens
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -281,6 +283,8 @@ private fun SearchTileHeader(title: String, showAll: Boolean, onShowAll: () -> U
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .handPointer()
+                    // A text button's pill, not a square, under the press.
+                    .clip(YoinShapeTokens.Full)
                     .combinedClickable(onClick = onShowAll)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )

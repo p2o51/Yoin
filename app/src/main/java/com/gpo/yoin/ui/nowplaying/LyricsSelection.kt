@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,14 +21,17 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -92,11 +96,19 @@ internal class LyricsSelectionState(private val maxLines: Int = MaxSelectedLyric
     }
 }
 
+/**
+ * The pick for [songId]'s [lyrics]. Inside Now Playing it lives in the ViewModel ([LocalShareRetained]), so a
+ * rotation — a new Activity, or another layout composable for the new size — keeps select mode, the pick
+ * and an open share sheet (owner device check 2026-11-25); a new song or new lyrics start a fresh pick.
+ */
 @Composable
 internal fun rememberLyricsSelectionState(
     songId: String,
     lyrics: List<LyricLine>,
-): LyricsSelectionState = remember(songId, lyrics) { LyricsSelectionState() }
+): LyricsSelectionState {
+    val retained = LocalShareRetained.current
+    return remember(songId, lyrics, retained) { retained?.selectionFor(songId, lyrics) ?: LyricsSelectionState() }
+}
 
 /**
  * Most lines one pick holds — spotoolfy's poster cap (`_selectedCount/15`);
@@ -156,10 +168,8 @@ internal fun selectedLyricLines(lyrics: List<LyricLine>, selected: Set<Int>): Li
  * positions in that list whose line does not follow the previous one. Each
  * starts a new passage on the card and after a blank line in the copy.
  */
-internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Set<Int> {
-    val picked = selected.filter { it in lyrics.indices }.sorted()
-    return picked.indices.filterTo(mutableSetOf()) { i -> i > 0 && picked[i] != picked[i - 1] + 1 }
-}
+internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Set<Int> =
+    YoinShareCards.passageStarts(selected.toList(), lyrics.size).toSet()
 
 /**
  * Plain-text form for the clipboard: one lyric per line, each followed by its
@@ -263,8 +273,13 @@ internal fun LyricsTools(
     // lyrics page first (select mode lives there).
     onBeforeSelect: () -> Unit = {},
     iconSize: Dp = 52.dp,
+    // The auto-hide's count (design.md 自动沉浸): faded all the way out, the
+    // keys drop their hit area and semantics; a key holding input focus keeps
+    // the tools from stepping away.
+    idle: LyricToolsIdleState? = null,
 ) {
     val resources = LocalContext.current.resources
+    val toolsHidden by remember(idle) { derivedStateOf { idle?.hidden == true } }
     val copyLyrics = rememberCopyLyrics(onMessage)
     val haptics = rememberYoinHaptics()
     // Action light (ActionGlow.kt): copied or shared lyrics light a band over the lines.
@@ -285,7 +300,9 @@ internal fun LyricsTools(
         },
         contentAlignment = Alignment.CenterStart,
         label = "lyricsTools",
-        modifier = modifier,
+        modifier = modifier
+            .then(if (idle != null) Modifier.onFocusChanged { idle.holdAwake(it.hasFocus) } else Modifier)
+            .then(if (toolsHidden) Modifier.clearAndSetSemantics {} else Modifier),
     ) { selecting ->
         if (selecting) {
             LyricsSelectionBar(
@@ -341,6 +358,7 @@ internal fun LyricsTools(
                 },
                 onRecenterClick = onRecenterClick,
                 iconSize = iconSize,
+                interactive = !toolsHidden,
             )
         }
     }
@@ -380,6 +398,20 @@ internal fun lyricsShareSnapshot(state: NowPlayingUiState.Playing, selected: Set
 }
 
 /**
+ * The share sheet's content for [this] pick: the lines, and — when Now Playing provides its [sources] — the
+ * song's About and note, for the sheet's other tabs. Only the pick's own song: a song that changed since
+ * the pick began leaves the other tabs out rather than mixing two songs.
+ */
+internal fun LyricsShareSnapshot.shareContent(sources: ShareSources?, resources: android.content.res.Resources): ShareContent {
+    val pick = LyricsSharePick(lines, passageStarts, showTranslation)
+    val full = sources?.takeIf { it.state()?.songId == songId }?.content(resources, lyrics = pick)
+    return full ?: ShareContent(
+        song = ShareSong(songId = songId, title = songTitle, artist = artist, coverArtUrl = coverArtUrl),
+        lyrics = pick,
+    )
+}
+
+/**
  * The open share sheet and the [LyricsShareSnapshot] it renders. Held by the
  * layout, not per song like the pick, so it outlives a song change under it.
  */
@@ -388,7 +420,11 @@ internal class LyricsShareSheetState {
     var snapshot: LyricsShareSnapshot? by mutableStateOf(null)
         private set
 
+    /** The open sheet's tab, format and tone, kept with it across a rotation. */
+    val ui = ShareSheetUi()
+
     fun open(snapshot: LyricsShareSnapshot) {
+        ui.reset()
         this.snapshot = snapshot
     }
 
@@ -406,7 +442,7 @@ internal class LyricsShareSheetState {
  * The pick's Share ([LyricsSelectionState.openShare]) is taken up here: what
  * it shows is frozen into [shareSheet], which stays open — same lines, same
  * song — when the song changes underneath; the live pick still resets for the
- * new song. [sheet] draws it (the real [LyricsShareSheet]; tests swap it).
+ * new song. [sheet] draws it (the real [ShareSheet], opened on its lyrics tab; tests swap it).
  */
 @Composable
 internal fun LyricsSelectionHost(
@@ -414,17 +450,17 @@ internal fun LyricsSelectionHost(
     selection: LyricsSelectionState,
     lyricsPageOnScreen: Boolean,
     onMessage: (String) -> Unit,
-    shareSheet: LyricsShareSheetState = remember { LyricsShareSheetState() },
+    shareSheet: LyricsShareSheetState = LocalShareRetained.current?.lyricsSheet ?: remember { LyricsShareSheetState() },
     sheet: @Composable (snapshot: LyricsShareSnapshot, onShared: () -> Unit, onDismiss: () -> Unit) -> Unit =
         { snapshot, onShared, onDismiss ->
             val context = LocalContext.current
-            LyricsShareSheet(
-                lines = snapshot.lines,
-                passageStarts = snapshot.passageStarts,
-                showTranslation = snapshot.showTranslation,
-                songTitle = snapshot.songTitle,
-                artist = snapshot.artist,
-                coverArtUrl = snapshot.coverArtUrl,
+            val sources = LocalShareSources.current
+            // The pick, with whatever About and note the song has — frozen as the sheet opens.
+            val content = remember(snapshot) { snapshot.shareContent(sources, context.resources) }
+            ShareSheet(
+                content = content,
+                initialTab = ShareTab.Lyrics,
+                ui = LocalShareRetained.current?.lyricsSheet?.ui ?: remember { ShareSheetUi() },
                 onShared = onShared,
                 onDismiss = onDismiss,
                 onMessage = onMessage,
@@ -439,8 +475,15 @@ internal fun LyricsSelectionHost(
             )
         },
 ) {
+    // Leaving the lyrics page leaves select mode: only a page that WAS on screen going off it, and not while
+    // the share sheet is up (owner device check 2026-11-25). A layout that arrives with the page still off
+    // screen — a rotation, before its stage expands to the lyrics — keeps the pick, as does a sheet that
+    // closes over a page that went away under it.
+    val latestSheetOpen by rememberUpdatedState(shareSheet.snapshot != null)
+    var pageWasOnScreen by remember { mutableStateOf(false) }
     LaunchedEffect(lyricsPageOnScreen) {
-        if (!lyricsPageOnScreen) selection.exit()
+        if (!lyricsPageOnScreen && pageWasOnScreen && !latestSheetOpen) selection.exit()
+        pageWasOnScreen = lyricsPageOnScreen
     }
     BackHandler(enabled = selection.active && !selection.sharing && shareSheet.snapshot == null) {
         selection.exit()

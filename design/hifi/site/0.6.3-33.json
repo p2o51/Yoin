@@ -1,0 +1,12 @@
+{
+  "about": "Changelog figure for Yoin 0.6.3 (33) on yoin-site (public/changelog.html, section v0-6-3-33). Screens: phone, bare (the site draws the bezel), 1.5x WebP, the real catalogue. '-was' = the same screen before 0.6.3 (33), for the figure's Before view.",
+  "out": "../../../../yoin-site/public/media/changelog/0.6.3-33",
+  "defaults": { "frame": "phone", "bezel": "none", "scale": 1.5, "format": "webp", "catalog": "real" },
+  "themes": ["light", "dark"],
+  "langs": ["en", "zh"],
+  "exports": [
+    { "name": "labs", "page": "settings", "state": "page=labs" },
+    { "name": "labs-was", "page": "settings", "state": "page=labs&labs=was" },
+    { "name": "tensor", "page": "settings", "state": "page=tensor" }
+  ]
+}

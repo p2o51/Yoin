@@ -78,11 +78,7 @@ import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.theme.YoinMotion
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.exp
-import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.launch
@@ -106,10 +102,10 @@ internal val LocalHomeColumn = compositionLocalOf { HomeColumn(half = false) }
 /** Numbers of the half-column pager. */
 internal object HomeShelfPagerTokens {
     /** The narrowest gap between two cards on a page; the page's spare width widens it. */
-    val MinGap = 14.dp
+    val MinGap = com.gpo.yoin.shared.home.HomeShelfPagerRules.MinGap.dp
 
     /** A release this fast (dp/s) turns the page even short of halfway. */
-    val FlingVelocity = 400.dp
+    val FlingVelocity = com.gpo.yoin.shared.home.HomeShelfPagerRules.FlingVelocity.dp
 
     /** Page dots. */
     val Dot = 6.dp
@@ -126,76 +122,35 @@ internal object HomeShelfPagerTokens {
     const val SpeedFollow = 14f
 }
 
-/** A page's layout: [perPage] cards of [cardPx], [gapPx] apart, one page every [stridePx]. */
-@Immutable
-internal data class ShelfPageGeometry(
-    val pagePx: Float,
-    val cardPx: Float,
-    val perPage: Int,
-    val gapPx: Float,
-) {
-    /** Scroll distance from one page to the next: a page plus the gap after it. */
-    val stridePx: Float get() = perPage * (cardPx + gapPx)
-}
+// The page arithmetic is :shared's (com.gpo.yoin.shared.home, golden home-grid.json); these keep the app's names.
 
-/**
- * How [cardPx]-wide cards page across a [pagePx]-wide column: as many as fit
- * with at least [minGapPx] between them (at least one), the gaps stretched so
- * the first card's left and the last one's right are the column's edges. A
- * single card per page keeps [minGapPx] past the page. Pure.
- */
-internal fun shelfPageGeometry(pagePx: Float, cardPx: Float, minGapPx: Float): ShelfPageGeometry {
-    val page = max(pagePx, 1f)
-    val card = cardPx.coerceIn(1f, page)
-    val perPage = max(1, floor((page + minGapPx) / (card + minGapPx)).toInt())
-    val gap = if (perPage > 1) (page - perPage * card) / (perPage - 1) else page - card + minGapPx
-    return ShelfPageGeometry(pagePx = page, cardPx = card, perPage = perPage, gapPx = gap)
-}
+/** A page's layout ([com.gpo.yoin.shared.home.ShelfPageGeometry]). */
+internal typealias ShelfPageGeometry = com.gpo.yoin.shared.home.ShelfPageGeometry
+
+/** How [cardPx]-wide cards page across a [pagePx]-wide column ([com.gpo.yoin.shared.home.shelfPageGeometry]). Pure. */
+internal fun shelfPageGeometry(pagePx: Float, cardPx: Float, minGapPx: Float): ShelfPageGeometry =
+    com.gpo.yoin.shared.home.shelfPageGeometry(pagePx, cardPx, minGapPx)
 
 /** A card's width when [perPage] of them, [HomeShelfPagerTokens.MinGap] apart, fill a [pageWidth] page. */
 internal fun homeShelfCardWidth(pageWidth: Dp, perPage: Int): Dp =
-    ((pageWidth - HomeShelfPagerTokens.MinGap * (perPage - 1)) / perPage).coerceAtLeast(1.dp)
+    com.gpo.yoin.shared.home.homeShelfCardWidthDp(pageWidth.value, perPage).dp
 
-/** Pages of [cardCount] cards after [leadPages] one-page lead items (Recently Added's track grid). Pure. */
+/** Pages of [cardCount] cards after [leadPages] one-page lead items. Pure. */
 internal fun shelfPageCount(cardCount: Int, perPage: Int, leadPages: Int = 0): Int =
-    leadPages + if (cardCount <= 0) 0 else ceil(cardCount / perPage.toFloat()).toInt()
+    com.gpo.yoin.shared.home.shelfPageCount(cardCount, perPage, leadPages)
 
-/**
- * The trailing filler that makes the last page whole, px (0 when it already is):
- * without it the list would stop short and the last scroll position cut the
- * page before it. The arrangement adds one gap ahead of it. Pure.
- */
-internal fun shelfFillerPx(cardCount: Int, geometry: ShelfPageGeometry): Float {
-    if (cardCount <= 0) return 0f
-    val missing = (geometry.perPage - cardCount % geometry.perPage) % geometry.perPage
-    return if (missing == 0) 0f else missing * (geometry.cardPx + geometry.gapPx) - geometry.gapPx
-}
+/** The trailing filler that makes the last page whole, px ([com.gpo.yoin.shared.home.shelfFillerPx]). Pure. */
+internal fun shelfFillerPx(cardCount: Int, geometry: ShelfPageGeometry): Float =
+    com.gpo.yoin.shared.home.shelfFillerPx(cardCount, geometry)
 
-/**
- * The shelf's scroll from its start, px: item [index] [offsetPx] past the
- * viewport's start, every card one card-plus-gap, a lead item one stride. Pure.
- */
-internal fun shelfScrollPx(index: Int, offsetPx: Int, geometry: ShelfPageGeometry, leadPages: Int = 0): Float {
-    val before = if (index < leadPages) {
-        index * geometry.stridePx
-    } else {
-        leadPages * geometry.stridePx + (index - leadPages) * (geometry.cardPx + geometry.gapPx)
-    }
-    return before + offsetPx
-}
+/** The shelf's scroll from its start, px ([com.gpo.yoin.shared.home.shelfScrollPx]). Pure. */
+internal fun shelfScrollPx(index: Int, offsetPx: Int, geometry: ShelfPageGeometry, leadPages: Int = 0): Float =
+    com.gpo.yoin.shared.home.shelfScrollPx(index, offsetPx, geometry, leadPages)
 
 /** How far [scrollPx] is from the nearest page boundary, px (0 = settled on a page). Pure. */
-internal fun shelfOffPagePx(scrollPx: Float, stridePx: Float): Float {
-    if (stridePx <= 0f) return 0f
-    val into = ((scrollPx % stridePx) + stridePx) % stridePx
-    return min(into, stridePx - into)
-}
+internal fun shelfOffPagePx(scrollPx: Float, stridePx: Float): Float = com.gpo.yoin.shared.home.shelfOffPagePx(scrollPx, stridePx)
 
-/**
- * The page a release lands on: one page from [startPage] in the release's
- * direction — the swipe's own if it is past [flingPx]/s, else whichever page
- * [scrollPx] is closer to — never more than one page away, within the shelf. Pure.
- */
+/** The page a release lands on ([com.gpo.yoin.shared.home.shelfReleasePage]). Pure. */
 internal fun shelfReleasePage(
     scrollPx: Float,
     velocityPx: Float,
@@ -203,20 +158,10 @@ internal fun shelfReleasePage(
     startPage: Int,
     pageCount: Int,
     flingPx: Float,
-): Int {
-    if (pageCount <= 1 || stridePx <= 0f) return 0
-    val position = scrollPx / stridePx
-    val target = when {
-        velocityPx > flingPx -> floor(position).toInt() + 1
-        velocityPx < -flingPx -> ceil(position).toInt() - 1
-        else -> position.roundToInt()
-    }
-    return target.coerceIn(startPage - 1, startPage + 1).coerceIn(0, pageCount - 1)
-}
+): Int = com.gpo.yoin.shared.home.shelfReleasePage(scrollPx, velocityPx, stridePx, startPage, pageCount, flingPx)
 
 /** The tide's reveal at [offPagePx] from a settled page: 0 settled, 1 from [revealPx] on. Pure. */
-internal fun shelfTideReveal(offPagePx: Float, revealPx: Float): Float =
-    if (revealPx <= 0f) 0f else (offPagePx / revealPx).coerceIn(0f, 1f)
+internal fun shelfTideReveal(offPagePx: Float, revealPx: Float): Float = com.gpo.yoin.shared.home.shelfTideReveal(offPagePx, revealPx)
 
 /**
  * One half-column shelf's pager: the list, its page geometry (set as the

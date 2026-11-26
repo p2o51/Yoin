@@ -172,7 +172,8 @@ private struct PadDock: View {
         // the pull itself.
         .modifier(MemoriesBarRetreat(presentation: model.memories,
                                      active: model.section == .home && !model.searchActive,
-                                     scrollHide: model.section == .home && !model.searchActive ? model.barScrollHide.fraction : 0))
+                                     scrollHide: model.section == .home && !model.searchActive ? model.barScrollHide.fraction : 0,
+                                     edit: model.section == .home && !model.searchActive ? model.homeEdit : nil))
         .onChange(of: padScrollHideEnabled, initial: true) { _, on in
             model.barScrollHide.enabled = on
         }

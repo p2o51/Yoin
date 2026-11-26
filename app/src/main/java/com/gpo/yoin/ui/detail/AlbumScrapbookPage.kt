@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -162,6 +161,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import com.gpo.yoin.data.notes.BacklinkTarget
 import com.gpo.yoin.data.notes.BacklinkTrack
 import com.gpo.yoin.data.notes.NoteBacklink
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.notes.rememberNoteBacklinks
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
@@ -199,8 +199,9 @@ import kotlin.math.sign
  *
  * Flat, no shadows; pieces are told apart by paper colour, type face and corner mark:
  *  - the listener's review: the album's primaryContainer, system face, no label, no rail (owner: colour only);
- *  - the album's one album note: a secondaryContainer sticky with a folded corner, system face, no label, no rail;
- *  - track notes: neutral paper with the journal rail (the rail is reserved for them) and time stamps;
+ *  - album notes: primaryContainer stickies (the listener's words, like the review; 51, 2026-11-25) told apart
+ *    by their folded corner and lean, no label, no rail;
+ *  - track notes: primaryContainer paper with the journal rail (the rail is reserved for them) and time stamps;
  *  - Ask / About: tertiary index cards in GSF with a "Q" clover;
  *  - scores: the album's groove emblem on the cover's corner, and each ticket's own number in the album ink.
  * Tilts live in graphicsLayer only (layout and hit areas stay square). While the pager drags, each piece
@@ -212,6 +213,8 @@ import kotlin.math.sign
 
 /** Masonry tokens (D3 §5.1). */
 private object ScrapbookLayout {
+    /** Above the opening's cover and title (51, 2026-11-25: +10dp so the header breathes). */
+    val OpeningTopGap = 10.dp
     val LaneMin = 280.dp
     val LaneGap = 28.dp
     val RowGap = 28.dp
@@ -262,6 +265,12 @@ internal data class ScrapbookColors(
     val stickyFold: Color,
     val note: Color,
     val onNote: Color,
+    /**
+     * Marks on the listener's own papers (a note's time stamps, rail and mention pills, "+N notes"): their
+     * own ink, onPrimaryContainer. The album ink (primary) on primaryContainer was nearly invisible on
+     * device covers once notes moved to primary (2026-11-25).
+     */
+    val noteMark: Color,
     val ask: Color,
     val onAsk: Color,
     val askMark: Color,
@@ -270,6 +279,10 @@ internal data class ScrapbookColors(
     val onTag: Color,
     val receipt: Color,
     val onReceipt: Color,
+    /** The album's About card: tertiary like the Ask cards ([albumAboutRoles]). */
+    val about: Color,
+    val onAbout: Color,
+    val aboutMark: Color,
     val outline: Color,
     val muted: Color,
     val dots: Color,
@@ -292,20 +305,29 @@ internal fun rememberScrapbookColors(scheme: androidx.compose.material3.ColorSch
         onTicketNow = animated(scheme.onSecondaryContainer, "scrapOnTicketNow"),
         review = animated(scheme.primaryContainer, "scrapReview"),
         onReview = animated(scheme.onPrimaryContainer, "scrapOnReview"),
-        sticky = animated(scheme.secondaryContainer, "scrapSticky"),
-        onSticky = animated(scheme.onSecondaryContainer, "scrapOnSticky"),
-        // the folded corner: the sticky's paper with a third of the secondary ink (D3)
-        stickyFold = animated(lerp(scheme.secondaryContainer, scheme.secondary, StickyFoldInk), "scrapStickyFold"),
-        note = animated(scheme.surfaceContainerHighest, "scrapNote"),
-        onNote = animated(scheme.onSurface, "scrapOnNote"),
+        // Everything the listener wrote is one colour family, primary (51, 2026-11-25: "上面是专辑 review、下面是
+        // 便利贴，为啥不是同一个颜色"): the review, the album stickies and the track notes. A sticky still reads
+        // as a sticky by its shape, fold and lean; a note by its rail and moments. AI and objective text is
+        // tertiary (Ask, About, the fact tags); secondary is left to the playing ticket.
+        sticky = animated(listenerPaperRoles(scheme).container, "scrapSticky"),
+        onSticky = animated(listenerPaperRoles(scheme).content, "scrapOnSticky"),
+        // the folded corner: the sticky's paper with a third of the primary ink (D3)
+        stickyFold = animated(lerp(scheme.primaryContainer, scheme.primary, StickyFoldInk), "scrapStickyFold"),
+        note = animated(listenerPaperRoles(scheme).container, "scrapNote"),
+        onNote = animated(listenerPaperRoles(scheme).content, "scrapOnNote"),
+        noteMark = animated(listenerPaperRoles(scheme).mark, "scrapNoteMark"),
         ask = animated(scheme.tertiaryContainer, "scrapAsk"),
         onAsk = animated(scheme.onTertiaryContainer, "scrapOnAsk"),
         askMark = animated(scheme.tertiary, "scrapAskMark"),
         onAskMark = animated(scheme.onTertiary, "scrapOnAskMark"),
-        tag = animated(scheme.secondaryContainer, "scrapTag"),
-        onTag = animated(scheme.onSecondaryContainer, "scrapOnTag"),
+        // A track's About facts are generated: tertiary, with the Ask card they sit under.
+        tag = animated(scheme.tertiaryContainer, "scrapTag"),
+        onTag = animated(scheme.onTertiaryContainer, "scrapOnTag"),
         receipt = animated(scheme.surfaceContainer, "scrapReceipt"),
         onReceipt = animated(scheme.onSurface, "scrapOnReceipt"),
+        about = animated(albumAboutRoles(scheme).container, "scrapAbout"),
+        onAbout = animated(albumAboutRoles(scheme).content, "scrapOnAbout"),
+        aboutMark = animated(albumAboutRoles(scheme).mark, "scrapAboutMark"),
         outline = animated(scheme.outline, "scrapOutline"),
         muted = animated(scheme.onSurfaceVariant, "scrapMuted"),
         dots = animated(scheme.outlineVariant.copy(alpha = if (dark) 0.35f else 0.45f), "scrapDots"),
@@ -424,6 +446,11 @@ private fun ScrapbookPaper(
     val paperScope = rememberCoroutineScope()
     // The open track sheet: which track, on which tab, and the About row it opened editing.
     var trackSheet by remember { mutableStateOf<ScrapSheetOpen?>(null) }
+    // The album About sheet (the About card's tap).
+    var aboutSheetOpen by remember { mutableStateOf(false) }
+    // Once the pager rests here, the album's About is written if it never was (cached after that).
+    val latestEnsure by rememberUpdatedState(onEdit)
+    LaunchedEffect(settled) { if (settled) latestEnsure(ScrapEdit.EnsureAlbumAbout) }
     // Where each piece sits in the scrolling column, for "View in Scrapbook".
     val pieceTops = remember { mutableStateMapOf<String, Int>() }
     var masonryTop by remember { mutableIntStateOf(0) }
@@ -472,12 +499,17 @@ private fun ScrapbookPaper(
         }
     }
     val latestOnNotice by rememberUpdatedState(onNotice)
+    val latestAboutSheetOpen by rememberUpdatedState(aboutSheetOpen)
     LaunchedEffect(feeds) {
         feeds.events.collect { event ->
             when (event) {
                 is ScrapEvent.Regenerated ->
                     latestOnNotice(ScrapNotice(regeneratedLabel, YoinSymbols.Sparkle, event.restore))
                 is ScrapEvent.Failed -> latestOnNotice(ScrapNotice(event.message.asString(context), YoinSymbols.Error))
+                // The About sheet says it in place when it is open (AlbumAboutSheet); otherwise the page does.
+                is ScrapEvent.AlbumAboutFailed -> if (!latestAboutSheetOpen) {
+                    latestOnNotice(ScrapNotice(event.message.asString(context), YoinSymbols.Error))
+                }
             }
         }
     }
@@ -601,6 +633,13 @@ private fun ScrapbookPaper(
                                 onManage = { songId -> trackSheet = ScrapSheetOpen(songId) },
                                 modifier = slot,
                             )
+                            is ScrapPiece.AlbumAbout -> AlbumAboutCard(
+                                piece = piece,
+                                albumName = content.albumName,
+                                colors = colors,
+                                onClick = { aboutSheetOpen = true },
+                                modifier = slot,
+                            )
                             is ScrapPiece.NotYet -> NotYet(piece, colors, onSongClick, slot)
                             is ScrapPiece.Receipt -> Receipt(piece, colors, slot)
                         }
@@ -630,7 +669,7 @@ private fun ScrapbookPaper(
         }
         // The track sheet carries this host while it is open; after it closes the notice sits here,
         // above the window's bar.
-        if (trackSheet == null) {
+        if (trackSheet == null && !aboutSheetOpen) {
             YoinSnackbarHost(
                 hostState = removedSnackbar,
                 modifier = Modifier
@@ -666,6 +705,25 @@ private fun ScrapbookPaper(
                     initialNote = open.note,
                 )
             }
+        }
+    }
+
+    if (aboutSheetOpen) {
+        val about = remember(book) { book.pieces.firstNotNullOfOrNull { it as? ScrapPiece.AlbumAbout } }
+        val credits = remember(book) { book.pieces.firstNotNullOfOrNull { it as? ScrapPiece.Opening }?.credits.orEmpty() }
+        if (about == null) {
+            SideEffect { aboutSheetOpen = false }
+        } else {
+            AlbumAboutSheet(
+                albumName = content.albumName,
+                about = about,
+                credits = credits,
+                colors = colors,
+                onEdit = onEdit,
+                onDismiss = { aboutSheetOpen = false },
+                feeds = feeds,
+                snackbar = removedSnackbar,
+            )
         }
     }
 }
@@ -924,7 +982,13 @@ private fun Opening(
         { m -> AlbumNoteSticky(text, piece.albumNoteTilt, colors, m) }
     }
     ScrapStack(mirror = false, modifier = modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.scrapSlot(cross = false, overlap = 0.dp).fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .scrapSlot(cross = false, overlap = 0.dp)
+                .fillMaxWidth()
+                // Air above the cover and the title beside it (51, 2026-11-25: the header breathes).
+                .padding(top = ScrapbookLayout.OpeningTopGap),
+        ) {
             CoverWithEmblem(
                 content = content,
                 coverSide = coverSide,
@@ -935,14 +999,15 @@ private fun Opening(
                 stamped = stamped,
                 onStamped = onStamped,
             )
+            val credits = piece.credits
             if (title != null) {
                 // the emblem's sideways overhang plus a little air
                 Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
                 Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
                     OpeningTitle(title, wide, onRenameTitle, onRestoreTitle)
-                    // Last Play in full, where the hero's time lands (owner 2026-10-29: the
-                    // space under the title was empty).
-                    AlbumScrapLastPlay(content.lastPlayedAt, Modifier.padding(top = 16.dp))
+                    // The credits line, where Last Play was (owner + Carbon 2026-11-25: Last Play stays on
+                    // page 1 and on the receipt).
+                    AlbumCreditsLine(credits, colors, Modifier.padding(top = 12.dp))
                     if (reviewBeside) {
                         // Wide: the review (and the sticky tucked under it) follows the title in its column.
                         Spacer(Modifier.height(16.dp))
@@ -954,6 +1019,29 @@ private fun Opening(
                                     .padding(start = ScrapbookLayout.StickyIndentWide)
                                     .stickyWidth(),
                             )
+                        }
+                    }
+                }
+            } else if (credits.isNotEmpty()) {
+                // No title yet: the credits line still sits beside the cover, the review (when it fits there)
+                // under it.
+                Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
+                Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
+                    AlbumCreditsLine(credits, colors)
+                    if (reviewBeside) {
+                        Spacer(Modifier.height(12.dp))
+                        if (wide && albumNote != null) {
+                            ScrapStack(mirror = false, modifier = Modifier.fillMaxWidth()) {
+                                review(Modifier.scrapSlot(cross = false, overlap = 0.dp).widthIn(max = 420.dp))
+                                albumNote(
+                                    Modifier
+                                        .scrapSlot(cross = false, overlap = ScrapbookLayout.StickyTuck)
+                                        .padding(start = ScrapbookLayout.StickyIndentWide)
+                                        .stickyWidth(),
+                                )
+                            }
+                        } else {
+                            review(Modifier.widthIn(max = 420.dp))
                         }
                     }
                 }
@@ -1001,7 +1089,7 @@ private fun Opening(
 }
 
 /**
- * The album's one album note (D3's sticky): secondaryContainer paper with a folded bottom-right corner, in
+ * The album's one album note (D3's sticky): primaryContainer paper (the listener's words) with a folded bottom-right corner, in
  * the listener's own face. Told apart by paper and fold alone — no label, and no rail (the rail is the
  * track notes'). Drawn from the stored Markdown ([NoteMarkupText]). Writing it from the page (one sticky
  * per note) is the notes revamp's phase B; the data side already takes any number (ScrapEdit.NewAlbumNote).
@@ -1678,7 +1766,7 @@ private fun NotesClipping(
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.note)
-            .journalRail(colors.ink)
+            .journalRail(colors.noteMark)
             .padding(start = 24.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
     ) {
         lines.forEach { line -> NoteLine(line, colors, onClick = { onNote(line) }) }
@@ -1686,7 +1774,7 @@ private fun NotesClipping(
             Text(
                 text = pluralStringResource(R.plurals.detail_scrap_hidden_notes, hidden, hidden),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                color = colors.ink,
+                color = colors.noteMark,
                 modifier = Modifier
                     .clip(YoinContainerShapes.ListRow)
                     .handPointer()
@@ -1736,7 +1824,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
                 fontSize = 12.sp,
                 letterSpacing = 0.sp,
             ),
-            color = colors.ink,
+            color = colors.noteMark,
             modifier = Modifier
                 .width(NoteStampColumn)
                 .alignByBaseline(),
@@ -1747,7 +1835,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
             onToggleChecklist = toggle?.let { t -> { index -> t(line.noteId, index, false) } },
             style = userTextStyle(),
             color = colors.onNote,
-            mentionColor = colors.ink,
+            mentionColor = colors.noteMark,
             modifier = Modifier
                 .weight(1f)
                 .alignByBaseline(),
@@ -1765,7 +1853,7 @@ internal fun userTextStyle() = MaterialTheme.typography.bodyLarge.copy(
 
 /** A question asked in Now Playing: the listener's words, Gemini's title and whole sentences of its answer. */
 @Composable
-private fun AskCard(
+internal fun AskCard(
     ask: AlbumScrapbookAsk,
     moreAsks: Int,
     budget: Int,
@@ -1822,7 +1910,8 @@ private fun AskCard(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.sp,
                         ),
-                        color = colors.askMark,
+                        // The card's own ink: the tertiary mark is too faint on tertiaryContainer.
+                        color = colors.onAsk,
                     )
                     if (moreAsks > 0) {
                         Text(
@@ -2052,7 +2141,7 @@ internal fun ScrapSheet(
 ) {
     YoinModalBottomSheet(
         onDismissRequest = onDismiss,
-        modifier = Modifier.statusBarsPadding(),
+        modifier = Modifier.topBarsPadding(),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         contentWindowInsets = {
             if (padBottomInset) {

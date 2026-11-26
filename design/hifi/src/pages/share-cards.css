@@ -1,0 +1,4 @@
+/* Page: share images — an image state replaces the device screen with the bare image */
+.device.img { border-radius: 0; box-shadow: none; }
+.device.img .sys-status, .device.img .sys-nav { display: none; }
+.device.img .screen { position: relative; inset: auto; }

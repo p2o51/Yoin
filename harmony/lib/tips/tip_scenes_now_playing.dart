@@ -17,6 +17,7 @@ import '../nowplaying/devices/devices_strings.dart';
 import '../nowplaying/devices/devices_view_model.dart';
 import '../nowplaying/lyric_tools.dart';
 import '../nowplaying/lyrics_share.dart';
+import '../nowplaying/share_content.dart';
 import '../nowplaying/lyrics_view.dart';
 import '../nowplaying/note_line.dart';
 import '../nowplaying/now_playing_screen.dart'
@@ -591,14 +592,14 @@ class _LyricsSelectDemoState extends State<LyricsSelectDemo> with DemoSceneState
                   ),
                   child: LyricsShareCard(
                     lines: [
-                      for (final i in picked.isEmpty ? const [1, 2] : picked) demoLyrics.rows[i],
+                      for (final i in picked.isEmpty ? const [1, 2] : picked) shareLyricLine(demoLyrics.rows[i]),
                     ],
                     passageStarts: const {0},
                     showTranslation: false,
                     songTitle: track.title ?? '',
                     artist: track.artist ?? '',
-                    cover: track.coverArt,
-                    colors: lyricsCardColors(LyricsCardTone.values.first, Theme.of(context).colorScheme),
+                    coverUrl: shareCoverUrl(null, track.coverArt),
+                    colors: shareToneColors(ShareTone.soft, ShareRole.lyrics, Theme.of(context).colorScheme),
                   ),
                 ),
               ),

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../albumabout/album_about_models.dart';
+import '../albumabout/yoin_album_about.dart';
 import 'ai_client.dart';
 import 'ai_settings.dart';
 
@@ -125,6 +127,43 @@ class AiService {
     final searched = await _searchFor(ai, ['$title $artist $question']);
     final prompt =
         askPrompt(title, artist, album, question, targetLanguage, _searchLead(ai, searched)) + searched.appendix;
+    final rawText = await _client.generate(ai, prompt, temperature: 0.8, useSearch: true);
+    return parseAskResponse(rawText, question);
+  }
+
+  /// Lower than the song About's 0.8: credits are facts first, and the paragraph is editorial, not lyrical
+  /// (GeminiService.ALBUM_ABOUT_TEMPERATURE).
+  static const double albumAboutTemperature = 0.4;
+
+  /// An album's credits and editorial paragraph in one searched call (GeminiService.runAlbumAbout); the
+  /// prompts and the reply parser are the shared core's ([YoinAlbumAbout]). The service's facts in
+  /// [grounding] go in as ground truth; only items the model vouches for come back. A reply that isn't an
+  /// answer (empty, refused, off-format) throws: nothing is stored and the next visit asks again.
+  Future<AlbumAboutReply> runAlbumAbout(
+    AiSettings ai,
+    AlbumAboutGrounding grounding, {
+    required String targetLanguage,
+  }) async {
+    final queries = YoinAlbumAbout.searchQueries(grounding, ai.searchQueries);
+    final searched = await _searchFor(ai, queries);
+    final prompt = YoinAlbumAbout.aboutPrompt(grounding, targetLanguage, _searchLead(ai, searched)) + searched.appendix;
+    final rawText = await _client.generate(ai, prompt, temperature: albumAboutTemperature, useSearch: true);
+    // The service's own notes are the paragraph (credits-only prompt): nothing of the AI's replaces them.
+    final reply = YoinAlbumAbout.storedReply(rawText, hasServiceNotes: grounding.serviceNotes != null);
+    if (!reply.answered) throw const AiException('No album About in AI response');
+    return reply;
+  }
+
+  /// Searched free-form Q&A about an album; the same tagged reply as [askAboutSong] (askAboutAlbum).
+  Future<AskAnswer> askAboutAlbum(
+    AiSettings ai,
+    AlbumAboutGrounding grounding, {
+    required String question,
+    required String targetLanguage,
+  }) async {
+    final searched = await _searchFor(ai, ['${grounding.album} ${grounding.artist} $question']);
+    final prompt =
+        YoinAlbumAbout.askPrompt(grounding, question, targetLanguage, _searchLead(ai, searched)) + searched.appendix;
     final rawText = await _client.generate(ai, prompt, temperature: 0.8, useSearch: true);
     return parseAskResponse(rawText, question);
   }

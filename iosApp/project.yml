@@ -36,9 +36,10 @@ targets:
       # The share extension's confirmation and its words, for the QA screenshot (-openInDemo share-confirm).
       - path: YoinShare/ShareConfirmation.swift
       - path: YoinShare/Share.xcstrings
-      # Sing on-device CoreML model (8.3 MB FP32, do NOT convert to FP16): delivered via Apple ODR
-      # tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
-      - path: OnDemandResources/LyraSingLite.mlpackage
+      # Sing on-device CoreML model (7.6 MB FP32 .mlpackage.zip, single file so Xcode writes its exact
+      # filename in OnDemandResources.plist instead of an empty "" directory entry): delivered via Apple
+      # ODR tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
+      - path: OnDemandResources/LyraSingLite.mlpackage.zip
         type: file
         buildPhase: resources
         resourceTags:
@@ -152,6 +153,8 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+        # The share sheet's Save (NowPlaying/Share/ShareExport.swift): add-only access to the photo library.
+        NSPhotoLibraryAddUsageDescription: Yoin saves your lyric, About, and note images to your photo library.
         # MusicKit's authorization prompt (Apple Music library, catalog and playback).
         NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
         # Cloud sync's Google sign-in (Config/GoogleSignIn.xcconfig).

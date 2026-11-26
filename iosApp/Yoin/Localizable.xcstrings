@@ -1436,16 +1436,6 @@
         }
       }
     },
-    "Ask Gemini": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "问 Gemini"
-          }
-        }
-      }
-    },
     "Asked about %@: %@": {
       "localizations": {
         "zh-Hans": {
@@ -2864,6 +2854,16 @@
         }
       }
     },
+    "Full layout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开版面"
+          }
+        }
+      }
+    },
     "Full screen": {
       "localizations": {
         "zh-Hans": {
@@ -2894,47 +2894,7 @@
         }
       }
     },
-    "Gemini API key missing": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "缺少 Gemini API 密钥"
-          }
-        }
-      }
-    },
-    "Gemini couldn't answer. Try again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 没能回答，再试一次"
-          }
-        }
-      }
-    },
     "Gemini extras": {},
-    "Gemini had nothing new": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 没有新的内容"
-          }
-        }
-      }
-    },
-    "Gemini is thinking": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 正在思考"
-          }
-        }
-      }
-    },
     "Get started": {
       "localizations": {
         "zh-Hans": {
@@ -3096,6 +3056,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已隐藏"
+          }
+        }
+      }
+    },
+    "Hide": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏"
           }
         }
       }
@@ -3736,6 +3706,16 @@
         }
       }
     },
+    "More rows": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加行数"
+          }
+        }
+      }
+    },
     "Most Played": {
       "localizations": {
         "zh-Hans": {
@@ -4073,16 +4053,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "暂无收藏"
-          }
-        }
-      }
-    },
-    "No Gemini API key": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未设置 Gemini API 密钥"
           }
         }
       }
@@ -5304,16 +5274,6 @@
         }
       }
     },
-    "Regenerate with Gemini": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 Gemini 重新生成"
-          }
-        }
-      }
-    },
     "Regenerated": {
       "localizations": {
         "zh-Hans": {
@@ -5830,6 +5790,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "栏目"
+          }
+        }
+      }
+    },
+    "Section %lld of %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Section %1$lld of %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 个分区，共 %2$lld 个"
+          }
+        }
+      }
+    },
+    "Section %lld of %lld, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Section %1$lld of %2$lld, %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 个分区，共 %2$lld 个，%3$@"
           }
         }
       }
@@ -9958,6 +9950,16 @@
         }
       }
     },
+    "Compact list": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收成列表"
+          }
+        }
+      }
+    },
     "File": {
       "localizations": {
         "zh-Hans": {
@@ -10898,16 +10900,6 @@
         }
       }
     },
-    "Online AI API key missing": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未填写在线 AI API 密钥"
-          }
-        }
-      }
-    },
     "Create an app at developer.spotify.com, check Web API and iOS, and register these redirect URIs:": {
       "localizations": {
         "zh-Hans": {
@@ -11824,6 +11816,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "功能与外观"
+          }
+        }
+      }
+    },
+    "Fewer rows": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "减少行数"
           }
         }
       }
@@ -15758,6 +15760,656 @@
           "stringUnit": {
             "state": "translated",
             "value": "将复制的内容"
+          }
+        }
+      }
+    },
+    "Show all": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示全部"
+          }
+        }
+      }
+    },
+    "%lld less relevant from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 另有 %1$lld 条不太相关"
+          }
+        }
+      }
+    },
+    "Your memory": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的回忆"
+          }
+        }
+      }
+    },
+    "Nothing you've written matches.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有碰到你写过的东西。"
+          }
+        }
+      }
+    },
+    "Not downloaded (%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未下载（约 %@）"
+          }
+        }
+      }
+    },
+    "Downloading… %lld%%": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载… %lld%%"
+          }
+        }
+      }
+    },
+    "Ready on this device (%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机已就绪（%@）"
+          }
+        }
+      }
+    },
+    "Optimized for Apple Neural Engine": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已为 Apple 神经网络引擎优化"
+          }
+        }
+      }
+    },
+    "Download failed: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载失败：%@"
+          }
+        }
+      }
+    },
+    "Download model": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载模型"
+          }
+        }
+      }
+    },
+    "Remove model": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除模型"
+          }
+        }
+      }
+    },
+    "ai.provider.qwen": {
+      "comment": "The Qwen AI service's name in copy (Android ai_provider_qwen): 问千问 in Chinese",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qwen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "千问"
+          }
+        }
+      }
+    },
+    "Ask %@": {
+      "comment": "The ask field's hint, %@ = the AI service in use (Android ai_ask_provider)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问 %@"
+          }
+        }
+      }
+    },
+    "%@ had nothing new": {
+      "comment": "Regenerate came back empty, %@ = the AI service (Android ai_nothing_new)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有新的内容"
+          }
+        }
+      }
+    },
+    "%@ API key missing": {
+      "comment": "%@ = the AI service (Android ai_key_missing)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 %@ API 密钥"
+          }
+        }
+      }
+    },
+    "%@ couldn't answer. Try again.": {
+      "comment": "%@ = the AI service (Android ai_failed)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没能回答，再试一次"
+          }
+        }
+      }
+    },
+    "Generate with %@": {
+      "comment": "%@ = the AI service (Android ai_generate_with)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 %@ 生成"
+          }
+        }
+      }
+    },
+    "albumCredit.label": {
+      "comment": "Album credits line: the record label (Android detail_album_credit_label)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "厂牌"
+          }
+        }
+      }
+    },
+    "albumCredit.producer": {
+      "comment": "Album credits line: producer (Android detail_album_credit_producer)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Producer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制作"
+          }
+        }
+      }
+    },
+    "albumCredit.mastering": {
+      "comment": "Album credits line: mastering (Android detail_album_credit_mastering)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mastering"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "母带"
+          }
+        }
+      }
+    },
+    "albumCredit.mixing": {
+      "comment": "Album credits line: mixing, shown when mastering is unknown (Android detail_album_credit_mixing)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混音"
+          }
+        }
+      }
+    },
+    "albumCredit.recorded": {
+      "comment": "Album credits line: when and where it was recorded (Android detail_album_credit_recorded)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制"
+          }
+        }
+      }
+    },
+    "albumCredit.source": {
+      "comment": "Album credits line: the film/game/artist a soundtrack or tribute belongs to (Android detail_album_credit_source)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原作"
+          }
+        }
+      }
+    },
+    "albumCredit.firstReleased": {
+      "comment": "Album credits line: a reissue's first release (Android detail_album_credit_first_released)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First released"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首版"
+          }
+        }
+      }
+    },
+    "albumCredit.nameSeparator": {
+      "comment": "Between names in one credit (Android detail_album_credit_name_separator)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、"
+          }
+        }
+      }
+    },
+    "%1$@, %2$@": {
+      "comment": "Album credits line: recorded time (%1$@) and place (%2$@) (Android detail_album_credit_time_place); handed to the shared code as %1$s / %2$s",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$@"
+          }
+        }
+      }
+    },
+    "Saving…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在保存…"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存"
+          }
+        }
+      }
+    },
+    "Try again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        }
+      }
+    },
+    "Couldn't share the image": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法分享图片"
+          }
+        }
+      }
+    },
+    "Paper colours": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纸"
+          }
+        }
+      }
+    },
+    "Layout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版式"
+          }
+        }
+      }
+    },
+    "Share as image": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享图片"
+          }
+        }
+      }
+    },
+    "Classic": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典"
+          }
+        }
+      }
+    },
+    "Poster": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "海报"
+          }
+        }
+      }
+    },
+    "Player": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放器"
+          }
+        }
+      }
+    },
+    "Vertical": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖排"
+          }
+        }
+      }
+    },
+    "Receipt": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小票"
+          }
+        }
+      }
+    },
+    "Quote": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引文"
+          }
+        }
+      }
+    },
+    "Liner notes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内页"
+          }
+        }
+      }
+    },
+    "Big type": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大字"
+          }
+        }
+      }
+    },
+    "Clipping": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪贴"
+          }
+        }
+      }
+    },
+    "Gist: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词大意：%@"
+          }
+        }
+      }
+    },
+    "By %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 %@ 整理"
+          }
+        }
+      }
+    },
+    "Written %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写于 %@"
+          }
+        }
+      }
+    },
+    "No %@ API key": {
+      "comment": "No key for the AI service in use, %@ = its name (Android ai_no_key)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未设置 %@ API 密钥"
+          }
+        }
+      }
+    },
+    "Regenerate with %@": {
+      "comment": "Write one About row again, %@ = the AI service in use (Android ai_regenerate_with)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 %@ 重新生成"
+          }
+        }
+      }
+    },
+    "%@ is writing…": {
+      "comment": "The AI's dots, read aloud; %@ = the AI service in use (Android ai_writing)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在写…"
+          }
+        }
+      }
+    },
+    "Half width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半宽"
+          }
+        }
+      }
+    },
+    "Full width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全宽"
+          }
+        }
+      }
+    },
+    "Place beside previous": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放到上一个旁边"
+          }
+        }
+      }
+    },
+    "Make full width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改为整行"
+          }
+        }
+      }
+    },
+    "Left half": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左半边"
+          }
+        }
+      }
+    },
+    "Right half": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右半边"
+          }
+        }
+      }
+    },
+    "Previous page": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一页"
+          }
+        }
+      }
+    },
+    "Next page": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一页"
           }
         }
       }

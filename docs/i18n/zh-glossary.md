@@ -50,6 +50,7 @@
 | `Activities` | **`动态`** | 首页最近活动 bento 区段 |
 | `Album` / `Artist` / `Song (Track)` / `Queue` | **`专辑`** / **`艺术家`** / **`歌曲` / `曲目`** / **`队列`** | 保持 iTunes / iPod 传统译法 |
 | `About` | **`关于`** | Now Playing 歌曲背景页与 `设置 › 关于` |
+| 专辑制作信息行（`Label` / `Producer` / `Mastering` / `Mix` / `Recorded` / `Source` / `First released`） | **`厂牌` / `制作` / `母带` / `混音` / `录制` / `原作` / `首版`** | 剪贴簿标题下一行（2026-11-25 owner + Carbon 拟定，**待 Rebecca / Argon 定稿**）；项间「 · 」，名字间中文「、」 |
 | `Review` / `Short comment` | **`评论`** / **`短评`** | 专辑长评（>360 字）与 NeoDB 短评（<=360 字） |
 | `Note` | **`笔记`** / **`手记`** | 带播放时间戳的单曲随手记与手记记录 |
 | `Volume leveling` | **`音量平衡`** | 设置中控制 Subsonic ReplayGain 的入口 |

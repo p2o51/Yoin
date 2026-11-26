@@ -5,8 +5,17 @@ import 'package:flutter/physics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/search/memory_search.dart';
+import '../data/search/note_open_target.dart';
+import '../data/search/search_filter.dart';
 import '../data/source/music_source.dart' show LibraryMembership;
+import '../detail/detail_routes.dart';
+import '../detail/detail_track_menu.dart';
+import '../detail/scrapbook_focus.dart';
+import '../memories/ledger/memory_ledger_view_model.dart';
+import '../memories/other_profiles.dart';
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
@@ -24,14 +33,14 @@ import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
 import 'library_grid_anchor.dart';
 import 'library_search.dart';
+import 'library_search_memories.dart';
+import 'library_search_tiles.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
 import 'library_views.dart';
 import 'playlist_deletions.dart';
 import 'playlist_writes.dart' show playlistAccountProvider;
-
-/// Each type is capped at this many in the All layout.
-const _allSectionCap = 40;
+import 'search_note_playback.dart';
 
 /// Opens the full-screen search, morphing out of the pill at [pillRect]
 /// (global). Its own route: the back arrow and the system back both pop it
@@ -44,10 +53,18 @@ Future<void> openLibrarySearch(BuildContext context, Rect pillRect) =>
 /// A search type chip's label.
 String librarySearchFilterLabel(LibraryStrings s, LibrarySearchFilter f) => switch (f) {
   LibrarySearchFilter.all => s.searchFilterAll,
-  LibrarySearchFilter.artists => s.tabArtists,
-  LibrarySearchFilter.albums => s.tabAlbums,
   LibrarySearchFilter.songs => s.tabSongs,
+  LibrarySearchFilter.albums => s.tabAlbums,
+  LibrarySearchFilter.memories => s.searchFilterMemories,
+  LibrarySearchFilter.artists => s.tabArtists,
   LibrarySearchFilter.playlists => s.tabPlaylists,
+};
+
+/// The service's name for "N less relevant from …" (Android searchProviderName); null hides it.
+String? librarySearchProviderName(String? provider) => switch (provider) {
+  MediaId.providerSpotify => 'Spotify',
+  MediaId.providerAppleMusic => 'Apple Music',
+  _ => null,
 };
 
 /// The search route's name: Esc in its field leaves the search (Android/Mac).
@@ -230,7 +247,10 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
         exact: true,
         anchor: ref.read(librarySearchGridAnchorsProvider).of(scope, f),
       ),
-      LibrarySearchFilter.all || LibrarySearchFilter.songs || LibrarySearchFilter.playlists => ScrollController(),
+      LibrarySearchFilter.all ||
+      LibrarySearchFilter.songs ||
+      LibrarySearchFilter.memories ||
+      LibrarySearchFilter.playlists => ScrollController(),
     },
   );
 
@@ -352,17 +372,24 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     );
   }
 
-  static String _phase(LibrarySearchState s) => s.isSearching
+  /// Whether the service's answer is still awaited with nothing to show
+  /// meanwhile: the ledger answers first, so All and Memories show its hits
+  /// while the service searches (Android: loading only while both are empty).
+  static bool _waiting(LibrarySearchState s) =>
+      s.isSearching &&
+      (s.memories.isEmpty || (s.filter != LibrarySearchFilter.all && s.filter != LibrarySearchFilter.memories));
+
+  static String _phase(LibrarySearchState s) => _waiting(s)
       ? 'searching'
       : s.error != null
       ? 'error'
-      : s.results == null
+      : s.results == null && s.memories.isEmpty
       ? 'none'
       : 'results';
 
   Widget _results(BuildContext context, LibrarySearchState state, LibraryStrings strings) {
     final colors = Theme.of(context).colorScheme;
-    if (state.isSearching) return const Center(child: YoinLoadingIndicator());
+    if (_waiting(state)) return const Center(child: YoinLoadingIndicator());
     if (state.error != null) {
       return Center(
         child: Column(
@@ -379,25 +406,31 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
         ),
       );
     }
-    final found = state.results;
-    if (found == null) return const SizedBox.shrink();
+    // While the service searches, its rows are the last query's: leave them out.
+    final found = state.isSearching ? null : state.results;
+    if (found == null && state.memories.isEmpty) return const SizedBox.shrink();
     // A playlist deleted on its page (or on its way out) leaves the results too.
+    final base = found ?? const SearchResults();
     final shownPlaylists = ref
         .watch(playlistDeletionsProvider)
-        .visible(found.playlists, ref.watch(playlistAccountProvider).value);
-    final r = identical(shownPlaylists, found.playlists)
-        ? found
-        : SearchResults(tracks: found.tracks, albums: found.albums, artists: found.artists, playlists: shownPlaylists);
+        .visible(base.playlists, ref.watch(playlistAccountProvider).value);
+    final r = identical(shownPlaylists, base.playlists)
+        ? base
+        : SearchResults(tracks: base.tracks, albums: base.albums, artists: base.artists, playlists: shownPlaylists);
+    final bottom = SearchTokens.resultsBottomReserve + MediaQuery.paddingOf(context).bottom;
+    final controller = _scrollFor(state.scope, state.filter);
+    final window = YoinWindowInfo.of(context);
+    final columns = state.filter == LibrarySearchFilter.all ? searchTileColumns(window) : SearchTokens.tileMinColumns;
+    final page = _pageFor(state, r, columns);
     final empty = switch (state.filter) {
-      LibrarySearchFilter.all => r.isEmpty,
+      LibrarySearchFilter.all => page.isEmpty,
+      LibrarySearchFilter.memories => false, // its own empty line
       LibrarySearchFilter.artists => r.artists.isEmpty,
       LibrarySearchFilter.albums => r.albums.isEmpty,
       LibrarySearchFilter.songs => r.tracks.isEmpty,
       LibrarySearchFilter.playlists => r.playlists.isEmpty,
     };
     if (empty) return EmptyStatePanel(message: strings.emptySearch);
-    final bottom = SearchTokens.resultsBottomReserve + MediaQuery.paddingOf(context).bottom;
-    final controller = _scrollFor(state.scope, state.filter);
     switch (state.filter) {
       case LibrarySearchFilter.artists:
         return _grid(
@@ -427,9 +460,129 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
           padding: EdgeInsets.only(bottom: bottom),
           children: [for (final p in r.playlists) _playlistRow(context, p)],
         );
+      case LibrarySearchFilter.memories:
+        return SearchMemoriesList(
+          page: page,
+          query: state.searched,
+          actions: _actions(r),
+          controller: controller,
+          bottom: bottom,
+        );
       case LibrarySearchFilter.all:
-        return _all(context, state, r, strings, controller, bottom);
+        return SearchAllTiles(
+          page: page,
+          query: state.searched,
+          actions: _actions(r),
+          controller: controller,
+          columns: columns,
+          providerName: librarySearchProviderName(ref.watch(activeSourceProvider).value?.provider),
+          bottom: bottom,
+        );
     }
+  }
+
+  // ---------------------------------------------------------------- the tiled page
+
+  (Object?, Object?, Object?, String, int)? _pageKey;
+  LibrarySearchPage _page = LibrarySearchPage.empty;
+
+  /// The All page and the Memories list, rebuilt only when what they read changes.
+  LibrarySearchPage _pageFor(LibrarySearchState state, SearchResults results, int columns) {
+    final key = (results, state.memories, state.ledger, state.searched, columns);
+    final was = _pageKey;
+    if (was != null &&
+        identical(was.$1, key.$1) &&
+        identical(was.$2, key.$2) &&
+        identical(was.$3, key.$3) &&
+        was.$4 == key.$4 &&
+        was.$5 == key.$5) {
+      return _page;
+    }
+    _pageKey = key;
+    return _page = buildLibrarySearchPage(state.searched, results, state.memories, state.ledger, columns: columns);
+  }
+
+  SearchTileActions _actions(SearchResults r) => SearchTileActions(
+    onSong: (track) {
+      final i = r.tracks.indexWhere((t) => t.id == track.id);
+      _playSong(r.tracks, i < 0 ? 0 : i);
+    },
+    onSongLongPress: (track) => openTrackMenu(context, track),
+    onNote: _openNote,
+    onAlbum: (album, memory) {
+      // An album holding a memory opens on its scrapbook (page 2).
+      if (memory != null) ScrapbookFocusRequest.request(ProviderScope.containerOf(context, listen: false), album.id);
+      openLibraryItem(context, ref, LibraryAlbumItem(album));
+    },
+    onLedgerAlbum: (album) {
+      final id = MediaId(album.provider, album.albumId);
+      _openInAccount(album.profileId, album.name, album.provider, () {
+        ScrapbookFocusRequest.request(ProviderScope.containerOf(context, listen: false), id);
+        DetailRoutes.openAlbum(context, id);
+      });
+    },
+    onArtist: (artist) => openLibraryItem(context, ref, LibraryArtistItem(artist)),
+    onPlaylist: (playlist) => openLibraryItem(context, ref, LibraryPlaylistItem(playlist)),
+    onShowAll: (section) => _search.setFilter(searchFilterFor(section)),
+  );
+
+  /// Where a note leads is the search core's (noteOpenTarget, the same
+  /// Android and iOS follow); playing, switching and opening are here.
+  void _openNote(NoteSearchHit note, Track? track) {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final target = noteOpenTarget(
+      note,
+      track == null ? null : (provider: track.id.provider, rawId: track.id.rawId),
+      ref.read(librarySearchProvider).ledger.activeProfileId,
+    );
+    switch (target.action) {
+      case NoteOpenAction.playSong:
+        if (track == null) return;
+        final seek = target.seekToMs;
+        final playing = container.read(playbackControllerProvider.notifier).playTracks([track]);
+        if (seek != null) playing.then((_) => seekWhenCurrent(container, track.id.rawId, seek));
+      case NoteOpenAction.openAlbum:
+        final album = target.album;
+        if (album == null) return;
+        final song = target.song;
+        _openInAccount(target.profileId, target.subject ?? '', album.provider, () {
+          final albumId = MediaId(album.provider, album.rawId);
+          ScrapbookFocusRequest.request(container, song == null ? albumId : MediaId(song.provider, song.rawId));
+          DetailRoutes.openAlbum(context, albumId);
+        });
+      case NoteOpenAction.none:
+        return;
+    }
+  }
+
+  /// Runs [open] in [profileId]'s account: at once in the account in use;
+  /// another account's switches there first behind the one-off notice the
+  /// Memories deck and the ledger use (Android openInAccount), when Yoin can
+  /// switch to it. An account the ledger no longer knows opens here, as on Android.
+  void _openInAccount(String profileId, String subject, String provider, VoidCallback open) {
+    final ledger = ref.read(memoryLedgerProvider).value;
+    final active = ref.read(librarySearchProvider).ledger.activeProfileId ?? ledger?.activeProfileId;
+    final owner = ledger?.profile(profileId);
+    if (owner == null || profileId == active) {
+      open();
+      return;
+    }
+    if (!owner.canSwitch) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    requestAccountSwitch(
+      context,
+      owner: owner.asOther,
+      subject: subject,
+      purpose: AccountSwitchPurpose.openAlbum,
+      proceed: () => switchAccountThen(
+        container,
+        owner.id,
+        provider: provider,
+        onLanded: (_) {
+          if (mounted) open();
+        },
+      ),
+    );
   }
 
   /// A song row; in the catalogue, with Add to library and the line it leaves
@@ -523,61 +676,6 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
         onTap: open,
       ),
     };
-  }
-
-  Widget _all(
-    BuildContext context,
-    LibrarySearchState state,
-    SearchResults r,
-    LibraryStrings strings,
-    ScrollController controller,
-    double bottom,
-  ) {
-    final columns = libraryGridColumns(YoinWindowInfo.of(context).width);
-    final albums = r.albums.take(_allSectionCap).toList();
-    final tracks = r.tracks.take(_allSectionCap).toList();
-    return ListView(
-      controller: controller,
-      padding: EdgeInsets.only(bottom: bottom),
-      children: [
-        if (r.artists.isNotEmpty) LibrarySectionHeader(strings.searchSectionArtists),
-        for (final a in r.artists.take(_allSectionCap))
-          LibraryListRow(
-            key: ValueKey('artist:${a.id}'),
-            url: libraryCoverUrl(ref, a.coverArt),
-            fallbackIcon: YoinSymbols.artist,
-            circle: true,
-            title: a.name,
-            onTap: () => openLibraryItem(context, ref, LibraryArtistItem(a)),
-          ),
-        if (albums.isNotEmpty) LibrarySectionHeader(strings.searchSectionAlbums),
-        for (var start = 0; start < albums.length; start += columns)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, LibraryTokens.gridGutterV),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var c = 0; c < columns; c++) ...[
-                  if (c > 0) const SizedBox(width: 12),
-                  Expanded(
-                    child: start + c < albums.length
-                        ? _cell(context, LibraryAlbumItem(albums[start + c]))
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        // Android's order: artists, albums, playlists, songs.
-        if (state.filters.contains(LibrarySearchFilter.playlists) && r.playlists.isNotEmpty)
-          LibrarySectionHeader(strings.searchSectionPlaylists),
-        if (state.filters.contains(LibrarySearchFilter.playlists))
-          for (final p in r.playlists.take(_allSectionCap)) _playlistRow(context, p),
-        if (tracks.isNotEmpty) LibrarySectionHeader(strings.searchSectionSongs),
-        for (final (i, t) in tracks.indexed)
-          _songRow(state, t, key: ValueKey('${t.id}#$i'), onTap: () => _playSong(r.tracks, i)),
-      ],
-    );
   }
 }
 

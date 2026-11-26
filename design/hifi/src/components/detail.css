@@ -1,0 +1,96 @@
+/* Album page 1 — see detail.js */
+.ad { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(180deg, color-mix(in oklab, var(--primary) 16%, var(--surface)), var(--surface) 46%); }
+.ad-head { position: relative; z-index: 3; padding: calc(var(--top) + 4px) 16px 6px 8px; }
+.ad-row { position: relative; display: flex; align-items: flex-start; gap: 14px; }
+.ad-back { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; flex: none; background: var(--surfaceContainer); color: var(--onSurface); margin-top: 2px; }
+.ad-tt { flex: 1; min-width: 0; }
+.ad-tt h2 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 400; color: var(--primary); }
+.ad-meta { display: flex; gap: 12px; font-size: 14px; line-height: 20px; color: var(--onSurface); }
+.ad-meta b { font-weight: 500; color: var(--primary); }
+.ad-dots { position: relative; display: flex; justify-content: center; margin-top: 5px; }
+.ad-dots i { width: 24px; height: 20px; display: grid; place-items: center; }
+.ad-dots i::after { content: ""; width: 8px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--onSurfaceVariant) 30%, transparent); }
+.ad-dots i.on::after { background: var(--secondary); }
+/* spectrum bar */
+.ad-spec { position: absolute; inset: 0; display: flex; }
+.ad-head.spec { color: #fff; }
+.ad-head.spec h2, .ad-head.spec .ad-meta, .ad-head.spec .ad-meta b { color: #fff; }
+.ad-head.spec h2 { transform: translateY(-3px) scale(.9); transform-origin: 0 0; }
+.ad-head.spec .ad-back { background: rgba(255, 255, 255, .18); color: #fff; }
+.ad-head.spec .ad-dots i::after { background: rgba(255, 255, 255, .4); } .ad-head.spec .ad-dots i.on::after { background: #fff; }
+.ad-stamp { width: 48px; height: 48px; border-radius: 4px !important; flex: none; margin-left: 12px; }
+/* compact hero */
+.ad-hero { position: relative; height: calc(var(--cv) + 28px); margin-top: 28px; }
+.ad-bfly { position: absolute; left: 0; top: 0; overflow: visible; }
+.bf-a, .bf-b { stroke-linecap: round; }
+.bf-a { stroke: var(--primary); } .bf-b { stroke: var(--secondary); }
+.bf-l { fill: none; stroke: color-mix(in srgb, var(--surface) 65%, transparent); stroke-width: 4; stroke-linecap: round; }
+.ad-cover { position: absolute; left: calc(50% - var(--cv) / 2); top: 0; width: var(--cv); height: var(--cv); border-radius: 8px !important; }
+.ad-below { position: relative; z-index: 2; padding: 0 16px; }
+.ad-erow { width: var(--cv); margin: 0 auto 28px; display: flex; gap: 20px; align-items: center; }
+.ad-rev { flex: 1; min-width: 0; }
+.ad-rev p { margin: 0; font-size: 14px; line-height: 20px; color: var(--onSurface); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ad-rev small { display: block; margin-top: 4px; font-size: 12px; font-weight: 500; color: var(--onSurfaceVariant); }
+.ad-pen { width: var(--pen); height: var(--pen); border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; background: var(--secondaryContainer); color: var(--onSecondaryContainer); }
+.ad-count { display: flex; gap: 12px; align-items: baseline; font-size: 12px; line-height: 16px; font-weight: 500; color: color-mix(in srgb, var(--onSurfaceVariant) 60%, transparent); margin-bottom: 6px; }
+.ad-count b { color: var(--onSurface); font-weight: 500; }
+.ad-count span b { color: var(--onSurfaceVariant); }
+.ad-last { font-variant-numeric: tabular-nums; }
+.ad-run { margin: 0; font-size: 28px; line-height: 36px; color: var(--onSurface); }
+.ad-run .alt { color: var(--onSurfaceVariant); }
+/* rows */
+.ad-list { position: relative; padding: 4px 16px 0; }
+.ad-list .ad-count { padding: 2px 8px 10px; margin: 0; }
+.ad-tr { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 8px; }
+.ad-n { min-width: 18px; text-align: right; font-size: 12px; font-weight: 500; color: var(--onSurfaceVariant); display: flex; justify-content: flex-end; }
+.ad-ti { flex: 1; font-size: 16px; line-height: 24px; font-weight: 500; color: var(--onSurface); display: flex; align-items: center; gap: 6px; }
+.ad-tr.cur .ad-ti { color: var(--primary); }
+.ad-note { color: color-mix(in srgb, var(--primary) 80%, transparent); }
+.ad-du { font-size: 14px; font-weight: 500; color: var(--onSurfaceVariant); }
+.ad-heart { width: 36px; height: 36px; display: grid; place-items: center; flex: none; }
+.ad-heart::before { content: ""; position: absolute; width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--outline) 50%, transparent); }
+.ad-heart { position: relative; color: var(--onSurfaceVariant); }
+.ad-heart.on::before { background: var(--primary); box-shadow: none; } .ad-heart.on { color: var(--onPrimary); }
+.ad-heart .ic { position: relative; }
+.ad-eq { display: flex; gap: 2px; align-items: flex-end; height: 16px; width: 16px; justify-content: center; }
+.ad-eq i { width: 3px; border-radius: 1.5px; background: var(--primary); }
+.ad-eq i:nth-child(1) { height: 9px; } .ad-eq i:nth-child(2) { height: 15px; } .ad-eq i:nth-child(3) { height: 6px; }
+/* medium */
+.ad-m .ad-head { padding-left: 8px; }
+.ad-mlist { position: relative; max-width: 720px; margin: 0 auto; padding: 0 16px; }
+.ad-mhero { display: flex; gap: 24px; padding: 18px 0 24px; }
+.ad-mcover { width: 240px; height: 240px; border-radius: 8px !important; flex: none; }
+.ad-mmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.ad-mtop { display: flex; justify-content: space-between; align-items: flex-start; }
+.ad-lp { display: flex; flex-direction: column; }
+.ad-lp u { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--onSurface); text-underline-offset: 3px; }
+.ad-lp span { font-size: 16px; line-height: 24px; margin-top: 6px; }
+.ad-lp small { font-size: 14px; line-height: 20px; color: var(--onSurfaceVariant); margin-top: 4px; }
+.ad-mlist .ad-count { padding: 0 8px 8px; margin: 0; }
+.ad-mlist .ad-rev p { font-size: 16px; line-height: 24px; }
+/* play bars */
+.dbar { padding: 10px; }
+.pl-split { display: flex; gap: 2px; flex: none; height: 48px; }
+.pl-split.fixed { width: 156px; }
+.pl-split button { border: 0; background: var(--primary); color: var(--onPrimary); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 500; }
+.pl-a { flex: 1; border-radius: 24px 4px 4px 24px; padding: 0 16px 0 12px; }
+.pl-b { width: 52px; border-radius: 4px 24px 24px 4px; }
+.bbar.centred .pl-split { height: 44px; flex: 1.4; }
+.bbar.centred .pl-split.fixed { flex: none; }
+.bbar.centred .pl-a { border-radius: 22px 4px 4px 22px; }
+.bbar.centred .pl-b { border-radius: 4px 22px 22px 4px; width: 48px; }
+.bb-r { width: 44px !important; flex: none !important; height: 44px; border-radius: 22px; background: var(--surfaceContainerHighest); color: var(--onSurfaceVariant); }
+.bb-pill.none { background: var(--surfaceContainerHigh); color: var(--onSurfaceVariant); gap: 14px; padding-left: 16px; font-size: 14px; }
+.device[data-theme="dark"] .bb-pill.none { background: var(--surfaceContainerHigh); color: var(--onSurfaceVariant); }
+.dbar.shell { width: min(720px, calc(100% - 40px)); }
+.dbar.shell .bb-nav { flex: none; width: auto; padding: 0 16px; }
+.dbar.shell .bb-pill { flex: 1; width: auto; }
+.ad-sb .ad-scroll { position: relative; }
+.split { position: absolute; inset: 0; display: flex; background: linear-gradient(180deg, var(--surfaceContainer), var(--surface) 45%, var(--surfaceContainerLow)); }
+.split-l { position: relative; width: 600px; flex: none; overflow: hidden; }
+.split-g { width: 24px; flex: none; display: grid; place-items: center; }
+.split-g i { width: 4px; height: 48px; border-radius: 2px; background: var(--outline); }
+.split-r { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+.split .lib, .split .ad { background: transparent; }
+/* AlbumReleaseDateLine: closes the track list, labelMedium onSurfaceVariant, 8 / 14 / 8 / 6 (start / top / end / bottom) */
+.ad-date { padding: 14px 8px 6px; font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .5px; color: var(--onSurfaceVariant); white-space: nowrap; }

@@ -188,7 +188,7 @@ internal fun StickyPile(
     }
 }
 
-/** One album note: secondaryContainer paper with a folded corner, its words drawn from the stored Markdown. */
+/** One album note: primaryContainer paper (the listener's words) with a folded corner, its words drawn from the stored Markdown. */
 @Composable
 private fun Sticky(sticky: ScrapSticky, colors: ScrapbookColors, onClick: () -> Unit) {
     val words = remember(sticky.text) { NoteMarkup.plainText(sticky.text) }

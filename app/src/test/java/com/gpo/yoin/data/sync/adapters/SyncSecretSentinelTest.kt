@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.sync.adapters
 
+import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.AlbumNote
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.GeminiConfig
@@ -69,7 +70,7 @@ class SyncSecretSentinelTest {
                 SyncKinds.ALBUM_REVIEW,
                 SyncKinds.HOME_LAYOUT, SyncKinds.SETTING, SyncKinds.LYRICS_TRANSLATION,
                 SyncKinds.MEMORY_COPY, SyncKinds.MEMORY_TITLE, SyncKinds.ALBUM_TITLE, SyncKinds.SONG_ABOUT,
-                SyncKinds.ACCOUNT, SyncKinds.PLAYLIST_BACKUP,
+                SyncKinds.ALBUM_ABOUT, SyncKinds.ACCOUNT, SyncKinds.PLAYLIST_BACKUP,
             ),
             adapters.map { it.kind }.toSet(),
         )
@@ -120,5 +121,8 @@ class SyncSecretSentinelTest {
             LyricsTranslationCache("spotify", "trk", "h", "Japanese", "gemini-3.1-flash-lite", "[\"一\"]", 10L),
         )
         dao.writeLyricsCache(LyricsCache("spotify", "trk", "qq", "42", "[00:01.00]first line", 5L))
+        dao.upsertAlbumAbout(
+            AlbumAboutEntry("spotify", "alb", "Album", "Artist", "canonical", "blurb", null, null, "paragraph", 1L, 2L),
+        )
     }
 }

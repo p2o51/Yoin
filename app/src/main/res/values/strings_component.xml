@@ -81,7 +81,6 @@
     <string name="cmp_song_info_tap_load">Load song info</string>
     <string name="cmp_song_info_settings">Settings</string>
     <string name="cmp_song_info_searching">Searching for song info…</string>
-    <string name="cmp_song_info_no_key">No Gemini API key</string>
     <string name="cmp_song_info_retry">Retry</string>
 
     <string name="cmp_detail_retry">Retry</string>
@@ -148,7 +147,6 @@
     <string name="cmp_error_details_clip_label">Yoin diagnostics</string>
     <string name="cmp_snackbar_dismiss">Dismiss</string>
     <!-- Quick questions offered under an empty Ask field (the scrapbook's new entry, Now Playing's Ask bar). -->
-    <string name="cmp_cd_gemini_thinking">Gemini is writing</string>
     <string name="cmp_quick_prompts_label">Quick questions</string>
     <string-array name="cmp_quick_prompts">
         <item>What does this song sample?</item>

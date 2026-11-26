@@ -618,6 +618,8 @@ final class _AppleMusicLibrary
         genre: mapped.genre,
         addedAt: mapped.addedAt,
         releaseType: mapped.releaseType,
+        releaseDate: mapped.releaseDate,
+        recordLabels: mapped.recordLabels,
       ),
       tracks,
     );

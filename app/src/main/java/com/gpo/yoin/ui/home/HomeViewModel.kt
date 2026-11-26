@@ -7,6 +7,8 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.shared.notes.NoteMarkup
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.shared.home.HomePersistAction
+import com.gpo.yoin.shared.home.homePersistAction
 import com.gpo.yoin.data.home.HomeNetworkBlock
 import com.gpo.yoin.data.home.HomeSnapshot
 import com.gpo.yoin.data.home.HomeSnapshotStore
@@ -354,20 +356,26 @@ class HomeViewModel(
 
     /**
      * Persist a new home layout for the active profile (no-op with no profile).
-     * A layout that arrives without retained ids keeps the current ones, and one
-     * equal to the catalog defaults clears the row — back to "never customized",
+     * A layout that arrives without retained ids (or kept document keys) keeps the current ones, and one
+     * equal to the catalog defaults clears the row ([homePersistAction]) — back to "never customized",
      * so new sections follow their defaults again. The store skips a write that
      * matches the stored row.
      */
     fun setHomeLayout(layout: HomeLayout) {
         val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return
-        val next = if (layout.retained.isEmpty()) layout.copy(retained = homeLayout.value.retained) else layout
+        val current = homeLayout.value
+        val withRetained = if (layout.retained.isEmpty()) layout.copy(retained = current.retained) else layout
+        // The stored document's keys this build doesn't read ride along the same way.
+        val next = if (withRetained.retainedDocument == null && current.retainedDocument != null) {
+            withRetained.copy(retainedDocument = current.retainedDocument)
+        } else {
+            withRetained
+        }
         viewModelScope.launch {
             // Either default (the phone's, or the two-column one a large screen shows) is "never customized".
-            if (next.isAnyDefault && next.retained.isEmpty()) {
-                homeLayoutStore.clearLayout(profileId)
-            } else {
-                homeLayoutStore.setDocument(profileId, next.toDocument())
+            when (val action = homePersistAction(next)) {
+                HomePersistAction.Clear -> homeLayoutStore.clearLayout(profileId)
+                is HomePersistAction.Write -> homeLayoutStore.setDocument(profileId, action.document)
             }
         }
     }
@@ -505,6 +513,8 @@ class HomeViewModel(
 
     /** Reload the current scope (Retry, an edit of the active account's credentials). */
     fun refresh() {
+        // Retry asks the server, not the coalesced reads of the last 20 s (SubsonicReadCache).
+        repository.invalidateReadCache()
         refreshRequests.update { it + 1 }
     }
 
@@ -554,7 +564,10 @@ class HomeViewModel(
         viewModelScope.launch {
             configurationRevision.drop(1).collect {
                 val scope = HomeScope(providerId = repository.currentProviderId(), profileId = activeProfileId.value)
-                if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) refresh()
+                // A new source: its read cache is fresh (and may hold prime()'s reads), so no invalidation.
+                if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) {
+                    refreshRequests.update { it + 1 }
+                }
             }
         }
     }

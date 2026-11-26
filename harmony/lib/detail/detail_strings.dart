@@ -1,5 +1,9 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/ai/ai_service_name.dart';
+import '../data/ai/ai_settings.dart' show AiProvider;
+import '../data/albumabout/album_credits.dart' show AlbumCreditLabels;
+
 /// Detail page strings, English and Simplified Chinese, copied from Android
 /// res/values{,-zh-rCN}/strings*.xml (key in the comment).
 class DetailStrings {
@@ -11,6 +15,7 @@ class DetailStrings {
       DetailStrings._(Localizations.maybeLocaleOf(context)?.languageCode == 'zh');
 
   static const en = DetailStrings._(false);
+  static const zhHans = DetailStrings._(true);
 
   String get cdBack => zh ? '返回' : 'Back'; // detail_cd_back
   String get retry => zh ? '重试' : 'Retry'; // cmp_detail_retry
@@ -170,10 +175,7 @@ class DetailStrings {
   String get scrapClear => zh ? '清除评分' : 'Clear rating'; // detail_scrap_clear
   String get scrapScoreCleared => zh ? '已清除评分' : 'Rating cleared'; // detail_scrap_score_cleared
   String get scrapAboutEmpty => zh ? '这首歌还没有资料。' : 'Nothing about this song yet.'; // detail_scrap_about_empty
-  String get scrapAboutGenerate => zh ? '让 Gemini 生成' : 'Generate with Gemini'; // detail_scrap_about_generate
-  String get scrapAboutGenerating => zh ? 'Gemini 正在写…' : 'Gemini is writing…'; // detail_scrap_about_generating
   String scrapAsked(String q) => zh ? '问：$q' : 'Asked: $q'; // detail_scrap_asked
-  String get scrapByGemini => 'Gemini'; // detail_scrap_by_gemini
   String get scrapByYou => zh ? '我写的' : 'Written by you'; // detail_scrap_by_you
   String get scrapCdEdit => zh ? '编辑' : 'Edit'; // detail_scrap_cd_edit
   String get scrapEditTitleHint => zh ? '标题' : 'Title'; // detail_scrap_edit_title_hint
@@ -188,13 +190,8 @@ class DetailStrings {
   String get scrapNewTitleHint =>
       zh ? '写个标题，比如：这首歌在讲什么' : 'A title, like: what is this song about'; // detail_scrap_new_title_hint
   String get scrapNewTextHint => zh ? '写下你知道的…' : 'Write what you know…'; // detail_scrap_new_text_hint
-  String get scrapAskGemini => zh ? '问 Gemini' : 'Ask Gemini'; // detail_scrap_ask_gemini
   String get scrapWrite => zh ? '输入' : 'Write'; // detail_scrap_write
   String get scrapSave => zh ? '保存' : 'Save'; // detail_scrap_save
-  String get scrapGeminiFailed =>
-      zh ? 'Gemini 没能回答，再试一次' : "Gemini couldn't answer. Try again."; // detail_scrap_gemini_failed
-  String get scrapGeminiNothing => zh ? 'Gemini 没有新的内容' : 'Gemini had nothing new'; // detail_scrap_gemini_nothing
-  String get scrapApiKeyMissing => zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
   String get scrapExpandLyrics => zh ? '展开全部歌词' : 'All lyrics'; // detail_scrap_expand_lyrics
   String get scrapCollapseLyrics => zh ? '只看笔记' : 'Notes only'; // detail_scrap_collapse_lyrics
   String get scrapLyricsLoading => zh ? '正在加载歌词…' : 'Loading lyrics…'; // detail_scrap_lyrics_loading
@@ -208,6 +205,59 @@ class DetailStrings {
   String scrapNoteHint(String at) => zh ? '在 $at 记一笔…' : 'A note at $at…'; // detail_scrap_note_hint
   String get scrapNoteHintPlain => zh ? '记一笔…' : 'A note…'; // detail_scrap_note_hint_plain
   String get scrapCancel => zh ? '取消' : 'Cancel'; // detail_scrap_cancel
+
+  // The album's About (owner + Carbon 2026-11-25): the credits line beside the cover, the About card and its sheet.
+
+  /// The words the credits line is built with (detail_album_credit_*); [AlbumCreditLabels.timeAndPlace] is
+  /// the format itself, the shared core fills it in.
+  AlbumCreditLabels get albumCreditLabels => AlbumCreditLabels(
+    label: zh ? '厂牌' : 'Label', // detail_album_credit_label
+    producer: zh ? '制作' : 'Producer', // detail_album_credit_producer
+    mastering: zh ? '母带' : 'Mastering', // detail_album_credit_mastering
+    mixing: zh ? '混音' : 'Mix', // detail_album_credit_mixing
+    recorded: zh ? '录制' : 'Recorded', // detail_album_credit_recorded
+    source: zh ? '原作' : 'Source', // detail_album_credit_source
+    firstReleased: zh ? '首版' : 'First released', // detail_album_credit_first_released
+    nameSeparator: zh ? '、' : ', ', // detail_album_credit_name_separator
+    timeAndPlace: zh ? r'%1$s，%2$s' : r'%1$s, %2$s', // detail_album_credit_time_place
+  );
+
+  /// A service-dated first release in this language's own words (Android albumReleaseDateText, ICU
+  /// yMMMMd / yMMMM): "October 27, 2023" / "2023年10月27日", "October 2023" / "2023年10月", the year alone.
+  /// Null for a date that doesn't read as ISO.
+  String? releaseDateText(String? iso) {
+    final m = RegExp(r'^(\d{1,4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?').firstMatch(iso?.trim() ?? '');
+    final year = int.tryParse(m?.group(1) ?? '');
+    if (m == null || year == null || year <= 0) return null;
+    final month = int.tryParse(m.group(2) ?? '');
+    final day = int.tryParse(m.group(3) ?? '');
+    if (month == null || month < 1 || month > 12) return '$year';
+    if (zh) return day == null ? '$year年$month月' : '$year年$month月$day日';
+    final name = _monthNames[month - 1];
+    return day == null ? '$name $year' : '$name $day, $year';
+  }
+
+  static const _monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June', //
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  /// The AI service in use as copy names it (ai_provider_*): Gemini and DeepSeek by name, Qwen as 千问 in
+  /// Chinese, a Custom endpoint as plain "AI" (ai_provider_generic_name).
+  String aiName(AiProvider provider) => aiServiceName(provider, zh: zh);
+
+  /// [template] with the service's name filled in, the space beside a Chinese name dropped (问千问, 问 Gemini).
+  String _ai(String template, AiProvider provider) => aiServiceCopy(template, provider, zh: zh);
+
+  String aiAskProvider(AiProvider p) => _ai(zh ? r'问 %1$s' : r'Ask %1$s', p); // ai_ask_provider
+  String aiGenerateWith(AiProvider p) => _ai(zh ? r'让 %1$s 生成' : r'Generate with %1$s', p); // ai_generate_with
+  String aiWriting(AiProvider p) => _ai(zh ? r'%1$s 正在写…' : r'%1$s is writing…', p); // ai_writing
+  String aiFailed(AiProvider p) => _ai(zh ? r'%1$s 没能回答，再试一次' : r"%1$s couldn't answer. Try again.", p); // ai_failed
+  String aiNothingNew(AiProvider p) => _ai(zh ? r'%1$s 没有新的内容' : r'%1$s had nothing new', p); // ai_nothing_new
+  String aiKeyMissing(AiProvider p) => _ai(zh ? r'缺少 %1$s API 密钥' : r'%1$s API key missing', p); // ai_key_missing
+
+  /// The byline under the album's generated text: the service's name.
+  String aiByline(AiProvider p) => aiName(p);
 
   // The album's notes on page 2, one sticky each (strings_notes.xml); Save / Cancel are scrapSave / scrapCancel.
   String scrapCdAlbumNote(String text) => zh ? '专辑笔记：$text' : 'Album note: $text'; // detail_scrap_cd_album_note

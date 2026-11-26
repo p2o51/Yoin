@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../ai/ai_client.dart';
 import '../ai/ai_service.dart';
+import '../ai/ai_service_name.dart';
 import '../ai/ai_settings.dart';
 import 'song_about_store.dart';
 
@@ -293,7 +294,7 @@ class SongAboutRepository {
       );
       return AskSuccess(reply.answer);
     } catch (e) {
-      return AskError(_message(e, 'Failed to ask Gemini'));
+      return AskError(_message(e, 'Failed to ask ${aiServiceName(ai.provider, zh: false)}'));
     }
   }
 
@@ -339,7 +340,7 @@ class SongAboutRepository {
       );
       return RegenerateSuccess(beforeTitle: row.titleText, beforeAnswer: row.answerText);
     } catch (e) {
-      return RegenerateError(_message(e, 'Failed to ask Gemini'));
+      return RegenerateError(_message(e, 'Failed to ask ${aiServiceName(ai.provider, zh: false)}'));
     }
   }
 

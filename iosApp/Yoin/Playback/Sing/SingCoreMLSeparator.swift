@@ -2,6 +2,7 @@ import Compression
 import CoreML
 import CryptoKit
 import Foundation
+import UniformTypeIdentifiers
 import os
 
 /// Bounded LRU disk cache for 4-channel Quad AAC `.m4a` stems (`[I_L, I_R, V_L, V_R]`).
@@ -97,6 +98,34 @@ actor SingModelStore {
         FileManager.default.fileExists(atPath: compiledModelURL.path)
     }
 
+    /// Total bytes occupied by the compiled `.mlmodelc` directory on disk, or `nil` when not installed.
+    func installedSizeBytes() -> Int64? {
+        guard isInstalled else { return nil }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: compiledModelURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+        ) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  vals.isRegularFile == true,
+                  let size = vals.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
+    }
+
+    /// Deletes the compiled `.mlmodelc` directory from `Application Support` (used by Yoin Labs).
+    func removeInstalledModel() throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: compiledModelURL.path) {
+            try fm.removeItem(at: compiledModelURL)
+        }
+    }
+
     /// Installs directly from a local `.mlpackage` (used in unit tests and local dev verification).
     func installFromLocalPackage(_ mlpackageURL: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
@@ -107,6 +136,42 @@ actor SingModelStore {
         }
         try FileManager.default.moveItem(at: compiledTemp, to: dest)
         return dest
+    }
+
+    /// Verifies (optional) SHA-256, extracts `LyraSingLite.mlpackage.zip` from an ODR or local file URL,
+    /// and compiles `LyraSingLite.mlmodelc` once into `Application Support`.
+    func installFromLocalZip(_ zipURL: URL, verifyChecksum: Bool = true) async throws -> URL {
+        if isInstalled { return compiledModelURL }
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+
+        if verifyChecksum {
+            let actualSha = try Self.sha256Hex(of: zipURL)
+            guard actualSha == expectedSha256 else {
+                throw SingModelError.checksumMismatch(expected: expectedSha256, actual: actualSha)
+            }
+        }
+
+        let unpackDir = baseDirectory.appendingPathComponent("unpack-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: unpackDir) }
+        try SingZipExtractor.extract(zipURL: zipURL, to: unpackDir)
+
+        let pkgURL = unpackDir.appendingPathComponent(SingModelAsset.packageName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: pkgURL.path) else {
+            throw NSError(domain: "SingModelStore", code: -11, userInfo: [NSLocalizedDescriptionKey: "Missing \(SingModelAsset.packageName) in archive"])
+        }
+        return try await installFromLocalPackage(pkgURL)
+    }
+
+    private static func sha256Hex(of fileURL: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            try Task.checkCancellation()
+            guard let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// Downloads `LyraSingLite.mlpackage.zip`, verifies pinned SHA-256, extracts, and compiles `.mlmodelc`.
@@ -319,13 +384,13 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
     }
 
     init(
-        odrProvider: SingModelODRProvider? = SingModelODRProvider(),
+        odrProvider: SingModelODRProvider? = nil,
         modelStore: SingModelStore = SingModelStore(),
         stemCache: SingStemCache = SingStemCache(),
         remoteModelZipURL: URL? = nil
     ) {
-        self.odrProvider = odrProvider
         self.modelStore = modelStore
+        self.odrProvider = odrProvider ?? SingModelODRProvider(modelStore: modelStore)
         self.stemCache = stemCache
         self.remoteModelZipURL = remoteModelZipURL
     }
@@ -360,12 +425,17 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             return
         }
 
-        // If the track is streaming (not offline-downloaded), fetch it to a temporary file with the right extension
-        // so `AVAudioFile` can decode FLAC/MP3/M4A cleanly on-device.
+        // If the track is streaming (not offline-downloaded), reuse a complete disk-cached stream from
+        // `AudioCache` via an extension-tagged hard-link when available; otherwise fetch to a temp file.
         let decodeInputURL: URL
         var tempDownloadedAudio: URL?
         if audioURL.isFileURL {
             decodeInputURL = audioURL
+        } else if let cached = AudioCache.shared.completeCachedFile(for: audioURL),
+                  let linked = try? Self.stageCachedAudioFile(cached.url, contentType: cached.contentType, originURL: audioURL) {
+            Self.logger.info("Reusing complete AudioCache stream for \(songId, privacy: .public)")
+            decodeInputURL = linked
+            tempDownloadedAudio = linked
         } else {
             continuation.yield(.preparing(stage: .warming, etaSeconds: nil))
             do {
@@ -375,6 +445,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             } catch is CancellationError {
                 return
             } catch {
+                Self.logger.error("Audio download failed for \(songId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continuation.yield(.failed(.separationFailed("Audio download failed: \(error.localizedDescription)")))
                 return
             }
@@ -436,8 +507,40 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
         let message: String
     }
 
+    private static func stageCachedAudioFile(_ cachedBinURL: URL, contentType: String?, originURL: URL) throws -> URL {
+        let ext = inferAudioExtension(contentType: contentType, url: originURL)
+        let staged = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sing-cached-\(UUID().uuidString).\(ext)")
+        try? FileManager.default.removeItem(at: staged)
+        do {
+            try FileManager.default.linkItem(at: cachedBinURL, to: staged)
+        } catch {
+            try FileManager.default.copyItem(at: cachedBinURL, to: staged)
+        }
+        return staged
+    }
+
+    private static func inferAudioExtension(contentType: String?, url: URL) -> String {
+        if let uti = contentType {
+            if uti == "org.xiph.flac" || uti.lowercased().contains("flac") { return "flac" }
+            if let ext = UTType(uti)?.preferredFilenameExtension?.lowercased(), !ext.isEmpty {
+                return ext
+            }
+        }
+        if let format = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "format" })?.value?.lowercased(),
+           !format.isEmpty, format != "raw" {
+            return format
+        }
+        let urlExt = url.pathExtension.lowercased()
+        if !urlExt.isEmpty && urlExt != "view" { return urlExt }
+        return "flac"
+    }
+
     private func fetchRemoteAudioToTempFile(from remoteURL: URL) async throws -> URL {
-        let (tmpURL, response) = try await URLSession.shared.download(from: remoteURL)
+        var req = URLRequest(url: remoteURL)
+        req.timeoutInterval = 30
+        let (tmpURL, response) = try await URLSession.shared.download(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             try? FileManager.default.removeItem(at: tmpURL)
             throw NSError(domain: "SingCoreMLSeparator", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
@@ -592,11 +695,18 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
 
         onStage(.encoding, 2)
         let istftStart = CFAbsoluteTimeGetCurrent()
+        let outSr = SingDSP.outputSampleRate(for: sr)
+        let (outMixL, outMixR): ([Float], [Float])
+        if outSr == sr {
+            (outMixL, outMixR) = (mixL, mixR)
+        } else {
+            (outMixL, outMixR) = try SingDSP.resampleStereo(left: mixL, right: mixR, from: sr, to: outSr)
+        }
         let voc22L = SingDSP.istft(vocSpecL, targetLength: n22)
         let voc22R = SingDSP.istft(vocSpecR, targetLength: n22)
-        let (vocFullL, vocFullR) = try SingDSP.resampleStereo(left: voc22L, right: voc22R, from: SingDSP.coreSampleRate, to: sr)
+        let (vocFullL, vocFullR) = try SingDSP.resampleStereo(left: voc22L, right: voc22R, from: SingDSP.coreSampleRate, to: outSr)
 
-        let nFull = min(mixL.count, mixR.count, vocFullL.count, vocFullR.count)
+        let nFull = min(outMixL.count, outMixR.count, vocFullL.count, vocFullR.count)
         var instL = [Float](repeating: 0, count: nFull)
         var instR = [Float](repeating: 0, count: nFull)
         var clippedVocL = [Float](repeating: 0, count: nFull)
@@ -606,8 +716,8 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             let vr = vocFullR[i]
             clippedVocL[i] = vl
             clippedVocR[i] = vr
-            instL[i] = mixL[i] - vl
-            instR[i] = mixR[i] - vr
+            instL[i] = outMixL[i] - vl
+            instR[i] = outMixR[i] - vr
         }
         let istftResampleMs = (CFAbsoluteTimeGetCurrent() - istftStart) * 1000.0
 
@@ -619,7 +729,7 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
             instR: instR,
             vocL: clippedVocL,
             vocR: clippedVocR,
-            sampleRate: sr,
+            sampleRate: outSr,
             to: tempOut
         )
         let storedURL = try await stemCache.store(tempFile: tempOut, forKey: cacheKey)

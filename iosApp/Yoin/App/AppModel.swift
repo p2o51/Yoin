@@ -90,8 +90,12 @@ final class AppModel {
     /// Deferred stage toggle when ⌘F or ⌘L opens Now Playing from the closed bar.
     enum PendingNPKeyCommand { case focus, lyrics }
     @ObservationIgnored var pendingNPKeyCommand: PendingNPKeyCommand?
-    /// Home's edit mode, for ⌘[ (HomeView registers it).
-    @ObservationIgnored weak var homeEdit: HomeEditController?
+    /// Home's edit mode, for ⌘[ and the shell's chrome (HomeView registers it). Observed: the floating bar and
+    /// the mini player step away while Home is edited (Android hides its nav for edit mode's own chrome).
+    var homeEdit: HomeEditController?
+    /// The one Home edit session: it outlives a Home the shell rebuilds (iPad's columns appearing or going at an
+    /// 840 pt window, a rotation of an 11" iPad), so an open draft follows the new width instead of closing.
+    @ObservationIgnored private(set) lazy var homeEditor = HomeEditController()
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
@@ -256,6 +260,7 @@ final class AppModel {
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         sing.avOutputProvider = { [weak playbackSystem] in playbackSystem?.avOutput }
         sing.serverAccountProvider = { [weak session] in session?.account }
+        playbackSystem.onTrackChange = { [weak sing] track in sing?.onTrackChanged(track) }
         #if DEBUG
         profiles.useFakeSpotify()
         #endif
@@ -275,6 +280,9 @@ final class AppModel {
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
             var album = library.albums()[0]
             #if DEBUG
+            // `-albumIndex 2`: another mock album (a shorter one shows the list's end on a phone).
+            let index = UserDefaults.standard.integer(forKey: "albumIndex")
+            if library.albums().indices.contains(index) { album = library.albums()[index] }
             // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
             // stream; `open` also opens the third one's reason.
             if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
@@ -302,7 +310,7 @@ final class AppModel {
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs", "search-artists",
-             "search-playlists", "search-empty-results", "search-scrolled": searchActive = true
+             "search-playlists", "search-memories", "search-empty-results", "search-scrolled": searchActive = true
         case "home-search":
             // The bar's search circle, from Home: the field grows out of it.
             Task { @MainActor [weak self] in
@@ -596,6 +604,10 @@ final class AppModel {
     func zoomSourceID(_ id: MediaId) -> String? { zoomTiles[id].map { ZoomTile.sourceID(id, tile: $0) } }
 
     func open(_ album: Album, tile: String? = nil) {
+        // Go to album from Now Playing (its Playing from line, its title, the song sheet) on that album's
+        // own page: the page is already there, as it was left (scrolled, pulled up, its zoom tile).
+        // Pushing it again stacked a second copy that the back gesture then had to leave twice.
+        if !isPad, case .album(let top)? = path.last, top.id == album.id { return }
         zoomTiles[album.id] = tile
         prefetch(.album(album.id.rawId))
         if isPad {
@@ -691,7 +703,18 @@ final class AppModel {
 
     /// An album with the most the app knows: the server's detail when loaded.
     func resolved(_ album: Album) -> Album {
-        guard album.id.provider != "mock" else { return album }
+        guard album.id.provider != "mock" else {
+            #if DEBUG
+            // `-albumReleaseDate 2022-06-12` (or "2022-06", "2022"): the mock albums dated that precisely, for
+            // screenshots of the header's date, the line under the tracks and the receipt.
+            if let iso = UserDefaults.standard.string(forKey: "albumReleaseDate") {
+                var dated = album
+                dated.releaseDate = ReleaseDateISO.parse(iso)
+                return dated
+            }
+            #endif
+            return album
+        }
         return store.album(album.id.rawId) ?? album
     }
 

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.notes.editor
 
+import androidx.compose.ui.draw.clip
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.background
@@ -202,6 +203,8 @@ internal fun MentionRow(row: MentionCandidate, query: String, highlighted: Boole
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 6.dp)
+            // Clipped so the ripple keeps the highlight's corners.
+            .clip(YoinShapeTokens.Large)
             .background(tint, YoinShapeTokens.Large)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = kindLabel }

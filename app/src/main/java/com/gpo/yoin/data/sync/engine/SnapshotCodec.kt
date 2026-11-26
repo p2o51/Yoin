@@ -12,6 +12,8 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.StringFormat
 import kotlinx.serialization.json.Json
@@ -64,7 +66,30 @@ object SnapshotCodec {
      * @throws MalformedSyncFileException when it is not a Yoin sync file at all.
      */
     fun decode(bytes: ByteArray): SyncEnvelope {
-        val root = parseRoot(bytes)
+        val text = try {
+            (if (isGzip(bytes)) gunzip(bytes) else bytes).toString(Charsets.UTF_8)
+        } catch (e: IOException) {
+            throw MalformedSyncFileException("Corrupt gzip sync file", e)
+        }
+        // Fast single-pass decode directly into StrictWireEnvelope, gated by hasStrictJsonDelimiters
+        // so kotlinx-serialization's streaming lexer cannot accept missing commas (e.g. `"kv":1"s":"s0"`)
+        // that the tree decoder rejects. Any syntax issue, missing/mismatching header, newer schema, or
+        // broken individual record falls through to the tolerant tree decoder below.
+        val fast = if (hasStrictJsonDelimiters(text)) {
+            try {
+                SyncJson.json.decodeFromString(StrictWireEnvelope.serializer(), text)
+            } catch (_: SerializationException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } else {
+            null
+        }
+        if (fast != null && fast.format == SyncFormat.FORMAT && fast.schema == SyncFormat.SCHEMA) {
+            return fast.toEnvelope()
+        }
+        val root = parseRootText(text)
         val format = root.stringOrNull("format")
         if (format != SyncFormat.FORMAT) throw MalformedSyncFileException("Not a Yoin sync file (format=$format)")
         val schema = (root["schema"] as? JsonPrimitive)?.intOrNull
@@ -151,6 +176,10 @@ object SnapshotCodec {
         } catch (e: IOException) {
             throw MalformedSyncFileException("Corrupt gzip sync file", e)
         }
+        return parseRootText(text)
+    }
+
+    private fun parseRootText(text: String): JsonObject {
         val element = try {
             SyncJson.json.parseToJsonElement(text)
         } catch (e: SerializationException) {
@@ -170,6 +199,102 @@ object SnapshotCodec {
     private fun gunzip(bytes: ByteArray): ByteArray =
         GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
 }
+
+/** Fast-decode wire shape without defaults on [format] or [schema], so missing header keys still fail. */
+@Serializable
+private data class StrictWireEnvelope(
+    @SerialName("format") val format: String,
+    @SerialName("schema") val schema: Int,
+    @SerialName("epoch") val epoch: Long = 0L,
+    @SerialName("deviceId") val deviceId: String,
+    @SerialName("deviceName") val deviceName: String,
+    @SerialName("fileClass") val fileClass: String,
+    @SerialName("shard") val shard: Int = 0,
+    @SerialName("writtenAt") val writtenAt: Long,
+    @SerialName("appVersionCode") val appVersionCode: Int,
+    @SerialName("records") val records: List<WireRecord>,
+    @SerialName("purges") val purges: Map<String, Long>? = null,
+) {
+    fun toEnvelope() = SyncEnvelope(
+        format = format,
+        schema = schema,
+        epoch = epoch,
+        deviceId = deviceId,
+        deviceName = deviceName,
+        fileClass = fileClass,
+        shard = shard,
+        writtenAt = writtenAt,
+        appVersionCode = appVersionCode,
+        records = records,
+        purges = purges,
+    )
+}
+
+/**
+ * Zero-allocation RFC 8259 structural delimiter check: rejects missing commas between object
+ * members or array elements (e.g. `"kv":1"s":"s0"`, `{"a":"x""b":1}`) and trailing commas, which
+ * `kotlinx.serialization`'s streaming decoder would otherwise tolerate when `parseToJsonElement` does not.
+ */
+private fun hasStrictJsonDelimiters(text: String): Boolean {
+    // 0 = start or right after '{'/'['; 1 = right after ','/':'; 2 = after string; 3 = after non-string value
+    var state = 0
+    var i = 0
+    val n = text.length
+    while (i < n) {
+        when (val c = text[i]) {
+            ' ', '\t', '\r', '\n' -> i++
+            '"' -> {
+                if (state != 0 && state != 1) return false
+                i++
+                var closed = false
+                while (i < n) {
+                    val sc = text[i]
+                    if (sc == '\\') {
+                        i += 2
+                        continue
+                    }
+                    if (sc == '"') {
+                        closed = true
+                        i++
+                        break
+                    }
+                    i++
+                }
+                if (!closed) return false
+                state = 2
+            }
+            '{', '[' -> {
+                if (state != 0 && state != 1) return false
+                state = 0
+                i++
+            }
+            '}', ']' -> {
+                if (state == 1) return false
+                state = 3
+                i++
+            }
+            ':' -> {
+                if (state != 2) return false
+                state = 1
+                i++
+            }
+            ',' -> {
+                if (state != 2 && state != 3) return false
+                state = 1
+                i++
+            }
+            else -> {
+                if (state != 0 && state != 1) return false
+                while (i < n && isJsonPrimitiveChar(text[i])) i++
+                state = 3
+            }
+        }
+    }
+    return state == 2 || state == 3
+}
+
+private fun isJsonPrimitiveChar(c: Char): Boolean =
+    (c in '0'..'9') || (c in 'a'..'z') || (c in 'A'..'Z') || c == '-' || c == '+' || c == '.'
 
 // ---- Payload text <-> JsonObject
 

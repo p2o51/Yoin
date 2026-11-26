@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 
 /**
  * Copy that has to leave a ViewModel without a Context.
@@ -41,6 +42,11 @@ fun UiText.asString(): String {
 
 fun UiText.asString(context: Context): String = when (this) {
     is UiText.Raw -> value
-    is UiText.Res -> context.getString(id, *args.toTypedArray())
-    is UiText.Plural -> context.resources.getQuantityString(id, count, *args.toTypedArray())
+    // A name filled in from copy (the AI service's) sits flush against Chinese: "问 %1$s" → "问千问", "问 Gemini".
+    is UiText.Res -> context.getString(id, *args.resolved(context)).let { if (args.any { it is UiText }) YoinAlbumAbout.tightenCjkSpaces(it) else it }
+    is UiText.Plural -> context.resources.getQuantityString(id, count, *args.resolved(context))
 }
+
+/** Arguments that are copy themselves ([UiText], like the AI service's name) resolve first. */
+private fun List<Any>.resolved(context: Context): Array<Any> =
+    map { arg -> if (arg is UiText) arg.asString(context) else arg }.toTypedArray()

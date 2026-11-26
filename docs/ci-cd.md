@@ -22,6 +22,31 @@ jobs can be renamed or added without reconfiguring the protected branch.
 
 Reports (ktlint, test, lint) and the debug APK are uploaded as artifacts on every run.
 
+Each job has a `timeout-minutes` (30 for the Gradle jobs), so a build that thrashes fails
+in half an hour instead of running to the 6-hour default.
+
+### Runner memory
+
+The compiling jobs run [`.github/actions/gradle-ci-memory`](../.github/actions/gradle-ci-memory/action.yml)
+after `setup-gradle`. It writes `~/.gradle/gradle.properties` on the runner: Gradle daemon
+5 GB, Kotlin daemon 4 GB, 3 workers. The repo's `gradle.properties` keeps 2 GB for local
+machines; with that on CI, `:app:compileDebugKotlin` ran out of heap and Android Lint
+(which runs in the Gradle daemon) spent most of its time in GC.
+
+### Robolectric android-all jars
+
+Robolectric's android-all jars are Gradle dependencies (`robolectricAndroidAll*` in
+`app/build.gradle.kts`), so Gradle downloads them with retries, `setup-gradle` caches
+them, and the tests read them through a generated `robolectric-deps.properties`.
+Robolectric no longer downloads anything while tests run. When the jars aren't cached
+yet (a PR before `main` has saved them, or after a Robolectric bump), the Unit tests job
+fetches them in a separate step first and retries with backoff, because Maven Central
+answers bursts of large downloads with `429 Too Many Requests`. The list has one entry per
+SDK the tests use (every `@Config(sdk = …)` plus `targetSdk`). A test on an SDK that
+isn't listed fails with `no artifacts found for org.robolectric:android-all-instrumented:…`:
+add that SDK there. When Robolectric is bumped, the build stops with a message saying
+to refresh the list from the new release.
+
 ### Android Lint baseline
 
 Lint runs against [`app/lint-baseline.xml`](../app/lint-baseline.xml). Pre-existing
@@ -76,7 +101,8 @@ Before signing off any `0.x.y` release across platforms, complete the mandatory 
 Alongside Argon's bilingual release notes:
 
 - **Repository**: verify `docs/` (`design.md`, `platforms.md`, `integrations/provider-alignment.md`, `cloud-sync.md`, `playlist-transfer.md`, `i18n/zh-glossary.md`, plus `harmony/docs/` and `iosApp/docs/`), `README.md` & `README.zh-CN.md`, and `.agents/skills/write-copy/references/01-yoin-facts-and-terms.md` reflect all shipped changes.
-- **`yoin-site`**: in an isolated `yoin-site` worktree, update `public/changelog.html` & `public/zh/changelog.html` (including `spot.js` before/after figures), `public/index.html` & `public/zh/index.html` (version chips and platform badges), `public/licenses.html` & `public/zh/licenses.html`, `public/docs.html` & `public/zh/docs.html`, and `public/privacy.html` (whenever data flows, SDKs, or AI/key storage change). Run `python3 tools/check.py`, merge the `yoin-site` PR, and deploy via `npx wrangler@4 deploy`.
+- **Prototypes and site visuals**: before each release, update the prototypes of the screens that changed (`design/hifi`), then export the site visuals with `export.mjs` (`node design/hifi/export.mjs --batch design/hifi/site/<version>.json --out <yoin-site worktree>/public/media/changelog/<version>`); never hand-draw app UI for the site. See [`design/hifi/README.md`](../design/hifi/README.md), "How to update before a release".
+- **`yoin-site`**: in an isolated `yoin-site` worktree, update `public/changelog.html` & `public/zh/changelog.html` (including the `spot.js` before/after figure, built from the exported frames), `public/index.html` & `public/zh/index.html` (version chips and platform badges), `public/licenses.html` & `public/zh/licenses.html`, `public/docs.html` & `public/zh/docs.html`, and `public/privacy.html` (whenever data flows, SDKs, or AI/key storage change). Run `python3 tools/check.py`, merge the `yoin-site` PR, and deploy via `npx wrangler@4 deploy`.
 
 ### Required repository secrets
 

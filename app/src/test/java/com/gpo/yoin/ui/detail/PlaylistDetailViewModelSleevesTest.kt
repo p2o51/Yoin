@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.CoverSizes
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
@@ -34,14 +35,14 @@ class PlaylistDetailViewModelSleevesTest {
         assertEquals(listOf("al-1@320", "al-2@320"), content.sleeveCoverUrls)
         // The very urls the rows load.
         assertEquals(content.songs[0].coverArtUrl, content.sleeveCoverUrls[0])
-        assertEquals("pl-1@full", content.coverArtUrl)
+        assertEquals("pl-1@${CoverSizes.heroPx}", content.coverArtUrl)
     }
 
     @Test
     fun should_skipTheFirstSongsAlbum_when_heroFallsBackToTheFirstTrack() = runTest {
         val content = load(coverArt = null, albums = listOf("al-1", "al-2", "al-1", "al-3"))
 
-        assertEquals("al-1@full", content.coverArtUrl)
+        assertEquals("al-1@${CoverSizes.heroPx}", content.coverArtUrl)
         assertEquals(listOf("al-2@320", "al-3@320"), content.sleeveCoverUrls)
     }
 

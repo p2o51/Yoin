@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -126,13 +127,15 @@ class NowPlayingViewModelAboutTest {
     fun should_sayWhy_when_theKeyIsMissing() = runTest {
         val (viewModel, repository) = viewModel()
         coEvery { repository.regenerateAboutEntry(any()) } returns YoinRepository.AboutRegenerateResult.ApiKeyMissing
+        // The message names the AI service in use, not Gemini.
+        every { repository.activeAiProvider() } returns AiProvider.DeepSeek
         runCurrent()
 
         viewModel.addToPlaylistMessages.test {
             viewModel.regenerateAbout(entry(SongAboutEntry.KIND_CANONICAL, SongAboutEntry.CANON_PRODUCER))
             runCurrent()
 
-            assertEquals(UiText.Res(R.string.np_ask_api_key_missing), awaitItem())
+            assertEquals(UiText.Res(R.string.ai_key_missing, listOf(UiText.Res(R.string.ai_provider_deepseek))), awaitItem())
         }
     }
 }

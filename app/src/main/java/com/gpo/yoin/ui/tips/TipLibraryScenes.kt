@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.library.SearchTileActions
 import com.gpo.yoin.ui.library.SearchAllTiles
 import com.gpo.yoin.shared.search.fragment
@@ -45,7 +46,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -588,7 +588,7 @@ private fun BoxScope.DemoLibraryPage(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .height(SearchPillBand)
             .pointerInput(onSearch) {
                 awaitEachGesture {
@@ -638,7 +638,7 @@ private fun BoxScope.DemoLibrarySearch(visible: Boolean, onClose: () -> Unit) {
         modifier = Modifier.matchParentSize(),
     ) {
         Surface(color = SearchBarDefaults.colors().containerColor, modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.statusBarsPadding()) {
+            Column(modifier = Modifier.topBarsPadding()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -711,7 +711,7 @@ private fun BoxScope.DemoAlbumPage(album: DemoAlbum, cover: String, onLongPressR
                     tonalElevation = 0.dp,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .statusBarsPadding()
+                        .topBarsPadding()
                         .padding(top = 12.dp - AlbumBarTitleLift, end = 16.dp)
                         .size(48.dp),
                 )
@@ -840,7 +840,7 @@ internal fun MemorySearchDemo(playing: Boolean) {
         delay(3_200)
     }) {
         Surface(color = SearchBarDefaults.colors().containerColor, modifier = Modifier.matchParentSize()) {
-            Column(modifier = Modifier.statusBarsPadding()) {
+            Column(modifier = Modifier.topBarsPadding()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
