@@ -1,17 +1,24 @@
 package com.gpo.yoin.ui.home.edit
 
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import com.gpo.yoin.shared.home.HomeEditGestureAction
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Abandon
+import com.gpo.yoin.shared.home.HomeEditGestureAction.BlockTap
+import com.gpo.yoin.shared.home.HomeEditGestureAction.CarryRelease
+import com.gpo.yoin.shared.home.HomeEditGestureAction.DropLift
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Lift
+import com.gpo.yoin.shared.home.HomeEditGestureAction.StartCarry
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Down
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Move
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Up
+import com.gpo.yoin.shared.home.HomeEditGestureMachine
+import com.gpo.yoin.shared.home.HomeEditGestureState
+import com.gpo.yoin.shared.home.HomeEditGestureTimeline
+import com.gpo.yoin.shared.home.HomeEditHit
+import com.gpo.yoin.shared.home.HomePoint
+import com.gpo.yoin.shared.home.HomeSize
+import com.gpo.yoin.shared.home.LateTimerMs
+import com.gpo.yoin.shared.home.StalledInputGraceMs
 import com.gpo.yoin.ui.home.HomeSection
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Abandon
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.BlockTap
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.CarryRelease
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.DropLift
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Lift
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCarry
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Down
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Move
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Up
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -28,8 +35,8 @@ import org.junit.Test
 class HomeEditGestureTimelineTest {
 
     private val section = HomeSection.Activities
-    private val block = HomeEditHit.Block(section, Offset(40f, 60f), Size(600f, 400f))
-    private val point = Offset(300f, 500f)
+    private val block = HomeEditHit.Block(section, HomePoint(40f, 60f), HomeSize(600f, 400f))
+    private val point = HomePoint(300f, 500f)
     private val machine = HomeEditGestureMachine(longPressMs = LongPressMs, slopPx = Slop)
     private val actions = mutableListOf<HomeEditGestureAction>()
     private var flinging = false
@@ -44,7 +51,7 @@ class HomeEditGestureTimelineTest {
 
     // A fling upward: 1000px in 150ms, sampled every 8ms from [fromMs].
     private fun flingSamples(fromMs: Long, untilMs: Long = fromMs + 150L): List<Move> =
-        (fromMs..untilMs step 8L).map { t -> Move(point - Offset(0f, (t - fromMs) * 1000f / 150f), t) }
+        (fromMs..untilMs step 8L).map { t -> Move(point - HomePoint(0f, (t - fromMs) * 1000f / 150f), t) }
 
     private fun deliver(batch: List<Move>) = batch.forEach { timeline.sample(it) }
 
@@ -91,10 +98,10 @@ class HomeEditGestureTimelineTest {
         // One late batch: resting (within the slop) until after the hold, then a drag.
         deliver(
             listOf(
-                Move(point + Offset(2f, 1f), 90L),
-                Move(point + Offset(3f, 2f), 180L),
-                Move(point + Offset(3f, -40f), 260L),
-                Move(point + Offset(3f, -80f), 268L),
+                Move(point + HomePoint(2f, 1f), 90L),
+                Move(point + HomePoint(3f, 2f), 180L),
+                Move(point + HomePoint(3f, -40f), 260L),
+                Move(point + HomePoint(3f, -80f), 268L),
             ),
         )
 
@@ -111,7 +118,7 @@ class HomeEditGestureTimelineTest {
         downOnBlock()
 
         // The first sample past the slop is stamped after the hold: the hold goes first, as it did.
-        deliver(listOf(Move(point + Offset(0f, 2f), 150L), Move(point + Offset(0f, -30f), BodyHoldMs)))
+        deliver(listOf(Move(point + HomePoint(0f, 2f), 150L), Move(point + HomePoint(0f, -30f), BodyHoldMs)))
 
         assertTrue(actions.any { it is Lift })
         assertEquals(HomeEditGestureState.Carry, machine.state)
@@ -133,7 +140,7 @@ class HomeEditGestureTimelineTest {
         assertEquals(HomeEditGestureState.Passive, machine.state)
         assertNull(timeline.untilDue())
         // Held well past the body hold, then let go: nothing lifts, nothing kicks.
-        timeline.sample(Move(point + Offset(1f, 1f), 400L))
+        timeline.sample(Move(point + HomePoint(1f, 1f), 400L))
         timeline.sample(Up(450L))
 
         assertFalse(actions.any { it is Lift })

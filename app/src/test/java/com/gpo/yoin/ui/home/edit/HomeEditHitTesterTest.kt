@@ -3,6 +3,9 @@ package com.gpo.yoin.ui.home.edit
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import com.gpo.yoin.shared.home.HomeEditHit
+import com.gpo.yoin.shared.home.HomePoint
+import com.gpo.yoin.shared.home.HomeSize
 import com.gpo.yoin.ui.home.HomeSection
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -23,7 +26,7 @@ class HomeEditHitTesterTest {
     @Test
     fun should_returnBlock_when_inSectionBand() {
         assertEquals(
-            HomeEditHit.Block(HomeSection.Activities, local = Offset(184f, 150f), size = Size(328f, 300f)),
+            HomeEditHit.Block(HomeSection.Activities, local = HomePoint(184f, 150f), size = HomeSize(328f, 300f)),
             hit(200f, 250f),
         )
     }
@@ -43,7 +46,7 @@ class HomeEditHitTesterTest {
     @Test
     fun should_returnBlock_when_marginOverBleedingShelf() {
         assertEquals(
-            HomeEditHit.Block(HomeSection.RecentlyAdded, local = Offset(-12f, 82f), size = Size(328f, 282f)),
+            HomeEditHit.Block(HomeSection.RecentlyAdded, local = HomePoint(-12f, 82f), size = HomeSize(328f, 282f)),
             hit(4f, 500f),
         )
     }
@@ -65,7 +68,7 @@ class HomeEditHitTesterTest {
     @Test
     fun should_returnHandle_when_editingOverHandle() {
         assertEquals(
-            HomeEditHit.Handle(HomeSection.RecentlyAdded, local = Offset(304f, 12f), size = Size(328f, 282f)),
+            HomeEditHit.Handle(HomeSection.RecentlyAdded, local = HomePoint(304f, 12f), size = HomeSize(328f, 282f)),
             hit(320f, 430f, editing = true, handle = HomeSection.RecentlyAdded),
         )
     }
