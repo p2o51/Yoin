@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.ime
@@ -115,6 +114,7 @@ import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.component.ReleaseKindFilter
 import com.gpo.yoin.ui.component.releaseKindFilterLabel
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeAccountAvatarHold
 import com.gpo.yoin.ui.home.HomeAccountButton
@@ -1312,7 +1312,7 @@ private fun LibraryWideHeaderRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             // 外层 libraryPageWidth 已有 16dp,这里再补 16dp → 32dp 桌面
             // gutter,与下方网格 contentPadding 的合计边距对齐一条线。
             .padding(start = horizontalPadding, top = topPadding, end = horizontalPadding, bottom = 6.dp),

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.adaptive.collectFoldingFeaturesAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -540,7 +539,7 @@ fun rememberEdgeSplitSide(): EdgeSplitSide = rememberEdgeCutouts().side
 fun rememberEdgeSplitSegments(windowHeight: Dp): EdgeSplitSegments {
     val density = LocalDensity.current
     val cutouts = rememberEdgeCutouts()
-    val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    val statusTop = with(density) { WindowInsets.topBars.getTop(this).toDp() }
     val navBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
     return remember(windowHeight, statusTop, navBottom, cutouts) {
         computeEdgeSplitSegments(

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -56,6 +55,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.formatMemoryChromeDate
 import com.gpo.yoin.ui.memories.MemoryScoreKind
@@ -213,7 +213,7 @@ internal fun MemoriesShowcase(
         val type = remember(layout) { MemoriesTypeScale.of(layout) }
         val spread = layout.isSpread
         val spreadNow by rememberUpdatedState(spread)
-        val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val statusTop = WindowInsets.topBars.asPaddingValues().calculateTopPadding()
         val navBottom = max(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), bottomInset)
         val leftPagePx = with(LocalDensity.current) { layout.leftPage.toPx() }
         SideEffect { router?.spreadLeftPagePx = if (spread) leftPagePx else null }
@@ -369,7 +369,7 @@ internal fun MemoriesShowcase(
                 currentDot = pagerState.settledPage,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.topBars)
                     .onPlaced(onBarPlaced),
             )
         }

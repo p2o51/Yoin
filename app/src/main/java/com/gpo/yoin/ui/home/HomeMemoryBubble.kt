@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -89,6 +88,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.tips.LocalTipReadStore
 import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
 import com.gpo.yoin.ui.tips.TipActivity
@@ -1047,7 +1047,7 @@ internal fun MemoryBubbleOverlay(
     }
 
     val cutout = rememberTopCutoutBounds()
-    val statusBarTop = WindowInsets.statusBars.getTop(density)
+    val statusBarTop = WindowInsets.topBars.getTop(density)
     val scrolledAway by remember { derivedStateOf { scrolledPx() > with(density) { ArrowScrollFade.toPx() } } }
     // The root routes taps (watchMemoryBubbleTouches): keep it told what each does now.
     SideEffect {
