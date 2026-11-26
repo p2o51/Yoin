@@ -103,6 +103,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.component.AlbumVersionTitle
+import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
+import com.gpo.yoin.ui.component.ReleaseKindFilter
+import com.gpo.yoin.ui.component.releaseKindFilterLabel
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeAccountAvatarHold
 import com.gpo.yoin.ui.home.HomeAccountButton
@@ -1587,11 +1590,18 @@ private fun AlbumsTabContent(
         EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier, pullable = true)
         return
     }
+    // PROTOTYPE (owner 2026-11-26 "EP 和专辑能不能试着分开？"): the artist page's kind filter, offered
+    // only when the shelf holds at least two kinds the services named.
+    val filters = remember(albums) { ReleaseKindFilter.offeredFor(albums.map { it.releaseType }) }
+    var filter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ReleaseKindFilter.All) }
+    val activeFilter = filter.takeIf { it in filters } ?: ReleaseKindFilter.All
+    val shownAlbums = if (activeFilter == ReleaseKindFilter.All) albums else albums.filter { activeFilter.accepts(it.releaseType) }
+    val filterLabels = filters.associateWith { releaseKindFilterLabel(it) }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = libraryGridCells(
-                itemCount = albums.size,
+                itemCount = shownAlbums.size,
                 viewportHeight = if (constraints.hasBoundedHeight) maxHeight - 8.dp - floatingBottomGroupContentPadding() else Dp.Unspecified,
                 leading = if (sortRow.shown) LibrarySparseSortRow else 0.dp,
             ),
@@ -1616,7 +1626,17 @@ private fun AlbumsTabContent(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             librarySortRow(sortRow)
-            itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
+            if (filters.isNotEmpty()) {
+                item(key = "library-kind-filter", span = { GridItemSpan(maxLineSpan) }, contentType = "library-kind-filter") {
+                    ExpressiveSegmentedTabs(
+                        items = filters,
+                        selectedItem = activeFilter,
+                        label = { filterLabels.getValue(it) },
+                        onSelectedChange = { filter = it },
+                    )
+                }
+            }
+            itemsIndexed(shownAlbums, key = { _, album -> album.id.toString() }) { index, album ->
                 val entranceProgress = rememberLibraryItemEntrance(
                     key = album.id,
                     index = index,
@@ -1645,8 +1665,9 @@ private fun AlbumsTabContent(
         }
         LibraryGridFastScroller(
             state = gridState,
-            sections = scrollSections,
-            leadingItems = sortRow.leadingItems,
+            // A filtered shelf has no letter sections of its own yet (prototype): the bare scroller.
+            sections = if (activeFilter == ReleaseKindFilter.All) scrollSections else emptyList(),
+            leadingItems = sortRow.leadingItems + if (filters.isNotEmpty()) 1 else 0,
             anchor = anchor,
             endOverhang = scrollerEndOverhang,
             bottomInset = floatingBottomGroupContentPadding(),
@@ -1675,6 +1696,7 @@ private fun AlbumGridItem(
         subtitle = album.artist,
         version = album.version,
         explicit = album.isExplicit,
+        releaseType = album.releaseType,
         onClick = onClick,
         extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
@@ -1699,7 +1721,8 @@ private fun PlaylistGridItem(
         extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
-        fallbackIcon = YoinSymbols.Playlist
+        fallbackIcon = YoinSymbols.Playlist,
+        backdropKind = com.gpo.yoin.ui.home.WidgetShapeKind.Playlist,
     )
 }
 
@@ -2354,7 +2377,7 @@ private fun FavoritesTabContent(
 }
 
 @Composable
-private fun AlbumListItem(
+internal fun AlbumListItem(
     album: Album,
     onClick: () -> Unit,
     coverArtUrl: String?,
@@ -2390,11 +2413,12 @@ private fun AlbumListItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f).seamFade()) {
+                // PROTOTYPE (owner 2026-11-26): the title is the name alone; the version tag and the "E"
+                // sit at the row's end (a 48dp thumb has no room for the backdrop band).
                 AlbumVersionTitle(
-                    name = album.name,
-                    version = album.version,
+                    name = com.gpo.yoin.data.model.albumNameWithoutVersion(album.name, album.version),
+                    version = null,
                     titleStyle = MaterialTheme.typography.titleSmall,
-                    explicit = album.isExplicit,
                 ) { text, titleModifier ->
                     Text(
                         text = text,
@@ -2415,6 +2439,11 @@ private fun AlbumListItem(
                     )
                 }
             }
+            com.gpo.yoin.ui.component.RowEndBadges(
+                version = album.version,
+                explicit = album.isExplicit,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }

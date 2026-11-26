@@ -987,20 +987,7 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
 // Discography — a release timeline
 // ---------------------------------------------------------------------------
 
-private enum class DiscographyFilter {
-    All,
-    Albums,
-    SinglesAndEps,
-    Compilations,
-    ;
-
-    fun accepts(type: ReleaseType?): Boolean = when (this) {
-        All -> true
-        Albums -> type == ReleaseType.Album
-        SinglesAndEps -> type == ReleaseType.Single || type == ReleaseType.EP
-        Compilations -> type == ReleaseType.Compilation
-    }
-}
+private typealias DiscographyFilter = com.gpo.yoin.ui.component.ReleaseKindFilter
 
 /**
  * Every release, newest first ([newestReleasesFirst], whatever order the
@@ -1018,8 +1005,7 @@ private fun ArtistDiscography(
     modifier: Modifier = Modifier,
 ) {
     val filters = remember(albums) {
-        val kinds = DiscographyFilter.entries.drop(1).filter { f -> albums.any { f.accepts(it.releaseType) } }
-        if (kinds.size >= 2) listOf(DiscographyFilter.All) + kinds else emptyList()
+        DiscographyFilter.offeredFor(albums.map { it.releaseType })
     }
     var filter by rememberSaveable { mutableStateOf(DiscographyFilter.All) }
     var showAll by rememberSaveable { mutableStateOf(false) }
@@ -1208,12 +1194,7 @@ private fun ReleaseMetaLine(album: ArtistAlbum, isLatest: Boolean) {
 }
 
 @Composable
-private fun filterLabel(filter: DiscographyFilter): String = when (filter) {
-    DiscographyFilter.All -> stringResource(R.string.detail_artist_filter_all)
-    DiscographyFilter.Albums -> stringResource(R.string.detail_artist_filter_albums)
-    DiscographyFilter.SinglesAndEps -> stringResource(R.string.detail_artist_filter_singles)
-    DiscographyFilter.Compilations -> stringResource(R.string.detail_artist_filter_compilations)
-}
+private fun filterLabel(filter: DiscographyFilter): String = com.gpo.yoin.ui.component.releaseKindFilterLabel(filter)
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

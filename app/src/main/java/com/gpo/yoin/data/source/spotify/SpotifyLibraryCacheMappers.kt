@@ -72,6 +72,7 @@ internal fun Album.toSpotifyLibraryAlbumCache(
     addedAt = addedAt ?: this.addedAt,
     cachedAt = cachedAt,
     contentRating = contentRating?.name,
+    releaseType = releaseType?.name,
 )
 
 internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
@@ -90,6 +91,7 @@ internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
     // A cached album is a saved one: its added_at is when it joined the library.
     libraryAddedAt = addedAt,
     contentRating = ContentRating.fromStorage(contentRating),
+    releaseType = releaseType?.let { name -> com.gpo.yoin.data.model.ReleaseType.entries.firstOrNull { it.name == name } },
 )
 
 internal fun Artist.toSpotifyLibraryArtistCache(

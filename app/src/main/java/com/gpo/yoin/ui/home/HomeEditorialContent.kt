@@ -3434,7 +3434,7 @@ private fun RecentlyAddedTrackTile(
 }
 
 @Composable
-private fun RecentlyAddedAlbumCard(
+internal fun RecentlyAddedAlbumCard(
     album: Album,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
@@ -3463,13 +3463,19 @@ private fun RecentlyAddedAlbumCard(
             interactionSource = interactionSource,
             modifier = Modifier.size(homeShelfCoverSize()),
             memoryMark = memoryMark,
+            version = album.version,
+            explicit = album.isExplicit,
+            kindTag = com.gpo.yoin.ui.component.coverKindTag(album.releaseType),
         )
         Spacer(modifier = Modifier.height(6.dp))
         val nameStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+        // The version tag and the "E" sit on the cover's backdrop band; the name is clean.
         AlbumVersionTitle(
-            name = album.name,
-            version = album.version,
-            explicit = album.isExplicit,
+            name = com.gpo.yoin.ui.component.nameWithoutKindSuffix(
+                com.gpo.yoin.data.model.albumNameWithoutVersion(album.name, album.version),
+                album.releaseType,
+            ),
+            version = null,
             titleStyle = nameStyle,
             modifier = Modifier.seamFade(),
         ) { text, titleModifier ->

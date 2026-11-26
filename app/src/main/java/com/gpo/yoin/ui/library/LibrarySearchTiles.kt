@@ -77,6 +77,7 @@ import com.gpo.yoin.data.search.SearchTile
 import com.gpo.yoin.data.search.SearchTileRow
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExplicitTitle
+import com.gpo.yoin.ui.component.coverKindTag
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.component.elasticPress
@@ -373,12 +374,12 @@ private fun SearchTileView(
                         size = size,
                         description = tile.track.title.orEmpty(),
                         interactionSource = source,
+                        explicit = tile.track.isExplicit,
                     )
                 },
                 side = note?.let { { NoteSide(it, query, textLines) } },
                 title = tile.track.title.orEmpty(),
                 subtitle = tile.track.artist.orEmpty(),
-                explicit = tile.track.isExplicit,
                 query = query,
                 onClick = { if (note != null) actions.onNote(note, tile.track) else actions.onSong(tile.track) },
                 onLongClick = actions.onSongLongClick?.let { open -> { open(tile.track) } },
@@ -420,12 +421,14 @@ private fun SearchTileView(
                         description = album.name,
                         interactionSource = source,
                         mark = tile.memory?.mark?.takeIf { marks }?.toHomeMark(),
+                        version = album.version,
+                        explicit = album.isExplicit,
+                        kindTag = coverKindTag(album.releaseType),
                     )
                 },
                 side = tile.hit?.let { hit -> { MemorySide(hit, tile.memory?.mark ?: hit.mark, query, textLines) } },
-                title = album.name,
+                title = com.gpo.yoin.ui.component.nameWithoutKindSuffix(album.name, album.releaseType),
                 subtitle = album.artist.orEmpty(),
-                explicit = album.isExplicit,
                 inlineMark = tile.memory?.mark?.takeIf { !marks },
                 query = query,
                 onClick = { actions.onAlbum(album, tile.memory) },
@@ -587,6 +590,9 @@ private fun TileArt(
     description: String,
     interactionSource: MutableInteractionSource,
     mark: HomeAlbumMemoryMark? = null,
+    version: String? = null,
+    explicit: Boolean = false,
+    kindTag: String? = null,
 ) {
     WidgetBackdropArtwork(
         model = model,
@@ -596,6 +602,9 @@ private fun TileArt(
         modifier = Modifier.size(size),
         interactionSource = interactionSource,
         memoryMark = mark,
+        version = version,
+        explicit = explicit,
+        kindTag = kindTag,
     )
 }
 

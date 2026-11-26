@@ -14,6 +14,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.ReleaseDate
+import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.orMorePrecise
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -1010,7 +1011,26 @@ class AppleMusicSource(
                 // A library album without its own rating takes its catalog album's, like the genre.
                 contentRating = ContentRating.fromAppleMusic(a.text("contentRating"))
                     ?: ContentRating.fromAppleMusic(catalog?.attributes()?.text("contentRating")),
+                releaseType = appleReleaseType(a, catalog?.attributes()),
             )
+        }
+
+        /**
+         * Apple Music has no release-type field: a compilation says `isCompilation`, a single `isSingle`,
+         * and an EP only by its name, which Apple ends with " - EP" (a single's with " - Single"). A
+         * catalog album that answers `isSingle` false and isn't named an EP is an album. A library album
+         * carries none of the flags, so its catalog album's are read; with neither, unknown.
+         */
+        internal fun appleReleaseType(own: JsonObject, catalog: JsonObject?): ReleaseType? {
+            val name = own.text("name") ?: catalog?.text("name")
+            fun flag(key: String) = (own[key] ?: catalog?.get(key))?.jsonPrimitive?.booleanOrNull
+            return when {
+                flag("isCompilation") == true -> ReleaseType.Compilation
+                flag("isSingle") == true || name?.endsWith(" - Single") == true -> ReleaseType.Single
+                name?.endsWith(" - EP") == true -> ReleaseType.EP
+                flag("isSingle") == false -> ReleaseType.Album
+                else -> null
+            }
         }
 
         /**

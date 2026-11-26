@@ -64,6 +64,7 @@ internal fun SpotifyAlbumObject.toAlbum(
     isStarred = id in savedAlbumIds,
     releaseDate = releaseDate(),
     recordLabels = listOfNotNull(label?.trim()?.takeIf(String::isNotEmpty)),
+    releaseType = spotifyReleaseType(albumType, totalTracks),
     contentRating = contentRating(tracksOverride),
     tracks = tracksOverride.map { track ->
         track.toTrack(

@@ -252,6 +252,7 @@ class AlbumDetailViewModel(
                     albumName = album.name,
                     albumVersion = album.version,
                     albumExplicit = album.isExplicit,
+                    releaseType = album.releaseType,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
                     coverArtId = CoverRef.toStorageKey(album.coverArt),

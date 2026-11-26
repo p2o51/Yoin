@@ -2262,6 +2262,9 @@ class YoinDatabaseMigrationTest {
         assertEquals(null, album.contentRating)
         library.upsertAlbum(album.copy(contentRating = "Clean"))
         assertEquals("Clean", library.getAlbum("p1", "al-1")?.contentRating)
+        assertEquals(null, album.releaseType)
+        library.upsertAlbum(album.copy(releaseType = "EP"))
+        assertEquals("EP", library.getAlbum("p1", "al-1")?.releaseType)
 
         migrated.close()
     }

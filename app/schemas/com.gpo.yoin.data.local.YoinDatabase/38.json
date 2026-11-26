@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 38,
-    "identityHash": "2521bf5ff2d16995919fe593b7824775",
+    "identityHash": "459a00a7ce5d544465023bdea0b6b441",
     "entities": [
       {
         "tableName": "local_ratings",
@@ -771,7 +771,7 @@
       },
       {
         "tableName": "spotify_library_album_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `isSaved` INTEGER NOT NULL, `addedAt` TEXT, `cachedAt` INTEGER NOT NULL, `contentRating` TEXT, PRIMARY KEY(`profileId`, `albumId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `isSaved` INTEGER NOT NULL, `addedAt` TEXT, `cachedAt` INTEGER NOT NULL, `contentRating` TEXT, `releaseType` TEXT, PRIMARY KEY(`profileId`, `albumId`))",
         "fields": [
           {
             "fieldPath": "profileId",
@@ -836,6 +836,11 @@
           {
             "fieldPath": "contentRating",
             "columnName": "contentRating",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "releaseType",
+            "columnName": "releaseType",
             "affinity": "TEXT"
           }
         ],
@@ -2201,7 +2206,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2521bf5ff2d16995919fe593b7824775')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '459a00a7ce5d544465023bdea0b6b441')"
     ]
   }
 }

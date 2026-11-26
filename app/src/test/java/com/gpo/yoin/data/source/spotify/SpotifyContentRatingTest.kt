@@ -80,4 +80,14 @@ class SpotifyContentRatingTest {
         assertNull(old.toAlbum().contentRating)
         assertNull(old.copy(contentRating = "Bogus").toAlbum().contentRating)
     }
+
+    @Test
+    fun should_keepTheReleaseKind_when_mappingAFullAlbum() {
+        val ep = json.decodeFromString(
+            SpotifyAlbumObject.serializer(),
+            """{"id":"a","name":"EP","album_type":"single","total_tracks":5,"tracks":{"items":[],"total":5}}""",
+        )
+        assertEquals(com.gpo.yoin.data.model.ReleaseType.EP, ep.toAlbum().releaseType)
+        assertEquals(com.gpo.yoin.data.model.ReleaseType.EP, ep.toAlbum().toSpotifyLibraryAlbumCache("p", 1L).toAlbum().releaseType)
+    }
 }

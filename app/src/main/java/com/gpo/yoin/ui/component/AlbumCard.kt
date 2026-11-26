@@ -27,11 +27,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.home.WidgetBackdropArtwork
+import com.gpo.yoin.ui.home.WidgetShapeKind
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
-fun AlbumCard(
+internal fun AlbumCard(
     coverArtUrl: String?,
     title: String,
     subtitle: String? = null,
@@ -48,6 +50,12 @@ fun AlbumCard(
     // What a missing cover shows: the kind of thing the card is (a playlist
     // card in Library's All view shows the playlist mark).
     fallbackIcon: ImageVector = YoinSymbols.Album,
+    // PROTOTYPE (owner 2026-11-26): Home's Expressive backdrop shape behind the cover (Bun for an
+    // album, Ghostish for a playlist), with the version tag and the "E" on the shape's band above the
+    // cover (CoverBandBadges) instead of after the title. Null keeps the bare full-bleed cover.
+    backdropKind: WidgetShapeKind? = WidgetShapeKind.Album,
+    // PROTOTYPE: an EP or a single says so on the same band ("EP", "Single").
+    releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -86,21 +94,39 @@ fun AlbumCard(
                     onClick = onClick,
                 ),
         ) {
-            ExpressiveBackdropArtwork(
-                model = coverArtUrl,
-                contentDescription = title,
-                variant = ExpressiveBackdropVariant.Bun,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .seamDissolve(),
-                shape = YoinArtworkShapes.Cover,
-                fallbackIcon = fallbackIcon,
-                interactionSource = interactionSource,
-                fillFraction = 1f,
-                tonalElevation = 0.dp,
-                extractBackdropColors = extractBackdropColors,
-            )
+            if (backdropKind != null) {
+                // One static clip per cover (no press morph): a Library grid holds dozens of them.
+                WidgetBackdropArtwork(
+                    model = coverArtUrl,
+                    kind = backdropKind,
+                    contentDescription = title,
+                    extractBackdropColors = extractBackdropColors,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                    interactionSource = interactionSource,
+                    version = version,
+                    explicit = explicit,
+                    kindTag = coverKindTag(releaseType),
+                    pressMorph = false,
+                )
+            } else {
+                ExpressiveBackdropArtwork(
+                    model = coverArtUrl,
+                    contentDescription = title,
+                    variant = ExpressiveBackdropVariant.Bun,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .seamDissolve(),
+                    shape = YoinArtworkShapes.Cover,
+                    fallbackIcon = fallbackIcon,
+                    interactionSource = interactionSource,
+                    fillFraction = 1f,
+                    tonalElevation = 0.dp,
+                    extractBackdropColors = extractBackdropColors,
+                )
+            }
             Spacer(modifier = Modifier.height(5.dp))
             if (!metaLabel.isNullOrBlank()) {
                 ExpressiveMetaPill(text = metaLabel, modifier = Modifier.seamFade())
@@ -108,13 +134,18 @@ fun AlbumCard(
             }
             // One line only — overflow scrolls (marquee) instead of wrapping,
             // so long titles never make one card taller than its row.
+            // With the backdrop the tag and the E live on the art; the title is the name alone.
             AlbumVersionTitle(
-                name = title,
-                version = version,
+                name = if (backdropKind != null) {
+                    nameWithoutKindSuffix(com.gpo.yoin.data.model.albumNameWithoutVersion(title, version), releaseType)
+                } else {
+                    title
+                },
+                version = if (backdropKind != null) null else version,
                 titleStyle = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.fillMaxWidth().seamFade(),
                 nameEllipsizes = false,
-                explicit = explicit,
+                explicit = explicit && backdropKind == null,
             ) { text, titleModifier ->
                 MarqueeText(
                     text = text,

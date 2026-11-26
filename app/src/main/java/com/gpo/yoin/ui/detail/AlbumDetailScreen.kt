@@ -794,6 +794,7 @@ private fun AlbumDetailContent(
                     albumName = content.albumName,
                     albumVersion = content.albumVersion,
                     albumExplicit = content.albumExplicit,
+                    releaseType = content.releaseType,
                     artistName = content.artistName,
                     releaseDate = albumHeaderDate(content.releaseDate, content.year),
                     titleColor = titleColor,
@@ -828,6 +829,7 @@ private fun AlbumDetailContent(
                             albumName = content.albumName,
                             albumVersion = content.albumVersion,
                             albumExplicit = content.albumExplicit,
+                            releaseType = content.releaseType,
                             artistName = content.artistName,
                             releaseDate = albumHeaderDate(content.releaseDate, content.year),
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -1019,6 +1021,8 @@ private fun AlbumTopHeader(
     albumName: String,
     albumVersion: String?,
     albumExplicit: Boolean,
+    // The meta line's kind: EP / Single / Compilation as the service says; Album when unknown.
+    releaseType: com.gpo.yoin.data.model.ReleaseType?,
     artistName: String,
     // The release date as the meta line shows it ("22.6.12", "22.6", "2022"); null shows none.
     releaseDate: String?,
@@ -1076,7 +1080,10 @@ private fun AlbumTopHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         // The version is its own tag here, not repeated in the title.
-                        text = albumNameWithoutVersion(albumName, albumVersion),
+                        text = com.gpo.yoin.ui.component.nameWithoutKindSuffix(
+                            albumNameWithoutVersion(albumName, albumVersion),
+                            releaseType,
+                        ),
                         style = MaterialTheme.typography.headlineSmall,
                         color = titleColor,
                         maxLines = 1,
@@ -1102,7 +1109,13 @@ private fun AlbumTopHeader(
                 DetailMetaLine(
                     groups = buildList {
                         if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
-                        add(MetaGroup.Kind(stringResource(R.string.detail_album_kind), accent = true))
+                        add(
+                            MetaGroup.Kind(
+                                com.gpo.yoin.ui.component.releaseKindLabel(releaseType)
+                                    ?: stringResource(R.string.detail_album_kind),
+                                accent = true,
+                            ),
+                        )
                         if (releaseDate != null) add(MetaGroup.Plain(releaseDate))
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -1161,6 +1174,7 @@ internal fun AlbumBarHeaderTwin(
     albumName: String,
     albumVersion: String? = null,
     albumExplicit: Boolean = false,
+    releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
     artistName: String,
     releaseDate: String?,
     pageFraction: () -> Float,
@@ -1186,6 +1200,7 @@ internal fun AlbumBarHeaderTwin(
             albumName = albumName,
             albumVersion = albumVersion,
             albumExplicit = albumExplicit,
+            releaseType = releaseType,
             artistName = artistName,
             releaseDate = releaseDate,
             titleColor = onBar,

@@ -1259,6 +1259,8 @@ class AppContainer(private val context: Context) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `spotify_library_track_cache` ADD COLUMN `contentRating` TEXT")
                 db.execSQL("ALTER TABLE `spotify_library_album_cache` ADD COLUMN `contentRating` TEXT")
+                // PROTOTYPE (EP / single filter): the saved albums keep Spotify's album_type too.
+                db.execSQL("ALTER TABLE `spotify_library_album_cache` ADD COLUMN `releaseType` TEXT")
                 db.execSQL("ALTER TABLE `home_grid_pool_cache` ADD COLUMN `contentRating` TEXT")
             }
         }

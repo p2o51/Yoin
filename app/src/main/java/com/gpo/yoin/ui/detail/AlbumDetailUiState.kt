@@ -18,6 +18,8 @@ sealed interface AlbumDetailUiState {
         val albumVersion: String? = null,
         /** The service marks the release explicit: the header wears the "E" badge after its title. */
         val albumExplicit: Boolean = false,
+        /** What kind of release this is, as the service says; the header names it (Album when unknown). */
+        val releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
         val artistName: String,
         val artistId: String?,
         val coverArtId: String?,
