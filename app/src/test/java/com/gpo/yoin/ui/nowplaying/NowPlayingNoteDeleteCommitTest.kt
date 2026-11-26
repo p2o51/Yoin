@@ -6,13 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTouchInput
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -125,16 +123,14 @@ class NowPlayingNoteDeleteCommitTest {
         rule.waitForIdle()
     }
 
-    /** Long-press the note into the write bar, empty it, Save: deleted with undo, the window still open. */
+    /** Long-press the note into its menu and Delete it: deleted with undo, the window still open. */
     private fun saveTheNoteEmptied() {
         rule.onNode(
             hasText(note.content, substring = true) and SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick),
         ).performTouchInput { longClick() }
         rule.waitForIdle()
-        rule.onNode(hasSetTextAction()).performTextClearance()
-        rule.waitForIdle()
         rule.mainClock.autoAdvance = false
-        rule.onNodeWithText("Save").performClick()
+        rule.onNodeWithText("Delete").performClick()
         rule.mainClock.advanceTimeBy(500L)
         rule.onNodeWithText("Undo").assertExists()
         assertTrue("still in its undo window", deleted.isEmpty())
