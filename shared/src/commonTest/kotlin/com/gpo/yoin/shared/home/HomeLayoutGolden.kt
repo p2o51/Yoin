@@ -135,7 +135,7 @@ internal object HomeLayoutGolden {
             "states" to JsonObject(states.mapValues { stateJson(it.value) }),
         )
         val body = sections.map { section ->
-            section to HomeLayoutGoldenFixtures.inputs.getValue(section).map { input -> JsonObject(input + outputs(section, input, states)) }
+            section to HomeLayoutGoldenFixtures.inputs.getValue(section).map { input -> HomeGoldenJson.vector(input, outputs(section, input, states)) }
         }
         return HomeGoldenJson.render(header, body)
     }

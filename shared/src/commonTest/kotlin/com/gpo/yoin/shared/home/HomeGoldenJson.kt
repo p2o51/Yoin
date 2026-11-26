@@ -122,6 +122,13 @@ internal object HomeGoldenJson {
         return mismatches
     }
 
+    /** One vector: [input] then [output]; an output field may never shadow an input one (the replay reads inputs back). */
+    fun vector(input: JsonObject, output: JsonObject): JsonObject {
+        val clash = input.keys.intersect(output.keys)
+        require(clash.isEmpty()) { "output fields $clash shadow inputs of ${input["name"]}" }
+        return JsonObject(input + output)
+    }
+
     /** The file: header fields, then one vector per line, section by section. */
     fun render(header: List<Pair<String, JsonElement>>, sections: List<Pair<String, List<JsonObject>>>): String = buildString {
         append("{\n")
