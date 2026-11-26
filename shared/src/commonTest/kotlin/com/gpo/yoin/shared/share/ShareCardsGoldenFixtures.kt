@@ -87,11 +87,15 @@ internal object ShareCardsGoldenFixtures {
         "Japanese kana and kanji with a comma and digits" to "夜に駆ける、2019",
         "hiragana only" to "さよなら",
         "katakana only" to "サヨナラ",
-        "katakana with the prolonged sound mark (Common script: not CJK)" to "ラーメン",
+        "katakana with the prolonged sound mark ー (CJK)" to "ラーメン",
+        "ー alone" to "ーー",
         "halfwidth katakana" to "ｻﾖﾅﾗ",
-        "halfwidth katakana with ｰ (Common: not CJK)" to "ﾗｰﾒﾝ",
+        "halfwidth katakana with ｰ (CJK)" to "ﾗｰﾒﾝ",
+        "halfwidth voiced marks ﾞ ﾟ" to "ｶﾞｷﾞﾊﾟ",
+        "ー with Latin is still not CJK" to "ラーメン ramen",
         "iteration mark 々 is Han" to "時々",
-        "〆 is a Common letter (not CJK)" to "締〆",
+        "〆 counts as CJK" to "締〆",
+        "〆 alone" to "〆",
         "ideographic zero 〇 is not a letter (alone: not CJK)" to "〇",
         "〇 beside Han" to "二〇一九年",
         "Korean Hangul syllables" to "사랑해요",
@@ -130,7 +134,7 @@ internal object ShareCardsGoldenFixtures {
         content("everything: CJK lines, About with a paragraph, an anchored note, a known length", all),
         content("Latin lines: no Vertical", all.copy(lyrics = pick(timed("If I could go back", "To the start")))),
         content("mixed CJK and Latin lines: no Vertical", all.copy(lyrics = pick(timed("帶著笑容", "Before I ever fell down")))),
-        content("Japanese with ー: no Vertical (pinned)", all.copy(lyrics = pick(timed("ラーメンを食べた")))),
+        content("Japanese with ー: Vertical", all.copy(lyrics = pick(timed("ラーメンを食べた", "スーパーカー")))),
         content("Korean lines: Vertical", all.copy(lyrics = pick(timed("사랑해요", "보고 싶다")))),
         content("About credits only: no Quote", all.copy(about = creditsOnly)),
         content("About with only the year: no About tab", all.copy(about = yearOnly)),
@@ -299,7 +303,8 @@ internal object ShareCardsGoldenFixtures {
         Triple("mixed turns sideways", "周杰倫 Jay", 12f),
         Triple("the footnote", "歌词大意：With a smile；In his dream", 11f),
         Triple("the Chinese footnote", "歌词大意：带着笑容的睡意化成了彩虹；在他梦中一口气走上了星空；" + "故".repeat(20), 11f),
-        Triple("Japanese with ー turns sideways (pinned)", "スーパーカー", 14f),
+        Triple("Japanese with ー stacks", "スーパーカー", 14f),
+        Triple("halfwidth ｰ stacks", "ﾗｰﾒﾝ", 14f),
         Triple("empty", "", 14f),
     ).map { (name, text, size) ->
         v(name, "text" to str(text), "sizeSp" to num(size), "columnHeightDp" to num(YoinShareCards.verticalColumnHeightDp))
@@ -391,7 +396,12 @@ internal object ShareCardsGoldenFixtures {
         ),
         about("a blank AI row is skipped", listOf(entry("canonical", "lyricist", " \n "), canonReview)),
         about(
-            "a blank server composer hides the AI's composer (pinned)",
+            "blank lyrics credits are no credits: the AI's rows show",
+            listOf(entry("canonical", "lyricist", "AI lyricist"), entry("canonical", "producer", "AI producer")),
+            ShareAboutSources(" ", null, "  ", "\t", null, null),
+        ),
+        about(
+            "a blank server composer is no composer: the AI's shows",
             listOf(entry("canonical", "composer", "AI composer")),
             ShareAboutSources(null, null, null, null, serverComposer = "   ", year = null),
         ),
@@ -411,6 +421,15 @@ internal object ShareCardsGoldenFixtures {
             ShareAboutSources("A", "B", "C", "D", null, 2003),
         ),
         about("nothing at all", emptyList()),
+    )
+
+    private val aiSigns = listOf("en" to "By %1\$s", "zh" to "由 %1\$s 整理").flatMap { (lang, template) ->
+        listOf("Gemini", "DeepSeek", "Qwen", "千问", "AI").map { provider ->
+            v("$lang $provider", "template" to str(template), "provider" to str(provider))
+        }
+    } + listOf(
+        v("a template without spaces", "template" to str("由%1\$s整理"), "provider" to str("千问")),
+        v("a full-width name", "template" to str("由 %1\$s 整理"), "provider" to str("ＡＩ")),
     )
 
     private fun noteVector(name: String, notes: List<ShareNote>, noteId: String?, positionMs: Long, durationMs: Long = 300_000L) = v(
@@ -535,6 +554,7 @@ internal object ShareCardsGoldenFixtures {
         "verticalText" to verticalTexts,
         "verticalForm" to verticalForms,
         "about" to abouts,
+        "aiSign" to aiSigns,
         "note" to notes,
         "time" to times,
         "tones" to tones,

@@ -30,7 +30,7 @@ internal object ShareCardsGolden {
     /** Input fields first, then the output fields [outputs] adds. */
     val sections: List<String> = listOf(
         "isCjk", "content", "layoutStore", "currentLine", "passageStarts", "caption", "cardLineSize", "poster",
-        "playerExcerpt", "verticalPlan", "verticalLyrics", "verticalText", "verticalForm", "about", "note", "time",
+        "playerExcerpt", "verticalPlan", "verticalLyrics", "verticalText", "verticalForm", "about", "aiSign", "note", "time",
         "tones", "retone", "storyZoom", "storyFits", "exportSize", "fitScale", "fileName",
     )
 
@@ -110,6 +110,7 @@ internal object ShareCardsGolden {
                 ),
             )
         }
+        "aiSign" -> obj("sign" to str(YoinShareCards.aiSign(v.string("template")!!, v.string("provider")!!)))
         "note" -> {
             val note = YoinShareCards.notePick(v.array("notes").map { noteOf(it.jsonObject) }, v.string("noteId"), v.long("positionMs"))
             val duration = v.long("durationMs")
@@ -238,6 +239,7 @@ internal object ShareCardsGolden {
         "storyMaxZoom" to num(YoinShareCards.storyMaxZoom),
         "storyZoomSteps" to JsonPrimitive(ShareZoomSearch.STEPS),
         "storyFitSlackPx" to num(ShareZoomSearch.FIT_SLACK_PX),
+        "captionSeparator" to str(YoinShareCards.captionSeparator),
         "posterMaxLines" to JsonPrimitive(YoinShareCards.posterMaxLines),
         "posterStoryLeadBoostSp" to num(YoinShareCards.posterStoryLeadBoostSp),
         "posterTranslationSeparator" to str(YoinShareCards.posterTranslationSeparator),
@@ -257,6 +259,7 @@ internal object ShareCardsGolden {
         "paperBackdropTone" to JsonPrimitive(YoinShareCards.paperBackdropTone),
         "fileTitleMaxChars" to JsonPrimitive(YoinShareCards.fileTitleMaxChars),
         "galleryFolder" to str(YoinShareCards.galleryFolder),
+        "cjkCommonLetters" to JsonArray(ShareScripts.cjkCommonLetters.sorted().map { str("U+" + it.toString(16).uppercase().padStart(4, '0')) }),
         "kindCanonical" to str(YoinShareCards.KIND_CANONICAL),
         "kindAsk" to str(YoinShareCards.KIND_ASK),
         "kindOwn" to str(YoinShareCards.KIND_OWN),
@@ -276,7 +279,7 @@ internal object ShareCardsGolden {
         "followed by the answer. Strings are UTF-16 (Kotlin / Swift String.utf16 / Dart): lengths, take and chunked " +
         "count UTF-16 units. Fractional numbers are 32-bit floats written rounded to 6 decimals: compare within " +
         "1e-5. Colours are ARGB hex. isCjk reads each code point's Unicode Script (not Script_Extensions) and " +
-        "general category L* as Java 21 (Unicode 15.0) does. storyZoom.tried is every zoom the search measured, " +
+        "general category L* as Java 21 (Unicode 15.0) does, plus ー ｰ ﾞ ﾟ 〆 (constants.cjkCommonLetters). storyZoom.tried is every zoom the search measured, " +
         "in order, for a predicate that fits exactly when zoom <= fitsUpTo."
 
     // ── codecs ───────────────────────────────────────────────────────

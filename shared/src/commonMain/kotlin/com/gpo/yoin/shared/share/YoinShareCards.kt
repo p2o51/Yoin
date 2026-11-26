@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.share
 
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import com.gpo.yoin.shared.notes.YoinNoteLine
 import com.gpo.yoin.shared.notes.YoinNoteReader
 import hct.Hct
@@ -109,8 +110,8 @@ object YoinShareCards {
 
     /**
      * Whether [text] is CJK all through: at least one Han / kana / Hangul / Bopomofo letter and no letter of any
-     * other script (digits, punctuation, symbols and spaces don't count either way). By Unicode Script, not
-     * Script_Extensions: ー (U+30FC) is a Common letter, so "ラーメン" is not CJK.
+     * other script (digits, punctuation, symbols and spaces don't count either way). By Unicode Script, plus the
+     * Common-script letters only Japanese writes (ー, halfwidth ｰ ﾞ ﾟ, 〆), so "ラーメン" is CJK.
      */
     fun isCjk(text: String): Boolean = ShareScripts.isCjk(text)
 
@@ -134,13 +135,19 @@ object YoinShareCards {
         return picked.indices.filter { i -> i > 0 && picked[i] != picked[i - 1] + 1 }
     }
 
-    /** The share text sent with the image: the title, then the artist on a line of its own; null without a title. */
+    /**
+     * The share text sent with the image, the same for every tab: 「歌名 · 歌手」 on one line, the title alone
+     * without an artist; null without a title.
+     */
     fun caption(title: String?, artist: String?): String? {
         val t = title?.trim().orEmpty()
         if (t.isEmpty()) return null
         val by = artist?.trim().orEmpty()
-        return if (by.isEmpty()) t else "$t\n$by"
+        return if (by.isEmpty()) t else "$t$captionSeparator$by"
     }
+
+    /** Between the title and the artist in [caption]. */
+    const val captionSeparator = " · "
 
     /** Classic's line size on the 360 card (sp): short picks 22, medium 19, long 17. */
     fun cardLineSizeSp(lines: List<String>): Float {
@@ -340,13 +347,15 @@ object YoinShareCards {
         fun add(label: String, value: String?) {
             value?.let(::oneLine)?.let { rows += ShareCredit(label, it) }
         }
+        // A blank name is no name: the AI's row shows instead.
+        fun names(value: String?): String? = value?.takeIf { oneLine(it) != null }
         fun credited(key: String, label: String, names: String?) {
             if (names != null) add(label, names) else ai(key, label)
         }
-        credited(CANON_LYRICIST, labels.lyricist, sources.lyricist)
-        credited(CANON_COMPOSER, labels.composer, sources.composer ?: sources.serverComposer)
+        credited(CANON_LYRICIST, labels.lyricist, names(sources.lyricist))
+        credited(CANON_COMPOSER, labels.composer, names(sources.composer) ?: names(sources.serverComposer))
         add(labels.arranger, sources.arranger)
-        credited(CANON_PRODUCER, labels.producer, sources.producer)
+        credited(CANON_PRODUCER, labels.producer, names(sources.producer))
         ai(CANON_CREATION_TIME, labels.creationTime)
         ai(CANON_CREATION_LOCATION, labels.creationLocation)
         sources.year?.let { rows += ShareCredit(labels.year, it.toString(), fact = true) }
@@ -365,6 +374,13 @@ object YoinShareCards {
         if (rows.none { !it.fact } && chosen == null) return null
         return ShareAbout(credits = rows, heading = chosen?.second ?: labels.review, paragraph = chosen?.third)
     }
+
+    /**
+     * About's sign on the image: the platform's "由 %1$s 整理" / "By %1$s" with the AI service's name filled in,
+     * the space before or after a Chinese name dropped (由千问整理, 由 Gemini 整理) — album About's rule
+     * ([com.gpo.yoin.shared.albumabout.YoinAlbumAbout.aiCopy]).
+     */
+    fun aiSign(template: String, name: String): String = YoinAlbumAbout.aiCopy(template, name)
 
     private val Whitespace = Regex("\\s+")
 

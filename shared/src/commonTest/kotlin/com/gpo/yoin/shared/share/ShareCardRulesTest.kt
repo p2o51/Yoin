@@ -29,8 +29,11 @@ class ShareCardRulesTest {
         assertFalse(YoinShareCards.isCjk("我爱你 baby"))
         assertFalse(YoinShareCards.isCjk("If I could go back"))
         assertFalse(YoinShareCards.isCjk("1, 2, 3!"))
-        // ー is a Common-script letter: pinned as Android had it.
-        assertFalse(YoinShareCards.isCjk("ラーメン"))
+        // ー, ｰ and 〆 are Common-script letters only Japanese writes: they count.
+        assertTrue(YoinShareCards.isCjk("ラーメン"))
+        assertTrue(YoinShareCards.isCjk("ﾗｰﾒﾝ"))
+        assertTrue(YoinShareCards.isCjk("締〆"))
+        assertFalse(YoinShareCards.isCjk("ラーメン ramen"))
     }
 
     @Test
@@ -182,6 +185,10 @@ class ShareCardRulesTest {
         assertEquals("Yoin - 晴天 - 7.png", YoinShareCards.fileName("  晴天 ", 7L))
         assertEquals("Yoin 9.png", YoinShareCards.fileName(" / ", 9L))
         assertEquals("Yoin 9.png", YoinShareCards.fileName(null, 9L))
+        assertEquals("晴天 · 周杰倫", YoinShareCards.caption(" 晴天 ", "周杰倫"))
+        assertEquals("晴天", YoinShareCards.caption("晴天", " "))
+        assertEquals("由千问整理", YoinShareCards.aiSign("由 %1\$s 整理", "千问"))
+        assertEquals("由 Gemini 整理", YoinShareCards.aiSign("由 %1\$s 整理", "Gemini"))
         assertEquals("1:05", YoinShareCards.time(65_000L))
         assertEquals("62:05", YoinShareCards.time(3_725_000L))
     }

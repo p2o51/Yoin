@@ -318,7 +318,8 @@ private fun AiSign(content: ShareContent, colors: ShareCardColors) {
         Icon(YoinSymbols.Sparkle, contentDescription = null, tint = colors.secondary, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
         Text(
-            text = stringResource(R.string.np_share_ai_sign, name),
+            // 由千问整理 / 由 Gemini 整理: no space beside a Chinese name.
+            text = YoinShareCards.aiSign(stringResource(R.string.np_share_ai_sign), name),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
             color = colors.secondary,
             textAlign = TextAlign.End,

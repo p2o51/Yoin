@@ -100,7 +100,10 @@ class ShareCardsPinTest {
             val starts = lyricPassageStarts(lyrics, v.array("selected").map { it.jsonPrimitive.int }.toSet())
             assertEquals(v.name, v.array("starts").map { it.jsonPrimitive.int }, starts.sorted())
         }
-        section("caption").forEach { v -> assertEquals(v.name, v.string("caption"), lyricsCredit(v.string("title"), v.string("artist"))) }
+        // The share sheet sends YoinShareCards.caption with the image (ShareSheet.kt).
+        section("caption").forEach { v ->
+            assertEquals(v.name, v.string("caption"), YoinShareCards.caption(v.string("title"), v.string("artist")))
+        }
         section("cardLineSize").forEach { v ->
             eq(v.name, v.double("sizeSp"), num(lyricsCardLineSize(v.strings("lines").map { LyricLine(null, it) }).value))
         }
@@ -187,6 +190,15 @@ class ShareCardsPinTest {
         assertEquals(l.string("creationLocation"), labels.about(SongAboutEntry.CANON_CREATION_LOCATION))
         assertEquals(l.string("year"), labels.year)
         assertEquals(l.string("review"), review)
+
+        // About's sign as AiSign writes it: the app's template and provider names, Chinese names tightened.
+        val template = resources.getString(R.string.np_share_ai_sign)
+        val signs = section("aiSign").filter { it.string("template") == template }
+        assertTrue(signs.isNotEmpty())
+        signs.forEach { v -> assertEquals(v.name, v.string("sign"), YoinShareCards.aiSign(template, v.string("provider")!!)) }
+        val providerNames = listOf(R.string.ai_provider_gemini, R.string.ai_provider_deepseek, R.string.ai_provider_qwen, R.string.np_share_ai_generic)
+            .map(resources::getString)
+        providerNames.forEach { name -> assertTrue(name, signs.any { it.string("provider") == name }) }
 
         val vectors = section("about").filter { it.string("labels") == language }
         assertTrue(vectors.isNotEmpty())
