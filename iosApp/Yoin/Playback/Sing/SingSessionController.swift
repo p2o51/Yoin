@@ -196,8 +196,16 @@ final class SingSessionController {
                         }
                     )
                     return
-                case .unavailable, .needsModelDownload, .failed:
-                    // Turn Sing off cleanly and emit a brief button-level error cue (no popups).
+                case .unavailable:
+                    PlayTrace.log("Sing unavailable for \(songId)")
+                    self.failQuietly()
+                    return
+                case .needsModelDownload:
+                    PlayTrace.log("Sing needs model download for \(songId)")
+                    self.failQuietly()
+                    return
+                case .failed(let reason):
+                    PlayTrace.log("Sing failed for \(songId): \(String(describing: reason))")
                     self.failQuietly()
                     return
                 case .idle:
