@@ -38,6 +38,8 @@ internal sealed interface BubbleSay {
  *
  * A tip about something only a newer Android has names it in [minSdk]; the
  * bubble, the reader and Settings go by [available], never by all entries.
+ * A tip whose line names what only two columns do has a [oneColumnText] for
+ * devices whose Home never lays out in two (a phone; [shownText]).
  */
 internal enum class HomeBubbleTip(
     @StringRes val title: Int,
@@ -45,6 +47,7 @@ internal enum class HomeBubbleTip(
     val updated: LocalDate,
     private val symbol: () -> ImageVector,
     private val minSdk: Int = 0,
+    @StringRes val oneColumnText: Int? = null,
 ) {
     AppleMusicSongNames(R.string.home_tip_apple_music_names_title, R.string.home_tip_apple_music_names, day(2026, 11, 23), { YoinSymbols.Translate }),
     NoteMentions(R.string.home_tip_note_mentions_title, R.string.home_tip_note_mentions, day(2026, 11, 23), { YoinSymbols.At }),
@@ -75,7 +78,13 @@ internal enum class HomeBubbleTip(
     MiniPlayerMenu(R.string.home_tip_mini_player_menu_title, R.string.home_tip_mini_player_menu, day(2026, 11, 4), { YoinSymbols.PlayCircle }),
     FocusCover(R.string.home_tip_focus_cover_title, R.string.home_tip_focus_cover, day(2026, 11, 3), { YoinSymbols.OpenInFull }),
     Downloads(R.string.home_tip_downloads_title, R.string.home_tip_downloads, day(2026, 11, 4), { YoinSymbols.Download }),
-    EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, day(2026, 11, 23), { YoinSymbols.DragHandle }),
+    EditHome(
+        R.string.home_tip_edit_home_title,
+        R.string.home_tip_edit_home,
+        day(2026, 11, 23),
+        { YoinSymbols.DragHandle },
+        oneColumnText = R.string.home_tip_edit_home_one_column,
+    ),
     PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, day(2026, 10, 17), { YoinSymbols.Memory }),
     CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, day(2026, 11, 4), { YoinSymbols.Album }),
     SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, day(2026, 11, 7), { YoinSymbols.Queue }),

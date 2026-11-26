@@ -19,6 +19,8 @@ struct ServerSettingsView: View {
     @State private var setup: ServiceSetupRequest?
     /// Settings › Sync and storage › NeoDB, open (also straight from the scrapbook's "Sign in to sync").
     @State private var neodbOpen = false
+    /// Settings › Features and appearance › Music links, opened by another screen (SettingsDestination).
+    @State private var musicLinksOpen = false
     #if DEBUG
     /// `-portabilityDemo <step>` (with `-screen settings`): Cloud sync, which opens the backup / transfer page.
     @State private var portabilityDemo = UserDefaults.standard.string(forKey: "portabilityDemo") != nil
@@ -63,6 +65,7 @@ struct ServerSettingsView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
         .navigationDestination(isPresented: $neodbOpen) { NeoDBSettingsPage() }
+        .navigationDestination(isPresented: $musicLinksOpen) { MusicLinksSettingsPage() }
         #if DEBUG
         .navigationDestination(isPresented: $portabilityDemo) { CloudSyncView() }
         #endif
@@ -161,13 +164,14 @@ struct ServerSettingsView: View {
         model.settingsDestination = nil
         switch d {
         case .neodb: neodbOpen = true
+        case .musicLinks: musicLinksOpen = true
         case .account(let id): setup = ServiceSetupRequest(profileId: id)
         }
     }
 
     // MARK: Features and appearance
 
-    /// Settings IA v4: 3 groups × 6 rows — Features and appearance (AI features + Appearance),
+    /// Settings IA v4: 3 groups × 7 rows — Features and appearance (AI features + Appearance + Music links),
     /// Sync and storage (Sync and backups + Storage), Help and about (Help and feedback + About Yoin).
     private var featuresGroup: some View {
         group(String(localized: "Features and appearance")) {
@@ -176,6 +180,10 @@ struct ServerSettingsView: View {
              },
              pageRow(String(localized: "Appearance"), summary: appearanceSummary, pane: .appearance) {
                 AppearanceSettingsPage()
+             },
+             // Android MusicLinksItem (2026-11-24): the third row, its summary the clipboard toggle's state.
+             pageRow(String(localized: "Music links"), summary: OpenInSettings.shared.summary, pane: .musicLinks) {
+                MusicLinksSettingsPage()
              }]
         }
     }

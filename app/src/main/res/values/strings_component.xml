@@ -123,6 +123,8 @@
     <string name="cmp_edge_cd_done">Done</string>
 
     <string name="cmp_song_cd_has_note">Has note</string>
+    <!-- TalkBack label of the "E" badge after an explicit song or album title (ExplicitBadge). Owner-approved 2026-11-26. -->
+    <string name="cmp_explicit_badge_cd">Explicit</string>
     <string name="cmp_lyrics_empty">No lyrics available</string>
     <string name="cmp_wave_note">Note</string>
     <string name="cmp_unavailable_cd">Why can\'t this play</string>

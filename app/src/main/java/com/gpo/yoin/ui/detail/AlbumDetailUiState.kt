@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.detail
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.data.model.ReleaseType
 
 sealed interface AlbumDetailUiState {
     data object Loading : AlbumDetailUiState
@@ -16,6 +17,10 @@ sealed interface AlbumDetailUiState {
          * appended; everywhere else [albumName] stays whole. Null when none.
          */
         val albumVersion: String? = null,
+        /** The service marks the release explicit: the header wears the "E" badge after its title. */
+        val albumExplicit: Boolean = false,
+        /** What kind of release this is, as the service says; the header names it (Album when unknown). */
+        val releaseType: ReleaseType? = null,
         val artistName: String,
         val artistId: String?,
         val coverArtId: String?,
@@ -117,6 +122,8 @@ data class AlbumSong(
     val isStarred: Boolean,
     /** 1-based disc of a multi-disc album; null when the service doesn't say. */
     val discNumber: Int? = null,
+    /** The service marks the song explicit: the row wears the "E" badge after its title. */
+    val isExplicit: Boolean = false,
     /**
      * 单曲主唱与专辑歌手不一致时的 feat. 名字（取单曲主唱）；一致或缺失为 null。
      * 注意 Spotify 多歌手在 mapper 处已被收敛成首位主唱，这里只是个粗略信号。

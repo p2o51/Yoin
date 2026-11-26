@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -62,11 +61,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.ui.notes.editor.NoteEditCard
+import com.gpo.yoin.ui.notes.editor.NoteEditCardColors
+import com.gpo.yoin.ui.notes.editor.NoteEditStamp
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
-import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
-import com.gpo.yoin.ui.notes.editor.NoteMarkupField
-import com.gpo.yoin.ui.notes.editor.noteEditorColors
-import com.gpo.yoin.ui.notes.editor.noteEditorContainer
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -1377,7 +1375,7 @@ private fun NoteCard(
                 .clickable(onClick = onTap)
                 .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
         ) {
-            if (at != null) NoteStamp(at, colors)
+            if (at != null) NoteEditStamp(at, colors.noteMark)
             // Drawn, not raw: headings, lists, to-dos and mentions as everywhere else notes are read.
             NoteMarkupText(
                 text = note.text,
@@ -1404,9 +1402,8 @@ private fun NoteCard(
 }
 
 /**
- * A note being written or changed in place: an emptied existing note is deleted (with Undo). The same note
- * editor as Now Playing's write bar and the album's stickies (`ui/notes/editor`): @ mentions as chips with
- * the live popup, list / to-do / heading shortcuts, and the formatting row.
+ * A note being written or changed in place: the app's one note menu ([NoteEditCard], shared with Now
+ * Playing's long press) on the scrapbook's paper. An emptied existing note is deleted (with Undo).
  */
 @Composable
 private fun NoteEditor(
@@ -1419,98 +1416,20 @@ private fun NoteEditor(
 ) {
     // The stored text, cursor at its end (NoteEditorState starts it there).
     val editor = remember { NoteEditorState(text) }
-    val focus = remember { FocusRequester() }
-    val actions = remember { BringIntoViewRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    KeepAboveKeyboard(actions)
-    val at = positionMs?.let(::formatNotePosition)
-    Column(
-        modifier = Modifier
-            .padding(vertical = 6.dp)
-            .fillMaxWidth()
-            // The whole card (stamp, formatting row, buttons) is the field, for @ mode.
-            .noteEditorContainer(editor)
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.note)
-            .journalRail(colors.noteMark)
-            .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
-    ) {
-        if (at != null) NoteStamp(at, colors)
-        NoteMarkupField(
-            state = editor,
-            textStyle = userTextStyle(),
-            // Mentions as the note card draws them once saved: in the page's ink.
-            colors = noteEditorColors(
-                text = colors.onNote,
-                chip = colors.noteMark.copy(alpha = 0.14f),
-                chipText = colors.noteMark,
-            ),
-            placeholder = at?.let { stringResource(R.string.detail_scrap_note_hint, it) }
-                ?: stringResource(R.string.detail_scrap_note_hint_plain),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 2.dp)
-                .focusRequester(focus),
-        )
-        Box(
-            modifier = Modifier
-                .padding(top = 4.dp)
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(colors.noteMark.copy(alpha = 0.6f)),
-        )
-        // The card is narrow on a phone: the formatting row scrolls on a line of its own, the buttons under it.
-        NoteFormatToolbar(
-            state = editor,
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .horizontalScroll(rememberScrollState()),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp)
-                .bringIntoViewRequester(actions),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (canDelete) {
-                EditorButton(
-                    label = stringResource(R.string.detail_scrap_delete),
-                    icon = YoinSymbols.Delete,
-                    container = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                    content = MaterialTheme.colorScheme.error,
-                    onClick = onDelete,
-                )
-            } else {
-                TextButton(onClick = onDelete, contentPadding = EditorButtonPadding, modifier = Modifier.handPointer()) {
-                    Text(stringResource(R.string.detail_scrap_cancel))
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Button(
-                onClick = { onDone(editor.text) },
-                colors = ButtonDefaults.buttonColors(containerColor = colors.ink, contentColor = colors.onInk),
-                contentPadding = EditorButtonPadding,
-                modifier = Modifier.handPointer(),
-            ) {
-                Text(stringResource(R.string.detail_scrap_done))
-            }
-        }
-    }
-}
-
-@Composable
-private fun NoteStamp(at: String, colors: ScrapbookColors) {
-    Text(
-        text = at,
-        style = MaterialTheme.typography.labelMedium.copy(
-            fontFeatureSettings = "tnum",
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 12.sp,
-            letterSpacing = 0.3.sp,
+    NoteEditCard(
+        editor = editor,
+        positionMs = positionMs,
+        colors = NoteEditCardColors(
+            paper = colors.note,
+            onPaper = colors.onNote,
+            mark = colors.noteMark,
+            ink = colors.ink,
+            onInk = colors.onInk,
         ),
-        color = colors.noteMark,
+        canDelete = canDelete,
+        onDelete = onDelete,
+        onDone = onDone,
+        modifier = Modifier.padding(vertical = 6.dp),
     )
 }
 

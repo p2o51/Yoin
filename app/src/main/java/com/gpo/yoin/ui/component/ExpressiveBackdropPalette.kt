@@ -53,7 +53,19 @@ internal data class ExpressiveBackdropColors(
     val isResolvedFromPalette: Boolean = false,
 )
 
-private const val BackdropPaletteCacheSize = 256
+/**
+ * Resolved palettes kept in memory, by cover. An entry is two colours (well under 200 bytes with its
+ * key), so the cache holds a big Library's whole shelf: scrolling back over covers already read never
+ * reads them again (it was 256, fewer than a large Library grid has covers).
+ */
+private const val BackdropPaletteCacheSize = 1024
+
+/**
+ * Where the palette passes run: at most two at once, on the CPU pool. A Library grid can ask for a
+ * screenful of covers the moment a fling settles; unbounded, each one's quantiser took a core from the
+ * render thread (the frame drops that kept Library tint-less, 2026-04-19 `e08ac3779`).
+ */
+internal val BackdropPaletteDispatcher = Dispatchers.Default.limitedParallelism(2)
 
 /** The unfiltered read's colour count — only for covers the seed pass finds no colour in. */
 private const val BackdropFallbackColorCount = 12
@@ -275,9 +287,13 @@ internal fun rememberBackdropColorsLoadedBy(
  * the same Coil memory-cache entry and the same pixels) and reads its colours:
  * null when it has none, a [BackdropReadException] when it can't be read.
  */
-private suspend fun loadBackdropColors(context: Context, model: String): ExpressiveBackdropColors? =
+internal suspend fun loadBackdropColors(
+    context: Context,
+    model: String,
+    extract: (Bitmap) -> ExpressiveBackdropColors? = ::extractBackdropColors,
+): ExpressiveBackdropColors? =
     ExpressiveBackdropPaletteCache.dedupeLoad(model) {
-        withContext(Dispatchers.IO) {
+        val bitmap = withContext(Dispatchers.IO) {
             val request = ImageRequest.Builder(context)
                 .data(model)
                 .size(Size(CoverSeedExtractor.BitmapSizePx, CoverSeedExtractor.BitmapSizePx))
@@ -286,10 +302,12 @@ private suspend fun loadBackdropColors(context: Context, model: String): Express
             // App-wide singleton (YoinApplication is the factory) — palette pixel
             // reads stay safe because allowHardware(false) is set per-request.
             when (val result = SingletonImageLoader.get(context).execute(request)) {
-                is SuccessResult -> extractBackdropColors(result.image.toBitmap())
+                is SuccessResult -> result.image.toBitmap()
                 is ErrorResult -> throw BackdropReadException(result.throwable)
             }
         }
+        // Never on the main thread, and never more than two at once ([BackdropPaletteDispatcher]).
+        withContext(BackdropPaletteDispatcher) { extract(bitmap) }
     }
 
 /** A cover read that failed, Coil's error as its cause — what [ArtworkRetryPolicy] classifies. */

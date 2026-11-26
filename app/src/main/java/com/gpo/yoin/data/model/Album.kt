@@ -55,7 +55,16 @@ data class Album(
      * any AI. Null when the service has none.
      */
     val editorialNotes: String? = null,
+    /**
+     * Explicit or clean as the service marks the release (Apple Music's own rating; on Spotify
+     * derived from the tracks, [ContentRating.fromTracks]); null = unknown.
+     */
+    val contentRating: ContentRating? = null,
 ) {
+    /** The service marks the release explicit: it wears the "E" badge after its name. */
+    val isExplicit: Boolean
+        get() = contentRating == ContentRating.Explicit
+
     /**
      * [name] without the " (version)" a server appends to it (Navidrome's
      * Subsonic.AppendAlbumVersion, on by default), for where [version] is shown

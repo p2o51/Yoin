@@ -17,6 +17,8 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+				<!-- Open in Yoin: the share extension's hand-off in the App Group's defaults (OpenIn/OpenInInbox.swift). -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 		<!-- The detail cache's LRU reads and sets its own files' modification dates. -->

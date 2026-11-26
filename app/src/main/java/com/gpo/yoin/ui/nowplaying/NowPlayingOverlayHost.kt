@@ -770,7 +770,6 @@ fun NowPlayingOverlayHost(
                         noteDraft = viewModel.noteDraft,
                         onSaveNote = viewModel::saveCurrentNote,
                         onDeleteNote = viewModel::deleteNote,
-                        onRealignNote = viewModel::realignNote,
                         onToggleNoteChecklist = viewModel::toggleNoteChecklist,
                         devicesState = devicesState,
                         onRefreshDevices = viewModel::refreshDevices,
@@ -891,7 +890,7 @@ fun NowPlayingOverlayHost(
  * two columns on Wide), or back to the side panel.
  */
 @Composable
-private fun PanelToggleButton(
+internal fun PanelToggleButton(
     fullscreen: Boolean,
     onClick: () -> Unit,
 ) {

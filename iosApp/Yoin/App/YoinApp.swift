@@ -44,6 +44,9 @@ struct RootView: View {
         .accessibilityHidden(model.landing != nil)
         // Song sheet, Add to playlist, playlist dialogs, confirmations (Library/TrackMenuSheet.swift).
         .playlistActionsHost()
+        // Open in Yoin: the clipboard card over the bar, the share extension's hand-off, the clipboard check
+        // on each return to the front (OpenIn/).
+        .modifier(OpenInHost(model: model))
         .environment(model)
         .environment(\.glassFlavor, model.glassFlavor)
         .tint(model.accent)

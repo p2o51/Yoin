@@ -44,6 +44,69 @@ final class SingTests: XCTestCase {
         XCTAssertLessThan(maxErr, 1e-4, "iSTFT roundtrip error \(maxErr) exceeded 1e-4")
     }
 
+    func test_should_resampleWithZeroGroupDelay_and_cancelRoundtripBelowMinus45dB() throws {
+        // scipy.special.i0(5.0)
+        XCTAssertEqual(SingDSP.PolyphaseResampler.besselI0(5.0), 27.239871823604442, accuracy: 1e-12)
+
+        for sr in [44_100.0, 48_000.0] {
+            let n = Int(sr)
+            let impulseIndex = n / 2
+
+            // 1. Impulse round-trip: peak must stay at the exact same sample index (0 sample shift).
+            var impulse = [Float](repeating: 0, count: n)
+            impulse[impulseIndex] = 1.0
+            let (downImpL, _) = try SingDSP.resampleStereo(left: impulse, right: impulse, from: sr, to: SingDSP.coreSampleRate)
+            let (upImpL, _) = try SingDSP.resampleStereo(left: downImpL, right: downImpL, from: SingDSP.coreSampleRate, to: sr)
+            var peakIdx = 0
+            var peakVal: Float = -Float.greatestFiniteMagnitude
+            for i in 0..<min(n, upImpL.count) where upImpL[i] > peakVal {
+                peakVal = upImpL[i]
+                peakIdx = i
+            }
+            XCTAssertEqual(peakIdx, impulseIndex, "Round-trip impulse shifted by \(peakIdx - impulseIndex) samples at \(sr) Hz")
+
+            // 2. 1 kHz sine round-trip subtraction (X - RT(X)) must cancel below -45 dB.
+            //    Previously AVAudioConverter Mastering left +2304 samples of delay (+2.87 dB amplification!).
+            let tone: [Float] = (0..<n).map { i in
+                Float(0.5 * sin(2.0 * Double.pi * 1000.0 * Double(i) / sr))
+            }
+            let (downL, downR) = try SingDSP.resampleStereo(left: tone, right: tone, from: sr, to: SingDSP.coreSampleRate)
+            let (upL, upR) = try SingDSP.resampleStereo(left: downL, right: downR, from: SingDSP.coreSampleRate, to: sr)
+            let margin = Int(sr * 0.1)
+            let end = min(n, upL.count, upR.count) - margin
+            var sigEnergy = 0.0
+            var errEnergy = 0.0
+            for i in margin..<end {
+                let s = Double(tone[i])
+                let dL = s - Double(upL[i])
+                let dR = s - Double(upR[i])
+                sigEnergy += s * s
+                errEnergy += 0.5 * (dL * dL + dR * dR)
+            }
+            let residualDb = 10.0 * log10(max(errEnergy, 1e-18) / max(sigEnergy, 1e-18))
+            XCTAssertLessThan(residualDb, -45.0, "Round-trip cancellation \(residualDb) dB at \(sr) Hz is too weak")
+        }
+
+        // 3. Hi-Res alignment: 96 kHz -> 48 kHz (outMix) and 96 kHz -> 22.05 kHz -> 48 kHz (vocFull) stay 0-sample aligned.
+        let hiSr = 96_000.0
+        let hiN = 48_000
+        let hiImpIdx = 24_000
+        var hiImpulse = [Float](repeating: 0, count: hiN)
+        hiImpulse[hiImpIdx] = 1.0
+        let (mix48, _) = try SingDSP.resampleStereo(left: hiImpulse, right: hiImpulse, from: hiSr, to: 48_000)
+        let (core22, _) = try SingDSP.resampleStereo(left: hiImpulse, right: hiImpulse, from: hiSr, to: SingDSP.coreSampleRate)
+        let (voc48, _) = try SingDSP.resampleStereo(left: core22, right: core22, from: SingDSP.coreSampleRate, to: 48_000)
+        let peakMix = mix48.enumerated().max(by: { $0.element < $1.element })?.offset ?? -1
+        let peakVoc = voc48.enumerated().max(by: { $0.element < $1.element })?.offset ?? -1
+        XCTAssertEqual(peakMix, hiImpIdx / 2)
+        XCTAssertEqual(peakVoc, peakMix, "Hi-Res outMix and vocFull must stay sample-aligned")
+
+        // 4. Stem cache key includes pipeline version so legacy +2304-shifted cached stems are bypassed.
+        let key = SingCoreMLSeparator.cacheKey(for: "song-1")
+        XCTAssertTrue(key.contains(SingCoreMLSeparator.stemPipelineVersion))
+        XCTAssertNotEqual(key, "local|\(SingModelAsset.version)|song-1")
+    }
+
     // MARK: - 2. 4-channel downmixer & 20 ms gain ramp
 
     func test_should_mixQuadChannelsExactly_and_smoothGainOver20ms() {

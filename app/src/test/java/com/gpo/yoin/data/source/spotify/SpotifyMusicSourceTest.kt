@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.source.spotify
 
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.source.TrackNames
@@ -179,6 +180,30 @@ class SpotifyMusicSourceTest {
         source.library().getArtist(MediaId.spotify("r1"))
 
         assertEquals(0, requestsTo("/v1/me/albums"))
+    }
+
+    @Test
+    fun should_rateSavedAlbumsFromTheirEmbeddedTracks_when_listingThem() = runTest {
+        fun t(id: String, explicit: Boolean) = """{"id":"$id","name":"Song $id","explicit":$explicit}"""
+        fun saved(id: String, total: Int, vararg tracks: String) =
+            """{"added_at":"2026-01-01T00:00:00Z","album":{"id":"$id","name":"Album $id","total_tracks":$total,""" +
+                """"tracks":{"items":[${tracks.joinToString(",")}],"total":$total}}}"""
+        routes["/v1/me/albums"] = {
+            ok(
+                """{"items":[${saved("e", 2, t("t1", false), t("t2", true))},""" +
+                    """${saved("c", 1, t("t3", false))},${saved("u", 60, t("t4", false))}],"next":null,"total":3}""",
+            )
+        }
+        val source = newSource()
+
+        val albums = source.library().getAlbumList("alphabeticalByName", 10, 0).associateBy { it.id.rawId }
+
+        assertEquals(ContentRating.Explicit, albums.getValue("e").contentRating)
+        assertEquals(ContentRating.Clean, albums.getValue("c").contentRating)
+        // Only the first of 60 tracks came with it: unknown, and nothing is read just to find out.
+        assertEquals(null, albums.getValue("u").contentRating)
+        assertEquals(0, requestsTo("/v1/albums/u/tracks"))
+        assertEquals(0, requestsTo("/v1/albums/u"))
     }
 
     @Test
