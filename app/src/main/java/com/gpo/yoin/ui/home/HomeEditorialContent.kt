@@ -41,8 +41,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -135,6 +133,7 @@ import com.gpo.yoin.data.model.Playlist as LibraryPlaylist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.AlbumVersionTitle
+import com.gpo.yoin.ui.component.ExplicitTitle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.LocalSeamBarField
@@ -167,6 +166,8 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.HomeSpanTokens
 import com.gpo.yoin.ui.home.edit.HomeSpanCommit
@@ -252,6 +253,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
+import com.gpo.yoin.data.model.albumNameWithoutVersion
+import com.gpo.yoin.ui.component.coverKindTag
 
 internal sealed interface HomeEntryTarget {
     data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
@@ -308,6 +312,7 @@ internal fun HomeEditorialContent(
     activityHeroSongCount: Int? = null,
     activityHeroMinutes: Int? = null,
     activityHeroVersion: String? = null,
+    activityHeroExplicit: Boolean = false,
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
@@ -678,7 +683,7 @@ internal fun HomeEditorialContent(
     val seamBackground = expressivePageSeamBackground()
     // The tide line washes with the gradient's TOP stop, where it lives.
     val pageColor = MaterialTheme.colorScheme.surfaceContainer
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarTop = WindowInsets.topBars.asPaddingValues().calculateTopPadding()
     val statusBarPx = with(LocalDensity.current) { statusBarTop.toPx() }
     // The Memories entry (owner 2026-10-04): a safe-area arrow with a speech
     // bubble (HomeMemoryBubble.kt), or the trial's header pill / chevron.
@@ -1121,6 +1126,7 @@ internal fun HomeEditorialContent(
                             fallback = activityHeroFootnote,
                         ),
                         heroVersion = activityHeroVersion,
+                        heroExplicit = activityHeroExplicit,
                         extractBackdropColors = shouldExtractBackdropColors,
                         onEntryClick = onEntryClick,
                         modifier = bentoModifier,
@@ -2094,7 +2100,7 @@ private fun HomeContentHeader(
         modifier = modifier
             // The page the Memories arrow centres on.
             .memoryBubblePage(bubbleController)
-            .statusBarsPadding()
+            .topBarsPadding()
             // 8dp, plus the 4dp the list's top padding used to add.
             .padding(top = 12.dp)
             .heightIn(min = 48.dp),
@@ -2269,6 +2275,7 @@ private fun ActivityBento(
     heroFootnoteExtra: List<MetaGroup>,
     // The hero album's version ("全景声"), a tag after its title; null when none.
     heroVersion: String? = null,
+    heroExplicit: Boolean = false,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -2356,6 +2363,7 @@ private fun ActivityBento(
                             supporting = supporting,
                             heroFootnoteExtra = heroFootnoteExtra,
                             heroVersion = heroVersion,
+                            heroExplicit = heroExplicit,
                             extractBackdropColors = extractBackdropColors,
                             onEntryClick = onEntryClick,
                             fontScale = fontScale,
@@ -2367,6 +2375,7 @@ private fun ActivityBento(
                             supporting = supporting,
                             heroFootnoteExtra = heroFootnoteExtra,
                             heroVersion = heroVersion,
+                            heroExplicit = heroExplicit,
                             extractBackdropColors = extractBackdropColors,
                             onEntryClick = onEntryClick,
                             fontScale = fontScale,
@@ -2397,6 +2406,7 @@ private fun ActivityBentoRows(
     heroFootnoteExtra: List<MetaGroup>,
     // The hero album's version ("全景声"), a tag after its title; null when none.
     heroVersion: String? = null,
+    heroExplicit: Boolean = false,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -2413,6 +2423,7 @@ private fun ActivityBentoRows(
                 entry = entry,
                 footnoteExtra = heroFootnoteExtra,
                 version = heroVersion,
+                explicit = heroExplicit,
                 extractBackdropColors = extractBackdropColors,
                 onClick = onClick,
                 modifier = cardModifier,
@@ -2492,6 +2503,7 @@ private fun ActivityUnitGrid(
     heroFootnoteExtra: List<MetaGroup>,
     // The hero album's version ("全景声"), a tag after its title; null when none.
     heroVersion: String? = null,
+    heroExplicit: Boolean = false,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -2514,6 +2526,7 @@ private fun ActivityUnitGrid(
                             entry = entry,
                             footnoteExtra = heroFootnoteExtra,
                             version = heroVersion,
+                            explicit = heroExplicit,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
                             modifier = editCard,
@@ -2605,6 +2618,7 @@ private fun ActivityUnitRows(
     units: Int,
     heroFootnoteExtra: List<MetaGroup>,
     heroVersion: String?,
+    heroExplicit: Boolean,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -2626,6 +2640,7 @@ private fun ActivityUnitRows(
                         entry = entry,
                         footnoteExtra = heroFootnoteExtra,
                         version = heroVersion,
+                        explicit = heroExplicit,
                         extractBackdropColors = extractBackdropColors,
                         onClick = onClick,
                         modifier = editCard,
@@ -2702,6 +2717,7 @@ private fun ActivityHeroCard(
     entry: HomeMomentEntry,
     footnoteExtra: List<MetaGroup>,
     version: String? = null,
+    explicit: Boolean = false,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2758,6 +2774,7 @@ private fun ActivityHeroCard(
                 AlbumVersionTitle(
                     name = entry.title,
                     version = version,
+                    explicit = explicit,
                     titleStyle = heroTitleStyle,
                     modifier = Modifier.fillMaxWidth(),
                     tagStyle = MaterialTheme.typography.labelMedium,
@@ -3391,18 +3408,22 @@ private fun RecentlyAddedTrackTile(
                 .weight(1f)
                 .seamFade(),
         ) {
-            Text(
-                text = track.title.orEmpty(),
-                // 13sp (vs bodyMedium's 14) so short titles like "Describe" fit
-                // the narrow two-column cell instead of truncating.
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // 13sp (vs bodyMedium's 14) so short titles like "Describe" fit
+            // the narrow two-column cell instead of truncating.
+            val titleStyle = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
             )
+            ExplicitTitle(text = track.title.orEmpty(), explicit = track.isExplicit, style = titleStyle) { titleModifier ->
+                Text(
+                    text = track.title.orEmpty(),
+                    style = titleStyle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = titleModifier,
+                )
+            }
             track.artist?.takeIf { it.isNotBlank() }?.let { artist ->
                 Text(
                     text = artist,
@@ -3417,7 +3438,7 @@ private fun RecentlyAddedTrackTile(
 }
 
 @Composable
-private fun RecentlyAddedAlbumCard(
+internal fun RecentlyAddedAlbumCard(
     album: Album,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
@@ -3446,12 +3467,19 @@ private fun RecentlyAddedAlbumCard(
             interactionSource = interactionSource,
             modifier = Modifier.size(homeShelfCoverSize()),
             memoryMark = memoryMark,
+            version = album.version,
+            explicit = album.isExplicit,
+            kindTag = coverKindTag(album.releaseType),
         )
         Spacer(modifier = Modifier.height(6.dp))
         val nameStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+        // The version tag and the "E" sit on the cover's backdrop band; the name is clean.
         AlbumVersionTitle(
-            name = album.name,
-            version = album.version,
+            name = nameWithoutKindSuffix(
+                albumNameWithoutVersion(album.name, album.version),
+                album.releaseType,
+            ),
+            version = null,
             titleStyle = nameStyle,
             modifier = Modifier.seamFade(),
         ) { text, titleModifier ->

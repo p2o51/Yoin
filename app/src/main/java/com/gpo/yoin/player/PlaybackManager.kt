@@ -14,6 +14,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
@@ -1494,6 +1495,7 @@ class PlaybackManager(
             putBoolean(EXTRA_STARRED, track.isStarred)
             track.userRating?.let { putInt(EXTRA_USER_RATING, it) }
             track.discNumber?.let { putInt(EXTRA_DISC_NUMBER, it) }
+            track.contentRating?.let { putString(EXTRA_CONTENT_RATING, it.name) }
             track.audioFormat?.let { putBundle(EXTRA_AUDIO_FORMAT, it.toBundle()) }
             track.replayGain?.let { putBundle(EXTRA_REPLAY_GAIN, it.toBundle()) }
             // The service's own facts (credited artists, the Subsonic file's
@@ -1550,6 +1552,7 @@ class PlaybackManager(
             audioFormat = extras?.getBundle(EXTRA_AUDIO_FORMAT)?.toAudioFormat(),
             replayGain = extras?.getBundle(EXTRA_REPLAY_GAIN)?.toReplayGain(),
             discNumber = extras?.takeIf { it.containsKey(EXTRA_DISC_NUMBER) }?.getInt(EXTRA_DISC_NUMBER),
+            contentRating = ContentRating.fromStorage(extras?.getString(EXTRA_CONTENT_RATING)),
         )
     }
 
@@ -1864,6 +1867,9 @@ class PlaybackManager(
         private const val EXTRA_STARRED = "starred"
         private const val EXTRA_USER_RATING = "user_rating"
         private const val EXTRA_DISC_NUMBER = "disc_number"
+
+        /** The song's [ContentRating] by name (the Now Playing "E" badge); absent = unknown. */
+        private const val EXTRA_CONTENT_RATING = "content_rating"
         private const val EXTRA_AUDIO_FORMAT = "audio_format"
         private const val EXTRA_TRACK_EXTRAS = "track_extras"
         private const val EXTRA_QUEUE_ENTRY = "yoin_queue_entry"

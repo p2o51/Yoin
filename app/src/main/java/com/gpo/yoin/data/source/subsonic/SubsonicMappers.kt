@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
@@ -79,6 +80,7 @@ internal fun SubsonicSong.toTrack(): Track {
                 fallbackGainDb = it.fallbackGain,
             )
         },
+        contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
     )
 }
 
@@ -129,6 +131,7 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     version = version?.trim()?.takeIf(String::isNotEmpty),
     recordLabels = recordLabels.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct(),
     originalReleaseDate = originalReleaseDate?.toReleaseDate(),
+    contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
 )
 
 /**

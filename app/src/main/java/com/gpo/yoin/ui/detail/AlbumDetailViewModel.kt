@@ -251,6 +251,8 @@ class AlbumDetailViewModel(
                     albumId = album.id.toString(),
                     albumName = album.name,
                     albumVersion = album.version,
+                    albumExplicit = album.isExplicit,
+                    releaseType = album.releaseType,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
@@ -1047,6 +1049,7 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     discNumber = discNumber,
     duration = durationSec,
     isStarred = isStarred,
+    isExplicit = isExplicit,
     isUnavailable = isUnplayableAppleImport,
     isNotStreamed = extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE] == "true",
     featArtist = artist?.takeIf {

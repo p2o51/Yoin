@@ -612,6 +612,7 @@ class NowPlayingViewModel(
                 serviceFeatures = ServiceFeatureCatalog.forProvider(song.id.provider),
                 spineFacts = song.spineSourceFacts(),
                 playingOn = state.spotifyDevice,
+                isExplicit = song.isExplicit,
             )
 
             // Backend is still handshaking for the track the user tapped —
@@ -1232,10 +1233,12 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * A note's undo window closed (or Now Playing went away first): delete it for real. On the repository's
+     * scope, not [viewModelScope] — the commit on leaving can arrive after this ViewModel is cleared.
+     */
     fun deleteNote(id: String) {
-        viewModelScope.launch {
-            repository.deleteNoteById(id)
-        }
+        repository.deleteNoteById(id)
     }
 
     /** A tap on a to-do's box in note [id] (line [lineIndex]): ticked or unticked, saved. */

@@ -3,6 +3,7 @@ package com.gpo.yoin.data.cache
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.AudioFormat
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseDate
@@ -11,6 +12,32 @@ import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import kotlinx.serialization.Serializable
+
+/**
+ * The detail rows' formats, oldest first. A row older than what its provider's page needs is a
+ * miss ([DetailCacheStore.readAlbum]), read again from the service instead of served without it
+ * for the cache's week.
+ */
+internal object DetailCacheFormat {
+    /** Albums keep their release date ([AlbumDto.releaseDate]); older album rows are always misses. */
+    const val DATED = 1
+
+    /**
+     * Tracks and albums keep the service's explicit / clean mark ([ContentRating]). Older album and
+     * artist rows of Apple Music and Spotify are misses. A Subsonic row stays: it may back an album
+     * downloaded for offline play, whose page must open with no server, and OpenSubsonic's
+     * `explicitStatus` (read since PR #343) fills in on the row's next background refresh.
+     */
+    const val RATED = 2
+
+    const val CURRENT = RATED
+
+    /** Whether a row in [format] still serves [provider]'s page. */
+    fun serves(format: Int, provider: String): Boolean =
+        format >= RATED || provider !in RATED_PROVIDERS
+
+    private val RATED_PROVIDERS = setOf(MediaId.PROVIDER_APPLE_MUSIC, MediaId.PROVIDER_SPOTIFY)
+}
 
 /**
  * JSON-serializable mirrors of the detail domain models, used only by
@@ -39,6 +66,8 @@ internal data class TrackDto(
     val audioFormat: AudioFormatDto? = null,
     val discNumber: Int? = null,
     val replayGain: ReplayGainDto? = null,
+    /** [ContentRating] by name; a row from before it, or a name this build doesn't know, reads as unknown. */
+    val contentRating: String? = null,
 ) {
     fun toDomain(): Track = Track(
         id = MediaId.parse(id),
@@ -59,6 +88,7 @@ internal data class TrackDto(
         audioFormat = audioFormat?.toDomain(),
         discNumber = discNumber,
         replayGain = replayGain?.toDomain(),
+        contentRating = ContentRating.fromStorage(contentRating),
     )
 
     companion object {
@@ -81,6 +111,7 @@ internal data class TrackDto(
             audioFormat = t.audioFormat?.let(AudioFormatDto::from),
             discNumber = t.discNumber,
             replayGain = t.replayGain?.let(ReplayGainDto::from),
+            contentRating = t.contentRating?.name,
         )
     }
 }
@@ -147,7 +178,18 @@ internal data class AlbumDto(
     val editorialNotes: String? = null,
     /** True on every row written since albums keep [recordLabels] / [editorialNotes]; older rows are read again. */
     val credited: Boolean = false,
+    /** [ContentRating] by name; unknown when absent. */
+    val contentRating: String? = null,
+    /**
+     * Which format wrote the row ([DetailCacheFormat]); 0 on rows from before it was kept, which
+     * [formatVersion] reads as [DetailCacheFormat.DATED] when [dated] says so.
+     */
+    val format: Int = 0,
 ) {
+    /** The row's format: [format], or for a row from before it was kept, what [dated] says. */
+    val formatVersion: Int
+        get() = maxOf(format, if (dated) DetailCacheFormat.DATED else 0)
+
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
         name = name,
@@ -167,6 +209,7 @@ internal data class AlbumDto(
         recordLabels = recordLabels,
         originalReleaseDate = originalReleaseDate?.toDomain(),
         editorialNotes = editorialNotes,
+        contentRating = ContentRating.fromStorage(contentRating),
     )
 
     companion object {
@@ -186,11 +229,14 @@ internal data class AlbumDto(
             releaseType = a.releaseType?.name,
             version = a.version,
             releaseDate = a.releaseDate?.let(ReleaseDateDto::from),
+            // Still written, so a build from before [format] reads the row instead of refetching it.
             dated = true,
             recordLabels = a.recordLabels,
             originalReleaseDate = a.originalReleaseDate?.let(ReleaseDateDto::from),
             editorialNotes = a.editorialNotes,
             credited = true,
+            contentRating = a.contentRating?.name,
+            format = DetailCacheFormat.CURRENT,
         )
     }
 }
@@ -217,6 +263,8 @@ internal data class ArtistDetailDto(
     val coverArt: String? = null,
     val isStarred: Boolean = false,
     val albums: List<AlbumDto> = emptyList(),
+    /** Which format wrote the row ([DetailCacheFormat]); 0 on rows from before it was kept. */
+    val format: Int = 0,
 ) {
     fun toDomain(): ArtistDetail = ArtistDetail(
         id = MediaId.parse(id),
@@ -235,6 +283,7 @@ internal data class ArtistDetailDto(
             coverArt = CoverRef.toStorageKey(a.coverArt),
             isStarred = a.isStarred,
             albums = a.albums.map(AlbumDto::from),
+            format = DetailCacheFormat.CURRENT,
         )
     }
 }

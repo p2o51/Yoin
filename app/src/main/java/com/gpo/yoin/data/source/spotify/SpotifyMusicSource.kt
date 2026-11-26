@@ -142,8 +142,10 @@ class SpotifyMusicSource(
                 "random" -> albums.shuffled()
                 else -> albums
             }.mapNotNull { savedAlbum ->
-                savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
-                    ?.copy(addedAt = savedAlbum.addedAt, libraryAddedAt = savedAlbum.addedAt)
+                savedAlbum.album?.let { album ->
+                    // A saved album comes with its first page of tracks: rated from them, no extra read.
+                    album.toSimplifiedAlbum().toAlbum(savedAlbumIds = savedAlbumIds, contentRating = album.contentRating())
+                }?.copy(addedAt = savedAlbum.addedAt, libraryAddedAt = savedAlbum.addedAt)
             }
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
@@ -268,8 +270,9 @@ class SpotifyMusicSource(
                 }
             val albums = savedAlbums()
                 .mapNotNull { savedAlbum ->
-                    savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
-                        ?.copy(addedAt = savedAlbum.addedAt)
+                    savedAlbum.album?.let { album ->
+                        album.toSimplifiedAlbum().toAlbum(savedAlbumIds = savedAlbumIds, contentRating = album.contentRating())
+                    }?.copy(addedAt = savedAlbum.addedAt)
                 }
             val artists = followedArtists()
                 .map { artist -> artist.toArtist(isStarred = artist.id in followedArtistIds) }

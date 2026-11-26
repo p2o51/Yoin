@@ -51,6 +51,8 @@ data class ArtistAlbum(
     val releaseType: ReleaseType? = null,
     /** The release's version as the server names it, shown as a tag; null when none. */
     val version: String? = null,
+    /** The service marks the release explicit: the "E" badge follows its name. */
+    val isExplicit: Boolean = false,
 )
 
 data class ArtistListeningSummary(

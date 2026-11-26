@@ -3,7 +3,6 @@ package com.gpo.yoin.ui.notes.editor
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import com.gpo.yoin.shared.notes.MentionTrigger
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -213,7 +213,7 @@ fun NoteMarkupField(
                     // Clear of the keyboard and the status bar; the rows shrink to the roomier side if need be.
                     val density = LocalDensity.current
                     val bottomLimit = LocalWindowInfo.current.containerSize.height - WindowInsets.ime.getBottom(density)
-                    val topLimit = WindowInsets.statusBars.getTop(density)
+                    val topLimit = WindowInsets.topBars.getTop(density)
                     val listMax = with(density) {
                         mentionPopupListMax(
                             caretTop = fieldTopPx + caret.top.roundToInt(),

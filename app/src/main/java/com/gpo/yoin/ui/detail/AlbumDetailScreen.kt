@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
@@ -31,8 +34,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -104,6 +105,7 @@ import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AlbumVersionTag
+import com.gpo.yoin.ui.component.ExplicitBadge
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -127,6 +129,8 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -138,6 +142,9 @@ import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
+import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.ui.component.releaseKindLabel
 
 // Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
 // 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
@@ -529,7 +536,7 @@ private fun AlbumDetailContent(
     var headerHeight by remember { mutableIntStateOf(0) }
     var titleRowTop by remember { mutableIntStateOf(0) }
     var titleRowHeight by remember { mutableIntStateOf(0) }
-    val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+    val statusBarTopPx = WindowInsets.topBars.getTop(density)
     val headerTopPaddingPx = with(density) { AlbumHeaderTopPadding.roundToPx() }
 
     var pageFlight by remember { mutableStateOf<AlbumPageFlight?>(null) }
@@ -792,6 +799,8 @@ private fun AlbumDetailContent(
                 AlbumTopHeader(
                     albumName = content.albumName,
                     albumVersion = content.albumVersion,
+                    albumExplicit = content.albumExplicit,
+                    releaseType = content.releaseType,
                     artistName = content.artistName,
                     releaseDate = albumHeaderDate(content.releaseDate, content.year),
                     titleColor = titleColor,
@@ -825,6 +834,8 @@ private fun AlbumDetailContent(
                         AlbumBarHeaderTwin(
                             albumName = content.albumName,
                             albumVersion = content.albumVersion,
+                            albumExplicit = content.albumExplicit,
+                            releaseType = content.releaseType,
                             artistName = content.artistName,
                             releaseDate = albumHeaderDate(content.releaseDate, content.year),
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -1015,6 +1026,9 @@ internal val AlbumBarTitleGap = 12.dp
 private fun AlbumTopHeader(
     albumName: String,
     albumVersion: String?,
+    albumExplicit: Boolean,
+    // The meta line's kind: EP / Single / Compilation as the service says; Album when unknown.
+    releaseType: ReleaseType?,
     artistName: String,
     // The release date as the meta line shows it ("22.6.12", "22.6", "2022"); null shows none.
     releaseDate: String?,
@@ -1047,7 +1061,7 @@ private fun AlbumTopHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(start = 8.dp, end = 16.dp, top = AlbumHeaderTopPadding, bottom = 6.dp)
             // Inside the caller's bar clip and the row's placement: the stamp is
             // measured off the resting row and lifted by the same amount.
@@ -1072,7 +1086,10 @@ private fun AlbumTopHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         // The version is its own tag here, not repeated in the title.
-                        text = albumNameWithoutVersion(albumName, albumVersion),
+                        text = nameWithoutKindSuffix(
+                            albumNameWithoutVersion(albumName, albumVersion),
+                            releaseType,
+                        ),
                         style = MaterialTheme.typography.headlineSmall,
                         color = titleColor,
                         maxLines = 1,
@@ -1087,11 +1104,24 @@ private fun AlbumTopHeader(
                             modifier = Modifier.padding(start = 8.dp),
                         )
                     }
+                    if (albumExplicit) {
+                        // After the version tag: the mark is the whole release's (Apple Music's order).
+                        ExplicitBadge(
+                            textStyle = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 }
                 DetailMetaLine(
                     groups = buildList {
                         if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
-                        add(MetaGroup.Kind(stringResource(R.string.detail_album_kind), accent = true))
+                        add(
+                            MetaGroup.Kind(
+                                releaseKindLabel(releaseType)
+                                    ?: stringResource(R.string.detail_album_kind),
+                                accent = true,
+                            ),
+                        )
                         if (releaseDate != null) add(MetaGroup.Plain(releaseDate))
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -1149,6 +1179,8 @@ private fun AlbumTopHeader(
 internal fun AlbumBarHeaderTwin(
     albumName: String,
     albumVersion: String? = null,
+    albumExplicit: Boolean = false,
+    releaseType: ReleaseType? = null,
     artistName: String,
     releaseDate: String?,
     pageFraction: () -> Float,
@@ -1173,6 +1205,8 @@ internal fun AlbumBarHeaderTwin(
         AlbumTopHeader(
             albumName = albumName,
             albumVersion = albumVersion,
+            albumExplicit = albumExplicit,
+            releaseType = releaseType,
             artistName = artistName,
             releaseDate = releaseDate,
             titleColor = onBar,
@@ -1565,13 +1599,19 @@ private fun AlbumHeroComment(
             val writtenAt = content.userReviewAt?.let { at ->
                 albumLastPlayLabels(at, LocalContext.current.resources).first
             }
+            val interaction = remember { MutableInteractionSource() }
             Column(
-                modifier = Modifier.handPointer(enabled = interactive).clickable(
-                    enabled = interactive,
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
-                    onClick = onEditComment,
-                ),
+                // Text, not a tile: no square ripple behind the paragraph (a pointer's wash keeps the row's corners).
+                modifier = Modifier
+                    .pointerPressPreview(interaction, shape = YoinContainerShapes.ListRow, enabled = interactive)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = interactive,
+                        role = Role.Button,
+                        onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
+                        onClick = onEditComment,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 NoteMarkupText(
@@ -2151,7 +2191,7 @@ private fun AlbumLoadingState(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
+                .topBarsPadding()
                 .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
         ) {
             DetailBackButton(onClick = onBackClick)

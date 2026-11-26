@@ -30,6 +30,8 @@ sealed interface HomeUiState {
         val activityHeroMinutes: Int? = null,
         // The hero album's version ("全景声"), a tag after its title; resolved with the footnote.
         val activityHeroVersion: String? = null,
+        // The hero album is marked explicit: the "E" badge follows its title; resolved with the footnote.
+        val activityHeroExplicit: Boolean = false,
         // The "Jump Back In" 3×4 widget grid: plain recommendations mixed with
         // memory-flavoured cards. Empty hides the section.
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
@@ -133,6 +135,8 @@ data class HomeWidgetCard(
     val coverKey: String? = null,
     // An album's version ("全景声"), a tag after [title]; null when none.
     val version: String? = null,
+    // The album or song is marked explicit: the "E" badge follows [title] (ExplicitBadge).
+    val explicit: Boolean = false,
 )
 
 /**

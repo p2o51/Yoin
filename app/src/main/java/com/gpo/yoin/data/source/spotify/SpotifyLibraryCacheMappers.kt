@@ -6,11 +6,13 @@ import com.gpo.yoin.data.local.SpotifyLibraryPlaylistCache
 import com.gpo.yoin.data.local.SpotifyLibraryTrackCache
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.ReleaseType
 
 internal fun Track.toSpotifyLibraryTrackCache(
     profileId: String,
@@ -33,6 +35,7 @@ internal fun Track.toSpotifyLibraryTrackCache(
     cachedAt = cachedAt,
     pendingFavoriteAction = pendingFavoriteAction,
     lastSyncError = lastSyncError,
+    contentRating = contentRating?.name,
 )
 
 internal fun SpotifyLibraryTrackCache.toTrack(): Track = Track(
@@ -50,6 +53,7 @@ internal fun SpotifyLibraryTrackCache.toTrack(): Track = Track(
     userRating = null,
     isStarred = isSaved,
     addedAt = addedAt,
+    contentRating = ContentRating.fromStorage(contentRating),
 )
 
 internal fun Album.toSpotifyLibraryAlbumCache(
@@ -68,6 +72,8 @@ internal fun Album.toSpotifyLibraryAlbumCache(
     isSaved = isStarred,
     addedAt = addedAt ?: this.addedAt,
     cachedAt = cachedAt,
+    contentRating = contentRating?.name,
+    releaseType = releaseType?.name,
 )
 
 internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
@@ -85,6 +91,8 @@ internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
     addedAt = addedAt,
     // A cached album is a saved one: its added_at is when it joined the library.
     libraryAddedAt = addedAt,
+    contentRating = ContentRating.fromStorage(contentRating),
+    releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
 )
 
 internal fun Artist.toSpotifyLibraryArtistCache(

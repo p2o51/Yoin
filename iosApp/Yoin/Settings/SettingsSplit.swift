@@ -9,6 +9,7 @@ enum SettingsPane: Hashable, Sendable {
     case addAccount
     case aiFeatures
     case appearance
+    case musicLinks
     case labs
     case syncAndBackups
     case storage
@@ -126,7 +127,8 @@ struct SettingsSplitView: View {
             try? await Task.sleep(for: .milliseconds(700))
             let panes: [String: SettingsPane] = ["ai": .aiFeatures, "labs": .labs, "sync": .cloudSync,
                                                  "neodb": .neodb, "tips": .tips, "about": .about,
-                                                 "licenses": .licenses, "add": .addAccount]
+                                                 "licenses": .licenses, "add": .addAccount,
+                                                 "musicLinks": .musicLinks]
             if p == "active", let id = model.profiles.activeId { pick(.account(id)) } else if let pane = panes[p] { pick(pane) }
         }
         #endif
@@ -144,6 +146,7 @@ struct SettingsSplitView: View {
         model.settingsDestination = nil
         switch d {
         case .neodb: pick(.neodb)
+        case .musicLinks: pick(.musicLinks)
         case .account(let id): pick(.account(id))
         }
         return true
@@ -156,6 +159,7 @@ struct SettingsSplitView: View {
         case .addAccount: ServiceSetupView(request: ServiceSetupRequest())
         case .aiFeatures: AIFeaturesPage()
         case .appearance: AppearanceSettingsPage()
+        case .musicLinks: MusicLinksSettingsPage()
         case .labs: LabsView()
         case .syncAndBackups: SyncAndBackupsPage()
         case .storage: StorageSettingsPage()

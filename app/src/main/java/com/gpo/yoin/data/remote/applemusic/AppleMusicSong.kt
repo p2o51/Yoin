@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.remote.applemusic
 
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -42,7 +43,9 @@ data class AppleMusicSong(
     /** A catalog song's ISRC, upper case; library songs carry none. */
     val isrc: String? = null,
     /** The song's first genre (`genreNames`), as its storefront names it. */
-    val genre: String? = null
+    val genre: String? = null,
+    /** `contentRating` ("explicit" / "clean"); a library song without one takes its catalog song's. */
+    val contentRating: ContentRating? = null
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -65,7 +68,8 @@ data class AppleMusicSong(
             if (catalogUnavailable) put(EXTRA_CATALOG_UNAVAILABLE, "true")
             if (libraryChecked) put(EXTRA_LIBRARY_CHECKED, "true")
             isrc?.let { put(Track.EXTRA_ISRC, it) }
-        }
+        },
+        contentRating = contentRating
     )
 
     companion object {
@@ -125,7 +129,9 @@ data class AppleMusicSong(
                 genre = (
                     attributes?.get("genreNames") as? JsonArray
                         ?: catalog?.get("attributes")?.jsonObject?.get("genreNames") as? JsonArray
-                    )?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }?.takeIf(String::isNotBlank)
+                    )?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }?.takeIf(String::isNotBlank),
+                contentRating = ContentRating.fromAppleMusic(attributes?.string("contentRating"))
+                    ?: ContentRating.fromAppleMusic(catalog?.get("attributes")?.jsonObject?.string("contentRating"))
             )
         }
 

@@ -2,6 +2,7 @@ package com.gpo.yoin.data.local
 
 import androidx.room.Entity
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
@@ -36,6 +37,9 @@ data class HomeGridPoolCache(
     val cachedAt: Long = System.currentTimeMillis(),
     // Album rows only: the release's version ("全景声"), shown as a tag on the card.
     val version: String? = null,
+    // Album and track rows: [com.gpo.yoin.data.model.ContentRating] by name, for the "E" badge;
+    // null = unknown (and every row from before v38).
+    val contentRating: String? = null,
 ) {
     companion object {
         const val TYPE_ALBUM = "album"
@@ -55,6 +59,7 @@ internal fun HomeGridPoolCache.toAlbum(): Album = Album(
     year = null,
     genre = null,
     version = version,
+    contentRating = ContentRating.fromStorage(contentRating),
 )
 
 internal fun HomeGridPoolCache.toTrack(): Track = Track(
@@ -70,6 +75,7 @@ internal fun HomeGridPoolCache.toTrack(): Track = Track(
     year = null,
     genre = null,
     userRating = null,
+    contentRating = ContentRating.fromStorage(contentRating),
 )
 
 internal fun HomeGridPoolCache.toPlaylist(): Playlist = Playlist(
@@ -98,6 +104,7 @@ internal fun Album.toGridPoolRow(
     sortOrder = sortOrder,
     cachedAt = cachedAt,
     version = version,
+    contentRating = contentRating?.name,
 )
 
 internal fun Track.toGridPoolRow(
@@ -116,6 +123,7 @@ internal fun Track.toGridPoolRow(
     durationSec = durationSec,
     sortOrder = sortOrder,
     cachedAt = cachedAt,
+    contentRating = contentRating?.name,
 )
 
 internal fun Playlist.toGridPoolRow(

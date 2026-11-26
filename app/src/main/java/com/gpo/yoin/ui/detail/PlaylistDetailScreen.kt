@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.ExplicitBadge
+import com.gpo.yoin.ui.component.ExplicitBadgeGap
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -31,8 +33,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -129,6 +129,8 @@ import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -279,7 +281,7 @@ fun PlaylistDetailScreen(
     var headerHeight by remember { mutableIntStateOf(0) }
     // The header's title row, for the stamp: below the status bar and the
     // header's top padding, above its bottom padding.
-    val titleRowTopPx = WindowInsets.statusBars.getTop(density) +
+    val titleRowTopPx = WindowInsets.topBars.getTop(density) +
         with(density) { PlaylistHeaderTopPadding.toPx() }
     val titleRowBottomPx = with(density) { PlaylistHeaderBottomPadding.toPx() }
     val hasOverflow = content != null && (content.canWrite || onBackUp != null || offline != null)
@@ -724,7 +726,7 @@ private fun PlaylistTopHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(
                 start = 8.dp,
                 end = 4.dp,
@@ -1552,6 +1554,12 @@ private fun PlaylistTrackRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
+                if (song.isExplicit) {
+                    ExplicitBadge(
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = ExplicitBadgeGap),
+                    )
+                }
                 PlaylistNoteMarker(visible = hasNote, accent = accent)
             }
             PlaylistTrackCredit(artist = song.artist, album = song.album)

@@ -498,6 +498,7 @@ fun HomeContent(
                                 activityHeroSongCount = feed.activityHeroSongCount,
                                 activityHeroMinutes = feed.activityHeroMinutes,
                                 activityHeroVersion = feed.activityHeroVersion,
+                                activityHeroExplicit = feed.activityHeroExplicit,
                                 recentlyAddedTracks = feed.recentlyAddedTracks,
                                 recentlyAddedAlbums = feed.recentlyAddedAlbums,
                                 rediscover = feed.rediscover,

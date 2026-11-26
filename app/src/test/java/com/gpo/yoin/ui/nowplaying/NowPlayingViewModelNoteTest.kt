@@ -14,6 +14,9 @@ import com.gpo.yoin.ui.component.NoteDraft
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteTarget
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -144,6 +147,29 @@ class NowPlayingViewModelNoteTest {
         // Same note (id), new moment; nothing new filed.
         coVerify(exactly = 1) { repository.editNoteById("n1", "placeholder words", 95_000L) }
         coVerify(exactly = 0) { repository.addNote(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_deleteTheNote_when_theUndoWindowCommitsAfterTheViewModelIsCleared() = runTest {
+        // Now Playing commits a pending deletion as it is disposed. When its
+        // Activity finishes, the ViewModel is cleared first: a delete in
+        // viewModelScope never ran and the note stayed in the database.
+        val song = track("nq-t1", "Harbour Lights")
+        val (viewModel, repository) = viewModel(song, MutableStateFlow<String?>("p"))
+        val store = ViewModelStore()
+        ViewModelProvider(
+            store,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = viewModel as T
+            },
+        )[NowPlayingViewModel::class.java]
+        store.clear()
+
+        viewModel.deleteNote("n1")
+        runCurrent()
+
+        coVerify(exactly = 1) { repository.deleteNoteById("n1") }
     }
 
     private fun TestScope.viewModel(

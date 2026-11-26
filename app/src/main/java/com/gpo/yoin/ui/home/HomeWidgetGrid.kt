@@ -10,6 +10,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
 import com.gpo.yoin.ui.component.AlbumVersionTitle
+import com.gpo.yoin.ui.component.CoverBandBadges
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -89,6 +90,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import com.gpo.yoin.data.model.albumNameWithoutVersion
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
@@ -789,6 +791,8 @@ private fun WidgetCard12(
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
             requestSizePx = coverRequestPx,
+            version = card.version,
+            explicit = card.explicit,
         )
         WidgetRatingColumn(card = card, backdropColors = backdropColors)
         WidgetCoverCaption(card = card)
@@ -867,7 +871,7 @@ private fun WidgetRatingColumn(
  * 100dp cover, or a column-following square on Medium+ panes.
  */
 @Composable
-private fun WidgetCoverBlock(
+internal fun WidgetCoverBlock(
     card: HomeWidgetCard,
     extractBackdropColors: Boolean,
     modifier: Modifier = Modifier,
@@ -908,6 +912,8 @@ private fun WidgetCoverBlock(
             modifier = artworkModifier,
             requestSizePx = artworkRequestSizePx,
             memoryMark = memoryMark,
+            version = card.version,
+            explicit = card.explicit,
         )
         Spacer(modifier = Modifier.height(5.dp))
         WidgetCoverCaption(card = card)
@@ -951,9 +957,10 @@ private fun WidgetCoverCaption(card: HomeWidgetCard) {
             fontSize = 16.sp,
             lineHeight = 22.sp,
         )
+        // The version tag and the "E" sit on the cover's backdrop band (CoverBandBadges); the title is clean.
         AlbumVersionTitle(
-            name = card.title,
-            version = card.version,
+            name = albumNameWithoutVersion(card.title, card.version),
+            version = null,
             titleStyle = titleStyle,
             modifier = Modifier.seamFade(),
         ) { text, titleModifier ->
@@ -1003,6 +1010,15 @@ internal fun WidgetBackdropArtwork(
     // An album cover's memory mark (HomeAlbumMemoryMark.kt): a sticker on the
     // cover's top-end corner. Null = a bare cover.
     memoryMark: HomeAlbumMemoryMark? = null,
+    // The release's version tag ("全景声", "Deluxe") and its Explicit mark, set on the backdrop shape's
+    // free band above the cover (CoverBandBadges) instead of after the title, which stays clean.
+    version: String? = null,
+    explicit: Boolean = false,
+    // The release's kind ("EP", "Single"; coverKindTag), first on the same band.
+    kindTag: String? = null,
+    // False: the backdrop keeps its shape while pressed (Library's grid: one static clip per cover,
+    // no per-frame morph).
+    pressMorph: Boolean = true,
 ) {
     // Artists render as a clean full circle — the app-wide portrait convention
     // (Library grid/list, Artist detail) — NOT the album/song/playlist
@@ -1038,7 +1054,7 @@ internal fun WidgetBackdropArtwork(
     }
     // Pressable content tweens its backdrop to the M3 Triangle token while
     // held (seamless RoundedPolygon morph), springing back on release.
-    val backdropShape: Shape = if (interactionSource != null) {
+    val backdropShape: Shape = if (interactionSource != null && pressMorph) {
         rememberPressMorphShape(backdropPolygon, interactionSource)
     } else {
         backdropPolygon.toShape()
@@ -1073,6 +1089,14 @@ internal fun WidgetBackdropArtwork(
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
             requestSizePx = requestSizePx,
+        )
+        CoverBandBadges(
+            version = version,
+            explicit = explicit,
+            coverFraction = WidgetArtworkFraction,
+            stickerRoom = kind == WidgetShapeKind.Album && memoryMark != null,
+            kind = kindTag,
+            modifier = Modifier.matchParentSize(),
         )
         if (kind == WidgetShapeKind.Album) {
             // On the cover's own footprint (pressed with it), its disc half

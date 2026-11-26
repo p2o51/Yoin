@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +84,7 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -94,6 +94,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import com.gpo.yoin.ui.component.releaseKindFilterLabel
+import com.gpo.yoin.ui.component.ReleaseKindFilter
 
 /*
  * Artist page, rebuilt 2026-09 around what every provider can actually supply.
@@ -376,7 +378,7 @@ private fun ArtistTopHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -987,20 +989,7 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
 // Discography — a release timeline
 // ---------------------------------------------------------------------------
 
-private enum class DiscographyFilter {
-    All,
-    Albums,
-    SinglesAndEps,
-    Compilations,
-    ;
-
-    fun accepts(type: ReleaseType?): Boolean = when (this) {
-        All -> true
-        Albums -> type == ReleaseType.Album
-        SinglesAndEps -> type == ReleaseType.Single || type == ReleaseType.EP
-        Compilations -> type == ReleaseType.Compilation
-    }
-}
+private typealias DiscographyFilter = ReleaseKindFilter
 
 /**
  * Every release, newest first ([newestReleasesFirst], whatever order the
@@ -1018,8 +1007,7 @@ private fun ArtistDiscography(
     modifier: Modifier = Modifier,
 ) {
     val filters = remember(albums) {
-        val kinds = DiscographyFilter.entries.drop(1).filter { f -> albums.any { f.accepts(it.releaseType) } }
-        if (kinds.size >= 2) listOf(DiscographyFilter.All) + kinds else emptyList()
+        DiscographyFilter.offeredFor(albums.map { it.releaseType })
     }
     var filter by rememberSaveable { mutableStateOf(DiscographyFilter.All) }
     var showAll by rememberSaveable { mutableStateOf(false) }
@@ -1170,6 +1158,7 @@ private fun ArtistReleaseRow(
                 name = album.name,
                 version = album.version,
                 titleStyle = MaterialTheme.typography.titleMedium,
+                explicit = album.isExplicit,
             ) { text, titleModifier ->
                 Text(
                     text = text,
@@ -1207,12 +1196,7 @@ private fun ReleaseMetaLine(album: ArtistAlbum, isLatest: Boolean) {
 }
 
 @Composable
-private fun filterLabel(filter: DiscographyFilter): String = when (filter) {
-    DiscographyFilter.All -> stringResource(R.string.detail_artist_filter_all)
-    DiscographyFilter.Albums -> stringResource(R.string.detail_artist_filter_albums)
-    DiscographyFilter.SinglesAndEps -> stringResource(R.string.detail_artist_filter_singles)
-    DiscographyFilter.Compilations -> stringResource(R.string.detail_artist_filter_compilations)
-}
+private fun filterLabel(filter: DiscographyFilter): String = releaseKindFilterLabel(filter)
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

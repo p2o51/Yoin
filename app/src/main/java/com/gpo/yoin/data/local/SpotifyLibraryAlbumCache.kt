@@ -18,4 +18,8 @@ data class SpotifyLibraryAlbumCache(
     val isSaved: Boolean = true,
     val addedAt: String?,
     val cachedAt: Long,
+    /** [com.gpo.yoin.data.model.ContentRating] by name; null = unknown (and every row from before v38). */
+    val contentRating: String? = null,
+    /** [com.gpo.yoin.data.model.ReleaseType] by name; null = unknown (and every row from before v38). */
+    val releaseType: String? = null,
 )

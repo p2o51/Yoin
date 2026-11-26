@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +65,7 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
@@ -430,7 +430,7 @@ internal fun LandingScreen(
     val dark = isSystemInDarkTheme()
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
-    val topInset = WindowInsets.statusBars.getTop(density)
+    val topInset = WindowInsets.topBars.getTop(density)
     val bottomInset = WindowInsets.navigationBars.getBottom(density)
     val ime = WindowInsets.ime
     val twoColumns = windowInfo.layoutMode == LayoutMode.Wide || windowInfo.isCompactHeight

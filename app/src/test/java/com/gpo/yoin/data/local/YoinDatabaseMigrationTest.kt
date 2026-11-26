@@ -88,6 +88,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -194,6 +195,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -283,6 +285,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -357,6 +360,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -455,6 +459,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -559,6 +564,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -640,6 +646,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -716,6 +723,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -793,6 +801,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -894,6 +903,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1014,6 +1024,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1089,6 +1100,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1170,6 +1182,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1269,6 +1282,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1340,6 +1354,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1413,6 +1428,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1466,6 +1482,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1535,6 +1552,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1616,6 +1634,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -1686,6 +1705,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_34_35,
                 AppContainer.MIGRATION_35_36,
                 AppContainer.MIGRATION_36_37,
+                AppContainer.MIGRATION_37_38,
             )
             .allowMainThreadQueries()
             .build()
@@ -2019,7 +2039,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_34_35, AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37)
+            .addMigrations(AppContainer.MIGRATION_34_35, AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37, AppContainer.MIGRATION_37_38)
             .allowMainThreadQueries()
             .build()
 
@@ -2070,7 +2090,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37)
+            .addMigrations(AppContainer.MIGRATION_35_36, AppContainer.MIGRATION_36_37, AppContainer.MIGRATION_37_38)
             .allowMainThreadQueries()
             .build()
 
@@ -2140,7 +2160,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_36_37)
+            .addMigrations(AppContainer.MIGRATION_36_37, AppContainer.MIGRATION_37_38)
             .allowMainThreadQueries()
             .build()
 
@@ -2163,6 +2183,167 @@ class YoinDatabaseMigrationTest {
         )
         assertEquals(1, dao.getCanonical("subsonic", "al-1").size)
         assertEquals(0, dao.getCanonical("spotify", "al-1").size)
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_keepCachedRowsAsUnrated_when_migrating_37_to_38() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(37) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion24Schema(db)
+                            listOf(
+                                AppContainer.MIGRATION_24_25,
+                                AppContainer.MIGRATION_25_26,
+                                AppContainer.MIGRATION_26_27,
+                                AppContainer.MIGRATION_27_28,
+                                AppContainer.MIGRATION_28_29,
+                                AppContainer.MIGRATION_29_30,
+                                AppContainer.MIGRATION_30_31,
+                                AppContainer.MIGRATION_31_32,
+                                AppContainer.MIGRATION_32_33,
+                                AppContainer.MIGRATION_33_34,
+                                AppContainer.MIGRATION_34_35,
+                                AppContainer.MIGRATION_35_36,
+                                AppContainer.MIGRATION_36_37,
+                            ).forEach { it.migrate(db) }
+                            db.execSQL(
+                                "INSERT INTO home_grid_pool_cache (profileId, provider, itemType, itemId, title, " +
+                                    "subtitle, coverArtKey, albumId, durationSec, sortOrder, cachedAt) VALUES " +
+                                    "('p1', 'spotify', 'album', 'al-1', 'DAMN.', 'Kendrick Lamar', NULL, NULL, NULL, 0, 10)",
+                            )
+                            db.execSQL(
+                                "INSERT INTO spotify_library_track_cache (profileId, trackId, title, artist, artistId, " +
+                                    "album, albumId, coverArtKey, durationSec, addedAt, isSaved, cachedAt, " +
+                                    "pendingFavoriteAction, lastSyncError) VALUES " +
+                                    "('p1', 't1', 'HUMBLE.', 'Kendrick Lamar', NULL, 'DAMN.', 'al-1', NULL, 177, NULL, 1, 10, 0, NULL)",
+                            )
+                            db.execSQL(
+                                "INSERT INTO spotify_library_album_cache (profileId, albumId, name, artist, artistId, " +
+                                    "coverArtKey, songCount, year, isSaved, addedAt, cachedAt) VALUES " +
+                                    "('p1', 'al-1', 'DAMN.', 'Kendrick Lamar', NULL, NULL, 14, 2017, 1, NULL, 10)",
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_37_38)
+            .allowMainThreadQueries()
+            .build()
+
+        // Rows from before the mark read as unknown; a rewrite keeps the mark.
+        val pools = migrated.homeGridPoolDao()
+        val pooled = pools.getForProfile("p1", "spotify").single()
+        assertEquals(null, pooled.contentRating)
+        pools.insertAll(listOf(pooled.copy(contentRating = "Explicit")))
+        assertEquals("Explicit", pools.getForProfile("p1", "spotify").single().contentRating)
+
+        val library = migrated.spotifyLibraryCacheDao()
+        val track = requireNotNull(library.getTrack("p1", "t1"))
+        assertEquals(null, track.contentRating)
+        library.upsertTrack(track.copy(contentRating = "Explicit"))
+        assertEquals("Explicit", library.getTrack("p1", "t1")?.contentRating)
+        val album = requireNotNull(library.getAlbum("p1", "al-1"))
+        assertEquals(null, album.contentRating)
+        library.upsertAlbum(album.copy(contentRating = "Clean"))
+        assertEquals("Clean", library.getAlbum("p1", "al-1")?.contentRating)
+        assertEquals(null, album.releaseType)
+        library.upsertAlbum(album.copy(releaseType = "EP"))
+        assertEquals("EP", library.getAlbum("p1", "al-1")?.releaseType)
+
+        migrated.close()
+    }
+
+    /**
+     * From the v37 schema exactly as shipped (`app/schemas/.../37.json`, main's export, not rebuilt
+     * from the v24 chain): MIGRATION_37_38 must give what Room expects of v38, or the open throws. Guards
+     * the export itself too (a v37 export rewritten with v38's columns would hide a missing ALTER).
+     */
+    @Test
+    fun should_migrateTheShipped37Schema_to_38() = runTest {
+        val schema = org.json.JSONObject(
+            java.io.File("schemas/com.gpo.yoin.data.local.YoinDatabase/37.json").readText(),
+        ).getJSONObject("database")
+        assertEquals(37, schema.getInt("version"))
+        val entities = schema.getJSONArray("entities")
+        for (i in 0 until entities.length()) {
+            val entity = entities.getJSONObject(i)
+            val table = entity.getString("tableName")
+            if (table == "spotify_library_album_cache" || table == "spotify_library_track_cache") {
+                val columns = entity.getJSONArray("fields")
+                val names = (0 until columns.length()).map { columns.getJSONObject(it).getString("columnName") }
+                assertTrue("$table at v37 has no contentRating yet", "contentRating" !in names)
+            }
+        }
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(37) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            for (i in 0 until entities.length()) {
+                                val entity = entities.getJSONObject(i)
+                                val table = entity.getString("tableName")
+                                db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+                                val indices = entity.optJSONArray("indices") ?: continue
+                                for (j in 0 until indices.length()) {
+                                    db.execSQL(
+                                        indices.getJSONObject(j).getString("createSql")
+                                            .replace("\${TABLE_NAME}", table),
+                                    )
+                                }
+                            }
+                            schema.optJSONArray("views")?.let { views ->
+                                for (i in 0 until views.length()) {
+                                    val view = views.getJSONObject(i)
+                                    db.execSQL(
+                                        view.getString("createSql")
+                                            .replace("\${VIEW_NAME}", view.getString("viewName")),
+                                    )
+                                }
+                            }
+                            db.execSQL(
+                                "INSERT INTO spotify_library_album_cache (profileId, albumId, name, artist, artistId, " +
+                                    "coverArtKey, songCount, year, isSaved, addedAt, cachedAt) VALUES " +
+                                    "('p1', 'al-1', 'DAMN.', 'Kendrick Lamar', NULL, NULL, 14, 2017, 1, NULL, 10)",
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_37_38)
+            .allowMainThreadQueries()
+            .build()
+        val album = requireNotNull(migrated.spotifyLibraryCacheDao().getAlbum("p1", "al-1"))
+        assertEquals(null, album.contentRating)
+        assertEquals(null, album.releaseType)
+        assertEquals(38, migrated.openHelper.readableDatabase.version)
 
         migrated.close()
     }

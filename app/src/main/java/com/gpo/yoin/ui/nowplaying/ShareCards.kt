@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -70,6 +72,7 @@ import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.LocalSoftwareBitmaps
 import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -318,7 +321,8 @@ private fun AiSign(content: ShareContent, colors: ShareCardColors) {
         Icon(YoinSymbols.Sparkle, contentDescription = null, tint = colors.secondary, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(4.dp))
         Text(
-            text = stringResource(R.string.np_share_ai_sign, name),
+            // 由千问整理 / 由 Gemini 整理: no space beside a Chinese name.
+            text = YoinShareCards.aiSign(stringResource(R.string.np_share_ai_sign), name),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
             color = colors.secondary,
             textAlign = TextAlign.End,
@@ -659,6 +663,9 @@ private fun Modifier.sideways(maxLength: Dp): Modifier = layout { measurable, _ 
 // About: Receipt, Quote, Liner notes (tertiary).
 // ---------------------------------------------------------------------------
 
+// About's paragraph and credit values are the AI's words: its **bold** reads bold, as on Now Playing's About
+// page (markdownBoldAnnotatedString; the runs are YoinShareCards.boldRuns'). Headings stay as written.
+
 @Composable
 private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, frame: ShareFrame, modifier: Modifier) {
     val about = content.about ?: return
@@ -676,7 +683,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
                         modifier = Modifier.width(88.dp).padding(top = 2.dp, end = 12.dp),
                     )
                     Text(
-                        text = credit.value,
+                        text = markdownBoldAnnotatedString(credit.value),
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                         color = colors.content,
                         textAlign = TextAlign.End,
@@ -693,7 +700,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text(
-                text = paragraph,
+                text = markdownBoldAnnotatedString(paragraph),
                 style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                 color = colors.content,
                 modifier = Modifier.padding(top = 6.dp),
@@ -704,6 +711,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame: ShareFrame, modifier: Modifier) {
     val about = content.about ?: return
@@ -729,17 +737,21 @@ private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame
         }
         about.paragraph?.let { paragraph ->
             Text(
-                text = paragraph,
+                text = markdownBoldAnnotatedString(paragraph),
                 style = lyricHeroStyle(19f, 1.5f),
                 color = colors.content,
                 modifier = Modifier.padding(top = 18.dp),
             )
         }
         if (about.credits.isNotEmpty()) {
-            Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                about.credits.take(YoinShareCards.quoteCredits).forEach { credit ->
-                    CreditChip(credit, colors, Modifier.weight(1f, fill = false))
-                }
+            // The chips flow onto as many lines as they need, each as wide as its whole value (owner
+            // 2026-11-26: the AI's credits run long and were cut to "Re…").
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 18.dp),
+            ) {
+                about.credits.take(YoinShareCards.quoteCredits).forEach { credit -> CreditChip(credit, colors) }
             }
         }
         Box(
@@ -755,23 +767,28 @@ private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame
     }
 }
 
+/** A credit as a chip: the label, then the whole value — a value wider than the card wraps inside the chip. */
 @Composable
 private fun CreditChip(credit: ShareCredit, colors: ShareCardColors, modifier: Modifier = Modifier) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(colors.content.copy(alpha = 0.1f))
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
-        Text(credit.label, style = MaterialTheme.typography.labelSmall, color = colors.secondary, maxLines = 1)
+        Text(
+            credit.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.secondary,
+            maxLines = 1,
+            modifier = Modifier.alignByBaseline(),
+        )
         Spacer(Modifier.width(6.dp))
         Text(
-            text = credit.value,
+            text = markdownBoldAnnotatedString(credit.value),
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             color = colors.content,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
         )
     }
 }
@@ -784,28 +801,32 @@ private fun AboutLinerBody(content: ShareContent, colors: ShareCardColors, frame
         modifier = modifier.frameGround(frame, colors.card),
     ) {
         Column {
+            // The head (owner 2026-11-26): "About" as written (sentence case, 关于) sits right on the title, and
+            // the cover's top lines up with the eyebrow + title + artist block beside it.
             Row(verticalAlignment = Alignment.Top) {
-                Text(
-                    text = about.heading.uppercase(),
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 1.6.sp),
-                    color = colors.secondary,
-                    modifier = Modifier.weight(1f).padding(top = 2.dp),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = about.heading,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.secondary,
+                    )
+                    Text(
+                        text = content.song.title,
+                        style = lyricHeroStyle(36f, 1.12f),
+                        color = colors.content,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    if (content.song.artist.isNotBlank()) {
+                        Text(
+                            text = content.song.artist,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.secondary,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
                 ShareCover(content.song.coverArtUrl, 72.dp, colors.content, shape = RoundedCornerShape(8.dp))
-            }
-            Text(
-                text = content.song.title,
-                style = lyricHeroStyle(36f, 1.12f),
-                color = colors.content,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            if (content.song.artist.isNotBlank()) {
-                Text(
-                    text = content.song.artist,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.secondary,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
             val cells = about.credits.take(YoinShareCards.linerCredits)
             if (cells.isNotEmpty()) {
@@ -820,7 +841,7 @@ private fun AboutLinerBody(content: ShareContent, colors: ShareCardColors, frame
             }
             about.paragraph?.let { paragraph ->
                 Text(
-                    text = paragraph,
+                    text = markdownBoldAnnotatedString(paragraph),
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                     color = colors.content,
                     modifier = Modifier.padding(top = 12.dp),
@@ -842,7 +863,7 @@ private fun LinerCell(credit: ShareCredit, colors: ShareCardColors, modifier: Mo
     ) {
         Text(credit.label, style = MaterialTheme.typography.labelSmall, color = colors.secondary)
         Text(
-            text = credit.value,
+            text = markdownBoldAnnotatedString(credit.value),
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             color = colors.content,
             modifier = Modifier.padding(top = 2.dp),

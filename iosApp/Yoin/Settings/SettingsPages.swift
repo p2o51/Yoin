@@ -3,6 +3,8 @@ import SwiftUI
 /// A Settings page another screen can open straight to (Android SettingsScreen's initial feature page).
 enum SettingsDestination: Hashable, Sendable {
     case neodb
+    /// Features and appearance › Music links (Open in Yoin's clipboard toggle).
+    case musicLinks
     /// An account's own page (the account card's Reconnect, when it can't fix the account).
     case account(String)
 }
@@ -226,5 +228,60 @@ struct NeoDBSettingsPage: View {
         SettingsPage(title: "NeoDB") { app, row in
             NeoDBSettingsSection(app: app, row: row, page: true)
         }
+    }
+}
+
+/// Settings › Features and appearance › Music links (Carbon + Rebecca, owner-approved 2026-11-24; Android
+/// MusicLinksPage, docs/open-in-yoin.md): the clipboard toggle on top, then two read-only rows on how links
+/// reach Yoin.
+struct MusicLinksSettingsPage: View {
+    private let settings = OpenInSettings.shared
+
+    var body: some View {
+        SettingsPage(title: String(localized: "Music links")) { app, row in
+            VStack(alignment: .leading, spacing: 28) {
+                Toggle(isOn: Binding(get: { settings.clipboardDetectionEnabled },
+                                     set: { on in withAnimation(Yoin.effects) { settings.setClipboardDetectionEnabled(on) } })) {
+                    HStack(spacing: 16) {
+                        YoinIcon("link", size: 24).foregroundStyle(app.onSurfaceVariant)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Detect music links in clipboard").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                            Text("Checks the clipboard only when you open Yoin. Only looks for music links; nothing else is uploaded or saved.")
+                                .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                        }
+                    }
+                }
+                .tint(app.primary)
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .background(row, in: CloudSyncView.segment(0, 1))
+                VStack(spacing: 2) {
+                    explanation("share", title: String(localized: "Open in Yoin"),
+                                body: String(localized: "Choose \"Open in Yoin\" from the share menu in other apps to send a song or link straight to Yoin."),
+                                app: app)
+                        .background(row, in: CloudSyncView.segment(0, 2))
+                    explanation("search", title: String(localized: "Open or search across services"),
+                                body: String(localized: "Links from a service you're signed into open directly; links from other services search in your current service."),
+                                app: app)
+                        .background(row, in: CloudSyncView.segment(1, 2))
+                }
+            }
+        }
+    }
+
+    /// A read-only row: icon, title, body.
+    private func explanation(_ icon: String, title: String, body: String, app: CoverScheme) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            YoinIcon(icon, size: 24).foregroundStyle(app.onSurfaceVariant)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                Text(body).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
