@@ -240,6 +240,9 @@ class HomeRowsGrabRecognizer extends OneSequenceGestureRecognizer {
   /// The finger landed at global [position] (ms [t]); true takes it.
   bool Function(Offset position, int t)? onDown;
   void Function(double y, int t)? onMove;
+
+  /// The finger moved to global [position] (two columns' ⌟ follows both axes).
+  void Function(Offset position, int t)? onMoveAt;
   void Function(int t)? onUp;
   VoidCallback? onCancel;
 
@@ -263,6 +266,7 @@ class HomeRowsGrabRecognizer extends OneSequenceGestureRecognizer {
     if (event.pointer != _pointer) return;
     if (event is PointerMoveEvent) {
       onMove?.call(event.position.dy, _ms(event.timeStamp));
+      onMoveAt?.call(event.position, _ms(event.timeStamp));
     } else if (event is PointerUpEvent) {
       _finish(() => onUp?.call(_ms(event.timeStamp)));
       stopTrackingPointer(event.pointer);

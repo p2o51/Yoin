@@ -58,11 +58,15 @@ final class HomeEditHitBlank extends HomeEditHit {
 /// A section's vertical extent in page px. [bleeds]: a full-width shelf that takes touches in the margins too.
 @immutable
 final class SectionBand {
-  const SectionBand(this.id, this.top, this.bottom, {this.bleeds = false});
+  const SectionBand(this.id, this.top, this.bottom, {this.bleeds = false, this.left, this.right});
   final HomeSection id;
   final double top;
   final double bottom;
   final bool bleeds;
+
+  /// Two columns: the cell's content edges (null: the feed's, a full row in one column).
+  final double? left;
+  final double? right;
 }
 
 /// Full-width shelves: a press in the page margin beside them lands on the shelf.
@@ -95,16 +99,22 @@ SectionBand? resolveSectionAt({
   required double outsetV,
   required bool editing,
 }) {
-  final padH = editing ? outsetH : 0.0;
-  final padV = editing ? outsetV : 0.0;
-  for (final band in bands) {
-    if (y >= band.top - padV &&
-        y <= band.bottom + padV &&
-        (band.bleeds || x >= contentLeft - padH && x <= contentRight + padH)) {
-      return band;
+  SectionBand? under(double padH, double padV) {
+    for (final band in bands) {
+      final left = band.left ?? contentLeft, right = band.right ?? contentRight;
+      if (y >= band.top - padV &&
+          y <= band.bottom + padV &&
+          ((band.bleeds && band.left == null) || x >= left - padH && x <= right + padH)) {
+        return band;
+      }
     }
+    return null;
   }
-  return null;
+
+  // A block the finger is on wins over a neighbour's plate reaching past it (two columns' halves sit 20 apart).
+  final exact = under(0, 0);
+  if (exact != null || !editing) return exact;
+  return under(outsetH, outsetV);
 }
 
 /// The hit at [position] once exclusions are ruled out: [handle] wins (edit
@@ -120,11 +130,14 @@ HomeEditHit resolveHomeEditHit({
   required bool editing,
   HomeSection? handle,
 }) {
-  HomeEditHitBlock block(SectionBand band) => HomeEditHitBlock(
-    band.id,
-    Offset(position.dx - contentLeft, position.dy - band.top),
-    Size(math.max(0, contentRight - contentLeft), band.bottom - band.top),
-  );
+  HomeEditHitBlock block(SectionBand band) {
+    final left = band.left ?? contentLeft, right = band.right ?? contentRight;
+    return HomeEditHitBlock(
+      band.id,
+      Offset(position.dx - left, position.dy - band.top),
+      Size(math.max(0, right - left), band.bottom - band.top),
+    );
+  }
   if (handle != null) {
     for (final band in bands) {
       if (band.id != handle) continue;
