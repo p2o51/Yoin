@@ -147,15 +147,21 @@ void main() {
         container.read(homeEditProvider.notifier).enter();
         await _frames(tester, 40);
         await _capture(tester, boundary, 'home-2col-edit-$tag');
-        // Recently Played (a full row) held and dragged right and up toward All Memories' row: it pairs beside it.
-        final from = tester.getCenter(plate(HomeSection.memoryGrid));
+        // Jump Back In (the first row's right half) held and dragged down over the middle of All Memories' full
+        // row, 85% across: it leaves Activities full and pairs beside All Memories (rule ②).
+        final from = tester.getCenter(plate(HomeSection.jumpBackIn));
+        final memory = tester.getRect(plate(HomeSection.memoryGrid));
         final gesture = await tester.startGesture(from);
         await tester.pump(const Duration(milliseconds: 400));
-        for (var i = 0; i < 16; i++) {
-          await gesture.moveBy(const Offset(25, 0));
+        final target = Offset(memory.left + memory.width * .85, memory.center.dy);
+        // Past the slop (the block follows from there), then straight onto the target.
+        for (var i = 0; i < 3; i++) {
+          await gesture.moveBy(const Offset(6, 6));
           await tester.pump(const Duration(milliseconds: 16));
         }
-        await _frames(tester, 10);
+        await gesture.moveTo(target);
+        await tester.pump(const Duration(milliseconds: 16));
+        await _frames(tester, 12);
         await _capture(tester, boundary, 'home-2col-drag-$tag');
         await gesture.up();
         await _frames(tester, 40);

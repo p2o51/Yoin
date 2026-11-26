@@ -175,6 +175,31 @@ void main() {
     await done(tester, container);
   });
 
+  testWidgets('should_takeAHalfOutOfItsPairAndBesideAFullRow_when_droppedThere', (tester) async {
+    final (:container, store: _) = await pumpHome(tester);
+    container.read(homeEditProvider.notifier).enter();
+    await frames(tester, 30);
+    // Jump Back In (the first row's right half, its covers and shelves in it) down over the middle of All
+    // Memories' row, 85% across: Activities is left full, Jump Back In pairs on All Memories' right.
+    final from = tester.getCenter(plate(HomeSection.jumpBackIn));
+    final memory = tester.getRect(plate(HomeSection.memoryGrid));
+    final gesture = await tester.startGesture(from);
+    await tester.pump(const Duration(milliseconds: 300));
+    await frames(tester, 2);
+    await gesture.moveTo(Offset(memory.left + memory.width * .85, memory.center.dy));
+    await tester.pump(const Duration(milliseconds: 16));
+    await frames(tester, 10);
+    expect(tester.takeException(), isNull);
+    await gesture.up();
+    await frames(tester, 40);
+    final layout = shown(container);
+    expect(layout.partnerOf(HomeSection.activities), isNull);
+    expect(layout.pairs[HomeSection.memoryGrid], HomeSection.jumpBackIn);
+    expect(tester.getRect(plate(HomeSection.jumpBackIn)).top, tester.getRect(plate(HomeSection.memoryGrid)).top);
+    expect(tester.takeException(), isNull);
+    await done(tester, container);
+  });
+
   testWidgets('should_stackInOneColumnInTheSameOrder_when_resizedTo700', (tester) async {
     final (:container, store: _) = await pumpHome(tester);
     container.read(homeEditProvider.notifier)

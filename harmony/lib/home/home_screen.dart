@@ -507,9 +507,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 ),
               ),
               if (content != null)
-                SliverList.list(
-                  children: _sections(content, layout, frame, signals, e: e, spacing: spacing),
-                ),
+                if (!twoColumn)
+                  SliverList.list(children: _sections(content, layout, frame, signals, e: e, spacing: spacing))
+                else
+                  // Two columns: one box for every row. A section moving to another row (a pair forming or
+                  // splitting, a drop beside) takes its state with it, which a lazy list's separate items
+                  // can't hand over mid-layout.
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: _sections(content, layout, frame, signals, e: e, spacing: spacing),
+                    ),
+                  ),
               if (content != null && content.hasAccount)
                 SliverPadding(
                     padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end, top: spacing),
@@ -930,7 +939,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       final enabled = layout.visibleV1Sections;
       final total = frame.start + frame.content + frame.end;
       const gap = HomeColumnTokens.rowGap;
+      // Every cell in one Stack, keyed by section, each row at the sum of the rows (and gaps) above it: a section
+      // moving to another row (a pair forming or splitting, a drop beside) moves within one parent, its state with
+      // it — a move between two rows' own boxes would reparent it mid-layout.
+      final cells = <(HomeSection, Widget)>[];
+      final outlines = <Widget>[];
+      var y = 0.0;
       for (final row in rows) {
+        y += spacing;
         final live = _grid.liveHeight(row);
         final units = live != null ? _grid.unitTarget : layout.unitsOfRow(row);
         final height = live ?? homeGridHeightDp(units);
@@ -944,7 +960,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         );
         final sections = row.sections;
         final half = row is HomeFeedRowHalves;
-        final cells = <(HomeSection, Widget)>[];
         for (var k = 0; k < sections.length; k++) {
           final section = sections[k];
           final w = k < widths.length ? widths[k].toDouble() : frame.content;
@@ -980,8 +995,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           cells.add((
             section,
             Positioned(
+              key: ValueKey(('home-cell', section)),
               left: left,
-              top: 0,
+              top: y,
               width: cellWidth,
               height: height,
               child: _editItem(
@@ -999,26 +1015,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             ),
           ));
         }
-        // The dragged block (or the one a span drag widens) draws over its partner.
-        final top = span?.$1 ?? _drag.onTopSection;
-        cells.sort((a, b) => (a.$1 == top ? 1 : 0).compareTo(b.$1 == top ? 1 : 0));
-        out.add(
-          Padding(
-            key: ValueKey(('home-row', row.first)),
-            padding: EdgeInsets.only(top: spacing),
-            child: SizedBox(
+        if (span != null) {
+          outlines.add(
+            Positioned(
+              left: 0,
+              right: 0,
+              top: y,
               height: height,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  for (final (_, cell) in cells) cell,
-                  if (span != null) Positioned.fill(child: IgnorePointer(child: _spanOutline(row, span.$1, frame))),
-                ],
-              ),
+              child: IgnorePointer(child: _spanOutline(row, span.$1, frame)),
             ),
-          ),
-        );
+          );
+        }
+        y += height;
       }
+      // The dragged block (or the one a span drag widens) draws over the rest.
+      final top = _grid.spanSection ?? _drag.onTopSection;
+      cells.sort((a, b) => (a.$1 == top ? 1 : 0).compareTo(b.$1 == top ? 1 : 0));
+      out.add(
+        SizedBox(
+          height: y,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [for (final (_, cell) in cells) cell, ...outlines],
+          ),
+        ),
+      );
     }
     if (!_sectionsSeeded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _sectionsSeeded = true);
