@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.settings
 
-import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -21,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -34,6 +34,7 @@ import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.descriptionRes
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.nameRes
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -106,6 +107,8 @@ private fun StyleCard(
             .fillMaxWidth()
             .semantics { this.selected = selected }
             .handPointer()
+            // Clipped first: a Surface clips after its modifier, so the ripple would draw square.
+            .clip(RoundedCornerShape(corner))
             .clickable(role = Role.RadioButton, onClick = onClick),
     ) {
         Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp)) {
