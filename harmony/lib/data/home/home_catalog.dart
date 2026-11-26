@@ -155,7 +155,8 @@ final class HomeUnitRange {
   }
 
   /// The two ranges share a count: a pair of sections with them can be one row height.
-  bool meets(HomeUnitRange other) => (first > other.first ? first : other.first) <= (last < other.last ? last : other.last);
+  bool meets(HomeUnitRange other) =>
+      (first > other.first ? first : other.first) <= (last < other.last ? last : other.last);
 
   Iterable<int> get values sync* {
     for (var n = first; n <= last; n++) {

@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 import 'package:yoin/data/model/model.dart';
-import 'package:yoin/home/home_carry_stack.dart';
 import 'package:yoin/home/home_edit.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_screen.dart';
@@ -344,36 +343,6 @@ void main() {
       await done(tester, c);
     });
 
-    testWidgets('should_moveToTheEnd_when_carriedPastTheLastStrip', (tester) async {
-      // Short window: the strips fold the whole order onto the screen, no scrolling needed.
-      final c = await pumpHome(tester, size: const Size(400, 640));
-      c.read(homeEditProvider.notifier).enter();
-      await frames(tester, 30);
-      final before = c.read(homeLayoutProvider).visibleV1Sections;
-      final handle = find.byIcon(YoinSymbols.dragHandle).first;
-      final start = tester.getCenter(handle);
-      final gesture = await tester.startGesture(start);
-      await gesture.moveBy(const Offset(0, 30));
-      await frames(tester, 10);
-      // Every section is a strip now, its title on it.
-      for (final title in ['Your Playlists', 'Made For You']) {
-        expect(find.descendant(of: find.byType(HomeCarryStack), matching: find.text(title)), findsOneWidget);
-      }
-      final scrolled = tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels;
-      // Down past the last strip.
-      final bottom = tester.getBottomLeft(find.byType(CustomScrollView)).dy;
-      await gesture.moveTo(Offset(start.dx, bottom - 5));
-      await frames(tester, 5);
-      expect(tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels, scrolled);
-      await gesture.up();
-      await frames(tester, 60);
-      final after = c.read(homeLayoutProvider).visibleV1Sections;
-      expect(after.last, HomeSection.activities, reason: 'was $before');
-      expect(c.read(homeEditProvider).undo, hasLength(1));
-      expect(tester.takeException(), isNull);
-      await done(tester, c);
-    });
-
     testWidgets('should_enterWithTheBlockLiftedAndCarryIt_when_aSectionIsLongPressedAndMoved', (tester) async {
       final haptics = RecordingHapticsHost();
       YoinHaptics.host = haptics;
@@ -389,12 +358,13 @@ void main() {
       expect(c.read(homeEditProvider).editing, isTrue);
       expect(haptics.performed, contains(YoinHaptic.longPress));
       await frames(tester, 5);
-      // The same finger carries it: down two strips.
+      // The same finger drags it in place, down past its neighbour.
       for (var i = 0; i < 10; i++) {
         await gesture.moveBy(const Offset(0, 20));
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(find.descendant(of: find.byType(HomeCarryStack), matching: find.text('Jump Back In')), findsOneWidget);
+      // Dragged in place: the edit controller holds Undo and the other edits for the drop.
+      expect(c.read(homeEditProvider.notifier).carrying, isTrue);
       expect(haptics.performed, contains(YoinHaptic.segmentTick));
       await gesture.up();
       await frames(tester, 60);
@@ -471,23 +441,45 @@ void main() {
       await done(tester, c);
     });
 
-    testWidgets('should_waitForTheDrop_when_doneArrivesMidCarry', (tester) async {
+    testWidgets('should_keepTheDropAndLeave_when_doneArrivesMidDrag', (tester) async {
       final c = await pumpHome(tester);
       c.read(homeEditProvider.notifier).enter();
       await frames(tester, 30);
       final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
-      for (var i = 0; i < 8; i++) {
+      for (var i = 0; i < 16; i++) {
         await gesture.moveBy(const Offset(0, 20));
         await tester.pump(const Duration(milliseconds: 16));
       }
       final edit = c.read(homeEditProvider.notifier);
       expect(edit.carrying, isTrue);
+      // Done mid-drag (Android dragExitKeepsDrop): the drag ends at once, its drop written, then edit mode goes.
       edit.done();
-      // The carry lets go and settles first.
-      expect(c.read(homeEditProvider).editing, isTrue);
-      await frames(tester, 60);
+      await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isFalse);
       expect(c.read(homeLayoutProvider).visibleV1Sections.first, isNot(HomeSection.activities));
+      await gesture.up();
+      await frames(tester, 10);
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_rollTheDragBack_when_systemBackArrivesMidDrag', (tester) async {
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      final before = c.read(homeLayoutProvider).visibleV1Sections;
+      final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
+      for (var i = 0; i < 16; i++) {
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(c.read(homeEditProvider.notifier).carrying, isTrue);
+      // Back (Android dragExitKeepsDrop): the order before the lift comes back, nothing written; then edit mode goes.
+      await tester.binding.handlePopRoute();
+      await frames(tester, 30);
+      expect(c.read(homeEditProvider).editing, isFalse);
+      expect(c.read(homeLayoutProvider).visibleV1Sections, before);
+      expect(c.read(homeEditProvider).undo, isEmpty);
       await gesture.up();
       await frames(tester, 10);
       expect(tester.takeException(), isNull);

@@ -34,7 +34,7 @@ import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import 'home_carry.dart' show pressRect;
+import 'home_edit_lift.dart' show pressRect;
 import 'home_edit_hints.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
@@ -288,7 +288,7 @@ class HomeEditPlate extends StatelessWidget {
     this.hideKey,
   });
 
-  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeCarryEngine liftTint).
+  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeDragEngine liftTint).
   final double liftTint;
 
   /// The plate growing from the press square (the entry latch), or the press
