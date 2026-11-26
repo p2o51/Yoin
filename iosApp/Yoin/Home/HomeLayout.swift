@@ -239,6 +239,65 @@ struct HomeLayout: Hashable, @unchecked Sendable {
         return HomeLayout(state: Self.core.withRememberedPairs(state: next).state)
     }
 
+    // MARK: Two columns (design.md「两栏」; Android HomeLayout's two-column half, through the facade)
+
+    /// The default this width resets to: the large-screen one in two columns.
+    func isDefault(twoColumn: Bool) -> Bool { Self.core.isDefaultFor(state: state, twoColumn: twoColumn) }
+
+    /// [reset] to this width's default (WideDefault in two columns), keeping `retained` and the kept keys.
+    func reset(twoColumn: Bool) -> HomeLayout { applying(Self.core.reset(state: state, twoColumn: twoColumn)) }
+
+    /// What the feed shows at its width: in two columns a never-customized layout is WideDefault.
+    func forTwoColumn(_ twoColumn: Bool) -> HomeLayout { applying(Self.core.forTwoColumn(state: state, twoColumn: twoColumn)) }
+
+    /// The memory made what two columns show now (every two-column edit ends with it).
+    func rememberingShownPairs() -> HomeLayout { applying(Self.core.rememberingShownPairs(state: state)) }
+
+    /// The draft after a width change in edit mode (shared `homeDraftAtWidth`): untouched it is what entering at
+    /// that width would make of [base]; edited it keeps its order and two columns pair it from its memory.
+    func atWidth(edited: Bool, base: HomeLayout, twoColumn: Bool) -> HomeLayout {
+        let next = Self.core.draftAtWidth(draft: state, edited: edited, base: base.state, twoColumn: twoColumn)
+        return next.isEqual(state) ? self : HomeLayout(state: next)
+    }
+
+    /// The pairs the enabled order shows now, left → right.
+    var pairs: [(left: HomeSection, right: HomeSection)] {
+        Self.core.pairs(state: state).compactMap { p in
+            guard p.count == 2, let l = HomeSection(rawValue: p[0]), let r = HomeSection(rawValue: p[1]) else { return nil }
+            return (l, r)
+        }
+    }
+
+    /// [section]'s partner in its pair, either side; nil when it is full width.
+    func partner(of section: HomeSection) -> HomeSection? {
+        Self.core.partnerOf(state: state, id: section.id).flatMap(HomeSection.init(rawValue:))
+    }
+
+    /// The unit count a feed row (one section, or a pair left → right) shows in two columns.
+    func units(ofRow row: [HomeSection]) -> Int { Int(Self.core.rowUnits(state: state, row: row.map(\.id))) }
+
+    /// [section] (full width) the left half of a pair with the row after it.
+    func withHalf(_ section: HomeSection) -> HomeLayout { applying(Self.core.withHalf(state: state, id: section.id)) }
+
+    /// [section] (one of a pair) full width, its partner on its own row after it.
+    func withFull(_ section: HomeSection) -> HomeLayout { applying(Self.core.withFull(state: state, id: section.id)) }
+
+    /// [section] (full width) the right half beside the full section before it (VoiceOver's "Place beside previous").
+    func withBesidePrevious(_ section: HomeSection) -> HomeLayout {
+        applying(Self.core.withBesidePrevious(state: state, id: section.id))
+    }
+
+    /// A two-column drop: [order] (the shown enabled sections) with exactly [pairs] as halves.
+    func withArrangement(_ order: [HomeSection], pairs: [(HomeSection, HomeSection)], unseen: [HomeSection]) -> HomeLayout {
+        applying(Self.core.withArrangement(state: state, order: order.map(\.id), pairs: pairs.map { [$0.0.id, $0.1.id] },
+                                           unseen: unseen.map(\.id)))
+    }
+
+    /// [section]'s row (and its partner) at [units] in two columns, held in the pair's overlap.
+    func withUnits(_ section: HomeSection, _ units: Int) -> HomeLayout {
+        applying(Self.core.withUnits(state: state, id: section.id, units: Int32(clamping: units)))
+    }
+
     /// Merge persisted entries with the catalog (Android `HomeLayout.reconcile`), through the document they
     /// make: nil / empty = never customized = default.
     static func reconcile(_ prefs: [HomeSectionPref]?) -> HomeLayout {

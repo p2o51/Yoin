@@ -14,6 +14,11 @@ protocol HomeDragHost: AnyObject {
     var order: [HomeSection] { get }
     /// The rows [order] lays out, top to bottom, in the viewport (each row's first section, its extent).
     func bands(for order: [HomeSection]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)]
+    /// Two columns: the rows (one section, or a pair left → right) laid out, keyed by their first section. One
+    /// column's default: each row's first section through [bands(for:)].
+    func bands(forRows rows: [[HomeSection]]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)]
+    /// Two columns: the pairs the list shows side by side now (nil: one column, every section a row of its own).
+    var pairs: [(HomeSection, HomeSection)]? { get }
     var contentLeft: CGFloat { get }
     var contentWidth: CGFloat { get }
     /// Between the status tide and the bar: the 72 pt at each end scroll a held block.
@@ -22,6 +27,14 @@ protocol HomeDragHost: AnyObject {
     func scrollBy(_ dy: CGFloat) -> CGFloat
     /// The viewport's top in the list's content (feed) space: content y = viewport y + this.
     var viewportTop: CGFloat { get }
+}
+
+extension HomeDragHost {
+    func bands(forRows rows: [[HomeSection]]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
+        bands(for: rows.compactMap(\.first))
+    }
+
+    var pairs: [(HomeSection, HomeSection)]? { nil }
 }
 
 /// Lift and the in-place drag (owner 2026-11-22; Android HomeDragEngine): the lifted block follows the
@@ -53,6 +66,8 @@ final class HomeDragController {
     private(set) var dragging: HomeSection?
     /// The order the feed (or the list) renders while dragging; nil between drags.
     private(set) var live: [HomeSection]?
+    /// Two columns: the pairs the live arrangement shows side by side (empty in one column and between drags).
+    private(set) var livePairs: [(left: HomeSection, right: HomeSection)] = []
     /// The dropped block gliding from where it was let go into its slot.
     private(set) var settling: HomeSection?
     /// The drag (or the glide) runs in the pinched list, not the feed.
@@ -76,8 +91,8 @@ final class HomeDragController {
     /// The feed's rows (set by Home's touch view) and the pinched list's.
     @ObservationIgnored weak var feedHost: HomeDragHost?
     @ObservationIgnored weak var listHost: HomeDragHost?
-    /// Writes the dropped order (one Undo step); false when nothing changed.
-    @ObservationIgnored var commit: ([HomeSection]) -> Bool = { _ in false }
+    /// Writes the dropped order and, in two columns, its pairs (one Undo step); false when nothing changed.
+    @ObservationIgnored var commit: ([HomeSection], [(HomeSection, HomeSection)]) -> Bool = { _, _ in false }
     /// A slot change: SEGMENT_TICK.
     @ObservationIgnored var tick: () -> Void = { UISelectionFeedbackGenerator().selectionChanged() }
     /// Kicks [section] by a normalised amplitude.
@@ -92,14 +107,16 @@ final class HomeDragController {
     @ObservationIgnored private var active: HomeDragHost?
     @ObservationIgnored private var shown: DragArrangement?
     @ObservationIgnored private var fingerX: CGFloat = .nan
-    @ObservationIgnored private var lastDrawnTop: CGFloat?
+    @ObservationIgnored private var lastDrawn: CGPoint?
+    /// The dragged block's width when the drag started (rule 4 rescales the grab from it).
+    @ObservationIgnored private var grabWidth: CGFloat = 0
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var linkTarget: LinkTarget?
     @ObservationIgnored private var lastFrame: CFTimeInterval = -1
     @ObservationIgnored private let liftSpring = SpringRunner()
     @ObservationIgnored private let tintSpring = SpringRunner()
     @ObservationIgnored private let settleSpring = SpringRunner()
-    @ObservationIgnored private var settleFrom: CGFloat = 0
+    @ObservationIgnored private var settleFrom: CGSize = .zero
     /// How far the drag scrolled its list (tests read it).
     @ObservationIgnored private(set) var scrolled: CGFloat = 0
 
@@ -112,6 +129,8 @@ final class HomeDragController {
     var grab: CGPoint { CGPoint(x: CGFloat(core.grabX), y: CGFloat(core.grabY)) }
     /// The order the last drag ended on, before it was written or rolled back (tests read it).
     @ObservationIgnored private(set) var lastArrangement: [HomeSection] = []
+    /// Its pairs (two columns).
+    @ObservationIgnored private(set) var lastPairs: [(left: HomeSection, right: HomeSection)] = []
 
     // MARK: Lift
 
@@ -146,7 +165,8 @@ final class HomeDragController {
     /// Starts dragging the lifted block with the finger at [fingerY] (viewport) in the feed, or the list while it is up.
     func start(fingerY: CGFloat, inList list: Bool) {
         guard let dragged = liftSection, dragging == nil, let host = list ? listHost : feedHost else { return }
-        startDrag(dragged, host: host, fingerY: fingerY)
+        let pairs = host.pairs
+        startDrag(dragged, host: host, fingerY: fingerY, pairs: pairs ?? [], twoColumn: pairs != nil)
     }
 
     /// [start] against [host] (tests drive it with a fake host).
@@ -161,6 +181,7 @@ final class HomeDragController {
               let band = bands(host, before).first(where: { $0.section.id == row.first.id }) else { return }
         let lane = Self.lane(of: dragged, in: rows)
         let left = lane == .right ? host.contentLeft + (host.contentWidth - Self.columnGap) / 2 + Self.columnGap : host.contentLeft
+        grabWidth = lane == .full ? host.contentWidth : max(0, (host.contentWidth - Self.columnGap) / 2)
         settleSpring.stop()
         // Picked up mid-glide: from where it is drawn on its way.
         let top = band.top + (settling == dragged ? offset.height : 0)
@@ -174,8 +195,9 @@ final class HomeDragController {
         shown = before
         core.placed()
         scrolled = 0
-        lastDrawnTop = nil
+        lastDrawn = nil
         live = ids
+        livePairs = twoColumn ? Self.pairList(before) : []
         dragging = dragged
         updateOffset()
         if schedulesFrames { startFrames() }
@@ -187,7 +209,7 @@ final class HomeDragController {
     // The laid-out rows of [arrangement] (each row keyed by its first section).
     private func bands(_ host: HomeDragHost, _ arrangement: DragArrangement) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
         let rows = core.rowsOf(arrangement: arrangement, twoColumn: twoColumn)
-        return host.bands(for: rows.compactMap { HomeSection(rawValue: $0.first.id) })
+        return host.bands(forRows: rows.map(Self.sections(of:)))
     }
 
     /// The finger moved to [y] (viewport). The next frame decides on it.
@@ -247,9 +269,13 @@ final class HomeDragController {
     @discardableResult
     func frame(dt: CGFloat, laidOut: Bool = true) -> HomeDragFrame? {
         guard dragging != nil, let host = active, let arrangement = shown else { return nil }
-        let result = core.frame(dtSeconds: Float(min(dt, CGFloat(HomeDragTokens.shared.MaxFrameSeconds))), view: view(host, arrangement))
+        let v = view(host, arrangement)
+        let result = core.frame(dtSeconds: Float(min(dt, CGFloat(HomeDragTokens.shared.MaxFrameSeconds))), view: v)
         if let step = result as? HomeDragFrameStep {
-            withAnimation(reduced ? nil : Yoin.spatial) { live = Self.ids(step.arrangement) }
+            withAnimation(reduced ? nil : Yoin.spatial) {
+                live = Self.ids(step.arrangement)
+                if twoColumn { livePairs = Self.pairList(step.arrangement) }
+            }
             tick()
         } else if let scroll = result as? HomeDragFrameScroll {
             let consumed = host.scrollBy(CGFloat(scroll.px))
@@ -294,18 +320,26 @@ final class HomeDragController {
     private func finish(keep: Bool, glide: Bool) {
         guard let dragged = dragging, let host = active else { return }
         stopFrames()
-        let before = core.origin.map(Self.ids) ?? live ?? []
-        let after = core.arrangement.map(Self.ids) ?? before
+        let origin = core.origin
+        let before = origin.map(Self.ids) ?? live ?? []
+        let afterArrangement = core.arrangement ?? origin
+        let after = afterArrangement.map(Self.ids) ?? before
         lastArrangement = after
-        let landed = keep ? after : before
+        lastPairs = afterArrangement.map(Self.pairList) ?? []
+        let landedArrangement = keep ? afterArrangement : origin
         // The arrangement moved (the order, or in two columns the pairs).
-        let rearranged = !(core.arrangement.map { a in core.origin.map { a.isEqual($0) } ?? false } ?? true)
+        let rearranged = !(core.arrangement.map { a in origin.map { a.isEqual($0) } ?? false } ?? true)
         let moved = keep && after != before ? Self.moved(before, after) : []
-        // It glides from where it was last drawn into its slot in the order it landed in (content space).
-        let slotTop = bands(host, Self.arrangement(landed, pairs: [])).first { $0.section == dragged }.map { $0.top + host.viewportTop }
-        settleFrom = glide && !reduced ? (lastDrawnTop.flatMap { d in slotTop.map { d - $0 } } ?? 0) : 0
+        // It glides from where it was last drawn into its slot in the arrangement it landed in (content space).
+        let slot = landedArrangement.flatMap { slotTopLeft(host, $0, dragged) }
+            .map { CGPoint(x: $0.x, y: $0.y + host.viewportTop) }
+        if glide, !reduced, let drawn = lastDrawn, let slot {
+            settleFrom = CGSize(width: twoColumn ? drawn.x - slot.x : 0, height: drawn.y - slot.y)
+        } else {
+            settleFrom = .zero
+        }
         settling = dragged
-        offset = CGSize(width: 0, height: settleFrom)
+        offset = settleFrom
         core.end()
         var changed = false
         if keep {
@@ -313,20 +347,24 @@ final class HomeDragController {
             var t = Transaction()
             t.disablesAnimations = true
             withTransaction(t) {
-                if rearranged { changed = commit(after) }
+                if rearranged { changed = commit(after, lastPairs.map { ($0.left, $0.right) }) }
                 dragging = nil
                 live = nil
+                livePairs = []
             }
         } else {
             // Rolled back: the others make their way home on the spring.
             dragging = nil
-            withAnimation(reduced ? nil : Yoin.spatial) { live = nil }
+            withAnimation(reduced ? nil : Yoin.spatial) {
+                live = nil
+                livePairs = []
+            }
         }
         let kicked = changed ? moved : []
-        if settleFrom != 0 {
+        if settleFrom != .zero {
             settleSpring.run(from: 0, to: 1, velocity: 0, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] p in
                 guard let self, self.settling == dragged else { return }
-                self.offset = CGSize(width: 0, height: self.settleFrom * (1 - p))
+                self.offset = CGSize(width: self.settleFrom.width * (1 - p), height: self.settleFrom.height * (1 - p))
             } completion: { [weak self] in
                 self?.settled(dragged, moved: kicked)
             }
@@ -346,15 +384,35 @@ final class HomeDragController {
 
     // MARK: Geometry
 
-    // The dragged block's offset from its slot in the live order: the finger minus the grab, against where
-    // the slot is laid out on this frame (a scroll or a step moved it). One column follows the finger down
-    // and up only (design.md: 两栏时横竖都跟).
+    // The dragged block's offset from its slot in the live arrangement: the finger minus the grab, against
+    // where the slot is laid out on this frame (a scroll or a step moved it). One column follows the finger
+    // down and up only; two columns follow it both ways (design.md: 两栏时横竖都跟), the finger keeping its
+    // place across the block at the same fraction of the width its slot has now (rule 4, `dragRescaleGrabX`),
+    // the block held inside the content.
     private func updateOffset() {
-        guard let dragged = dragging, let host = active, let order = live else { return }
+        guard let dragged = dragging, let host = active, let arrangement = core.arrangement,
+              let slot = slotTopLeft(host, arrangement, dragged) else { return }
         let top = CGFloat(core.fingerY - core.grabY)
-        lastDrawnTop = top + host.viewportTop
-        guard let slot = bands(host, Self.arrangement(order, pairs: [])).first(where: { $0.section == dragged }) else { return }
-        offset = CGSize(width: 0, height: top - slot.top)
+        var left = slot.x
+        if twoColumn {
+            let width = Self.laneWidth(Self.lane(of: dragged, in: core.rowsOf(arrangement: arrangement, twoColumn: true)),
+                                       contentWidth: host.contentWidth)
+            let grab = grabWidth > 0 && width > 0 ? CGFloat(core.grabX) / grabWidth * width : CGFloat(core.grabX)
+            let x = fingerX.isNaN ? CGFloat(core.fingerX) : fingerX
+            left = min(max(x - grab, host.contentLeft), max(host.contentLeft, host.contentLeft + host.contentWidth - width))
+        }
+        lastDrawn = CGPoint(x: left, y: top + host.viewportTop)
+        offset = CGSize(width: left - slot.x, height: top - slot.y)
+    }
+
+    // [section]'s laid-out top-left in [arrangement] (viewport y): its row's top, its lane's left.
+    private func slotTopLeft(_ host: HomeDragHost, _ arrangement: DragArrangement, _ section: HomeSection) -> CGPoint? {
+        let rows = core.rowsOf(arrangement: arrangement, twoColumn: twoColumn)
+        guard let row = rows.first(where: { Self.sections(of: $0).contains(section) }),
+              let band = bands(host, arrangement).first(where: { $0.section.id == row.first.id }) else { return nil }
+        let x = Self.lane(of: section, in: rows) == .right
+            ? host.contentLeft + (host.contentWidth - Self.columnGap) / 2 + Self.columnGap : host.contentLeft
+        return CGPoint(x: x, y: band.top)
     }
 
     private func view(_ host: HomeDragHost, _ arrangement: DragArrangement) -> HomeDragView {
@@ -401,6 +459,22 @@ final class HomeDragController {
     }
 
     private enum Lane { case full, left, right }
+
+    /// A lane's width across the content: a full row's, or a half's beside the column gap (shared `dragLaneWidth`).
+    private static func laneWidth(_ lane: Lane, contentWidth: CGFloat) -> CGFloat {
+        lane == .full ? contentWidth : max(0, (contentWidth - columnGap) / 2)
+    }
+
+    /// [a]'s pairs, left → right.
+    static func pairList(_ a: DragArrangement) -> [(left: HomeSection, right: HomeSection)] {
+        a.pairs.compactMap { l, r in
+            guard let left = HomeSection(rawValue: l.id), let right = HomeSection(rawValue: r.id) else { return nil }
+            return (left, right)
+        }.sorted { x, y in
+            let ids = a.ids.map(\.id)
+            return (ids.firstIndex(of: x.left.id) ?? 0) < (ids.firstIndex(of: y.left.id) ?? 0)
+        }
+    }
 
     private static func lane(of s: HomeSection, in rows: [HomeFeedRow]) -> Lane {
         for row in rows {

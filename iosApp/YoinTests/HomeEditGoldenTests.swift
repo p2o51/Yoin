@@ -370,7 +370,12 @@ final class HomeEditGoldenTests: XCTestCase {
             let drag = HomeDragController(density: CGFloat((v["density"] as! NSNumber).doubleValue))
             drag.schedulesFrames = false
             var written: [String]?
-            drag.commit = { order in written = order.map(\.id); return true }
+            var writtenPairs: [[String]]?
+            drag.commit = { order, pairs in
+                written = order.map(\.id)
+                writtenPairs = pairs.map { [$0.0.id, $0.1.id] }
+                return true
+            }
             let dragged = AppHomeSection(rawValue: v["dragged"] as! String)!
             let finger = (v["finger"] as! [NSNumber]).map { CGFloat($0.doubleValue) }
             let twoColumn = v["twoColumn"] as! Bool
@@ -414,6 +419,9 @@ final class HomeEditGoldenTests: XCTestCase {
             }
             let result = v["result"] as! [String: Any]
             XCTAssertEqual(written, Self.ids(result["write"]), "\(name): write")
+            // Two columns write the pairs the drop left side by side too (one column none).
+            let expectedPairs = (Self.opt(result["write"]) as [String: Any]?)?["pairs"] as? [[String]]
+            XCTAssertEqual(writtenPairs.map { Set($0) }, expectedPairs.map { Set($0) }, "\(name): pairs")
             expectClose(Double(host.scrolled), result["scrolled"], "\(name): scrolled", tol: 1e-3)
             XCTAssertNil(drag.dragging, name)
             XCTAssertNil(drag.live, name)
