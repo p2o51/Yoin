@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** Apple Music names an EP only by " - EP"; singles and compilations have flags (PROTOTYPE, PR #343). */
+/** Apple Music names an EP only by " - EP"; singles and compilations have flags (PR #343). */
 class AppleMusicReleaseTypeTest {
     private fun album(attrs: String, catalog: String? = null) = AppleMusicSource.album(
         Json.parseToJsonElement(

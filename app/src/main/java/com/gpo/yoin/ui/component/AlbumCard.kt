@@ -31,6 +31,8 @@ import com.gpo.yoin.ui.home.WidgetBackdropArtwork
 import com.gpo.yoin.ui.home.WidgetShapeKind
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.data.model.albumNameWithoutVersion
 
 @Composable
 internal fun AlbumCard(
@@ -50,12 +52,12 @@ internal fun AlbumCard(
     // What a missing cover shows: the kind of thing the card is (a playlist
     // card in Library's All view shows the playlist mark).
     fallbackIcon: ImageVector = YoinSymbols.Album,
-    // PROTOTYPE (owner 2026-11-26): Home's Expressive backdrop shape behind the cover (Bun for an
+    // Home's Expressive backdrop shape (owner 2026-11-26) behind the cover (Bun for an
     // album, Ghostish for a playlist), with the version tag and the "E" on the shape's band above the
     // cover (CoverBandBadges) instead of after the title. Null keeps the bare full-bleed cover.
     backdropKind: WidgetShapeKind? = WidgetShapeKind.Album,
-    // PROTOTYPE: an EP or a single says so on the same band ("EP", "Single").
-    releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
+    // An EP or a single says so on the same band ("EP", "Single").
+    releaseType: ReleaseType? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -137,7 +139,7 @@ internal fun AlbumCard(
             // With the backdrop the tag and the E live on the art; the title is the name alone.
             AlbumVersionTitle(
                 name = if (backdropKind != null) {
-                    nameWithoutKindSuffix(com.gpo.yoin.data.model.albumNameWithoutVersion(title, version), releaseType)
+                    nameWithoutKindSuffix(albumNameWithoutVersion(title, version), releaseType)
                 } else {
                     title
                 },

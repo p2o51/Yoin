@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * PROTOTYPE (PR #343): the version tag and the "E" on the backdrop shape's band above the cover —
+ * The version tag and the "E" on the backdrop shape's band above the cover —
  * never on the art, never growing the card, the tag dropped rather than cut to an ellipsis.
  */
 @RunWith(RobolectricTestRunner::class)

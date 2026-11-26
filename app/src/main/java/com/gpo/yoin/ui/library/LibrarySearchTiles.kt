@@ -93,6 +93,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
 
 /*
  * The search's All page and Memories list as Home's Jump Back In tiles (owner 2026-11-20, #Yoin:#18,
@@ -427,7 +428,7 @@ private fun SearchTileView(
                     )
                 },
                 side = tile.hit?.let { hit -> { MemorySide(hit, tile.memory?.mark ?: hit.mark, query, textLines) } },
-                title = com.gpo.yoin.ui.component.nameWithoutKindSuffix(album.name, album.releaseType),
+                title = nameWithoutKindSuffix(album.name, album.releaseType),
                 subtitle = album.artist.orEmpty(),
                 inlineMark = tile.memory?.mark?.takeIf { !marks },
                 query = query,

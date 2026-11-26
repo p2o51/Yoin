@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.detail
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.data.model.ReleaseType
 
 sealed interface AlbumDetailUiState {
     data object Loading : AlbumDetailUiState
@@ -19,7 +20,7 @@ sealed interface AlbumDetailUiState {
         /** The service marks the release explicit: the header wears the "E" badge after its title. */
         val albumExplicit: Boolean = false,
         /** What kind of release this is, as the service says; the header names it (Album when unknown). */
-        val releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
+        val releaseType: ReleaseType? = null,
         val artistName: String,
         val artistId: String?,
         val coverArtId: String?,

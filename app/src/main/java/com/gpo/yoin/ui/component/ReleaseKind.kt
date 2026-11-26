@@ -7,8 +7,7 @@ import com.gpo.yoin.data.model.ReleaseType
 
 /**
  * The release-kind filter the artist page's discography has (All / Albums / Singles & EPs /
- * Compilations), shared with Library's Albums view (PROTOTYPE, owner 2026-11-26: "EP 和专辑能不能
- * 试着分开？"). Kinds come from the service only (ReleaseType), never guessed from a track count.
+ * Compilations), shared with Library's Albums view (owner 2026-11-26: "EP 和专辑能不能试着分开？"). Kinds come from the service only (ReleaseType), never guessed from a track count.
  */
 internal enum class ReleaseKindFilter {
     All,

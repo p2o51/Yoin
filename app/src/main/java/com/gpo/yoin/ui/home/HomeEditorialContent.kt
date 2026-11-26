@@ -253,6 +253,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
+import com.gpo.yoin.data.model.albumNameWithoutVersion
+import com.gpo.yoin.ui.component.coverKindTag
 
 internal sealed interface HomeEntryTarget {
     data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
@@ -3466,14 +3469,14 @@ internal fun RecentlyAddedAlbumCard(
             memoryMark = memoryMark,
             version = album.version,
             explicit = album.isExplicit,
-            kindTag = com.gpo.yoin.ui.component.coverKindTag(album.releaseType),
+            kindTag = coverKindTag(album.releaseType),
         )
         Spacer(modifier = Modifier.height(6.dp))
         val nameStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
         // The version tag and the "E" sit on the cover's backdrop band; the name is clean.
         AlbumVersionTitle(
-            name = com.gpo.yoin.ui.component.nameWithoutKindSuffix(
-                com.gpo.yoin.data.model.albumNameWithoutVersion(album.name, album.version),
+            name = nameWithoutKindSuffix(
+                albumNameWithoutVersion(album.name, album.version),
                 album.releaseType,
             ),
             version = null,

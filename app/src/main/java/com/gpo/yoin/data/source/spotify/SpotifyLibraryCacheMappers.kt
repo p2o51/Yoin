@@ -12,6 +12,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.ReleaseType
 
 internal fun Track.toSpotifyLibraryTrackCache(
     profileId: String,
@@ -91,7 +92,7 @@ internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
     // A cached album is a saved one: its added_at is when it joined the library.
     libraryAddedAt = addedAt,
     contentRating = ContentRating.fromStorage(contentRating),
-    releaseType = releaseType?.let { name -> com.gpo.yoin.data.model.ReleaseType.entries.firstOrNull { it.name == name } },
+    releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
 )
 
 internal fun Artist.toSpotifyLibraryArtistCache(

@@ -94,6 +94,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import com.gpo.yoin.ui.component.releaseKindFilterLabel
+import com.gpo.yoin.ui.component.ReleaseKindFilter
 
 /*
  * Artist page, rebuilt 2026-09 around what every provider can actually supply.
@@ -987,7 +989,7 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
 // Discography — a release timeline
 // ---------------------------------------------------------------------------
 
-private typealias DiscographyFilter = com.gpo.yoin.ui.component.ReleaseKindFilter
+private typealias DiscographyFilter = ReleaseKindFilter
 
 /**
  * Every release, newest first ([newestReleasesFirst], whatever order the
@@ -1194,7 +1196,7 @@ private fun ReleaseMetaLine(album: ArtistAlbum, isLatest: Boolean) {
 }
 
 @Composable
-private fun filterLabel(filter: DiscographyFilter): String = com.gpo.yoin.ui.component.releaseKindFilterLabel(filter)
+private fun filterLabel(filter: DiscographyFilter): String = releaseKindFilterLabel(filter)
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

@@ -90,6 +90,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import com.gpo.yoin.data.model.albumNameWithoutVersion
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
@@ -958,7 +959,7 @@ private fun WidgetCoverCaption(card: HomeWidgetCard) {
         )
         // The version tag and the "E" sit on the cover's backdrop band (CoverBandBadges); the title is clean.
         AlbumVersionTitle(
-            name = com.gpo.yoin.data.model.albumNameWithoutVersion(card.title, card.version),
+            name = albumNameWithoutVersion(card.title, card.version),
             version = null,
             titleStyle = titleStyle,
             modifier = Modifier.seamFade(),
@@ -1013,7 +1014,7 @@ internal fun WidgetBackdropArtwork(
     // free band above the cover (CoverBandBadges) instead of after the title, which stays clean.
     version: String? = null,
     explicit: Boolean = false,
-    // PROTOTYPE: the release's kind ("EP", "Single"; coverKindTag), first on the same band.
+    // The release's kind ("EP", "Single"; coverKindTag), first on the same band.
     kindTag: String? = null,
     // False: the backdrop keeps its shape while pressed (Library's grid: one static clip per cover,
     // no per-frame morph).

@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
 /*
- * PROTOTYPE (owner 2026-11-26, PR #343): with the Expressive backdrop shape
+ * Owner 2026-11-26 (PR #343): with the Expressive backdrop shape
  * behind a cover (Home's tiles, Library's grid), the cover sits in the
  * bottom-end [coverFraction] of its square and the shape shows in a band
  * above it and a strip beside it. The album's version tag ("全景声") and its
@@ -135,7 +135,7 @@ private const val BandInsetFraction = 0.08f
 private val MinTagWidth = 40.dp
 
 /**
- * PROTOTYPE: a list row's version tag and "E" at the row's end, vertically centred, so the title
+ * A list row's version tag and "E" at the row's end, vertically centred, so the title
  * stays clean and the row keeps its height. The tag is capped so it never squeezes the title.
  */
 @Composable

@@ -139,6 +139,9 @@ import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
+import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.ui.component.releaseKindLabel
 
 // Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
 // 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
@@ -1022,7 +1025,7 @@ private fun AlbumTopHeader(
     albumVersion: String?,
     albumExplicit: Boolean,
     // The meta line's kind: EP / Single / Compilation as the service says; Album when unknown.
-    releaseType: com.gpo.yoin.data.model.ReleaseType?,
+    releaseType: ReleaseType?,
     artistName: String,
     // The release date as the meta line shows it ("22.6.12", "22.6", "2022"); null shows none.
     releaseDate: String?,
@@ -1080,7 +1083,7 @@ private fun AlbumTopHeader(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         // The version is its own tag here, not repeated in the title.
-                        text = com.gpo.yoin.ui.component.nameWithoutKindSuffix(
+                        text = nameWithoutKindSuffix(
                             albumNameWithoutVersion(albumName, albumVersion),
                             releaseType,
                         ),
@@ -1111,7 +1114,7 @@ private fun AlbumTopHeader(
                         if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
                         add(
                             MetaGroup.Kind(
-                                com.gpo.yoin.ui.component.releaseKindLabel(releaseType)
+                                releaseKindLabel(releaseType)
                                     ?: stringResource(R.string.detail_album_kind),
                                 accent = true,
                             ),
@@ -1174,7 +1177,7 @@ internal fun AlbumBarHeaderTwin(
     albumName: String,
     albumVersion: String? = null,
     albumExplicit: Boolean = false,
-    releaseType: com.gpo.yoin.data.model.ReleaseType? = null,
+    releaseType: ReleaseType? = null,
     artistName: String,
     releaseDate: String?,
     pageFraction: () -> Float,

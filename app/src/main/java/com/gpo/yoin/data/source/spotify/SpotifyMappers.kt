@@ -77,7 +77,10 @@ internal fun SpotifyAlbumObject.toAlbum(
 /**
  * The album's rating from its tracks (Spotify rates tracks, not albums): explicit when one of
  * [tracks] is; clean only when [tracks] is the whole tracklist (`total_tracks`, else the embedded
- * page's `total`) and none is; else unknown. Nothing is read just for this.
+ * page's `total`) and none is; else unknown. Nothing is read just for this (owner 2026-11-26): the
+ * album page (its whole tracklist) and Library (a saved album's embedded tracks) show the badge;
+ * search results, artist releases and recently played albums stay unknown rather than cost a tracks
+ * request per album.
  */
 internal fun SpotifyAlbumObject.contentRating(
     tracks: List<SpotifyTrackObject> = this.tracks?.items.orEmpty(),
