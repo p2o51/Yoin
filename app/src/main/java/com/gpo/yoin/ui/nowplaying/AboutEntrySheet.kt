@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.aiString
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -50,6 +51,8 @@ internal class AboutEntryActions(
     val canManage: () -> Boolean,
     val onManage: (SongAboutEntry) -> Unit,
     val onRegenerate: (SongAboutEntry) -> Unit,
+    /** Opens the share sheet on 关于 with this row's paragraph (null: no Share row). */
+    val onShare: ((SongAboutEntry) -> Unit)? = null,
 )
 
 /** Null in previews and harnesses: the rows then have no long-press. */
@@ -59,7 +62,8 @@ private data class AboutEntryAction(val label: String, val icon: ImageVector, va
 
 /**
  * The long-pressed row's sheet: its heading and the start of its text, then Manage in Scrapbook (when the
- * song has an album page) and Regenerate with Gemini (not for the listener's own entry).
+ * song has an album page), Regenerate with Gemini (not for the listener's own entry) and Share as image
+ * (owner 2026-11-25; not for the listener's own entry either — About's image carries only the AI's words).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,9 +85,12 @@ internal fun AboutEntrySheet(
         AboutEntryAction(stringResource(R.string.np_about_manage), YoinSymbols.Note) {
             actions.onManage(entry)
         }.takeIf { actions.canManage() },
-        AboutEntryAction(stringResource(R.string.np_about_regenerate), YoinSymbols.Sparkle) {
+        AboutEntryAction(aiString(R.string.ai_regenerate_with), YoinSymbols.Sparkle) {
             actions.onRegenerate(entry)
         }.takeIf { entry.kind != SongAboutEntry.KIND_OWN },
+        actions.onShare?.let { share ->
+            AboutEntryAction(stringResource(R.string.np_share_sheet_title), YoinSymbols.Share) { share(entry) }
+        }?.takeIf { entry.kind != SongAboutEntry.KIND_OWN },
     )
     YoinModalBottomSheet(
         onDismissRequest = onDismissRequest,

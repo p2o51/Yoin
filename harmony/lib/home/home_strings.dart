@@ -180,6 +180,15 @@ class HomeStrings {
   String get editMoreRows => _zh ? '增加行数' : 'More rows'; // home_edit_more_rows
   String get editFewerRows => _zh ? '减少行数' : 'Fewer rows'; // home_edit_fewer_rows
   String get editHide => _zh ? '隐藏' : 'Hide'; // home_edit_hide
+  // Two columns (parity p4 C2).
+  String get shelfPreviousPage => _zh ? '上一页' : 'Previous page'; // home_shelf_previous_page
+  String get shelfNextPage => _zh ? '下一页' : 'Next page'; // home_shelf_next_page
+  String get editHalfWidth => _zh ? '半宽' : 'Half width'; // home_edit_half_width
+  String get editFullWidth => _zh ? '全宽' : 'Full width'; // home_edit_full_width
+  String get editPlaceBesidePrevious => _zh ? '放到上一个旁边' : 'Place beside previous'; // home_edit_place_beside_previous
+  String get editMakeFullWidth => _zh ? '改为整行' : 'Make full width'; // home_edit_make_full_width
+  String get editViewList => _zh ? '收成列表' : 'Compact list'; // home_edit_view_list
+  String get editViewFull => _zh ? '展开版面' : 'Full layout'; // home_edit_view_full
   String get jbiHideThreeDays => _zh ? '3 天内不显示' : 'Hide for 3 days'; // home_jbi_hide_three_days
   String get jbiHideWeek => _zh ? '一周内不显示' : 'Hide for a week'; // home_jbi_hide_week
   String sectionIndexCd(int index, int count) =>

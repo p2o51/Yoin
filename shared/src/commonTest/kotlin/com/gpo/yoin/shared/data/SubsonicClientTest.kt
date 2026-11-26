@@ -269,6 +269,30 @@ class SubsonicClientTest {
     }
 
     @Test
+    fun should_readDatesAndLabels_when_openSubsonicSendsThem() = runTest {
+        // Album About's credits line (Android SubsonicMappers): labels by name, dates at the tags' precision.
+        val body = SubsonicFixtures.ok(
+            """"album":{"id":"al-7","name":"Tide Tables","year":2024,""" +
+                """"releaseDate":{"year":2024,"month":3,"day":8},"originalReleaseDate":{"year":2014,"month":5},""" +
+                """"recordLabels":[{"name":" Northern Lights "},{"name":""},{"name":"Northern Lights"}]}""",
+        )
+        val album = assertNotNull(client(routes = mapOf("getAlbum" to body)).getAlbum("al-7"))
+        assertEquals(listOf("Northern Lights"), album.recordLabels)
+        assertEquals("2024-03-08", album.releaseDate)
+        assertEquals("2014-05", album.originalReleaseDate)
+
+        val bare = SubsonicFixtures.ok(
+            """"album":{"id":"al-8","name":"Old","year":1975,"releaseDate":{},"originalReleaseDate":{"year":1975,"month":2,"day":30}}""",
+        )
+        val old = assertNotNull(client(routes = mapOf("getAlbum" to bare)).getAlbum("al-8"))
+        assertEquals("1975-02", old.releaseDate)
+        assertEquals("1975-02", old.originalReleaseDate)
+        assertTrue(old.recordLabels.isEmpty())
+        val none = assertNotNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.albumNoCover)).getAlbum("al-9"))
+        assertNull(none.originalReleaseDate)
+    }
+
+    @Test
     fun should_returnNull_when_okResponseHasNoAlbum() = runTest {
         assertNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.ok())).getAlbum("al-1"))
     }

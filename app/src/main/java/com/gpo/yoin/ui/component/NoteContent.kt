@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.IconButton
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -58,6 +60,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -479,7 +482,10 @@ internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
  * [inline] (the landscape phone, where the keyboard leaves little height)
  * puts 记下 at the end of the line and keeps the card to 3 lines (no footer).
  * [focusGate] holds a pending [NoteWriteBarState.requestWriting] until the
- * host's page has landed.
+ * host's page has landed. [onShareEditing]: a note opened for editing (its long press) and not yet
+ * changed offers Share as image in the card's top-right corner (owner 2026-11-25; not in the formatting
+ * row, whose tools keep their room) — the keyboard goes, the edit closes unchanged, and the host opens its
+ * share sheet on that note.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -491,6 +497,7 @@ fun NoteWriteBar(
     modifier: Modifier = Modifier,
     inline: Boolean = false,
     focusGate: Boolean = true,
+    onShareEditing: ((noteId: String) -> Unit)? = null,
 ) {
     val draftState = state.draftState
     val draft = draftState.draft
@@ -639,6 +646,39 @@ fun NoteWriteBar(
                 modifier = Modifier.size(20.dp),
             )
             inline -> NoteSavePill(enabled = draft.canSave, onClick = save)
+            // The open card's top-right corner, beside the first line: a note opened for editing and not yet
+            // changed offers Share there — never in the formatting row, whose tools keep their room.
+            else -> {
+                val shareId = draft.editingNoteId?.takeIf { draft.isUntouchedEdit }
+                AnimatedVisibility(
+                    visible = onShareEditing != null && shareId != null,
+                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+                        YoinMotion.expandHorizontally(role = YoinMotionRole.Standard),
+                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
+                        YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard),
+                ) {
+                    IconButton(
+                        onClick = {
+                            val id = shareId ?: return@IconButton
+                            haptics.performContextClick()
+                            // The keyboard going closes the unchanged edit (see above).
+                            focusManager.clearFocus()
+                            onShareEditing?.invoke(id)
+                        },
+                        modifier = Modifier
+                            .size(NoteShareButtonSize)
+                            .handPointer()
+                            .testTag(NoteShareButtonTag),
+                    ) {
+                        Icon(
+                            imageVector = YoinSymbols.Share,
+                            contentDescription = stringResource(R.string.np_share_sheet_title),
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
         }
     }
     val footerSlot: @Composable () -> Unit = {
@@ -731,8 +771,13 @@ fun NoteWriteBar(
             field.placeRelative(fieldX, rowTop + lineOffset)
             trailing?.let { t ->
                 val x = width - padEnd - t.width
-                // Beside the first line at rest; at the end of the last line inline.
-                val y = if (open) rowTop + rowHeight - (stampH + t.height) / 2 else rowTop + (stampH - t.height) / 2
+                // At the end of the last line inline; beside the first line otherwise (at rest, or the
+                // open card's Share).
+                val y = if (open && inline) {
+                    rowTop + rowHeight - (stampH + t.height) / 2
+                } else {
+                    rowTop + (stampH - t.height) / 2
+                }
                 // Never past the card's edge, however short the slot.
                 t.placeRelative(x, y.coerceIn(0, (height - t.height).coerceAtLeast(0)))
             }
@@ -1049,3 +1094,6 @@ private fun NoteWriteBarOpenPreview() {
         )
     }
 }
+
+internal const val NoteShareButtonTag = "noteShare"
+private val NoteShareButtonSize = 36.dp

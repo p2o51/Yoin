@@ -1,11 +1,15 @@
 package com.gpo.yoin
 
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.ui.component.LocalAiProvider
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.core.view.WindowCompat
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
@@ -64,15 +68,45 @@ import com.gpo.yoin.ui.theme.YoinTheme
 /**
  * Transparent edge-to-edge for every Yoin Activity. Call before `setContent`
  * so the window is configured before the first frame (avoids inset jumps on
- * cold start). `SystemBarStyle.auto` lets the system flip icon colors.
+ * cold start). `SystemBarStyle.auto` picks the icon colours for the theme the
+ * window starts in: dark icons in light theme, light icons in dark theme.
+ *
+ * `auto` decides only once, here. An Activity that handles `uiMode` itself
+ * (MainActivity: the system's light / dark switch reaches it as a
+ * configuration change, not a new Activity) would keep the old theme's icons,
+ * so the icons are set again whenever night mode flips.
  */
 fun ComponentActivity.enableYoinEdgeToEdge() {
     enableEdgeToEdge(
         statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
     )
+    followNightModeWithBarIcons()
     requestPeakRefreshRate()
 }
+
+/**
+ * Keeps the window's bar icons on the theme across a light / dark switch the
+ * Activity handles without being recreated. Runs before Compose recomposes for
+ * the new theme, so a page that overrides the icons (the album's spectrum bar)
+ * sets its own again afterwards.
+ */
+private fun ComponentActivity.followNightModeWithBarIcons() {
+    var night = resources.configuration.isNightMode()
+    addOnConfigurationChangedListener { configuration ->
+        val nowNight = configuration.isNightMode()
+        if (nowNight != night) {
+            night = nowNight
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !nowNight
+                isAppearanceLightNavigationBars = !nowNight
+            }
+        }
+    }
+}
+
+private fun Configuration.isNightMode(): Boolean =
+    (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
 /**
  * Opt the window into the display's fastest refresh mode at the CURRENT
@@ -107,11 +141,14 @@ private fun ComponentActivity.requestPeakRefreshRate() {
  *
  * Detail Activities read the same resolved palette (the same scheme instance)
  * from their first frame. Opening a window never resets playback colors.
+ * In a desktop window the caption bar follows the same palette
+ * ([DesktopCaptionSync]).
  */
 @Composable
 fun YoinActivityRoot(content: @Composable () -> Unit) {
     val app = LocalContext.current.applicationContext as? YoinApplication
     YoinTheme(playbackThemeState = app?.container?.playbackThemeState) {
+        DesktopCaptionSync()
         YoinAppEnvironment(content = content)
     }
 }
@@ -214,7 +251,12 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         } ?: MentionCandidateSource.None
     }
 
+    // Copy names the AI service in use ("Ask DeepSeek"), and follows a switch in Settings.
+    val aiPrefs = app?.container?.aiProviderStore?.prefs?.collectAsState()
+    val aiProvider = aiPrefs?.value?.provider ?: AiProvider.Gemini
+
     CompositionLocalProvider(
+        LocalAiProvider provides aiProvider,
         LocalNoteMentions provides noteMentions,
         LocalNoteBacklinks provides app?.container?.noteBacklinks,
         LocalMentionCandidates provides mentionCandidates,

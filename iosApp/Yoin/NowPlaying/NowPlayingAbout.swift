@@ -266,10 +266,10 @@ struct NowPlayingAboutView: View {
         .frame(minHeight: 96)
     }
 
-    /// Android ApiKeyMissing: "No Gemini API key" and a Settings button.
+    /// Android ApiKeyMissing: "No <service> API key" (the AI service in use) and a Settings button.
     private var noKey: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("No Gemini API key")
+            Text(verbatim: AiProviderName.noKey(AiProviderName.current))
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(scheme.onSurfaceVariant)
             textButton(String(localized: "Settings")) {
@@ -561,13 +561,13 @@ struct AskGeminiBar: View {
                     .controlSize(.regular)
                     .tint(scheme.primary)
                     .frame(width: 28, height: 28)
-                label(title.isEmpty ? String(localized: "Ask Gemini") : title, color: onGlass)
+                label(title.isEmpty ? AiProviderName.ask(AiProviderName.current) : title, color: onGlass)
             case .error(let message):
                 AskGeminiBar.dot(scheme)
                 label(message, color: scheme.error)
             case .idle, .focused:
                 AskGeminiBar.dot(scheme)
-                label(String(localized: "Ask Gemini"), color: onGlass)
+                label(AiProviderName.ask(AiProviderName.current), color: onGlass)
             }
             Spacer(minLength: 0)
         }
@@ -640,9 +640,9 @@ struct AskGeminiField: View {
             AskGeminiBar.dot(scheme)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-            TextField(text: $text, prompt: Text("Ask Gemini")
+            TextField(text: $text, prompt: Text(verbatim: AiProviderName.ask(AiProviderName.current))
                 .foregroundStyle(onGlass.opacity(0.6)), axis: .vertical) {
-                Text("Ask Gemini")
+                Text(verbatim: AiProviderName.ask(AiProviderName.current))
             }
             .yoinRole(Tokens.type.titleMedium)
             .foregroundStyle(onGlass)

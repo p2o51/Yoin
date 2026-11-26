@@ -1,11 +1,16 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.remote.ai.AiProvider
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import androidx.room.withTransaction
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
+import com.gpo.yoin.data.album.toAboutGrounding
+import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -411,6 +416,17 @@ class YoinRepository(
         data object NothingNew : AboutRegenerateResult
         data object ApiKeyMissing : AboutRegenerateResult
         data class Error(val message: String) : AboutRegenerateResult
+    }
+
+    /** How "Regenerate" on an album's About went ([regenerateAlbumAbout]). */
+    sealed interface AlbumAboutRegenerateResult {
+        /** Written again; [before] is what was there (for Undo, [restoreAlbumAbout]). */
+        data class Success(val before: List<AlbumAboutEntry>) : AlbumAboutRegenerateResult
+
+        /** The AI came back with nothing: the old About stays. */
+        data object NothingNew : AlbumAboutRegenerateResult
+        data object ApiKeyMissing : AlbumAboutRegenerateResult
+        data class Error(val message: String) : AlbumAboutRegenerateResult
     }
 
     sealed interface LyricsTranslationResult {
@@ -2212,9 +2228,14 @@ class YoinRepository(
         songNoteDao.update(note.copy(content = trimmed, updatedAt = clock()))
     }
 
-    suspend fun deleteNoteById(id: String) {
-        songNoteDao.deleteById(id)
-    }
+    /**
+     * Deletes song note [id] on [repositoryScope], not in the caller's. Now Playing deletes a note when its
+     * undo window closes, and when the screen goes away first (closed, its Activity finishing) — by then the
+     * screen's ViewModel may already be cleared, and a delete launched in its scope never ran: the note stayed
+     * in the database and came back (the Note page, Home's Jump Back In). The job is the delete.
+     */
+    fun deleteNoteById(id: String): Job =
+        repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) { songNoteDao.deleteById(id) }
 
     /**
      * New text for one note, by id (the album page's scrapbook); blank deletes it. Returns the note as it
@@ -3626,6 +3647,128 @@ class YoinRepository(
             songAboutEntryDao.upsert(row)
             AskAboutResult.Success(reply.answer)
         }.getOrElse { error ->
+            AskAboutResult.Error(error.message ?: "Failed to ask Gemini")
+        }
+    }
+
+    // ── Album About (credits line + editorial card) ─────────────────────
+
+    private val albumAboutDao get() = database.albumAboutEntryDao()
+
+    /** The AI service chosen in Settings (whose name copy shows); Gemini without a store (tests, previews). */
+    fun activeAiProvider(): AiProvider = aiProviderStore?.prefs?.value?.provider ?: AiProvider.Gemini
+
+    /** Whether the chosen AI service has its key: without one the album page never shows a writing card. */
+    suspend fun isAiReady(): Boolean = readyAi(geminiConfigDao.getConfig().first()) != null
+
+    /** Every About row of one album (canonical first, then questions newest first), live. */
+    fun observeAlbumAbout(albumId: MediaId): Flow<List<AlbumAboutEntry>> =
+        albumAboutDao.observe(albumId.provider, albumId.rawId)
+
+    /**
+     * Ensure the album's credits and paragraph exist: one searched AI call when they don't (or when
+     * [retry]), cached per album identity until regenerated or the AI language changes, like the song
+     * About. An answer with nothing in it is still written, so the page doesn't ask again on every visit.
+     */
+    suspend fun ensureAlbumAbout(album: Album, retry: Boolean = false): AboutLoadResult {
+        val existing = albumAboutDao.getCanonical(album.id.provider, album.id.rawId)
+        if (!retry && existing.isNotEmpty()) return AboutLoadResult.Success
+        val config = geminiConfigDao.getConfig().first()
+        val ai = readyAi(config) ?: return if (existing.isNotEmpty()) AboutLoadResult.Success else AboutLoadResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
+        return try {
+            val run = geminiService.runAlbumAbout(ai, album.toAboutGrounding(), targetLanguage)
+            writeAlbumAbout(album, run.credits, run.blurb)
+            AboutLoadResult.Success
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            AboutLoadResult.Error(error.message ?: "Failed to load album about info")
+        }
+    }
+
+    /** "Regenerate" from the album's About sheet: asked again; an empty answer keeps what was there. */
+    suspend fun regenerateAlbumAbout(album: Album): AlbumAboutRegenerateResult {
+        val before = albumAboutDao.getCanonical(album.id.provider, album.id.rawId)
+        val config = geminiConfigDao.getConfig().first()
+        val ai = readyAi(config) ?: return AlbumAboutRegenerateResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
+        return try {
+            val run = geminiService.runAlbumAbout(ai, album.toAboutGrounding(), targetLanguage)
+            if (run.blurb == null && run.credits.isEmpty) return AlbumAboutRegenerateResult.NothingNew
+            writeAlbumAbout(album, run.credits, run.blurb, createdAt = before.minOfOrNull { it.createdAt })
+            AlbumAboutRegenerateResult.Success(before)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            AlbumAboutRegenerateResult.Error(error.message ?: "Failed to ask Gemini")
+        }
+    }
+
+    /** Undo of [regenerateAlbumAbout]: the rows as they were, written back now (so they sync as the newest). */
+    suspend fun restoreAlbumAbout(rows: List<AlbumAboutEntry>) {
+        if (rows.isEmpty()) return
+        val now = clock()
+        albumAboutDao.upsertAll(rows.map { it.copy(updatedAt = now) })
+    }
+
+    private suspend fun writeAlbumAbout(album: Album, credits: AlbumAiCredits, blurb: String?, createdAt: Long? = null) {
+        val now = clock()
+        fun row(entryKey: String, answer: String) = AlbumAboutEntry(
+            provider = album.id.provider,
+            albumId = album.id.rawId,
+            albumDisplay = album.name,
+            artistDisplay = album.artist.orEmpty(),
+            kind = AlbumAboutEntry.KIND_CANONICAL,
+            entryKey = entryKey,
+            promptText = null,
+            titleText = null,
+            answerText = answer,
+            createdAt = createdAt ?: now,
+            updatedAt = now,
+        )
+        albumAboutDao.upsertAll(
+            listOf(
+                row(AlbumAboutEntry.CANON_CREDITS, credits.encode()),
+                row(AlbumAboutEntry.CANON_BLURB, blurb.orEmpty()),
+            ),
+        )
+    }
+
+    /**
+     * Ask Gemini about the album (the About sheet's "Ask Gemini"): the answer is kept as an ask row keyed
+     * by the normalized question; asking again refreshes it and keeps its place.
+     */
+    suspend fun askAboutAlbum(album: Album, question: String): AskAboutResult {
+        val trimmed = question.trim()
+        if (trimmed.isEmpty()) return AskAboutResult.Error("Question is empty")
+        val config = geminiConfigDao.getConfig().first()
+        val ai = readyAi(config) ?: return AskAboutResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
+        val key = YoinAlbumAbout.questionKey(trimmed)
+        return try {
+            val reply = geminiService.askAboutAlbum(ai, album.toAboutGrounding(), trimmed, targetLanguage)
+            val now = clock()
+            val existing = albumAboutDao.get(album.id.provider, album.id.rawId, AlbumAboutEntry.KIND_ASK, key)
+            albumAboutDao.upsert(
+                AlbumAboutEntry(
+                    provider = album.id.provider,
+                    albumId = album.id.rawId,
+                    albumDisplay = album.name,
+                    artistDisplay = album.artist.orEmpty(),
+                    kind = AlbumAboutEntry.KIND_ASK,
+                    entryKey = key,
+                    promptText = trimmed,
+                    titleText = reply.title,
+                    answerText = reply.answer,
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now,
+                ),
+            )
+            AskAboutResult.Success(reply.answer)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             AskAboutResult.Error(error.message ?: "Failed to ask Gemini")
         }
     }

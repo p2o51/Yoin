@@ -52,6 +52,18 @@ final class TipDemoTests: XCTestCase {
         XCTAssertEqual(m.screen, CGSize(width: 412, height: 916))
     }
 
+    func test_should_beATabletOnItsSide_when_wide() {
+        // Android's `wide` DemoPhone: as wide as a phone is tall, 16:10, its screen laid out at two columns' 880.
+        let m = DemoPhoneMetrics(container: CGSize(width: 402, height: 700), wide: true)
+        XCTAssertEqual(m.phone.width, 300, accuracy: 0.001)
+        XCTAssertEqual(m.phone.height, 187.5, accuracy: 0.001)
+        XCTAssertEqual(m.screen, CGSize(width: 880, height: 550))
+        XCTAssertGreaterThanOrEqual(m.screen.width, 840, "the screen is in Home's two-column tier")
+        // It grows by the height share of a phone's 300 too, held to half the page's width.
+        XCTAssertEqual(DemoPhoneMetrics(container: CGSize(width: 1000, height: 1000), wide: true).grow, 1.2, accuracy: 0.0001)
+        XCTAssertEqual(DemoPhoneMetrics(container: CGSize(width: 700, height: 1000), wide: true).grow, 350.0 / 300.0, accuracy: 0.0001)
+    }
+
     func test_should_keepAndroidsTiming() {
         XCTAssertEqual(DemoTiming.holdMs, 550)
         XCTAssertEqual(DemoTiming.startDelayMs, 500)

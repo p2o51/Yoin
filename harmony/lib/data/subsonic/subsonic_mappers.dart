@@ -197,7 +197,31 @@ Album? albumFromJson(SubsonicJson j) {
     addedAt: _text(j['created']),
     releaseType: releaseTypeFrom(_objsOrStrings(j['releaseTypes'])),
     version: _text(j['version'])?.trim(),
+    // OpenSubsonic: this release's date, else the first release's (a server whose files only carry
+    // ORIGINALDATE), else the plain year (Android subsonicReleaseDate); each taken whole.
+    releaseDate:
+        isoItemDate(j['releaseDate']) ?? isoItemDate(j['originalReleaseDate']) ?? isoItemDate({'year': j['year']}),
+    recordLabels: [
+      ...{for (final l in _objs(j['recordLabels'])) ?_text(l['name'])?.trim()},
+    ],
+    originalReleaseDate: isoItemDate(j['originalReleaseDate']),
   );
+}
+
+/// An OpenSubsonic ItemDate (`{year, month, day}`, each optional) as ISO at its precision
+/// ("2014-05-20" / "2014-05" / "2014"); null without a year (Android ReleaseDate.of + toIso).
+String? isoItemDate(Object? v) {
+  if (v is! Map) return null;
+  final year = _int(v['year']);
+  if (year == null || year <= 0) return null;
+  final month = _int(v['month']);
+  final day = _int(v['day']);
+  final buffer = StringBuffer(year.toString().padLeft(4, '0'));
+  if (month != null && month >= 1 && month <= 12) {
+    buffer.write('-${month.toString().padLeft(2, '0')}');
+    if (day != null && day >= 1 && day <= 31) buffer.write('-${day.toString().padLeft(2, '0')}');
+  }
+  return buffer.toString();
 }
 
 List<String> _objsOrStrings(Object? v) => switch (v) {

@@ -21,6 +21,7 @@ import '../../platform/storage/stores.dart';
 import '../../platform/sync/cloud_sync_host.dart';
 import '../../settings/licenses.dart' show yoinVersionCode, yoinVersionName;
 import '../../ui/component/seam/seam_style.dart' show seamTopStyleProvider;
+import '../about/album_about_store.dart';
 import '../about/song_about_store.dart';
 import '../memory/memory_copy_cache.dart';
 import '../memory/memory_store.dart';
@@ -33,6 +34,7 @@ import 'adapters/memory_copy_sync_adapters.dart';
 import 'adapters/memory_sync_adapters.dart';
 import 'adapters/playlist_backup_sync_adapter.dart';
 import 'adapters/settings_sync_adapter.dart';
+import 'adapters/album_about_sync_adapter.dart';
 import 'adapters/song_about_sync_adapter.dart';
 import 'adapters/track_rating_sync_adapter.dart';
 import 'auth/google_oauth.dart';
@@ -62,6 +64,7 @@ bool isSyncedKey(String key) =>
     key.startsWith('memory_copy_cache.v1.') ||
     key.startsWith('home_layout.v1.') ||
     key == SongAboutStore.key ||
+    key == AlbumAboutStore.key ||
     key == AiSettingsStore.prefsKey ||
     key == KeyValueSeamStyleGateway.storeKey ||
     key == ProfileRepository.profilesKey;
@@ -93,8 +96,9 @@ List<SyncAdapter> yoinSyncAdapters({
     language: KeyValueTranslationLanguageGateway(store),
     seam: seam ?? KeyValueSeamStyleGateway(store),
     tracked: (key) async => db.getLocalState(SyncKinds.setting, SyncFormat.globalScope, key)?.localHash != null,
-    // Android dao.songAboutEntryCount(): the language holds while any About row exists.
-    songAboutCount: () async => (await SongAboutStore.shared(store).all()).length,
+    // Android dao.songAboutEntryCount() + albumAboutEntryCount(): the language holds while any About row exists.
+    songAboutCount: () async =>
+        (await SongAboutStore.shared(store).all()).length + (await AlbumAboutStore.shared(store).all()).length,
   ),
   if (lyricsCache != null) LyricsTranslationSyncAdapter(lyricsCache, onLyricsSeeded: onLyricsSeeded),
   if (memoryCopy != null) ...[MemoryCopySyncAdapter(memoryCopy), MemoryTitleSyncAdapter(memoryCopy)],
@@ -103,6 +107,10 @@ List<SyncAdapter> yoinSyncAdapters({
   AccountDescriptorSyncAdapter(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
   SongAboutSyncAdapter(
     store: SongAboutStore.shared(store),
+    language: aboutLanguage ?? () async => AiLanguages.defaultTarget,
+  ),
+  AlbumAboutSyncAdapter(
+    store: AlbumAboutStore.shared(store),
     language: aboutLanguage ?? () async => AiLanguages.defaultTarget,
   ),
 ];

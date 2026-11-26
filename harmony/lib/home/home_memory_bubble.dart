@@ -828,7 +828,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
 
   String _description(MemoryBubbleStrings strings) {
     final said = _shown;
-    if (said is BubbleSayTip) return said.tip.text(zh: strings.zh);
+    if (said is BubbleSayTip) return said.tip.text(zh: strings.zh, largeScreen: homeTipLargeScreen(context));
     final latest = (said as BubbleSayMemory?)?.latest ?? ref.read(homeMemoryPillProvider).latest;
     if (latest == null) return strings.cdMemories;
     final artist = latest.artistName;

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.nowplaying.DotLayers
 import com.gpo.yoin.ui.nowplaying.EdgeBandState
 import com.gpo.yoin.ui.nowplaying.StageColumnPose
@@ -43,7 +44,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -850,7 +850,7 @@ internal fun BoxScope.DemoSongSheet(
             shape = BottomSheetDefaults.ExpandedShape,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             // M3's modal sheet stops under the status bar.
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = SheetTopGap),
+            modifier = Modifier.fillMaxWidth().topBarsPadding().padding(top = SheetTopGap),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 BottomSheetDefaults.DragHandle()

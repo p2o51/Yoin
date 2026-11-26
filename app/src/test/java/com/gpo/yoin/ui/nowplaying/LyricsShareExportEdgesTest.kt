@@ -59,7 +59,7 @@ class LyricsShareExportEdgesTest(
                 layer = recording
                 LyricsShareImage(
                     format = format,
-                    tone = LyricsCardTone.Soft,
+                    tone = ShareTone.Soft,
                     lines = lines,
                     showTranslation = true,
                     songTitle = "Paper Lanterns",

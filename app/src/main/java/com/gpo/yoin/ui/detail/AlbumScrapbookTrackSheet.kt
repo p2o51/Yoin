@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.aiString
+import com.gpo.yoin.ui.component.aiProviderName
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +94,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -616,14 +619,14 @@ private fun GenerateAbout(
                     ThinkingDots(color = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        text = stringResource(R.string.detail_scrap_about_generating),
+                        text = aiString(R.string.ai_writing),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
                 EditorButton(
-                    label = stringResource(R.string.detail_scrap_about_generate),
+                    label = aiString(R.string.ai_generate_with),
                     icon = YoinSymbols.Sparkle,
                     container = colors.review,
                     content = colors.onReview,
@@ -863,7 +866,7 @@ private fun PendingAsk(question: String, colors: ScrapbookColors) {
 }
 
 @Composable
-private fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
+internal fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         if (!own) {
             Icon(
@@ -875,7 +878,7 @@ private fun Byline(own: Boolean, color: Color, modifier: Modifier = Modifier) {
             Spacer(Modifier.width(4.dp))
         }
         Text(
-            text = stringResource(if (own) R.string.detail_scrap_by_you else R.string.detail_scrap_by_gemini),
+            text = if (own) stringResource(R.string.detail_scrap_by_you) else aiProviderName(),
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
             color = color,
         )
@@ -1091,7 +1094,7 @@ private fun NewEntry(
             ) {
                 Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.detail_scrap_ask_gemini), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(aiString(R.string.ai_ask_provider), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Button(
                 onClick = {
@@ -1358,7 +1361,7 @@ private fun NoteCard(
         }
     }
     val ring by animateColorAsState(
-        targetValue = if (focused) colors.ink else colors.ink.copy(alpha = 0f),
+        targetValue = if (focused) colors.noteMark else colors.noteMark.copy(alpha = 0f),
         animationSpec = YoinMotion.effectsSpring(),
         label = "scrapNoteFocus",
     )
@@ -1369,7 +1372,7 @@ private fun NoteCard(
                 .clip(RoundedCornerShape(16.dp))
                 .border(2.dp, ring, RoundedCornerShape(16.dp))
                 .background(if (menuOpen) colors.note.copy(alpha = 0.8f) else colors.note)
-                .journalRail(colors.ink)
+                .journalRail(colors.noteMark)
                 .handPointer()
                 .clickable(onClick = onTap)
                 .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
@@ -1380,7 +1383,7 @@ private fun NoteCard(
                 text = note.text,
                 style = userTextStyle(),
                 color = colors.onNote,
-                mentionColor = colors.ink,
+                mentionColor = colors.noteMark,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -1429,7 +1432,7 @@ private fun NoteEditor(
             .noteEditorContainer(editor)
             .clip(RoundedCornerShape(16.dp))
             .background(colors.note)
-            .journalRail(colors.ink)
+            .journalRail(colors.noteMark)
             .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
     ) {
         if (at != null) NoteStamp(at, colors)
@@ -1439,8 +1442,8 @@ private fun NoteEditor(
             // Mentions as the note card draws them once saved: in the page's ink.
             colors = noteEditorColors(
                 text = colors.onNote,
-                chip = colors.ink.copy(alpha = 0.14f),
-                chipText = colors.ink,
+                chip = colors.noteMark.copy(alpha = 0.14f),
+                chipText = colors.noteMark,
             ),
             placeholder = at?.let { stringResource(R.string.detail_scrap_note_hint, it) }
                 ?: stringResource(R.string.detail_scrap_note_hint_plain),
@@ -1454,7 +1457,7 @@ private fun NoteEditor(
                 .padding(top = 4.dp)
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(colors.ink.copy(alpha = 0.6f)),
+                .background(colors.noteMark.copy(alpha = 0.6f)),
         )
         // The card is narrow on a phone: the formatting row scrolls on a line of its own, the buttons under it.
         NoteFormatToolbar(
@@ -1507,7 +1510,7 @@ private fun NoteStamp(at: String, colors: ScrapbookColors) {
             fontSize = 12.sp,
             letterSpacing = 0.3.sp,
         ),
-        color = colors.ink,
+        color = colors.noteMark,
     )
 }
 
@@ -1517,7 +1520,7 @@ private fun NoteStamp(at: String, colors: ScrapbookColors) {
 
 /** Keeps [requester]'s item in view while the keyboard moves (only while [active]). */
 @Composable
-private fun KeepAboveKeyboard(requester: BringIntoViewRequester, active: Boolean = true) {
+internal fun KeepAboveKeyboard(requester: BringIntoViewRequester, active: Boolean = true) {
     val ime = WindowInsets.ime
     val density = LocalDensity.current
     LaunchedEffect(active) {
@@ -1567,7 +1570,7 @@ private fun SheetHint(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EditField(
+internal fun EditField(
     state: TextFieldState,
     hint: String,
     style: TextStyle,
@@ -1575,6 +1578,8 @@ private fun EditField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = false,
     minHeight: androidx.compose.ui.unit.Dp = 0.dp,
+    // The keyboard's Send runs this (the album About sheet's question); null keeps the default action.
+    imeSend: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     BasicTextField(
@@ -1582,7 +1587,11 @@ private fun EditField(
         textStyle = style.copy(color = scheme.onSurface),
         cursorBrush = SolidColor(scheme.primary),
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.MultiLine(),
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.Sentences,
+            imeAction = if (imeSend != null) ImeAction.Send else ImeAction.Default,
+        ),
+        onKeyboardAction = imeSend?.let { send -> { send() } },
         modifier = modifier.fillMaxWidth(),
         decorator = { field ->
             Box(

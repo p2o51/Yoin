@@ -162,6 +162,23 @@ fun NowPlayingOverlayHost(
             onGoToArtist = { id -> currentOnArtistClick(id) },
         )
     }
+    // Share as image from About and Note (LocalShareSheetHost); what it can
+    // share is read from here when a sheet opens (LocalShareSources).
+    // Held by the ViewModel: a rotation keeps an open sheet, its choices and the lyrics pick.
+    val shareRetained = viewModel.shareRetained
+    val shareHost = shareRetained.host
+    val latestShareState by rememberUpdatedState(nowPlayingUiState)
+    val latestShareAbout by rememberUpdatedState(aboutUiState)
+    val latestShareNotes by rememberUpdatedState(notesState)
+    val shareSources = remember(container, viewModel) {
+        ShareSources(
+            state = { latestShareState as? NowPlayingUiState.Playing },
+            aboutEntries = { (latestShareAbout as? AboutUiState.Ready)?.entries.orEmpty() },
+            notes = { latestShareNotes },
+            positionMs = { viewModel.positionMs.value },
+            aiProvider = { container.aiProviderStore.prefs.value.provider },
+        )
+    }
     // A long-pressed About row's sheet (LocalAboutEntryActions): the row in
     // its album's scrapbook, opened at its editor, or Gemini's answer again.
     val aboutActions = remember(container, viewModel) {
@@ -183,6 +200,7 @@ fun NowPlayingOverlayHost(
                 }
             },
             onRegenerate = viewModel::regenerateAbout,
+            onShare = { entry -> shareHost.open(ShareRequest(ShareTab.About, aboutFocus = entry)) },
         )
     }
 
@@ -311,7 +329,21 @@ fun NowPlayingOverlayHost(
     // reconcile effect above stays the sole driver of the stage Animatable.
     LaunchedEffect(dualPaneNowPlaying, stageMode) {
         if (dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
+            // Remembered for the way back: a rotation to one column reopens it (below).
+            viewModel.expandedBeforeDualPane = true
             viewModel.setStageMode(NowPlayingStageMode.Compact)
+        }
+    }
+    // Back to one column (a tablet turned to portrait): the stage the lyrics were expanded in before the two
+    // columns comes back, and so does the lyrics page when select mode or a pick's share sheet is on — the pick
+    // must survive the turn either way (owner device check 2026-11-25).
+    LaunchedEffect(dualPaneNowPlaying) {
+        if (dualPaneNowPlaying || !expanded) return@LaunchedEffect
+        val keepPick = shareRetained.pickInProgress
+        if (viewModel.expandedBeforeDualPane || keepPick) {
+            viewModel.expandedBeforeDualPane = false
+            if (keepPick) viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)
+            viewModel.setStageMode(NowPlayingStageMode.Expanded)
         }
     }
 
@@ -661,6 +693,9 @@ fun NowPlayingOverlayHost(
                 CompositionLocalProvider(
                     LocalNowPlayingCoverMenu provides coverMenuHost,
                     LocalAboutEntryActions provides aboutActions,
+                    LocalShareSheetHost provides shareHost,
+                    LocalShareRetained provides shareRetained,
+                    LocalShareSources provides shareSources,
                     LocalNowPlayingSing provides singUi,
                 ) {
                     NowPlayingScreen(
@@ -821,6 +856,12 @@ fun NowPlayingOverlayHost(
                                     clip = true
                                 }
                             },
+                    )
+                    ShareSheetRequestHost(
+                        host = shareHost,
+                        sources = shareSources,
+                        onMessage = viewModel::postMessage,
+                        container = container,
                     )
                 }
 
@@ -1052,4 +1093,46 @@ private fun translationOfferMessage(context: Context, providerName: String): Str
             providerName.toLyricsProviderLabel(resources),
         )
     }
+}
+
+/**
+ * The share sheet asked for from About (a long-pressed row) or a note (its edit card): the song on show,
+ * opened on the asked tab; the lyrics tab shares the current line. Closes itself when the song has nothing
+ * for that tab any more.
+ */
+@Composable
+private fun ShareSheetRequestHost(
+    host: ShareSheetHost,
+    sources: ShareSources,
+    onMessage: (String) -> Unit,
+    container: AppContainer,
+) {
+    val request = host.request ?: return
+    val resources = LocalContext.current.resources
+    // Frozen on the host when first read: a rotation redraws the same image, not the playhead's new line.
+    val content = remember(request) {
+        host.frozen ?: sources.content(resources, aboutFocus = request.aboutFocus, noteId = request.noteId)
+            .also { host.frozen = it }
+    }
+    if (content == null || !content.has(request.tab)) {
+        LaunchedEffect(request) { host.close() }
+        return
+    }
+    ShareSheet(
+        content = content,
+        initialTab = request.tab,
+        onShared = host::close,
+        onDismiss = host::close,
+        onMessage = onMessage,
+        ui = host.ui,
+        onKept = {
+            content.lyrics?.let { pick ->
+                container.lyricHighlightProcessor.keepUserPick(
+                    songId = content.song.songId,
+                    lines = pick.lines.map { it.text },
+                    startMs = pick.lines.firstOrNull()?.startMs,
+                )
+            }
+        },
+    )
 }

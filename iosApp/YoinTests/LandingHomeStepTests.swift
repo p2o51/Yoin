@@ -58,6 +58,16 @@ final class LandingHomeStepTests: XCTestCase {
         XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: HomeSection.allCases.count), .default)
     }
 
+    func test_should_setHalvesFromTheMemory_when_reordering() {
+        // Activities | Jump Back In pair by the default memory; moved apart, neither is a half any more.
+        XCTAssertTrue(HomeLayout.default.sections[0].half)
+        let apart = LandingHomeLayout.move(.default, from: 0, to: 3)
+        XCTAssertTrue(apart.sections.allSatisfy { !$0.half })
+        XCTAssertFalse(HomeLayoutCodec.encode(apart).contains("span"))
+        // Back together, they pair again.
+        XCTAssertTrue(LandingHomeLayout.move(apart, from: 3, to: 0).sections[0].half)
+    }
+
     func test_should_keepUnlistedSectionsInTheirSlots_when_reordering() {
         // Every section is listed on iOS now: the rest keep their order around the moved one.
         let layout = LandingHomeLayout.move(.default, from: 5, to: 0)
@@ -80,10 +90,14 @@ final class LandingHomeStepTests: XCTestCase {
         LandingHomeLayout.write(custom, scope: "subsonic|http://a|me", to: store)
         XCTAssertEqual(store.layout("subsonic|http://a|me").enabledSections.contains(.activities), false)
         // Another account is untouched.
-        XCTAssertNil(store.prefs("subsonic|http://b|me"))
-        // Back to the default clears the account to "never customized".
+        XCTAssertFalse(store.isCustomized("subsonic|http://b|me"))
+        // Back to the default clears the account to "never customized", and so does the large-screen
+        // default (shared persist rule, isAnyDefault).
         LandingHomeLayout.write(.default, scope: "subsonic|http://a|me", to: store)
-        XCTAssertNil(store.prefs("subsonic|http://a|me"))
+        XCTAssertFalse(store.isCustomized("subsonic|http://a|me"))
+        LandingHomeLayout.write(custom, scope: "subsonic|http://a|me", to: store)
+        LandingHomeLayout.write(.wideDefault, scope: "subsonic|http://a|me", to: store)
+        XCTAssertFalse(store.isCustomized("subsonic|http://a|me"))
     }
 
     func test_should_pickTargets_when_landingFinishes() {

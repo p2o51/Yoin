@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
@@ -40,8 +41,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -166,6 +165,8 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.HomeSpanTokens
 import com.gpo.yoin.ui.home.edit.HomeSpanCommit
@@ -677,7 +678,7 @@ internal fun HomeEditorialContent(
     val seamBackground = expressivePageSeamBackground()
     // The tide line washes with the gradient's TOP stop, where it lives.
     val pageColor = MaterialTheme.colorScheme.surfaceContainer
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarTop = WindowInsets.topBars.asPaddingValues().calculateTopPadding()
     val statusBarPx = with(LocalDensity.current) { statusBarTop.toPx() }
     // The Memories entry (owner 2026-10-04): a safe-area arrow with a speech
     // bubble (HomeMemoryBubble.kt), or the trial's header pill / chevron.
@@ -2093,7 +2094,7 @@ private fun HomeContentHeader(
         modifier = modifier
             // The page the Memories arrow centres on.
             .memoryBubblePage(bubbleController)
-            .statusBarsPadding()
+            .topBarsPadding()
             // 8dp, plus the 4dp the list's top padding used to add.
             .padding(top = 12.dp)
             .heightIn(min = 48.dp),

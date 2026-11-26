@@ -446,13 +446,13 @@ struct ArtistDetailView: View {
                     // MetaLine (bodySmall): Kind groups in Medium (Latest in
                     // primary, the kind in onSurfaceVariant), then a Stat:
                     // the count Medium tabular onSurface, the unit at 60 %.
-                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if latest {
                             Text("Latest").yoinRole(Tokens.type.bodySmall, weight: .medium).foregroundStyle(app.primary)
                         }
                         Text(r.kind.label).yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(app.onSurfaceVariant)
-                        HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                        HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.INNER_GAP.cg) {
                             Text("\(r.trackCount)").monospacedDigit()
                                 .yoinRole(Tokens.type.bodySmall, weight: .medium)
                                 .foregroundStyle(app.onSurface)

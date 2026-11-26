@@ -101,6 +101,13 @@ final class GeminiSettings {
         self.secrets = aiKeychain.loadAll()
         self.prefs = Self.loadPrefs(from: defaults)
         self.targetLanguage = Self.normalizeLanguage(defaults.string(forKey: Self.languageDefaultsKey))
+        #if DEBUG
+        // `-aiProviderDemo DeepSeek|Qwen|Custom|Gemini`: the chosen service for this launch only (screenshots of the
+        // copy that names it: Ask DeepSeek, 问千问, Ask AI); never saved.
+        if let demo = defaults.string(forKey: "aiProviderDemo").flatMap(AiProvider.init(rawValue:)) {
+            self.prefs.provider = demo
+        }
+        #endif
         publishIfShared()
     }
 

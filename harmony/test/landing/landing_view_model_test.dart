@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
@@ -105,7 +103,7 @@ void main() {
 
     expect(await vm.finish(), isTrue);
     final raw = await store.read(HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, added.id));
-    final layout = HomeLayout.fromJson((jsonDecode(raw!) as Map).cast<String, Object?>());
+    final layout = decodeHomeLayout(raw!);
     expect(layout.sections.first.id, HomeSection.jumpBackIn.id);
     expect(layout.sections.firstWhere((p) => p.id == HomeSection.rediscover.id).enabled, isFalse);
     expect(await KeyValueLandingStore(store).isDone(), isTrue);
@@ -134,7 +132,7 @@ void main() {
     final account = await addAccount(c, 'ann');
     final key = HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, account.id);
     final saved = withSectionEnabled(HomeLayout.defaultLayout, HomeSection.memoryGrid, false);
-    await store.write(key, jsonEncode(saved.toJson()));
+    await store.write(key, saved.encode());
 
     c.listen(landingViewModelProvider(rerun), (_, _) {});
     await settle();
@@ -154,7 +152,7 @@ void main() {
     final account = await addAccount(c, 'ann');
     final key = HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, account.id);
     final saved = withSectionEnabled(HomeLayout.defaultLayout, HomeSection.memoryGrid, false);
-    await store.write(key, jsonEncode(saved.toJson()));
+    await store.write(key, saved.encode());
 
     c.listen(landingViewModelProvider(rerun), (_, _) {});
     // Edited before the stored layout has been read.

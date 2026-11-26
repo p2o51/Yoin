@@ -1,4 +1,5 @@
 import Foundation
+import YoinShared
 import SwiftUI
 
 /// Apple Music API resources (the JSON `MusicDataRequest` answers) → plain
@@ -100,6 +101,10 @@ struct AMAlbum: Hashable, Sendable {
     var isCompilation: Bool
     var genre: String?
     var tracks: [AMSong]
+    /// `recordLabel` (the catalog album's for a library album): the credits line's label.
+    var recordLabel: String? = nil
+    /// `editorialNotes` as plain text (`standard`, else `short`; the catalog album's for a library album).
+    var editorialNotes: String? = nil
 
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
 }
@@ -158,6 +163,18 @@ enum AppleMusicMapping {
     }
 
     /// "2019-05-24" / "2019" → 2019; 0 when unknown.
+    /// A library album's date (Android AppleMusicSource, 2026-11-24): its own, unless it has none or only the year;
+    /// then its catalog album's more precise date of the same year (a different year is another version: the
+    /// library's own stays). A catalog album passes its own date through.
+    static func libraryReleaseDate(_ own: String?, catalog: String?) -> String? {
+        let mine = ReleaseDateISO.parse(own)
+        guard let theirs = ReleaseDateISO.parse(catalog) else { return own }
+        guard let mine else { return catalog }
+        let yearOnly = mine.count == 4
+        guard yearOnly, theirs.count > mine.count, theirs.hasPrefix(mine) else { return own }
+        return catalog
+    }
+
     static func year(_ releaseDate: String?) -> Int {
         guard let releaseDate, releaseDate.count >= 4 else { return 0 }
         return Int(releaseDate.prefix(4)) ?? 0
@@ -331,13 +348,27 @@ enum AppleMusicMapping {
             artistId: AppleMusicJSON.related(r, "artists")?.first.flatMap(relatedRawId),
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
                 ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
-            releaseDate: AppleMusicJSON.string(a, "releaseDate") ?? AppleMusicJSON.string(catalogAttributes, "releaseDate"),
+            releaseDate: libraryReleaseDate(AppleMusicJSON.string(a, "releaseDate"),
+                                            catalog: AppleMusicJSON.string(catalogAttributes, "releaseDate")),
             dateAdded: AppleMusicJSON.string(a, "dateAdded"),
             trackCount: AppleMusicJSON.int(a, "trackCount"),
             isSingle: AppleMusicJSON.bool(a, "isSingle") || AppleMusicJSON.bool(catalogAttributes, "isSingle"),
             isCompilation: AppleMusicJSON.bool(a, "isCompilation") || AppleMusicJSON.bool(catalogAttributes, "isCompilation"),
             genre: genre((a["genreNames"] ?? catalogAttributes?["genreNames"]) as? [String]),
-            tracks: tracks)
+            tracks: tracks,
+            recordLabel: AppleMusicJSON.string(a, "recordLabel") ?? AppleMusicJSON.string(catalogAttributes, "recordLabel"),
+            // A catalog album's default attributes carry Apple's notes; a library album has them only through
+            // its catalog relationship (Android appleEditorialNotes).
+            editorialNotes: editorialNotes(a["editorialNotes"] as? AppleMusicJSON.Object)
+                ?? editorialNotes(catalogAttributes?["editorialNotes"] as? AppleMusicJSON.Object))
+    }
+
+    /// Apple's `editorialNotes` as plain text: `standard`, else `short`; nil when neither has words (the rule and
+    /// the HTML stripping are :shared's, so iOS reads the same notes as Android).
+    static func editorialNotes(_ notes: AppleMusicJSON.Object?) -> String? {
+        guard let notes else { return nil }
+        return YoinAlbumAbout.shared.editorialNotes(standard: notes["standard"] as? String,
+                                                    short: notes["short"] as? String)
     }
 
     static func artist(_ r: AppleMusicJSON.Object) -> AMArtist? {
@@ -403,7 +434,10 @@ enum AppleMusicMapping {
                      created: a.dateAdded,
                      songCount: a.trackCount,
                      durationSec: tracks.isEmpty ? nil : tracks.map(\.durationSec).reduce(0, +),
-                     genre: a.genre)
+                     genre: a.genre,
+                     recordLabels: a.recordLabel.map { [$0] } ?? [],
+                     releaseDate: ReleaseDateISO.parse(a.releaseDate),
+                     editorialNotes: a.editorialNotes)
     }
 
     /// A loose song's album as far as the song knows it: no tracks, its own cover.

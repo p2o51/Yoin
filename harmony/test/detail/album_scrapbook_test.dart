@@ -1,10 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/detail/album_scrapbook_track_sheet.dart';
 import 'package:yoin/data/notes/note_markup.dart';
+import 'package:yoin/data/lyrics/lyrics_repository.dart';
+import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/notes/editor/note_editor_controller.dart';
+import 'package:yoin/notes/editor/note_format_toolbar.dart';
+import 'package:yoin/notes/editor/note_markup_field.dart';
+import 'package:yoin/nowplaying/lyrics_logic.dart';
 import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/memory/memory_store.dart';
@@ -136,6 +143,8 @@ void main() {
       final receipt = pieces.last as ScrapReceipt;
       expect(receipt.header, 'BLUE — JONI');
       expect(receipt.lines, [
+        // Six tracks of 3 min, summed (the album gives no length of its own; no date, no Released line).
+        ('Length', '18 min'),
         ('Plays in Yoin', '12'),
         ('Days since first play', '30'),
         ('Last played', 'Yesterday'),
@@ -223,7 +232,10 @@ void main() {
   });
 
   group('page', () {
-    Future<(ProviderContainer, FakePlaybackEngine, MemoryStore)> open(WidgetTester tester) async {
+    Future<(ProviderContainer, FakePlaybackEngine, MemoryStore)> open(
+      WidgetTester tester, {
+      LyricsRepository? lyrics,
+    }) async {
       final engine = FakePlaybackEngine();
       final store = MemoryStore(InMemoryStore(), profileId: 'p');
       final c = ProviderContainer(
@@ -234,6 +246,7 @@ void main() {
           activityLogProvider.overrideWith((ref) async => null),
           memoryStoreProvider.overrideWith((ref) async => store),
           playbackEngineProvider.overrideWithValue(engine),
+          if (lyrics != null) lyricsRepositoryProvider.overrideWithValue(lyrics),
         ],
       );
       addTearDown(c.dispose);
@@ -272,8 +285,9 @@ void main() {
 
       expect(find.byType(AlbumScrapbookPage), findsOneWidget);
       expect(find.text('Nothing yet'), findsOneWidget);
-      // No Memory title (HarmonyOS has no AI title): Last Play follows the blank pen instead.
-      expect(find.text('Never'), findsOneWidget);
+      // Last Play stays on page 1 and the receipt (album About, 2026-11-25): beside the cover sits the
+      // credits line, and with no label and no AI it is left out.
+      expect(find.text('Never'), findsNothing);
       semantics.dispose();
       await close(tester);
     });
@@ -561,7 +575,103 @@ void main() {
       expect(engine.startIndex, -1);
       await close(tester);
     });
+
+    testWidgets('should_writeMentionsWithTheNoteEditor_when_trackSheetNoteEdited', (tester) async {
+      final (_, _, store) = await open(tester);
+      await store.putSongNote(_note('n1', 3, at: 61000, text: 'the bridge'));
+      await store.setAlbumReview(_album.id, 'Late-night record.', nowMs: 1);
+      await tester.drag(find.byType(PageView), const Offset(-600, 0), warnIfMissed: false);
+      await settle(tester);
+      await tester.tap(find.text('the bridge'));
+      await settle(tester);
+
+      // The note's own menu, then Edit: the @ editor, with its formatting row (Android #310).
+      final card = find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('the bridge'));
+      await tester.tap(card);
+      await settle(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      expect(find.byType(NoteMarkupField), findsOneWidget);
+      expect(find.byType(NoteFormatToolbar), findsOneWidget);
+      final field = tester.widget<NoteMarkupField>(find.byType(NoteMarkupField));
+      expect(field.controller.storedText, 'the bridge');
+      field.controller.text = 'the bridge, like ';
+      field.controller.insertMention(
+        NoteMention(kind: MentionKind.album, provider: 'subsonic', id: 'al9', title: 'Court and Spark'),
+      );
+      await settle(tester);
+      expect(find.text('@Court and Spark'), findsOneWidget, reason: 'one chip in the editor, not raw markup');
+      await tester.tap(find.text('Done'));
+      await settle(tester);
+      const stored = 'the bridge, like [@Court and Spark](yoin:album/subsonic:al9)';
+      expect((await store.notesForTracks([_t(3)])).single.content.trim(), stored);
+
+      // Opened again, the saved mention is a chip again and saves back unchanged.
+      // On its stamp: a tap on the mention pill is the mention's.
+      await tester.tap(find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('1:01')));
+      await settle(tester);
+      await tester.tap(find.text('Edit'));
+      await settle(tester);
+      expect(find.text('@Court and Spark'), findsOneWidget);
+      expect(find.textContaining('yoin:album'), findsNothing);
+      expect(tester.widget<NoteMarkupField>(find.byType(NoteMarkupField)).controller.storedText.trim(), stored);
+      await close(tester);
+    });
+
+    testWidgets('should_bringTheTappedNoteBackIntoView_when_lyricsArriveLate', (tester) async {
+      final lyrics = Completer<LoadedLyrics?>();
+      final (c, _, store) = await open(tester, lyrics: _SlowLyrics(lyrics));
+      // Twelve notes down the song; the last one is tapped.
+      for (var i = 0; i < 12; i++) {
+        await store.putSongNote(_note('n$i', 3, at: i * 16000 + 1000, created: i, text: 'note $i'));
+      }
+      await tester.drag(find.byType(PageView), const Offset(-600, 0), warnIfMissed: false);
+      await settle(tester);
+      final pieces = c.read(albumScrapbookProvider(_album.id))!;
+      final colors = ScrapbookColors.of(yoinTheme(Brightness.light).colorScheme);
+      final context = tester.element(find.byType(AlbumScrapbookPage));
+      unawaited(
+        showScrapTrackSheet(
+          context,
+          album: _album,
+          trackId: _t(3),
+          colors: colors,
+          tab: ScrapSheetTab.notes,
+          focusNote: 'n11',
+        ),
+      );
+      expect(pieces, isNotEmpty);
+      await settle(tester);
+      final screen = tester.getRect(find.byType(ScrapTrackSheet));
+      bool inView() {
+        final note = tester.getRect(find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('note 11')));
+        return note.top >= screen.top && note.bottom <= screen.bottom;
+      }
+
+      expect(inView(), isTrue, reason: 'brought into view once the sheet settled');
+      // The lyrics land late: three lines of context above every note push the last one down.
+      lyrics.complete(
+        LoadedLyrics(sheet: LyricSheet([for (var i = 0; i < 60; i++) LyricRow('line $i', startMs: i * 4000)])),
+      );
+      await settle(tester);
+      expect(find.descendant(of: find.byType(ScrapTrackSheet), matching: find.text('line 0')), findsWidgets);
+      expect(inView(), isTrue, reason: 'brought into view again after the lyrics pushed it down');
+      await close(tester);
+    });
   });
+}
+
+/// Lyrics that arrive when the test says so.
+class _SlowLyrics implements LyricsRepository {
+  _SlowLyrics(this.result);
+
+  final Completer<LoadedLyrics?> result;
+
+  @override
+  Future<LoadedLyrics?> getLoadedLyrics(Track track, MusicSource source) => result.future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Future<void> settle(WidgetTester tester) async {

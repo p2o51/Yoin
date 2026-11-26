@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
@@ -31,8 +34,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -127,6 +128,8 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -529,7 +532,7 @@ private fun AlbumDetailContent(
     var headerHeight by remember { mutableIntStateOf(0) }
     var titleRowTop by remember { mutableIntStateOf(0) }
     var titleRowHeight by remember { mutableIntStateOf(0) }
-    val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+    val statusBarTopPx = WindowInsets.topBars.getTop(density)
     val headerTopPaddingPx = with(density) { AlbumHeaderTopPadding.roundToPx() }
 
     var pageFlight by remember { mutableStateOf<AlbumPageFlight?>(null) }
@@ -1047,7 +1050,7 @@ private fun AlbumTopHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(start = 8.dp, end = 16.dp, top = AlbumHeaderTopPadding, bottom = 6.dp)
             // Inside the caller's bar clip and the row's placement: the stamp is
             // measured off the resting row and lifted by the same amount.
@@ -1565,13 +1568,19 @@ private fun AlbumHeroComment(
             val writtenAt = content.userReviewAt?.let { at ->
                 albumLastPlayLabels(at, LocalContext.current.resources).first
             }
+            val interaction = remember { MutableInteractionSource() }
             Column(
-                modifier = Modifier.handPointer(enabled = interactive).clickable(
-                    enabled = interactive,
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
-                    onClick = onEditComment,
-                ),
+                // Text, not a tile: no square ripple behind the paragraph (a pointer's wash keeps the row's corners).
+                modifier = Modifier
+                    .pointerPressPreview(interaction, shape = YoinContainerShapes.ListRow, enabled = interactive)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = interactive,
+                        role = Role.Button,
+                        onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
+                        onClick = onEditComment,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 NoteMarkupText(
@@ -2151,7 +2160,7 @@ private fun AlbumLoadingState(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
+                .topBarsPadding()
                 .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
         ) {
             DetailBackButton(onClick = onBackClick)

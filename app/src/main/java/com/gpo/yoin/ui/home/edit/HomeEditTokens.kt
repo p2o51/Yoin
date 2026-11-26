@@ -118,7 +118,7 @@ internal object HomeEditTokens {
     const val KickEntry = 1f
 
     /** An edit-mode tap, and a block dropped where it was lifted. */
-    const val KickTap = .5f
+    const val KickTap = com.gpo.yoin.shared.home.HomeEditGestureTokens.KickTap
 
     /** The dragged block once it has settled into its slot. */
     const val KickDrop = .7f
@@ -161,7 +161,7 @@ internal object HomeEditTokens {
     const val VelocityMinDtMs = 4L
 
     // Session.
-    const val UndoMax = 20
+    const val UndoMax = com.gpo.yoin.shared.home.HOME_EDIT_UNDO_MAX
     const val HideScale = .96f
 
     /** Bar "Add" scrolls the tray top to this far below the viewport top. */
@@ -171,7 +171,7 @@ internal object HomeEditTokens {
     const val FlingStopMs = 120L
 
     /** Edit-mode body hold before a lift: max(this, long-press timeout / 2). */
-    const val BodyHoldMinMs = 150L
+    const val BodyHoldMinMs = com.gpo.yoin.shared.home.HomeEditGestureTokens.BodyHoldMinMs
     val PlaceholderHeight = 112.dp
 
     // Spring thresholds (§1.3). They must sit on the spring itself: an

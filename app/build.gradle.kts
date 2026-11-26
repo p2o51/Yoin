@@ -53,6 +53,11 @@ if (releaseTaskRequested && !hasReleaseKeystore) {
     )
 }
 
+composeCompiler {
+    // :shared value types used as composable parameters (see the file).
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
+}
+
 android {
     namespace = "com.gpo.yoin"
     // Compose foundation 1.13 (BOM 2026.11) needs the 37.1 minor SDK.
@@ -66,7 +71,7 @@ android {
         applicationId = "com.gpo.yoin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 33
+        versionCode = 34
         versionName = "0.6.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

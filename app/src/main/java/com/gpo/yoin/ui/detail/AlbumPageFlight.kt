@@ -1,9 +1,10 @@
 package com.gpo.yoin.ui.detail
 
-import com.gpo.yoin.ui.component.handPointer
+import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,13 +21,10 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.withTabularFigures
 import androidx.compose.ui.util.lerp
 import kotlin.math.roundToInt
@@ -135,6 +133,7 @@ private fun AlbumHeroLastPlayStyle(): TextStyle =
 internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier: Modifier = Modifier) {
     val flight = LocalAlbumPageFlight.current
     val (day, time) = albumLastPlayLabels(epochMillis, LocalContext.current.resources)
+    val interaction = remember { MutableInteractionSource() }
     Text(
         text = "$day $time",
         style = AlbumHeroLastPlayStyle(),
@@ -145,29 +144,16 @@ internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier
         modifier = if (flight == null) {
             modifier
         } else {
-            modifier.handPointer(enabled = interactive).clickable(enabled = interactive, role = Role.Button, onClick = flight.openScrapbook)
+            // Text, not a tile: no square ripple behind it (a pointer's wash keeps rounded corners).
+            modifier
+                .pointerPressPreview(interaction, shape = YoinShapeTokens.Small, enabled = interactive)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    enabled = interactive,
+                    role = Role.Button,
+                    onClick = flight.openScrapbook,
+                )
         },
     )
-}
-
-/** Last Play in full on the scrapbook page, under the Memory title. */
-@Composable
-internal fun AlbumScrapLastPlay(epochMillis: Long?, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        AlbumSectionLabel(
-            text = stringResource(R.string.detail_album_last_play),
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        val text = epochMillis?.let { at ->
-            val (day, time) = albumLastPlayLabels(at, LocalContext.current.resources)
-            "$day $time"
-        } ?: stringResource(R.string.detail_album_never)
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
 }

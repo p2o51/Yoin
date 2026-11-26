@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/home/activity_bento.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
+import 'package:yoin/home/home_grid_sections.dart';
 import 'package:yoin/home/home_screen.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/home/home_shelves.dart';
@@ -83,29 +84,31 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byType(ActivityHeroCard), findsOneWidget);
       expect(leftOf(tester, find.byType(ActivityHeroCard)), closeTo(heroLeft, 0.01));
-      expect(find.byType(JumpBackInSection), findsOneWidget);
-      await tester.scrollUntilVisible(find.byType(RecentlyAddedSection), 300, scrollable: find.byType(Scrollable).first);
+      // From 840 × 480 the feed is two columns (home_two_column_test.dart): the sections' grid layouts.
+      final twoColumn = width >= 840 && height >= 480;
+      expect(find.byType(twoColumn ? GridJumpBackInSection : JumpBackInSection), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byType(twoColumn ? GridRecentlyAddedSection : RecentlyAddedSection),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(tester.takeException(), isNull);
       await tearDown(tester, container);
     });
   }
 
-  testWidgets('should_seatUnitGridCards_when_wide', (tester) async {
+  testWidgets('should_seatUnitGridCards_when_twoColumns', (tester) async {
     final container = await richHome(tester, const Size(1280, 800));
-    // N = 8: hero + 12 supporting cards (13), the hero picked from the album / playlist entries.
-    final cards = find.byType(ActivityWideCard).evaluate().length +
-        find.byType(ActivitySmallCard).evaluate().length +
-        find.byType(ActivityStripCard).evaluate().length +
-        find.byType(ActivityHeroCard).evaluate().length;
-    expect(cards, 13);
-    // Jump Back In: 9 lanes × 2 rows of covers, all the same size.
-    final covers = find.descendant(of: find.byType(JumpBackInSection), matching: find.byType(JbiCoverCell));
-    expect(covers, findsNWidgets(18));
+    // Activities | Jump Back In share the first row. Activities' half (598) is a Medium column: the unit bento.
+    expect(find.byType(GridActivitiesSection), findsOneWidget);
+    expect(find.byType(ActivityHeroCard), findsOneWidget);
+    // Jump Back In: two unit rows of U − 44 covers, as many columns as the half seats (5), all one size.
+    final covers = find.descendant(of: find.byType(GridJumpBackInSection), matching: find.byType(JbiCoverCell));
+    expect(covers.evaluate().length, inInclusiveRange(1, 10));
     final sizes = covers.evaluate().map((e) => tester.getSize(find.byWidget(e.widget)).width).toSet();
     expect(sizes, hasLength(1));
-    // Lanes stagger: not every cover in the first row starts at the same height.
     final tops = covers.evaluate().map((e) => tester.getTopLeft(find.byWidget(e.widget)).dy).toSet();
-    expect(tops.length, greaterThan(2));
+    expect(tops.length, lessThanOrEqualTo(2));
     await tearDown(tester, container);
   });
 

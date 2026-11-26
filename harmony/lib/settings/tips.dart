@@ -159,7 +159,7 @@ class TipsScreen extends ConsumerWidget {
                 key: ValueKey(tip),
                 icon: tip.icon,
                 title: tip.title(zh: zh),
-                summary: tip.text(zh: zh),
+                summary: tip.text(zh: zh, largeScreen: homeTipLargeScreen(context)),
                 onTap: () => openTip(context, tip),
                 // The check fades on the effects spring; the row never changes size.
                 trailing: SpringFade(

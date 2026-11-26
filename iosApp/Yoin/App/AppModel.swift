@@ -20,6 +20,9 @@ enum Route: Hashable {
     /// What others say on NeoDB about an album (Android NeoDbVoicesActivity, #192): from the rate sheet's
     /// NeoDB line and the memory diary.
     case neoDBVoices(Album)
+    /// Choose a match: a music link from a service the user has no account on, searched on the account in
+    /// use (Open in Yoin, docs/open-in-yoin.md; Android OpenInResultsActivity).
+    case openInResults(OpenInResultsRequest)
 }
 
 enum ShellSection: Hashable {
@@ -87,8 +90,12 @@ final class AppModel {
     /// Deferred stage toggle when ⌘F or ⌘L opens Now Playing from the closed bar.
     enum PendingNPKeyCommand { case focus, lyrics }
     @ObservationIgnored var pendingNPKeyCommand: PendingNPKeyCommand?
-    /// Home's edit mode, for ⌘[ (HomeView registers it).
-    @ObservationIgnored weak var homeEdit: HomeEditController?
+    /// Home's edit mode, for ⌘[ and the shell's chrome (HomeView registers it). Observed: the floating bar and
+    /// the mini player step away while Home is edited (Android hides its nav for edit mode's own chrome).
+    var homeEdit: HomeEditController?
+    /// The one Home edit session: it outlives a Home the shell rebuilds (iPad's columns appearing or going at an
+    /// 840 pt window, a rotation of an 11" iPad), so an open draft follows the new width instead of closing.
+    @ObservationIgnored private(set) lazy var homeEditor = HomeEditController()
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
@@ -168,6 +175,12 @@ final class AppModel {
     /// What the screens read from that server (signed out: nothing; the
     /// screens fall back to the mock library).
     let store: LibraryStore
+    /// "Open in Yoin" (the share extension) and the clipboard music-link card (OpenIn/).
+    let openIn = OpenInCoordinator()
+    /// The clipboard check on each return to the front (OpenIn/ClipboardLinks.swift).
+    @ObservationIgnored let clipboardWatcher = ClipboardLinkWatcher()
+    /// Text Search opens with, taken once (Open in Yoin's shared text that holds no link).
+    @ObservationIgnored var searchStartQuery: String?
     /// Queue sheet on Now Playing.
     var queueSheetOpen = false
     /// Bumps when songs went into Spotify's own queue: the queue sheet reads it again.
@@ -252,6 +265,7 @@ final class AppModel {
         profiles.useFakeSpotify()
         #endif
         observeSpotifyAccount()
+        configureOpenIn()
         memories.onOpenChange = { [weak self] open in self?.noteBackSurface(.memories, open: open) }
         #if DEBUG
         if let order = UserDefaults.standard.string(forKey: "backOrderDemo") {
@@ -266,6 +280,9 @@ final class AppModel {
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
             var album = library.albums()[0]
             #if DEBUG
+            // `-albumIndex 2`: another mock album (a shorter one shows the list's end on a phone).
+            let index = UserDefaults.standard.integer(forKey: "albumIndex")
+            if library.albums().indices.contains(index) { album = library.albums()[index] }
             // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
             // stream; `open` also opens the third one's reason.
             if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
@@ -394,6 +411,7 @@ final class AppModel {
         signInFromLaunchArguments()
         runProfilesScript()
         runSpotifyIssueDemo()
+        OpenInDemo.launch(self)
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
@@ -551,7 +569,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, .openInResults, nil: return nil
         }
     }
 
@@ -685,7 +703,18 @@ final class AppModel {
 
     /// An album with the most the app knows: the server's detail when loaded.
     func resolved(_ album: Album) -> Album {
-        guard album.id.provider != "mock" else { return album }
+        guard album.id.provider != "mock" else {
+            #if DEBUG
+            // `-albumReleaseDate 2022-06-12` (or "2022-06", "2022"): the mock albums dated that precisely, for
+            // screenshots of the header's date, the line under the tracks and the receipt.
+            if let iso = UserDefaults.standard.string(forKey: "albumReleaseDate") {
+                var dated = album
+                dated.releaseDate = ReleaseDateISO.parse(iso)
+                return dated
+            }
+            #endif
+            return album
+        }
         return store.album(album.id.rawId) ?? album
     }
 
@@ -898,7 +927,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil:
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, .openInResults, nil:
             return []
         }
     }

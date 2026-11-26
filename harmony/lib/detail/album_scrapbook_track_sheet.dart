@@ -6,7 +6,7 @@
 /// About: every fact and question, each with a pencil; a long press edits
 /// too. The editor has Delete, Regenerate (not on the listener's own
 /// entries) and Done; a delete or a regenerate can be undone from the
-/// notice. Under them, a new entry: a title first, then Ask Gemini or Write it
+/// notice. Under them, a new entry: a title first, then Ask (the AI service in use) or Write it
 /// yourself; while the empty title has the keyboard, the quick questions not
 /// asked yet sit under it.
 ///
@@ -27,9 +27,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/about/song_about_store.dart';
+import '../data/ai/ai_settings.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../memories/memory_rate_sheet.dart' show HorizontalRatingBar;
+import '../notes/editor/note_editor_controller.dart';
+import '../notes/editor/note_editor_display.dart';
+import '../notes/editor/note_format_toolbar.dart';
+import '../notes/editor/note_markup_field.dart';
 import '../notes/note_markup_text.dart';
 import '../nowplaying/about_logic.dart' show remainingQuickPrompts;
 import '../nowplaying/about_widgets.dart' show QuickPrompts, ThinkingDots, markdownBoldSpan;
@@ -40,6 +45,7 @@ import '../settings/ai_settings_screen.dart' show AiSpringSwap;
 import '../settings/settings_components.dart' show SpringReveal;
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
+import '../ui/component/ai_service_scope.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'album_scrapbook.dart';
 import 'album_scrapbook_editor.dart';
@@ -85,10 +91,10 @@ abstract final class ScrapTrackSheetScope {
 }
 
 /// What the sheet says for a failed AI call.
-String scrapFailureText(DetailStrings strings, ScrapFailure failure) => switch (failure) {
-  ScrapFailure.keyMissing => strings.scrapApiKeyMissing,
-  ScrapFailure.failed => strings.scrapGeminiFailed,
-  ScrapFailure.nothingNew => strings.scrapGeminiNothing,
+String scrapFailureText(DetailStrings strings, ScrapFailure failure, AiProvider provider) => switch (failure) {
+  ScrapFailure.keyMissing => strings.aiKeyMissing(provider),
+  ScrapFailure.failed => strings.aiFailed(provider),
+  ScrapFailure.nothingNew => strings.aiNothingNew(provider),
 };
 
 /// Opens [trackId]'s sheet on [tab] (on the About row [editing], from Now Playing's Manage).
@@ -191,7 +197,10 @@ class _ScrapTrackSheetState extends ConsumerState<ScrapTrackSheet> {
       case ScrapRegenerated(:final restore):
         _say(_Notice(strings.scrapRegenerated, icon: YoinSymbols.sparkle, undo: restore));
       case ScrapFailed(:final failure):
-        _say(_Notice(scrapFailureText(strings, failure), icon: YoinSymbols.error));
+        _say(_Notice(scrapFailureText(strings, failure, AiServiceScope.read(context)), icon: YoinSymbols.error));
+      case ScrapAlbumAboutFailed():
+        // The album's own About: its sheet or the page says it.
+        break;
     }
   }
 
@@ -893,7 +902,7 @@ class _GenerateAbout extends StatelessWidget {
                         ThinkingDots(color: scheme.tertiary),
                         const SizedBox(width: 10),
                         Text(
-                          strings.scrapAboutGenerating,
+                          strings.aiWriting(AiServiceScope.of(context)),
                           style: theme.textTheme.labelLarge?.copyWith(color: scheme.onSurfaceVariant),
                         ),
                       ],
@@ -901,7 +910,7 @@ class _GenerateAbout extends StatelessWidget {
                   )
                 : Center(
                     child: _EditorButton(
-                      label: strings.scrapAboutGenerate,
+                      label: strings.aiGenerateWith(AiServiceScope.of(context)),
                       icon: YoinSymbols.sparkle,
                       container: colors.review,
                       content: colors.onReview,
@@ -1219,7 +1228,7 @@ class _Byline extends StatelessWidget {
       children: [
         if (!own) ...[Icon(YoinSymbols.sparkle, size: 14, color: color), const SizedBox(width: 4)],
         Text(
-          own ? strings.scrapByYou : strings.scrapByGemini,
+          own ? strings.scrapByYou : strings.aiByline(AiServiceScope.of(context)),
           style: Theme.of(
             context,
           ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600, letterSpacing: 0.2, color: color),
@@ -1529,7 +1538,7 @@ class _EditField extends StatelessWidget {
   }
 }
 
-/// A new entry: its title first, then Ask Gemini, or Write to type it
+/// A new entry: its title first, then Ask the AI service in use, or Write to type it
 /// yourself (the button becomes Save). While the empty title has the
 /// keyboard, the quick questions not asked yet sit under it; one fills the title.
 class _NewEntry extends StatefulWidget {
@@ -1659,7 +1668,13 @@ class _NewEntryState extends State<_NewEntry> {
                         children: [
                           const Icon(YoinSymbols.sparkle, size: 18),
                           const SizedBox(width: 6),
-                          Flexible(child: Text(strings.scrapAskGemini, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          Flexible(
+                            child: Text(
+                              strings.aiAskProvider(AiServiceScope.of(context)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1881,6 +1896,7 @@ class _NotesTabState extends State<_NotesTab> {
                   colors: widget.colors,
                   highlighted: _picked == row.key,
                   focused: note.id == widget.focusNote,
+                  lyricsIn: !lyrics.loading,
                   onTap: () => _noteMenu(rowContext, note),
                 ),
               ),
@@ -2000,7 +2016,7 @@ class _NoteStamp extends StatelessWidget {
       fontWeight: FontWeight.w600,
       fontSize: 12,
       letterSpacing: 0.3,
-      color: colors.ink,
+      color: colors.noteMark,
     ),
   );
 }
@@ -2014,12 +2030,17 @@ class _NoteCard extends StatefulWidget {
     required this.highlighted,
     required this.onTap,
     this.focused = false,
+    this.lyricsIn = true,
   });
 
   final SongNote note;
   final ScrapbookColors colors;
   final bool highlighted;
   final bool focused;
+
+  /// False while the lyrics are still coming: their lines then land above the note and push it down, so a
+  /// [focused] note is brought into view again once they are in (a slow lyrics read outlasts the settle).
+  final bool lyricsIn;
   final VoidCallback onTap;
 
   @override
@@ -2039,12 +2060,20 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(_NoteCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.focused && !oldWidget.focused) _focus();
+    if (widget.focused && !oldWidget.focused) {
+      _focus();
+    } else if (widget.focused && widget.lyricsIn && !oldWidget.lyricsIn) {
+      _bringIntoView();
+    }
     if (!widget.focused) _ring.animateTo(0);
   }
 
   void _focus() {
     _ring.animateTo(1);
+    _bringIntoView();
+  }
+
+  void _bringIntoView() {
     _settle?.cancel();
     _settle = Timer(const Duration(milliseconds: ScrapSheetMetrics.focusNoteSettleMs), () {
       if (!mounted) return;
@@ -2078,7 +2107,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner),
             side: BorderSide(
-              color: colors.ink.withValues(alpha: _ring.value.clamp(0.0, 1.0)),
+              color: colors.noteMark.withValues(alpha: _ring.value.clamp(0.0, 1.0)),
               width: ScrapSheetMetrics.focusRing,
             ),
           ),
@@ -2088,7 +2117,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
         child: InkWell(
           onTap: widget.onTap,
           child: CustomPaint(
-            painter: _Rail(colors.ink),
+            painter: _Rail(colors.noteMark),
             child: Padding(
               padding: const EdgeInsetsDirectional.fromSTEB(24, 10, 14, 12),
               child: Column(
@@ -2105,7 +2134,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
                         letterSpacing: 0,
                         color: colors.onNote,
                       ),
-                      mentionColor: colors.ink,
+                      mentionColor: colors.noteMark,
                     ),
                   ),
                 ],
@@ -2118,7 +2147,9 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
   }
 }
 
-/// A note being written or changed in place: an emptied existing note is deleted (with Undo).
+/// A note being written or changed in place: an emptied existing note is deleted (with Undo). The same
+/// note editor as Now Playing's write bar and the album's stickies (`lib/notes/editor`, Android #310): @
+/// mentions as chips with the live popup, list / to-do / heading shortcuts, and the formatting row.
 class _NoteEditor extends StatefulWidget {
   const _NoteEditor({
     required this.positionMs,
@@ -2130,10 +2161,14 @@ class _NoteEditor extends StatefulWidget {
   });
 
   final int? positionMs;
+
+  /// The stored text (markup: mentions as links).
   final String text;
   final ScrapbookColors colors;
   final bool canDelete;
   final VoidCallback onDelete;
+
+  /// The stored text as written.
   final ValueChanged<String> onDone;
 
   @override
@@ -2141,8 +2176,8 @@ class _NoteEditor extends StatefulWidget {
 }
 
 class _NoteEditorState extends State<_NoteEditor> {
-  late final TextEditingController _field = TextEditingController(text: widget.text)
-    ..selection = TextSelection.collapsed(offset: widget.text.length);
+  // The stored text, caret at its end (NoteEditorController starts it there).
+  late final NoteEditorController _field = NoteEditorController(stored: widget.text);
   final FocusNode _focus = FocusNode();
 
   @override
@@ -2170,73 +2205,86 @@ class _NoteEditorState extends State<_NoteEditor> {
     final userText = theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.5, letterSpacing: 0);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: DecoratedBox(
-        decoration: ShapeDecoration(
-          color: c.note,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner)),
-        ),
-        child: CustomPaint(
-          painter: _Rail(c.ink),
-          child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(24, 10, 14, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (at != null) _NoteStamp(at, c),
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: TextField(
-                    controller: _field,
-                    focusNode: _focus,
-                    maxLines: null,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: userText?.copyWith(color: c.onNote),
-                    cursorColor: c.ink,
-                    decoration: InputDecoration(
-                      isCollapsed: true,
-                      hintText: at == null ? strings.scrapNoteHintPlain : strings.scrapNoteHint(at),
-                      hintStyle: userText?.copyWith(color: c.onNote.withValues(alpha: 0.5)),
-                      contentPadding: const EdgeInsets.only(bottom: 4),
-                      enabledBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: c.ink.withValues(alpha: 0.6), width: 2),
+      // The whole card (stamp, formatting row, buttons) is the field, for @ mode (noteEditorContainer).
+      child: TextFieldTapRegion(
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            color: c.note,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner)),
+          ),
+          child: CustomPaint(
+            painter: _Rail(c.noteMark),
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(24, 10, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (at != null) _NoteStamp(at, c),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: NoteMarkupField(
+                      key: const ValueKey('scrap-note-editor'),
+                      controller: _field,
+                      focusNode: _focus,
+                      style: userText,
+                      // Mentions as the note card draws them once saved: in the page's ink.
+                      colors: NoteEditorColors(
+                        text: c.onNote,
+                        chip: c.noteMark.withValues(alpha: 0.14),
+                        chipText: c.noteMark,
                       ),
-                      focusedBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: c.ink.withValues(alpha: 0.6), width: 2),
+                      cursorColor: c.noteMark,
+                      decoration: InputDecoration.collapsed(
+                        hintText: at == null ? strings.scrapNoteHintPlain : strings.scrapNoteHint(at),
+                        hintStyle: userText?.copyWith(color: c.onNote.withValues(alpha: 0.5)),
                       ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Row(
-                    children: [
-                      if (widget.canDelete)
-                        _EditorButton(
-                          label: strings.scrapDelete,
-                          icon: YoinSymbols.delete,
-                          container: scheme.surface.withValues(alpha: 0.7),
-                          content: scheme.error,
-                          onTap: widget.onDelete,
-                        )
-                      else
-                        TextButton(onPressed: widget.onDelete, child: Text(strings.scrapCancel)),
-                      const Spacer(),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: c.ink,
-                          foregroundColor: c.onInk,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: ScrapSheetMetrics.editorPadH,
-                            vertical: ScrapSheetMetrics.editorPadV,
-                          ),
-                        ),
-                        onPressed: () => widget.onDone(_field.text),
-                        child: Text(strings.scrapDone),
-                      ),
-                    ],
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: SizedBox(height: 2, child: ColoredBox(color: c.noteMark.withValues(alpha: 0.6))),
                   ),
-                ),
-              ],
+                  // The card is narrow on a phone: the formatting row scrolls on a line of its own, the
+                  // buttons under it.
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: NoteFormatToolbar(controller: _field),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        if (widget.canDelete)
+                          _EditorButton(
+                            label: strings.scrapDelete,
+                            icon: YoinSymbols.delete,
+                            container: scheme.surface.withValues(alpha: 0.7),
+                            content: scheme.error,
+                            onTap: widget.onDelete,
+                          )
+                        else
+                          TextButton(onPressed: widget.onDelete, child: Text(strings.scrapCancel)),
+                        const Spacer(),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: c.ink,
+                            foregroundColor: c.onInk,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: ScrapSheetMetrics.editorPadH,
+                              vertical: ScrapSheetMetrics.editorPadV,
+                            ),
+                          ),
+                          onPressed: () => widget.onDone(_field.storedText),
+                          child: Text(strings.scrapDone),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

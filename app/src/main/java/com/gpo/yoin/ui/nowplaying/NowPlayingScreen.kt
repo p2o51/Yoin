@@ -1,4 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
@@ -325,7 +327,9 @@ fun NowPlayingScreen(
     // Delete with undo: a deleted note leaves every pane (and the seek-bar
     // notches) at once, is offered back in its place on the Note page, and
     // is deleted for real only when the undo window closes — or when Now
-    // Playing leaves the screen.
+    // Playing leaves the screen, or the app leaves it (stopped: the process
+    // may be killed in the background before the window would close, and the
+    // note would come back).
     val noteDeletion = remember { NoteDeletionState() }
     val latestDeleteNote by rememberUpdatedState(onDeleteNote)
     val latestNotes by rememberUpdatedState(notesState)
@@ -336,6 +340,7 @@ fun NowPlayingScreen(
     DisposableEffect(noteDeletion) {
         onDispose { noteDeletion.commit(latestDeleteNote) }
     }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { noteDeletion.commit(latestDeleteNote) }
     LaunchedEffect(notesState) { noteDeletion.prune(notesState) }
     val visibleNotes = remember(notesState, noteDeletion.hiddenIds) { noteDeletion.visible(notesState) }
     val requestNoteDelete: (String) -> Unit = remember(noteDeletion) {
@@ -2467,6 +2472,7 @@ private fun CompactPlayingContent(
                                                 current = state.noteTarget(),
                                                 positionMs = positionMs,
                                                 onSave = onSaveNote,
+                                                onShareEditing = rememberNoteShare(),
                                                 // The keyboard comes once the page
                                                 // has landed, not mid-reshape.
                                                 focusGate = stageMode == NowPlayingStageMode.Expanded &&
@@ -3247,6 +3253,7 @@ private fun WidePlayingContent(
                                             current = state.noteTarget(),
                                             positionMs = positionMs,
                                             onSave = onSaveNote,
+                                            onShareEditing = rememberNoteShare(),
                                             focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -4078,6 +4085,7 @@ private fun LandscapePlayingContent(
                                     current = state.noteTarget(),
                                     positionMs = positionMs,
                                     onSave = onSaveNote,
+                                    onShareEditing = rememberNoteShare(),
                                     inline = true,
                                     focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
                                         detailProgress >= NoteWriteFocusStageProgress,
