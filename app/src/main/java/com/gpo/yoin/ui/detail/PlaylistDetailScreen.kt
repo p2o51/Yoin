@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.ExplicitBadge
+import com.gpo.yoin.ui.component.ExplicitBadgeGap
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -1552,6 +1554,12 @@ private fun PlaylistTrackRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
+                if (song.isExplicit) {
+                    ExplicitBadge(
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = ExplicitBadgeGap),
+                    )
+                }
                 PlaylistNoteMarker(visible = hasNote, accent = accent)
             }
             PlaylistTrackCredit(artist = song.artist, album = song.album)

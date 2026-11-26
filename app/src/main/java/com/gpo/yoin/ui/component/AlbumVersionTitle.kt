@@ -8,6 +8,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -30,7 +32,9 @@ import kotlin.math.min
 
 /**
  * [name] as [title] draws it, then [version] as a tag right after the name's
- * last character. Without a version it is [title] alone, the name untouched.
+ * last character, then the [ExplicitBadge] when [explicit]. Without a version
+ * it is [ExplicitTitle] (which, not explicit either, is [title] alone, the name
+ * untouched).
  * [title] gets the name to draw and a modifier to put on it; [titleStyle] is
  * the style it draws in, to measure the name with (a MarqueeText always fills
  * its width, so the name is given just the width it needs and the tag sits
@@ -46,25 +50,53 @@ fun AlbumVersionTitle(
     modifier: Modifier = Modifier,
     tagStyle: TextStyle = MaterialTheme.typography.labelSmall,
     nameEllipsizes: Boolean = true,
+    /** The release is marked explicit: the [ExplicitBadge] follows the name (and its tag), never cut. */
+    explicit: Boolean = false,
     title: @Composable (text: String, modifier: Modifier) -> Unit,
 ) {
     val tag = version?.trim()?.takeIf(String::isNotEmpty)
     if (tag == null) {
-        title(name, modifier)
+        ExplicitTitle(
+            text = name,
+            explicit = explicit,
+            style = titleStyle,
+            modifier = modifier,
+            fillsWidth = !nameEllipsizes,
+        ) { titleModifier -> title(name, titleModifier) }
         return
     }
     val shown = albumNameWithoutVersion(name, tag)
     val measurer = rememberTextMeasurer()
     Layout(
-        modifier = modifier,
+        modifier = if (explicit) modifier.explicitTitleSemantics() else modifier,
         content = {
             title(shown, Modifier)
             AlbumVersionTag(version = tag, style = tagStyle)
+            if (explicit) ExplicitBadge(textStyle = titleStyle, describe = false)
         },
-    ) { measurables, constraints ->
+    ) { measurables, outer ->
         val gap = TagGap.roundToPx()
         // +1: the measured width is rounded down; a pixel less would ellipsize or scroll.
         val natural = measurer.measure(shown, titleStyle, maxLines = 1, softWrap = false).size.width + 1
+        // The badge is never cut: the name and its tag share what it leaves. But the name wins: where the
+        // badge would leave it less than half the tile (or less than itself), the badge is left out.
+        val badgeMeasurable = measurables.getOrNull(2)
+        val showBadge = badgeMeasurable != null && (
+            !outer.hasBoundedWidth || run {
+                val badgeRoom = badgeMeasurable.maxIntrinsicWidth(outer.maxHeight) + gap
+                val rest = (outer.maxWidth - badgeRoom).coerceAtLeast(0)
+                val tagWidth = measurables[1].maxIntrinsicWidth(outer.maxHeight)
+                val tagShown = min(tagWidth, versionTagMaxWidth(rest, natural, tagWidth, gap))
+                explicitBadgeFits(outer.maxWidth, rest - tagShown - gap, natural)
+            }
+            )
+        val badge = if (showBadge) badgeMeasurable?.measure(Constraints()) else null
+        val badgeRoom = badge?.let { it.width + gap } ?: 0
+        val constraints = if (outer.hasBoundedWidth) {
+            outer.copy(minWidth = 0, maxWidth = (outer.maxWidth - badgeRoom).coerceAtLeast(0))
+        } else {
+            outer
+        }
         val tagMax = if (constraints.hasBoundedWidth) {
             versionTagMaxWidth(
                 maxWidth = constraints.maxWidth,
@@ -100,11 +132,23 @@ fun AlbumVersionTitle(
         } else {
             titlePlaceable.width
         }
-        val width = (nameEnd + gap + tagPlaceable.width).coerceIn(constraints.minWidth, constraints.maxWidth)
-        val height = max(titlePlaceable.height, tagPlaceable.height).coerceAtLeast(constraints.minHeight)
+        val tagEnd = nameEnd + gap + tagPlaceable.width
+        val width = (tagEnd + badgeRoom).coerceIn(outer.minWidth, outer.maxWidth)
+        val height = max(titlePlaceable.height, tagPlaceable.height).coerceAtLeast(outer.minHeight)
+        val titleY = (height - titlePlaceable.height) / 2
+        val titleBaseline = titlePlaceable[FirstBaseline]
         layout(width, height) {
-            titlePlaceable.place(0, (height - titlePlaceable.height) / 2)
+            titlePlaceable.place(0, titleY)
             tagPlaceable.place(nameEnd + gap, (height - tagPlaceable.height) / 2)
+            // On the name's baseline, like a capital letter (ExplicitBadge).
+            badge?.place(
+                tagEnd + gap,
+                if (titleBaseline == AlignmentLine.Unspecified) {
+                    (height - badge.height) / 2
+                } else {
+                    (titleY + titleBaseline - badge.height).coerceAtLeast(0)
+                },
+            )
         }
     }
 }

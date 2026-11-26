@@ -41,6 +41,7 @@ internal data class HomeFeedDto(
     val heroSongCount: Int? = null,
     val heroMinutes: Int? = null,
     val heroVersion: String? = null,
+    val heroExplicit: Boolean = false,
     val widgetGrid: List<HomeCardDto> = emptyList(),
     val recentlyAddedTracks: List<TrackDto> = emptyList(),
     val recentlyAddedAlbums: List<AlbumDto> = emptyList(),
@@ -98,7 +99,8 @@ internal fun HomeFeedDto.keepingFrom(previous: HomeFeedDto?, blocks: Set<HomeNet
                     heroYear = previous.heroYear,
                     heroSongCount = previous.heroSongCount,
                     heroMinutes = previous.heroMinutes,
-                    heroVersion = previous.heroVersion
+                    heroVersion = previous.heroVersion,
+                    heroExplicit = previous.heroExplicit
                 )
             }
         }
@@ -180,7 +182,9 @@ internal data class HomeCardDto(
     val commentSerif: Boolean = true,
     val expanded: Boolean = false,
     val target: HomeCardTargetDto,
-    val version: String? = null
+    val version: String? = null,
+    // The "E" badge; absent in snapshots written before it (read as not explicit until Home refreshes).
+    val explicit: Boolean = false
 )
 
 /** A card's tap: [kind] is album | playlist | song | memory, with its [id], [song] or [sessionId]. */

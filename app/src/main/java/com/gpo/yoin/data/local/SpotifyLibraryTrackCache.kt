@@ -21,4 +21,6 @@ data class SpotifyLibraryTrackCache(
     val cachedAt: Long,
     val pendingFavoriteAction: Boolean = false,
     val lastSyncError: String? = null,
+    /** [com.gpo.yoin.data.model.ContentRating] by name; null = unknown (and every row from before v38). */
+    val contentRating: String? = null,
 )

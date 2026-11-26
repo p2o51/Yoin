@@ -60,6 +60,8 @@ fun SongListItem(
     isPlaying: Boolean = false,
     extractBackdropColors: Boolean = true,
     hasNote: Boolean = false,
+    /** The service marks the song explicit: the "E" badge follows the title ([ExplicitBadge]). */
+    isExplicit: Boolean = false,
     modifier: Modifier = Modifier,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
     /**
@@ -176,6 +178,12 @@ fun SongListItem(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (isExplicit) {
+                        ExplicitBadge(
+                            textStyle = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(start = ExplicitBadgeGap),
+                        )
+                    }
                     if (hasNote) {
                         Icon(
                             imageVector = YoinSymbols.Note,
@@ -232,6 +240,12 @@ private fun SongListItemPausedPreview() {
     SongListItemPreviewContent(isCurrentTrack = true)
 }
 
+@Preview(name = "Explicit track", showBackground = true)
+@Composable
+private fun SongListItemExplicitPreview() {
+    SongListItemPreviewContent(isExplicit = true)
+}
+
 @Preview(name = "Unavailable track", showBackground = true)
 @Composable
 private fun SongListItemUnavailablePreview() {
@@ -243,6 +257,7 @@ private fun SongListItemPreviewContent(
     isCurrentTrack: Boolean = false,
     isPlaying: Boolean = false,
     isUnavailable: Boolean = false,
+    isExplicit: Boolean = false,
 ) {
     YoinTheme {
         SongListItem(
@@ -256,6 +271,7 @@ private fun SongListItemPreviewContent(
             isPlaying = isPlaying,
             hasNote = true,
             isUnavailable = isUnavailable,
+            isExplicit = isExplicit,
         )
     }
 }
