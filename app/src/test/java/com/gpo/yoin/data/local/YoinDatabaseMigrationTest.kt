@@ -2268,4 +2268,83 @@ class YoinDatabaseMigrationTest {
 
         migrated.close()
     }
+
+    /**
+     * From the v37 schema exactly as shipped (`app/schemas/.../37.json`, main's export, not rebuilt
+     * from the v24 chain): MIGRATION_37_38 must give what Room expects of v38, or the open throws. Guards
+     * the export itself too (a v37 export rewritten with v38's columns would hide a missing ALTER).
+     */
+    @Test
+    fun should_migrateTheShipped37Schema_to_38() = runTest {
+        val schema = org.json.JSONObject(
+            java.io.File("schemas/com.gpo.yoin.data.local.YoinDatabase/37.json").readText(),
+        ).getJSONObject("database")
+        assertEquals(37, schema.getInt("version"))
+        val entities = schema.getJSONArray("entities")
+        for (i in 0 until entities.length()) {
+            val entity = entities.getJSONObject(i)
+            val table = entity.getString("tableName")
+            if (table == "spotify_library_album_cache" || table == "spotify_library_track_cache") {
+                val columns = entity.getJSONArray("fields")
+                val names = (0 until columns.length()).map { columns.getJSONObject(it).getString("columnName") }
+                assertTrue("$table at v37 has no contentRating yet", "contentRating" !in names)
+            }
+        }
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(37) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            for (i in 0 until entities.length()) {
+                                val entity = entities.getJSONObject(i)
+                                val table = entity.getString("tableName")
+                                db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+                                val indices = entity.optJSONArray("indices") ?: continue
+                                for (j in 0 until indices.length()) {
+                                    db.execSQL(
+                                        indices.getJSONObject(j).getString("createSql")
+                                            .replace("\${TABLE_NAME}", table),
+                                    )
+                                }
+                            }
+                            schema.optJSONArray("views")?.let { views ->
+                                for (i in 0 until views.length()) {
+                                    val view = views.getJSONObject(i)
+                                    db.execSQL(
+                                        view.getString("createSql")
+                                            .replace("\${VIEW_NAME}", view.getString("viewName")),
+                                    )
+                                }
+                            }
+                            db.execSQL(
+                                "INSERT INTO spotify_library_album_cache (profileId, albumId, name, artist, artistId, " +
+                                    "coverArtKey, songCount, year, isSaved, addedAt, cachedAt) VALUES " +
+                                    "('p1', 'al-1', 'DAMN.', 'Kendrick Lamar', NULL, NULL, 14, 2017, 1, NULL, 10)",
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_37_38)
+            .allowMainThreadQueries()
+            .build()
+        val album = requireNotNull(migrated.spotifyLibraryCacheDao().getAlbum("p1", "al-1"))
+        assertEquals(null, album.contentRating)
+        assertEquals(null, album.releaseType)
+        assertEquals(38, migrated.openHelper.readableDatabase.version)
+
+        migrated.close()
+    }
 }
