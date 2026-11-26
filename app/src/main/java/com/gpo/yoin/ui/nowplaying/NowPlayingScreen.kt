@@ -300,9 +300,6 @@ fun NowPlayingScreen(
     notesState: List<SongNote> = emptyList(),
     onSaveNote: (NoteSaveRequest) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
-    // The Note page's "对齐到现在": re-anchor a note to a new song moment
-    // (NowPlayingViewModel.realignNote). Null leaves the menu with delete only.
-    onRealignNote: ((SongNote, Long) -> Unit)? = null,
     // A tap on a to-do's box in a note: (note id, line) → NowPlayingViewModel.toggleNoteChecklist.
     onToggleNoteChecklist: ((String, Int) -> Unit)? = null,
     // The one note draft. Held at this root by default (survives a recycled
@@ -429,7 +426,7 @@ fun NowPlayingScreen(
     val latestRequestNoteDelete by rememberUpdatedState(requestNoteDelete)
     val glowSaveNote: (NoteSaveRequest) -> Unit = remember(transportSignal) {
         save@{ request ->
-            // An edit saved empty deletes its note, with the same undo as the menu's 删除.
+            // The note menu's edit saved empty deletes its note, with the same undo as its Delete.
             if (request.editingNoteId != null && request.content.isBlank()) {
                 val signal = transportSignal
                 signal.glow(
@@ -563,7 +560,7 @@ fun NowPlayingScreen(
       CompositionLocalProvider(
         LocalNowPlayingTransportSignal provides transportSignal,
         LocalNoteDeletion provides noteDeletion,
-        LocalNoteRealign provides onRealignNote,
+        LocalNoteMenuSave provides glowSaveNote,
         LocalNoteChecklistToggle provides onToggleNoteChecklist,
       ) {
         Box(
@@ -1539,6 +1536,11 @@ private fun CompactPlayingContent(
             }
         }
         val lyricOneLine = restPose.lyricFrame == LyricFrame.OneLine
+        // Option B (owner 2026-11-26): on a fat column (the one-line path) or the enlarged phone the
+        // expanded page's tabs ride the top bar's end; the tab row and its gap go to the page.
+        val tabsInTopBar = nowPlayingTabsInTopBar(lyricOneLine, enlarged = enlarged != null)
+        val expandedTabRow = if (tabsInTopBar) 0.dp else ExpandedTabRowHeight
+        val expandedTabGap = if (tabsInTopBar) 0.dp else ExpandedTabGap
         // In focus the lyric slot keeps its list where four lines still fit
         // (tablet portrait), else it cross-fades to the one-line preview.
         val focusKeepsList = focusPose.lyricFrame == LyricFrame.List
@@ -1645,8 +1647,8 @@ private fun CompactPlayingContent(
         val coverRowHeight = lerpDp(stage(restPose.cover, focusPose.cover, 0.dp), shortFocusCover, shortFocusProgress)
         val coverRowAlpha = compactProgress
         val topBarHeight = stage(restPose.topBar, focusPose.topBar, ExpandedTopBarHeight)
-        val tabHeight = stage(restPose.tabs, focusPose.tabs, ExpandedTabRowHeight)
-        val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, ExpandedTabGap)
+        val tabHeight = stage(restPose.tabs, focusPose.tabs, expandedTabRow)
+        val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, expandedTabGap)
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
         val ratingGap = lerpDp(YoinTokens.NowPlaying.RATING_GAP.dp, 0.dp, ratingRetreatProgress)
         // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
@@ -1689,13 +1691,14 @@ private fun CompactPlayingContent(
             onMessage = onLyricsMessage,
         )
         val lyricToolsAlpha by rememberLyricToolsAlpha(lyricToolsIdle, label = "lyricToolsAlpha")
-        // Bottom tools collapse their slot when they move up (16:9) or step
-        // away (idle): the title sinks to where the tools' bottom edge was and
-        // the lyrics grow into the space.
-        val toolsSlotCollapsesWhenIdle = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected &&
-            !lyricOneLine
+        // Bottom tools (and the page's Share beside them) collapse their slot
+        // when they step away (idle): the title sinks to where the tools'
+        // bottom edge was and the lyrics grow into the space. Every column
+        // keeps them at the bottom now — the fat one's tabs went up to the
+        // top bar, not its tools (option B).
+        val toolsSlotCollapsesWhenIdle = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected
         val accessoryToolsCollapsed = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected &&
-            (lyricOneLine || lyricToolsIdle.idle)
+            lyricToolsIdle.idle
         // The Expanded page's accessory (lyric tools / Ask / Note) animates
         // between its own heights; at rest the slot is the budget's pill slot.
         // Keyboard up over the expanded Note page: the title steps aside (into
@@ -1738,8 +1741,8 @@ private fun CompactPlayingContent(
             topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
                 coverRowHeight.roundToPx() + controlsHeight.roundToPx() +
                 coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
-                tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
-                tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx() +
+                tabHeight.roundToPx() - expandedTabRow.roundToPx() +
+                tabSpacerHeight.roundToPx() - expandedTabGap.roundToPx() +
                 heroHeight.roundToPx() - expandedHeroHeight.roundToPx() +
                 bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx() -
                 focusLyricOverflowPx
@@ -1751,8 +1754,8 @@ private fun CompactPlayingContent(
             topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
                 coverRowHeight.roundToPx() +
                 coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
-                tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
-                tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx()
+                tabHeight.roundToPx() - expandedTabRow.roundToPx() +
+                tabSpacerHeight.roundToPx() - expandedTabGap.roundToPx()
         }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
@@ -1781,6 +1784,14 @@ private fun CompactPlayingContent(
                 idle = lyricToolsIdle,
             )
         }
+
+        val tabsSelected = NowPlayingDetailPage.entries[pagerState.targetPage]
+        val onSelectTab: (NowPlayingDetailPage) -> Unit = { page ->
+            pagerScope.launch { pagerState.settleToPage(page.ordinal) }
+        }
+        val aboutBusy = aboutUiState is AboutUiState.Loading &&
+            rememberAboutHasSourceRows(state.lyricCredits, state.spineFacts)
+        val pageShare = rememberPageShares(state, aboutUiState, notesState)
 
         Column(
             modifier = Modifier
@@ -1817,6 +1828,11 @@ private fun CompactPlayingContent(
                 onArtistClick = navigationActions.onArtistClick,
                 onPlaylistClick = navigationActions.onPlaylistClick,
                 trailingAction = topBarAction,
+                endTabs = if (tabsInTopBar) {
+                    { CompactTextTabs(selected = tabsSelected, onSelect = onSelectTab, aboutBusy = aboutBusy) }
+                } else {
+                    null
+                },
                 // Clean focus: the bar steps up and away; its slot keeps only
                 // a little air above the grown cover (owner 2026-11-03). The
                 // row keeps its touch height and the slot clips it.
@@ -2052,35 +2068,29 @@ private fun CompactPlayingContent(
 
                     Spacer(modifier = Modifier.height(coverSpacerHeight))
 
-                    val tabsSelected = NowPlayingDetailPage.entries[pagerState.targetPage]
                     StageTabs(
                         selected = tabsSelected,
                         detailProgress = detailProgress,
                         height = tabHeight,
-                        onSelect = { page ->
-                            pagerScope.launch { pagerState.settleToPage(page.ordinal) }
-                        },
-                        // 16:9: the expanded page keeps TEXT tabs, tools at their end.
+                        onSelect = onSelectTab,
+                        // 16:9: the row folds away at rest; expanded, the tabs ride the top bar.
                         textOnly = lyricOneLine,
-                        aboutBusy = aboutUiState is AboutUiState.Loading &&
-                            rememberAboutHasSourceRows(state.lyricCredits, state.spineFacts),
-                        tools = if (
-                            tabsSelected == NowPlayingDetailPage.Lyrics &&
-                            (lyricOneLine || toolsInCompactTabs)
-                        ) {
+                        expandedInTopBar = tabsInTopBar,
+                        aboutBusy = aboutBusy,
+                        // Enlarged at rest: the lyric tools at the tab row's end.
+                        tools = if (tabsSelected == NowPlayingDetailPage.Lyrics && toolsInCompactTabs) {
                             {
                                 Box(
                                     modifier = Modifier
                                         .graphicsLayer {
                                             // Top tools fade IN PLACE when idle — nothing moves.
-                                            alpha = lyricToolsAlpha *
-                                                if (lyricOneLine) detailProgress else 1f
+                                            alpha = lyricToolsAlpha
                                         }
                                         // …but stay where a blind tap lands: while
                                         // they are away it only wakes them.
                                         .lyricToolsInPlaceWakeGuard(lyricToolsIdle),
                                 ) {
-                                    lyricTools(if (lyricOneLine) ShortTabToolSize else EnlargedTabToolSize)
+                                    lyricTools(EnlargedTabToolSize)
                                 }
                             }
                         } else {
@@ -2457,37 +2467,59 @@ private fun CompactPlayingContent(
                                             .padding(horizontal = horizontalPadding),
                                         contentAlignment = Alignment.BottomStart,
                                     ) {
-                                        when (NowPlayingDetailPage.entries[page]) {
-                                            // 16:9 moved the tools up beside the tabs.
-                                            NowPlayingDetailPage.Lyrics -> if (!lyricOneLine) {
-                                                Box(modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha }) {
-                                                    lyricTools(52.dp)
+                                        val detail = NowPlayingDetailPage.entries[page]
+                                        // The page's action fills the row; Share at its end.
+                                        when (detail) {
+                                            NowPlayingDetailPage.Lyrics -> PageActionRow(
+                                                share = pageShare(detail),
+                                                showShare = !lyricsSelection.active,
+                                                keySize = LyricKeySize,
+                                                interactive = !lyricToolsIdle.hidden,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(LyricKeySize)
+                                                    .graphicsLayer { alpha = lyricToolsAlpha },
+                                            ) { lead ->
+                                                Box(modifier = lead, contentAlignment = Alignment.CenterStart) {
+                                                    lyricTools(LyricKeySize)
                                                 }
                                             }
-                                            NowPlayingDetailPage.About -> AskGeminiBar(
-                                                askState = askState,
-                                                onSubmit = onAskQuestion,
-                                                onFocus = onAskBarFocused,
-                                                onCollapseRequest = onAskBarCollapseRequested,
-                                                onDismissError = onDismissAskError,
-                                                asked = aboutUiState.askedQuestions(),
-                                                aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
-                                            )
-                                            NowPlayingDetailPage.Note -> NoteWriteBar(
-                                                state = noteBar,
-                                                current = state.noteTarget(),
-                                                positionMs = positionMs,
-                                                onSave = onSaveNote,
-                                                onShareEditing = rememberNoteShare(),
-                                                // The keyboard comes once the page
-                                                // has landed, not mid-reshape.
-                                                focusGate = stageMode == NowPlayingStageMode.Expanded &&
-                                                    pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
-                                                    detailProgress >= NoteWriteFocusStageProgress,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(top = NoteWriteBarDefaults.TopGap),
-                                            )
+                                            NowPlayingDetailPage.About -> PageActionRow(
+                                                share = pageShare(detail),
+                                                showShare = askState !is AskBarState.Focused,
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) { lead ->
+                                                Box(modifier = lead, contentAlignment = Alignment.BottomStart) {
+                                                    AskGeminiBar(
+                                                        askState = askState,
+                                                        onSubmit = onAskQuestion,
+                                                        onFocus = onAskBarFocused,
+                                                        onCollapseRequest = onAskBarCollapseRequested,
+                                                        onDismissError = onDismissAskError,
+                                                        asked = aboutUiState.askedQuestions(),
+                                                        aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
+                                                    )
+                                                }
+                                            }
+                                            NowPlayingDetailPage.Note -> PageActionRow(
+                                                share = pageShare(detail),
+                                                showShare = !noteBar.open,
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) { lead ->
+                                                NoteWriteBar(
+                                                    state = noteBar,
+                                                    current = state.noteTarget(),
+                                                    positionMs = positionMs,
+                                                    onSave = onSaveNote,
+                                                    filledAtRest = true,
+                                                    // The keyboard comes once the page
+                                                    // has landed, not mid-reshape.
+                                                    focusGate = stageMode == NowPlayingStageMode.Expanded &&
+                                                        pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
+                                                        detailProgress >= NoteWriteFocusStageProgress,
+                                                    modifier = lead.padding(top = NoteWriteBarDefaults.TopGap),
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2667,6 +2699,7 @@ private fun WidePlayingContent(
     // The Note page's write bar; the Write pill asks it for the keyboard.
     val noteBar = rememberNoteWriteBarState(noteDraft)
     ExpirePendingNoteWrite(noteBar)
+    val pageShare = rememberPageShares(state, aboutUiState, notesState)
     var lyricsAutoScroll by remember(state.songId) { mutableStateOf(true) }
     var lyricsRecenterTick by remember(state.songId) { mutableIntStateOf(0) }
 
@@ -3236,45 +3269,69 @@ private fun WidePlayingContent(
                                         .padding(horizontal = 24.dp),
                                     contentAlignment = Alignment.BottomStart,
                                 ) {
-                                    when (NowPlayingDetailPage.entries[page]) {
-                                        NowPlayingDetailPage.Lyrics -> LyricsTools(
-                                            state = state,
-                                            selection = lyricsSelection,
+                                    val detail = NowPlayingDetailPage.entries[page]
+                                    // The page's action fills the row; Share at its end.
+                                    when (detail) {
+                                        NowPlayingDetailPage.Lyrics -> PageActionRow(
+                                            share = pageShare(detail),
+                                            showShare = !lyricsSelection.active,
+                                            keySize = LyricKeySize,
+                                            interactive = !lyricToolsIdle.hidden,
                                             modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(LyricKeySize)
                                                 .graphicsLayer { alpha = lyricToolsAlpha }
                                                 .focusRetreat(focusNow),
-                                            searchBarState = lyricsSearchBarState,
-                                            canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
-                                            onSearchClick = onOpenLyricsSearch,
-                                            onTranslateClick = onTranslateLyrics,
-                                            onRecenterClick = {
-                                                lyricsAutoScroll = true
-                                                lyricsRecenterTick += 1
-                                            },
-                                            onEditLyricsClick = { showApplyDialog = true },
-                                            onMessage = onLyricsMessage,
-                                            idle = lyricToolsIdle,
-                                        )
-                                        NowPlayingDetailPage.About -> AskGeminiBar(
-                                            askState = askState,
-                                            onSubmit = onAskQuestion,
-                                            onFocus = onAskBarFocused,
-                                            onCollapseRequest = onAskBarCollapseRequested,
-                                            onDismissError = onDismissAskError,
-                                            asked = aboutUiState.askedQuestions(),
-                                            aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
-                                        )
-                                        NowPlayingDetailPage.Note -> NoteWriteBar(
-                                            state = noteBar,
-                                            current = state.noteTarget(),
-                                            positionMs = positionMs,
-                                            onSave = onSaveNote,
-                                            onShareEditing = rememberNoteShare(),
-                                            focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(top = NoteWriteBarDefaults.TopGap),
-                                        )
+                                        ) { lead ->
+                                            LyricsTools(
+                                                state = state,
+                                                selection = lyricsSelection,
+                                                modifier = lead,
+                                                searchBarState = lyricsSearchBarState,
+                                                canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
+                                                onSearchClick = onOpenLyricsSearch,
+                                                onTranslateClick = onTranslateLyrics,
+                                                onRecenterClick = {
+                                                    lyricsAutoScroll = true
+                                                    lyricsRecenterTick += 1
+                                                },
+                                                onEditLyricsClick = { showApplyDialog = true },
+                                                onMessage = onLyricsMessage,
+                                                idle = lyricToolsIdle,
+                                            )
+                                        }
+                                        NowPlayingDetailPage.About -> PageActionRow(
+                                            share = pageShare(detail),
+                                            showShare = askState !is AskBarState.Focused,
+                                            modifier = Modifier.fillMaxSize(),
+                                        ) { lead ->
+                                            Box(modifier = lead, contentAlignment = Alignment.BottomStart) {
+                                                AskGeminiBar(
+                                                    askState = askState,
+                                                    onSubmit = onAskQuestion,
+                                                    onFocus = onAskBarFocused,
+                                                    onCollapseRequest = onAskBarCollapseRequested,
+                                                    onDismissError = onDismissAskError,
+                                                    asked = aboutUiState.askedQuestions(),
+                                                    aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
+                                                )
+                                            }
+                                        }
+                                        NowPlayingDetailPage.Note -> PageActionRow(
+                                            share = pageShare(detail),
+                                            showShare = !noteBar.open,
+                                            modifier = Modifier.fillMaxSize(),
+                                        ) { lead ->
+                                            NoteWriteBar(
+                                                state = noteBar,
+                                                current = state.noteTarget(),
+                                                positionMs = positionMs,
+                                                onSave = onSaveNote,
+                                                filledAtRest = true,
+                                                focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
+                                                modifier = lead.padding(top = NoteWriteBarDefaults.TopGap),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -4111,7 +4168,7 @@ private fun LandscapePlayingContent(
                                     current = state.noteTarget(),
                                     positionMs = positionMs,
                                     onSave = onSaveNote,
-                                    onShareEditing = rememberNoteShare(),
+                                    filledAtRest = true,
                                     inline = true,
                                     focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
                                         detailProgress >= NoteWriteFocusStageProgress,
@@ -4726,6 +4783,9 @@ internal fun StageTopBar(
     // the "playing from" slot beside the docked cover (0 → 1, read at draw
     // time). Null = never.
     trackTitleFraction: (() -> Float)? = null,
+    // Fat and enlarged columns (option B): the expanded page's text tabs at the bar's end, arriving with
+    // the docked cover. Null: the tabs keep their row under the bar.
+    endTabs: (@Composable () -> Unit)? = null,
 ) {
     val dockProgress = detailProgress
     val dockCoverAlpha = if (dockProgress >= 1f - HiddenLayerVisibilityThreshold) 1f else 0f
@@ -4830,6 +4890,18 @@ internal fun StageTopBar(
                 }
             }
         }
+        // Composed only while the page is (being) expanded: invisible tabs must not take taps.
+        if (endTabs != null && dockProgress > HiddenLayerVisibilityThreshold) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    alpha = dockProgress
+                    translationY = 8.dp.toPx() * (1f - dockProgress)
+                },
+            ) {
+                endTabs()
+            }
+        }
         if (trailingAction != null) {
             Spacer(modifier = Modifier.width(8.dp))
             trailingAction()
@@ -4923,6 +4995,9 @@ internal fun StageTabs(
     // Gemini is loading About over credits / facts already shown: a small
     // indicator sits between the About and Note tabs (owner 2026-11-16).
     aboutBusy: Boolean = false,
+    // Option B: the expanded page's tabs ride the top bar's end, so this row only ever holds the resting
+    // text tabs (and fades them as the page expands); there is no button group.
+    expandedInTopBar: Boolean = false,
 ) {
     Box(
         modifier = modifier
@@ -4930,6 +5005,9 @@ internal fun StageTabs(
             .height(height)
             .clipToBounds(),
     ) {
+        // The fat column's row is folded away at rest (one lyric line) and its tabs are up in the top bar
+        // once expanded: nothing to draw here.
+        if (textOnly && expandedInTopBar) return@Box
         if (textOnly) {
             Row(
                 modifier = Modifier.fillMaxSize(),
@@ -4961,7 +5039,7 @@ internal fun StageTabs(
                 }
             }
         }
-        if (detailProgress > 0f) {
+        if (detailProgress > 0f && !expandedInTopBar) {
             FullscreenTabGroup(
                 selected = selected,
                 onSelect = onSelect,
@@ -5039,11 +5117,13 @@ private fun CompactTextTabs(
                 style = MaterialTheme.typography.labelLarge.let {
                     if (isSelected) it.copy(fontWeight = FontWeight.Bold) else it
                 },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // The chosen one in full onSurface, the rest neutral and quiet (owner 2026-11-26: in dark
+                // Expressive schemes the tinted variants read as one tone).
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .padding(start = if (page.ordinal == 0) 0.dp else 12.dp)
                     .graphicsLayer {
-                        alpha = if (isSelected) 1f else 0.5f
+                        alpha = if (isSelected) 1f else UnselectedTextTabAlpha
                         scaleX = stretch
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
@@ -5461,10 +5541,10 @@ private fun ExpandedDetailPage(
                 onDelete = onDeleteNote,
                 deleted = deletion?.pending?.takeIf { it.isForSong(state.songId) },
                 onUndoDelete = { deletion?.undo() },
-                onRealign = LocalNoteRealign.current,
                 // The undo window waits for a finger on the list to lift.
                 onListHeldChange = { held -> deletion?.onListHeldChange(held) },
-                onEdit = { note -> noteDraft.beginEdit(note.id, note.content, note.positionMs, state.noteTarget()) },
+                onSave = LocalNoteMenuSave.current ?: {},
+                onShare = rememberNoteShare(),
                 modifier = modifier,
             )
         }
@@ -6033,12 +6113,18 @@ internal val OneLineLyricRowHeight = 44.dp
 /** The Expanded stage's fixed geometry (the budget's third endpoint). */
 private val ExpandedTopBarHeight = 56.dp
 
+/** The text tabs not chosen: quiet, but never the chosen one's weight. */
+private const val UnselectedTextTabAlpha = 0.55f
+
 /** The top bar's touch height; in focus its slot shrinks below it and clips. */
 private val TopBarTouchHeight = 48.dp
 private val ExpandedCoverGap = 8.dp
 private val ExpandedTabRowHeight = 52.dp
 private val ExpandedTabGap = 12.dp
 private val ExpandedAccessoryHeight = 68.dp
+
+/** The lyric tools' keys in the bottom row (and the page's Share as their sixth). */
+private val LyricKeySize = 52.dp
 
 /** The wide layout's right-column action bar (lyric tools / Ask Gemini) at rest. */
 private val WideAccessoryHeight = 68.dp

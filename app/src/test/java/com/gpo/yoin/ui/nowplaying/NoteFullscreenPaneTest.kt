@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
@@ -12,8 +15,10 @@ import androidx.compose.ui.test.performTouchInput
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.component.NoteDraft
 import com.gpo.yoin.ui.component.NoteDraftState
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.NoteTarget
+import com.gpo.yoin.ui.notes.editor.NoteEditAlignTag
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -21,7 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** The expanded Note page: lyric-style lines, a long-press menu, undo in place. */
+/** The expanded Note page: lyric-style lines, the note menu on a long press, undo in place. */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "w400dp-h800dp")
 class NoteFullscreenPaneTest {
@@ -56,41 +61,61 @@ class NoteFullscreenPaneTest {
     }
 
     @Test
-    fun should_deleteFromLongPressMenu_when_deleteChosen() {
+    fun should_deleteFromTheNoteMenu_when_deleteChosen() {
         val deleted = mutableListOf<String>()
         setPane(notes = listOf(first, second), onDelete = { deleted += it })
 
         rule.onNodeWithText("placeholder line one").performTouchInput { longClick() }
         rule.onNodeWithText("Delete").performClick()
 
-        assertEquals(listOf("n1"), deleted)
+        rule.runOnIdle { assertEquals(listOf("n1"), deleted) }
     }
 
     @Test
-    fun should_realignToMomentOfLongPress_when_realignChosen() {
-        val realigned = mutableListOf<Pair<String, Long>>()
-        setPane(
-            notes = listOf(first, second),
-            playhead = 95_000L,
-            onRealign = { note, at -> realigned += note.id to at },
-        )
+    fun should_refileTheNoteAtThePlayhead_when_alignToNowChosen() {
+        val saved = mutableListOf<NoteSaveRequest>()
+        setPane(notes = listOf(first, second), playhead = 95_000L, onSave = { saved += it })
 
         rule.onNodeWithText("placeholder line two").performTouchInput { longClick() }
-        // The moment it moves to sits at the item's end, not after a dot.
+        // The note menu: the words in the editable box, and the moment Align to now would file it at.
+        rule.onNodeWithTag(NoteEditAlignTag).assertExists()
         rule.onNodeWithText("1:35").assertExists()
-        rule.onNodeWithText("Align to now").performClick()
+        rule.onNodeWithTag(NoteEditAlignTag).performClick()
 
-        assertEquals(listOf("n2" to 95_000L), realigned)
+        rule.runOnIdle {
+            assertEquals(
+                listOf(NoteSaveRequest("placeholder line two", 95_000L, song, editingNoteId = "n2")),
+                saved,
+            )
+        }
     }
 
     @Test
-    fun should_offerDeleteOnly_when_hostCannotRealign() {
-        setPane(notes = listOf(first), onRealign = null)
+    fun should_saveTheNewWordsUnderTheSameNote_when_editedAndDone() {
+        val saved = mutableListOf<NoteSaveRequest>()
+        setPane(notes = listOf(first), onSave = { saved += it })
 
         rule.onNodeWithText("placeholder line one").performTouchInput { longClick() }
+        rule.onNode(hasSetTextAction()).performTextReplacement("placeholder line one, rewritten")
+        rule.onNodeWithText("Done").performClick()
 
-        rule.onNodeWithText("Delete").assertExists()
-        rule.onNodeWithText("Align to now", substring = true).assertDoesNotExist()
+        rule.runOnIdle {
+            assertEquals(
+                listOf(NoteSaveRequest("placeholder line one, rewritten", 12_000L, song, editingNoteId = "n1")),
+                saved,
+            )
+        }
+    }
+
+    @Test
+    fun should_saveNothing_when_theMenuIsDoneUntouched() {
+        val saved = mutableListOf<NoteSaveRequest>()
+        setPane(notes = listOf(first), onSave = { saved += it })
+
+        rule.onNodeWithText("placeholder line one").performTouchInput { longClick() }
+        rule.onNodeWithText("Done").performClick()
+
+        rule.runOnIdle { assertEquals(emptyList<NoteSaveRequest>(), saved) }
     }
 
     @Test
@@ -201,7 +226,7 @@ class NoteFullscreenPaneTest {
         onSeek: (Long) -> Unit = {},
         onDelete: (String) -> Unit = {},
         onUndo: () -> Unit = {},
-        onRealign: ((SongNote, Long) -> Unit)? = { _, _ -> },
+        onSave: (NoteSaveRequest) -> Unit = {},
         onListHeld: (Boolean) -> Unit = {},
     ) {
         rule.setContent {
@@ -217,8 +242,8 @@ class NoteFullscreenPaneTest {
                 onDelete = onDelete,
                 deleted = deleted,
                 onUndoDelete = onUndo,
-                onRealign = onRealign,
                 onListHeldChange = onListHeld,
+                onSave = onSave,
             )
         }
     }
