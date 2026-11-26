@@ -168,7 +168,7 @@ struct SingPreparingMicGlyph: View {
     }
 }
 
-private struct SingPreparingMicCanvas: View, @preconcurrency Animatable {
+nonisolated private struct SingPreparingMicCanvas: View, Animatable {
     var split: CGFloat
     var barL: CGFloat
     var barC: CGFloat
@@ -184,7 +184,7 @@ private struct SingPreparingMicCanvas: View, @preconcurrency Animatable {
         }
     }
 
-    var body: some View {
+    @MainActor var body: some View {
         Canvas { ctx, canvasSize in
             let s = min(canvasSize.width, canvasSize.height) / SingMotionGeometry.viewBox
             let stroke = StrokeStyle(lineWidth: SingMotionGeometry.strokeWidth * s, lineCap: .round, lineJoin: .round)
@@ -246,7 +246,7 @@ private struct SingPreparingMicCanvas: View, @preconcurrency Animatable {
 /// Option 1 (**麦头展成爱心**) 120Hz Animatable 6-cubic Bézier morph between `MicOff` (`morph = 0`,
 /// 22pt optical size) and `yoin_favorite` Heart (`morph = 1`, 24pt optical size), with independent
 /// `slash` and `fillAlpha`.
-struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
+nonisolated struct SingHeartMicMorphGlyph: View, Animatable {
     var morph: CGFloat
     var slash: CGFloat
     var fillAlpha: CGFloat
@@ -264,7 +264,7 @@ struct SingHeartMicMorphGlyph: View, @preconcurrency Animatable {
         }
     }
 
-    var body: some View {
+    @MainActor var body: some View {
         Canvas { ctx, canvasSize in
             let clamped = max(0, min(1, morph))
             let opticalScale: CGFloat = interpolateOpticalSize ? SingMotionGeometry.lerp(22.0 / 24.0, 1.0, clamped) : 1.0
@@ -817,7 +817,7 @@ struct SingAwareFavoriteSlot<HeartContent: View>: View {
     }
 }
 
-private struct SingPerceptualMorphCircle: View, @preconcurrency Animatable {
+nonisolated private struct SingPerceptualMorphCircle: View, Animatable {
     var bgMix: CGFloat
     var singBg: Color
     var heartBg: Color
@@ -840,7 +840,7 @@ private struct SingPerceptualMorphCircle: View, @preconcurrency Animatable {
         }
     }
 
-    var body: some View {
+    @MainActor var body: some View {
         let t = max(0, min(1, Double(bgMix)))
         let blendedBg = singBg.mix(with: heartBg, by: t, in: .perceptual)
         let blendedFg = singFg.mix(with: heartFg, by: t, in: .perceptual)

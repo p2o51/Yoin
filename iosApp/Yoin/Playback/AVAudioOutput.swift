@@ -316,40 +316,52 @@ final class AVAudioOutput: AudioOutput {
             let wasPlaying = self.player.rate > 0
             let savedNext = self.nextURL
 
-            // Prime incoming decoder at the current playhead BEFORE starting crossfade.
-            let initialPos = self.currentTimeSec
-            if initialPos > 0 {
-                await incoming.seek(
-                    to: CMTime(seconds: initialPos, preferredTimescale: 600),
-                    toleranceBefore: .zero,
-                    toleranceAfter: .zero
-                )
-            }
-            guard !Task.isCancelled else { return }
-
             if wasPlaying {
-                // Re-align tightly right before play so audio continuity stays within ~20 ms.
-                let freshPos = self.currentTimeSec
-                if abs(incoming.currentTime().seconds - freshPos) > 0.04 {
+                // Schedule `incoming` on the shared host clock (`setRate(_:time:atHostTime:)`) after seeking
+                // + prerolling a ~0.45 s lead ahead of `oldPlayer`, so CoreAudio launches `incoming` in
+                // sub-millisecond phase lock with `oldPlayer` (zero stutter, zero double-echo, zero lyric jump).
+                let oldPlayer = self.player
+                var synced = false
+                for _ in 0..<2 {
+                    let leadSec: Double = 0.45
+                    let targetSec = max(0, oldPlayer.currentTime().seconds) + leadSec
+                    let targetTime = CMTime(seconds: targetSec, preferredTimescale: 600)
+                    await incoming.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                    guard !Task.isCancelled else { return }
+                    _ = await incoming.preroll(atRate: 1.0)
+                    guard !Task.isCancelled else { return }
+
+                    let nowHost = CMClockGetTime(CMClockGetHostTimeClock())
+                    let nowItem = oldPlayer.currentTime()
+                    let waitSec = targetTime.seconds - nowItem.seconds
+                    if waitSec >= 0.05 && waitSec <= 1.2 {
+                        let launchHost = CMTimeAdd(
+                            nowHost,
+                            CMTime(seconds: waitSec, preferredTimescale: 1_000_000_000)
+                        )
+                        incoming.setRate(1.0, time: targetTime, atHostTime: launchHost)
+                        let sleepMs = max(0, Int((waitSec * 1000.0).rounded()))
+                        if sleepMs > 0 {
+                            try? await Task.sleep(for: .milliseconds(sleepMs))
+                        }
+                        synced = true
+                        break
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                if !synced {
+                    let pos = max(0, oldPlayer.currentTime().seconds)
                     await incoming.seek(
-                        to: CMTime(seconds: freshPos + 0.03, preferredTimescale: 600),
+                        to: CMTime(seconds: pos, preferredTimescale: 600),
                         toleranceBefore: .zero,
                         toleranceAfter: .zero
                     )
+                    guard !Task.isCancelled else { return }
+                    incoming.play()
                 }
-                guard !Task.isCancelled else { return }
 
-                incoming.play()
-                // Wait briefly for CoreAudio to begin rendering incoming frames before crossfading.
-                let playDeadline = ProcessInfo.processInfo.systemUptime + 0.4
-                while !Task.isCancelled && incoming.timeControlStatus != .playing && ProcessInfo.processInfo.systemUptime < playDeadline {
-                    try? await Task.sleep(for: .milliseconds(15))
-                }
-                guard !Task.isCancelled else { return }
-
-                // 120 ms equal-power-feel crossfade at unity vocal gain (1.0): zero dropout, zero click.
-                let oldPlayer = self.player
-                let steps = 12
+                // Crisp 60 ms micro-crossfade at unity vocal gain (1.0) while both players are phase-locked.
+                let steps = 6
                 for step in 1...steps {
                     guard !Task.isCancelled else {
                         oldPlayer.volume = 1
@@ -363,6 +375,15 @@ final class AVAudioOutput: AudioOutput {
                 incoming.volume = 1
                 oldPlayer.volume = 0
             } else {
+                let initialPos = self.currentTimeSec
+                if initialPos > 0 {
+                    await incoming.seek(
+                        to: CMTime(seconds: initialPos, preferredTimescale: 600),
+                        toleranceBefore: .zero,
+                        toleranceAfter: .zero
+                    )
+                }
+                guard !Task.isCancelled else { return }
                 incoming.volume = 1
             }
             guard !Task.isCancelled else { return }

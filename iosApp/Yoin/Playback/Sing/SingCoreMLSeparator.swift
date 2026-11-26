@@ -406,7 +406,8 @@ final class SingCoreMLSeparator: SingStreamProvider, @unchecked Sendable {
 
     func prepare(songId: String, localAudioURL: URL?, tier: String? = nil) -> AsyncStream<SingState> {
         AsyncStream { continuation in
-            let task = Task(priority: .userInitiated) {
+            // Run DSP + CoreML separation at `.utility` off the main actor so SwiftUI stays locked at 120 Hz.
+            let task = Task.detached(priority: .utility) {
                 await self.run(songId: songId, localAudioURL: localAudioURL, continuation: continuation)
             }
             continuation.onTermination = { _ in task.cancel() }
